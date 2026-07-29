@@ -1,5 +1,6 @@
 import { JobType } from "@prisma/client";
 import type { ChecklistMap } from "@/lib/checklists/types";
+import { SELF_INSPECTION_SECTION_ID } from "@/lib/forms/self-inspection";
 
 export const DEFAULT_CHECKLISTS: ChecklistMap = {
   AIRBNB_TURNOVER: {
@@ -3511,8 +3512,10 @@ export const EXCEPTION_MODULE: {
   })),
 };
 
-/** Module key of the always-present final self-inspection module. */
-export const SELF_INSPECTION_MODULE_KEY = "final-inspection";
+/** Module key of the always-present final self-inspection module. Re-exported
+ * from `lib/forms/self-inspection` so the client-bundled form validators can
+ * share the same literal without importing this (prisma-dependent) catalog. */
+export const SELF_INSPECTION_MODULE_KEY = SELF_INSPECTION_SECTION_ID;
 
 /** High-severity self-inspection items (guest-safety / linen / evidence critical). */
 const HIGH_SEVERITY_SELF_INSPECTION = new Set([

@@ -386,6 +386,22 @@ Automation runs on two rails: a dedicated pg-boss worker and the in-web fallback
 - **Unfinished-job push (2026-07)** — `dispatchUnfinishedJobPushReminders` (`lib/ops/unfinished-reminders.ts`), pinned 17:00 Sydney: quiet push-only nudge to cleaners for genuinely stale jobs (`PAUSED`/`IN_PROGRESS` scheduled before today), de-duped once per job per day via a `JOB_UNFINISHED_PUSH_REMINDER` audit-row lookback; the admin reminder button remains the deliberate escalation.
 - **Auto-pause >24h (2026-07)** — `autoPauseStaleJobs` (`lib/ops/auto-pause.ts`), every 30 min: pure `qualifiesForAutoPause` decision (IN_PROGRESS and running-since >24h), closes open logs and moves the job to `PAUSED` (details in B5).
 - Also on the tick: the iCal sweep, the stale-`EN_ROUTE` revert, the one-shot timing-rule reconcile (B3), recurring-job generation, and tomorrow-prep summaries.
+### B9. Form template identity, field types & authoring (2026-07)
+
+**Which template a job renders** is now one pure, total-ordered rule — `lib/forms/resolve-job-template.ts`, shared by the cleaner form route, the progress calculator and the client portal (each previously had its own drifting copy): **job pin → property override → newest active global** (property- and job-scoped rows excluded from the global fallback), with a deterministic tie-break (`version → publishedAt → updatedAt → createdAt → id`). The tie-break matters: version numbers are allocated per `FormKind` but resolution happens per `serviceType`, so ties were routine and the winner was previously whatever Postgres returned first — the same edit could apply one day and not the next.
+
+**Job pin.** `Job.formTemplateId` + `FormTemplate.isJobScoped` (migration `20260729090000_job_pinned_form_template`). Converting a quote to a job mints a one-off form for **that job only** (`lib/forms/job-scoped-template.ts`) and pins it; it no longer writes a permanent `propertyFormTemplateOverrides` entry, which used to make every future job of that type at the property render the quote's form and quietly ignore all later edits to the real template. `isJobScoped` keeps those one-offs out of global resolution and protects them from publish-archiving. Backfill: `scripts/backfill/unpin-quote-form-overrides.ts` (dry-run default).
+
+**Why an edit may legitimately not apply**, now surfaced rather than silent: per-property generated checklist templates and property overrides outrank the global template, and re-approving a checklist profile replaces the generated row (discarding manual builder edits). `GET /api/admin/form-templates/[id]/impact` + the builder's "Where this template applies" panel state the publish state, whether jobs actually render this row, which properties override it, how many open jobs resolve to it, and warn when none do.
+
+**Field types.** All 25 registry types are covered end-to-end (editor → normalize round-trip → preview → renderer → conditions as source and target → submit validation → report) by `tests/lib/forms-field-type-round-trip.test.ts`, `forms-condition-operators.test.ts` and `forms-validate-field-types.test.ts`. Notable rules: Yes/No answers are **booleans** (v2 briefly stored `"yes"`/`"no"` strings, which silently killed every yes/no-driven conditional and blanked the answer in reports — readers stay tolerant of the legacy strings); `normalizeFormSchema` preserves unknown root keys; conditions support `contains`/`notContains` (multiselect membership, case-insensitive text substring), numeric `gt`/`lt` are numeric-only, and `equals:false` no longer matches an unanswered field. Sections can be made conditional/collapsible from the builder, and the preview evaluates conditions with the same `lib/forms/visibility` engine the cleaner and submit route use.
+
+**Submit gates (2026-07).** A required `checkbox` counts as answered even when unticked *unless* the admin setting `accountability.requiredChecklistTicksBlockSubmit` is on (**default off**) — because generated checklist items are themselves required checkboxes, switching it on makes the entire checklist hard-blocking, not just confirmations. The rule lives in one pure helper (`isRequiredAnswerMissing` in `lib/forms/visibility.ts`) used by BOTH the client gate and the submit route, so the two can never disagree; the final self-inspection section is exempt and keeps its own gate + the `selfInspectionBlocksSubmit` opt-out. Video `maxDurationSec` was removed from the builder (nothing enforced it); stale values on saved templates are dropped on normalize.
+
+**Authoring.** Creating a form offers: blank, one of eight starter blueprints (`lib/forms/starter-templates.ts` — Airbnb turnover, end-of-lease/bond, recurring, deep, post-construction, office/commercial, QA inspection, rework; each with photo-proof minimums and a demonstration conditional), duplicating a form already in use, or the legacy seed templates. Duplicates are created as **drafts** — the forms list now requests drafts (`includeDrafts=1`) and has a "Show archived" toggle; previously it asked only for live rows, so a duplicate existed but was invisible and read as "nothing happened".
+
+---
+
 ## Section C — Laundry operation & the QA/accountability system
 
 ### C1. Laundry scheduling engine
@@ -651,6 +667,8 @@ Admin builds a run at `app/v2/admin/payroll` from a date range. `getPayrollSumma
 
 ### D6. Client portal
 
+**Services page (2026-07)** — day-grouped agenda (shared `groupJobsBySydneyDay`) with sticky day headers, plus date-scope / property / service / status filters; history is no longer truncated to 20 rows, and cleaner names now honour the `showCleanerNames` visibility setting (they were previously rendered unconditionally here while the jobs page gated them). **Nav (2026-07)** — primary tabs are Home, Services, Approvals, Messages, More, with Reports/Properties/Money on the rail; Approvals carries a live pending count (the mobile bar renders only five items, so "More" was previously clipped off entirely on phones). 
+
 Two portals coexist; all current work targets the **Estate** portal under `app/v2/client` (legacy `app/client` remains). Every client page gates on `requireRole([Role.CLIENT])` plus `getClientPortalContext()` (`lib/client/portal.ts`), which merges the global `clientPortalVisibility` settings with per-client `portalVisibilityOverrides`; `isClientModuleEnabled` / `ensureClientModuleAccess` (`lib/portal-access.ts`) enforce module flags. Every mutation route re-derives `clientId` from the session and scopes queries `property.clientId === clientId` — a client can never touch another client's job. Polling cadence is uniformly 15 seconds (ETA panel, live progress, job chat). All dates are Australia/Sydney.
 
 ### Dashboard: next service and cleaner-name gating
@@ -726,6 +744,8 @@ Bounces and complaints feed the **suppression list** (`lib/email/suppression.ts`
 ## Change Log
 
 One line per shipped wave. Newest first. (Add to this list with every future wave — see the maintenance protocol at the top.)
+
+- **2026-07-29** — Forms wave: deterministic template resolution + job-pinned quote forms, builder impact panel, 25-field-type end-to-end audit (Yes/No boolean fix, condition operators, section logic, real preview), duplicate-as-draft fix + starter blueprints; client services agenda + nav promotion.
 
 - **2026-07-29** — Estate report template (new default; faithful per-field rendering via a tested view model, page-break-aware PDF), stage-relevant date chips across the laundry boards, and the Estate loader for all v2 portals.
 

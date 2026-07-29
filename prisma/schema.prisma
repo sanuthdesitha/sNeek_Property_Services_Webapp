@@ -1237,6 +1237,16 @@ model Job {
   // until the form is submitted (which then flows through SUBMITTED → QA).
   formPendingAfterClockOut  Boolean   @default(false)
   clockedOutEarlyAt         DateTime?
+  // JOB-LEVEL TEMPLATE PIN. Set when a form was minted FOR THIS JOB — today only
+  // by quote → job conversion, which materialises the agreed/standard scope the
+  // client accepted. It is the highest-priority input to
+  // lib/forms/resolve-job-template.ts and applies to THIS job only; every other
+  // job at the property keeps normal resolution (property override → newest
+  // active global). Before this column existed the conversion registered its
+  // one-off template as the property's PERMANENT override, so every future job
+  // of that type at that property rendered one quote's scope and never saw the
+  // admin's edits to the real global template.
+  formTemplateId            String?
   priorityBucket            Int       @default(4)
   priorityReason            String?
   sameDayCheckin            Boolean   @default(false)
@@ -1286,6 +1296,7 @@ model Job {
 
   property               Property                   @relation(fields: [propertyId], references: [id])
   reservation            Reservation?               @relation(fields: [reservationId], references: [id])
+  formTemplate           FormTemplate?              @relation("JobPinnedFormTemplate", fields: [formTemplateId], references: [id], onDelete: SetNull)
   reworkOfJob            Job?                       @relation("JobRework", fields: [reworkOfJobId], references: [id], onDelete: SetNull)
   reworkChildren         Job[]                      @relation("JobRework")
   assignments            JobAssignment[]
@@ -1322,6 +1333,7 @@ model Job {
   @@index([payrollRunId])
   @@index([isRework, status])
   @@index([reworkOfJobId])
+  @@index([formTemplateId])
 }
 
 model CleanerPayAdjustment {
@@ -1464,10 +1476,18 @@ model FormTemplate {
   children         FormTemplate[] @relation("FormTemplateLineage")
   publishedAt      DateTime?
   archivedAt       DateTime?
+  // JOB-SCOPED one-off: minted for a single job (quote → job conversion) and
+  // pinned via Job.formTemplateId. It is active, so the job it belongs to can
+  // render it, but it is NOT a candidate for global resolution and must never
+  // be auto-archived by a global publish. Property-scoped rows are identified by
+  // the settings override map; job-scoped rows have no entry there, so they need
+  // this explicit marker.
+  isJobScoped      Boolean        @default(false)
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
   submissions FormSubmission[]
+  pinnedJobs  Job[]            @relation("JobPinnedFormTemplate")
 
   @@index([kind, isActive])
 }

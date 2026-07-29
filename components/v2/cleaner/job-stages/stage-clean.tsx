@@ -53,10 +53,19 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
       answers,
       uploadCounts,
       property ?? {},
-      api.laundryEnabled ? api.laundryOutcome === "READY_FOR_PICKUP" : undefined
+      api.laundryEnabled ? api.laundryOutcome === "READY_FOR_PICKUP" : undefined,
+      api.requiredChecklistTicksBlockSubmit
     );
     return new Set(errs.map((e) => e.fieldId));
-  }, [schema, answers, uploadCounts, property, api.laundryEnabled, api.laundryOutcome]);
+  }, [
+    schema,
+    answers,
+    uploadCounts,
+    property,
+    api.laundryEnabled,
+    api.laundryOutcome,
+    api.requiredChecklistTicksBlockSubmit,
+  ]);
 
   // Per-section required tallies (data + photos), computed the same way
   // FormRenderer flattens/filters sections so the counts line up with the UI.
@@ -272,6 +281,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
             disabled={locked}
             collapsibleSections
             sectionProgress={sectionProgress}
+            requiredChecklistTicksBlockSubmit={api.requiredChecklistTicksBlockSubmit}
           />
         </div>
       ) : (

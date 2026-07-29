@@ -51,9 +51,13 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     if (!existing) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
+    // Soft delete = deactivate AND retire. `archivedAt` is what separates a
+    // deliberately retired template from a work-in-progress draft; without it a
+    // deleted template reappeared the moment any list started showing drafts
+    // (see the `includeDrafts` branch in ../route.ts).
     const template = await db.formTemplate.update({
       where: { id: params.id },
-      data: { isActive: false },
+      data: { isActive: false, archivedAt: new Date() },
     });
     await db.auditLog.create({
       data: {

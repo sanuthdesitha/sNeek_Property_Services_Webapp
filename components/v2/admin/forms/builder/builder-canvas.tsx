@@ -8,7 +8,7 @@
  */
 import * as React from "react";
 import { ArrowDown, ArrowUp, Copy, GripVertical, Plus, Trash2 } from "lucide-react";
-import type { FormField, FormFieldType, FormSchema } from "@/lib/forms/types";
+import type { FieldCondition, FormField, FormFieldType, FormSchema } from "@/lib/forms/types";
 import { getFieldTypeDef } from "@/lib/forms/field-types";
 import { cn } from "@/lib/utils";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -16,6 +16,7 @@ import { EInput } from "@/components/v2/admin/estate-kit";
 import { EBadge } from "@/components/v2/ui/primitives";
 import { isStandardSectionId } from "@/lib/forms/standard-sections";
 import { DIVIDER_LABEL } from "./blocks";
+import { ConditionEditor, type ConditionSourceField } from "./condition-editor";
 import { EFieldIcon } from "./field-icon";
 
 function IconBtn({
@@ -127,12 +128,59 @@ function FieldRow({
   );
 }
 
+function SectionLogic({
+  conditional,
+  collapsible,
+  conditionFields,
+  onConditionChange,
+  onCollapsibleChange,
+}: {
+  conditional: FieldCondition | undefined;
+  collapsible: boolean;
+  conditionFields: ConditionSourceField[];
+  onConditionChange: (cond: FieldCondition | undefined) => void;
+  onCollapsibleChange: (v: boolean) => void;
+}) {
+  const [open, setOpen] = React.useState(Boolean(conditional));
+  return (
+    <div className="mb-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-[0.75rem] text-[hsl(var(--e-text-secondary))] underline-offset-2 hover:underline"
+        >
+          {conditional ? "Section rule: on" : "Section logic"}
+        </button>
+        <label className="inline-flex items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+          <input
+            type="checkbox"
+            checked={collapsible}
+            onChange={(e) => onCollapsibleChange(e.target.checked)}
+          />
+          Collapsible
+        </label>
+      </div>
+      {open ? (
+        <ConditionEditor
+          condition={conditional}
+          onChange={onConditionChange}
+          availableFields={conditionFields}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 export function BuilderCanvas({
   schema,
   selectedFieldId,
   onSelectField,
   onUpdateSectionTitle,
   onUpdateSectionDescription,
+  onUpdateSectionConditional,
+  onToggleSectionCollapsible,
+  conditionFields,
   onAddSection,
   onRemoveSection,
   onDuplicateSection,
@@ -147,6 +195,12 @@ export function BuilderCanvas({
   onSelectField: (id: string | null) => void;
   onUpdateSectionTitle: (sectionId: string, title: string) => void;
   onUpdateSectionDescription: (sectionId: string, description: string) => void;
+  /** Section-level show/hide rule (sections support `conditional` in the schema). */
+  onUpdateSectionConditional: (sectionId: string, conditional: FieldCondition | undefined) => void;
+  /** Section-level collapse toggle (`section.collapsible`). */
+  onToggleSectionCollapsible: (sectionId: string, collapsible: boolean) => void;
+  /** Fields that a section rule can watch. */
+  conditionFields: ConditionSourceField[];
   onAddSection: () => void;
   onRemoveSection: (sectionId: string) => void;
   onDuplicateSection: (sectionId: string) => void;
@@ -202,6 +256,17 @@ export function BuilderCanvas({
               </IconBtn>
             </div>
           </div>
+
+          {/* Section-level logic: the renderer, the report and the submit route
+              all honour `section.conditional` / `section.collapsible`, so both
+              are editable here instead of being schema-only. */}
+          <SectionLogic
+            conditional={section.conditional}
+            collapsible={Boolean(section.collapsible)}
+            conditionFields={conditionFields}
+            onConditionChange={(cond) => onUpdateSectionConditional(section.id, cond)}
+            onCollapsibleChange={(v) => onToggleSectionCollapsible(section.id, v)}
+          />
 
           <div className="space-y-1.5">
             {section.fields.length === 0 ? (

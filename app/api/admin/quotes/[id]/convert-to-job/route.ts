@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { z } from "zod";
-import { Role, QuoteStatus, FormKind, type JobType } from "@prisma/client";
+import { Role, QuoteStatus, type JobType } from "@prisma/client";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 import {
@@ -10,7 +10,11 @@ import {
   type JobAdditional,
   type JobQuoteReferenceImage,
 } from "@/lib/jobs/meta";
-import { getAppSettings, saveAppSettings } from "@/lib/settings";
+import {
+  materializeJobScopedFormTemplate,
+  quoteScopeTemplateName,
+  type JobScopedTemplateClient,
+} from "@/lib/forms/job-scoped-template";
 import { withSignoffSection } from "@/lib/checklists/compose";
 import { getChecklist } from "@/lib/checklists/store";
 import { checklistToFormSchema } from "@/lib/checklists/to-form";
@@ -165,45 +169,32 @@ function buildAgreedScopeSchema(override: QuoteChecklistOverride): { sections: u
 }
 
 /**
- * Materialise a one-off cleaner FormTemplate from a form schema and register it
- * as the property's form override for the job type — the same attachment path
- * generatePropertyTemplates uses, which the job-form pipeline resolves. Returns
- * the created template id.
+ * Materialise a one-off cleaner FormTemplate from a form schema and pin it to
+ * THE JOB it was minted for (`Job.formTemplateId`). Returns the template id.
+ *
+ * It used to register the template as the property's permanent per-job-type
+ * override instead, which made one quote's agreed scope the form for every
+ * future job of that type at that property — and cut those jobs off from the
+ * admin's edits to the real global template. Owner's rule: use it for that job
+ * only. See lib/forms/job-scoped-template.ts.
  */
 async function materializeJobFormTemplate({
   name,
   serviceType,
   schema,
-  propertyId,
+  jobId,
 }: {
   name: string;
   serviceType: JobType;
   schema: unknown;
-  propertyId: string;
+  jobId: string;
 }): Promise<string> {
-  const template = await db.formTemplate.create({
-    data: {
-      name,
-      serviceType,
-      kind: FormKind.CUSTOM,
-      version: 1,
-      isActive: true,
-      schema: schema as any,
-      publishedAt: new Date(),
-    },
-    select: { id: true },
+  return materializeJobScopedFormTemplate(db as unknown as JobScopedTemplateClient, {
+    jobId,
+    name,
+    serviceType,
+    schema,
   });
-
-  const settings = await getAppSettings();
-  const overrides = { ...(settings.propertyFormTemplateOverrides ?? {}) };
-  const forProperty: Partial<Record<JobType, string>> = {
-    ...(overrides[propertyId] ?? {}),
-  };
-  forProperty[serviceType] = template.id;
-  overrides[propertyId] = forProperty;
-  await saveAppSettings({ propertyFormTemplateOverrides: overrides });
-
-  return template.id;
 }
 
 export async function POST(
@@ -357,10 +348,10 @@ export async function POST(
     const targetPropertyId = result.propertyId;
     const job = result.job;
 
-    // CUSTOM CHECKLIST: every conversion materialises a one-off FormTemplate for
-    // this property + job type and registers it as the property's form override
-    // — the same attachment path generatePropertyTemplates uses, which the
-    // job-form pipeline resolves. When the quote carries a per-quote checklist
+    // CUSTOM CHECKLIST: every conversion materialises a one-off FormTemplate and
+    // pins it to THIS JOB (Job.formTemplateId), which the job-form pipeline
+    // resolves ahead of the property override. It is scoped to this job only —
+    // future jobs at the property keep normal resolution. When the quote carries a per-quote checklist
     // override (the "agreed scope" the client accepted), the template is built
     // from its covered items; otherwise we fall back to the base service
     // checklist so the job still gets a custom form (mirrors documents.ts's
@@ -372,10 +363,10 @@ export async function POST(
         const scopeSchema = buildAgreedScopeSchema(checklistOverride);
         if (scopeSchema.sections.length > 0) {
           agreedScopeTemplateId = await materializeJobFormTemplate({
-            name: `Quote ${quoteRef} — agreed scope`,
+            name: quoteScopeTemplateName(quoteRef, "agreed"),
             serviceType: quote.serviceType,
             schema: scopeSchema,
-            propertyId: targetPropertyId,
+            jobId: job.id,
           });
         }
       } else {
@@ -385,10 +376,10 @@ export async function POST(
         const standardSchema = checklist ? checklistToFormSchema(checklist) : null;
         if (standardSchema && standardSchema.sections.length > 0) {
           agreedScopeTemplateId = await materializeJobFormTemplate({
-            name: `Quote ${quoteRef} — standard scope`,
+            name: quoteScopeTemplateName(quoteRef, "standard"),
             serviceType: quote.serviceType,
             schema: standardSchema,
-            propertyId: targetPropertyId,
+            jobId: job.id,
           });
         } else {
           logger.warn(

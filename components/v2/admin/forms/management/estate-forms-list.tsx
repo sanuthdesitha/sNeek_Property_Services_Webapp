@@ -8,14 +8,18 @@
  *   • Checklists — the per-service coverage editor (EstateChecklistsWorkspace).
  *
  * Endpoints (unchanged from v1):
- *   GET    /api/admin/form-templates                     → FormTemplate[]
+ *   GET    /api/admin/form-templates?includeDrafts=1     → FormTemplate[]
+ *          (`includeDrafts` is REQUIRED here: duplicate + create both mint
+ *          DRAFTS, and the default list filter is `isActive: true`, so without
+ *          it a duplicated template never appeared — the "Duplicate does
+ *          nothing" bug. `includeArchived=1` additionally shows retired rows.)
  *   GET    /api/admin/form-submissions                   → FormSubmission[]
  *   POST   /api/admin/form-templates/:id/duplicate       → { template }
  *   POST   /api/admin/form-templates/:id/publish {action}→ { template }
  *   DELETE /api/admin/form-templates/:id  { security }    → { ok }
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Copy,
@@ -29,7 +33,8 @@ import {
   BarChart3,
 } from "lucide-react";
 import { EButton, ECard, EBadge, EAlert } from "@/components/v2/ui/primitives";
-import { EChipTabs, ETableShell, EInput, EConfirmModal } from "@/components/v2/admin/estate-kit";
+import { EChipTabs, ETableShell, EInput, EConfirmModal, ESwitch } from "@/components/v2/admin/estate-kit";
+import { compareTemplateRecency } from "@/lib/forms/resolve-job-template";
 import { EstateChecklistsWorkspace } from "./estate-checklists-workspace";
 
 type TabKey = "templates" | "checklists";
@@ -42,6 +47,8 @@ interface TemplateRow {
   isActive: boolean;
   publishedAt: string | null;
   archivedAt: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
   /** Registered as some property's per-job-type form override (see API). */
   propertyScoped?: boolean;
 }
@@ -65,12 +72,19 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TemplateRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  /** Newly created row (duplicate) — scrolled to and ring-highlighted once. */
+  const [highlight, setHighlight] = useState<{ id: string; name: string } | null>(null);
+  const highlightRef = useRef<HTMLTableRowElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      // includeDrafts=1 is what makes duplicates and freshly created templates
+      // visible at all — the API defaults to live templates only.
+      const query = showArchived ? "?includeArchived=1" : "?includeDrafts=1";
       const [tplRes, subRes] = await Promise.all([
-        fetch("/api/admin/form-templates", { cache: "no-store" }),
+        fetch(`/api/admin/form-templates${query}`, { cache: "no-store" }),
         fetch("/api/admin/form-submissions", { cache: "no-store" }),
       ]);
       const tplBody = await tplRes.json().catch(() => []);
@@ -91,12 +105,18 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showArchived]);
 
   useEffect(() => {
     if (tab === "templates") void load();
     else setLoading(false);
   }, [tab, load]);
+
+  // Bring the freshly duplicated row into view once it has actually rendered.
+  useEffect(() => {
+    if (!highlight || loading) return;
+    highlightRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [highlight, loading]);
 
   const filtered = useMemo(() => {
     const sorted = [...templates].sort((a, b) => a.name.localeCompare(b.name));
@@ -117,10 +137,13 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
    */
   const activeDefaultByService = useMemo(() => {
     const map: Record<string, string> = {};
+    const byId = new Map(templates.map((t) => [t.id, t]));
     for (const t of templates) {
       if (!t.isActive || t.archivedAt || t.propertyScoped) continue;
-      const current = templates.find((x) => x.id === map[t.serviceType]);
-      if (!current || t.version > current.version) map[t.serviceType] = t.id;
+      const current = byId.get(map[t.serviceType] ?? "");
+      // Same total order the runtime uses (version → publishedAt → updatedAt →
+      // createdAt → id), so this marker can never disagree with the job form.
+      if (!current || compareTemplateRecency(t, current) < 0) map[t.serviceType] = t.id;
     }
     return map;
   }, [templates]);
@@ -145,11 +168,19 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
     setBusyId(id);
     setError(null);
     setNotice(null);
+    setHighlight(null);
     try {
       const res = await fetch(`/api/admin/form-templates/${id}/duplicate`, { method: "POST" });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error ?? "Could not duplicate.");
-      setNotice("Template duplicated as a new draft.");
+      if (!res.ok) {
+        throw new Error(body?.error ?? `Could not duplicate (${res.status}).`);
+      }
+      const copy = body?.template;
+      if (!copy?.id) throw new Error("Duplicated, but the server returned no template.");
+      // The copy is a DRAFT — say so, otherwise "published" is assumed and the
+      // owner reports the duplicate as missing from the live forms.
+      setNotice(`“${copy.name}” created as a draft (v${copy.version}). Publish it when it's ready.`);
+      setHighlight({ id: copy.id, name: copy.name });
       await load();
     } catch (err: any) {
       setError(err.message ?? "Could not duplicate.");
@@ -162,6 +193,7 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
     setBusyId(id);
     setError(null);
     setNotice(null);
+    setHighlight(null);
     try {
       const res = await fetch(`/api/admin/form-templates/${id}/publish`, {
         method: "POST",
@@ -190,6 +222,7 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
     setDeleting(true);
     setError(null);
     setNotice(null);
+    setHighlight(null);
     try {
       const res = await fetch(`/api/admin/form-templates/${deleteTarget.id}`, {
         method: "DELETE",
@@ -209,7 +242,11 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
   };
 
   function statusBadge(t: TemplateRow) {
-    if (t.archivedAt || !t.isActive) return <EBadge tone="warning" soft>Draft</EBadge>;
+    // Draft (never published) and Archived (retired) both mean "not live", but
+    // they need different actions — collapsing them into "Draft" hid the fact
+    // that edits to an archived template reach nothing.
+    if (t.archivedAt) return <EBadge tone="neutral" soft>Archived</EBadge>;
+    if (!t.isActive) return <EBadge tone="warning" soft>Draft</EBadge>;
     return (
       <EBadge tone="success" soft>
         Published
@@ -249,7 +286,17 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
           ) : null}
           {notice ? (
             <EAlert tone="success" title="Done">
-              {notice}
+              <div className="flex flex-wrap items-center gap-3">
+                <span>{notice}</span>
+                {highlight ? (
+                  <Link
+                    href={`/v2/admin/forms/${highlight.id}/edit`}
+                    className="font-semibold text-[hsl(var(--e-foreground))] underline underline-offset-2"
+                  >
+                    Open in builder
+                  </Link>
+                ) : null}
+              </div>
             </EAlert>
           ) : null}
 
@@ -258,6 +305,12 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
               {templates.length} template{templates.length === 1 ? "" : "s"}
             </p>
             <div className="flex flex-wrap items-center gap-2">
+              <ESwitch
+                checked={showArchived}
+                onCheckedChange={setShowArchived}
+                disabled={loading}
+                label="Show archived"
+              />
               <EButton variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
                 <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
               </EButton>
@@ -319,8 +372,17 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
                   const busy = busyId === t.id;
                   const published = t.isActive && !t.archivedAt;
                   const isActiveDefault = activeDefaultByService[t.serviceType] === t.id;
+                  const isNew = highlight?.id === t.id;
                   return (
-                    <tr key={t.id} className="hover:bg-[hsl(var(--e-muted))]">
+                    <tr
+                      key={t.id}
+                      ref={isNew ? highlightRef : undefined}
+                      className={`hover:bg-[hsl(var(--e-muted))] ${
+                        isNew
+                          ? "bg-[hsl(var(--e-success-soft))] ring-1 ring-inset ring-[hsl(var(--e-success))]"
+                          : ""
+                      }`}
+                    >
                       <td className="px-4 py-2.5">
                         <p className="font-medium text-[hsl(var(--e-foreground))]">{t.name}</p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">

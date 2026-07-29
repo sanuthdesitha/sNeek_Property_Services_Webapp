@@ -46,7 +46,14 @@ export function collectFormErrors(
   answers: AnswerMap,
   uploadCounts: UploadCounts,
   property: Record<string, unknown>,
-  laundryReady?: boolean
+  laundryReady?: boolean,
+  /**
+   * Mirrors `settings.accountability.requiredChecklistTicksBlockSubmit`, which
+   * the cleaner receives in the GET /api/jobs/[id]/form payload. Defaults to
+   * false so a caller that doesn't pass it keeps the historic behaviour, and so
+   * this client mirror can never be stricter than the server by accident.
+   */
+  requiredChecklistTicksBlockSubmit: boolean = false
 ): FormFieldError[] {
   const errors: FormFieldError[] = [];
   const seen = new Set<string>();
@@ -58,13 +65,18 @@ export function collectFormErrors(
   };
 
   // 1) Required answerable fields (text/number/select/radio/yesno/rating/…).
-  for (const field of collectRequiredAnswerFields(templateSchema, answers, property, { laundryReady })) {
+  for (const field of collectRequiredAnswerFields(templateSchema, answers, property, {
+    laundryReady,
+    requiredChecklistTicksBlockSubmit,
+  })) {
     push({
       fieldId: field.id,
       sectionId: field.sectionId,
       sectionLabel: field.sectionLabel,
       label: field.label,
-      message: "This field is required.",
+      // A required checkbox is a confirmation, not a blank — say what to do.
+      message:
+        field.type === "checkbox" ? "Tick this box to confirm." : "This field is required.",
     });
   }
 
@@ -98,17 +110,63 @@ export function collectFormErrors(
       const label =
         typeof field.label === "string" && field.label.trim() ? field.label.trim() : String(field.id);
 
-      // photo minimum (independent of `required`)
-      if (type === "photo") {
+      // File minimum (independent of `required`). Applies to photo AND file
+      // fields — the builder exposes "Min files" for both, and only enforcing it
+      // for photos meant a document field's minimum was silently ignored.
+      if (type === "photo" || type === "file") {
         const need = Math.max(0, Number(field.minPhotos ?? 0));
         const have = uploadCounts[String(field.id)] ?? 0;
         if (need > 0 && have < need) {
+          const noun = type === "file" ? "file" : "photo";
           push({
             fieldId: String(field.id),
             sectionId,
             sectionLabel,
             label,
-            message: `Add at least ${need} photo${need === 1 ? "" : "s"} — ${have} added.`,
+            message: `Add at least ${need} ${noun}${need === 1 ? "" : "s"} — ${have} added.`,
+          });
+        }
+      }
+
+      // Numeric range. The builder lets an admin set min/max on number-ish
+      // fields, and the input carries them as attributes, but a typed value
+      // outside the range still submitted silently — enforce it in the same
+      // place every other rule lives so the cleaner sees why.
+      if (type === "number" || type === "currency" || type === "temperature" || type === "counter") {
+        const answer = answers[String(field.id)];
+        const num = typeof answer === "number" ? answer : Number(answer);
+        if (!isEmpty(answer) && Number.isFinite(num)) {
+          const min = Number(field.min);
+          const max = Number(field.max);
+          const below = Number.isFinite(min) && num < min;
+          const above = Number.isFinite(max) && num > max;
+          if (below || above) {
+            push({
+              fieldId: String(field.id),
+              sectionId,
+              sectionLabel,
+              label,
+              message: Number.isFinite(min) && Number.isFinite(max)
+                ? `Enter a value between ${min} and ${max}.`
+                : below
+                  ? `Enter ${min} or more.`
+                  : `Enter ${max} or less.`,
+            });
+          }
+        }
+      }
+
+      // Email shape — permissive on purpose (something@something.something);
+      // only a clearly malformed address blocks, and the message says so.
+      if (type === "email") {
+        const answer = answers[String(field.id)];
+        if (typeof answer === "string" && answer.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(answer.trim())) {
+          push({
+            fieldId: String(field.id),
+            sectionId,
+            sectionLabel,
+            label,
+            message: "Enter a valid email address.",
           });
         }
       }

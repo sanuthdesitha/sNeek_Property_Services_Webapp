@@ -304,6 +304,17 @@ export interface AccountabilitySettings {
   patternWindowDays: number;
   requireJobStartConfirmation: boolean;
   selfInspectionBlocksSubmit: boolean;
+  /**
+   * Hard-block submit on any UNTICKED required checkbox (default OFF).
+   *
+   * Generated checklist items are themselves `type: "checkbox", required: true`
+   * (lib/checklists/compose.ts), so turning this on makes the ENTIRE cleaning
+   * checklist blocking — every item must be ticked before a cleaner can submit.
+   * With it off, an unticked required checkbox behaves like any other answered
+   * `false` and does not block. The final self-inspection section is exempt
+   * either way: it keeps its own gate + `selfInspectionBlocksSubmit` opt-out.
+   */
+  requiredChecklistTicksBlockSubmit: boolean;
 }
 
 export interface PricingSettings {
@@ -574,6 +585,9 @@ export const DEFAULT_ACCOUNTABILITY_SETTINGS: AccountabilitySettings = {
   patternWindowDays: 30,
   requireJobStartConfirmation: true,
   selfInspectionBlocksSubmit: true,
+  // OFF by default: switching it on makes every generated checklist tick
+  // mandatory, which is a deliberate owner decision, not a silent upgrade.
+  requiredChecklistTicksBlockSubmit: false,
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -1319,6 +1333,10 @@ export function sanitizeAccountabilitySettings(
       typeof row.selfInspectionBlocksSubmit === "boolean"
         ? row.selfInspectionBlocksSubmit
         : fallback.selfInspectionBlocksSubmit,
+    requiredChecklistTicksBlockSubmit:
+      typeof row.requiredChecklistTicksBlockSubmit === "boolean"
+        ? row.requiredChecklistTicksBlockSubmit
+        : fallback.requiredChecklistTicksBlockSubmit,
   };
 }
 

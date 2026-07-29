@@ -58,6 +58,11 @@ export default async function EstateFormEditPage({ params }: { params: { id: str
   const initialSchema: FormSchema = {
     sections,
     ...(theme ? { theme } : {}),
+    // Template-level inventory selection (R8a) lives on the schema root. It was
+    // being dropped here, so simply OPENING the builder and pressing Save wiped
+    // a configured selection back to "all items" — an edit that silently
+    // un-applied itself. Carry it through the round-trip.
+    ...(normalized.inventoryConfig ? { inventoryConfig: normalized.inventoryConfig } : {}),
     // Preserve the opt-out flag across a builder round-trip.
     ...(normalized.standardSections === false ? { standardSections: false as const } : {}),
   };

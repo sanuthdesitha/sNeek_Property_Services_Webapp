@@ -292,9 +292,9 @@ export function PropertiesPanel({
                       value={field.mediaMode === "both" ? "both" : field.type === "video" ? "video" : "photo"}
                       onValueChange={(v) => {
                         if (v === "both") {
-                          onUpdate({ ...field, type: "photo", mediaMode: "both", maxDurationSec: field.maxDurationSec ?? 60 });
+                          onUpdate({ ...field, type: "photo", mediaMode: "both" });
                         } else if (v === "video") {
-                          onUpdate({ ...field, type: "video", mediaMode: undefined, maxDurationSec: field.maxDurationSec ?? 60 });
+                          onUpdate({ ...field, type: "video", mediaMode: undefined });
                         } else {
                           onUpdate({ ...field, type: "photo", mediaMode: undefined });
                         }
@@ -359,19 +359,8 @@ export function PropertiesPanel({
                       onChange={(e) => onUpdate({ ...field, maxFiles: num(e.target.value) })}
                     />
                   </div>
-                  {(field.type === "video" || field.mediaMode === "both") && (
-                    <div className="space-y-1">
-                      <Label htmlFor={`pp-max-duration-${field.id}`}>Max duration (sec)</Label>
-                      <Input
-                        id={`pp-max-duration-${field.id}`}
-                        type="number"
-                        min={1}
-                        placeholder="60"
-                        value={field.maxDurationSec ?? ""}
-                        onChange={(e) => onUpdate({ ...field, maxDurationSec: num(e.target.value) })}
-                      />
-                    </div>
-                  )}
+                  {/* No "Max duration" control: nothing in the capture path
+                      enforces a video length, so it is no longer offered. */}
                 </div>
               </AccordionContent>
             </AccordionItem>

@@ -2,6 +2,7 @@ import { JobStatus, JobType, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings, type ClientPortalVisibility } from "@/lib/settings";
 import { getClientPortalContext } from "@/lib/client/portal";
+import { resolveJobFormTemplate } from "@/lib/forms/resolve-job-template";
 
 const ACTIVE_JOB_STATUSES: JobStatus[] = [
   JobStatus.UNASSIGNED,
@@ -49,60 +50,40 @@ function simplifyTemplateSchema(schema: unknown) {
   });
 }
 
+/**
+ * Which checklist the client sees for each service type at a property. This is
+ * a PROPERTY-level view, not a job-level one, so it deliberately carries no job
+ * pin — a quote-minted one-off belongs to a single job and is not what this
+ * property renders in general. Everything else (override usability, exclusion of
+ * property/job-scoped rows from the global fallback, deterministic tie-break) is
+ * delegated to the shared rule in lib/forms/resolve-job-template.ts so this view
+ * can never drift from what the cleaner actually fills.
+ */
 async function resolvePropertyChecklistTemplates(propertyId: string) {
   const settings = await getAppSettings();
   const rawOverrides = settings.propertyFormTemplateOverrides?.[propertyId] ?? {};
-  const overrideIds = Object.values(rawOverrides).filter(
-    (value): value is string => typeof value === "string" && value.length > 0
-  );
-  const overrideTemplates = overrideIds.length
-    ? await db.formTemplate.findMany({
-        where: { id: { in: overrideIds }, isActive: true },
-      })
-    : [];
   const activeTemplates = await db.formTemplate.findMany({
     where: { isActive: true },
     orderBy: [{ serviceType: "asc" }, { version: "desc" }],
   });
 
-  // Every template registered as SOME property's per-job-type override. These are
-  // property-specific (e.g. approving a property's checklist profile mints a
-  // high-version active, GLOBAL FormTemplate registered only as THAT property's
-  // override) and must NEVER be picked by the global fallback below — otherwise
-  // one property's newly-generated form, being the newest active template for its
-  // job type, would resolve as the default for every other property that has no
-  // override of its own. The global fallback only considers genuinely global
-  // templates (seeded / builder-published), which are not in this set.
-  const propertyScopedTemplateIds = new Set<string>();
-  for (const perProperty of Object.values(settings.propertyFormTemplateOverrides ?? {})) {
-    for (const templateId of Object.values(perProperty ?? {})) {
-      if (typeof templateId === "string" && templateId) propertyScopedTemplateIds.add(templateId);
-    }
-  }
-
-  const latestByJobType = new Map<JobType, (typeof activeTemplates)[number]>();
-  for (const template of activeTemplates) {
-    if (propertyScopedTemplateIds.has(template.id)) continue;
-    if (!latestByJobType.has(template.serviceType)) {
-      latestByJobType.set(template.serviceType, template);
-    }
-  }
-
-  const overrideById = new Map(overrideTemplates.map((template) => [template.id, template]));
   const allJobTypes = new Set<JobType>([
-    ...Array.from(latestByJobType.keys()),
+    ...activeTemplates.map((template) => template.serviceType),
     ...(Object.keys(rawOverrides) as JobType[]),
   ]);
 
   return Array.from(allJobTypes)
     .map((jobType) => {
-      const overrideId = rawOverrides[jobType];
-      const template =
-        (overrideId && overrideById.get(overrideId)) || latestByJobType.get(jobType) || null;
+      const { template, source } = resolveJobFormTemplate({
+        jobType,
+        propertyId,
+        overrides: settings.propertyFormTemplateOverrides,
+        templates: activeTemplates,
+      });
       if (!template) return null;
       return {
         jobType,
-        source: overrideId && overrideById.get(overrideId) ? "property_override" : "global_latest",
+        source,
         id: template.id,
         name: template.name,
         version: template.version,

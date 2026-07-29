@@ -193,11 +193,18 @@ function classifyField(field: any, answers: Record<string, unknown>): ReportFiel
   };
 
   if (isReadOnlyFieldType(type)) {
-    return { ...base, kind: "instruction", value: String(field?.description ?? field?.text ?? "") };
+    // The builder stores an instruction block's body in `helpText`; legacy
+    // templates used `description`/`text`. Reading only the legacy keys printed
+    // every builder-authored instruction as an empty block.
+    return {
+      ...base,
+      kind: "instruction",
+      value: String(field?.description ?? field?.text ?? field?.helpText ?? ""),
+    };
   }
 
   if (type === "checkbox") {
-    const checked = raw === true || raw === "true";
+    const checked = raw === true || raw === "true" || raw === "yes";
     return {
       ...base,
       kind: "checkbox",
@@ -208,9 +215,12 @@ function classifyField(field: any, answers: Record<string, unknown>): ReportFiel
   }
 
   if (type === "yesno") {
+    // Yes/No is stored as a boolean, but "yes"/"no" strings exist in
+    // submissions written before the cleaner renderer was aligned — read both,
+    // or a genuinely answered question prints as unanswered in the report.
     const na = raw === "na" || raw === "NA" || raw === "N/A";
-    const yes = raw === true || raw === "true";
-    const no = raw === false || raw === "false";
+    const yes = raw === true || raw === "true" || raw === "yes";
+    const no = raw === false || raw === "false" || raw === "no";
     const answered = na || yes || no;
     return {
       ...base,
@@ -306,8 +316,10 @@ function buildSections(
 
     const answerable = fields.filter((f) => f.kind !== "instruction");
     out.push({
-      id: String(section.id ?? section.label ?? `section-${out.length}`),
-      label: String(section.label ?? "Section"),
+      id: String(section.id ?? section.label ?? section.title ?? `section-${out.length}`),
+      // Canonical heading key is `title` (normalize-schema maps legacy `label` →
+      // `title`); reading only `label` labelled every modern section "Section".
+      label: String(section.label ?? section.title ?? "Section"),
       fields,
       answeredCount: answerable.filter((f) => f.answered).length,
       answerableCount: answerable.length,

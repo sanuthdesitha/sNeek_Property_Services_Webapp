@@ -22,6 +22,7 @@ import { sumRecordedTimeLogSeconds } from "@/lib/time/log-duration";
 import { attachPendingCarryForwardTasksToJob, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { resolveTemplateReferenceUrls } from "@/lib/forms/resolve-references";
 import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
+import { resolveJobFormTemplate } from "@/lib/forms/resolve-job-template";
 import { filterStockByConfig, normalizeInventoryConfig } from "@/lib/forms/inventory-config";
 import { isTeamStarted } from "@/lib/cleaner/team-state";
 import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
@@ -219,50 +220,28 @@ export async function GET(
       ? await getPreviousCleanLaundryCycle(db, job.propertyId, job.id, job.scheduledDate)
       : null;
 
-    const configuredPropertyTemplateId =
-      settings.propertyFormTemplateOverrides?.[job.propertyId]?.[job.jobType] ?? null;
-    let templateSource: "property_override" | "global_latest" = "global_latest";
-
-    // Every template that has been generated/registered as SOME property's
-    // per-job-type override. These are property-specific (e.g. approving a
-    // property's checklist profile mints a high-version active FormTemplate and
-    // registers it here) and must NEVER be picked by the global fallback below —
-    // otherwise one property's newly-generated form, being the newest active
-    // template for its job type, would resolve as the default for every other
-    // property that has no override of its own ("new form for one property
-    // replaces it for all"). The global fallback only considers genuinely global
-    // templates (seeded / builder-published), which are not in this set.
-    const propertyScopedTemplateIds = new Set<string>();
-    for (const perProperty of Object.values(settings.propertyFormTemplateOverrides ?? {})) {
-      for (const templateId of Object.values(perProperty ?? {})) {
-        if (typeof templateId === "string" && templateId) propertyScopedTemplateIds.add(templateId);
-      }
-    }
-
-    let template = configuredPropertyTemplateId
-      ? await db.formTemplate.findFirst({
-          where: {
-            id: configuredPropertyTemplateId,
-            serviceType: job.jobType,
-            isActive: true,
-          },
-        })
-      : null;
-
-    if (template) {
-      templateSource = "property_override";
-    } else {
-      template = await db.formTemplate.findFirst({
-        where: {
-          serviceType: job.jobType,
-          isActive: true,
-          ...(propertyScopedTemplateIds.size > 0
-            ? { id: { notIn: Array.from(propertyScopedTemplateIds) } }
-            : {}),
-        },
-        orderBy: { version: "desc" },
-      });
-    }
+    // Which template this job renders — resolved by the SHARED pure rule in
+    // lib/forms/resolve-job-template.ts (job pin → property override → newest
+    // active global, property/job-scoped rows excluded from the global
+    // fallback, fully deterministic tie-break).
+    // Every consumer (this route, the progress estimator, the builder's impact
+    // panel) uses that one function, so "the admin edited a different row than
+    // the job renders" can be diagnosed instead of guessed at.
+    const activeTemplatesForType = await db.formTemplate.findMany({
+      where: { serviceType: job.jobType, isActive: true },
+    });
+    const resolution = resolveJobFormTemplate({
+      jobType: job.jobType,
+      propertyId: job.propertyId,
+      overrides: settings.propertyFormTemplateOverrides,
+      templates: activeTemplatesForType,
+      // A form minted for THIS job (quote → job conversion) — highest priority.
+      jobTemplateId: job.formTemplateId,
+    });
+    const configuredPropertyTemplateId = resolution.configuredPropertyTemplateId;
+    const templateSource: "job_pin" | "property_override" | "global_latest" =
+      resolution.source === "none" ? "global_latest" : resolution.source;
+    let template = resolution.template;
 
     let inventoryStock: any[] = [];
     if (job.property.inventoryEnabled) {
@@ -338,6 +317,15 @@ export async function GET(
       (settings as unknown as {
         accountability?: { requireJobStartConfirmation?: boolean };
       }).accountability?.requireJobStartConfirmation !== false;
+
+    // Does an UNTICKED required checkbox block submit? Admin opt-in, default OFF
+    // (generated checklist items are checkbox+required, so ON makes the whole
+    // checklist mandatory). Surfaced here so the cleaner's client-side gate runs
+    // the SAME pure rule with the SAME flag the submit route enforces.
+    const requiredChecklistTicksBlockSubmit =
+      (settings as unknown as {
+        accountability?: { requiredChecklistTicksBlockSubmit?: boolean };
+      }).accountability?.requiredChecklistTicksBlockSubmit === true;
 
     const cleanerTimeLogs =
       session.user.role === Role.CLEANER
@@ -583,6 +571,7 @@ export async function GET(
       restockNeeds,
       recurringIssues,
       requireJobStartConfirmation,
+      requiredChecklistTicksBlockSubmit,
       carryForwardTasks: unresolvedCarryForwardTasks.map((ticket) => ({
         id: ticket.id,
         description: ticket.description,

@@ -93,6 +93,7 @@ export function FormRenderer({
   jobId,
   restockNeeds,
   onExtrasChanged,
+  requiredChecklistTicksBlockSubmit = false,
 }: {
   schema: FormSchema;
   answers: AnswerMap;
@@ -124,6 +125,13 @@ export function FormRenderer({
   restockNeeds?: Array<{ name: string; needed: number; unit?: string | null }>;
   /** Fired after an extra is submitted, so the parent can refresh job meta. */
   onExtrasChanged?: () => void;
+  /**
+   * `settings.accountability.requiredChecklistTicksBlockSubmit` from the form
+   * payload. Default false = historic behaviour (an unticked required checkbox
+   * shows no inline error). Passed straight to collectFormErrors so this inline
+   * validation matches the wrap-up gate and the submit route exactly.
+   */
+  requiredChecklistTicksBlockSubmit?: boolean;
 }) {
   const sections = Array.isArray(schema?.sections) ? schema.sections : [];
 
@@ -176,8 +184,16 @@ export function FormRenderer({
   }, [uploads]);
 
   const errors = React.useMemo<FormFieldError[]>(
-    () => collectFormErrors(schema, answers, uploadCounts, property),
-    [schema, answers, uploadCounts, property]
+    () =>
+      collectFormErrors(
+        schema,
+        answers,
+        uploadCounts,
+        property,
+        undefined,
+        requiredChecklistTicksBlockSubmit
+      ),
+    [schema, answers, uploadCounts, property, requiredChecklistTicksBlockSubmit]
   );
   const errorMap = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -881,9 +897,20 @@ function FieldBlock({
     </details>
   ) : null;
 
+  // `showExampleOnTick === false` means "keep the examples collapsed" — the
+  // builder offers that switch, so honour it instead of always showing thumbs.
   const references =
     Array.isArray(field.references) && field.references.length > 0 ? (
-      <ReferenceThumbs references={field.references} />
+      field.showExampleOnTick === false ? (
+        <details className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          <summary className="cursor-pointer select-none">View examples ({field.references.length})</summary>
+          <div className="mt-1.5">
+            <ReferenceThumbs references={field.references} />
+          </div>
+        </details>
+      ) : (
+        <ReferenceThumbs references={field.references} />
+      )
     ) : null;
 
   return (
@@ -963,13 +990,20 @@ function FieldControl({
           : field.type === "file"
             ? "file"
             : "photo";
+    // `maxFiles` is configurable in the builder but was only ever used to decide
+    // single-vs-multiple; enforce it by trimming the committed list, so the cap
+    // an admin sets is real instead of decorative.
+    const maxFiles = Number.isFinite(Number(field.maxFiles)) ? Number(field.maxFiles) : undefined;
     return (
       <MediaCapture
         value={uploads[field.id] ?? []}
-        onChange={(m) => onUpload(field.id, m)}
+        onChange={(m) => onUpload(field.id, maxFiles && maxFiles > 0 ? m.slice(0, maxFiles) : m)}
         mode={mode as any}
         folder="forms"
         multiple={(field.maxFiles ?? 10) !== 1}
+        // MediaCapture's own shortfall hint counts IMAGES, so only photo-capable
+        // fields get it. A `file` field's minimum is enforced (and messaged) by
+        // collectFormErrors, which counts documents too.
         minPhotos={field.type === "photo" ? field.minPhotos : undefined}
         disabled={disabled}
         error={error}
@@ -997,6 +1031,9 @@ function FieldControl({
     case "temperature":
       return (
         <div className="flex items-center gap-2">
+          {field.type === "currency" && !field.unit ? (
+            <span className="text-[0.875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">$</span>
+          ) : null}
           <EInput
             type="number"
             inputMode="decimal"
@@ -1011,8 +1048,6 @@ function FieldControl({
           />
           {field.unit ? (
             <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{field.unit}</span>
-          ) : field.type === "currency" ? (
-            <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">$</span>
           ) : null}
         </div>
       );
@@ -1044,53 +1079,13 @@ function FieldControl({
       );
 
     case "select":
-      return (
-        <ESelect
-          value={String(value ?? "")}
-          disabled={disabled}
-          className={errCls}
-          onChange={(e) => set(e.target.value)}
-        >
-          <option value="">Select…</option>
-          {(field.options ?? []).map((opt) => (
-            <option key={opt} value={opt}>
-              {opt}
-            </option>
-          ))}
-        </ESelect>
-      );
+      return <SelectControl field={field} value={value} set={set} disabled={disabled} errCls={errCls} />;
 
     case "radio":
-      return (
-        <div className="flex flex-wrap gap-2">
-          {(field.options ?? []).map((opt) => (
-            <OptionChip key={opt} active={value === opt} disabled={disabled} onClick={() => set(opt)}>
-              {opt}
-            </OptionChip>
-          ))}
-        </div>
-      );
+      return <RadioControl field={field} value={value} set={set} disabled={disabled} />;
 
-    case "multiselect": {
-      const arr = Array.isArray(value) ? (value as string[]) : [];
-      return (
-        <div className="flex flex-wrap gap-2">
-          {(field.options ?? []).map((opt) => {
-            const active = arr.includes(opt);
-            return (
-              <OptionChip
-                key={opt}
-                active={active}
-                disabled={disabled}
-                onClick={() => set(active ? arr.filter((o) => o !== opt) : [...arr, opt])}
-              >
-                {opt}
-              </OptionChip>
-            );
-          })}
-        </div>
-      );
-    }
+    case "multiselect":
+      return <MultiSelectControl field={field} value={value} set={set} disabled={disabled} />;
 
     case "checkbox":
       return (
@@ -1101,12 +1096,16 @@ function FieldControl({
       );
 
     case "yesno":
+      // Stored as booleans (+ "na"): the same shape v1 wrote, that seed-template
+      // conditions compare against (`value: true`) and that the report view
+      // model reads. Writing "yes"/"no" strings here made every yes/no rule
+      // dead and printed answered fields as blank in the report.
       return (
         <div className="flex flex-wrap gap-2">
-          <OptionChip active={value === "yes" || value === true} disabled={disabled} onClick={() => set("yes")}>
+          <OptionChip active={value === "yes" || value === true} disabled={disabled} onClick={() => set(true)}>
             Yes
           </OptionChip>
-          <OptionChip active={value === "no" || value === false} disabled={disabled} onClick={() => set("no")}>
+          <OptionChip active={value === "no" || value === false} disabled={disabled} onClick={() => set(false)}>
             No
           </OptionChip>
           {field.includeNa ? (
@@ -1143,7 +1142,11 @@ function FieldControl({
       const min = field.min ?? (field.type === "scale" ? 1 : 0);
       const max = field.max ?? (field.type === "scale" ? 5 : 10);
       const step = field.step ?? 1;
-      const current = value === undefined || value === null ? min : Number(value);
+      // An untouched slider must not LOOK answered: the thumb rests at min but
+      // the readout stays "—" until the cleaner actually sets a value (which is
+      // also why a required slider can legitimately still be flagged).
+      const unset = value === undefined || value === null || value === "";
+      const current = unset ? min : Number(value);
       return (
         <div className="flex items-center gap-3">
           <input
@@ -1158,8 +1161,7 @@ function FieldControl({
             style={{ accentColor: "hsl(var(--e-primary))" }}
           />
           <span className="w-12 text-right text-[0.875rem] font-[550] tabular-nums">
-            {current}
-            {field.unit ? ` ${field.unit}` : ""}
+            {unset ? "—" : `${current}${field.unit ? ` ${field.unit}` : ""}`}
           </span>
         </div>
       );
@@ -1168,7 +1170,8 @@ function FieldControl({
     case "counter": {
       const min = field.min ?? 0;
       const step = field.step ?? 1;
-      const current = value === undefined || value === null ? min : Number(value);
+      const unset = value === undefined || value === null || value === "";
+      const current = unset ? min : Number(value);
       return (
         <div className="inline-flex items-center gap-2">
           <button
@@ -1179,7 +1182,9 @@ function FieldControl({
           >
             −
           </button>
-          <span className="w-12 text-center text-[0.9375rem] font-semibold tabular-nums">{current}</span>
+          <span className="w-12 text-center text-[0.9375rem] font-semibold tabular-nums">
+            {unset ? "—" : current}
+          </span>
           <button
             type="button"
             disabled={disabled || (field.max != null && current >= field.max)}
@@ -1280,6 +1285,201 @@ function ReferenceThumbs({ references }: { references: any[] }) {
   );
 }
 
+/* ── Choice controls (option lists + optional free-text "Other") ─────────────
+ * `allowOther` is configurable in the builder for select / radio / multi-select,
+ * so all three honour it here: the answer is stored as the plain typed string
+ * (or as an extra array entry for multi-select), which is what reports and
+ * conditions already read — no sentinel value ever reaches the submission.
+ */
+const OTHER_SENTINEL = "__other__";
+
+function OtherTextInput({
+  value,
+  placeholder = "Type your answer",
+  disabled,
+  onChange,
+  autoFocus = false,
+}: {
+  value: string;
+  placeholder?: string;
+  disabled?: boolean;
+  onChange: (v: string) => void;
+  /** Only when the input appears in response to a tap (never on mount). */
+  autoFocus?: boolean;
+}) {
+  return (
+    <EInput
+      autoFocus={autoFocus}
+      placeholder={placeholder}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
+function SelectControl({
+  field,
+  value,
+  set,
+  disabled,
+  errCls,
+}: {
+  field: FormField;
+  value: unknown;
+  set: (v: unknown) => void;
+  disabled: boolean;
+  errCls?: string;
+}) {
+  const options = field.options ?? [];
+  const current = String(value ?? "");
+  const valueIsOther = Boolean(current) && !options.includes(current);
+  const [otherOpen, setOtherOpen] = React.useState(valueIsOther);
+  const showOther = Boolean(field.allowOther) && (otherOpen || valueIsOther);
+
+  return (
+    <div className="space-y-1.5">
+      <ESelect
+        value={showOther ? OTHER_SENTINEL : current}
+        disabled={disabled}
+        className={errCls}
+        onChange={(e) => {
+          if (e.target.value === OTHER_SENTINEL) {
+            setOtherOpen(true);
+            set("");
+            return;
+          }
+          setOtherOpen(false);
+          set(e.target.value);
+        }}
+      >
+        <option value="">Select…</option>
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+        {field.allowOther ? <option value={OTHER_SENTINEL}>Other…</option> : null}
+      </ESelect>
+      {showOther ? (
+        <OtherTextInput autoFocus value={valueIsOther ? current : ""} disabled={disabled} onChange={set} />
+      ) : null}
+    </div>
+  );
+}
+
+function RadioControl({
+  field,
+  value,
+  set,
+  disabled,
+}: {
+  field: FormField;
+  value: unknown;
+  set: (v: unknown) => void;
+  disabled: boolean;
+}) {
+  const options = field.options ?? [];
+  const current = String(value ?? "");
+  const valueIsOther = Boolean(current) && !options.includes(current);
+  const [otherOpen, setOtherOpen] = React.useState(valueIsOther);
+  const showOther = Boolean(field.allowOther) && (otherOpen || valueIsOther);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => (
+          <OptionChip
+            key={opt}
+            active={current === opt}
+            disabled={disabled}
+            onClick={() => {
+              setOtherOpen(false);
+              set(opt);
+            }}
+          >
+            {opt}
+          </OptionChip>
+        ))}
+        {field.allowOther ? (
+          <OptionChip
+            active={showOther}
+            disabled={disabled}
+            onClick={() => {
+              setOtherOpen(true);
+              if (!valueIsOther) set("");
+            }}
+          >
+            Other…
+          </OptionChip>
+        ) : null}
+      </div>
+      {showOther ? (
+        <OtherTextInput autoFocus value={valueIsOther ? current : ""} disabled={disabled} onChange={set} />
+      ) : null}
+    </div>
+  );
+}
+
+function MultiSelectControl({
+  field,
+  value,
+  set,
+  disabled,
+}: {
+  field: FormField;
+  value: unknown;
+  set: (v: unknown) => void;
+  disabled: boolean;
+}) {
+  const options = field.options ?? [];
+  const selected = Array.isArray(value) ? (value as unknown[]).map((v) => String(v)) : [];
+  const extras = selected.filter((v) => !options.includes(v));
+  const [draft, setDraft] = React.useState("");
+
+  const toggle = (opt: string) =>
+    set(selected.includes(opt) ? selected.filter((o) => o !== opt) : [...selected, opt]);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => (
+          <OptionChip key={opt} active={selected.includes(opt)} disabled={disabled} onClick={() => toggle(opt)}>
+            {opt}
+          </OptionChip>
+        ))}
+        {extras.map((extra) => (
+          <OptionChip key={`x-${extra}`} active disabled={disabled} onClick={() => toggle(extra)}>
+            {extra} ×
+          </OptionChip>
+        ))}
+      </div>
+      {field.allowOther ? (
+        <div className="flex items-center gap-2">
+          <OtherTextInput
+            value={draft}
+            placeholder="Add another…"
+            disabled={disabled}
+            onChange={setDraft}
+          />
+          <EButton
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled || !draft.trim() || selected.includes(draft.trim())}
+            onClick={() => {
+              set([...selected, draft.trim()]);
+              setDraft("");
+            }}
+          >
+            Add
+          </EButton>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function OptionChip({
   active,
   disabled,
@@ -1367,14 +1567,44 @@ function SignaturePad({
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const drawing = React.useRef(false);
 
+  // Repaint a stored signature when the pad remounts (collapsing a section or
+  // reopening the job used to show an empty pad even though the answer held a
+  // signature — the cleaner would then sign twice or think it was lost).
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !value || !value.startsWith("data:image/")) return;
+    const img = new Image();
+    img.onload = () => {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
+    img.src = value;
+    // Mount-only: re-running on every stroke would fight the live drawing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The canvas has a fixed 480×160 backing store but is CSS-stretched to the
+  // container width, so pointer coordinates (CSS px) must be scaled into canvas
+  // space — without this the ink lands offset from the fingertip on any screen
+  // narrower than 480px, i.e. every phone.
   function pos(e: React.PointerEvent) {
     const c = canvasRef.current!;
     const r = c.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    const scaleX = r.width > 0 ? c.width / r.width : 1;
+    const scaleY = r.height > 0 ? c.height / r.height : 1;
+    return { x: (e.clientX - r.left) * scaleX, y: (e.clientY - r.top) * scaleY };
   }
   function start(e: React.PointerEvent) {
     if (disabled) return;
     drawing.current = true;
+    // Keep receiving moves if the finger strays outside the pad mid-stroke.
+    try {
+      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    } catch {
+      /* pointer capture is best-effort */
+    }
     const ctx = canvasRef.current!.getContext("2d")!;
     const p = pos(e);
     ctx.beginPath();

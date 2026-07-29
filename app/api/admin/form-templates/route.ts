@@ -18,6 +18,12 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const kindParam = url.searchParams.get("kind");
     const includeArchived = url.searchParams.get("includeArchived") === "1";
+    // Drafts (isActive: false, never archived) are what `POST :id/duplicate`
+    // and the kind-path create produce. Without this the legacy list filtered
+    // them out entirely, so a freshly duplicated template was invisible and the
+    // action looked like a no-op. Off by default to keep every existing caller
+    // (v1 admin page, pickers) on the "live templates only" behaviour.
+    const includeDrafts = url.searchParams.get("includeDrafts") === "1";
     const v1 = url.searchParams.get("v1") === "1";
 
     if (v1) {
@@ -42,16 +48,26 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ templates });
     }
 
-    // Legacy list (backward-compat for existing /admin/forms page)
+    // Legacy list (backward-compat for existing /admin/forms page).
+    //  - includeArchived: everything, retired + deleted rows included
+    //  - includeDrafts:   live + drafts, but nothing retired (archive and the
+    //                     soft-delete both stamp archivedAt)
+    //  - default:         live templates only (historical behaviour)
+    const where = includeArchived
+      ? undefined
+      : includeDrafts
+        ? { archivedAt: null }
+        : { isActive: true };
     const templates = await db.formTemplate.findMany({
-      where: includeArchived ? undefined : { isActive: true },
+      where,
       orderBy: { createdAt: "desc" },
     });
 
     // Annotate each row with `propertyScoped` — true when the template is
     // registered as some property's per-job-type override (minted by
-    // generatePropertyTemplates). Those must never be presented as the global
-    // default; the runtime fallback explicitly excludes them.
+    // generatePropertyTemplates), or when it is a one-off minted for a single
+    // job (`isJobScoped`, quote → job conversion). Neither must ever be
+    // presented as the global default; the runtime fallback excludes both.
     const settings = await getAppSettings();
     const scoped = new Set<string>();
     for (const perProperty of Object.values(settings.propertyFormTemplateOverrides ?? {})) {
@@ -60,7 +76,7 @@ export async function GET(req: NextRequest) {
       }
     }
     return NextResponse.json(
-      templates.map((t) => ({ ...t, propertyScoped: scoped.has(t.id) }))
+      templates.map((t) => ({ ...t, propertyScoped: scoped.has(t.id) || t.isJobScoped }))
     );
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 400 });

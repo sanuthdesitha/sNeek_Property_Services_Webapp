@@ -89,6 +89,13 @@ export interface WorkspaceApi {
   contact: JobContact | null;
   restockNeeds: Array<{ name: string; needed: number; unit?: string | null }>;
   recurringIssues: string[];
+  /**
+   * `settings.accountability.requiredChecklistTicksBlockSubmit` from the form
+   * payload. When true an unticked required checkbox blocks submit (every
+   * generated checklist item included); false = historic behaviour. Passed
+   * verbatim into collectFormErrors so the client mirrors the submit route.
+   */
+  requiredChecklistTicksBlockSubmit: boolean;
   setupGuideEntries: Array<{
     id?: string;
     kind?: string;

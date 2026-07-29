@@ -378,11 +378,22 @@ export async function POST(
     // yes/no, rating, signature, etc.) — not just signatures. Upload fields are
     // skipped inside the collector (validated above). Previously only signatures
     // were enforced, so a required dropdown/number could be left blank.
+    //
+    // Whether an UNTICKED required checkbox blocks is the admin opt-in
+    // `accountability.requiredChecklistTicksBlockSubmit` (default OFF — it makes
+    // every generated checklist tick mandatory). The flag is handed to the same
+    // pure helper the cleaner's client gate uses (it also receives it in the
+    // GET /api/jobs/[id]/form payload), so the two can never disagree.
+    const submitGateSettings = (await getAppSettings()).accountability;
     const missingRequiredAnswers = collectRequiredAnswerFields(
       effectiveSchema,
       answers,
       (job.property ?? {}) as Record<string, unknown>,
-      { laundryReady: legacyReady }
+      {
+        laundryReady: legacyReady,
+        requiredChecklistTicksBlockSubmit:
+          submitGateSettings.requiredChecklistTicksBlockSubmit === true,
+      }
     );
     if (missingRequiredAnswers.length > 0) {
       const missingAnswerSummary = missingRequiredAnswers
@@ -410,8 +421,7 @@ export async function POST(
     const untickedSelfInspection = collectUntickedSelfInspection(effectiveSchema, answers);
     let selfInspectionIncompleteKeys: string[] = [];
     if (untickedSelfInspection.length > 0) {
-      const accountabilitySettings = (await getAppSettings()).accountability;
-      if (accountabilitySettings.selfInspectionBlocksSubmit !== false) {
+      if (submitGateSettings.selfInspectionBlocksSubmit !== false) {
         return NextResponse.json(
           {
             error: `Complete the final self-inspection: ${untickedSelfInspection
