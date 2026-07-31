@@ -8,6 +8,7 @@ import {
   partitionAdjustmentsForInvoice,
 } from "@/lib/finance/pay-adjustments";
 import { deriveAdjustmentOrigin } from "@/lib/finance/job-pay-summary";
+import { qaAssignmentPayeeWhere } from "@/lib/qa/ownership";
 import {
   computeQaAssignmentPay,
   isQaAssignmentAvailableForSettlement,
@@ -403,7 +404,10 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   // dropped: it is work that was done and is owed.
   const qaAssignmentRows = await db.qaAssignment.findMany({
     where: {
-      assignedToId: options.userId,
+      // PAYEE, not assignee — an inspection this inspector picked up themselves
+      // has a null `assignedToId`, and keying on the assignee alone made every
+      // self-serve inspection permanently un-invoiceable. lib/qa/ownership.ts.
+      ...qaAssignmentPayeeWhere(options.userId),
       status: QaAssignmentStatus.COMPLETED,
       // Never touch an inspection a payroll run already paid — the cross-rail
       // half of the double-pay guard. The ONE exception is a pay run recomputing

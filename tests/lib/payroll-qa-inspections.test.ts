@@ -122,6 +122,36 @@ describe("getPayrollSummary — QA inspection pay", { timeout: 30000 }, () => {
     expect(rows.find((r) => r.cleaner.id === "qa1")!.qaInspections[0].amount).toBe(64);
   });
 
+  it("pays an inspection the inspector picked up themselves (assignedToId is null)", async () => {
+    // The regression: /pickup, the on-site timer and the submit path all stamp
+    // ONLY pickedUpById. Payroll keyed on assignedToId, so this inspection was
+    // real completed work that could never be paid on any run.
+    userFindMany.mockResolvedValueOnce([CLEANER]).mockResolvedValueOnce([QA]);
+    qaFindMany.mockResolvedValue([
+      inspection({ assignedToId: null, pickedUpById: "qa1", payHoursAllocated: 2 }),
+    ]);
+
+    const rows = await run();
+    const qaRow = rows.find((r) => r.cleaner.id === "qa1");
+    expect(qaRow).toBeDefined();
+    expect(qaRow!.qaInspections.map((r) => r.amount)).toEqual([100]);
+  });
+
+  it("attributes to the performer, not the assignee, when the two differ", async () => {
+    // Assigned to qa2 but actually inspected by qa1 — paying the assignee would
+    // pay someone who never did the work.
+    userFindMany
+      .mockResolvedValueOnce([CLEANER])
+      .mockResolvedValueOnce([QA, { id: "qa2", name: "QA Two", email: "qa2@x.com", hourlyRate: 20 }]);
+    qaFindMany.mockResolvedValue([
+      inspection({ assignedToId: "qa2", pickedUpById: "qa1", payHoursAllocated: 2 }),
+    ]);
+
+    const rows = await run();
+    expect(rows.find((r) => r.cleaner.id === "qa1")!.qaInspections).toHaveLength(1);
+    expect(rows.find((r) => r.cleaner.id === "qa2")?.qaInspections ?? []).toEqual([]);
+  });
+
   it("drops a $0 inspection rather than listing an empty payable line", async () => {
     userFindMany.mockResolvedValueOnce([CLEANER]).mockResolvedValueOnce([QA]);
     qaFindMany.mockResolvedValue([inspection({ payMode: "NONE" })]);
@@ -131,12 +161,15 @@ describe("getPayrollSummary — QA inspection pay", { timeout: 30000 }, () => {
     expect(qaRow.totals.grossPay).toBe(0);
   });
 
-  it("only queries COMPLETED, actually-assigned inspections", async () => {
+  it("queries COMPLETED inspections that have a payee on EITHER column", async () => {
+    // Previously this required `assignedToId: { not: null }`, which silently
+    // excluded every inspection an inspector picked up themselves — those rows
+    // carry their payee on `pickedUpById` and were never paid on any run.
     userFindMany.mockResolvedValueOnce([CLEANER]);
     await run();
     const where = qaFindMany.mock.calls[0][0].where;
     expect(where.status).toBe("COMPLETED");
-    expect(where.assignedToId).toEqual({ not: null });
+    expect(where.OR).toEqual([{ pickedUpById: { not: null } }, { assignedToId: { not: null } }]);
   });
 
   it("attributes each inspection to its own inspector only", async () => {

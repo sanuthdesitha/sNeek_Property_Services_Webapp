@@ -132,7 +132,12 @@ describe("cleaner invoice — QA inspection pay", { timeout: 30000 }, () => {
   it("selects only this payee's COMPLETED, unsettled inspections — payroll-stamped rows are excluded at the query", async () => {
     await build();
     const where = qaWhere();
-    expect(where.assignedToId).toBe("u1");
+    // Payee, not assignee: an inspection this inspector picked up themselves has
+    // a null assignedToId and was previously un-invoiceable forever.
+    expect(where.OR).toEqual([
+      { pickedUpById: "u1" },
+      { AND: [{ pickedUpById: null }, { assignedToId: "u1" }] },
+    ]);
     expect(where.status).toBe("COMPLETED");
     // The cross-rail half of the guard: a payroll run already paid these.
     expect(where.includedInPayrollRunId).toBeNull();

@@ -7,6 +7,7 @@ import { computeQaAssignmentPay, qaAssignmentSettlementAmount } from "@/lib/fina
 import { adjustmentSignedAmount } from "@/lib/finance/pay-adjustments";
 import { deriveAdjustmentOrigin } from "@/lib/finance/job-pay-summary";
 import { sydneyDayStart, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
+import { qaAssignmentPayeeWhere } from "@/lib/qa/ownership";
 
 /**
  * The QA inspector's earnings view — the QA counterpart of the cleaner's
@@ -165,7 +166,11 @@ export async function getQaPaySummary(options: {
     }),
     db.qaAssignment.findMany({
       where: {
-        assignedToId: options.inspectorId,
+        // PAYEE, not assignee. An inspection the inspector picked up themselves
+        // has `assignedToId` null and `pickedUpById` set — keying on the
+        // assignee alone hid every self-serve inspection from this page (and
+        // from both settlement rails) forever. See lib/qa/ownership.ts.
+        ...qaAssignmentPayeeWhere(options.inspectorId),
         status: QaAssignmentStatus.COMPLETED,
         completedAt: { gte: range.start, lte: range.end },
       },

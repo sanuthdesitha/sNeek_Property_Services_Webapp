@@ -9,7 +9,10 @@ const ITEMS = [
   { href: "/v2/qa/pay", label: "My pay", desc: "Inspection earnings & credits", icon: Wallet },
   // Inspectors raise their own invoices on the same rail cleaners use.
   { href: "/v2/qa/invoices", label: "Invoices", desc: "Bill your inspections to accounts", icon: ReceiptText },
-  { href: "/v2/qa/stats", label: "Stats", desc: "Your inspection performance", icon: BarChart3 },
+  // The stats page reports quality across the whole team (pass rate, rework by
+  // cleaner) — it is not a personal scorecard, and calling it one made
+  // inspectors read team numbers as their own.
+  { href: "/v2/qa/stats", label: "Stats", desc: "Team quality & rework trends", icon: BarChart3 },
   // Stage 2 promotes this to its own nav tab.
   { href: "/v2/qa", label: "Route map", desc: "Coming in Stage 2 — your day on a map", icon: Map },
   { href: "/v2/qa/profile", label: "Profile & settings", desc: "Your details, security, preferences", icon: User },

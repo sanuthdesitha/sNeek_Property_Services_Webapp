@@ -3,8 +3,10 @@ import { JobStatus, QaAssignmentStatus, Role } from "@prisma/client";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
+import { getAppSettings } from "@/lib/settings";
 import { effectiveOfferStatus } from "@/lib/qa/rework-offers";
 import { deriveReadiness } from "@/lib/qa/progress";
+import { qaAssignmentClaimableWhere, qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 const TZ = "Australia/Sydney";
@@ -70,10 +72,20 @@ export async function GET(req: NextRequest) {
 
     // Inspectors only ever see their own (or unclaimed) work; admin/ops see the
     // whole board unless they explicitly ask for a single inspector's day.
+    //
+    // The scope used to be derived from the ROLE alone, so an inspector
+    // provisioned as OPS_MANAGER saw the entire board — and a QA_INSPECTOR
+    // could widen their own scope just by passing `assignedOnly=0`. Now:
+    // admins/ops may choose, everyone else is pinned to the configured default.
+    const settings = await getAppSettings().catch(() => null);
+    const assignOnlyDefault = settings?.qaAutomation?.assignedOnly ?? true;
+    const mayWiden =
+      session.user.role === Role.ADMIN || session.user.role === Role.OPS_MANAGER;
     const assignedOnlyParam = searchParams.get("assignedOnly");
-    const assignedOnly =
-      assignedOnlyParam == null
-        ? session.user.role === Role.QA_INSPECTOR
+    const assignedOnly = !mayWiden
+      ? assignOnlyDefault
+      : assignedOnlyParam == null
+        ? assignOnlyDefault
         : assignedOnlyParam === "1" || assignedOnlyParam === "true";
 
     // Day window: `date=today|tomorrow|YYYY-MM-DD`, else an explicit from/to range.
@@ -97,8 +109,8 @@ export async function GET(req: NextRequest) {
       : null;
 
     const ownershipFilter = assignedOnly
-      ? { OR: [{ assignedToId: session.user.id }, { pickedUpById: session.user.id }] }
-      : { OR: [{ assignedToId: null }, { assignedToId: session.user.id }, { pickedUpById: session.user.id }] };
+      ? qaAssignmentOwnerWhere(session.user.id)
+      : qaAssignmentClaimableWhere(session.user.id);
 
     // Admin/ops day board: one inspector's column.
     const inspectorId =
@@ -106,8 +118,11 @@ export async function GET(req: NextRequest) {
         ? searchParams.get("inspectorId")
         : null;
 
+    // Ownership EXTENDS the status filter, it never replaces it. The "completed"
+    // scope used to swap the whole where-clause for a bare status check, which
+    // handed every inspector the completed inspections of every other inspector.
     const baseWhere = completed
-      ? { status: QaAssignmentStatus.COMPLETED }
+      ? { status: QaAssignmentStatus.COMPLETED, ...(inspectorId ? {} : ownershipFilter) }
       : {
           status: {
             in: [QaAssignmentStatus.OPEN, QaAssignmentStatus.ASSIGNED, QaAssignmentStatus.IN_PROGRESS],
@@ -119,7 +134,9 @@ export async function GET(req: NextRequest) {
       AND: [
         baseWhere,
         ...(rangeFilter ? [rangeFilter] : []),
-        ...(inspectorId ? [{ assignedToId: inspectorId }] : []),
+        // An admin's single-inspector column must find work that inspector
+        // picked up themselves too, not only what was formally assigned.
+        ...(inspectorId ? [qaAssignmentOwnerWhere(inspectorId)] : []),
       ],
     } as any;
 

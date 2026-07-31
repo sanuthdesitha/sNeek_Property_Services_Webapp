@@ -224,6 +224,17 @@ export interface QaAutomationSettings {
   autoCreateReworkJob: boolean;
   reworkDelayHours: number;
   createIssueTicket: boolean;
+  /**
+   * Assign-only inspecting: an inspector sees ONLY the inspections they were
+   * given or picked up, never the open pool of unassigned jobs.
+   *
+   * Previously this was hardcoded to `role === QA_INSPECTOR`, so an inspector
+   * provisioned as OPS_MANAGER legitimately saw the entire business's job
+   * board — which reads, correctly, as "it shows all the jobs even though I
+   * assign". Defaults ON: the safe direction is to show less, and an admin who
+   * wants an open pool can say so explicitly.
+   */
+  assignedOnly: boolean;
 }
 
 /**
@@ -758,6 +769,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoCreateReworkJob: true,
     reworkDelayHours: 24,
     createIssueTicket: true,
+    assignedOnly: true,
   },
   qaPay: DEFAULT_QA_PAY_SETTINGS,
   accountability: DEFAULT_ACCOUNTABILITY_SETTINGS,
@@ -1183,6 +1195,8 @@ function sanitizeQaAutomationSettings(
       typeof row.createIssueTicket === "boolean"
         ? row.createIssueTicket
         : fallback.createIssueTicket,
+    assignedOnly:
+      typeof row.assignedOnly === "boolean" ? row.assignedOnly : fallback.assignedOnly,
   };
 }
 

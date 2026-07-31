@@ -60,7 +60,18 @@ export default async function QaPayPage({
     inspectorId: session.user.id,
     startDate: searchParams?.from,
     endDate: searchParams?.to,
-  }).catch(() => null);
+  }).catch((err) => {
+    // This used to swallow every failure into the bland "not available" empty
+    // state with no trace anywhere — so a broken query looked identical to a
+    // quiet month, and the inspector simply concluded their pay had vanished.
+    console.error("[qa/pay] getQaPaySummary failed", {
+      inspectorId: session.user.id,
+      from: searchParams?.from ?? null,
+      to: searchParams?.to ?? null,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  });
 
   if (!summary) {
     return (

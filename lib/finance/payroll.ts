@@ -9,6 +9,7 @@ import {
   computeQaAssignmentPay,
   qaAssignmentSettlementAmount,
 } from "@/lib/finance/qa-pay";
+import { qaAssignmentHasPayeeWhere, qaAssignmentPayeeId } from "@/lib/qa/ownership";
 
 export async function getPayrollSummary(input: {
   startDate: string;
@@ -141,7 +142,11 @@ export async function getPayrollSummary(input: {
       where: {
         status: QaAssignmentStatus.COMPLETED,
         completedAt: { gte: start, lte: endInclusive },
-        assignedToId: { not: null },
+        // "Has a payee at all" — an inspection picked up by an inspector has a
+        // null `assignedToId`, so requiring an assignee here silently excluded
+        // every self-serve inspection from every pay run. Attribution to a
+        // specific payee happens in memory below via qaAssignmentPayeeId.
+        ...qaAssignmentHasPayeeWhere(),
         // A committable run must never re-pay an inspection already settled by a
         // prior run OR already billed on a cleaner invoice (the two settlement
         // rails). The read-only period view shows everything in the window.
@@ -152,6 +157,9 @@ export async function getPayrollSummary(input: {
       select: {
         id: true,
         assignedToId: true,
+        // Required by qaAssignmentPayeeId — a self-picked-up inspection carries
+        // its payee here and nowhere else.
+        pickedUpById: true,
         status: true,
         completedAt: true,
         onSiteMinutes: true,
@@ -193,7 +201,7 @@ export async function getPayrollSummary(input: {
     new Set(
       [
         ...adjustments.map((row) => row.cleanerId),
-        ...qaAssignments.map((row) => row.assignedToId),
+        ...qaAssignments.map((row) => qaAssignmentPayeeId(row)),
       ].filter((id): id is string => Boolean(id) && !cleanerIdSet.has(id as string))
     )
   );
@@ -302,7 +310,7 @@ export async function getPayrollSummary(input: {
     // (paySettledAmount) so a later rate or settings change can never retro-alter
     // what a historical run actually paid out.
     const qaRows = qaAssignments
-      .filter((row) => row.assignedToId === cleaner.id)
+      .filter((row) => qaAssignmentPayeeId(row) === cleaner.id)
       .map((row) => {
         const pay = computeQaAssignmentPay({
           assignment: row,
