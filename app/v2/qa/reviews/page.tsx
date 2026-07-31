@@ -4,6 +4,7 @@ import { toZonedTime } from "date-fns-tz";
 import { QaAssignmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
 import { ChevronRight } from "lucide-react";
 
@@ -56,9 +57,21 @@ type ReviewRow = {
   } | null;
 };
 
-async function getReviews(): Promise<ReviewRow[]> {
+/**
+ * An inspector's own history. This query previously had NO `where` clause at
+ * all, so every inspector saw the last 30 assignments in the entire business —
+ * other inspectors' work included, each with a working "open" link. Admins and
+ * ops managers keep the whole-team view; an inspector sees only what they were
+ * assigned or picked up.
+ */
+async function getReviews(viewer: { id: string; role: Role }): Promise<ReviewRow[]> {
+  const scoped =
+    viewer.role === Role.ADMIN || viewer.role === Role.OPS_MANAGER
+      ? {}
+      : qaAssignmentOwnerWhere(viewer.id);
   return db.qaAssignment
     .findMany({
+      where: scoped,
       orderBy: [{ updatedAt: "desc" }],
       take: 30,
       select: {
@@ -113,22 +126,32 @@ function dateTime(value: Date | null | undefined): string | null {
 }
 
 export default async function QaReviewsPage() {
-  await requireRole([Role.QA_INSPECTOR, Role.ADMIN, Role.OPS_MANAGER]);
-  const reviews = await getReviews();
+  const session = await requireRole([Role.QA_INSPECTOR, Role.ADMIN, Role.OPS_MANAGER]);
+  const reviews = await getReviews({ id: session.user.id, role: session.user.role as Role });
+  // An inspection someone walked away from is the most actionable row here, so
+  // it floats to the top regardless of when it was last touched.
+  const ordered = [...reviews].sort((a, b) => {
+    const rank = (r: ReviewRow) => (r.status === QaAssignmentStatus.IN_PROGRESS ? 0 : 1);
+    return rank(a) - rank(b);
+  });
 
   return (
     <div className="space-y-6">
       <EPageHeader eyebrow="History" title="Reviews" description="Completed and pending inspections." />
-      {reviews.length === 0 ? (
+      {ordered.length === 0 ? (
         <EEmptyState eyebrow="Quiet" title="No reviews yet" description="Inspections will appear here as jobs are submitted." />
       ) : (
         <div className="space-y-3">
-          {reviews.map((r) => {
+          {ordered.map((r) => {
             const propName = r.job?.property?.name ?? "Property";
             const suburb = r.job?.property?.suburb ?? "";
             const cleaner = r.job?.assignments[0]?.user?.name ?? "Unassigned";
             const jobId = r.job?.id ?? null;
             const isDone = r.status === QaAssignmentStatus.COMPLETED;
+            // A started-but-unfinished inspection used to say "Start review",
+            // which reads as "begin again" and hid the fact that there is work
+            // waiting to be picked back up.
+            const inProgress = r.status === QaAssignmentStatus.IN_PROGRESS;
             const jobDate = shortDate(r.job?.scheduledDate);
             const reviewedAt = dateTime(r.completedAt);
             const verdict = r.job?.qaReviews?.[0] ?? null;
@@ -170,7 +193,7 @@ export default async function QaReviewsPage() {
                         {/* A submitted inspection is not terminal — the workspace
                             offers "Reopen inspection" to whoever may amend it
                             (lib/qa/reopen.ts), so say so on the way in. */}
-                        {isDone ? "Open / reopen" : "Start review"}
+                        {isDone ? "Open / reopen" : inProgress ? "Continue review" : "Start review"}
                         <ChevronRight className="h-4 w-4" />
                       </Link></EButton>
                   ) : null}

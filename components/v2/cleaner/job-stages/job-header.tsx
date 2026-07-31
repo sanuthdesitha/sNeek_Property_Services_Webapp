@@ -7,7 +7,7 @@
  * A live "time on site" chip appears once the cleaner is clocked in.
  */
 import * as React from "react";
-import { Navigation, Phone, Info, Check, Copy } from "lucide-react";
+import { Navigation, Phone, Info, Check, Copy, Pause, Play } from "lucide-react";
 import { EBadge } from "@/components/v2/ui/primitives";
 import { cn } from "@/lib/utils";
 import { LiveTimerChip } from "@/components/v2/cleaner/job-stages/parts";
@@ -62,6 +62,7 @@ export function JobHeader({ api }: { api: WorkspaceApi }) {
               {titleCase(status || "")}
             </EBadge>
             <LiveTimerChip timeState={timeState} />
+            <HeaderClockControl api={api} />
           </div>
           <button
             type="button"
@@ -112,6 +113,51 @@ export function JobHeader({ api }: { api: WorkspaceApi }) {
         </div>
       </div>
     </header>
+  );
+}
+
+/**
+ * Pause / resume the clock, from ANY stage.
+ *
+ * The only clock control used to live inside StageSetup (stage 3), and clocking
+ * in auto-advances the workspace to stage 4 — so the Pause button unmounted at
+ * the exact moment it became useful, and a cleaner had no way to pause a job
+ * short of navigating backwards to a step marked complete. That is why "jobs
+ * cannot be paused in v2". The header is on every stage, so the control lives
+ * here now; StageSetup keeps its larger card for the initial clock-in.
+ *
+ * Resume is offered too: a job can reach PAUSED without the cleaner touching
+ * anything, because the geofence sweep closes the time log server-side when
+ * they leave the site.
+ */
+function HeaderClockControl({ api }: { api: WorkspaceApi }) {
+  const isRunning = Boolean(api.timeState?.isRunning);
+  const paused = api.status === "PAUSED";
+  // Nothing to pause and nothing to resume — the initial clock-in belongs to
+  // the setup stage's full card, not to a 32px header button.
+  if (api.locked) return null;
+  if (!isRunning && !paused) return null;
+
+  const busy = api.busy === "pause" || api.busy === "clockIn";
+  const label = isRunning ? "Pause clock" : "Resume clock";
+
+  return (
+    <button
+      type="button"
+      onClick={isRunning ? api.pauseClock : api.clockIn}
+      disabled={busy || (!isRunning && api.clockInDisabled)}
+      aria-label={label}
+      title={label}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-[var(--e-radius-pill)] border px-2 py-1 text-[0.75rem] font-[600] transition-colors disabled:opacity-50",
+        isRunning
+          ? "border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))]"
+          : "border-[hsl(var(--e-success))] bg-[hsl(var(--e-success-soft))] text-[hsl(var(--e-success))]"
+      )}
+    >
+      {isRunning ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+      <span>{isRunning ? "Pause" : "Resume"}</span>
+    </button>
   );
 }
 

@@ -7,23 +7,39 @@ import { AlertTriangle, ClipboardCheck, Star, Timer } from "lucide-react";
 import { QaQueueWorkspace } from "@/components/v2/qa/qa-queue-workspace";
 import { QaDayPlanner } from "@/components/v2/qa/qa-day-planner";
 import { getAppSettings } from "@/lib/settings";
+import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
 
 export const metadata = { title: "Today · Estate QA" };
 export const dynamic = "force-dynamic";
 
 const TZ = "Australia/Sydney";
 
-async function getQuality() {
+/**
+ * Today's tiles. These counted every assignment in the business, so an
+ * inspector's "in progress" tile reported other inspectors' work — wrong on its
+ * own, and actively confusing sitting above an assign-only queue. Admin and ops
+ * keep the whole-board numbers; an inspector sees their own.
+ */
+async function getQuality(viewer: { id: string; role: Role }) {
   const nowSyd = toZonedTime(new Date(), TZ);
   const todayStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
   const todayEnd = new Date(todayStart.getTime() + 86_400_000);
 
+  const mine =
+    viewer.role === Role.ADMIN || viewer.role === Role.OPS_MANAGER
+      ? {}
+      : qaAssignmentOwnerWhere(viewer.id);
+
   const [awaiting, inProgress, completedToday, reworkToday] = await Promise.all([
-    db.qaAssignment.count({ where: { status: { in: [QaAssignmentStatus.OPEN, QaAssignmentStatus.ASSIGNED] } } }).catch(() => 0),
-    db.qaAssignment.count({ where: { status: QaAssignmentStatus.IN_PROGRESS } }).catch(() => 0),
     db.qaAssignment
-      .count({ where: { status: QaAssignmentStatus.COMPLETED, completedAt: { gte: todayStart, lt: todayEnd } } })
+      .count({ where: { ...mine, status: { in: [QaAssignmentStatus.OPEN, QaAssignmentStatus.ASSIGNED] } } })
       .catch(() => 0),
+    db.qaAssignment.count({ where: { ...mine, status: QaAssignmentStatus.IN_PROGRESS } }).catch(() => 0),
+    db.qaAssignment
+      .count({ where: { ...mine, status: QaAssignmentStatus.COMPLETED, completedAt: { gte: todayStart, lt: todayEnd } } })
+      .catch(() => 0),
+    // Rework transfers are a team-quality signal about CLEANERS, not this
+    // inspector's workload, so they stay business-wide on purpose.
     db.qaReworkTransfer.count({ where: { createdAt: { gte: todayStart, lt: todayEnd } } }).catch(() => 0),
   ]);
 
@@ -32,7 +48,10 @@ async function getQuality() {
 
 export default async function QaTodayPage() {
   const session = await requireRole([Role.QA_INSPECTOR, Role.ADMIN, Role.OPS_MANAGER]);
-  const { awaiting, inProgress, completedToday, reworkToday } = await getQuality();
+  const { awaiting, inProgress, completedToday, reworkToday } = await getQuality({
+    id: session.user.id,
+    role: session.user.role as Role,
+  });
   // QA-pay defaults drive the admin per-inspection pay editor preview.
   const settings = await getAppSettings();
 

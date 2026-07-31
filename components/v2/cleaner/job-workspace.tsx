@@ -427,6 +427,26 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     void load();
   }, [load]);
 
+  // The server can stop the clock without the cleaner touching anything: the
+  // geofence sweep closes the open TimeLog and sets PAUSED when they leave the
+  // site (lib/gps/departure-clockout.ts). The workspace only loaded once on
+  // mount, so it kept rendering a running, ticking timer against a log that was
+  // already closed — the cleaner watched time accrue that was not being
+  // recorded. Re-read on focus, and periodically as a backstop.
+  React.useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    const timer = setInterval(refresh, 90_000);
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+      clearInterval(timer);
+    };
+  }, [load]);
+
   const job = payload?.job;
   const template = payload?.template;
   const schema: FormSchema | null = template?.schema ?? null;
