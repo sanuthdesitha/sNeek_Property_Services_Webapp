@@ -29,6 +29,8 @@ export function ReportActions({
   clientEmail,
   hasSubmission = true,
   hasQaReview = true,
+  qaReviewId = null,
+  initialQaCleanerVisible = true,
 }: {
   jobId: string;
   initialClientVisible: boolean;
@@ -38,12 +40,18 @@ export function ReportActions({
   hasSubmission?: boolean;
   /** False until the job has a QA review — gates the QA report download. */
   hasQaReview?: boolean;
+  /** The authoritative QA review, needed to toggle cleaner visibility. */
+  qaReviewId?: string | null;
+  /** Whether the cleaner may currently download their (cleaner-safe) QA report. */
+  initialQaCleanerVisible?: boolean;
 }) {
   const [clientVisible, setClientVisible] = useState(initialClientVisible);
   const [sentToClient, setSentToClient] = useState(initialSentToClient);
   const [downloading, setDownloading] = useState(false);
   const [downloadingQa, setDownloadingQa] = useState(false);
   const [updatingVisibility, setUpdatingVisibility] = useState(false);
+  const [qaCleanerVisible, setQaCleanerVisible] = useState(initialQaCleanerVisible ?? true);
+  const [updatingQaVisibility, setUpdatingQaVisibility] = useState(false);
   const [sharing, setSharing] = useState(false);
 
   async function downloadReport() {
@@ -58,6 +66,36 @@ export function ReportActions({
       });
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function toggleQaCleanerVisibility() {
+    if (!qaReviewId) return;
+    const next = !qaCleanerVisible;
+    setUpdatingQaVisibility(true);
+    try {
+      const res = await fetch(`/api/admin/qa/reviews/${qaReviewId}/visibility`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visible: next }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Could not update visibility.");
+      setQaCleanerVisible(next);
+      toast({
+        title: next ? "Shared with the cleaner" : "Hidden from the cleaner",
+        description: next
+          ? "They can download their copy of this inspection."
+          : "They can no longer download this inspection.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Update failed",
+        description: err?.message ?? "Could not update visibility.",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingQaVisibility(false);
     }
   }
 
@@ -182,6 +220,30 @@ export function ReportActions({
             {sharing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
             {sharing ? "Sharing…" : "Share to client"}
           </EButton>
+          {/* Separate from the CLIENT visibility switch above: this controls
+              whether the CLEANER can download their own (cleaner-safe) copy of
+              the inspection. Shared by default. */}
+          {qaReviewId ? (
+            <EButton
+              variant="outline"
+              size="sm"
+              onClick={toggleQaCleanerVisibility}
+              disabled={updatingQaVisibility}
+            >
+              {updatingQaVisibility ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : qaCleanerVisible ? (
+                <EyeOff className="h-3.5 w-3.5" />
+              ) : (
+                <Eye className="h-3.5 w-3.5" />
+              )}
+              {updatingQaVisibility
+                ? "Updating…"
+                : qaCleanerVisible
+                  ? "Hide QA report from cleaner"
+                  : "Show QA report to cleaner"}
+            </EButton>
+          ) : null}
         </div>
         {!hasSubmission ? (
           <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
