@@ -1,10 +1,19 @@
 "use client";
 
 /**
- * ESTATE job manage modal — per-job mutations from the jobs board and the job
- * detail page, v2-native and at full v1 "Edit Job" parity. Every control reuses
- * the exact same endpoint + payload as the v1 console; only the presentation is
- * Estate. Sections (segmented switcher):
+ * ESTATE job manage PANEL — per-job mutations, v2-native and at full v1
+ * "Edit Job" parity. Every control reuses the exact same endpoint + payload as
+ * the v1 console; only the presentation is Estate.
+ *
+ * This used to be a modal (`JobManageModal`) opened from a "Manage" button. It
+ * was the ONLY way to edit a job in v2 — the detail page beneath it was a flat
+ * stack of sixteen read-only cards — so every concern had two homes that
+ * disagreed: schedule was page-read/modal-write, laundry sat on the page but
+ * under *Billing* in the modal, and QA had a page panel but no modal section at
+ * all. The modal is retired (owner decision, 2026-08); each section now renders
+ * INLINE inside its matching tab on the detail page, one home per concern.
+ *
+ * Sections, selected by the `section` prop:
  *   · Schedule       date/start/due (POST /api/admin/phase4/reschedule/:id/apply)
  *                    + end time / completion (+1 day) / early-late presets
  *                      (PATCH /api/admin/jobs/:id — partial)
@@ -16,34 +25,27 @@
  *   · Billing        fixed price · invoice note (PATCH) + submission laundry
  *                      (PATCH /api/admin/form-submissions/:id) when a submission
  *                      exists on the job
+ *   · Laundry        submission laundry ready/outcome/bag location
+ *                      (PATCH /api/admin/form-submissions/:id). Split out of
+ *                      Billing so it lives beside the job's laundry task rather
+ *                      than under an unrelated heading.
  *   · Skip           set/approve/decline/unskip (PATCH /api/admin/jobs/:id/skip)
  *   · Danger         reset (POST) / delete (DELETE) — both security-verified
  *
- * The board passes a rich job object (all scalars + assignments incl. userId /
- * payRate); the detail page passes the same shape plus a `submission` for the
- * laundry controls. Everything degrades gracefully when a field is absent.
+ * Callers pass a rich job object (all scalars + assignments incl. userId /
+ * payRate) plus a `submission` for the laundry controls. Everything degrades
+ * gracefully when a field is absent.
  */
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import {
-  CalendarClock,
-  CircleDollarSign,
-  CircleSlash,
-  ClipboardList,
-  MessageCircle,
-  Plus,
-  ShieldAlert,
-  Trash2,
-  Users,
-} from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import {
   EConfirmModal,
   EField,
   EInput,
-  EModal,
   ESelect,
   ESwitch,
   ETextarea,
@@ -54,24 +56,20 @@ import {
   type JobSpecialRequestTask,
   type JobTimingPreset,
 } from "@/lib/jobs/meta";
-import { statusLabel, statusTone } from "./job-row";
-import { JobChatAdmin } from "./job-chat-admin";
+import { statusLabel } from "./job-row";
 import { JobResetDialog } from "./job-reset-dialog";
 import { JobPayCard } from "@/components/v2/shared/job-pay-card";
 
 const TZ = "Australia/Sydney";
 
-type Section = "schedule" | "people" | "scope" | "billing" | "chat" | "skip" | "danger";
-
-const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
-  { id: "schedule", label: "Schedule", icon: <CalendarClock className="h-3.5 w-3.5" /> },
-  { id: "people", label: "People & pay", icon: <Users className="h-3.5 w-3.5" /> },
-  { id: "scope", label: "Scope & tasks", icon: <ClipboardList className="h-3.5 w-3.5" /> },
-  { id: "billing", label: "Billing", icon: <CircleDollarSign className="h-3.5 w-3.5" /> },
-  { id: "chat", label: "Messages", icon: <MessageCircle className="h-3.5 w-3.5" /> },
-  { id: "skip", label: "Skip", icon: <CircleSlash className="h-3.5 w-3.5" /> },
-  { id: "danger", label: "Danger", icon: <ShieldAlert className="h-3.5 w-3.5" /> },
-];
+export type JobManageSection =
+  | "schedule"
+  | "people"
+  | "scope"
+  | "billing"
+  | "laundry"
+  | "skip"
+  | "danger";
 
 // v1's edit dropdown offers exactly this set (keys of STATUS_COLORS).
 const JOB_STATUS_OPTIONS = [
@@ -121,20 +119,17 @@ function rulePayload(preset: JobTimingPreset, time: string) {
   };
 }
 
-export function JobManageModal({
+export function JobManagePanel({
   job,
-  open,
-  onClose,
+  section,
   onChanged,
 }: {
   job: any | null;
-  open: boolean;
-  onClose: () => void;
-  /** Called after any successful mutation so the board can reload. */
+  /** Which concern this panel is editing — set by the tab that renders it. */
+  section: JobManageSection;
+  /** Called after any successful mutation so the host can reload. */
   onChanged: () => void | Promise<void>;
 }) {
-  const [section, setSection] = useState<Section>("schedule");
-
   // Schedule — reschedule (separate endpoint)
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -212,10 +207,12 @@ export function JobManageModal({
         ? job.estimatedHours
         : null;
 
+  // Hydrate every field from the job. Re-runs when the server component
+  // re-renders with fresh data after a save, so the inputs reflect what was
+  // actually persisted rather than the last thing typed.
   useEffect(() => {
-    if (!open || !job) return;
+    if (!job) return;
     const meta = parseJobInternalNotes(job.internalNotes);
-    setSection("schedule");
 
     // Schedule
     setDate(sydneyDateInput(job.scheduledDate));
@@ -260,7 +257,7 @@ export function JobManageModal({
     setBagLocation(sub?.bagLocation ?? "");
 
     setSkipReason("");
-  }, [open, job]);
+  }, [job]);
 
   if (!job) return null;
 
@@ -298,7 +295,6 @@ export function JobManageModal({
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not reschedule.");
       toast({ title: "Job rescheduled" });
-      onClose();
       await onChanged();
     } catch (err: any) {
       toast({ title: "Reschedule failed", description: err?.message ?? "Could not reschedule.", variant: "destructive" });
@@ -317,7 +313,6 @@ export function JobManageModal({
         lateCheckout: rulePayload(latePreset, lateTime),
       });
       toast({ title: "Schedule details saved" });
-      onClose();
       await onChanged();
     } catch (err: any) {
       toast({ title: "Update failed", description: err?.message ?? "Could not update job.", variant: "destructive" });
@@ -362,7 +357,6 @@ export function JobManageModal({
         ...(needsResetConfirm ? { confirmCompletedReset: true } : {}),
       });
       toast({ title: "Job updated" });
-      onClose();
       await onChanged();
     } catch (err: any) {
       toast({ title: "Update failed", description: err?.message ?? "Could not update job.", variant: "destructive" });
@@ -394,7 +388,6 @@ export function JobManageModal({
           .filter((t) => t.title.length > 0),
       });
       toast({ title: "Job scope saved" });
-      onClose();
       await onChanged();
     } catch (err: any) {
       toast({ title: "Update failed", description: err?.message ?? "Could not update job.", variant: "destructive" });
@@ -452,7 +445,6 @@ export function JobManageModal({
         invoiceNote: invoiceNote.trim() === "" ? null : invoiceNote.trim(),
       });
       toast({ title: "Billing updated" });
-      onClose();
       await onChanged();
     } catch (err: any) {
       toast({ title: "Update failed", description: err?.message ?? "Could not update job.", variant: "destructive" });
@@ -477,7 +469,6 @@ export function JobManageModal({
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not update submission.");
       toast({ title: "Laundry details saved" });
-      onClose();
       await onChanged();
     } catch (err: any) {
       toast({ title: "Update failed", description: err?.message ?? "Could not update submission.", variant: "destructive" });
@@ -507,7 +498,6 @@ export function JobManageModal({
                 : "Clean restored",
       });
       setSkipReason("");
-      onClose();
       await onChanged();
     } catch (err: any) {
       toast({ title: "Update failed", description: err?.message ?? "Could not update skip state.", variant: "destructive" });
@@ -528,7 +518,6 @@ export function JobManageModal({
       if (!res.ok) throw new Error(body.error ?? "Could not delete job.");
       toast({ title: "Job deleted" });
       setDeleteOpen(false);
-      onClose();
       await onChanged();
     } catch (err: any) {
       toast({ title: "Delete failed", description: err?.message ?? "Could not delete job.", variant: "destructive" });
@@ -539,38 +528,7 @@ export function JobManageModal({
 
   return (
     <>
-      <EModal open={open} onClose={onClose} title="Manage job" eyebrow={job.jobNumber ?? "Jobs"} size="xl">
-        <div className="space-y-5">
-          {/* Job summary strip */}
-          <div className="flex flex-wrap items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted)/0.5)] px-3 py-2.5">
-            <p className="e-serif min-w-0 truncate text-[0.9375rem] font-[520]">{job.property?.name ?? "Job"}</p>
-            <EBadge tone={statusTone(String(job.status ?? ""))} soft>{statusLabel(String(job.status ?? ""))}</EBadge>
-            {isDraft ? <EBadge tone="neutral" soft>Draft</EBadge> : null}
-            {skipStatus === "REQUESTED" ? <EBadge tone="warning" soft>Skip requested</EBadge> : null}
-            {skipStatus === "SKIPPED" ? <EBadge tone="danger" soft>Skipped</EBadge> : null}
-          </div>
-
-          {/* Section chips */}
-          <div className="inline-flex flex-wrap items-center gap-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
-            {SECTIONS.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setSection(s.id)}
-                aria-current={section === s.id ? "page" : undefined}
-                className={
-                  "inline-flex items-center gap-1.5 rounded-[var(--e-radius)] px-3 py-1.5 text-[0.8125rem] font-[550] transition-colors duration-[160ms] " +
-                  (section === s.id
-                    ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
-                    : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]")
-                }
-              >
-                {s.icon}
-                {s.label}
-              </button>
-            ))}
-          </div>
-
+      <div className="space-y-5">
           {/* ── Schedule ─────────────────────────────────────────────────── */}
           {section === "schedule" ? (
             <div className="space-y-5">
@@ -649,7 +607,6 @@ export function JobManageModal({
                   </EField>
                 </div>
                 <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-                  <EButton variant="outline" onClick={onClose} disabled={savingSchedule}>Cancel</EButton>
                   <EButton variant="gold" onClick={saveScheduleDetails} disabled={savingSchedule}>
                     {savingSchedule ? "Saving…" : "Save schedule details"}
                   </EButton>
@@ -733,16 +690,11 @@ export function JobManageModal({
               </div>
 
               <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-                <EButton variant="outline" onClick={onClose} disabled={savingPeople}>Cancel</EButton>
                 <EButton variant="gold" onClick={savePeople} disabled={savingPeople}>
                   {savingPeople ? "Saving…" : "Save changes"}
                 </EButton>
               </div>
 
-              {/* Canonical per-payee pay summary: base + every adjustment
-                  (automatic or manual, editable in place when unsettled) +
-                  the exact total the invoice/payroll will pay. */}
-              <JobPayCard jobId={String(job.id)} />
             </div>
           ) : null}
 
@@ -846,7 +798,6 @@ export function JobManageModal({
               </div>
 
               <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-                <EButton variant="outline" onClick={onClose} disabled={savingScope}>Cancel</EButton>
                 <EButton variant="gold" onClick={saveScope} disabled={savingScope}>
                   {savingScope ? "Saving…" : "Save scope"}
                 </EButton>
@@ -888,12 +839,26 @@ export function JobManageModal({
                 </EField>
               </div>
               <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-                <EButton variant="outline" onClick={onClose} disabled={savingBilling}>Cancel</EButton>
                 <EButton variant="gold" onClick={saveBilling} disabled={savingBilling}>
                   {savingBilling ? "Saving…" : "Save billing"}
                 </EButton>
               </div>
 
+              {/* Canonical per-payee pay summary: base + every adjustment
+                  (automatic or manual, editable in place when unsettled) + the
+                  exact total the invoice/payroll will pay. It belongs beside
+                  the money, not under People. */}
+              <JobPayCard jobId={String(job.id)} />
+            </div>
+          ) : null}
+
+          {/* ── Laundry ──────────────────────────────────────────────────────
+              Its own section rather than a block inside Billing: the job's
+              laundry task lives on the Laundry tab, and having the only way to
+              CORRECT the outcome sit under "Billing" is exactly the kind of
+              split home this refactor exists to remove. */}
+          {section === "laundry" ? (
+            <div className="space-y-4">
               <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
                 <p className="text-[0.8125rem] font-[550]">Submission laundry</p>
                 {!submission?.id ? (
@@ -933,16 +898,8 @@ export function JobManageModal({
             </div>
           ) : null}
 
-          {/* ── Messages (per-job client↔admin chat) ─────────────────────── */}
-          {section === "chat" ? (
-            <div className="space-y-3">
-              <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-                This job's thread with the client. Client↔admin only — use "Relay to cleaner" to
-                forward a client message to the assigned cleaner as a notification.
-              </p>
-              <JobChatAdmin jobId={String(job.id)} />
-            </div>
-          ) : null}
+          {/* Messages used to be a section here AND a card on the detail page —
+              the same thread rendered twice. The card is the one home now. */}
 
           {/* ── Skip ─────────────────────────────────────────────────────── */}
           {section === "skip" ? (
@@ -1004,8 +961,7 @@ export function JobManageModal({
               </div>
             </div>
           ) : null}
-        </div>
-      </EModal>
+      </div>
 
       <JobResetDialog
         open={resetOpen}
@@ -1013,7 +969,6 @@ export function JobManageModal({
         onClose={() => setResetOpen(false)}
         onDone={async () => {
           toast({ title: "Job reset" });
-          onClose();
           await onChanged();
         }}
       />

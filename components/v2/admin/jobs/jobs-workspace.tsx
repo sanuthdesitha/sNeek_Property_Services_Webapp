@@ -34,7 +34,6 @@ import {
   scheduledLabel,
   statusLabel,
 } from "./job-row";
-import { JobManageModal } from "./job-manage";
 import { groupJobsBySydneyDay } from "@/lib/jobs/date-grouping";
 
 const TZ = "Australia/Sydney";
@@ -198,7 +197,17 @@ export function JobsWorkspace() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [assignJob, setAssignJob] = useState<any | null>(null);
-  const [manageJob, setManageJob] = useState<any | null>(null);
+  /**
+   * "Manage" from the board now OPENS THE JOB instead of a modal.
+   *
+   * The modal it used to open is retired: editing lives in the tabs on the
+   * detail page, which is the one home for each concern. Landing on
+   * `?tab=schedule` puts the admin on the same controls the button used to
+   * show, with the rest of the job visible around them.
+   */
+  const openManage = (job: any) => {
+    if (job?.id) window.location.href = `/v2/admin/jobs/${job.id}?tab=schedule`;
+  };
   const [assignSelected, setAssignSelected] = useState<string[]>([]);
   const [assignSubmitting, setAssignSubmitting] = useState(false);
 
@@ -854,7 +863,7 @@ export function JobsWorkspace() {
                     selected={selectedIds.includes(job.id)}
                     onToggleSelect={toggleSelect}
                     onQuickAssign={openAssign}
-                    onManage={setManageJob}
+                    onManage={openManage}
                   />
                 ))}
               </div>
@@ -877,7 +886,7 @@ export function JobsWorkspace() {
                     selected={selectedIds.includes(job.id)}
                     onToggleSelect={toggleSelect}
                     onQuickAssign={openAssign}
-                    onManage={setManageJob}
+                    onManage={openManage}
                   />
                 ))}
                 {lane.jobs.length === 0 ? (
@@ -937,14 +946,6 @@ export function JobsWorkspace() {
           </EButton>
         </div>
       ) : null}
-
-      {/* ── Manage job (reschedule · pricing · skip · danger) ── */}
-      <JobManageModal
-        job={manageJob}
-        open={Boolean(manageJob)}
-        onClose={() => setManageJob(null)}
-        onChanged={() => loadJobs(pagination.page)}
-      />
 
       {/* ── Quick assign ── */}
       <EModal open={Boolean(assignJob)} title="Assign cleaners" onClose={() => setAssignJob(null)}>

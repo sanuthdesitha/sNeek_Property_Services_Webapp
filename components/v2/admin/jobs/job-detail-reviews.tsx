@@ -9,39 +9,43 @@
  *                        { decision, decisionNote?, newScheduledDate (required
  *                          on APPROVE), previousCleanerHours?, newCleanerHours?,
  *                          transportAllowance? }
- *   · Manage header    mounts the shared JobManageModal (board component) so
- *                        the detail page can reschedule / edit / skip / reset /
- *                        delete without leaving the page.
+ *   · Manage editor    mounts a JobManagePanel section INLINE inside the tab
+ *                        that owns that concern (the "Manage" modal is retired)
+ *                        and refreshes the server page after each save.
  */
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { Check, Settings2, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ETextarea } from "@/components/v2/admin/estate-kit";
-import { JobManageModal } from "@/components/v2/admin/jobs/job-manage";
+import {
+  JobManagePanel,
+  type JobManageSection,
+} from "@/components/v2/admin/jobs/job-manage";
 import { AccessMediaGallery } from "@/components/v2/admin/jobs/submission-review";
 
-/* ── Manage trigger (header) ────────────────────────────────────────────── */
+/* ── Inline manage editor ───────────────────────────────────────────────── */
 
-export function JobDetailManage({ job }: { job: any }) {
+/**
+ * Bridge between the SERVER detail page and the client-side manage panel.
+ *
+ * The page is a server component and each tab renders its own section, so this
+ * exists only to hold the `router.refresh()` that re-reads the job after a
+ * save — the panel's inputs then re-hydrate from what was actually persisted
+ * rather than from whatever was last typed.
+ */
+export function JobDetailManage({
+  job,
+  section,
+}: {
+  job: any;
+  section: JobManageSection;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <EButton variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <Settings2 className="h-3.5 w-3.5" /> Manage
-      </EButton>
-      <JobManageModal
-        job={job}
-        open={open}
-        onClose={() => setOpen(false)}
-        onChanged={() => router.refresh()}
-      />
-    </>
-  );
+  return <JobManagePanel job={job} section={section} onChanged={() => router.refresh()} />;
 }
 
 /* ── Client task requests ───────────────────────────────────────────────── */

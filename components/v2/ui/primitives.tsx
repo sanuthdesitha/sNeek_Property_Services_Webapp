@@ -270,6 +270,80 @@ export function EAlert({
   );
 }
 
+/* ── Tabs ──────────────────────────────────────────────────────────────── */
+
+export interface ETabItem {
+  /** Query-param value, e.g. "schedule". */
+  key: string;
+  label: React.ReactNode;
+  icon?: React.ReactNode;
+  /** Optional count/status chip rendered after the label. */
+  badge?: React.ReactNode;
+}
+
+/**
+ * Query-param tab bar.
+ *
+ * Deliberately built from links rather than a client component with local
+ * state: the pages that need tabs (job details first) are SERVER components,
+ * and every tab must be deep-linkable — approvals queues, notification CTAs and
+ * admin bookmarks all point at a specific concern on a specific job. `?tab=`
+ * gives that for free and survives a reload; local state gives neither.
+ *
+ * The visual language is lifted from the chip row the job manage modal used,
+ * which was already duplicated ad hoc in several places — this promotes it to
+ * the kit.
+ */
+export function ETabs({
+  items,
+  active,
+  hrefFor,
+  className,
+  ariaLabel = "Sections",
+}: {
+  items: ETabItem[];
+  active: string;
+  /** Build the href for a tab key — the caller owns the rest of the query. */
+  hrefFor: (key: string) => string;
+  className?: string;
+  ariaLabel?: string;
+}) {
+  return (
+    <nav
+      aria-label={ariaLabel}
+      className={cn(
+        // Scrolls horizontally on a phone rather than wrapping into a tall
+        // stack that pushes the content off-screen.
+        "-mx-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        className
+      )}
+    >
+      <div className="inline-flex items-center gap-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
+        {items.map((item) => {
+          const isActive = item.key === active;
+          return (
+            <a
+              key={item.key}
+              href={hrefFor(item.key)}
+              aria-current={isActive ? "page" : undefined}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1.5 rounded-[var(--e-radius)] px-3 py-1.5 text-[0.8125rem] font-[550] transition-colors duration-[160ms]",
+                isActive
+                  ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
+                  : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
+              )}
+            >
+              {item.icon}
+              {item.label}
+              {item.badge}
+            </a>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
 /* ── Empty state ───────────────────────────────────────────────────────── */
 export function EEmptyState({
   eyebrow,
