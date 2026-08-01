@@ -922,7 +922,10 @@ export function JobsWorkspace() {
 
       {/* ── Bulk action bar ── */}
       {selectedIds.length > 0 ? (
-        <div className="sticky bottom-5 z-30 mx-auto flex w-fit flex-wrap items-center gap-3 rounded-[var(--e-radius-xl)] border border-[hsl(var(--e-border-gold)/0.5)] bg-[hsl(var(--e-surface)/0.96)] px-5 py-3 shadow-[var(--e-elevation-3)] backdrop-blur">
+        // Floats clear of the mobile tab bar (4.75rem) plus the home
+        // indicator; `flex-wrap` made it grow into a tall block that covered
+        // the rows it acts on, so the actions scroll sideways instead.
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] left-1/2 z-40 flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-3 overflow-x-auto rounded-[var(--e-radius-xl)] border border-[hsl(var(--e-border-gold)/0.5)] bg-[hsl(var(--e-surface)/0.96)] px-5 py-3 shadow-[var(--e-elevation-3)] backdrop-blur lg:bottom-6">
           <p className="text-[0.875rem]">
             <span className="e-numeral text-[1rem]">{selectedIds.length}</span> selected
           </p>

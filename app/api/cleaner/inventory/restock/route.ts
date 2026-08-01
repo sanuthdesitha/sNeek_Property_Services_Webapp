@@ -12,7 +12,9 @@ async function accessibleProperties(userId: string) {
   const jobs = await db.job.findMany({
     where: {
       assignments: { some: { userId, removedAt: null } },
-      property: { inventoryEnabled: true },
+      // `isActive` was missing, so a retired property kept offering restock
+      // long after the business stopped cleaning it.
+      property: { isActive: true, inventoryEnabled: true },
     },
     select: { property: { select: { id: true, name: true, suburb: true } } },
     distinct: ["propertyId"],

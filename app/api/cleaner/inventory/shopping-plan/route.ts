@@ -19,8 +19,23 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const propertyId = (searchParams.get("propertyId") ?? "").trim();
 
+    // A cleaner plans shopping for the properties they actually work at. This
+    // query had no assignment filter, so it listed the whole business — both a
+    // privacy leak and why the screen was unusable. Admin/ops keep the full
+    // list; planning across every property is their job.
     const properties = await db.property.findMany({
-      where: { isActive: true, inventoryEnabled: true, ...(propertyId ? { id: propertyId } : {}) },
+      where: {
+        isActive: true,
+        inventoryEnabled: true,
+        ...(propertyId ? { id: propertyId } : {}),
+        ...(session.user.role === Role.CLEANER
+          ? {
+              jobs: {
+                some: { assignments: { some: { userId: session.user.id, removedAt: null } } },
+              },
+            }
+          : {}),
+      },
       select: { id: true, name: true, suburb: true },
       orderBy: { name: "asc" },
     });
