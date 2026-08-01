@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { jobDetailTabHref, resolveJobDetailTab } from "@/lib/jobs/detail-tabs";
 import { offSiteReasonLabel, reasonClaimsOnSite } from "@/lib/gps/off-site-reasons";
 import {
   EBadge,
@@ -15,6 +16,8 @@ import {
   ECardHeader,
   ECardTitle,
   EPageHeader,
+  ETabs,
+  type ETabItem,
 } from "@/components/v2/ui/primitives";
 import {
   ArrowLeft,
@@ -257,7 +260,13 @@ async function getJob(id: string) {
     .catch(() => null);
 }
 
-export default async function AdminJobDetailPage({ params }: { params: { id: string } }) {
+export default async function AdminJobDetailPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const job = await getJob(params.id);
   if (!job) notFound();
@@ -518,6 +527,30 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
   const linkedInvoiceLines = job.invoiceLines ?? [];
   const hasLinkedRefs = linkedCases.length > 0 || linkedInvoiceLines.length > 0;
 
+  const tab = resolveJobDetailTab(searchParams?.tab);
+  const tabHref = (key: string) => jobDetailTabHref(job.id, key);
+  const skipStatus = String(job.cleanSkipStatus ?? "NONE");
+  const tabItems: ETabItem[] = [
+    { key: "overview", label: "Overview" },
+    { key: "schedule", label: "Schedule" },
+    { key: "people", label: "People" },
+    { key: "quality", label: "Quality" },
+    { key: "laundry", label: "Laundry" },
+    { key: "money", label: "Money" },
+    { key: "forms", label: "Forms & report" },
+    {
+      key: "scope",
+      label: "Scope & requests",
+      badge:
+        pendingTaskCount > 0 ? (
+          <EBadge tone="warning" soft>{pendingTaskCount}</EBadge>
+        ) : null,
+    },
+    { key: "messages", label: "Messages" },
+    { key: "activity", label: "Activity" },
+    { key: "danger", label: "Danger" },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
@@ -532,12 +565,18 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
         actions={
           <div className="flex items-center gap-2">
             <EBadge tone={statusTone(job.status)} soft>{titleCase(job.status)}</EBadge>
+            {jobMeta.isDraft ? <EBadge tone="neutral" soft>Draft</EBadge> : null}
+            {skipStatus === "REQUESTED" ? <EBadge tone="warning" soft>Skip requested</EBadge> : null}
+            {skipStatus === "SKIPPED" ? <EBadge tone="danger" soft>Skipped</EBadge> : null}
             {showReminderButton ? <JobReminderButton jobId={job.id} statusLabel={titleCase(job.status)} /> : null}
-            <JobDetailManage job={manageJob} />
           </div>
         }
       />
 
+      <ETabs items={tabItems} active={tab} hrefFor={tabHref} ariaLabel="Job sections" />
+
+      {/* ── Overview ─────────────────────────────────────────────────────── */}
+      {tab === "overview" ? (
       <div className="grid gap-4 md:grid-cols-2">
         {/* Property & client */}
         <ECard>
@@ -574,6 +613,18 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           </ECardBody>
         </ECard>
 
+        {job.notes ? (
+          <ECard className="md:col-span-2">
+            <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Client-facing notes</ECardTitle></ECardHeader>
+            <ECardBody className="pt-0 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{job.notes}</ECardBody>
+          </ECard>
+        ) : null}
+      </div>
+      ) : null}
+
+      {/* ── People ───────────────────────────────────────────────────────── */}
+      {tab === "people" ? (
+      <div className="space-y-4">
         {/* Assigned cleaners — inline dispatch */}
         <ECard>
           <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Assigned cleaners</ECardTitle></ECardHeader>
@@ -587,6 +638,47 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           </ECardBody>
         </ECard>
 
+        {/* Status · allocated hours · per-cleaner transport and custom payout —
+            edited here rather than in a modal. */}
+        <ECard>
+          <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Status &amp; per-cleaner pay</ECardTitle></ECardHeader>
+          <ECardBody className="pt-0"><JobDetailManage job={manageJob} section="people" /></ECardBody>
+        </ECard>
+      </div>
+      ) : null}
+
+      {/* ── Schedule ─────────────────────────────────────────────────────── */}
+      {tab === "schedule" ? (
+      <div className="space-y-4">
+        <ECard>
+          <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Reschedule &amp; timing</ECardTitle></ECardHeader>
+          <ECardBody className="pt-0"><JobDetailManage job={manageJob} section="schedule" /></ECardBody>
+        </ECard>
+
+        <ECard>
+          <ECardHeader className="pb-2">
+            <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
+              <RefreshCw className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Continuation requests
+              {pendingContinuations > 0 ? <EBadge tone="warning" soft>{pendingContinuations} pending</EBadge> : null}
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="pt-0">
+            <JobContinuationReviews requests={continuationRows} />
+          </ECardBody>
+        </ECard>
+
+        {/* Skipping is a scheduling decision — whether this clean happens at
+            all — not a destructive one, so it lives here rather than Danger. */}
+        <ECard>
+          <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Skip this clean</ECardTitle></ECardHeader>
+          <ECardBody className="pt-0"><JobDetailManage job={manageJob} section="skip" /></ECardBody>
+        </ECard>
+      </div>
+      ) : null}
+
+      {/* ── Quality ──────────────────────────────────────────────────────── */}
+      {tab === "quality" ? (
+      <div className="space-y-4">
         {/* QA inspection — current assignment + assign/reassign */}
         <ECard>
           <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><ShieldCheck className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> QA inspection</ECardTitle></ECardHeader>
@@ -613,6 +705,12 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           </ECardBody>
         </ECard>
 
+      </div>
+      ) : null}
+
+      {/* ── Money ────────────────────────────────────────────────────────── */}
+      {tab === "money" ? (
+      <div className="space-y-4">
         {/* Money — client charge vs cleaner pay vs margin */}
         <ECard>
           <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><Wallet className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Money &amp; margin</ECardTitle></ECardHeader>
@@ -666,6 +764,17 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           </ECardBody>
         </ECard>
 
+        {/* Fixed price · invoice note · the canonical per-payee pay ledger. */}
+        <ECard>
+          <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Billing &amp; pay ledger</ECardTitle></ECardHeader>
+          <ECardBody className="pt-0"><JobDetailManage job={manageJob} section="billing" /></ECardBody>
+        </ECard>
+      </div>
+      ) : null}
+
+      {/* ── Quality (continued) ──────────────────────────────────────────── */}
+      {tab === "quality" ? (
+      <div className="space-y-4">
         {/* QA */}
         <ECard>
           <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><ShieldCheck className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Quality</ECardTitle></ECardHeader>
@@ -688,7 +797,12 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
             </div>
           </ECardBody>
         </ECard>
+      </div>
+      ) : null}
 
+      {/* ── Laundry ──────────────────────────────────────────────────────── */}
+      {tab === "laundry" ? (
+      <div className="space-y-4">
         {/* Laundry */}
         <ECard>
           <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><Shirt className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Laundry</ECardTitle></ECardHeader>
@@ -707,6 +821,18 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           </ECardBody>
         </ECard>
 
+        {/* The submission's laundry outcome — the only place it can be
+            corrected. It used to sit under "Billing" in the manage modal. */}
+        <ECard>
+          <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Correct the laundry outcome</ECardTitle></ECardHeader>
+          <ECardBody className="pt-0"><JobDetailManage job={manageJob} section="laundry" /></ECardBody>
+        </ECard>
+      </div>
+      ) : null}
+
+      {/* ── Forms & report ───────────────────────────────────────────────── */}
+      {tab === "forms" ? (
+      <div className="space-y-4">
         {/* Report actions — download, client visibility, share (v1 parity) */}
         <ReportActions
           jobId={job.id}
@@ -718,10 +844,30 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           qaReviewId={qa?.id ?? null}
           initialQaCleanerVisible={qa?.cleanerReportVisible !== false}
         />
-      </div>
 
-      {/* Per-job client↔admin chat — #chat is the deep-link target from the
-          approvals "Client requests" queue. */}
+        {/* Submitted job form */}
+        <ECard>
+          <ECardHeader className="pb-2">
+            <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
+              <ClipboardList className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Submitted job form
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="pt-0">
+            <SubmissionReview
+              jobId={job.id}
+              submissions={submissionRows}
+              property={propertyRecord}
+              reworkFlags={reworkFlags}
+            />
+          </ECardBody>
+        </ECard>
+      </div>
+      ) : null}
+
+      {/* ── Messages ─────────────────────────────────────────────────────── */}
+      {/* #chat stays the deep-link target from the approvals "Client requests"
+          queue, so that anchor keeps working alongside ?tab=messages. */}
+      {tab === "messages" ? (
       <ECard id="chat">
         <ECardHeader className="pb-2">
           <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
@@ -732,23 +878,29 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           <JobChatAdmin jobId={job.id} />
         </ECardBody>
       </ECard>
+      ) : null}
 
-      {/* Extras & scope changes — add quote-style extras anytime; the client is
-          emailed the updated total automatically. */}
-      <ECard>
-        <ECardHeader className="pb-2">
-          <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
-            <PackagePlus className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Extras &amp; scope changes
-          </ECardTitle>
-        </ECardHeader>
-        <ECardBody className="pt-0">
-          <JobExtrasPanel jobId={job.id} fixedPrice={job.fixedPrice} />
-        </ECardBody>
-      </ECard>
+      {/* ── Scope & requests ─────────────────────────────────────────────── */}
+      {tab === "scope" ? (
+      <div className="space-y-4">
+        <ECard>
+          <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Notes, tags &amp; admin tasks</ECardTitle></ECardHeader>
+          <ECardBody className="pt-0"><JobDetailManage job={manageJob} section="scope" /></ECardBody>
+        </ECard>
 
-      {/* ── Review surfaces ─────────────────────────────────────────────── */}
+        {/* Extras & scope changes — add quote-style extras anytime; the client is
+            emailed the updated total automatically. */}
+        <ECard>
+          <ECardHeader className="pb-2">
+            <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
+              <PackagePlus className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Extras &amp; scope changes
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="pt-0">
+            <JobExtrasPanel jobId={job.id} fixedPrice={job.fixedPrice} />
+          </ECardBody>
+        </ECard>
 
-      <div className="grid gap-4 md:grid-cols-2">
         {/* Client task requests */}
         <ECard>
           <ECardHeader className="pb-2">
@@ -761,38 +913,14 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
             <TaskRequestReviews jobId={job.id} tasks={taskRows} />
           </ECardBody>
         </ECard>
-
-        {/* Continuation / reschedule decisions */}
-        <ECard>
-          <ECardHeader className="pb-2">
-            <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
-              <RefreshCw className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Continuation requests
-              {pendingContinuations > 0 ? <EBadge tone="warning" soft>{pendingContinuations} pending</EBadge> : null}
-            </ECardTitle>
-          </ECardHeader>
-          <ECardBody className="pt-0">
-            <JobContinuationReviews requests={continuationRows} />
-          </ECardBody>
-        </ECard>
+        {/* Continuation requests moved to the Schedule tab — they are a
+            rescheduling decision, and they were previously the only place a
+            reschedule could be approved while the modal owned the dates. */}
       </div>
+      ) : null}
 
-      {/* Submitted job form */}
-      <ECard>
-        <ECardHeader className="pb-2">
-          <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
-            <ClipboardList className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Submitted job form
-          </ECardTitle>
-        </ECardHeader>
-        <ECardBody className="pt-0">
-          <SubmissionReview
-            jobId={job.id}
-            submissions={submissionRows}
-            property={propertyRecord}
-            reworkFlags={reworkFlags}
-          />
-        </ECardBody>
-      </ECard>
-
+      {/* ── Activity ─────────────────────────────────────────────────────── */}
+      {tab === "activity" ? (
       <div className="grid gap-4 md:grid-cols-2">
         {/* Clock records */}
         <ECard>
@@ -902,8 +1030,9 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           </ECardBody>
         </ECard>
       </div>
+      ) : null}
 
-      {hasLinkedRefs ? (
+      {tab === "activity" && hasLinkedRefs ? (
         <ECard>
           <ECardHeader className="pb-2">
             <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
@@ -959,10 +1088,15 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
         </ECard>
       ) : null}
 
-      {job.notes ? (
+      {/* ── Danger ───────────────────────────────────────────────────────── */}
+      {tab === "danger" ? (
         <ECard>
-          <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Notes</ECardTitle></ECardHeader>
-          <ECardBody className="pt-0 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{job.notes}</ECardBody>
+          <ECardHeader className="pb-2">
+            <ECardTitle className="text-[0.95rem]">Reset or delete this job</ECardTitle>
+          </ECardHeader>
+          <ECardBody className="pt-0">
+            <JobDetailManage job={manageJob} section="danger" />
+          </ECardBody>
         </ECard>
       ) : null}
 
