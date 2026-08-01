@@ -43,7 +43,7 @@ function adj(over: Record<string, unknown> = {}) {
 }
 
 function summary(over: Record<string, unknown> = {}) {
-  return computeJobPaySummary({
+  return computeJobPaySummary({ audience: "internal",
     job: JOB,
     assignments: [
       { userId: "u1", payRate: 50, removedAt: null, userName: "Cleaner One", userRole: "CLEANER", userHourlyRate: 30 },
@@ -192,7 +192,7 @@ describe("computeJobPaySummary", () => {
   });
 
   it("splits allocated hours across active cleaners and ignores removed ones", () => {
-    const rows = computeJobPaySummary({
+    const rows = computeJobPaySummary({ audience: "internal",
       job: JOB,
       assignments: [
         { userId: "u1", payRate: 50, removedAt: null, userName: "One" },
@@ -218,7 +218,7 @@ describe("computeJobPaySummary", () => {
   });
 
   it("GROUPS BY PAYEE: a QA credit on a cleaner's job belongs to the QA user", () => {
-    const rows = computeJobPaySummary({
+    const rows = computeJobPaySummary({ audience: "internal",
       job: JOB,
       assignments: [
         { userId: "cleaner1", payRate: 50, removedAt: null, userName: "Cleaner One", userRole: "CLEANER" },
@@ -280,7 +280,8 @@ describe("describeAdjustment", () => {
         approvedAmount: -25,
         requestedAmount: -25,
         reviewedByName: "Ops Olly",
-      })
+      }),
+      "internal"
     );
     expect(item.amount).toBe(-25);
     expect(item.origin).toBe("AUTOMATIC");
@@ -290,5 +291,48 @@ describe("describeAdjustment", () => {
     expect(item.createdAt).toBe("2026-07-01T00:00:00.000Z");
     expect(item.decidedAt).toBe("2026-07-02T00:00:00.000Z");
     expect(item.editable).toBe(true);
+  });
+
+  /**
+   * The audience matrix. `adminNote` is the reviewing admin's private note
+   * about the decision; it was being appended to the reason on the cleaner's
+   * own job screen as "Admin: …".
+   */
+  it("withholds the admin's private note from the payee", () => {
+    const row = adj({
+      cleanerNote: "Bathroom missed",
+      adminNote: "Third time this month — watch this one",
+      approvedAmount: -25,
+      requestedAmount: -25,
+      reviewedByName: "Ops Olly",
+    });
+
+    expect(describeAdjustment(row, "self").reason).toBe("Bathroom missed");
+    expect(describeAdjustment(row, "internal").reason).toBe(
+      "Bathroom missed · Admin: Third time this month — watch this one"
+    );
+  });
+
+  it("never lets the admin note reach the payee through any field", () => {
+    const secret = "PRIVATE-ADMIN-NOTE";
+    const item = describeAdjustment(
+      adj({ cleanerNote: "Parking", adminNote: secret, approvedAmount: 12, requestedAmount: 12 }),
+      "self"
+    );
+    expect(JSON.stringify(item)).not.toContain(secret);
+  });
+
+  it("keeps the cleaner's own note when there is no admin note", () => {
+    expect(
+      describeAdjustment(adj({ cleanerNote: "Parking receipt attached" }), "self").reason
+    ).toBe("Parking receipt attached");
+  });
+
+  it("reports no reason at all rather than an empty admin prefix", () => {
+    // Admin-note-only row seen by the payee: the reason must be null, not
+    // "Admin: " or an empty string.
+    expect(
+      describeAdjustment(adj({ cleanerNote: null, adminNote: "internal only" }), "self").reason
+    ).toBeNull();
   });
 });

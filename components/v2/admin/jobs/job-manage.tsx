@@ -670,7 +670,10 @@ export function JobManagePanel({
                               placeholder="0.00"
                             />
                           </EField>
-                          <EField label="Custom payout (AUD)" hint="Replaces hours × rate. Blank = normal, 0 = pay nothing.">
+                          <EField
+                            label="Fixed pay (AUD)"
+                            hint="A flat amount for this job — replaces hours × rate entirely, and the invoice prints it as Fixed. Blank = pay normally, 0 = pay nothing."
+                          >
                             <EInput
                               type="number"
                               min="0"

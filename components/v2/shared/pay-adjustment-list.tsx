@@ -27,12 +27,17 @@ import {
   describeAdjustment,
   type JobPaySummaryAdjustment,
   type JobPaySummaryAdjustmentInput,
+  type PayAdjustmentAudience,
 } from "@/lib/finance/job-pay-summary";
 
 export type PayAdjustmentListItem = JobPaySummaryAdjustment;
 
 /** Map a raw CleanerPayAdjustment-shaped API row into the shared item shape
- *  (used by surfaces whose endpoint returns DB rows, e.g. the Approval Center). */
+ *  (used by surfaces whose endpoint returns DB rows, e.g. the Approval Center).
+ *
+ *  `audience` is required and forwarded to `describeAdjustment` — a payee-facing
+ *  surface must pass "self" so the admin's private decision note is left out of
+ *  the rendered reason. */
 export function toPayAdjustmentListItem(row: {
   id: string;
   cleanerId?: string;
@@ -50,7 +55,7 @@ export function toPayAdjustmentListItem(row: {
   includedInPayrollRunId?: string | null;
   includedInCleanerInvoiceId?: string | null;
   includedInCleanerInvoiceAt?: string | Date | null;
-}): PayAdjustmentListItem {
+}, audience: PayAdjustmentAudience): PayAdjustmentListItem {
   const input: JobPaySummaryAdjustmentInput = {
     id: row.id,
     cleanerId: row.cleanerId ?? "",
@@ -69,7 +74,7 @@ export function toPayAdjustmentListItem(row: {
     includedInCleanerInvoiceId: row.includedInCleanerInvoiceId ?? null,
     includedInCleanerInvoiceAt: row.includedInCleanerInvoiceAt ?? null,
   };
-  return describeAdjustment(input);
+  return describeAdjustment(input, audience);
 }
 
 function fmtMoney(amount: number): string {

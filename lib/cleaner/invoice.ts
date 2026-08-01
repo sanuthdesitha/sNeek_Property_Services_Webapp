@@ -120,6 +120,12 @@ export interface CleanerInvoiceData {
     jobType: string;
     split: number;
     payBasis: "ALLOCATED" | "TIMER";
+    /**
+     * "CUSTOM" when a fixed payout was set for this cleaner on this job (or the
+     * job is a rework paid at QA's amount) — the hours × rate line is then a
+     * fiction, because the amount does not derive from either number.
+     */
+    paySource: "CUSTOM" | "JOBTYPE_RATE";
     rate: number | null;
     rateMissing: boolean;
     hours: number;
@@ -631,7 +637,13 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
               cleanerId: options.userId,
               activeAssignmentCount: splitCount,
               timerHours,
-              customPayout: jobMeta.cleanerPayouts?.[options.userId],
+              // MUST be `effectiveCustomPayout`, not the raw meta. This branch
+              // re-read `jobMeta.cleanerPayouts` directly, throwing away the
+              // rework override computed above — so an admin hours override on
+              // a rework job silently reverted it to hourly pay, and an UNPAID
+              // rework (reworkPayAmount null → $0) started billing at the
+              // hourly rate the moment anyone adjusted the hours.
+              customPayout: effectiveCustomPayout,
               transportAllowance: jobMeta.transportAllowances?.[options.userId],
               approvedAdjustments: approvedExtraAmount,
               hoursOverride: Number(overrideRaw),
@@ -653,6 +665,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
         jobType: job.jobType.replace(/_/g, " "),
         split: pay.split,
         payBasis: pay.payBasis,
+        paySource: pay.source,
         // Surface null when the rate is genuinely missing so the UI shows "Not set".
         rate: pay.rateMissing ? null : pay.rate,
         rateMissing: pay.rateMissing,
@@ -954,8 +967,17 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
           <td class="cell">${escapeHtml(row.property)}</td>
           <td class="cell">${escapeHtml(row.jobType)}</td>
           <td class="cell right">${row.split}</td>
-          <td class="cell right">${row.rate != null ? `${formatCurrency(row.rate)}${row.rateMissing ? " (default)" : ""}` : "Not set"}</td>
-          ${showHours ? `<td class="cell right">${row.hours.toFixed(2)}</td>` : ""}
+          <td class="cell right">${
+            // A fixed payout does not derive from a rate or from hours, so
+            // printing "$30.00 / 2.67 h" beside an $80.10 line invites the
+            // payee to check arithmetic that was never done.
+            row.paySource === "CUSTOM"
+              ? "Fixed"
+              : row.rate != null
+                ? `${formatCurrency(row.rate)}${row.rateMissing ? " (default)" : ""}`
+                : "Not set"
+          }</td>
+          ${showHours ? `<td class="cell right">${row.paySource === "CUSTOM" ? "&mdash;" : row.hours.toFixed(2)}</td>` : ""}
           ${includeHoursChangeColumn ? `<td class="cell">${row.hoursChangeNote ? escapeHtml(row.hoursChangeNote) : "-"}</td>` : ""}
           ${showSpentHours ? `<td class="cell right">${(row.spentHours ?? 0).toFixed(2)}</td>` : ""}
           <td class="cell right">${formatCurrency(row.baseAmount)}</td>
