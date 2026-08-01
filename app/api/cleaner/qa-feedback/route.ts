@@ -4,6 +4,13 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getPresignedDownloadUrl, publicUrl } from "@/lib/s3";
 import { pickAuthoritativeReviews } from "@/lib/qa/review-dedupe";
+import { getAppSettings } from "@/lib/settings";
+import {
+  displayKeyFor,
+  ensureFlattened,
+  normalizeQaPhotoRefs,
+  type QaPhotoRef,
+} from "@/lib/qa/annotation-composite";
 
 /**
  * Cleaner-facing QA feedback feed. Returns the signed-in cleaner's recent QA
@@ -14,22 +21,40 @@ import { pickAuthoritativeReviews } from "@/lib/qa/review-dedupe";
  */
 const WINDOW_DAYS = 60;
 
-/** Presign a QaIssue's stored qaPhotoKeys ([{key, annotatedKey?}] or plain
- *  strings) to display URLs. Best-effort — a failed presign falls back to the
- *  public URL. */
-async function presignIssuePhotos(qaPhotoKeys: unknown): Promise<string[]> {
-  const keys: string[] = Array.isArray(qaPhotoKeys)
-    ? qaPhotoKeys
-        .map((p) => (typeof p === "string" ? p : (p as { key?: string })?.key))
-        .filter((k): k is string => typeof k === "string" && k.trim().length > 0)
-    : [];
+async function signKey(key: string): Promise<string> {
+  try {
+    return await getPresignedDownloadUrl(key, 3600);
+  } catch {
+    return publicUrl(key);
+  }
+}
+
+/**
+ * Presign a QaIssue's stored qaPhotoKeys to display URLs.
+ *
+ * This used to map `.key` and silently throw away `.annotatedKey`, which is why
+ * a cleaner saw the photo but none of the markup QA drew on it — the whole
+ * point of annotating. Selecting `annotatedKey` alone would have been just as
+ * wrong: it is a TRANSPARENT overlay holding only the marks, so on its own it
+ * renders as strokes floating on a checkerboard.
+ *
+ * The submit path now flattens the two into `flatKey` (lib/qa/annotation-
+ * composite.ts), so the cleaner gets one opaque annotated image. Older issues
+ * have no flatKey; for those we return the original plus the overlay so the
+ * client can stack them, which is correct in a browser even though it is not
+ * safe in a PDF.
+ */
+async function presignIssuePhotos(
+  refs: QaPhotoRef[]
+): Promise<{ url: string; overlayUrl: string | null; annotated: boolean }[]> {
   return Promise.all(
-    keys.map(async (key) => {
-      try {
-        return await getPresignedDownloadUrl(key, 3600);
-      } catch {
-        return publicUrl(key);
-      }
+    refs.map(async (ref) => {
+      const url = await signKey(displayKeyFor(ref));
+      // Only needed as a fallback: when the composite exists it already
+      // contains the marks and stacking would double-draw them.
+      const overlayUrl =
+        !ref.flatKey && ref.annotatedKey ? await signKey(ref.annotatedKey) : null;
+      return { url, overlayUrl, annotated: Boolean(ref.flatKey || ref.annotatedKey) };
     })
   );
 }
@@ -88,15 +113,43 @@ export async function GET() {
         })
       : [];
 
+    // Issues raised before annotations were flattened at submit time carry only
+    // the transparent overlay, which is unusable on its own. Composite them once
+    // here and persist the result, so the owner's EXISTING failed inspections
+    // start showing their markup too rather than only new ones. Self-healing and
+    // idempotent: a row that already has flatKey is never touched again.
+    const settings = await getAppSettings().catch(() => null);
+    const categoryLabels = new Map(
+      (settings?.accountability?.issueCategories ?? []).map((c) => [c.key, c.label])
+    );
+
+    const backfilled = await Promise.all(
+      issues.map(async (i) => {
+        const refs = normalizeQaPhotoRefs(i.qaPhotoKeys);
+        const needsFlatten = refs.some((r) => !r.flatKey && r.annotatedKey);
+        if (!needsFlatten) return { issue: i, refs };
+        const flattened = await ensureFlattened(refs, session.user.id);
+        if (flattened.some((r, idx) => r.flatKey !== refs[idx]?.flatKey)) {
+          await db.qaIssue
+            .update({ where: { id: i.id }, data: { qaPhotoKeys: flattened as any } })
+            .catch(() => undefined); // display must not depend on the write
+        }
+        return { issue: i, refs: flattened };
+      })
+    );
+
     const issueRows = await Promise.all(
-      issues.map(async (i) => ({
+      backfilled.map(async ({ issue: i, refs }) => ({
         id: i.id,
         jobId: i.jobId,
         severity: String(i.severity),
         category: i.category,
+        // The admin-configured label, not a prettified raw key — a cleaner
+        // should read "Reset to reference images", not "Reset_to_reference".
+        categoryLabel: categoryLabels.get(i.category) ?? null,
         description: i.description,
         createdAt: i.createdAt,
-        photoUrls: await presignIssuePhotos(i.qaPhotoKeys),
+        photoUrls: await presignIssuePhotos(refs),
       }))
     );
     const issuesByJob = new Map<string, typeof issueRows>();

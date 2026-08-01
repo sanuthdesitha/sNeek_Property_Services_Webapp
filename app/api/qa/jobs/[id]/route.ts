@@ -8,6 +8,12 @@ import { generateJobReport } from "@/lib/reports/generator";
 import { createCase } from "@/lib/cases/service";
 import { createQaReworkTransfer } from "@/lib/qa/rework-transfers";
 import { createReworkJobFromFailure } from "@/lib/qa/rework-jobs";
+import {
+  compositeAnnotated,
+  ensureFlattened,
+  normalizeQaPhotoRefs,
+  type QaPhotoRef,
+} from "@/lib/qa/annotation-composite";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { QA_TOOLS_DATA_KEY, minutesBetween } from "@/lib/qa/inspection-tools";
 import { publicUrl, getPresignedDownloadUrl } from "@/lib/s3";
@@ -696,6 +702,48 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // legacy numeric pass/fail stands.
     const reviewPassed = accountabilityResult ? accountabilityResult.passed : result.passed;
 
+    // Flatten every QA markup overlay onto its photo ONCE, here, before the
+    // transaction opens — this is S3 I/O and must never run inside one.
+    //
+    // The annotator exports a transparent overlay PNG (marks only). Leaving the
+    // layering to each consumer is what made annotations invisible: the cleaner
+    // feed dropped the overlay key entirely, the admin issues workspaces
+    // rendered marks floating on transparency, and the PDF pipeline turned the
+    // transparent overlay into a solid black tile. One opaque composite here
+    // means nothing downstream has to get the layering right.
+    const flattenedPhotosByField = new Map<string, QaPhotoRef[]>();
+    if (accountabilityInput) {
+      await Promise.all(
+        accountabilityInput.verdicts.map(async (v) => {
+          const refs = normalizeQaPhotoRefs(v.qaPhotoKeys);
+          if (refs.length === 0) return;
+          flattenedPhotosByField.set(v.fieldId, await ensureFlattened(refs, session.user.id));
+        })
+      );
+    }
+
+    // Same treatment for the inspector's section and damage markup. These live
+    // in the `__qaTools` blob rather than on QaIssue rows, and feed the QA
+    // report and the admin workspaces — both of which were rendering the bare
+    // overlay (or, in the PDF, a black tile) for exactly the same reason.
+    // Mutating in place is safe: `tools` is a freshly-parsed request object.
+    if (tools) {
+      const annotationMaps: Record<string, { overlayKey?: string; comment?: string; flatKey?: string }>[] = [
+        tools.mediaAnnotations ?? {},
+        ...(tools.damage ?? []).map((d) => d.annotations ?? {}),
+        ...(tools.rework?.flaggedAreas ?? []).map((a) => a.annotations ?? {}),
+      ];
+      await Promise.all(
+        annotationMaps.flatMap((map) =>
+          Object.entries(map).map(async ([originalKey, entry]) => {
+            if (!entry?.overlayKey || entry.flatKey) return;
+            const flatKey = await compositeAnnotated(originalKey, entry.overlayKey, session.user.id);
+            if (flatKey) entry.flatKey = flatKey;
+          })
+        )
+      );
+    }
+
     // If the inspector enabled rework AND flagged areas, a rework job will be
     // created below — so the ORIGINAL job must NOT be marked COMPLETED just
     // because the numeric score passed. Otherwise the job is closed (invoice/
@@ -993,7 +1041,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
                 itemKey: v.itemKey ?? null,
                 description: v.description || v.label || "QA issue",
                 severity: severityMap[v.verdict],
-                qaPhotoKeys: (v.qaPhotoKeys ?? undefined) as any,
+                // Flattened above so the cleaner, the admin workspaces and the
+                // PDF all get one opaque image instead of a transparent overlay.
+                qaPhotoKeys: (flattenedPhotosByField.get(v.fieldId) ?? v.qaPhotoKeys ?? undefined) as any,
                 cleanerMediaIds: (v.cleanerMediaIds ?? undefined) as any,
                 cleanerMarkedComplete: v.cleanerMarkedComplete ?? false,
                 guestReadyImpact: v.guestReadyImpact ?? false,

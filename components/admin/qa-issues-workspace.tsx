@@ -302,9 +302,15 @@ function IssueDialog({
   const photoKeys: string[] = useMemo(() => {
     const raw = issue?.qaPhotoKeys;
     if (!Array.isArray(raw)) return [];
-    return raw
-      .map((p: any) => (typeof p === "string" ? p : p?.annotatedKey ?? p?.key))
-      .filter((k: any): k is string => typeof k === "string" && k.length > 0);
+    return (
+      raw
+        // `annotatedKey` is a TRANSPARENT overlay holding only QA's marks —
+        // preferring it meant admins saw strokes floating on nothing instead of
+        // the annotated photo. `flatKey` is the composite; fall back to the
+        // original photo, never to the bare overlay.
+        .map((p: any) => (typeof p === "string" ? p : p?.flatKey ?? p?.key))
+        .filter((k: any): k is string => typeof k === "string" && k.length > 0)
+    );
   }, [issue]);
 
   useEffect(() => {

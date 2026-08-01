@@ -131,14 +131,31 @@ async function renderPdfFromHtmlImpl(
           const response = await fetchWithTimeout(url, PDF_FETCH_TIMEOUT_MS);
           if (!response.ok) return route.continue();
           const original = Buffer.from(await response.arrayBuffer());
-          const resized = await sharp(original, { failOn: "none" })
+          const pipeline = sharp(original, { failOn: "none" })
             .rotate()
             .resize(PDF_IMAGE_MAX_DIMENSION, PDF_IMAGE_MAX_DIMENSION, {
               fit: "inside",
               withoutEnlargement: true,
-            })
-            .jpeg({ quality: PDF_IMAGE_QUALITY })
-            .toBuffer();
+            });
+
+          // JPEG HAS NO ALPHA CHANNEL. Encoding a transparent PNG to JPEG makes
+          // sharp flatten it onto its default background — black. That is what
+          // put the QA inspector's signature (transparent PNG, near-black ink)
+          // on a black rectangle, and what turned every annotation overlay into
+          // a solid black tile covering the photo it was meant to mark up.
+          //
+          // So: keep transparency as PNG, and only take the JPEG size win on
+          // images that were opaque to begin with (the photos this interceptor
+          // exists for). Compositing at save time means overlays rarely reach
+          // here any more, but a stray transparent image must never be able to
+          // silently black out a report again.
+          const meta = await sharp(original, { failOn: "none" }).metadata().catch(() => null);
+          if (meta?.hasAlpha) {
+            const png = await pipeline.png({ compressionLevel: 9 }).toBuffer();
+            return route.fulfill({ status: 200, contentType: "image/png", body: png });
+          }
+
+          const resized = await pipeline.jpeg({ quality: PDF_IMAGE_QUALITY }).toBuffer();
           return route.fulfill({
             status: 200,
             contentType: "image/jpeg",

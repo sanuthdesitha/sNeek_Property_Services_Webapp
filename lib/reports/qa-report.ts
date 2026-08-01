@@ -23,25 +23,45 @@ function keyUrl(key: string): string {
   return publicUrl(key);
 }
 
+/**
+ * A grid of QA photos.
+ *
+ * This used to absolutely-position the annotation overlay on top of the photo
+ * and let CSS do the compositing. In a browser that works; in the PDF it was
+ * catastrophic — the renderer re-encodes every image to JPEG, which has no
+ * alpha, so the transparent overlay became a **solid black square covering the
+ * photo entirely**. Every annotated QA photo in every downloaded report was a
+ * black tile.
+ *
+ * Annotations are now flattened server-side at submit time
+ * (lib/qa/annotation-composite.ts), so we render ONE opaque image and never
+ * stack layers. Older submissions without a `flatKey` fall back to the plain
+ * photo plus the comment — an un-marked photo is far better than a black box.
+ */
 function photoGridHtml(
   keys: string[],
-  opts: { size?: number; annotations?: Record<string, { overlayKey?: string; comment?: string }> } = {}
+  opts: {
+    size?: number;
+    annotations?: Record<string, { overlayKey?: string; comment?: string; flatKey?: string }>;
+  } = {}
 ): string {
   if (!keys.length) return "";
   const size = opts.size ?? 150;
   const items = keys
     .map((key) => {
       const ann = opts.annotations?.[key];
-      const overlay = ann?.overlayKey
-        ? `<img src="${escapeHtml(keyUrl(ann.overlayKey))}" alt="" style="position:absolute;inset:0;width:${size}px;height:${size}px;object-fit:cover;border-radius:10px;" />`
-        : "";
+      const shownKey = ann?.flatKey || key;
+      const marked = Boolean(ann?.flatKey);
       const comment = ann?.comment
         ? `<p style="margin:4px 0 0;width:${size}px;font-size:10px;line-height:1.3;color:#b91c1c;">${escapeHtml(ann.comment)}</p>`
         : "";
-      return `<div style="position:relative;width:${size}px;">
+      const markedBadge = marked
+        ? `<span style="position:absolute;left:6px;top:6px;background:#b91c1c;color:#fff;font-size:9px;line-height:1;padding:3px 5px;border-radius:6px;">QA markup</span>`
+        : "";
+      return `<div style="position:relative;width:${size}px;break-inside:avoid;">
         <div style="position:relative;width:${size}px;height:${size}px;">
-          <img src="${escapeHtml(keyUrl(key))}" alt="QA photo" style="position:absolute;inset:0;width:${size}px;height:${size}px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;" />
-          ${overlay}
+          <img src="${escapeHtml(keyUrl(shownKey))}" alt="QA photo" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;" />
+          ${markedBadge}
         </div>
         ${comment}
       </div>`;
