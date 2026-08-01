@@ -36,7 +36,7 @@ import {
   assertReworkInvoiceablePayee,
   guardInvariant,
 } from "@/lib/qa/rework-invariants";
-import { s3 } from "@/lib/s3";
+import { compositeAnnotated } from "@/lib/qa/annotation-composite";
 
 /** Cleaner "after" photo upload fields are keyed `rework_area_<areaId>`. */
 export const REWORK_AREA_FIELD_PREFIX = "rework_area_";
@@ -49,46 +49,6 @@ export interface ReworkArea {
   photoKeys: string[];
   /** Optional per-photo markup (overlay PNG + comment) keyed by photo S3 key. */
   annotations?: Record<string, { overlayKey?: string; comment?: string }>;
-}
-
-async function getObjectBuffer(key: string): Promise<Buffer | null> {
-  try {
-    const res = await s3.getObject({ Bucket: process.env.S3_BUCKET_NAME!, Key: key }).promise();
-    const body: any = res.Body;
-    if (!body) return null;
-    return Buffer.isBuffer(body) ? body : Buffer.from(body);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Flatten a QA markup overlay onto its photo into a single annotated image the
- * cleaner sees as reclean guidance. Returns the new S3 key, or null on any
- * failure (caller falls back to the original photo).
- */
-async function compositeAnnotated(originalKey: string, overlayKey: string, ownerId: string): Promise<string | null> {
-  try {
-    const [orig, overlay] = await Promise.all([getObjectBuffer(originalKey), getObjectBuffer(overlayKey)]);
-    if (!orig || !overlay) return null;
-    const meta = await sharp(orig).rotate().metadata();
-    const w = meta.width;
-    const h = meta.height;
-    if (!w || !h) return null;
-    const overlayResized = await sharp(overlay).resize(w, h, { fit: "fill" }).png().toBuffer();
-    const out = await sharp(orig)
-      .rotate()
-      .composite([{ input: overlayResized }])
-      .jpeg({ quality: 85 })
-      .toBuffer();
-    const key = `qa-reclean-guidance/${ownerId}/${randomUUID()}.jpg`;
-    await s3
-      .putObject({ Bucket: process.env.S3_BUCKET_NAME!, Key: key, Body: out, ContentType: "image/jpeg" })
-      .promise();
-    return key;
-  } catch {
-    return null;
-  }
 }
 
 export function reworkTagFor(originalJobId: string) {
@@ -368,7 +328,9 @@ export async function createReworkJobFromFailure(input: CreateReworkJobInput): P
       for (const key of area.photoKeys) {
         const a = ann[key];
         if (a?.overlayKey) {
-          const flat = await compositeAnnotated(key, a.overlayKey, input.qaUserId);
+          // Keep the historical folder so existing reclean-guidance provenance
+          // in the bucket stays readable.
+          const flat = await compositeAnnotated(key, a.overlayKey, input.qaUserId, "qa-reclean-guidance");
           photoKeys.push(flat || key);
         } else {
           photoKeys.push(key);

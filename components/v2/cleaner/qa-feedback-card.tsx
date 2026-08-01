@@ -11,18 +11,29 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { ChevronDown, ChevronUp, ShieldCheck } from "lucide-react";
+import { ChevronDown, ChevronUp, PenLine, ShieldCheck } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { MediaGallery } from "@/components/shared/media-gallery";
+
+type IssuePhoto = {
+  /** The image to show: QA's markup already flattened onto the photo. */
+  url: string;
+  /** Legacy rows only — a transparent overlay to stack over `url`. */
+  overlayUrl: string | null;
+  /** QA drew on this one, so it deserves to be called out. */
+  annotated: boolean;
+};
 
 type Issue = {
   id: string;
   severity: string;
   category: string;
+  /** Admin-configured label for `category`; null if the key was removed. */
+  categoryLabel: string | null;
   description: string;
   createdAt: string;
-  photoUrls: string[];
+  photoUrls: IssuePhoto[];
 };
 
 type Review = {
@@ -176,7 +187,11 @@ export function CleanerQaFeedbackCard() {
                         <EBadge tone={severityTone(issue.severity)} soft>
                           {humanize(issue.severity)}
                         </EBadge>
-                        <span className="text-[0.75rem] font-medium">{humanize(issue.category)}</span>
+                        {/* The admin's own wording where it exists — prettifying
+                            the raw key produced labels no one configured. */}
+                        <span className="text-[0.75rem] font-medium">
+                          {issue.categoryLabel ?? humanize(issue.category)}
+                        </span>
                         <span className="ml-auto text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
                           {fmt(issue.createdAt)}
                         </span>
@@ -185,11 +200,47 @@ export function CleanerQaFeedbackCard() {
                         {issue.description}
                       </p>
                       {issue.photoUrls.length > 0 ? (
-                        <MediaGallery
-                          items={issue.photoUrls.map((url, i) => ({ id: `${issue.id}-${i}`, url, label: "QA photo" }))}
-                          title="QA photos"
-                          className="grid grid-cols-4 gap-1.5 sm:grid-cols-6"
-                        />
+                        <div className="space-y-1.5">
+                          {issue.photoUrls.some((p) => p.annotated) ? (
+                            <p className="flex items-center gap-1 text-[0.6875rem] font-medium text-[hsl(var(--e-gold-ink))]">
+                              <PenLine className="h-3 w-3" />
+                              Marked up by QA — tap to see what they circled
+                            </p>
+                          ) : null}
+                          <MediaGallery
+                            items={issue.photoUrls.map((p, i) => ({
+                              id: `${issue.id}-${i}`,
+                              url: p.url,
+                              label: p.annotated ? "QA markup" : "QA photo",
+                            }))}
+                            title="QA photos"
+                            className="grid grid-cols-4 gap-1.5 sm:grid-cols-6"
+                          />
+                          {/* Legacy issues stored the markup as a separate
+                              transparent overlay. Nothing flattened them, so
+                              stack the layers here rather than drop the marks. */}
+                          {issue.photoUrls.some((p) => p.overlayUrl) ? (
+                            <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
+                              {issue.photoUrls
+                                .filter((p) => p.overlayUrl)
+                                .map((p, i) => (
+                                  <div
+                                    key={`${issue.id}-ov-${i}`}
+                                    className="relative aspect-square overflow-hidden rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))]"
+                                  >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={p.url} alt="QA photo" className="h-full w-full object-cover" />
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={p.overlayUrl!}
+                                      alt="QA markup"
+                                      className="absolute inset-0 h-full w-full object-cover"
+                                    />
+                                  </div>
+                                ))}
+                            </div>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
                   ))}

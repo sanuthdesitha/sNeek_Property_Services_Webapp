@@ -23,7 +23,7 @@ export interface QaDamageEntry {
   photoKeys: string[];
   estimatedCost?: number | null;
   /** Per-photo markup (overlay PNG + comment) keyed by the photo's S3 key. */
-  annotations?: Record<string, { overlayKey?: string; comment?: string }>;
+  annotations?: Record<string, { overlayKey?: string; comment?: string; flatKey?: string }>;
 }
 
 /** A "do this next clean" / special request that attaches to the property. */
@@ -58,7 +58,7 @@ export interface QaFlaggedArea {
   /** S3 keys of the photos QA captured of the problem. */
   photoKeys: string[];
   /** Per-photo markup (overlay PNG + comment) keyed by the photo's S3 key. */
-  annotations?: Record<string, { overlayKey?: string; comment?: string }>;
+  annotations?: Record<string, { overlayKey?: string; comment?: string; flatKey?: string }>;
 }
 
 /** The rework proposal captured on a failed QA inspection. */
@@ -129,7 +129,7 @@ export interface QaInspectionTools {
    * PNG (draw strokes + numbered pins) layered over the original; `comment` is
    * the QA note shown to the cleaner. These flow into the reclean form.
    */
-  mediaAnnotations: Record<string, { overlayKey?: string; comment?: string }>;
+  mediaAnnotations: Record<string, { overlayKey?: string; comment?: string; flatKey?: string }>;
   onSite: {
     startedAt: string | null;
     endedAt: string | null;
