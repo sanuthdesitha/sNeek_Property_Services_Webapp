@@ -1,5 +1,6 @@
 import { StockRunStatus, StockTxType, type Role } from "@prisma/client";
 import { db } from "@/lib/db";
+import { accessiblePropertiesForCleaner } from "@/lib/inventory/cleaner-scope";
 
 type Scope = {
   role: Role;
@@ -40,14 +41,10 @@ async function accessibleProperties(scope: Scope) {
     });
   }
 
-  return db.property.findMany({
-    where: {
-      isActive: true,
-      inventoryEnabled: true,
-    },
-    select: { id: true, name: true, suburb: true, clientId: true },
-    orderBy: [{ name: "asc" }],
-  });
+  // CLEANER. This branch used to be a copy of the admin query — active +
+  // inventory-enabled with NO assignment filter — so every cleaner saw every
+  // property in the business.
+  return accessiblePropertiesForCleaner(scope.userId, { inventoryEnabledOnly: true });
 }
 
 async function assertPropertyAccess(scope: Scope, propertyId: string) {

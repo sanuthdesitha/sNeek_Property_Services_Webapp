@@ -83,9 +83,11 @@ export function PortalShell({
               {active ? <span className="absolute left-0 h-5 w-0.5 rounded-r bg-[hsl(var(--e-gold))]" /> : null}
               <Icon className="h-[1.05rem] w-[1.05rem] flex-shrink-0" />
               <span className="flex-1 truncate">{item.label}</span>
+              {/* Red, not gold: this is "something needs you", and gold is the
+                  brand accent used decoratively everywhere else. */}
               {item.badge ? (
-                <span className="rounded-full bg-[hsl(var(--e-gold))] px-1.5 text-[0.625rem] font-semibold text-[hsl(var(--e-gold-foreground))]">
-                  {item.badge}
+                <span className="rounded-full bg-[hsl(var(--e-danger))] px-1.5 text-[0.625rem] font-semibold text-white">
+                  {item.badge > 9 ? "9+" : item.badge}
                 </span>
               ) : null}
             </Link>
@@ -173,7 +175,7 @@ export function PortalShell({
                 <span className="relative">
                   <Icon className="h-5 w-5" />
                   {item.badge ? (
-                    <span className="absolute -right-2 -top-1 min-w-[1rem] rounded-full bg-[hsl(var(--e-gold))] px-1 text-[0.5625rem] font-semibold leading-4 text-[hsl(var(--e-gold-foreground))]">
+                    <span className="absolute -right-2 -top-1 min-w-[1rem] rounded-full bg-[hsl(var(--e-danger))] px-1 text-[0.5625rem] font-semibold leading-4 text-white">
                       {item.badge > 9 ? "9+" : item.badge}
                     </span>
                   ) : null}

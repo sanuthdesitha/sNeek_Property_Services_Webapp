@@ -247,7 +247,7 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage
             size="sm"
             variant="ghost"
             aria-label={`Manage ${job?.property?.name ?? "job"}`}
-            className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            className="opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100"
             onClick={() => onManage(job)}
           >
             <Settings2 className="h-3.5 w-3.5" />
@@ -257,7 +257,7 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage
         <EButton
           size="sm"
           variant="ghost"
-          className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+          className="opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100"
           onClick={() => router.push(`/v2/admin/jobs/${job.id}`)}
         >
           Open
