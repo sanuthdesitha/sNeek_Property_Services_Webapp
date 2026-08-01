@@ -864,6 +864,11 @@ model Property {
   accessInfo                 Json? // { lockbox, codes, parking, other }
   linenBufferSets            Int      @default(0)
   inventoryEnabled           Boolean  @default(false)
+  /// Per-property override for the on-site check-in radius, in metres. Null =
+  /// the default (lib/gps/distance.ts ON_SITE_RADIUS_M). Exists because a large
+  /// complex or an underground carpark legitimately needs more slack than a
+  /// street-front terrace.
+  geofenceRadiusM            Int?
   defaultCheckinTime         String   @default("14:00") // HH:mm
   defaultCheckoutTime        String   @default("10:00") // HH:mm
   // Where job start/due times come from: the property's configured default
@@ -1265,6 +1270,11 @@ model Job {
   gpsCheckInConfirmed       Boolean   @default(false)
   gpsCheckInAdjusted        Boolean   @default(false)
   gpsCheckInNote            String?   @db.Text
+  /// Why the cleaner started this job away from the property. A CODED value
+  /// (see lib/gps/off-site-reasons.ts) rather than free text, so off-site
+  /// starts can actually be counted and compared instead of read one by one.
+  /// Null = started on site, or predates the on-site gate.
+  gpsCheckInReasonCode      String?
   requiresSafetyCheckin     Boolean   @default(false)
   safetyCheckinAt           DateTime?
   // Skip / don't-clean: a client can request the clean be skipped, or an admin
@@ -1761,6 +1771,9 @@ model QaAssignment {
   checkInAccuracyM Float?
   /// Remote review (inspector explicitly skipped on-site check-in) + why.
   checkInSkippedReason String?       @db.Text
+  /// Coded counterpart to checkInSkippedReason — why the inspector reviewed
+  /// from somewhere other than the property. See lib/gps/off-site-reasons.ts.
+  checkInReasonCode    String?
   /// Server-side autosave of an in-progress inspection. Until this existed the
   /// only persistence was localStorage, so a half-finished inspection died with
   /// the browser profile — and "Continue review" could only ever resume on the

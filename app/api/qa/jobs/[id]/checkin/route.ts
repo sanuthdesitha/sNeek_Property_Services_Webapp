@@ -3,6 +3,8 @@ import { QaAssignmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { haversineMeters } from "@/lib/jobs/gps";
+import { classifyCheckInLocation, resolveOnSiteRadius } from "@/lib/gps/distance";
+import { OFF_SITE_REASON_CODES, isValidOffSiteReason } from "@/lib/gps/off-site-reasons";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -31,10 +33,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       lng?: unknown;
       accuracy?: unknown;
       skippedReason?: unknown;
+      /** Coded reason, required when the fix is beyond the on-site radius. */
+      reasonCode?: unknown;
     };
     const lat = toNumber(body.lat);
     const lng = toNumber(body.lng);
     const accuracy = toNumber(body.accuracy);
+    const reasonCode = typeof body.reasonCode === "string" ? body.reasonCode : null;
     const skippedReason =
       typeof body.skippedReason === "string" && body.skippedReason.trim()
         ? body.skippedReason.trim().slice(0, 1000)
@@ -99,6 +104,30 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ? haversineMeters(lat, lng, propertyLat, propertyLng)
         : null;
 
+    // Same gate as the cleaner's check-in. QA already required coordinates OR a
+    // skip reason — better than the cleaner side had — but it never compared the
+    // distance it computed, so an inspector could "check in" from anywhere and
+    // the record would read as an on-site inspection.
+    const verdict = classifyCheckInLocation({
+      distanceM: distanceMeters,
+      accuracyM: accuracy,
+      radiusM: (job.property as any)?.geofenceRadiusM ?? null,
+    });
+    if (verdict === "OFF_SITE" && !isValidOffSiteReason(reasonCode)) {
+      return NextResponse.json(
+        {
+          error: "OFF_SITE_REASON_REQUIRED",
+          message: `You're about ${Math.round(distanceMeters ?? 0)} m from ${
+            job.property?.name ?? "the property"
+          }. Tell us why you're inspecting from here.`,
+          distanceMeters: distanceMeters == null ? null : Math.round(distanceMeters),
+          radiusM: resolveOnSiteRadius((job.property as any)?.geofenceRadiusM ?? null),
+          reasons: OFF_SITE_REASON_CODES,
+        },
+        { status: 409 }
+      );
+    }
+
     const now = new Date();
     const updated = await db.qaAssignment.update({
       where: { id: assignment.id },
@@ -108,6 +137,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         checkInLng: lng ?? null,
         checkInAccuracyM: accuracy ?? null,
         checkInSkippedReason: skippedReason,
+        checkInReasonCode: verdict === "OFF_SITE" ? reasonCode : null,
         // Arrival starts the on-site clock (same semantics as the timer route).
         status: QaAssignmentStatus.IN_PROGRESS,
         pickedUpById: assignment.pickedUpById ?? session.user.id,
