@@ -168,6 +168,54 @@ const CHOICE_FIELD_TYPES = new Set(["radio", "select"]);
 const SKIP_FIELD_TYPES = new Set(["signature", "photo", "video", "file", "upload", "instruction", "inventory"]);
 
 /**
+ * Field types the "How was it done?" verdict block may attach to.
+ *
+ * It used to attach to EVERYTHING except signature/instruction/inventory, which
+ * meant the inspector was asked to grade the cleaner on `qa_notes`,
+ * `issues_found`, `client_visible_summary`, `rework_required` and `qa_photos` —
+ * i.e. on the inspector's OWN notes and uploads. Five wasted verdict controls
+ * per inspection, and a nonsense question each time.
+ *
+ * A verdict only means something against a field describing WORK THE CLEANER
+ * DID. This is an allowlist rather than a longer denylist so the next field
+ * type someone adds is silently excluded rather than silently graded.
+ */
+const GRADEABLE_FIELD_TYPES = new Set([
+  "checkbox",
+  "boolean",
+  "yesno",
+  "radio",
+  "select",
+  "rating",
+  "photo",
+  "video",
+  "upload",
+  "file",
+]);
+
+/**
+ * Outcome fields belong to the inspector, not the cleaner. They live in the
+ * template's own outcome section and must never carry a verdict even though
+ * their TYPE is otherwise gradeable.
+ */
+const NON_GRADEABLE_FIELD_IDS = new Set([
+  "rework_required",
+  "issues_found",
+  "client_visible_summary",
+  "qa_notes",
+  "qa_photos",
+  "cleaner-feedback",
+  "client-visible",
+  "overall-rating",
+]);
+
+export function isGradeableField(field: any): boolean {
+  if (!field?.type) return false;
+  if (NON_GRADEABLE_FIELD_IDS.has(String(field.id))) return false;
+  return GRADEABLE_FIELD_TYPES.has(String(field.type));
+}
+
+/**
  * Score a single answered field, mirroring lib/qa/scoring.ts computeQaScore.
  * Returns { points, max } contribution, or null when the field isn't scorable
  * or wasn't answered. Supports BOTH the seeded templates (field.scoring +
@@ -670,6 +718,7 @@ const VERDICT_TONE: Record<AccountabilityVerdict, { on: string; onFg: string }> 
  *    parent still renders as `children`). ──────────────────────────────────── */
 function AccountabilityItemV2({
   field,
+  gradeable = true,
   requiredPhoto,
   meta,
   state,
@@ -688,6 +737,9 @@ function AccountabilityItemV2({
   children,
 }: {
   field: any;
+  /** False for fields describing the inspector's own output — the field still
+   *  renders, but carries no verdict. */
+  gradeable?: boolean;
   requiredPhoto: boolean;
   meta: ItemMeta;
   state: VerdictState;
@@ -710,6 +762,12 @@ function AccountabilityItemV2({
   const guide = verdictGuide(state.verdict, scoring);
   const missingCategory = showIssue && !(state.category && state.category.trim());
   const missingDescription = showIssue && !(state.description && state.description.trim());
+
+  // Not a field describing the cleaner's work (the inspector's own notes,
+  // summary, outcome checkbox or evidence upload). Render the input, ask no
+  // verdict — grading the inspector on their own notes was nonsense.
+  if (!gradeable) return <div className="space-y-2.5">{children}</div>;
+
   return (
     <div className="space-y-2.5">
       {children}
@@ -3228,6 +3286,10 @@ export function QaInspectionWorkspace({
                         <AccountabilityItemV2
                           key={field.id}
                           field={field}
+                          // The field still RENDERS; only the verdict block is
+                          // suppressed on fields that describe the inspector's
+                          // own output rather than the cleaner's work.
+                          gradeable={isGradeableField(field)}
                           requiredPhoto={requiredPhoto}
                           meta={meta}
                           state={verdictState(field.id)}

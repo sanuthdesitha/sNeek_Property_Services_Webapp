@@ -526,9 +526,24 @@ export const NOTIFICATION_CATEGORY_META: Record<
   ical: { label: "iCal / calendar sync", description: "Automatic iCal sync alerts when bookings create or change jobs." },
 };
 
-/** Seeded accountability issue taxonomy — {key, label} pairs. Admins may
- *  extend/rename these; keys are deduped and always fall back to this set. */
+/**
+ * Seeded accountability issue taxonomy — {key, label} pairs. Admins may extend
+ * these; keys are deduped and always fall back to this set.
+ *
+ * ADD, NEVER RENAME OR REMOVE. `QaIssue.category` stores the raw key, and
+ * `sanitizeAccountabilityAssessment` silently coerces an unrecognised key to
+ * "other" (lib/accountability/scoring.ts) — so retiring a key doesn't just
+ * relabel history, it quietly destroys the categorisation of every future
+ * verdict that used it. The original fourteen keys are therefore preserved
+ * verbatim below.
+ *
+ * Expanded 2026-08 to cover what real turnover checklists actually ask for —
+ * reset-to-reference-image standards, appliance interiors, per-surface detail
+ * and the human failure modes behind them — so an inspector can name what went
+ * wrong instead of reaching for "other".
+ */
 export const DEFAULT_ACCOUNTABILITY_ISSUE_CATEGORIES: { key: string; label: string }[] = [
+  // ── Original set (keys frozen) ──────────────────────────────────────────
   { key: "dusting", label: "Dusting" },
   { key: "laundry_bag", label: "Laundry bag" },
   { key: "laundry_linen", label: "Laundry / linen" },
@@ -542,6 +557,53 @@ export const DEFAULT_ACCOUNTABILITY_ISSUE_CATEGORIES: { key: string; label: stri
   { key: "damage_missed", label: "Damage missed" },
   { key: "evidence_quality", label: "Evidence quality" },
   { key: "coffee_machine", label: "Coffee machine" },
+
+  // ── Presentation & staging ─────────────────────────────────────────────
+  { key: "reset_reference", label: "Not reset to reference images" },
+  { key: "staging_presentation", label: "Staging & welcome presentation" },
+  { key: "sofa_bed_linen", label: "Sofa bed & spare linen" },
+
+  // ── Appliance interiors (the places a rushed clean skips) ──────────────
+  { key: "oven_interior", label: "Oven interior, racks & door glass" },
+  { key: "microwave_interior", label: "Microwave inside & out" },
+  { key: "fridge_freezer", label: "Fridge / freezer — leftovers & wipe-down" },
+  { key: "dishwasher", label: "Dishwasher — run, empty, put away" },
+  { key: "kettle_toaster", label: "Kettle & toaster (emptied, crumbs)" },
+  { key: "rangehood_stovetop", label: "Stovetop & rangehood" },
+  { key: "appliance_fault", label: "Appliance fault not reported" },
+
+  // ── Surfaces & detail ──────────────────────────────────────────────────
+  { key: "benchtops_splashback", label: "Benchtops & splashback" },
+  { key: "cupboards_drawers", label: "Cupboards & drawers (inside and out)" },
+  { key: "sink_tapware", label: "Sink & tapware polish" },
+  { key: "glass_mirrors", label: "Glass, mirrors & windows" },
+  { key: "shower_screen_grout", label: "Shower screen, tiles & grout" },
+  { key: "toilet_sanitising", label: "Toilet cleaning & sanitising" },
+  { key: "high_touch_points", label: "High-touch points (switches, handles)" },
+  { key: "skirting_edges", label: "Skirting boards, edges & corners" },
+  { key: "under_furniture", label: "Under beds & behind furniture" },
+  { key: "wardrobe_hangers", label: "Wardrobe, hangers & drawers" },
+
+  // ── Floors, air & waste ────────────────────────────────────────────────
+  { key: "floors_vacuum", label: "Vacuuming missed" },
+  { key: "floors_mop", label: "Mopping missed or streaked" },
+  { key: "vacuum_not_emptied", label: "Vacuum cleaner not emptied" },
+  { key: "odour", label: "Odour / air freshness" },
+  { key: "bin_liners", label: "Bins & liners" },
+
+  // ── Handover, access & safety ──────────────────────────────────────────
+  { key: "guest_belongings", label: "Guest belongings left behind" },
+  { key: "keys_lockbox", label: "Keys, lockbox & access" },
+  { key: "windows_doors_secured", label: "Windows & doors not secured" },
+  { key: "safety_hazard", label: "Safety hazard" },
+  { key: "consumables_par", label: "Consumables below par level" },
+
+  // ── Process & conduct ──────────────────────────────────────────────────
+  { key: "timing_attendance", label: "Timing / attendance" },
+  { key: "checklist_accuracy", label: "Checklist marked complete inaccurately" },
+  { key: "laundry_handling", label: "Laundry handling & bag location" },
+  { key: "communication", label: "Communication / not reporting an issue" },
+
   { key: "other", label: "Other" },
 ];
 

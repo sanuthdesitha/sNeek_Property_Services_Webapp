@@ -1715,6 +1715,15 @@ model QaFormTemplate {
   version     Int      @default(1)
   isActive    Boolean  @default(true)
   schema      Json
+  /// True only for templates the SYSTEM owns and may rewrite in place on
+  /// version bumps. The auto-upgrade used to key off the name prefix
+  /// ("Default QA - …"), so an admin who edited the default template without
+  /// renaming it silently lost their work the next time a job was opened.
+  /// Anything an admin or the generator produced is false and never rewritten.
+  isSystemManaged Boolean @default(false)
+  /// The cleaner checklist (FormTemplate) this QA template was generated from.
+  /// Provenance for regeneration + drift warnings.
+  sourceFormTemplateId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -1752,6 +1761,11 @@ model QaAssignment {
   checkInAccuracyM Float?
   /// Remote review (inspector explicitly skipped on-site check-in) + why.
   checkInSkippedReason String?       @db.Text
+  /// Server-side autosave of an in-progress inspection. Until this existed the
+  /// only persistence was localStorage, so a half-finished inspection died with
+  /// the browser profile — and "Continue review" could only ever resume on the
+  /// same device the inspector started on.
+  draft                Json?
   /// Original-cleaner rework offer lifecycle:
   /// NONE | OFFERED | ACCEPTED | DECLINED | EXPIRED.
   reworkOfferStatus    String?
