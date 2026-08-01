@@ -322,6 +322,22 @@ describe("describeAdjustment", () => {
     expect(JSON.stringify(item)).not.toContain(secret);
   });
 
+  it("shows the payee-facing decision message to BOTH audiences", () => {
+    // `decisionMessage` was written to be read by the payee — withholding it
+    // from them is the bug it exists to fix — and an admin reviewing the row
+    // should see what the payee was told.
+    const row = adj({
+      cleanerNote: "Parking at the airport",
+      decisionMessage: "Approved at $12 — airport parking is capped at that.",
+      adminNote: "PRIVATE-ADMIN-NOTE",
+    });
+    for (const audience of ["self", "internal"] as const) {
+      expect(describeAdjustment(row, audience).reason).toContain("airport parking is capped");
+    }
+    expect(describeAdjustment(row, "self").reason).not.toContain("PRIVATE-ADMIN-NOTE");
+    expect(describeAdjustment(row, "internal").reason).toContain("PRIVATE-ADMIN-NOTE");
+  });
+
   it("keeps the cleaner's own note when there is no admin note", () => {
     expect(
       describeAdjustment(adj({ cleanerNote: "Parking receipt attached" }), "self").reason

@@ -24,7 +24,10 @@ const updateSchema = z.object({
   // previous decision "even after it has been sent").
   status: z.nativeEnum(PayAdjustmentStatus).optional(),
   approvedAmount: z.number().positive().optional(),
+  /** PRIVATE — internal surfaces only. Never sent to the payee. */
   adminNote: z.string().trim().max(4000).optional(),
+  /** The explanation the CLEANER reads. Goes out with the decision. */
+  decisionMessage: z.string().trim().max(4000).optional(),
   propertyId: z.string().cuid().optional().nullable(),
   jobId: z.string().cuid().optional().nullable(),
   title: z.string().trim().min(1).max(160).optional(),
@@ -226,6 +229,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           ? { approvedAmount, reviewedAt: new Date(), reviewedById: session.user.id }
           : {}),
         ...(body.adminNote !== undefined ? { adminNote: body.adminNote.trim() || null } : {}),
+        ...(body.decisionMessage !== undefined
+          ? { decisionMessage: body.decisionMessage.trim() || null }
+          : {}),
         ...(body.propertyId !== undefined ? { propertyId: body.propertyId } : {}),
         ...(body.jobId !== undefined ? { jobId: body.jobId } : {}),
         ...(body.title !== undefined ? { title: body.title } : {}),
@@ -275,7 +281,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     if (isStatusChange || isAmountEdit) {
       const propertyName = updated.job?.property?.name ?? updated.property?.name ?? "Unlinked request";
-      const note = updated.adminNote ? ` Note: ${updated.adminNote}` : "";
+      // The DECISION MESSAGE, not `adminNote`. This notification goes to the
+      // cleaner, and `adminNote` is the reviewing admin's private record of the
+      // decision — it was being read out to the person it was written about.
+      const note = updated.decisionMessage ? ` ${updated.decisionMessage}` : "";
       const newAmount = Number(updated.approvedAmount ?? 0).toFixed(2);
 
       let pushSubject: string;
@@ -327,7 +336,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         html: `
           <p>Hello ${updated.cleaner.name ?? updated.cleaner.email},</p>
           ${emailIntro}
-          ${updated.adminNote ? `<p><strong>Admin note:</strong> ${updated.adminNote.replace(/</g, "&lt;")}</p>` : ""}
+          ${
+            // Addressed to `updated.cleaner.email`, so this must be the
+            // cleaner-facing message. `adminNote` is private and was being
+            // emailed verbatim to the person it was written about.
+            updated.decisionMessage
+              ? `<p>${updated.decisionMessage.replace(/</g, "&lt;")}</p>`
+              : ""
+          }
         `,
       });
 

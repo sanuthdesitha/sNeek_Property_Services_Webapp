@@ -47,6 +47,7 @@ export function toPayAdjustmentListItem(row: {
   title?: string | null;
   cleanerNote?: string | null;
   adminNote?: string | null;
+  decisionMessage?: string | null;
   source?: string | null;
   sourceKey?: string | null;
   requestedAt?: string | Date | null;
@@ -65,6 +66,7 @@ export function toPayAdjustmentListItem(row: {
     title: row.title,
     cleanerNote: row.cleanerNote,
     adminNote: row.adminNote,
+    decisionMessage: row.decisionMessage,
     source: row.source,
     sourceKey: row.sourceKey,
     requestedAt: row.requestedAt ?? null,
@@ -289,6 +291,8 @@ function PayAdjustmentEditDialog({
   const isDeduction = item.amount < 0;
   const [amount, setAmount] = React.useState(Math.abs(item.amount || 0).toFixed(2));
   const [note, setNote] = React.useState("");
+  /** Private admin note — deliberately separate from the payee message. */
+  const [privateNote, setPrivateNote] = React.useState("");
   const [direction, setDirection] = React.useState<"ADDITION" | "DEDUCTION">(
     // A correction of an over-payment defaults to the OPPOSITE direction.
     mode === "correct" ? (isDeduction ? "ADDITION" : "DEDUCTION") : isDeduction ? "DEDUCTION" : "ADDITION"
@@ -457,13 +461,28 @@ function PayAdjustmentEditDialog({
                 />
               </label>
             )}
+            {/* This box was labelled "Admin note (visible to the payee)" but
+                wrote `adminNote`, which is private — so an admin writing here
+                believed they were talking to the cleaner while the text went
+                nowhere the cleaner could see, and separately leaked through
+                three other paths. The box now writes `decisionMessage`, which
+                is what the label always promised. */}
             <label className="block text-[0.75rem] font-[550]">
-              Admin note (visible to the payee)
+              Message to the payee
               <textarea
                 className={inputCls + " mt-1 min-h-[3.5rem]"}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Optional"
+                placeholder="Explain the decision — they will read this."
+              />
+            </label>
+            <label className="block text-[0.75rem] font-[550]">
+              Private note (admin only)
+              <textarea
+                className={inputCls + " mt-1 min-h-[3rem]"}
+                value={privateNote}
+                onChange={(e) => setPrivateNote(e.target.value)}
+                placeholder="Optional — never shown to the payee."
               />
             </label>
             <div className="flex flex-wrap justify-end gap-2">
@@ -475,7 +494,7 @@ function PayAdjustmentEditDialog({
                   variant="outline"
                   size="sm"
                   disabled={busy}
-                  onClick={() => patch({ status: "PENDING", adminNote: note.trim() || undefined }, "Adjustment reopened")}
+                  onClick={() => patch({ status: "PENDING", decisionMessage: note.trim() || undefined, adminNote: privateNote.trim() || undefined }, "Adjustment reopened")}
                 >
                   Reopen (back to pending)
                 </EButton>
@@ -485,7 +504,7 @@ function PayAdjustmentEditDialog({
                   variant="outline"
                   size="sm"
                   disabled={busy}
-                  onClick={() => patch({ status: "REJECTED", adminNote: note.trim() || undefined }, "Adjustment rejected")}
+                  onClick={() => patch({ status: "REJECTED", decisionMessage: note.trim() || undefined, adminNote: privateNote.trim() || undefined }, "Adjustment rejected")}
                 >
                   Reject
                 </EButton>
@@ -502,7 +521,7 @@ function PayAdjustmentEditDialog({
                       return;
                     }
                     void patch(
-                      { approvedAmount: value, adminNote: note.trim() || undefined },
+                      { approvedAmount: value, decisionMessage: note.trim() || undefined, adminNote: privateNote.trim() || undefined },
                       "Approved amount updated"
                     );
                   }}
@@ -518,7 +537,7 @@ function PayAdjustmentEditDialog({
                   disabled={busy}
                   onClick={() => {
                     if (isDeduction) {
-                      void patch({ status: "APPROVED", adminNote: note.trim() || undefined }, "Adjustment approved");
+                      void patch({ status: "APPROVED", decisionMessage: note.trim() || undefined, adminNote: privateNote.trim() || undefined }, "Adjustment approved");
                       return;
                     }
                     const value = Number(amount);
@@ -527,7 +546,7 @@ function PayAdjustmentEditDialog({
                       return;
                     }
                     void patch(
-                      { status: "APPROVED", approvedAmount: value, adminNote: note.trim() || undefined },
+                      { status: "APPROVED", approvedAmount: value, decisionMessage: note.trim() || undefined, adminNote: privateNote.trim() || undefined },
                       "Adjustment approved"
                     );
                   }}

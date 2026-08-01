@@ -187,6 +187,7 @@ export async function GET(
               approvedAmount: true,
               cleanerNote: true,
               adminNote: true,
+              decisionMessage: true,
               source: true,
               sourceKey: true,
               requestedAt: true,
