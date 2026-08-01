@@ -79,6 +79,20 @@ const JOB_INCLUDE = {
     where: { removedAt: null },
     include: { user: { select: { id: true, name: true } } },
   },
+  // The job's ACTIVE QA assignment, so a list can offer "assign inspector"
+  // without a second round trip. Cancelled/completed inspections are excluded:
+  // the question these surfaces ask is "who is inspecting this now?".
+  qaAssignments: {
+    where: { status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] as any } },
+    select: {
+      id: true,
+      status: true,
+      assignedToId: true,
+      assignedTo: { select: { id: true, name: true, email: true } },
+    },
+    orderBy: { createdAt: "desc" as const },
+    take: 1,
+  },
   qaReviews: {
     // `kind` distinguishes a real review (QA inspection / ADMIN quick score)
     // from a client rating, so the QA queue can tell "not yet reviewed" from

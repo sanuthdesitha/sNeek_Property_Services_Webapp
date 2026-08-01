@@ -10,13 +10,28 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, RefreshCw, Shirt, User2, UserPlus } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  ShieldCheck,
+  Shirt,
+  User2,
+  UserPlus,
+} from "lucide-react";
 import { agendaStartDay } from "@/lib/calendar/agenda-window";
 import { EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
 import {
   AssignCleanersModal,
   type AssignCleaner,
 } from "@/components/v2/admin/jobs/assign-cleaners-modal";
+import { EModal } from "@/components/v2/admin/estate-kit";
+// The SAME panel the job detail page uses, so the calendar can never drift
+// from it.
+import {
+  QaAssignPanel,
+  type QaAssignInspector,
+} from "@/components/v2/admin/jobs/qa-assign-panel";
 
 const SYDNEY_TZ = "Australia/Sydney";
 
@@ -53,6 +68,11 @@ type JobEntry = {
   cleanerName?: string;
   assignedIds: string[];
   primaryId: string | null;
+  /** The job's active QA inspection, if one exists. */
+  qaAssignmentId: string | null;
+  qaStatus: string | null;
+  qaInspectorId: string | null;
+  qaInspectorName: string | null;
 };
 
 type LaundryEntry = {
@@ -108,6 +128,9 @@ export function EstateSchedule() {
   const [laundryLoadedKey, setLaundryLoadedKey] = useState("");
   const [cleaners, setCleaners] = useState<AssignCleaner[]>([]);
   const [assignJob, setAssignJob] = useState<JobEntry | null>(null);
+  /** Job whose QA inspector is being assigned from the calendar. */
+  const [qaJob, setQaJob] = useState<JobEntry | null>(null);
+  const [inspectors, setInspectors] = useState<QaAssignInspector[]>([]);
 
   function loadJobs() {
     setLoading(true);
@@ -121,6 +144,8 @@ export function EstateSchedule() {
         setJobs(
           data.map((job) => {
             const assignments = Array.isArray(job?.assignments) ? job.assignments : [];
+            // The active QA inspection (the API returns at most one).
+            const qa = Array.isArray(job?.qaAssignments) ? job.qaAssignments[0] : null;
             const rawName = String(job.property?.name ?? "").trim();
             const fallbackAddress = String(job.property?.address ?? "").trim();
             return {
@@ -140,6 +165,10 @@ export function EstateSchedule() {
                 assignments.find((a: any) => a?.isPrimary)?.user?.id ??
                 assignments.find((a: any) => a?.isPrimary)?.userId ??
                 null,
+              qaAssignmentId: qa?.id ?? null,
+              qaStatus: qa?.status ? String(qa.status) : null,
+              qaInspectorId: qa?.assignedToId ?? null,
+              qaInspectorName: qa?.assignedTo?.name ?? qa?.assignedTo?.email ?? null,
             };
           })
         );
@@ -152,6 +181,30 @@ export function EstateSchedule() {
   }, []);
 
   /* Active cleaner accounts for the assign popover. */
+  /* Eligible QA inspectors — inspectors plus ops managers, matching the job
+     detail page's QA panel. Failure leaves the list empty and the modal says
+     so rather than offering an empty dropdown with no explanation. */
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/admin/users?role=QA_INSPECTOR").then((r) => r.json().catch(() => [])),
+      fetch("/api/admin/users?role=OPS_MANAGER").then((r) => r.json().catch(() => [])),
+    ])
+      .then(([qaRows, opsRows]) => {
+        const rows = [...(Array.isArray(qaRows) ? qaRows : []), ...(Array.isArray(opsRows) ? opsRows : [])];
+        setInspectors(
+          rows
+            .map((row: any) => ({
+              id: String(row.id ?? ""),
+              name: row.name ? String(row.name) : null,
+              email: String(row.email ?? ""),
+              role: String(row.role ?? ""),
+            }))
+            .filter((row) => row.id)
+        );
+      })
+      .catch(() => setInspectors([]));
+  }, []);
+
   useEffect(() => {
     fetch("/api/admin/users?role=CLEANER")
       .then((r) => r.json().catch(() => []))
@@ -681,6 +734,24 @@ export function EstateSchedule() {
                           <UserPlus className="mr-1 h-3 w-3" aria-hidden />
                           {unassigned ? "Assign" : "Reassign"}
                         </EButton>
+                        {/* QA inspector, beside the cleaner assignment.
+                            Dispatch and inspection scheduling happen in the
+                            same sitting; making the planner open each job to
+                            assign an inspector is what left inspections
+                            unassigned. */}
+                        <EButton
+                          variant={job.qaInspectorId ? "outline" : "ghost"}
+                          size="sm"
+                          onClick={() => setQaJob(job)}
+                          title={
+                            job.qaInspectorName
+                              ? `QA inspector: ${job.qaInspectorName}`
+                              : "No QA inspector assigned"
+                          }
+                        >
+                          <ShieldCheck className="mr-1 h-3 w-3" aria-hidden />
+                          {job.qaInspectorName ? "QA set" : "QA"}
+                        </EButton>
                       </div>
                     );
                   })}
@@ -706,6 +777,48 @@ export function EstateSchedule() {
         initialPrimaryId={assignJob?.primaryId ?? null}
         onAssigned={loadJobs}
       />
+
+      {/* QA inspector assignment, reusing the SAME panel the job detail page
+          uses — so the calendar can never drift from it. Dispatch and
+          inspection scheduling happen in the same sitting; making the planner
+          open each job to assign an inspector is what kept inspections
+          unassigned. */}
+      <EModal
+        open={Boolean(qaJob)}
+        onClose={() => setQaJob(null)}
+        title="Assign QA inspector"
+        eyebrow={qaJob?.propertyName ?? "Job"}
+      >
+        {qaJob ? (
+          <div className="space-y-3">
+            <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+              {qaJob.jobTypeLabel}
+              {qaJob.suburb ? ` · ${qaJob.suburb}` : ""} · {qaJob.day}
+            </p>
+            {inspectors.length === 0 ? (
+              <p className="text-[0.8125rem] text-[hsl(var(--e-warning))]">
+                No QA inspectors or ops managers found. Check that at least one active
+                account holds one of those roles.
+              </p>
+            ) : (
+              <QaAssignPanel
+                jobId={qaJob.id}
+                current={
+                  qaJob.qaAssignmentId
+                    ? {
+                        id: qaJob.qaAssignmentId,
+                        status: qaJob.qaStatus ?? "OPEN",
+                        assignedToId: qaJob.qaInspectorId,
+                        assignedToName: qaJob.qaInspectorName,
+                      }
+                    : null
+                }
+                inspectors={inspectors}
+              />
+            )}
+          </div>
+        ) : null}
+      </EModal>
     </div>
   );
 }
