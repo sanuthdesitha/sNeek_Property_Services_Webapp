@@ -1,22 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
+// Server-computed early-checkin / late-checkout badge times (HH:MM), so list
+// UIs render timing chips without re-parsing the notes JSON client-side. The
+// derivation moved to lib/jobs/timing-badges.ts when the cleaner's own list
+// needed the same pills (2026-08).
+import { withTimingBadges } from "@/lib/jobs/timing-badges";
 import { Role, JobStatus, JobType, PayAdjustmentStatus } from "@prisma/client";
-
-/**
- * Server-computed early-checkin / late-checkout badge times (HH:MM) from the
- * job's internalNotes meta, so list UIs can render timing chips without
- * re-parsing the raw notes JSON client-side. Only present when a rule is
- * enabled.
- */
-function withTimingBadges<T extends { internalNotes?: string | null }>(job: T) {
-  const meta = parseJobInternalNotes(job.internalNotes);
-  const early = resolveRuleTime(meta.earlyCheckin);
-  const late = resolveRuleTime(meta.lateCheckout);
-  if (!early && !late) return job;
-  return { ...job, timingBadges: { ...(early ? { early } : {}), ...(late ? { late } : {}) } };
-}
 
 function buildWhereClause(params: {
   status: JobStatus | null;

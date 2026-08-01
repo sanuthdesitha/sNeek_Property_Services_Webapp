@@ -15,6 +15,7 @@ import {
 import { EInput } from "@/components/v2/cleaner/fields";
 import { ChevronRight, Clock, Search } from "lucide-react";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
+import { resolveTimingBadges, timingBadgeLabels } from "@/lib/jobs/timing-badges";
 import {
   sydneyTodayKey,
   sydneyDayStart,
@@ -108,6 +109,10 @@ async function getCleanerJobs(
         scheduledDate: true,
         startTime: true,
         dueTime: true,
+        // Carries the early-checkin / late-checkout rules. A cleaner scanning
+        // tomorrow's work needs to see "start after 12:30" here, not only once
+        // they have opened the job.
+        internalNotes: true,
         property: { select: { name: true, suburb: true, address: true } },
         // The current cleaner's own assignment — gates Accept/Decline per-assignment
         // (responseStatus === "PENDING"), not on the shared job status.
@@ -311,6 +316,18 @@ export default async function CleanerJobsPage({
                       </span>
                     ) : null}
                   </p>
+                  {/* Turnaround rules. "Start after 12:30" means guests are
+                      still inside — that has to be visible before the cleaner
+                      plans their day, not only inside the job. */}
+                  {timingBadgeLabels(resolveTimingBadges(j.internalNotes)).length > 0 ? (
+                    <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {timingBadgeLabels(resolveTimingBadges(j.internalNotes)).map((badge) => (
+                        <EBadge key={badge.key} tone={badge.tone} soft>
+                          {badge.label}
+                        </EBadge>
+                      ))}
+                    </p>
+                  ) : null}
                 </div>
                 <EBadge tone={statusTone(j.status)} soft>
                   {titleCase(j.status)}
