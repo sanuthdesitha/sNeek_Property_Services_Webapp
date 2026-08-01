@@ -66,22 +66,19 @@ export const DEFAULT_ACCOUNTABILITY_SCORING: AccountabilityScoring = {
   criticalTriggersManagementReview: true,
 };
 
-/** Seeded issue taxonomy (key → label) — mirrors lib/settings
- *  DEFAULT_ACCOUNTABILITY_ISSUE_CATEGORIES. */
+/**
+ * EMERGENCY FALLBACK ONLY — the authoritative taxonomy is
+ * `settings.accountability.issueCategories`, delivered on the QA job payload.
+ *
+ * This used to be a full mirror of the seeded fourteen, and because the GET
+ * payload carried no `settings` key the workspace ALWAYS fell through to it.
+ * The result: every category an admin added in Settings changed the admin
+ * filter dropdown and nothing else — the inspector's picker never saw it.
+ *
+ * Kept deliberately tiny so that if it is ever reached again the breakage is
+ * obvious rather than silently plausible.
+ */
 export const DEFAULT_ISSUE_CATEGORIES: { key: string; label: string }[] = [
-  { key: "dusting", label: "Dusting" },
-  { key: "laundry_bag", label: "Laundry bag" },
-  { key: "laundry_linen", label: "Laundry / linen" },
-  { key: "restock", label: "Restock" },
-  { key: "kitchen_reset", label: "Kitchen reset" },
-  { key: "bathroom_detail", label: "Bathroom detail" },
-  { key: "bed_setup", label: "Bed setup" },
-  { key: "furniture_reset", label: "Furniture reset" },
-  { key: "balcony_setup", label: "Balcony setup" },
-  { key: "rubbish", label: "Rubbish" },
-  { key: "damage_missed", label: "Damage missed" },
-  { key: "evidence_quality", label: "Evidence quality" },
-  { key: "coffee_machine", label: "Coffee machine" },
   { key: "other", label: "Other" },
 ];
 

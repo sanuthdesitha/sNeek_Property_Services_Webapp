@@ -8,6 +8,7 @@ import { generateJobReport } from "@/lib/reports/generator";
 import { createCase } from "@/lib/cases/service";
 import { createQaReworkTransfer } from "@/lib/qa/rework-transfers";
 import { createReworkJobFromFailure } from "@/lib/qa/rework-jobs";
+import { generateQaTemplateFromChecklist } from "@/lib/qa/generate-from-checklist";
 import {
   compositeAnnotated,
   ensureFlattened,
@@ -205,17 +206,59 @@ async function resolveTemplate(jobId: string) {
     orderBy: { version: "desc" },
   });
   if (propertyTemplate) return propertyTemplate;
+
+  // No property-specific QA form yet: derive one from the property's OWN
+  // cleaner checklist if it has one. A generic four-area template cannot fail
+  // the thing that actually went wrong on a property whose checklist has
+  // thirteen sections. Best-effort — any problem falls through to the default.
+  if (job.propertyId) {
+    try {
+      // A property's checklist is bound through the settings override map
+      // (propertyId → jobType → templateId), NOT a column on FormTemplate —
+      // there is no `FormTemplate.propertyId`.
+      const settings = await getAppSettings();
+      const overrideId = settings.propertyFormTemplateOverrides?.[job.propertyId]?.[job.jobType];
+      const checklist = overrideId
+        ? await db.formTemplate.findFirst({
+            where: { id: overrideId, isActive: true },
+            select: { id: true, schema: true },
+          })
+        : null;
+      const generated = generateQaTemplateFromChecklist(checklist?.schema as any);
+      if (checklist && generated) {
+        return await db.qaFormTemplate.create({
+          data: {
+            name: `QA — from checklist (${String(job.jobType).replace(/_/g, " ")})`,
+            serviceType: job.jobType,
+            propertyId: job.propertyId,
+            schema: generated.schema as any,
+            sourceFormTemplateId: checklist.id,
+            // Generated, but ADMIN-OWNED from here: never auto-rewritten.
+            isSystemManaged: false,
+          },
+        });
+      }
+    } catch {
+      /* fall through to the global default */
+    }
+  }
+
   const globalTemplate = await db.qaFormTemplate.findFirst({
     where: { propertyId: null, serviceType: job.jobType, isActive: true },
     orderBy: { version: "desc" },
   });
   if (globalTemplate) {
-    // Auto-upgrade an auto-created "Default QA" template to the latest area-based
-    // schema when it's stale; never touch an admin-customised (renamed) template.
+    // Auto-upgrade a SYSTEM-OWNED default to the latest area-based schema when
+    // it's stale.
+    //
+    // This used to decide ownership by matching the NAME ("Default QA - …"), so
+    // an admin who edited the default template in place without renaming it had
+    // their work silently overwritten the next time anyone opened a job. The
+    // flag is explicit and is only ever set by the system.
     const schema = globalTemplate.schema as { version?: number } | null;
-    const isAutoDefault = globalTemplate.name?.startsWith("Default QA -");
-    const stale = !schema || typeof schema !== "object" || Number(schema.version ?? 0) < QA_TEMPLATE_VERSION;
-    if (isAutoDefault && stale) {
+    const stale =
+      !schema || typeof schema !== "object" || Number(schema.version ?? 0) < QA_TEMPLATE_VERSION;
+    if (globalTemplate.isSystemManaged && stale) {
       return db.qaFormTemplate.update({
         where: { id: globalTemplate.id },
         data: { schema: buildDefaultQaTemplateSchema(job.jobType) as any },
@@ -228,6 +271,7 @@ async function resolveTemplate(jobId: string) {
       name: `Default QA - ${String(job.jobType).replace(/_/g, " ")}`,
       serviceType: job.jobType,
       schema: buildDefaultQaTemplateSchema(job.jobType) as any,
+      isSystemManaged: true,
     },
   });
 }
@@ -235,6 +279,10 @@ async function resolveTemplate(jobId: string) {
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([...QA_ROLES]);
+    // The inspection form needs the admin's accountability configuration —
+    // categories and deduction values. Without it the workspaces fall back to a
+    // hardcoded client-side copy and every configured value is invisible.
+    const qaSettings = await getAppSettings();
     const [job, template, assignment, mediaOverrides] = await Promise.all([
       db.job.findUnique({
         where: { id: params.id },
@@ -670,6 +718,20 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       watchOuts,
       brief,
       briefContext,
+      // THE ADMIN'S CONFIGURATION, which never used to reach the form.
+      //
+      // Both inspection workspaces read `payload.settings.accountability.*` and,
+      // finding no `settings` key, fell through to a hardcoded client-side copy
+      // of the original fourteen categories. Every category an admin added in
+      // Settings changed the admin filter dropdown and NOTHING ELSE — the
+      // inspector's picker never saw it. The on-screen deduction figures were
+      // equally fictional: the defaults, not the configured values.
+      settings: {
+        accountability: {
+          scoring: qaSettings.accountability.scoring,
+          issueCategories: qaSettings.accountability.issueCategories,
+        },
+      },
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
