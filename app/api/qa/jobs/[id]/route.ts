@@ -54,7 +54,16 @@ const damageEntrySchema = z.object({
   photoKeys: z.array(z.string().trim().min(1)).default([]),
   estimatedCost: z.number().min(0).nullable().optional(),
   annotations: z
-    .record(z.object({ overlayKey: z.string().trim().min(1).optional(), comment: z.string().trim().max(2000).optional() }))
+    .record(
+      z.object({
+        overlayKey: z.string().trim().min(1).optional(),
+        comment: z.string().trim().max(2000).optional(),
+        // Accepted so an existing composite survives an AMEND. Without this zod
+        // strips it and the submit re-composites, orphaning the previous flat
+        // image in S3 on every re-submission.
+        flatKey: z.string().trim().min(1).optional(),
+      })
+    )
     .optional(),
 });
 
@@ -83,7 +92,16 @@ const flaggedAreaSchema = z.object({
   note: z.string().trim().max(2000).optional(),
   photoKeys: z.array(z.string().trim().min(1)).max(24).default([]),
   annotations: z
-    .record(z.object({ overlayKey: z.string().trim().min(1).optional(), comment: z.string().trim().max(2000).optional() }))
+    .record(
+      z.object({
+        overlayKey: z.string().trim().min(1).optional(),
+        comment: z.string().trim().max(2000).optional(),
+        // Accepted so an existing composite survives an AMEND. Without this zod
+        // strips it and the submit re-composites, orphaning the previous flat
+        // image in S3 on every re-submission.
+        flatKey: z.string().trim().min(1).optional(),
+      })
+    )
     .optional(),
 });
 
@@ -132,6 +150,9 @@ const toolsSchema = z
         z.object({
           overlayKey: z.string().trim().min(1).optional(),
           comment: z.string().trim().max(2000).optional(),
+          // See the damage/flagged-area schemas: kept so an amend reuses the
+          // existing composite instead of orphaning it.
+          flatKey: z.string().trim().min(1).optional(),
         })
       )
       .default({}),
