@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { offSiteReasonLabel, reasonClaimsOnSite } from "@/lib/gps/off-site-reasons";
 import {
   EBadge,
   EButton,
@@ -127,6 +128,8 @@ async function getJob(id: string) {
         gpsCheckOutLng: true,
         gpsCheckOutAt: true,
         gpsDistanceMeters: true,
+        gpsCheckInReasonCode: true,
+        gpsCheckInNote: true,
         property: {
           select: {
             id: true,
@@ -848,6 +851,20 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
                 ) : null}
                 {job.gpsDistanceMeters != null ? (
                   <p>Distance from property at clock-in: {job.gpsDistanceMeters}m</p>
+                ) : null}
+                {/* An off-site start is now an attributable act, not a number
+                    nobody reads — show the reason the cleaner had to give. */}
+                {job.gpsCheckInReasonCode ? (
+                  <p className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-surface-2))] px-2.5 py-2">
+                    <span className="font-[600]">
+                      {reasonClaimsOnSite(job.gpsCheckInReasonCode)
+                        ? "Started away from the pin (says they were on site)"
+                        : "Started away from the property"}
+                    </span>
+                    <br />
+                    {offSiteReasonLabel(job.gpsCheckInReasonCode)}
+                    {job.gpsCheckInNote ? ` — ${job.gpsCheckInNote}` : ""}
+                  </p>
                 ) : null}
               </div>
             ) : null}

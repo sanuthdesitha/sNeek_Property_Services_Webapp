@@ -251,6 +251,19 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const [carryPhotos, setCarryPhotos] = React.useState<CapturedMedia[]>([]);
 
   const [busy, setBusy] = React.useState<string | null>(null);
+  /** Set when the browser refuses a location fix — clock-in is blocked until fixed. */
+  const [gpsBlocked, setGpsBlocked] = React.useState<string | null>(null);
+  /** Server asked why the cleaner is starting away from the property. */
+  const [offSitePrompt, setOffSitePrompt] = React.useState<{
+    message?: string;
+    distanceMeters: number | null;
+    reasons: { code: string; label: string }[];
+  } | null>(null);
+  /** Draft of the cleaner's answer to the off-site prompt. */
+  const [offSiteDraft, setOffSiteDraft] = React.useState<{ code: string; note: string }>({
+    code: "",
+    note: "",
+  });
   const [notice, setNotice] = React.useState<{ tone: "success" | "danger" | "info"; text: string } | null>(null);
 
   // Job-start accountability gate (Phase 2b): the cleaner confirms the property
@@ -813,7 +826,16 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
    * arrival coordinates. The server also refuses to overwrite an existing
    * check-in, so this is belt-and-braces.
    */
-  async function clockIn() {
+  /**
+   * @param offSiteAnswer replayed on the retry that follows the off-site prompt.
+   *   Passed explicitly rather than read from state so the retry cannot race the
+   *   setState that triggered it.
+   */
+  async function clockIn(offSiteArg?: { code: string; note: string }) {
+    // `clockIn` is also wired straight to onClick in places, which would pass a
+    // MouseEvent here — accept only a real answer object.
+    const offSiteAnswer =
+      offSiteArg && typeof (offSiteArg as any).code === "string" ? offSiteArg : undefined;
     // "Resume" = MY clock has run before. A job-level check-in left behind by a
     // previous cleaner is not my arrival, so a fresh assignee still runs the
     // arrival capture (the server preserves the original check-in regardless).
@@ -833,17 +855,49 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     setBusy("clockin");
     try {
       if (!isResume) {
+        // GPS IS REQUIRED TO START. This used to catch a permission denial into
+        // a blue "info" toast and clock in regardless — so "location required"
+        // was advisory, and a job could be started from anywhere with no
+        // evidence at all. A denial now stops the clock-in and tells the
+        // cleaner how to re-enable it.
+        let gps: { lat: number; lng: number; accuracy?: number | null };
         try {
-          const gps = await getGps();
-          await post(`/api/cleaner/jobs/${jobId}/gps-checkin`, {
-            lat: gps.lat,
-            lng: gps.lng,
-            accuracy: gps.accuracy,
-            confirmed: true,
-          });
+          gps = await getGps();
         } catch (geoErr: any) {
-          // GPS optional but recorded when available; surface a soft note.
-          flash("info", `Starting without GPS (${geoErr.message}).`);
+          setGpsBlocked(geoErr?.message ?? "Location is unavailable.");
+          flash(
+            "danger",
+            "Location is required to start a job. Turn on location for this site, then try again."
+          );
+          return;
+        }
+
+        const checkin = await post(`/api/cleaner/jobs/${jobId}/gps-checkin`, {
+          lat: gps.lat,
+          lng: gps.lng,
+          accuracy: gps.accuracy,
+          confirmed: true,
+          ...(offSiteAnswer ? { reasonCode: offSiteAnswer.code, note: offSiteAnswer.note } : {}),
+        }).catch((err: any) => {
+          // 409 = the server wants a reason for the distance before it records
+          // anything.
+          if ((err?.data as any)?.error === "OFF_SITE_REASON_REQUIRED") return err.data;
+          throw err;
+        });
+
+        if (checkin?.error === "OFF_SITE_REASON_REQUIRED") {
+          setOffSitePrompt({
+            message: checkin.message,
+            distanceMeters: checkin.distanceMeters ?? null,
+            reasons: checkin.reasons ?? [],
+          });
+          return;
+        }
+
+        if (checkin?.lowAccuracy) {
+          // The server has always returned this and the client always discarded
+          // it, so a ±3 km fix was recorded as if it were evidence.
+          flash("info", "Your location is only roughly accurate here — we've noted that.");
         }
       }
       await post(`/api/cleaner/jobs/${jobId}/start`, {
@@ -1340,6 +1394,104 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
           </ul>
           <EButton variant="gold" className="w-full" onClick={acknowledgeImportant}>
             <CheckCircle2 className="h-4 w-4" /> I&apos;ve read these
+          </EButton>
+        </div>
+      </EModal>
+
+      {/* Location refused / unavailable — clock-in is blocked until it's on. */}
+      <EModal
+        open={Boolean(gpsBlocked)}
+        onClose={() => setGpsBlocked(null)}
+        eyebrow="Location required"
+        title="We couldn't get your location"
+      >
+        <div className="space-y-4">
+          <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
+            {gpsBlocked} Your arrival location is the evidence that you were at the property, so a
+            job can&apos;t be started without it.
+          </p>
+          <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+            <p className="font-[600] text-[hsl(var(--e-text-primary))]">To turn it back on</p>
+            <p className="mt-1.5">
+              <span className="font-[600]">iPhone:</span> Settings → Privacy &amp; Security →
+              Location Services → Safari Websites → While Using the App. Then reload this page.
+            </p>
+            <p className="mt-1.5">
+              <span className="font-[600]">Android:</span> tap the padlock in the address bar →
+              Permissions → Location → Allow. Then reload this page.
+            </p>
+            <p className="mt-1.5">
+              Still stuck outdoors or in a basement? Step outside for a moment, or call the office
+              so they can start the job for you.
+            </p>
+          </div>
+          <EButton
+            variant="gold"
+            className="w-full"
+            onClick={() => {
+              setGpsBlocked(null);
+              void clockIn();
+            }}
+          >
+            Try again
+          </EButton>
+        </div>
+      </EModal>
+
+      {/* Beyond the on-site radius — a coded reason is required before we record it. */}
+      <EModal
+        open={Boolean(offSitePrompt)}
+        onClose={() => setOffSitePrompt(null)}
+        size="wide"
+        eyebrow="Check your location"
+        title="Why are you starting from here?"
+      >
+        <div className="space-y-4">
+          <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
+            {offSitePrompt?.message ??
+              "You look like you're away from the property. Tell us why so we can record it properly."}
+          </p>
+          <div className="space-y-2">
+            {(offSitePrompt?.reasons ?? []).map((reason) => (
+              <label
+                key={reason.code}
+                className="flex cursor-pointer items-start gap-2.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 text-[0.875rem]"
+              >
+                <input
+                  type="radio"
+                  name="off-site-reason"
+                  className="mt-1"
+                  checked={offSiteDraft.code === reason.code}
+                  onChange={() => setOffSiteDraft((d) => ({ ...d, code: reason.code }))}
+                />
+                <span>{reason.label}</span>
+              </label>
+            ))}
+          </div>
+          <textarea
+            className="w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-transparent p-3 text-[0.875rem]"
+            rows={3}
+            placeholder="Add any detail that helps (optional unless you picked 'Something else')."
+            value={offSiteDraft.note}
+            onChange={(e) => setOffSiteDraft((d) => ({ ...d, note: e.target.value }))}
+          />
+          <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+            This is sent to the office along with your distance from the property.
+          </p>
+          <EButton
+            variant="gold"
+            className="w-full"
+            disabled={
+              !offSiteDraft.code ||
+              (offSiteDraft.code === "OTHER" && offSiteDraft.note.trim().length < 5)
+            }
+            onClick={() => {
+              const answer = { code: offSiteDraft.code, note: offSiteDraft.note.trim() };
+              setOffSitePrompt(null);
+              void clockIn(answer);
+            }}
+          >
+            Start the job
           </EButton>
         </div>
       </EModal>
