@@ -49,6 +49,79 @@ const createSchema = z
     }
   });
 
+/**
+ * What a cleaner is allowed to see of their OWN pay adjustment.
+ *
+ * Both responses here used to be `{ ...row }` — a whole-row spread of
+ * `CleanerPayAdjustment`, which ships every internal column to the cleaner:
+ * `adminNote` (the reviewing admin's private note about the decision),
+ * `reviewedById`, `sourceKey` (the auto-proposal dedupe key), and the two
+ * settlement stamps `includedInPayrollRunId` / `includedInCleanerInvoiceId`.
+ * A spread also leaks any column added later by default, which is what makes
+ * it a standing hazard rather than a one-off mistake.
+ *
+ * This is an explicit ALLOWLIST. Settlement is exposed as a derived boolean —
+ * "has this been paid out yet" is genuinely the cleaner's business; the run
+ * and invoice ids are not.
+ */
+function toCleanerAdjustmentDto(row: {
+  id: string;
+  jobId: string | null;
+  propertyId: string | null;
+  cleanerId: string;
+  scope: PayAdjustmentScope;
+  title: string | null;
+  type: PayAdjustmentType;
+  requestedHours: number | null;
+  requestedRate: number | null;
+  requestedAmount: number;
+  approvedAmount: number | null;
+  status: PayAdjustmentStatus;
+  cleanerNote: string | null;
+  attachmentKeys: unknown;
+  requestedAt: Date;
+  reviewedAt: Date | null;
+  source: string | null;
+  includedInPayrollRunId: string | null;
+  includedInCleanerInvoiceId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  job?: unknown;
+  property?: unknown;
+}) {
+  return {
+    id: row.id,
+    jobId: row.jobId,
+    propertyId: row.propertyId,
+    cleanerId: row.cleanerId,
+    scope: row.scope,
+    title: row.title,
+    type: row.type,
+    requestedHours: row.requestedHours,
+    requestedRate: row.requestedRate,
+    requestedAmount: row.requestedAmount,
+    approvedAmount: row.approvedAmount,
+    status: row.status,
+    cleanerNote: row.cleanerNote,
+    requestedAt: row.requestedAt,
+    reviewedAt: row.reviewedAt,
+    // Provenance is the cleaner's own bonus/deduction reason (STREAK_5,
+    // QA_RECTIFICATION_PAY, …). `sourceKey` is an internal dedupe key.
+    source: row.source,
+    /** Paid out on either settlement rail — the ids stay internal. */
+    settled: Boolean(row.includedInPayrollRunId || row.includedInCleanerInvoiceId),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    job: row.job ?? null,
+    property: row.property ?? null,
+    attachmentUrls: Array.isArray(row.attachmentKeys)
+      ? (row.attachmentKeys as unknown[])
+          .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+          .map((key) => ({ key, url: publicUrl(key) }))
+      : [],
+  };
+}
+
 function getPropertyLabel(input: {
   rowProperty?: { name: string; suburb: string | null } | null;
   rowJobProperty?: { name: string; suburb: string | null } | null;
@@ -101,16 +174,7 @@ export async function GET(req: NextRequest) {
       orderBy: { requestedAt: "desc" },
     });
 
-    return NextResponse.json(
-      rows.map((row) => ({
-        ...row,
-        attachmentUrls: Array.isArray(row.attachmentKeys)
-          ? row.attachmentKeys
-              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-              .map((key) => ({ key, url: publicUrl(key) }))
-          : [],
-      }))
-    );
+    return NextResponse.json(rows.map(toCleanerAdjustmentDto));
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
@@ -376,17 +440,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(
-      {
-        ...created,
-        attachmentUrls: Array.isArray(created.attachmentKeys)
-          ? created.attachmentKeys
-              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-              .map((key) => ({ key, url: publicUrl(key) }))
-          : [],
-      },
-      { status: 201 }
-    );
+    return NextResponse.json(toCleanerAdjustmentDto(created), { status: 201 });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message ?? "Could not submit request." }, { status });

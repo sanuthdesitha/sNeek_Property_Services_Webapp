@@ -656,7 +656,7 @@ function AccountabilityPayCard({
         </>,
         // Shared what-changed / origin / settled body (pay-transparency wave)
         // so this card reads identically to the job pay card + invoice panel.
-        <PayAdjustmentDisplay key="shared" item={toPayAdjustmentListItem(row)} />,
+        <PayAdjustmentDisplay key="shared" item={toPayAdjustmentListItem(row, "internal")} />,
       ]}
       footer={`Requested ${fmt(row.requestedAt ?? row.createdAt)}`}
       actions={
@@ -1008,7 +1008,7 @@ export function ApprovalsWorkspace() {
                     </>,
                     // Shared what-changed / origin / settled body — reads
                     // identically to the job pay card and the invoice panel.
-                    <PayAdjustmentDisplay key="shared" item={toPayAdjustmentListItem(row)} />,
+                    <PayAdjustmentDisplay key="shared" item={toPayAdjustmentListItem(row, "internal")} />,
                   ]}
                   footer={`Requested ${fmt(row.requestedAt ?? row.createdAt)}`}
                   actions={

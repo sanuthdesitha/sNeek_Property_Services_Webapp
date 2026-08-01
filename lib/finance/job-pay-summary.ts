@@ -270,6 +270,12 @@ export interface JobPaySummaryInput {
   adjustments: JobPaySummaryAdjustmentInput[];
   /** Clocked timer hours per cleaner — used only when no allocated hours. */
   timerHoursByCleaner?: Record<string, number>;
+  /**
+   * Who the summary is being built for. Required — see `PayAdjustmentAudience`.
+   * Every current caller is an admin surface, but the type forces the next one
+   * to say so rather than inherit an internal-only default.
+   */
+  audience: PayAdjustmentAudience;
 }
 
 function toIso(value: Date | string | null | undefined): string | null {
@@ -279,11 +285,32 @@ function toIso(value: Date | string | null | undefined): string | null {
 }
 
 /** Serialize one adjustment row into the shared display shape. */
-export function describeAdjustment(row: JobPaySummaryAdjustmentInput): JobPaySummaryAdjustment {
+/**
+ * Who is going to read this row.
+ *
+ * `internal` — admin / ops / finance surfaces: the full reason, including the
+ *   reviewing admin's note.
+ * `self` — the payee looking at their own money. `adminNote` is the admin's
+ *   PRIVATE note about the decision, written expecting an internal audience,
+ *   and must never travel to the person it is about.
+ *
+ * Deliberately a REQUIRED parameter with no default. This function fed the
+ * cleaner's own job screen with `Admin: {adminNote}` appended to every
+ * adjustment reason, and a default is exactly how that happened — the cleaner
+ * call site never had to think about the audience. Now it does.
+ */
+export type PayAdjustmentAudience = "internal" | "self";
+
+export function describeAdjustment(
+  row: JobPaySummaryAdjustmentInput,
+  audience: PayAdjustmentAudience
+): JobPaySummaryAdjustment {
   const originInfo = deriveAdjustmentOrigin(row.source ?? null, row.sourceKey ?? null);
   const settled = adjustmentSettlement(row);
-  const reasonParts = [row.cleanerNote?.trim(), row.adminNote?.trim() ? `Admin: ${row.adminNote!.trim()}` : null]
-    .filter((part): part is string => Boolean(part));
+  const reasonParts = [
+    row.cleanerNote?.trim(),
+    audience === "internal" && row.adminNote?.trim() ? `Admin: ${row.adminNote!.trim()}` : null,
+  ].filter((part): part is string => Boolean(part));
   return {
     id: row.id,
     amount: adjustmentDisplayAmount(row),
@@ -335,7 +362,7 @@ export function computeJobPaySummary(input: JobPaySummaryInput): CleanerJobPaySu
         .filter((adj) => adj.status === "PENDING")
         .reduce((sum, adj) => sum + adjustmentDisplayAmount(adj), 0)
     );
-    const described = myAdjustments.map(describeAdjustment);
+    const described = myAdjustments.map((adj) => describeAdjustment(adj, input.audience));
     const name =
       assignment?.userName?.trim() ||
       myAdjustments.find((adj) => adj.cleanerName?.trim())?.cleanerName?.trim() ||

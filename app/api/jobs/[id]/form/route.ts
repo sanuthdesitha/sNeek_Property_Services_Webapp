@@ -198,7 +198,10 @@ export async function GET(
             orderBy: { requestedAt: "asc" },
           })
           .catch(() => []);
-        payAdjustmentsForJob = myAdjustments.map((adj) => describeAdjustment(adj));
+        // `self` — this is the cleaner reading their OWN money. The admin's
+        // note on an adjustment is a private decision record and was being
+        // appended to every reason the cleaner sees as `Admin: …`.
+        payAdjustmentsForJob = myAdjustments.map((adj) => describeAdjustment(adj, "self"));
         const approvedSum = sumAdjustments(myAdjustments);
         payTotalForJob =
           payForJob != null ? Number((payForJob + approvedSum).toFixed(2)) : null;

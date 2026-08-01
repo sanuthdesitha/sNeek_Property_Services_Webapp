@@ -433,7 +433,8 @@ export function CleanerPayRequestsPage({
                       <span>Created: {formatDateTime(row.createdAt)}</span>
                     </div>
                     {row.cleanerNote ? <p className="mt-1 text-xs text-muted-foreground">Note: {row.cleanerNote}</p> : null}
-                    {row.adminNote ? <p className="mt-1 text-xs text-muted-foreground">Admin note: {row.adminNote}</p> : null}
+                    {/* `adminNote` is the admin's private decision note; the
+                        cleaner endpoint no longer returns it. */}
                     {row.job?.id ? (
                       <Link
                         href={`/cleaner/jobs/${row.job.id}`}

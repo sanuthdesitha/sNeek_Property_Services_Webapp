@@ -82,6 +82,10 @@ export async function loadJobPaySummary(jobId: string): Promise<{
   const meta = parseJobInternalNotes(job.internalNotes);
 
   const payees = computeJobPaySummary({
+    // The only consumer is GET /api/admin/jobs/:id/pay-summary, which is
+    // ADMIN/OPS-gated — the full reason including the admin's note belongs
+    // here. A cleaner-facing loader would have to pass `audience: "self"`.
+    audience: "internal",
     job: {
       jobType: job.jobType,
       estimatedHours: job.estimatedHours,

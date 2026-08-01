@@ -132,7 +132,7 @@ async function invoiceFor(adjustments: any[]) {
 /** Run the SUMMARY path with the given adjustment rows. */
 async function summaryFor(adjustments: any[]) {
   const { computeJobPaySummary } = await import("@/lib/finance/job-pay-summary");
-  return computeJobPaySummary({
+  return computeJobPaySummary({ audience: "internal",
     job: {
       jobType: JOB_FIXTURE.jobType as any,
       estimatedHours: JOB_FIXTURE.estimatedHours,

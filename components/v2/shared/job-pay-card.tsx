@@ -51,7 +51,8 @@ function money(n: number): string {
 
 function basisLine(p: PayeeSummary): string {
   const b = p.basePay;
-  if (b.source === "CUSTOM") return "Custom payout (flat amount)";
+  // Wording matches the admin input ("Fixed pay") and the invoice column.
+  if (b.source === "CUSTOM") return "Fixed pay (flat amount)";
   if (b.basis === "NONE") return "Not assigned to this job — adjustments only";
   const basis = b.basis === "ALLOCATED" ? "allocated" : "clocked";
   const rate = b.rate != null ? `$${b.rate.toFixed(2)}/h` : "rate not set";

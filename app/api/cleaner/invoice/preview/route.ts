@@ -14,6 +14,10 @@ const schema = z.object({
   startDate: z.string().date().optional(),
   endDate: z.string().date().optional(),
   showSpentHours: z.boolean().optional(),
+  // The download and send routes have always accepted this; the preview did
+  // not, so hiding hours produced a PDF that disagreed with the preview the
+  // payee had just approved.
+  showHours: z.boolean().optional(),
   jobComments: z.record(z.string(), z.string()).optional(),
   jobHourOverrides: z.record(z.string(), z.number().nonnegative()).optional(),
   excludedJobIds: z.array(z.string().min(1)).max(500).optional(),
@@ -27,12 +31,16 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get("startDate") ?? undefined;
     const endDate = searchParams.get("endDate") ?? undefined;
     const showSpentHours = searchParams.get("showSpentHours") === "true";
+    // Hours are shown unless explicitly turned off — same convention as the
+    // download route, so the preview and the PDF agree.
+    const showHours = searchParams.get("showHours") !== "false";
 
     const data = await getCleanerInvoiceData({
       userId: session.user.id,
       startDate,
       endDate,
       showSpentHours,
+      showHours,
       excludeInvoicedJobs: true,
     });
 
@@ -55,6 +63,7 @@ export async function POST(req: NextRequest) {
       startDate: body.startDate,
       endDate: body.endDate,
       showSpentHours: body.showSpentHours,
+      showHours: body.showHours,
       jobComments: body.jobComments,
       jobHourOverrides: body.jobHourOverrides,
       excludeInvoicedJobs: true,
