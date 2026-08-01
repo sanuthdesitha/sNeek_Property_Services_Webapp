@@ -19,6 +19,10 @@ import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
 import { logger } from "@/lib/logger";
+import { formatInTimeZone } from "date-fns-tz";
+import { getPresignedDownloadUrl } from "@/lib/s3";
+import { displayKeyFor, normalizeQaPhotoRefs } from "@/lib/qa/annotation-composite";
+import { buildQaResultEmail } from "@/lib/notifications/qa-result-email";
 
 type AdminRecipient = {
   id: string;
@@ -58,42 +62,146 @@ function emailShell(title: string, bodyHtml: string, actionUrl?: string, actionL
   </div>`;
 }
 
-/** QA result (score + rating) to the job's cleaner after a review is recorded. */
+/** Prettify a category key when settings hold no label for it. */
+function humanizeKey(value: string): string {
+  return value
+    .toLowerCase()
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+/**
+ * QA result to the cleaner(s) who did the job.
+ *
+ * This used to send two lines — "This clean did not pass inspection." plus a
+ * bare count — naming not a single actual issue. It now reads the `QaIssue`
+ * rows the inspection just wrote and sends what went wrong, where, with QA's
+ * markup burned into the photo, the arithmetic behind the score (using the
+ * ADMIN-CONFIGURED deduction values, never hardcoded), and what to focus on
+ * next.
+ *
+ * Recipients: EVERY non-removed assignment, not just the primary. On a shared
+ * job the second cleaner previously heard nothing at all about an inspection of
+ * work they had done.
+ *
+ * `cleanerId` remains accepted for callers that know the specific payee; when
+ * omitted the job's assignments are used.
+ */
 export async function notifyQaResultToCleaner(input: {
   jobId: string;
-  cleanerId: string;
+  cleanerId?: string | null;
   score: number;
-  rating: string;
+  rating?: string | null;
   passed: boolean;
   propertyName?: string | null;
+  /** Legacy summary text — kept for callers that still pass it (SMS/web copy). */
   issueSummary?: string | null;
   rectificationSummary?: string | null;
+  managementReview?: boolean;
 }): Promise<void> {
   try {
-    const cleaner = await getCleanerRecipient(input.cleanerId);
-    if (!cleaner) return;
     const settings = await getAppSettings();
-    const where = input.propertyName ? ` at ${input.propertyName}` : "";
-    const ratingLabel = input.rating.replace(/_/g, " ").toLowerCase();
-    const subject = `QA result: ${Math.round(input.score)} (${ratingLabel})${where}`;
-    const detailParts = [
-      input.passed ? "This clean passed inspection." : "This clean did not pass inspection.",
-      input.issueSummary ? `Issues: ${input.issueSummary}` : null,
-      input.rectificationSummary ? `Rectification: ${input.rectificationSummary}` : null,
-    ].filter(Boolean);
-    const body = detailParts.join(" ");
-    const url = resolveAppUrl(`/cleaner/jobs/${input.jobId}`);
+
+    // Recipients: the named cleaner if given, else everyone still on the job.
+    let recipientIds: string[] = [];
+    if (input.cleanerId) {
+      recipientIds = [input.cleanerId];
+    } else {
+      const assignments = await db.jobAssignment.findMany({
+        where: { jobId: input.jobId, removedAt: null },
+        select: { userId: true },
+      });
+      recipientIds = assignments.map((a) => a.userId);
+    }
+    const recipients = (await Promise.all(recipientIds.map((id) => getCleanerRecipient(id)))).filter(
+      (r): r is NonNullable<typeof r> => Boolean(r)
+    );
+    if (recipients.length === 0) return;
+
+    const [job, issues] = await Promise.all([
+      db.job.findUnique({
+        where: { id: input.jobId },
+        select: { jobNumber: true, scheduledDate: true, property: { select: { name: true } } },
+      }),
+      db.qaIssue.findMany({
+        where: { jobId: input.jobId },
+        orderBy: { createdAt: "asc" },
+        select: {
+          severity: true,
+          category: true,
+          description: true,
+          guestReadyImpact: true,
+          qaPhotoKeys: true,
+        },
+      }),
+    ]);
+
+    const categoryLabels = new Map(
+      (settings.accountability?.issueCategories ?? []).map((c) => [c.key, c.label])
+    );
+
+    // One representative photo per issue — the FLATTENED composite, so QA's
+    // markup is visible. Email clients cannot stack a transparent overlay.
+    const emailIssues = await Promise.all(
+      issues.map(async (issue) => {
+        const refs = normalizeQaPhotoRefs(issue.qaPhotoKeys);
+        let photoUrl: string | null = null;
+        if (refs[0]) {
+          photoUrl = await getPresignedDownloadUrl(displayKeyFor(refs[0]), 60 * 60 * 24 * 7).catch(
+            () => null
+          );
+        }
+        return {
+          severity: String(issue.severity),
+          categoryLabel: categoryLabels.get(issue.category) ?? humanizeKey(issue.category),
+          description: issue.description,
+          guestReadyImpact: issue.guestReadyImpact ?? false,
+          photoUrl,
+        };
+      })
+    );
+
+    const qualityUrl = resolveAppUrl("/v2/cleaner/quality");
+    const built = buildQaResultEmail({
+      companyName: settings.companyName,
+      propertyName: input.propertyName ?? job?.property?.name ?? null,
+      jobNumber: job?.jobNumber ?? null,
+      jobDateLabel: job?.scheduledDate
+        ? formatInTimeZone(job.scheduledDate, "Australia/Sydney", "dd MMM yyyy")
+        : null,
+      score: input.score,
+      rating: input.rating ?? null,
+      passed: input.passed,
+      issues: emailIssues,
+      deductions: {
+        minor: settings.accountability?.scoring?.minorDeduction,
+        major: settings.accountability?.scoring?.majorDeduction,
+        critical: settings.accountability?.scoring?.criticalDeduction,
+      },
+      coachingNote: input.rectificationSummary ?? null,
+      qualityUrl,
+      managementReview: input.managementReview ?? false,
+    });
+
+    const shortSummary = input.passed
+      ? `QA passed (${Math.round(input.score)}%)`
+      : `QA needs attention (${Math.round(input.score)}%)${
+          input.issueSummary ? ` — ${input.issueSummary}` : ""
+        }`;
+
     await deliverNotificationToRecipients({
-      recipients: [cleaner],
+      recipients,
       category: "jobs",
       jobId: input.jobId,
-      url,
-      web: { subject, body },
-      email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, detailParts.map((p) => `<p>${p}</p>`).join(""), url, "View job"),
-      },
-      sms: `${settings.companyName}: ${subject}. ${input.passed ? "Passed." : "Please review."}`,
+      // Point at the quality hub, where the feedback (and now the report
+      // download) lives. The old link went to a v1 path these cleaners no
+      // longer use.
+      url: qualityUrl,
+      web: { subject: shortSummary, body: built.text.split("\n").slice(0, 3).join(" ") },
+      email: { subject: built.subject, html: built.html },
+      sms: `${settings.companyName}: ${shortSummary}. See the app for details.`,
     });
   } catch (err) {
     logger.error({ err, jobId: input.jobId }, "[accountability] notifyQaResultToCleaner failed");

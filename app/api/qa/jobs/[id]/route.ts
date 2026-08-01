@@ -1447,20 +1447,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const notifyCleanerId = primaryAssignment?.userId ?? null;
       const propertyName = job.property?.name ?? null;
 
-      if (notifyCleanerId) {
+      {
         const counts = accountabilityResult.counts;
         const issueParts: string[] = [];
         if (counts.critical) issueParts.push(`${counts.critical} critical`);
         if (counts.major) issueParts.push(`${counts.major} major`);
         if (counts.minor) issueParts.push(`${counts.minor} minor`);
+        // No cleanerId: notify EVERY non-removed assignment. Keying on the
+        // primary meant a co-cleaner on a shared job heard nothing about an
+        // inspection of work they had done.
         void notifyQaResultToCleaner({
           jobId: params.id,
-          cleanerId: notifyCleanerId,
           score: accountabilityResult.rawScore,
           rating: accountabilityResult.rating,
           passed: accountabilityResult.passed,
           propertyName,
           issueSummary: issueParts.length ? issueParts.join(", ") : null,
+          managementReview: accountabilityResult.managementReview,
         }).catch(console.error);
       }
 
@@ -1479,6 +1482,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           propertyName,
         }).catch(console.error);
       }
+    } else {
+      // LEGACY-TEMPLATE INSPECTIONS. Everything above was gated on an
+      // accountability blob, so an inspection graded with the legacy percent
+      // scorer notified the cleaner of NOTHING — they could fail and never hear
+      // about it. The legacy path has no per-severity counts, so the email
+      // simply carries the score and whatever issues were recorded.
+      void notifyQaResultToCleaner({
+        jobId: params.id,
+        score: result.score,
+        passed: effectivePassed,
+        propertyName: job.property?.name ?? null,
+      }).catch(console.error);
     }
 
     return NextResponse.json({

@@ -14,6 +14,7 @@ import {
 } from "@/lib/cases/auto-case";
 import { recomputeJobQaOutcome } from "@/lib/qa/authority";
 import { getAdminReworkContext } from "@/lib/qa/admin-rework";
+import { notifyQaResultToCleaner } from "@/lib/notifications/accountability";
 
 const qaSchema = z.object({
   score: z.number().min(0).max(100),
@@ -244,6 +245,18 @@ export async function POST(
         scheduleJobFollowUps(params.id),
       ]);
     }
+
+    // Tell the cleaner. This path scored their work — sometimes failing it — and
+    // notified them of NOTHING: no email, no push, no SMS. A cleaner could be
+    // marked down by an admin and only discover it by opening the app. The QA
+    // submit path has always notified; this one simply never did.
+    void notifyQaResultToCleaner({
+      jobId: params.id,
+      score: body.score,
+      passed,
+    }).catch((err) =>
+      logger.error({ err, jobId: params.id }, "QA: admin-review cleaner notification failed")
+    );
 
     return NextResponse.json({ ...qa.review, reworkPrompt });
   } catch (err: any) {
