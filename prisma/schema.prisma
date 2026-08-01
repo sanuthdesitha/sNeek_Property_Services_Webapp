@@ -1564,6 +1564,12 @@ model QAReview {
   managementReview Boolean   @default(false)
   /// When the cleaner tapped "I've read this" on their QA feedback (null = unseen)
   cleanerAcknowledgedAt DateTime?
+  /// Whether the cleaner may download the (cleaner-safe) QA report for this
+  /// inspection. Mirrors Report.cleanerVisible for the job report. Default true —
+  /// showing a cleaner what they were marked down for is the norm; the toggle
+  /// exists for the occasional inspection an admin wants to withhold while a
+  /// dispute is being sorted out.
+  cleanerReportVisible  Boolean   @default(true)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @default(now()) @updatedAt
 

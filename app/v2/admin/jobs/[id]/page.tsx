@@ -175,7 +175,17 @@ async function getJob(id: string) {
         qaReviews: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { score: true, passed: true, notes: true, kind: true, createdAt: true, flags: true },
+          select: {
+            id: true,
+            score: true,
+            passed: true,
+            notes: true,
+            kind: true,
+            createdAt: true,
+            flags: true,
+            // Drives the "share this inspection with the cleaner" toggle.
+            cleanerReportVisible: true,
+          },
         },
         report: { select: { clientVisible: true, sentToClient: true } },
         laundryTask: {
@@ -702,6 +712,8 @@ export default async function AdminJobDetailPage({ params }: { params: { id: str
           clientEmail={job.property?.client?.email ?? ""}
           hasSubmission={job.formSubmissions.length > 0}
           hasQaReview={Boolean(qa)}
+          qaReviewId={qa?.id ?? null}
+          initialQaCleanerVisible={qa?.cleanerReportVisible !== false}
         />
       </div>
 

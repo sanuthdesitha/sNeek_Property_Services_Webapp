@@ -19,6 +19,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     // Access control. QA/ops/admin always allowed. The assigned cleaner may view
     // their own job's QA report (their rework feedback).
     const role = session.user.role as Role;
+    // The MODE IS DERIVED FROM THE SESSION, never from a query param — a caller
+    // must not be able to ask for the internal variant, which carries pay
+    // clawbacks, damage cost estimates and the inspector's private notes.
+    const mode = role === Role.CLEANER ? "cleanerSafe" : "internal";
     if (role === Role.CLEANER) {
       const assignment = await db.jobAssignment.findFirst({
         where: { jobId: params.id, userId: session.user.id, removedAt: null },
@@ -27,9 +31,22 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       if (!assignment) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
+      // Per-inspection admin switch, mirroring Report.cleanerVisible for the job
+      // report. No review yet → nothing to withhold.
+      const review = await db.qAReview.findFirst({
+        where: { jobId: params.id, kind: { in: ["QA", "ADMIN"] } },
+        orderBy: { createdAt: "desc" },
+        select: { cleanerReportVisible: true },
+      });
+      if (review && !review.cleanerReportVisible) {
+        return NextResponse.json(
+          { error: "This QA report has not been shared with you." },
+          { status: 403 }
+        );
+      }
     }
 
-    const built = await buildQaReportHtml(params.id);
+    const built = await buildQaReportHtml(params.id, { mode });
     if (!built) {
       return NextResponse.json({ error: "QA report not available for this job." }, { status: 404 });
     }

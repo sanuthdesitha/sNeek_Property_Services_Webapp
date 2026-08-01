@@ -11,7 +11,8 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { ChevronDown, ChevronUp, PenLine, ShieldCheck } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, PenLine, ShieldCheck } from "lucide-react";
+import { downloadFromApi } from "@/lib/client/download";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { MediaGallery } from "@/components/shared/media-gallery";
@@ -81,6 +82,7 @@ export function CleanerQaFeedbackCard() {
   const [reviews, setReviews] = useState<Review[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -96,6 +98,21 @@ export function CleanerQaFeedbackCard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function downloadReport(jobId: string) {
+    setDownloadingId(jobId);
+    try {
+      await downloadFromApi(`/api/qa/jobs/${jobId}/report`, `qa-report-${jobId}.pdf`);
+    } catch (err: any) {
+      toast({
+        title: "Couldn't download",
+        description: err?.message ?? "The QA report isn't available right now.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   async function acknowledge(id: string) {
     setBusyId(id);
@@ -244,16 +261,30 @@ export function CleanerQaFeedbackCard() {
                       ) : null}
                     </div>
                   ))}
-                  {unseen ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {unseen ? (
+                      <EButton
+                        variant="gold"
+                        size="sm"
+                        disabled={busyId === r.id}
+                        onClick={() => void acknowledge(r.id)}
+                      >
+                        {busyId === r.id ? "Saving…" : "I've read this"}
+                      </EButton>
+                    ) : null}
+                    {/* The API already permitted cleaners (with an assignment
+                        check) — there was simply no way to ask for it. The
+                        server pins the cleaner-safe variant by session role. */}
                     <EButton
-                      variant="gold"
+                      variant="outline"
                       size="sm"
-                      disabled={busyId === r.id}
-                      onClick={() => void acknowledge(r.id)}
+                      disabled={downloadingId === r.job.id}
+                      onClick={() => void downloadReport(r.job.id)}
                     >
-                      {busyId === r.id ? "Saving…" : "I've read this"}
+                      <Download className="h-3.5 w-3.5" />
+                      {downloadingId === r.job.id ? "Preparing…" : "Download QA report"}
                     </EButton>
-                  ) : null}
+                  </div>
                 </div>
               ) : null}
             </ECardBody>
