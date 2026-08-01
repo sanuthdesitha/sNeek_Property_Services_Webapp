@@ -78,6 +78,8 @@ function toCleanerAdjustmentDto(row: {
   approvedAmount: number | null;
   status: PayAdjustmentStatus;
   cleanerNote: string | null;
+  /** Written FOR the cleaner — unlike `adminNote`, which never leaves admin. */
+  decisionMessage: string | null;
   attachmentKeys: unknown;
   requestedAt: Date;
   reviewedAt: Date | null;
@@ -103,6 +105,9 @@ function toCleanerAdjustmentDto(row: {
     approvedAmount: row.approvedAmount,
     status: row.status,
     cleanerNote: row.cleanerNote,
+    // The admin's explanation OF the decision, written for this cleaner.
+    // `adminNote` is the private one and is deliberately absent.
+    decisionMessage: row.decisionMessage,
     requestedAt: row.requestedAt,
     reviewedAt: row.reviewedAt,
     // Provenance is the cleaner's own bonus/deduction reason (STREAK_5,

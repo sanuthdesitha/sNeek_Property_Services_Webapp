@@ -1361,7 +1361,17 @@ model CleanerPayAdjustment {
   status                 PayAdjustmentStatus @default(PENDING)
   cleanerNote            String?             @db.Text
   attachmentKeys         Json?
+  /// PRIVATE. The reviewing admin's own record of the decision — "third time
+  /// this month", "check with ops first". Internal surfaces only; it must never
+  /// travel to the payee. Use `decisionMessage` to explain a decision TO them.
   adminNote              String?             @db.Text
+  /// The explanation the CLEANER reads, written knowing they will see it.
+  /// Added 2026-08 after `adminNote` was found reaching cleaners by three
+  /// separate routes (their job screen, the pay-requests list, and the decision
+  /// push/email). Closing those left a rejected request with no explanation at
+  /// all — worse than the leak — so the explanation gets its own field rather
+  /// than borrowing a private one.
+  decisionMessage        String?             @db.Text
   requestedAt            DateTime            @default(now())
   reviewedById           String?
   reviewedAt             DateTime?

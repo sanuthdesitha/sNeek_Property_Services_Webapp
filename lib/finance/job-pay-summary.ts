@@ -237,7 +237,10 @@ export interface JobPaySummaryAdjustmentInput
   cleanerRole?: string | null;
   title?: string | null;
   cleanerNote?: string | null;
+  /** PRIVATE — internal audience only. */
   adminNote?: string | null;
+  /** The explanation written FOR the payee; safe for either audience. */
+  decisionMessage?: string | null;
   source?: string | null;
   sourceKey?: string | null;
   requestedAt?: Date | string | null;
@@ -309,6 +312,10 @@ export function describeAdjustment(
   const settled = adjustmentSettlement(row);
   const reasonParts = [
     row.cleanerNote?.trim(),
+    // The cleaner-facing explanation shows to BOTH audiences — it was written
+    // to be read by the payee, and an admin reviewing the row should see what
+    // the payee was told.
+    row.decisionMessage?.trim() || null,
     audience === "internal" && row.adminNote?.trim() ? `Admin: ${row.adminNote!.trim()}` : null,
   ].filter((part): part is string => Boolean(part));
   return {

@@ -307,10 +307,11 @@ export function PayRequestsPanel({
                   {row.cleanerNote ? (
                     <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Note: {row.cleanerNote}</p>
                   ) : null}
-                  {/* `adminNote` is the reviewing admin's PRIVATE decision note
-                      and no longer reaches this payload. If a decision needs
-                      explaining to the cleaner it wants its own field, written
-                      knowing they will read it. */}
+                  {row.decisionMessage ? (
+                    <p className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] px-2.5 py-2 text-[0.75rem]">
+                      <span className="font-[600]">From the office:</span> {row.decisionMessage}
+                    </p>
+                  ) : null}
 
                   {row.job?.id ? (
                     <Link
