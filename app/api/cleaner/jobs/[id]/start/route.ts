@@ -15,6 +15,11 @@ import { getAppSettings } from "@/lib/settings";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
+import {
+  buildStartBriefingAck,
+  resolveStartBriefingItems,
+  validateStartBriefingAck,
+} from "@/lib/forms/start-briefing";
 
 const schema = z.object({
   verificationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -25,6 +30,14 @@ const schema = z.object({
   // code and the correct laundry bag before clocking in.
   propertyCodeConfirmed: z.boolean().optional(),
   laundryBagConfirmed: z.boolean().optional(),
+  /**
+   * Start briefing (R2): the cleaner tapped through every item they must have
+   * READ before the clock starts. Sent only on the first clock-in.
+   */
+  startBriefingAck: z
+    .array(z.object({ itemId: z.string().trim().min(1), at: z.string().optional() }))
+    .max(60)
+    .optional(),
 });
 
 export async function POST(
@@ -168,6 +181,83 @@ export async function POST(
           },
           { status: 400 }
         );
+      }
+    }
+
+    // ── Start briefing gate (R2) ──────────────────────────────────────────────
+    // What the cleaner must have READ before the clock starts: late-checkout /
+    // early-checkin rules, admin and approved-client tasks, the job note. The
+    // final-checkup dialog asks "did you do it?" at SUBMIT, which is too late
+    // for any of these — a late-checkout rule is worthless once someone has
+    // already walked in on the guests.
+    //
+    // Only on the FIRST start for this cleaner: a resume must never be blocked
+    // mid-job, and re-arming the gate on a job already underway would strand
+    // someone with a running clock.
+    if (isFirstStartForCleaner) {
+      const briefingMeta = parseJobInternalNotes(job.internalNotes);
+      const briefingTasks = await db.jobTask
+        .findMany({
+          where: { jobId: params.id },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            source: true,
+            approvalStatus: true,
+          },
+        })
+        .catch(() => []);
+      const briefingItems = resolveStartBriefingItems({
+        meta: briefingMeta,
+        jobTasks: briefingTasks.map((t) => ({
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          source: String(t.source ?? ""),
+          approvalStatus: String(t.approvalStatus ?? ""),
+        })),
+      });
+
+      // Accept the acknowledgement sent with THIS request, else fall back to
+      // one already stored (the cleaner acked, then the POST failed for an
+      // unrelated reason — they should not have to read it twice).
+      const storedAck = (briefingMeta as any).startBriefingAcks?.[session.user.id] ?? null;
+      const incomingAck = body.startBriefingAck
+        ? buildStartBriefingAck(briefingItems, body.startBriefingAck)
+        : null;
+      const check = validateStartBriefingAck(briefingItems, incomingAck ?? storedAck);
+      if (!check.ok) {
+        return NextResponse.json(
+          {
+            code: "START_BRIEFING_REQUIRED",
+            error:
+              check.reason === "STALE"
+                ? "This job's instructions changed since you read them. Please read them again."
+                : "Read the briefing for this job before you clock in.",
+            reason: check.reason,
+            items: briefingItems,
+          },
+          { status: 409 }
+        );
+      }
+
+      // Persist the acknowledgement alongside the other start evidence.
+      if (incomingAck) {
+        await db.job
+          .update({
+            where: { id: params.id },
+            data: {
+              internalNotes: serializeJobInternalNotes({
+                ...briefingMeta,
+                startBriefingAcks: {
+                  ...((briefingMeta as any).startBriefingAcks ?? {}),
+                  [session.user.id]: incomingAck,
+                },
+              } as any),
+            },
+          })
+          .catch(() => undefined);
       }
     }
 

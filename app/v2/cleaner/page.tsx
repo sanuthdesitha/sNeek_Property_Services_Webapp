@@ -22,6 +22,7 @@ import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attentio
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { resolveTimingBadges, timingBadgeLabels } from "@/lib/jobs/timing-badges";
 import { computeJobPayForCleaner } from "@/lib/finance/job-pay-for-cleaner";
 
 export const metadata = { title: "Today · Estate cleaner" };
@@ -324,11 +325,21 @@ export default async function CleanerTodayPage() {
                     </p>
                   ) : null}
 
-                  {/* Job type + expected duration + pay */}
+                  {/* Job type + turnaround rules + expected duration + pay.
+                      The timing pills sit beside the job type because they
+                      change what the cleaner can do on arrival — "start after
+                      12:30" means guests are still in the property. */}
                   <div className="flex flex-wrap items-center gap-2">
                     <EBadge tone="neutral" soft>
                       {titleCase(j.jobType)}
                     </EBadge>
+                    {timingBadgeLabels(resolveTimingBadges((j as any).internalNotes ?? null)).map(
+                      (badge) => (
+                        <EBadge key={badge.key} tone={badge.tone} soft>
+                          {badge.label}
+                        </EBadge>
+                      )
+                    )}
                     {duration ? (
                       <span className="flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                         <Timer className="h-3.5 w-3.5" /> {duration}

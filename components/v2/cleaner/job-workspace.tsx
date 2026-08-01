@@ -67,6 +67,11 @@ import type { FormSchema } from "@/lib/forms/types";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
 import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { FinalCheckupDialog } from "@/components/v2/cleaner/final-checkup-dialog";
+import { StartBriefingDialog } from "@/components/v2/cleaner/start-briefing-dialog";
+import type {
+  ResolvedStartBriefingItem,
+  StartBriefingAckEntry,
+} from "@/lib/forms/start-briefing";
 import type {
   FinalCheckupAckEntry,
   ResolvedFinalCheckupItem,
@@ -264,6 +269,11 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     code: "",
     note: "",
   });
+  /** Server says there are things to read before the clock can start. */
+  const [briefingPrompt, setBriefingPrompt] = React.useState<{
+    items: ResolvedStartBriefingItem[];
+    stale: boolean;
+  } | null>(null);
   const [notice, setNotice] = React.useState<{ tone: "success" | "danger" | "info"; text: string } | null>(null);
 
   // Job-start accountability gate (Phase 2b): the cleaner confirms the property
@@ -831,7 +841,11 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
    *   Passed explicitly rather than read from state so the retry cannot race the
    *   setState that triggered it.
    */
-  async function clockIn(offSiteArg?: { code: string; note: string }) {
+  async function clockIn(
+    offSiteArg?: { code: string; note: string },
+    /** Replayed on the retry that follows the start-briefing dialog. */
+    briefingAck?: StartBriefingAckEntry[]
+  ) {
     // `clockIn` is also wired straight to onClick in places, which would pass a
     // MouseEvent here — accept only a real answer object.
     const offSiteAnswer =
@@ -900,11 +914,27 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
           flash("info", "Your location is only roughly accurate here — we've noted that.");
         }
       }
-      await post(`/api/cleaner/jobs/${jobId}/start`, {
+      const started = await post(`/api/cleaner/jobs/${jobId}/start`, {
         allowFutureStart: true,
         propertyCodeConfirmed,
         laundryBagConfirmed,
+        ...(briefingAck ? { startBriefingAck: briefingAck } : {}),
+      }).catch((err: any) => {
+        // 409 = there are things this cleaner must READ before the clock
+        // starts. The server returns the resolved list so the dialog and the
+        // gate can never disagree about what has to be read.
+        if ((err?.data as any)?.code === "START_BRIEFING_REQUIRED") return err.data;
+        throw err;
       });
+
+      if (started?.code === "START_BRIEFING_REQUIRED") {
+        setBriefingPrompt({
+          items: started.items ?? [],
+          stale: started.reason === "STALE",
+        });
+        return;
+      }
+
       flash("success", isResume ? "Timer resumed." : "Clocked in — job started.");
       await load();
     } catch (e: any) {
@@ -1495,6 +1525,19 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
           </EButton>
         </div>
       </EModal>
+
+      {/* Start briefing — opens on clock-in when the job carries anything the
+          cleaner must have read first (timing rules, tasks, the job note). */}
+      <StartBriefingDialog
+        open={Boolean(briefingPrompt)}
+        items={briefingPrompt?.items ?? []}
+        stale={briefingPrompt?.stale}
+        onClose={() => setBriefingPrompt(null)}
+        onComplete={(ack) => {
+          setBriefingPrompt(null);
+          void clockIn(undefined, ack);
+        }}
+      />
 
       {/* Final check-up acknowledgement — opens on submit when items apply. */}
       <FinalCheckupDialog
