@@ -30,6 +30,10 @@ export type LifecycleStage =
   | "SCHEDULE_UPDATED"
   | "REMINDER"
   | "CLEANER_ASSIGNED"
+  // Distinct from CLEANER_ASSIGNED on purpose: "meet your cleaner" and "your
+  // cleaner has changed" are different messages, and sending the first when
+  // the second is true reads as though nothing happened.
+  | "CLEANER_REASSIGNED"
   | "JOB_COMPLETED"
   | "REPORT_READY"
   | "INVOICE_ISSUED"
@@ -56,6 +60,7 @@ export const LIFECYCLE_STAGES: Record<LifecycleStage, LifecycleStageMeta> = {
   SCHEDULE_UPDATED: { stage: "SCHEDULE_UPDATED", label: "Schedule changed", description: "Notify the client the date or time changed.", kind: "client_job_update", autoDefault: true, recipientKind: "general" },
   REMINDER: { stage: "REMINDER", label: "Upcoming clean reminder", description: "Remind the client of the upcoming clean.", kind: "job_reminder", autoDefault: true, recipientKind: "general" },
   CLEANER_ASSIGNED: { stage: "CLEANER_ASSIGNED", label: "Cleaner assigned", description: "Introduce the assigned cleaner.", kind: "client_job_update", autoDefault: false, recipientKind: "general" },
+  CLEANER_REASSIGNED: { stage: "CLEANER_REASSIGNED", label: "Cleaner changed", description: "Tell the client their cleaner has changed, and who is coming instead.", kind: "client_job_update", autoDefault: false, recipientKind: "general" },
   JOB_COMPLETED: { stage: "JOB_COMPLETED", label: "Clean completed", description: "Confirm the clean is finished.", kind: "client_job_update", autoDefault: true, recipientKind: "general" },
   REPORT_READY: { stage: "REPORT_READY", label: "Report ready", description: "Share the completed clean report.", kind: "report_delivery", autoDefault: true, recipientKind: "report" },
   INVOICE_ISSUED: { stage: "INVOICE_ISSUED", label: "Invoice issued", description: "Send the invoice for the clean.", kind: "auto_invoice", autoDefault: true, recipientKind: "invoice" },
@@ -239,6 +244,13 @@ export function renderLifecycleEmail(stage: LifecycleStage, ctx: LifecycleContex
       subject = `${ctx.companyName}: Your cleaner is assigned`;
       body = `<p><strong>${extra.cleanerName || "Your cleaner"}</strong> will be looking after your ${service}${where}${when ? ` on <strong>${when}</strong>` : ""}.</p>`;
       break;
+    case "CLEANER_REASSIGNED":
+      // Leads with the change, not with the new name. A client who was told
+      // to expect one person and gets another needs the change stated plainly
+      // — anything softer reads as if nothing had happened.
+      subject = `${ctx.companyName}: A change to who's cleaning for you`;
+      body = `<p>We've had to change the cleaner for your ${service}${where}${when ? ` on <strong>${when}</strong>` : ""}.</p><p><strong>${extra.cleanerName || "Another member of our team"}</strong> will be looking after it instead.</p>${extra.reason ? `<p>${extra.reason}</p>` : ""}<p>Everything else — the time, the access arrangements and the standard of the clean — stays exactly the same. Just reply if you'd like to talk it through.</p>`;
+      break;
     case "JOB_COMPLETED":
       subject = `${ctx.companyName}: Your clean is complete`;
       body = `<p>Great news — your ${service}${where} is complete.</p><p>Your report will follow shortly. Thank you for choosing ${ctx.companyName}.</p>`;
@@ -284,6 +296,12 @@ export type LifecycleSendInput = {
   mode?: "auto" | "manual";
   extra?: LifecycleExtra;
   attachments?: Array<{ filename: string; content: Buffer }>;
+  /**
+   * Content an admin edited in a confirm dialog. When present it REPLACES the
+   * rendered template — showing someone a draft, letting them rewrite it, and
+   * then sending the original would be worse than not offering the edit.
+   */
+  override?: { subject?: string | null; html?: string | null };
 };
 
 export type LifecyclePreview = {
@@ -322,7 +340,11 @@ export async function sendLifecycleEmail(input: LifecycleSendInput): Promise<Lif
     const recipients = await resolveRecipients(ctx.clientId, meta.recipientKind);
     if (recipients.length === 0) return { sent: false, recipients: [], skipped: "no-recipients" };
 
-    const { subject, html } = renderLifecycleEmail(input.stage, ctx, input.extra ?? {});
+    const rendered = renderLifecycleEmail(input.stage, ctx, input.extra ?? {});
+    // The edit wins. Blank/whitespace-only overrides fall back to the template
+    // rather than sending an empty email.
+    const subject = input.override?.subject?.trim() || rendered.subject;
+    const html = input.override?.html?.trim() || rendered.html;
     const sentTo: string[] = [];
 
     for (const r of recipients) {

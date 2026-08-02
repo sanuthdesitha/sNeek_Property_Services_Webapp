@@ -29,6 +29,12 @@ export const EMAIL_AUTO_KINDS = [
   { key: "admin_alert", label: "General admin alerts", description: "Miscellaneous system alerts to admins / ops." },
   { key: "report_delivery", label: "Report & invoice delivery", description: "Auto-delivery of reports and invoices to clients." },
   { key: "workforce_update", label: "Workforce & learning", description: "Training assignments and workforce emails." },
+  // Changes an admin makes to a job AFTER a cleaner has been told about it.
+  // These three used to happen in silence: the cleaner arrived holding
+  // yesterday's instructions (2026-08).
+  { key: "timing_rule_changed", label: "Timing rule changes", description: "Early check-in / late check-out rules changed on an assigned job." },
+  { key: "job_task_added", label: "Extra tasks added", description: "An admin or approved client request added tasks to an assigned job." },
+  { key: "special_note_changed", label: "Job note changes", description: "The job's special note was edited or cleared." },
 ] as const;
 
 export type EmailAutoKind = (typeof EMAIL_AUTO_KINDS)[number]["key"];

@@ -23,7 +23,7 @@ import {
   formatAssignmentResponseLabel,
 } from "@/lib/jobs/assignment-workflow";
 import { attachPendingAdminTasksToJob } from "@/lib/job-tasks/service";
-import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
+import { previewLifecycleEmail, sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 
 export async function POST(
   req: NextRequest,
@@ -45,7 +45,9 @@ export async function POST(
         dueTime: true,
         internalNotes: true,
         cleanSkipStatus: true,
-        property: { select: { name: true, suburb: true } },
+        // clientId: the reassignment confirm dialog sends through the client
+        // comms endpoint, which is keyed by client.
+        property: { select: { name: true, suburb: true, clientId: true } },
         assignments: {
           select: {
             id: true,
@@ -321,17 +323,44 @@ export async function POST(
     const newPrimaryId = userIds.length > 0 ? (primaryUserId ?? userIds[0]) : null;
     const previousPrimaryId =
       activeAssignments.find((assignment) => assignment.isPrimary)?.userId ?? null;
+    let reassignPreview: Record<string, unknown> | null = null;
     if (newPrimaryId && newPrimaryId !== previousPrimaryId && job.cleanSkipStatus !== "SKIPPED") {
       const primaryCleaner = targetUsers.get(newPrimaryId);
-      await sendLifecycleEmail({
-        jobId: job.id,
-        stage: "CLEANER_ASSIGNED",
-        mode: "auto",
-        extra: { cleanerName: primaryCleaner?.name ?? null },
-      }).catch(() => {});
+
+      if (previousPrimaryId) {
+        // A REPLACEMENT, not a first assignment. The client was already told
+        // to expect someone; auto-sending "your cleaner is assigned" again
+        // states the change as though it were the original news, and it goes
+        // out before anyone has decided whether to explain why. So nothing is
+        // sent here — the draft is returned for a human to read, edit and
+        // approve (or discard).
+        reassignPreview = await previewLifecycleEmail({
+          jobId: job.id,
+          stage: "CLEANER_REASSIGNED",
+          extra: { cleanerName: primaryCleaner?.name ?? null },
+        })
+          .then((preview): Record<string, unknown> => ({
+            ...preview,
+            jobId: job.id,
+            clientId: job.property?.clientId ?? null,
+            cleanerName: primaryCleaner?.name ?? null,
+          }))
+          // A preview failure must not fail the assignment itself — the
+          // dispatch has already happened and is the point of this request.
+          .catch(() => null);
+      } else {
+        // First cleaner on the job: introducing them is uncontroversial, so
+        // this stays an automatic send.
+        await sendLifecycleEmail({
+          jobId: job.id,
+          stage: "CLEANER_ASSIGNED",
+          mode: "auto",
+          extra: { cleanerName: primaryCleaner?.name ?? null },
+        }).catch(() => {});
+      }
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...(reassignPreview ? { reassignPreview } : {}) });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

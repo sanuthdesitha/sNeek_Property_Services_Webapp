@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { PencilLine } from "lucide-react";
 import { EMAIL_AUTO_KINDS } from "@/lib/notifications/email-kinds";
+import { NOTIFICATION_AUDIENCES } from "@/lib/notifications/audience-controls";
 import {
   EBadge,
   EButton,
@@ -32,7 +33,12 @@ type Scheduled = {
   autoApproveLaundrySyncDrafts: boolean;
   laundrySyncNotificationHorizonDays: number;
 };
-type EmailAutomation = { masterEnabled: boolean; types: Record<string, boolean> };
+type EmailAutomation = {
+  masterEnabled: boolean;
+  types: Record<string, boolean>;
+  /** audience -> kind -> allowed. Only `false` is ever stored; a missing entry means allowed. */
+  audienceKinds?: Record<string, Record<string, boolean>>;
+};
 
 type StaffUser = {
   id: string;
@@ -104,6 +110,16 @@ export function CommsControlCenter({ onToast }: { onToast: (t: EstateToast) => v
   const [userEditor, setUserEditor] = useState<StaffUser | null>(null);
   const [userPrefs, setUserPrefs] = useState<Record<NotificationCategory, ChannelPref>>(emptyUserPrefs());
   const [savingUser, setSavingUser] = useState(false);
+  // Per-person email overrides. `disabledKinds` holds only the deviations, so
+  // an absent entry means the person follows the global setting.
+  const [emailPrefs, setEmailPrefs] = useState<{
+    disabledKinds: Record<string, string[]>;
+    allEmailOff: string[];
+  }>({ disabledKinds: {}, allEmailOff: [] });
+  const [selectedPeople, setSelectedPeople] = useState<string[]>([]);
+  const [bulkKind, setBulkKind] = useState<string>(EMAIL_AUTO_KINDS[0]?.key ?? "");
+  const [savingPeople, setSavingPeople] = useState(false);
+
   const [clientEditor, setClientEditor] = useState<ClientRow | null>(null);
   const [clientPrefs, setClientPrefs] = useState<ClientPref>(EMPTY_CLIENT_PREF);
   const [savingClient, setSavingClient] = useState(false);
@@ -127,6 +143,20 @@ export function CommsControlCenter({ onToast }: { onToast: (t: EstateToast) => v
     if (settingsRes.ok && settingsBody?.emailAutomation) setEmailAutomation(settingsBody.emailAutomation);
     setUsers(Array.isArray(usersBody) ? usersBody : []);
     setClients(Array.isArray(clientsBody) ? clientsBody : []);
+    // Separate fetch: a failure here must leave the rest of the screen usable
+    // rather than blanking the whole control center.
+    try {
+      const prefRes = await fetch("/api/admin/users/email-preferences/bulk", { cache: "no-store" });
+      if (prefRes.ok) {
+        const prefBody = await prefRes.json();
+        setEmailPrefs({
+          disabledKinds: prefBody?.disabledKinds ?? {},
+          allEmailOff: Array.isArray(prefBody?.allEmailOff) ? prefBody.allEmailOff : [],
+        });
+      }
+    } catch {
+      /* leave the overrides section empty rather than breaking the page */
+    }
     setLoading(false);
   }
 
@@ -135,6 +165,54 @@ export function CommsControlCenter({ onToast }: { onToast: (t: EstateToast) => v
   const adminUsers = useMemo(() => users.filter((u) => u.role === "ADMIN" || u.role === "OPS_MANAGER"), [users]);
   const cleanerUsers = useMemo(() => users.filter((u) => u.role === "CLEANER"), [users]);
   const laundryUsers = useMemo(() => users.filter((u) => u.role === "LAUNDRY"), [users]);
+
+  /**
+   * Tick / untick one audience+kind cell.
+   *
+   * Only `false` is stored. Writing `true` would bake today's default into the
+   * saved settings, so a kind added later would arrive already-decided for
+   * every group instead of simply being allowed.
+   */
+  function setAudienceKind(audience: string, kind: string, allowed: boolean) {
+    setEmailAutomation((prev) => {
+      if (!prev) return prev;
+      const next = { ...(prev.audienceKinds ?? {}) };
+      const bucket = { ...(next[audience] ?? {}) };
+      if (allowed) delete bucket[kind];
+      else bucket[kind] = false;
+      if (Object.keys(bucket).length === 0) delete next[audience];
+      else next[audience] = bucket;
+      return { ...prev, audienceKinds: next };
+    });
+  }
+
+  /**
+   * Apply an email choice to everyone currently selected.
+   *
+   * Only the named kind (or the all-off flag) is sent — the route leaves every
+   * other preference untouched, so using this on one type cannot silently
+   * reset choices someone made about the others.
+   */
+  async function applyToSelected(patch: { allEmailOff?: boolean; kinds?: Record<string, boolean> }) {
+    if (selectedPeople.length === 0) return;
+    setSavingPeople(true);
+    try {
+      const res = await fetch("/api/admin/users/email-preferences/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userIds: selectedPeople, ...patch }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        onToast({ title: "Save failed", description: body.error ?? "Could not update email preferences.", tone: "danger" });
+        return;
+      }
+      onToast({ title: `Updated ${body.affected ?? selectedPeople.length} ${(body.affected ?? 1) === 1 ? "person" : "people"}`, tone: "success" });
+      await loadControl();
+    } finally {
+      setSavingPeople(false);
+    }
+  }
 
   async function saveControlCenter() {
     if (!scheduled || !defaults) return;
@@ -312,8 +390,180 @@ export function CommsControlCenter({ onToast }: { onToast: (t: EstateToast) => v
                   </div>
                 ))}
               </div>
+
+              {/*
+                Who gets which type. The switches above are all-or-nothing, so
+                the only way to stop emailing cleaners about (say) inventory was
+                to stop emailing everyone about it — including the ops manager
+                who needs it. Unticking a cell removes that one type from that
+                one group; a type switched off above is off for everybody
+                regardless, which is why those columns grey out.
+              */}
+              <div className={emailAutomation.masterEnabled ? "" : "opacity-50"}>
+                <p className="text-[0.8125rem] font-semibold text-[hsl(var(--e-foreground))]">Who receives each type</p>
+                <p className="mb-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  Ticked means the group receives it. Security and manual emails are never affected.
+                </p>
+                {/* Wide grid: scrolls sideways inside its own box rather than
+                    pushing the page out at narrow widths. */}
+                <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
+                  <table className="w-full min-w-[42rem] border-collapse text-[0.75rem]">
+                    <thead>
+                      <tr>
+                        <th className="sticky left-0 z-10 bg-[hsl(var(--e-surface-raised))] p-2 text-left font-[550] text-[hsl(var(--e-foreground))]">
+                          Email type
+                        </th>
+                        {NOTIFICATION_AUDIENCES.map((a) => (
+                          <th key={a.key} className="p-2 text-center font-[550] text-[hsl(var(--e-muted-foreground))]">
+                            {a.label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {EMAIL_AUTO_KINDS.map((k) => {
+                        const kindOff = emailAutomation.types?.[k.key] === false;
+                        return (
+                          <tr key={k.key} className="border-t border-[hsl(var(--e-border))]">
+                            <td className="sticky left-0 z-10 bg-[hsl(var(--e-surface-raised))] p-2 text-[hsl(var(--e-foreground))]">
+                              {k.label}
+                            </td>
+                            {NOTIFICATION_AUDIENCES.map((a) => (
+                              <td key={a.key} className="p-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 accent-[hsl(var(--e-gold))]"
+                                  aria-label={`${k.label} to ${a.label}`}
+                                  disabled={!emailAutomation.masterEnabled || kindOff}
+                                  checked={emailAutomation.audienceKinds?.[a.key]?.[k.key] !== false}
+                                  onChange={(e) => setAudienceKind(a.key, k.key, e.target.checked)}
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </>
           )}
+        </ECardBody>
+      </ECard>
+
+      {/*
+        Per-person email. The switches above are the whole business; this is
+        the one place a single person can say "not this type, not for me" —
+        previously the only answer to that was to silence their entire role.
+      */}
+      <ECard>
+        <ECardHeader className="pb-3">
+          <ECardTitle className="text-[0.95rem]">Per-person email</ECardTitle>
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            Select people, then apply a choice. Security and password emails always send, whatever is set here.
+          </p>
+        </ECardHeader>
+        <ECardBody className="space-y-3 pt-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <EButton
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                setSelectedPeople((prev) => (prev.length === users.length ? [] : users.map((u) => u.id)))
+              }
+            >
+              {selectedPeople.length === users.length && users.length > 0 ? "Clear selection" : "Select everyone"}
+            </EButton>
+            <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              {selectedPeople.length} selected
+            </span>
+            <div className="ms-auto flex flex-wrap items-center gap-2">
+              <ESelect value={bulkKind} onChange={(e) => setBulkKind(e.target.value)}>
+                {EMAIL_AUTO_KINDS.map((k) => (
+                  <option key={k.key} value={k.key}>{k.label}</option>
+                ))}
+              </ESelect>
+              <EButton
+                size="sm"
+                variant="outline"
+                disabled={savingPeople || selectedPeople.length === 0}
+                onClick={() => applyToSelected({ kinds: { [bulkKind]: false } })}
+              >
+                Turn this type off
+              </EButton>
+              <EButton
+                size="sm"
+                variant="outline"
+                disabled={savingPeople || selectedPeople.length === 0}
+                onClick={() => applyToSelected({ kinds: { [bulkKind]: true } })}
+              >
+                Turn it back on
+              </EButton>
+              <EButton
+                size="sm"
+                variant="outline"
+                disabled={savingPeople || selectedPeople.length === 0}
+                onClick={() => applyToSelected({ allEmailOff: true })}
+              >
+                All email off
+              </EButton>
+              <EButton
+                size="sm"
+                variant="ghost"
+                disabled={savingPeople || selectedPeople.length === 0}
+                onClick={() => applyToSelected({ allEmailOff: false })}
+              >
+                Undo all-off
+              </EButton>
+            </div>
+          </div>
+
+          <div className="max-h-[22rem] overflow-y-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
+            {users.length === 0 ? (
+              <p className="p-3 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No people to show.</p>
+            ) : (
+              users.map((u) => {
+                const off = emailPrefs.allEmailOff.includes(u.id);
+                const disabledKinds = emailPrefs.disabledKinds[u.id] ?? [];
+                return (
+                  <label
+                    key={u.id}
+                    className="flex cursor-pointer items-center gap-3 border-b border-[hsl(var(--e-border))] p-2.5 last:border-b-0"
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-[hsl(var(--e-gold))]"
+                      checked={selectedPeople.includes(u.id)}
+                      onChange={(e) =>
+                        setSelectedPeople((prev) =>
+                          e.target.checked ? [...prev, u.id] : prev.filter((id) => id !== u.id)
+                        )
+                      }
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[0.8125rem] text-[hsl(var(--e-foreground))]">
+                        {u.name || u.email}
+                      </span>
+                      <span className="block truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                        {u.role}
+                        {off
+                          ? " · all email off"
+                          : disabledKinds.length > 0
+                            ? ` · ${disabledKinds.length} type${disabledKinds.length === 1 ? "" : "s"} off`
+                            : ""}
+                      </span>
+                    </span>
+                    {off ? (
+                      <EBadge tone="danger" soft>Off</EBadge>
+                    ) : disabledKinds.length > 0 ? (
+                      <EBadge tone="warning" soft>{disabledKinds.length}</EBadge>
+                    ) : null}
+                  </label>
+                );
+              })
+            )}
+          </div>
         </ECardBody>
       </ECard>
 
