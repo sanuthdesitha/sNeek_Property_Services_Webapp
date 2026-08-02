@@ -28,6 +28,10 @@ import {
 } from "@/components/v2/ui/primitives";
 import { EModal } from "@/components/v2/admin/estate-kit";
 import { EChip, EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
+import {
+  PAY_ADJUSTMENT_CATEGORIES,
+  type PayAdjustmentCategory as PayCategory,
+} from "@/lib/finance/pay-categories";
 import { toast } from "@/hooks/use-toast";
 import { MediaGallery } from "@/components/shared/media-gallery";
 
@@ -97,6 +101,7 @@ export function PayRequestsPanel({
   const [propertyId, setPropertyId] = useState<string>(properties[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [payType, setPayType] = useState<"HOURLY" | "FIXED">("HOURLY");
+  const [category, setCategory] = useState<PayCategory>("SERVICE");
   const [payHours, setPayHours] = useState("1");
   const [payRate, setPayRate] = useState("");
   const [payAmount, setPayAmount] = useState("");
@@ -122,6 +127,7 @@ export function PayRequestsPanel({
     setPropertyId(properties[0]?.id ?? "");
     setTitle("");
     setPayType("HOURLY");
+    setCategory("SERVICE");
     setPayHours("1");
     setPayRate("");
     setPayAmount("");
@@ -178,6 +184,7 @@ export function PayRequestsPanel({
       scope,
       title: title.trim(),
       type: payType,
+      category,
       cleanerNote: payNote.trim() || undefined,
       attachmentKeys: attachments.map((item) => item.key),
     };
@@ -421,6 +428,24 @@ export function PayRequestsPanel({
 
           <EField label="Request title">
             <EInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What is this request for?" />
+          </EField>
+
+          {/*
+            Work vs money-back. This is not a formality: a reimbursement prints
+            in its own non-taxable section of the invoice instead of being added
+            to earnings, so picking the wrong one overstates what was earned.
+          */}
+          <EField label="What kind of money is this?">
+            <ESelect value={category} onChange={(e) => setCategory(e.target.value as PayCategory)}>
+              {PAY_ADJUSTMENT_CATEGORIES.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </ESelect>
+            <p className="mt-1 text-[0.75rem] text-[var(--e-text-muted)]">
+              {PAY_ADJUSTMENT_CATEGORIES.find((option) => option.value === category)?.hint}
+            </p>
           </EField>
 
           <EField label="Request type">

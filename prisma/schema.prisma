@@ -1361,6 +1361,14 @@ model CleanerPayAdjustment {
   status                 PayAdjustmentStatus @default(PENDING)
   cleanerNote            String?             @db.Text
   attachmentKeys         Json?
+  /// What KIND of money this is, which decides how it prints on an invoice.
+  /// SERVICE = work performed. PARKING / REIMBURSEMENT = money the cleaner
+  /// already spent out of pocket and is getting back — not income, so it
+  /// belongs in its own section rather than inflating the services total.
+  category               String              @default("SERVICE")
+  /// Whether this line is taxable income to the payee. Defaults true so every
+  /// row that existed before the split keeps behaving exactly as it did.
+  taxable                Boolean             @default(true)
   /// PRIVATE. The reviewing admin's own record of the decision — "third time
   /// this month", "check with ops first". Internal surfaces only; it must never
   /// travel to the payee. Use `decisionMessage` to explain a decision TO them.
@@ -2708,7 +2716,13 @@ model CleanerInvoiceSubmission {
   totalAmount     Float     @default(0)
   jobCount        Int       @default(0)
   lineData        Json? // snapshot: cleaner contact + line rows for the Xero bill
-  status          String    @default("SUBMITTED") // SUBMITTED | XERO_PUSHED
+  status          String    @default("SUBMITTED") // SUBMITTED | XERO_PUSHED | PAID_CLAIMED | PAID | VOID
+  // The cleaner's own claim that the money arrived. Admin still has to confirm
+  // it (PAID_CLAIMED -> PAID) — a payee asserting payment is not the business
+  // recording it, so these fields stay separate from the paid* block above.
+  paidClaimedAt        DateTime?
+  paidClaimedNote      String?   @db.Text
+  paidClaimedProofKeys Json? // S3 keys for a receipt/screenshot the cleaner attached
   xeroBillId      String?
   xeroExportedAt  DateTime?
   // Payment settlement recorded by admin when the invoice is marked PAID.

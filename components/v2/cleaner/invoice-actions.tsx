@@ -1,116 +1,35 @@
-"use client";
-
-import { useState } from "react";
-import { Download, Send } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, FileText } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
-import { toast } from "@/hooks/use-toast";
 
 /**
- * Estate-native cleaner invoice actions. These mirror EXACTLY the live cleaner
- * invoice flow in `components/cleaner/dashboard-tools.tsx` — same endpoints,
- * same payload shape — but with the current-period defaults (no date range,
- * showSpentHours off, no per-job comments). That matches the v2 Pay page, which
- * shows the current month-to-date period. No new API surface is introduced.
+ * Shortcuts from the Pay page into the real invoice tool.
  *
- *   download → POST /api/cleaner/invoice/download  (blob → file)
- *   send     → POST /api/cleaner/invoice/send      ({ ...payload, confirmEmail })
+ * These used to FIRE an invoice on the spot: one click emailed a PDF built from
+ * silent defaults — no date range shown, no preview, no chance to drop a job or
+ * a shopping run, no way to undo. An invoice is a payment demand; sending one
+ * blind is how a wrong period or an already-settled job reaches accounts.
  *
- * The endpoints are session-scoped to the calling cleaner server-side, so no
- * cleaner id is (or should be) passed from the client.
+ * So they navigate instead. `/v2/cleaner/invoices?preset=` opens the panel with
+ * the period already chosen, which keeps the convenience while restoring the
+ * review step that catches those mistakes. The panel owns the endpoints
+ * (preview / download / send) — this component performs no fetch at all, so
+ * there is no longer a second, weaker path to sending money requests.
  */
-
-// Current-period defaults — identical field names to the live buildInvoicePayload().
-function currentPeriodPayload() {
-  return {
-    startDate: undefined as string | undefined,
-    endDate: undefined as string | undefined,
-    showSpentHours: false,
-    jobComments: {} as Record<string, string>,
-  };
-}
-
 export function CleanerInvoiceActions() {
-  const [downloading, setDownloading] = useState(false);
-  const [sending, setSending] = useState(false);
-
-  async function downloadInvoice() {
-    setDownloading(true);
-    try {
-      const res = await fetch("/api/cleaner/invoice/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(currentPeriodPayload()),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        toast({
-          title: "Download failed",
-          description: body.error ?? "Could not download invoice PDF.",
-          variant: "destructive",
-        });
-        return;
-      }
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "cleaner-invoice-current-period.pdf";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error: any) {
-      toast({
-        title: "Download failed",
-        description: error?.message ?? "Could not download invoice PDF.",
-        variant: "destructive",
-      });
-    } finally {
-      setDownloading(false);
-    }
-  }
-
-  async function sendInvoice() {
-    setSending(true);
-    try {
-      const res = await fetch("/api/cleaner/invoice/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...currentPeriodPayload(), confirmEmail: true }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast({
-          title: "Invoice failed",
-          description: body.error ?? "Could not send invoice.",
-          variant: "destructive",
-        });
-        return;
-      }
-      toast({
-        title: "Invoice sent",
-        description: body.sentTo ? `Sent to ${body.sentTo}.` : "Your invoice has been submitted.",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Invoice failed",
-        description: error?.message ?? "Could not send invoice.",
-        variant: "destructive",
-      });
-    } finally {
-      setSending(false);
-    }
-  }
-
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <EButton variant="outline" size="sm" disabled={downloading} onClick={downloadInvoice}>
-        <Download className="h-3.5 w-3.5" />
-        {downloading ? "Preparing…" : "Download PDF"}
+      <EButton asChild variant="outline" size="sm">
+        <Link href="/v2/cleaner/invoices?preset=thisMonth">
+          <FileText className="h-3.5 w-3.5" />
+          This month
+        </Link>
       </EButton>
-      <EButton variant="gold" size="sm" disabled={sending} onClick={sendInvoice}>
-        <Send className="h-3.5 w-3.5" />
-        {sending ? "Sending…" : "Send invoice"}
+      <EButton asChild variant="gold" size="sm">
+        <Link href="/v2/cleaner/invoices?preset=lastMonth">
+          Build invoice
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </EButton>
     </div>
   );

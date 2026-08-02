@@ -67,6 +67,7 @@ type AllApprovals = {
   bonusProposals: any[];
   falseConfirmations: any[];
   managementReviews: any[];
+  cleanerInvoicePayClaims: any[];
   counts: Record<string, number>;
 };
 
@@ -86,6 +87,7 @@ const QUEUES = [
   { key: "bonusProposals", label: "Bonuses", icon: Gift },
   { key: "falseConfirmations", label: "False confirmations", icon: ShieldAlert },
   { key: "managementReviews", label: "Management reviews", icon: Scale },
+  { key: "cleanerInvoicePayClaims", label: "Pay claims", icon: DollarSign },
 ] as const;
 
 type QueueKey = (typeof QUEUES)[number]["key"];
@@ -767,6 +769,43 @@ export function ApprovalsWorkspace() {
    * QA_REVIEW job to COMPLETED so it can be invoiced. The endpoint reports
    * per-job results — jobs no longer in QA_REVIEW come back as skipped.
    */
+  /**
+   * Settle a payee's "I've been paid" claim.
+   *
+   * Confirming writes the real payment record (and stamps the covered jobs) via
+   * the same endpoint an admin uses to mark any invoice paid — the claim never
+   * shortcuts that. Rejecting returns the invoice to SUBMITTED and leaves the
+   * claim fields in place, so the disagreement stays visible rather than being
+   * erased from the record.
+   */
+  async function settlePayClaim(id: string, confirmed: boolean) {
+    setActing(id);
+    try {
+      const res = await fetch(`/api/admin/cleaner-invoices/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          confirmed
+            ? { status: "PAID", paymentMethod: "BANK_TRANSFER" }
+            : { status: "SUBMITTED" }
+        ),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Could not update the invoice.");
+      toast({
+        title: confirmed ? "Payment confirmed" : "Claim rejected",
+        description: confirmed
+          ? "The invoice is marked paid and its jobs stamped."
+          : "The invoice is back with the payee as unpaid.",
+      });
+      await load();
+    } catch (err: any) {
+      toast({ title: "Failed", description: err?.message ?? "Update failed", variant: "destructive" });
+    } finally {
+      setActing(null);
+    }
+  }
+
   async function approveQaOutcomes(jobIds: string[]) {
     if (jobIds.length === 0) return;
     setActing(jobIds[0]);
@@ -1612,6 +1651,57 @@ export function ApprovalsWorkspace() {
                         <Link href={`/v2/admin/jobs/${row.jobId}`}>View job</Link>
                       </EButton>
                     ) : null}
+                  </>
+                }
+              />
+            ))}
+
+          {/* ── Pay claims: the payee says the money arrived, admin confirms ── */}
+          {active === "cleanerInvoicePayClaims" &&
+            activeRows.map((row) => (
+              <QueueCard
+                key={row.id}
+                eyebrow="Payment claim"
+                title={<>{row.cleaner?.name ?? row.cleaner?.email ?? "Payee"}</>}
+                status={
+                  <EBadge tone="warning" soft>
+                    Awaiting confirmation
+                  </EBadge>
+                }
+                lines={[
+                  <>
+                    {fmtDay(row.periodStart)} – {fmtDay(row.periodEnd)} · {row.jobCount} job
+                    {row.jobCount === 1 ? "" : "s"}
+                  </>,
+                  <>
+                    Invoiced:{" "}
+                    <span className="e-numeral text-[0.9375rem]">
+                      ${Number(row.totalAmount ?? 0).toFixed(2)}
+                    </span>
+                  </>,
+                  row.paidClaimedNote ? <>“{row.paidClaimedNote}”</> : null,
+                ]}
+                footer={row.paidClaimedAt ? `Claimed ${fmt(row.paidClaimedAt)}` : undefined}
+                actions={
+                  <>
+                    <EButton
+                      size="sm"
+                      variant="gold"
+                      disabled={busy}
+                      onClick={() => settlePayClaim(row.id, true)}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Confirm paid
+                    </EButton>
+                    <EButton
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => settlePayClaim(row.id, false)}
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      Not paid yet
+                    </EButton>
                   </>
                 }
               />

@@ -25,6 +25,10 @@ export async function GET() {
         jobCount: true,
         status: true,
         createdAt: true,
+        // The payee's own "I've been paid" claim, so the list can show it as
+        // awaiting confirmation rather than looking unchanged after they said so.
+        paidClaimedAt: true,
+        paidClaimedNote: true,
       },
       orderBy: { createdAt: "desc" },
       take: 50,

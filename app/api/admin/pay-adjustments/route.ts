@@ -6,6 +6,10 @@ import { db } from "@/lib/db";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { publicUrl } from "@/lib/s3";
 import { normalizePayAdjustmentAmounts } from "@/lib/pay-adjustments/display";
+import {
+  PAY_ADJUSTMENT_CATEGORY_VALUES,
+  isTaxableCategory,
+} from "@/lib/finance/pay-categories";
 
 const createSchema = z.object({
   cleanerId: z.string().min(1),
@@ -28,6 +32,10 @@ const createSchema = z.object({
   // route 409s), pass the original id so provenance is traceable: the new row
   // gets sourceKey "correction:<id>" and stays MANUAL in origin terms.
   correctionOfId: z.string().trim().optional().nullable(),
+  // Work vs money-back (parking, receipts). `taxable` is derived from this
+  // server-side rather than accepted, so the pair can never contradict each
+  // other on the payee's invoice.
+  category: z.enum(PAY_ADJUSTMENT_CATEGORY_VALUES).optional(),
 });
 
 // Admin adds an extra payment for a cleaner (linked to a job or standalone).
@@ -92,6 +100,8 @@ export async function POST(req: NextRequest) {
         cleanerNote: "Added by admin.",
         reviewedById: approved ? session.user.id : null,
         reviewedAt: approved ? new Date() : null,
+        category: body.category ?? "SERVICE",
+        taxable: isTaxableCategory(body.category),
         ...(correctionOf
           ? { source: "ADMIN_CORRECTION", sourceKey: `correction:${correctionOf.id}` }
           : {}),

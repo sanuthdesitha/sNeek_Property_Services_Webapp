@@ -50,6 +50,7 @@ export async function GET() {
       falseConfirmations,
       managementReviews,
       qaOutcomes,
+      payClaimRows0,
     ] =
       await Promise.all([
         listContinuationRequests({ status: "PENDING" }),
@@ -213,7 +214,40 @@ export async function GET() {
         // Failed-inspection jobs parked in QA_REVIEW awaiting the admin
         // "approve outcome → COMPLETED" decision (blocks invoicing until done).
         listQaOutcomeApprovals(),
+        // Payees who say their invoice has been paid. The claim is theirs; the
+        // confirmation is the business's, so it waits here rather than moving
+        // the invoice to PAID on the payee's word alone.
+        db.cleanerInvoiceSubmission.findMany({
+          where: { status: "PAID_CLAIMED" },
+          select: {
+            id: true,
+            cleanerId: true,
+            periodStart: true,
+            periodEnd: true,
+            totalAmount: true,
+            jobCount: true,
+            paidClaimedAt: true,
+            paidClaimedNote: true,
+          },
+          orderBy: { paidClaimedAt: "asc" },
+          take: 50,
+        }),
       ]);
+
+    // Attach the payee to each pay claim. CleanerInvoiceSubmission has no FK
+    // relation to User, so the join is done here rather than in the query — an
+    // approval row that only says "someone" is unusable.
+    const payClaimPayees = payClaimRows0.length
+      ? await db.user.findMany({
+          where: { id: { in: Array.from(new Set(payClaimRows0.map((r) => r.cleanerId))) } },
+          select: { id: true, name: true, email: true, image: true, role: true },
+        })
+      : [];
+    const payClaimPayeeMap = new Map(payClaimPayees.map((u) => [u.id, u]));
+    const payClaimRows = payClaimRows0.map((row) => ({
+      ...row,
+      cleaner: payClaimPayeeMap.get(row.cleanerId) ?? null,
+    }));
 
     // Resolve the requesting client user for each pending skip request (no FK relation in schema).
     const skipRequesterIds = Array.from(
@@ -348,6 +382,7 @@ export async function GET() {
       falseConfirmations,
       managementReviews: managementReviewRows,
       qaOutcomes,
+      cleanerInvoicePayClaims: payClaimRows,
       counts: {
         continuations: continuations.length,
         timingRequests: timingRequests.length,
@@ -364,6 +399,7 @@ export async function GET() {
         falseConfirmations: falseConfirmations.length,
         managementReviews: managementReviewRows.length,
         qaOutcomes: qaOutcomes.length,
+        cleanerInvoicePayClaims: payClaimRows.length,
         total:
           continuations.length +
           timingRequests.length +
@@ -379,7 +415,8 @@ export async function GET() {
           bonusProposals.length +
           falseConfirmations.length +
           managementReviewRows.length +
-          qaOutcomes.length,
+          qaOutcomes.length +
+          payClaimRows.length,
       },
     });
   } catch (err: any) {
