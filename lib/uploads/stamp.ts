@@ -225,6 +225,64 @@ async function loadImageFromFile(file: File | Blob): Promise<HTMLImageElement> {
   }
 }
 
+/** A decoded image plus the memory it holds, which the caller must release. */
+type DecodedSource = {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  release: () => void;
+};
+
+/**
+ * Decode a photo AT the size we are about to draw it, never at full resolution.
+ *
+ * This is the difference between a phone surviving an upload and not. Decoding
+ * through `new Image()` materialises the whole bitmap first: a 48MP phone photo
+ * is roughly 190MB of RGBA before a single pixel is drawn, and that allocation
+ * lands the instant the file picker returns. iOS Safari and Android Chrome
+ * answer it by discarding the tab and reloading — which the cleaner experiences
+ * as "I picked a photo, the page went back to the start, nothing uploaded".
+ *
+ * `createImageBitmap` with resize options lets the browser decode straight to
+ * the target size, so peak memory is the thumbnail rather than the original.
+ * Where it is unavailable, or refuses the file (some HEIC paths), we fall back
+ * to the element decode, which is no worse than the previous behaviour.
+ */
+async function decodeScaled(file: File | Blob, maxDimension: number): Promise<DecodedSource> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const probe = await createImageBitmap(file);
+      const { width, height } = scaledDimensions(probe.width, probe.height, maxDimension);
+      // Already small enough — a second decode would cost more than it saves.
+      if (probe.width <= width && probe.height <= height) {
+        return { source: probe, width: probe.width, height: probe.height, release: () => probe.close() };
+      }
+      probe.close();
+
+      const bitmap = await createImageBitmap(file, {
+        resizeWidth: width,
+        resizeHeight: height,
+        resizeQuality: "high",
+      });
+      return { source: bitmap, width: bitmap.width, height: bitmap.height, release: () => bitmap.close() };
+    } catch {
+      // Fall through to the element path below.
+    }
+  }
+
+  const element = await loadImageFromFile(file);
+  return {
+    source: element,
+    width: element.naturalWidth || element.width,
+    height: element.naturalHeight || element.height,
+    // Dropping the src lets the decoded bitmap be reclaimed promptly instead of
+    // lingering until the element itself is collected.
+    release: () => {
+      element.src = "";
+    },
+  };
+}
+
 function scaledDimensions(width: number, height: number, maxDimension: number) {
   if (!width || !height) return { width: maxDimension, height: maxDimension };
   const ratio = Math.min(1, maxDimension / Math.max(width, height));
@@ -354,22 +412,26 @@ export async function stampImage(file: File, opts: StampOptions = {}): Promise<F
   const targetBytes = opts.targetBytes ?? DEFAULT_TARGET_BYTES;
   const timezone = opts.timezone || DEFAULT_TIMEZONE;
 
-  const source = await loadImageFromFile(file);
-  const { width, height } = scaledDimensions(
-    source.naturalWidth || source.width,
-    source.naturalHeight || source.height,
-    maxDimension
-  );
+  const decoded = await decodeScaled(file, maxDimension);
+  const { width, height } = scaledDimensions(decoded.width, decoded.height, maxDimension);
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return file;
+  if (!ctx) {
+    decoded.release();
+    return file;
+  }
 
   // Modern browsers (and createImageBitmap upstream) auto-apply EXIF
   // orientation when drawing, so a straight drawImage is correct here.
-  ctx.drawImage(source, 0, 0, width, height);
+  ctx.drawImage(decoded.source, 0, 0, width, height);
+  // Release immediately. Everything below is text and boxes drawn onto a canvas
+  // that is already sized down, so holding the source open only keeps the peak
+  // memory high for the rest of the stamp — the exact thing that gets the page
+  // discarded on a phone.
+  decoded.release();
 
   // ---- Geometry, scaled to the image ----
   const scale = canvas.width / 1000;
