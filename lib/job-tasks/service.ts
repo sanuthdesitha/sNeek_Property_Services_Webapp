@@ -138,6 +138,8 @@ export async function syncAdminJobTasks(input: {
   });
   const existingIds = new Set(existing.map((row) => row.id));
   const nextIds = new Set<string>();
+  /** Titles of tasks created in this sync — the only ones worth announcing. */
+  const addedTitles: string[] = [];
 
   for (const task of input.tasks) {
     const title = task.title.trim();
@@ -186,6 +188,7 @@ export async function syncAdminJobTasks(input: {
       select: { id: true },
     });
     nextIds.add(created.id);
+    addedTitles.push(title);
   }
 
   const toCancel = existing.filter((row) => !nextIds.has(row.id)).map((row) => row.id);
@@ -198,6 +201,75 @@ export async function syncAdminJobTasks(input: {
       },
     });
   }
+
+  // Tell the cleaners who are actually going. Until now this function added
+  // work to someone's job and notified nobody — the extra task simply appeared
+  // in the app, so a cleaner who had already read their brief arrived without
+  // it. Only NEW tasks are announced; renaming an existing one is not news
+  // worth a push at 6am.
+  if (addedTitles.length > 0) {
+    await notifyJobTasksAdded(input.jobId, addedTitles).catch((err) => {
+      // Never let a notification failure undo tasks that were saved.
+      console.error("[job-tasks] added-notification failed", err);
+    });
+  }
+}
+
+/** Announce newly added admin tasks to the job's current cleaners. */
+async function notifyJobTasksAdded(jobId: string, titles: string[]) {
+  const job = await db.job.findUnique({
+    where: { id: jobId },
+    select: {
+      id: true,
+      jobNumber: true,
+      status: true,
+      scheduledDate: true,
+      property: { select: { name: true, suburb: true } },
+      assignments: {
+        where: { removedAt: null },
+        select: { user: { select: { id: true, name: true, email: true, isActive: true } } },
+      },
+    },
+  });
+  if (!job) return;
+  // A finished job's tasks are being tidied up after the fact; waking someone
+  // about work they have already handed in helps nobody.
+  if (FINISHED_JOB_STATUSES.includes(job.status)) return;
+
+  const recipients = job.assignments
+    .map((a) => a.user)
+    .filter((u): u is NonNullable<typeof u> => Boolean(u?.id && u.isActive));
+  if (recipients.length === 0) return;
+
+  const settings = await getAppSettings();
+  const companyName = settings.companyName || "sNeek Property Services";
+  const propertyLabel = `${job.property.name}${job.property.suburb ? ` (${job.property.suburb})` : ""}`;
+  const jobReference = getJobReference(job);
+  const listHtml = titles.map((t) => `<li>${t}</li>`).join("");
+  const listText = titles.join(", ");
+
+  await deliverNotificationToRecipients({
+    recipients,
+    category: "jobs",
+    // Explicit kind, not the category fallback: this is the switch an admin
+    // reaches for when they decide extra-task alerts are or aren't wanted.
+    kind: "job_task_added",
+    jobId: job.id,
+    web: {
+      subject: `${companyName}: extra task${titles.length === 1 ? "" : "s"} added`,
+      body: `${jobReference} at ${propertyLabel}: ${listText}`,
+    },
+    email: {
+      subject: `${companyName}: extra task${titles.length === 1 ? "" : "s"} on ${jobReference}`,
+      html: `
+        <h2 style="margin:0 0 12px;">Extra task${titles.length === 1 ? "" : "s"} added</h2>
+        <p><strong>${jobReference}</strong> at <strong>${propertyLabel}</strong> now includes:</p>
+        <ul style="padding-left:18px;margin:12px 0;">${listHtml}</ul>
+        <p>Open the job before you start so you have the full list.</p>
+      `,
+    },
+    sms: `${companyName}: ${jobReference} extra task — ${listText}`.slice(0, 320),
+  });
 }
 
 export async function createClientJobTaskRequest(input: {

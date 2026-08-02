@@ -17,6 +17,12 @@ type Body = {
   stage?: string;
   mode?: "preview" | "send";
   extra?: LifecycleExtra;
+  /**
+   * Content the admin edited in a confirm dialog. Offering an edit and then
+   * sending the template anyway would be worse than not offering it, so this
+   * replaces the rendered text when present.
+   */
+  override?: { subject?: string | null; html?: string | null };
 };
 
 function isStage(value: unknown): value is LifecycleStage {
@@ -71,6 +77,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         stage,
         mode: "manual",
         extra,
+        override: body.override,
       });
       if (!result.sent) {
         const reason =

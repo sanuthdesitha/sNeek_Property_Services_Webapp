@@ -374,8 +374,21 @@ export async function PATCH(
       if (previousTiming !== nextTiming) {
         changes.push(`Turnaround flags: ${nextTiming || "Cleared"}`);
       }
-      if ((body.internalNotes ?? "").trim()) {
-        changes.push("Job notes updated");
+      // Diff the note, don't test the payload. The old check fired whenever a
+      // non-empty note was SENT — so re-saving an unchanged job announced a
+      // change that hadn't happened — and CLEARING a note registered nothing
+      // at all, which is the case that matters most: the cleaner keeps
+      // following an instruction the office has withdrawn. The new text goes
+      // into the summary too; "notes updated" tells nobody what to do
+      // differently (2026-08).
+      const previousNote = (previousMeta.internalNoteText ?? "").trim();
+      const nextNote = (nextMeta.internalNoteText ?? "").trim();
+      if (previousNote !== nextNote) {
+        changes.push(
+          nextNote
+            ? `Job note: ${nextNote}`
+            : "Job note cleared — the previous instruction no longer applies"
+        );
       }
 
       const suppressFinishedJobNotifications =
@@ -411,10 +424,26 @@ export async function PATCH(
         const cleaners = current.assignments
           .map((assignment) => assignment.user)
           .filter((user): user is NonNullable<typeof current.assignments[number]["user"]> => Boolean(user?.id && user.isActive));
+        // Pick the narrowest kind that describes this edit, so the admin's
+        // switches mean something. A change that is ONLY the turnaround rules,
+        // or ONLY the note, gets its own kind; a mixed edit (status, date,
+        // times) stays on the general job-update kind, because silencing one
+        // of those must not silence a reschedule the cleaner has to know about.
+        const timingOnly = changes.length === 1 && changes[0].startsWith("Turnaround flags:");
+        const noteOnly =
+          changes.length === 1 &&
+          (changes[0].startsWith("Job note:") || changes[0].startsWith("Job note cleared"));
+        const updateKind = timingOnly
+          ? ("timing_rule_changed" as const)
+          : noteOnly
+            ? ("special_note_changed" as const)
+            : undefined;
+
         if (cleaners.length > 0) {
           await deliverNotificationToRecipients({
             recipients: cleaners,
             category: "jobs",
+            ...(updateKind ? { kind: updateKind } : {}),
             jobId: refreshed.id,
             web: { subject: webSubject, body: webBody },
             email: {

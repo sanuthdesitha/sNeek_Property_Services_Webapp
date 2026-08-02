@@ -210,6 +210,10 @@ const updateSchema = z.object({
     .object({
       masterEnabled: z.boolean(),
       types: z.record(z.boolean()),
+      // audience -> kind -> allowed. Must be declared: zod strips keys it does
+      // not know about, so without this the matrix would appear to save and
+      // then silently come back empty.
+      audienceKinds: z.record(z.record(z.boolean())).optional(),
     })
     .optional(),
   autoClockOut: autoClockOutSchema.optional(),
