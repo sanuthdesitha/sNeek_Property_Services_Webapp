@@ -103,6 +103,7 @@ export async function POST(
       const to = admins.map((admin) => admin.email).filter((email): email is string => Boolean(email));
       if (to.length > 0) {
         await sendEmailDetailed({
+          kind: "admin_alert",
           to,
           subject: `${settings.companyName} - Client approval ${updated.status.toLowerCase()}`,
           html: `

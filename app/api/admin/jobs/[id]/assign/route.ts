@@ -241,6 +241,7 @@ export async function POST(
           }
         );
         const emailResult = await sendEmailDetailed({
+          kind: "job_assignment",
           to: user.email,
           subject: emailTemplate.subject,
           html: emailTemplate.html,

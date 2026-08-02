@@ -695,6 +695,12 @@ model User {
   auditLogs                    AuditLog[]                  @relation("AuditUser")
   notifications                Notification[]
   notificationPreference       UserNotificationPreference?
+  emailPreferences             UserEmailPreference[]
+  /// "Stop emailing me entirely." One flag rather than a row per kind, so it
+  /// keeps working when new kinds are added — a per-kind opt-out list would
+  /// silently start letting new kinds through. Auth/recovery mail sends with
+  /// `critical` and bypasses this, or someone could lock themselves out.
+  allEmailOff                  Boolean  @default(false)
   pushDevices                  UserPushDevice[]
   payAdjustmentRequests        CleanerPayAdjustment[]      @relation("CleanerAdjustmentRequests")
   payAdjustmentReviews         CleanerPayAdjustment[]      @relation("CleanerAdjustmentReviews")
@@ -2761,6 +2767,26 @@ model ClientInvoiceLine {
   // generateClientInvoice scans lines by jobId to skip already-invoiced jobs.
   @@index([jobId])
   @@index([invoiceId])
+}
+
+/// One person's opt-out of ONE kind of automatic email.
+///
+/// Absence of a row means allowed — this table records only deviations from
+/// the global settings, so it starts empty and changes nothing until someone
+/// actually opts out.
+model UserEmailPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  /// An EmailAutoKind key (lib/notifications/email-kinds.ts).
+  key       String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
 }
 
 model UserNotificationPreference {

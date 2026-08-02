@@ -45,6 +45,16 @@ export interface EmailAutomationSettings {
   masterEnabled: boolean;
   /** Per-type switches keyed by EmailAutoKind. */
   types: Record<string, boolean>;
+  /**
+   * Per-audience overrides of a type: `audienceKinds[audience][kind] === false`
+   * silences that kind for that group only.
+   *
+   * The type switch above is all-or-nothing, so the only way to stop emailing
+   * cleaners about (say) inventory was to stop emailing everyone about it —
+   * including the ops manager who needs it. A MISSING entry means allowed, so
+   * the map starts empty and changes nothing until an admin unticks a cell.
+   */
+  audienceKinds?: Record<string, Record<string, boolean>>;
 }
 
 export const DEFAULT_EMAIL_AUTOMATION: EmailAutomationSettings = {
@@ -64,10 +74,44 @@ export function sanitizeEmailAutomation(
   for (const key of EMAIL_AUTO_KIND_KEYS) {
     if (typeof typesIn[key] === "boolean") types[key] = typesIn[key] as boolean;
   }
+  // Free-form on purpose: audiences and kinds are both open sets, and dropping
+  // an unrecognised pair on load would silently re-enable a kind an admin had
+  // switched off (e.g. after a rename, or while a deploy is mid-rollout).
+  const audienceKindsIn =
+    row.audienceKinds && typeof row.audienceKinds === "object"
+      ? (row.audienceKinds as Record<string, unknown>)
+      : {};
+  const audienceKinds: Record<string, Record<string, boolean>> = {};
+  for (const [audience, value] of Object.entries(audienceKindsIn)) {
+    if (!value || typeof value !== "object") continue;
+    const bucket: Record<string, boolean> = {};
+    for (const [kind, enabled] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof enabled === "boolean") bucket[kind] = enabled;
+    }
+    if (Object.keys(bucket).length > 0) audienceKinds[audience] = bucket;
+  }
+
   return {
     masterEnabled: typeof row.masterEnabled === "boolean" ? row.masterEnabled : fallback.masterEnabled,
     types,
+    audienceKinds,
   };
+}
+
+/**
+ * True when this kind is allowed to reach this audience.
+ *
+ * Only an explicit `false` blocks. Anything else — no map, no audience entry,
+ * no kind entry — means allowed, so the matrix can only ever take email away
+ * from a group an admin chose, never withhold it by omission.
+ */
+export function isAudienceKindAllowed(
+  settings: EmailAutomationSettings | undefined,
+  audience: string | null | undefined,
+  kind: string | null | undefined
+): boolean {
+  if (!settings || !audience || !kind) return true;
+  return settings.audienceKinds?.[audience]?.[kind] !== false;
 }
 
 /** True when an auto email of this kind is allowed to send right now. */

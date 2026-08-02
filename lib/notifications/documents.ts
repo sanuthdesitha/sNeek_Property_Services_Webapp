@@ -294,6 +294,7 @@ export async function sendDocument(clientId: string, docType: DocumentType, targ
 
   // Manual re-send — always delivers (transactional, ungated).
   const result = await sendEmailDetailed({
+    kind: "workforce_update",
     to: doc.recipients,
     subject: doc.subject,
     html: doc.html,

@@ -4,7 +4,11 @@ import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { wrapEmailHtml } from "@/lib/email-templates";
 import { isSuppressed } from "@/lib/email/suppression";
-import { isAutoEmailAllowed, type EmailAutoKind } from "@/lib/notifications/email-kinds";
+import {
+  isAudienceKindAllowed,
+  isAutoEmailAllowed,
+  type EmailAutoKind,
+} from "@/lib/notifications/email-kinds";
 import { db } from "@/lib/db";
 import {
   audienceForRole,
@@ -87,16 +91,36 @@ export interface EmailPayload {
  * Resolve the audience for an email address by looking up the matching user's
  * role (case-insensitive). No matching account → PUBLIC (leads / contacts).
  */
-async function resolveAudienceForEmail(email: string): Promise<NotificationAudience> {
+interface ResolvedRecipient {
+  audience: NotificationAudience;
+  /** The person asked to receive no automatic email at all. */
+  allEmailOff: boolean;
+  /** Kinds this person has individually switched off. */
+  disabledKinds: Set<string>;
+}
+
+async function resolveRecipient(email: string): Promise<ResolvedRecipient> {
   try {
     const user = await db.user.findFirst({
       where: { email: { equals: email, mode: "insensitive" } },
-      select: { role: true },
+      select: {
+        role: true,
+        allEmailOff: true,
+        // Only the rows that actually block — a preference table row exists
+        // solely to record a deviation, so absence means allowed.
+        emailPreferences: { where: { enabled: false }, select: { key: true } },
+      },
     });
-    return audienceForRole(user?.role ?? null);
+    return {
+      audience: audienceForRole(user?.role ?? null),
+      allEmailOff: user?.allEmailOff === true,
+      disabledKinds: new Set((user?.emailPreferences ?? []).map((p) => p.key)),
+    };
   } catch {
-    // Fail-open: if the lookup errors, treat as PUBLIC rather than blocking.
-    return audienceForRole(null);
+    // Fail-open: a lookup error must not silently stop mail going out. Treat
+    // the address as a member of the public with no preferences — the global
+    // and per-kind switches above still apply.
+    return { audience: audienceForRole(null), allEmailOff: false, disabledKinds: new Set() };
   }
 }
 
@@ -136,15 +160,33 @@ export async function sendEmailDetailed(
       const allowed: string[] = [];
       const blocked: string[] = [];
       for (const address of recipients) {
-        const audience =
-          recipients.length === 1 && payload.audience
-            ? payload.audience
-            : await resolveAudienceForEmail(address);
-        if (isChannelAllowed(controls, audience, "email")) {
-          allowed.push(address);
-        } else {
+        // A caller-supplied audience saves the lookup, but ONLY when there are
+        // no per-person questions to answer — otherwise we still need the row.
+        const canSkipLookup =
+          recipients.length === 1 && Boolean(payload.audience) && !payload.kind;
+        const resolved = canSkipLookup
+          ? null
+          : await resolveRecipient(address);
+        const audience = resolved?.audience ?? payload.audience!;
+
+        if (!isChannelAllowed(controls, audience, "email")) {
           blocked.push(address);
+          continue;
         }
+        // Per-audience override of this kind: "cleaners don't need inventory
+        // mail" without also silencing the ops manager who does.
+        if (payload.kind && !isAudienceKindAllowed(settings.emailAutomation, audience, payload.kind)) {
+          blocked.push(address);
+          continue;
+        }
+        // The person's own choice, which is the narrowest and therefore the
+        // last word. `allEmailOff` covers kinds that don't exist yet; a
+        // per-kind row covers the one they named.
+        if (payload.kind && resolved && (resolved.allEmailOff || resolved.disabledKinds.has(payload.kind))) {
+          blocked.push(address);
+          continue;
+        }
+        allowed.push(address);
       }
       if (allowed.length === 0) {
         // Every recipient is in a silenced audience — skip entirely.

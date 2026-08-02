@@ -178,6 +178,7 @@ export async function POST(req: NextRequest) {
         }
       );
       const emailResult = await sendEmailDetailed({
+        kind: "job_assignment",
         to: cleaner.email,
         subject: digest.subject,
         html: digest.html,
