@@ -31,6 +31,7 @@ import { tryEnsureQaAssignmentForCompletedJob } from "@/lib/qa/auto-assignment";
 import { buildReworkFormSchema, normalizeReworkAreas } from "@/lib/qa/rework-jobs";
 import { applyRotationCompletion, deriveRotationalCompletion } from "@/lib/accountability/rotation";
 import { SELF_INSPECTION_MODULE_KEY } from "@/lib/checklists/catalog";
+import { isTaxableCategory } from "@/lib/finance/pay-categories";
 import {
   JobStatus,
   MediaType,
@@ -895,6 +896,11 @@ export async function POST(
               payRequest.mediaKeys && payRequest.mediaKeys.length > 0
                 ? (payRequest.mediaKeys as any)
                 : undefined,
+            // Parking and receipts are money back, not money earned. Derived
+            // from the category rather than trusted from the client so the
+            // pair can never disagree on the resulting invoice.
+            category: payRequest.category ?? "SERVICE",
+            taxable: isTaxableCategory(payRequest.category),
           },
         });
       } catch (payErr) {

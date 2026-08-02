@@ -24,6 +24,9 @@ const schema = z.object({
   jobHourOverrides: z.record(z.string(), z.number().nonnegative()).optional(),
   excludedJobIds: z.array(z.string().min(1)).max(500).optional(),
   excludedRunIds: z.array(z.string().min(1)).max(500).optional(),
+  // Approved pay adjustments the payee removed from this invoice. Never
+  // stamped, so they stay owed and appear on the next one.
+  excludedAdjustmentIds: z.array(z.string().min(1)).max(500).optional(),
   // When true the PDF is served with an inline disposition so it renders inside
   // the on-screen preview iframe instead of triggering a browser download.
   inline: z.boolean().optional(),
@@ -40,6 +43,7 @@ async function buildInvoicePdfResponse(
     jobHourOverrides?: Record<string, number>;
     excludedJobIds?: string[];
     excludedRunIds?: string[];
+    excludedAdjustmentIds?: string[];
   },
   opts: { inline?: boolean } = {}
 ) {
@@ -102,6 +106,7 @@ export async function POST(req: NextRequest) {
         jobHourOverrides: body.jobHourOverrides,
         excludedJobIds: body.excludedJobIds,
         excludedRunIds: body.excludedRunIds,
+      excludedAdjustmentIds: body.excludedAdjustmentIds,
       },
       { inline: body.inline }
     );

@@ -48,7 +48,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         paymentMethod: body.paymentMethod || null,
         paidDate: body.paidDate ? new Date(body.paidDate) : new Date(),
       };
-    } else {
+    } else if (body.status === "VOID" || body.status === "SUBMITTED") {
+      // Only an explicit reversal clears the payment record. This branch used
+      // to catch EVERY non-PAID status, so moving a paid invoice to any other
+      // state — including ones with nothing to do with payment — silently
+      // erased when it was paid, how much, by which method and into which
+      // account. That is the audit trail for money that actually left the
+      // business, and it was being deleted as a side effect.
       paymentData = {
         paidAt: null,
         paidAmount: null,
@@ -57,6 +63,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         paymentMethod: null,
         paidDate: null,
       };
+    } else {
+      // Any other status leaves the payment record untouched.
+      paymentData = {} as typeof paymentData;
     }
 
     const updated = await db.cleanerInvoiceSubmission.update({

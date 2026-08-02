@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { JobType, JobStatus } from "@prisma/client";
+import { PAY_ADJUSTMENT_CATEGORY_VALUES } from "@/lib/finance/pay-categories";
 import {
   optionalAddressSchema,
   optionalAustralianPhoneSchema,
@@ -169,6 +170,9 @@ const draftPayRequestItemSchema = z.object({
   cleanerNote: z.string().trim().max(4000).optional(),
   title: z.string().trim().max(160).optional(),
   mediaKeys: z.array(z.string().trim().min(1).max(300)).max(8).optional(),
+  // Parking / receipts vs work. Absent means SERVICE, which is what every
+  // request meant before the split existed.
+  category: z.enum(PAY_ADJUSTMENT_CATEGORY_VALUES).optional(),
 });
 
 export const submitJobSchema = z.object({

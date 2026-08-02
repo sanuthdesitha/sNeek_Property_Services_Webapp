@@ -34,6 +34,9 @@ const schema = z.object({
   jobHourOverrides: z.record(z.string(), z.number().nonnegative()).optional(),
   excludedJobIds: z.array(z.string().min(1)).max(500).optional(),
   excludedRunIds: z.array(z.string().min(1)).max(500).optional(),
+  // Approved pay adjustments the payee removed from this invoice. Never
+  // stamped, so they stay owed and appear on the next one.
+  excludedAdjustmentIds: z.array(z.string().min(1)).max(500).optional(),
   confirmEmail: z.literal(true),
 });
 
@@ -56,6 +59,7 @@ export async function POST(req: NextRequest) {
       excludeInvoicedJobs: true,
       excludedJobIds: body.excludedJobIds,
       excludedRunIds: body.excludedRunIds,
+      excludedAdjustmentIds: body.excludedAdjustmentIds,
     });
     const missingProfile = invoicePayeeMissingFields({
       name: data.cleanerName,

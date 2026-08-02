@@ -13,6 +13,10 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
+import {
+  PAY_ADJUSTMENT_CATEGORY_VALUES,
+  isTaxableCategory,
+} from "@/lib/finance/pay-categories";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import { renderEmailTemplate } from "@/lib/email-templates";
@@ -35,6 +39,10 @@ const createSchema = z
     requestedAmount: z.number().positive().optional(),
     cleanerNote: z.string().trim().max(4000).optional(),
     attachmentKeys: z.array(z.string().trim().min(1).max(300)).max(8).optional(),
+    // Work vs money-back. `taxable` is deliberately NOT accepted from the
+    // client — it is derived from the category server-side so the two can
+    // never disagree on a document someone files a tax return from.
+    category: z.enum(PAY_ADJUSTMENT_CATEGORY_VALUES).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.scope === PayAdjustmentScope.JOB && !value.jobId) {
@@ -359,6 +367,8 @@ export async function POST(req: NextRequest) {
         requestedAmount,
         cleanerNote: body.cleanerNote?.trim() || undefined,
         attachmentKeys: body.attachmentKeys?.length ? (body.attachmentKeys as any) : undefined,
+        category: body.category ?? "SERVICE",
+        taxable: isTaxableCategory(body.category),
       },
       include: {
         job: {

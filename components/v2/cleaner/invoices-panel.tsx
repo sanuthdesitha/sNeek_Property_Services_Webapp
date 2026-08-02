@@ -121,6 +121,9 @@ interface Submission {
   jobCount: number;
   status: string;
   createdAt: string;
+  /** Set once the payee said the money arrived; confirmed only by an admin. */
+  paidClaimedAt?: string | null;
+  paidClaimedNote?: string | null;
 }
 
 function money(value: number | null | undefined) {
@@ -153,17 +156,31 @@ export type InvoicePayeeKind = "cleaner" | "inspector";
 export function InvoicesPanel({
   payeeKind = "cleaner",
   profileHref,
+  initialPreset,
 }: {
   /** Drives copy only. An inspector's invoice may legitimately contain no cleans. */
   payeeKind?: InvoicePayeeKind;
   /** Where "Complete profile" goes. Defaults to this payee kind's portal. */
   profileHref?: string;
+  /**
+   * Period to open on, from `?preset=` — how the job-level invoice shortcuts
+   * hand off. They used to fire an invoice immediately from a screen with no
+   * period, no preview and no exclusions; sending someone here with the range
+   * already chosen keeps the one review step that catches mistakes.
+   */
+  initialPreset?: "thisMonth" | "lastMonth" | "last2Weeks";
 } = {}) {
   const isInspector = payeeKind === "inspector";
   const resolvedProfileHref =
     profileHref ?? (isInspector ? "/v2/qa/profile" : "/v2/cleaner/profile");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  // Computed once from the preset so the panel opens on a real period instead
+  // of an empty range the payee has to fill in before anything loads.
+  const [startDate, setStartDate] = useState(() =>
+    initialPreset ? presetRange(initialPreset).start : ""
+  );
+  const [endDate, setEndDate] = useState(() =>
+    initialPreset ? presetRange(initialPreset).end : ""
+  );
   const [showSpentHours, setShowSpentHours] = useState(true);
   // Controls whether ANY hours appear on the generated/emailed PDF. On by
   // default; turned off when the cleaner wants accounts to see amounts only.
@@ -175,7 +192,9 @@ export function InvoicesPanel({
   const [jobComments, setJobComments] = useState<Record<string, string>>({});
   const [excludedJobIds, setExcludedJobIds] = useState<string[]>([]);
   const [excludedRunIds, setExcludedRunIds] = useState<string[]>([]);
+  const [excludedAdjustmentIds, setExcludedAdjustmentIds] = useState<string[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
   const [previewPdfUrl, setPreviewPdfUrl] = useState("");
   const [previewingPdf, setPreviewingPdf] = useState(false);
   const [emailReviewOpen, setEmailReviewOpen] = useState(false);
@@ -257,6 +276,7 @@ export function InvoicesPanel({
       jobHourOverrides: cleanedHourOverrides,
       excludedJobIds,
       excludedRunIds,
+      excludedAdjustmentIds,
     };
   }
 
@@ -309,7 +329,7 @@ export function InvoicesPanel({
   useEffect(() => {
     void loadInvoicePreview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, showSpentHours, excludedJobIds, excludedRunIds]);
+  }, [startDate, endDate, showSpentHours, excludedJobIds, excludedRunIds, excludedAdjustmentIds]);
 
   async function loadSubmissions() {
     try {
@@ -322,6 +342,38 @@ export function InvoicesPanel({
   useEffect(() => {
     void loadSubmissions();
   }, []);
+
+  /**
+   * Tell the office the money arrived. This does NOT mark the invoice paid —
+   * it raises a claim an admin confirms, because the record of money leaving
+   * the business belongs to the business, not to the person receiving it.
+   */
+  async function claimPaid(id: string) {
+    setClaimingId(id);
+    try {
+      const res = await fetch(`/api/cleaner/invoice/submissions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "PAID_CLAIMED" }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          title: "Could not send that",
+          description: body.error ?? "Please retry.",
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({
+        title: "Thanks — the office has been told",
+        description: "They'll confirm the payment against their records.",
+      });
+      await loadSubmissions();
+    } finally {
+      setClaimingId(null);
+    }
+  }
 
   useEffect(
     () => () => {
@@ -813,6 +865,42 @@ export function InvoicesPanel({
                 })
               )}
             />
+            {/*
+              Removing an adjustment takes it off THIS invoice only. It is never
+              stamped as settled, so it stays owed and lands on the next one —
+              which is why this is a removal and not a write-off.
+            */}
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-[hsl(var(--e-border))] pt-3">
+              {(invoicePreview?.extraLineRows ?? []).map((row) => (
+                <EButton
+                  key={`drop-${row.id}`}
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    setExcludedAdjustmentIds((prev) =>
+                      prev.includes(row.id) ? prev : [...prev, row.id]
+                    )
+                  }
+                >
+                  Remove · {row.description}
+                </EButton>
+              ))}
+            </div>
+          </ECardBody>
+        </ECard>
+      ) : null}
+
+      {excludedAdjustmentIds.length > 0 ? (
+        <ECard>
+          <ECardBody className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+              {excludedAdjustmentIds.length} adjustment
+              {excludedAdjustmentIds.length === 1 ? "" : "s"} removed from this invoice — still owed,
+              and will appear on your next one.
+            </p>
+            <EButton size="sm" variant="outline" onClick={() => setExcludedAdjustmentIds([])}>
+              Put them back
+            </EButton>
           </ECardBody>
         </ECard>
       ) : null}
@@ -864,9 +952,20 @@ export function InvoicesPanel({
           </ECardHeader>
           <ECardBody className="space-y-2 pt-0">
             {submissions.map((s) => {
-              const label = s.status === "PAID" ? "Paid" : s.status === "XERO_PUSHED" ? "Processing" : "Submitted";
+              const label =
+                s.status === "PAID"
+                  ? "Paid"
+                  : s.status === "PAID_CLAIMED"
+                    ? "Awaiting confirmation"
+                    : s.status === "XERO_PUSHED"
+                      ? "Processing"
+                      : "Submitted";
               const tone: "success" | "info" | "warning" =
                 s.status === "PAID" ? "success" : s.status === "XERO_PUSHED" ? "info" : "warning";
+              // Only the payee's own unconfirmed invoices can be claimed. PAID
+              // is already settled by the office, and a second claim on an
+              // existing one would just be noise in the approval queue.
+              const canClaimPaid = s.status === "SUBMITTED" || s.status === "XERO_PUSHED";
               return (
                 <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
                   <div className="min-w-0">
@@ -881,6 +980,16 @@ export function InvoicesPanel({
                   <div className="flex items-center gap-2">
                     <span className="e-numeral text-[0.9375rem]">{money(s.totalAmount)}</span>
                     <EBadge tone={tone} soft>{label}</EBadge>
+                    {canClaimPaid ? (
+                      <EButton
+                        size="sm"
+                        variant="ghost"
+                        disabled={claimingId === s.id}
+                        onClick={() => claimPaid(s.id)}
+                      >
+                        {claimingId === s.id ? "Sending…" : "I've been paid"}
+                      </EButton>
+                    ) : null}
                   </div>
                 </div>
               );

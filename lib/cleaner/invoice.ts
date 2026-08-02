@@ -80,6 +80,17 @@ interface InvoiceOptions {
   /** Shopping-run ids the cleaner removed from this invoice. */
   excludedRunIds?: string[];
   /**
+   * Approved pay-adjustment ids removed from THIS invoice. Like the job and run
+   * excludes these are transient: the row is never stamped, so it stays owed and
+   * lands on the next invoice instead of being silently written off.
+   *
+   * Applied AFTER the partition so it also subtracts from `perJobTotals` —
+   * excluding a job-linked adjustment has to remove its money from that job's
+   * line, not just from the carry-over list, or the total keeps money the
+   * payee explicitly took off the invoice.
+   */
+  excludedAdjustmentIds?: string[];
+  /**
    * When re-rendering an EXISTING CleanerInvoiceSubmission, pass its id so the
    * adjustments it already settled stay visible on it (mirrors includePaidRunId
    * for payroll runs). Without it, a previously-stamped adjustment is treated as
@@ -179,8 +190,21 @@ export interface CleanerInvoiceData {
     jobId: string | null;
     /** Free-text reason (the payee's note), when any. */
     reason: string | null;
+    /** SERVICE | PARKING | REIMBURSEMENT — what kind of money this is. */
+    category: string;
+    /** False for money the payee spent and is getting back (not income). */
+    taxable: boolean;
   }>;
   extraLineTotal: number;
+  /**
+   * The invoice split into money EARNED and money REFUNDED. A reimbursement is
+   * not income — printing a $12 parking ticket inside the services total says
+   * the payee earned it, which is wrong on the document a tax return is built
+   * from. No GST maths is applied either way; this is presentation of a real
+   * distinction, not a tax calculation (owner decision, 2026-08).
+   */
+  taxableTotal: number;
+  nonTaxableTotal: number;
   /**
    * COMPLETED QA inspections this invoice bills. A QA inspector holds no cleaner
    * assignments, so these never arrive via `rows` — they are their own settlement
@@ -386,6 +410,11 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       // ("Automatic — rework deduction" vs "Manual") — pay-transparency wave.
       source: true,
       sourceKey: true,
+      // Income vs money-back. A parking fee or a receipt reimbursement is the
+      // payee being put back where they started, not paid — so the invoice
+      // prints it under its own heading with its own total (2026-08).
+      category: true,
+      taxable: true,
     },
     orderBy: { requestedAt: "asc" },
   });
@@ -505,7 +534,18 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     .filter((row) => row.amount > 0);
   const qaInspectionTotal = sumQaPay(qaInspectionRows);
 
-  const adjustmentSplit = partitionAdjustmentsForInvoice(settleableAdjustments, {
+  // Removed adjustments are dropped BEFORE the partition rather than filtered
+  // out of its results. That single placement is what keeps three things in
+  // agreement: the carry-over lines, `perJobTotals` (so an excluded job-linked
+  // row also leaves that job's line), and `includedAdjustmentIds` — an excluded
+  // row must not be stamped as settled, or it would vanish from every future
+  // invoice while never having been paid.
+  const excludedAdjustmentSet = new Set(options.excludedAdjustmentIds ?? []);
+  const selectableAdjustments = excludedAdjustmentSet.size
+    ? settleableAdjustments.filter((row) => !excludedAdjustmentSet.has(row.id))
+    : settleableAdjustments;
+
+  const adjustmentSplit = partitionAdjustmentsForInvoice(selectableAdjustments, {
     jobIdsOnInvoice: jobIds,
     includeInvoiceId: options.includeInvoiceId ?? null,
     // A pay run recomputing itself must still see its own adjustments.
@@ -757,6 +797,10 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       originLabel: originInfo.label,
       jobId: adj.jobId ?? null,
       reason: adj.cleanerNote?.trim() || null,
+      category: adj.category ?? "SERVICE",
+      // Rows predating the split have taxable = true by column default, which
+      // is the honest answer for them: they were all recorded as work.
+      taxable: adj.taxable !== false,
     };
   });
   const extraLineTotal = extraLineRows.reduce((sum, row) => sum + row.amount, 0);
@@ -768,6 +812,14 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     expenseTotal +
     shoppingTimeTotal +
     qaInspectionTotal;
+  // Money back vs money earned. Shopping expense reimbursements are always the
+  // former — the payee bought supplies with their own money — so they join the
+  // non-taxable side alongside any adjustment flagged that way. Everything else
+  // on the invoice is work. The two always sum to estimatedPay.
+  const nonTaxableTotal =
+    expenseTotal + extraLineRows.filter((row) => !row.taxable).reduce((sum, row) => sum + row.amount, 0);
+  const taxableTotal = estimatedPay - nonTaxableTotal;
+
   const pendingAdjustmentAmount = pendingAdjustments.reduce(
     (sum, row) => sum + Number(row.requestedAmount ?? 0),
     0
@@ -800,6 +852,8 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     shoppingTimeTotal,
     extraLineRows,
     extraLineTotal,
+    taxableTotal,
+    nonTaxableTotal,
     qaInspectionRows,
     qaInspectionTotal,
     includedQaAssignmentIds: qaInspectionRows.map((row) => row.assignmentId),
@@ -863,7 +917,14 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
       `
     )
     .join("");
-  const extraLineRowsHtml = data.extraLineRows
+  // Earned vs refunded. Two tables, two subtotals, no GST maths — the split is
+  // presentational, but printing a reimbursement inside the services total
+  // states that the payee earned it, and they didn't.
+  const serviceExtraRows = data.extraLineRows.filter((row) => row.taxable !== false);
+  const reimbursementRows = data.extraLineRows.filter((row) => row.taxable === false);
+  const reimbursementTotal = reimbursementRows.reduce((sum, row) => sum + row.amount, 0);
+  const renderExtraRows = (rows: typeof data.extraLineRows) =>
+    rows
     .map(
       // The origin label ("Automatic — rework deduction" / "Manual") prints
       // under the description so the payee can see WHAT created each line.
@@ -881,7 +942,7 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
         </tr>
       `
     )
-    .join("");
+      .join("");
   // QA inspection lines. Basis text spells the hourly maths out (rate × hours)
   // so the figure is self-explaining — but hours are money-adjacent detail and
   // must obey showHours exactly like every other hours-bearing cell on this
@@ -1027,7 +1088,13 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
           <div class="brand">
             ${logoHtml}
             <div>
-              <h1 class="title">Tax Invoice</h1>
+              <!--
+                "Invoice", not "Tax Invoice". This document applies no GST and
+                now carries a non-taxable reimbursements section, so calling it
+                a tax invoice claimed something it does not do (owner decision,
+                2026-08).
+              -->
+              <h1 class="title">Invoice</h1>
               <p class="sub"><strong>From:</strong> ${escapeHtml(data.cleanerName)} (${escapeHtml(data.cleanerEmail)})</p>
               <p class="sub"><strong>Period:</strong> ${data.start.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })} to ${data.end.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })}</p>
             </div>
@@ -1053,6 +1120,16 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
             <div class="label">Estimated Pay</div>
             <div class="value">${formatCurrency(data.estimatedPay)}</div>
           </div>
+          ${
+            // Only worth splitting out when there IS something non-taxable —
+            // an invoice with no reimbursements shouldn't grow a $0.00 box.
+            Number(data.nonTaxableTotal ?? 0) !== 0
+              ? `<div class="box">
+            <div class="label">Earnings / Reimbursed</div>
+            <div class="value">${formatCurrency(Number(data.taxableTotal ?? 0))} / ${formatCurrency(Number(data.nonTaxableTotal ?? 0))}</div>
+          </div>`
+              : ""
+          }
           <div class="box">
             <div class="label">Shopping Reimbursements</div>
             <div class="value">${formatCurrency(data.expenseTotal)}</div>
@@ -1135,7 +1212,7 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
         }
 
         ${
-          data.extraLineRows.length > 0
+          serviceExtraRows.length > 0
             ? `
               <h2 style="margin-top:20px;font-size:16px;">Extra payments (not job-linked)</h2>
               <table>
@@ -1146,7 +1223,35 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
                     <th class="right">Amount</th>
                   </tr>
                 </thead>
-                <tbody>${extraLineRowsHtml}</tbody>
+                <tbody>${renderExtraRows(serviceExtraRows)}</tbody>
+              </table>
+            `
+            : ""
+        }
+
+        ${
+          // Money the payee spent and is getting back. Its own heading and its
+          // own subtotal so it is never read as earnings.
+          reimbursementRows.length > 0
+            ? `
+              <h2 style="margin-top:20px;font-size:16px;">Reimbursements (non-taxable)</h2>
+              <p class="rule">Money you spent out of pocket, paid back to you. Not income.</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th class="right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>${renderExtraRows(reimbursementRows)}</tbody>
+                <tfoot>
+                  <tr>
+                    <td class="cell"><strong>Reimbursements subtotal</strong></td>
+                    <td class="cell"></td>
+                    <td class="cell right"><strong>${formatCurrency(reimbursementTotal)}</strong></td>
+                  </tr>
+                </tfoot>
               </table>
             `
             : ""
