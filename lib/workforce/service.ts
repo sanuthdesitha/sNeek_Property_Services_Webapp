@@ -1382,6 +1382,7 @@ async function createOrUpdateHiredStaffAccount(input: {
     actionLabel: "Sign in and set your password",
   });
   const emailResult = await sendEmailDetailed({
+    kind: "workforce_update",
     to: user.email,
     subject: template.subject,
     html: template.html,
@@ -1778,6 +1779,7 @@ export async function createStaffDocumentRequest(input: {
 
   if (request.user.email) {
     await sendEmailDetailed({
+      kind: "workforce_update",
       to: request.user.email,
       subject: `Document requested - ${request.title}`,
       html: `<p>Hi ${request.user.name ?? "there"},</p><p>Please upload the following document in your team hub: <strong>${request.title}</strong>.</p>${request.notes ? `<p>${request.notes}</p>` : ""}`,
@@ -1864,6 +1866,7 @@ export async function runDocumentExpiryCheck(now = new Date()) {
 
     if (row.user.email) {
       await sendEmailDetailed({
+        kind: "workforce_update",
         to: row.user.email,
         subject,
         html: `<p>${body}</p>`,

@@ -119,6 +119,7 @@ export async function POST(req: NextRequest) {
           caseLink: link,
         });
         const emailResult = await sendEmailDetailed({
+          kind: "admin_alert",
           to: admin.email,
           subject: emailTemplate.subject,
           html: emailTemplate.html,

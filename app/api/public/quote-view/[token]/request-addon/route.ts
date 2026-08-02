@@ -92,6 +92,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       if (settings.accountsEmail) {
         const shortRef = String(quote.id).slice(-7).toUpperCase();
         await sendEmailDetailed({
+          kind: "lead_alert",
           to: settings.accountsEmail,
           subject: `Add-on request on quote ${shortRef} from ${recipient}`,
           html: `

@@ -331,6 +331,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
       const settings = await getAppSettings();
       await sendEmailDetailed({
+        kind: "pay_adjustment",
         to: updated.cleaner.email,
         subject: `${settings.companyName} - ${emailSubject}`,
         html: `

@@ -83,6 +83,7 @@ export async function POST(req: NextRequest) {
   let emailError: string | null = null;
   if (client.email) {
     const result = await sendEmailDetailed({
+      kind: "client_automation",
       to: client.email,
       subject: "Please review your recent clean",
       html: `<p>Hi ${client.name ?? "there"},</p><p>We'd love your feedback on your recent clean at <strong>${job.property?.name ?? "your property"}</strong>. Please take a moment to rate the job:</p><p><a href="${link}">${link}</a></p><p>This link expires in ${parsed.data.expiresInHours} hours.</p><p>— sNeek</p>`,

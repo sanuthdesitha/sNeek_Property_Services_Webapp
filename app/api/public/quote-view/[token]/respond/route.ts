@@ -97,6 +97,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
         const shortRef = String(quote.id).slice(-7).toUpperCase();
         const verdict = accepted ? "ACCEPTED" : "DECLINED";
         await sendEmailDetailed({
+          kind: "lead_alert",
           to: settings.accountsEmail,
           subject: `Quote ${shortRef} ${verdict.toLowerCase()} by ${recipient}`,
           html: `

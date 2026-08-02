@@ -436,6 +436,7 @@ export async function POST(req: NextRequest) {
 
     const emailResult = settings.accountsEmail
       ? await sendEmailDetailed({
+          kind: "pay_adjustment",
           to: settings.accountsEmail,
           subject: emailTemplate.subject,
           html: emailTemplate.html,
