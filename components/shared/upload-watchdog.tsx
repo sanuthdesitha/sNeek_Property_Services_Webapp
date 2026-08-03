@@ -37,9 +37,9 @@ type Report = {
   reason: string;
   navType?: string;
   uploadAgeMs?: number;
-  reloadStack?: string;
   path?: string;
   ua?: string;
+  extra?: Record<string, string | number | boolean>;
 };
 
 function report(payload: Report) {
@@ -60,13 +60,31 @@ function report(payload: Report) {
   }
 }
 
+/**
+ * Installed once per document, never uninstalled.
+ *
+ * The first version restored `window.fetch` and `location.reload` on unmount,
+ * which was wrong twice over. `GlobalRequestProgress` also wraps `window.fetch`,
+ * and two wrappers that each restore "the original" on cleanup clobber one
+ * another; and React runs effects mount -> cleanup -> mount in development, so
+ * the restore raced the install. Verified live on the dev server: `window.fetch`
+ * carried only GlobalRequestProgress's wrapper and `location.reload` was still
+ * native — i.e. the diagnostic was silently not watching anything.
+ *
+ * Module scope rather than a ref because the point is one installation per
+ * document, surviving every remount, for as long as the page lives. A
+ * diagnostic that can uninstall itself reports nothing and looks like proof
+ * that nothing happened.
+ */
+let installed = false;
+let inFlight = 0;
+let startedAt = 0;
+
 export function UploadWatchdog() {
   useEffect(() => {
     if (typeof window === "undefined") return;
-
-    let inFlight = 0;
-    let startedAt = 0;
-    let reloadStack: string | undefined;
+    if (installed) return;
+    installed = true;
 
     const markStart = () => {
       inFlight += 1;
@@ -124,39 +142,54 @@ export function UploadWatchdog() {
       }
 
       markStart();
+      const requestStartedAt = Date.now();
       return originalFetch
         .apply(this as never, args)
         .then((res) => {
           markEnd();
+          // The server logs `abortIncoming` / ECONNRESET for TWO different
+          // causes and they need opposite fixes: the browser destroying the
+          // page mid-POST (the detectors above), or something between the
+          // browser and the app cutting the connection — a reverse-proxy body
+          // limit being the classic one, since nginx's default
+          // `client_max_body_size` is 1MB and every phone photo is larger.
+          // In the second case the page survives, so nothing above fires and
+          // we would learn nothing. Report the response itself.
+          if (!res.ok) {
+            report({
+              reason: "upload-http-error",
+              uploadAgeMs: Date.now() - requestStartedAt,
+              extra: { status: res.status, statusText: String(res.statusText).slice(0, 100) },
+            });
+          }
           return res;
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           markEnd();
+          // A rejected fetch on a live page means the REQUEST died while the
+          // document lived — i.e. not a teardown. The message distinguishes a
+          // connection reset from an ordinary offline blip.
+          report({
+            reason: "upload-fetch-failed",
+            uploadAgeMs: Date.now() - requestStartedAt,
+            extra: { message: String((err as Error)?.message ?? err).slice(0, 200) },
+          });
           throw err;
         });
     } as typeof window.fetch;
 
-    // --- Name anything that calls reload ---
-    const originalReload = window.location.reload.bind(window.location);
-    try {
-      Object.defineProperty(window.location, "reload", {
-        configurable: true,
-        value: function patchedReload() {
-          reloadStack = new Error("reload called").stack?.slice(0, 2000);
-          if (inFlight > 0) {
-            report({
-              reason: "reload-during-upload",
-              uploadAgeMs: Date.now() - startedAt,
-              reloadStack,
-            });
-          }
-          return originalReload();
-        },
-      });
-    } catch {
-      // Some browsers refuse to redefine location.reload; the other detectors
-      // still work, we just lose the stack.
-    }
+    // There is deliberately NO `location.reload` wrapper here.
+    //
+    // The first version wrapped it to capture the caller's stack, which would
+    // have named the culprit outright. It cannot work: `reload` is an
+    // unforgeable property of `Location`, so it is non-configurable and
+    // `Object.defineProperty` throws `Cannot redefine property: reload` — which
+    // a `try/catch` then swallowed, leaving a detector that looked installed
+    // and reported nothing. Verified in the browser rather than assumed.
+    //
+    // The breadcrumb detector above already establishes the fact that matters —
+    // `navType === "reload"` says the document was reloaded mid-upload — so
+    // nothing is lost except the stack, which was never obtainable.
 
     // --- Detector 1: the page is going away ---
     const onPageHide = (event: PageTransitionEvent) => {
@@ -164,7 +197,6 @@ export function UploadWatchdog() {
       report({
         reason: event.persisted ? "bfcached-during-upload" : "pagehide-during-upload",
         uploadAgeMs: Date.now() - startedAt,
-        reloadStack,
       });
     };
     const onBeforeUnload = () => {
@@ -172,26 +204,16 @@ export function UploadWatchdog() {
       report({
         reason: "beforeunload-during-upload",
         uploadAgeMs: Date.now() - startedAt,
-        reloadStack,
       });
     };
 
     window.addEventListener("pagehide", onPageHide);
     window.addEventListener("beforeunload", onBeforeUnload);
 
-    return () => {
-      window.removeEventListener("pagehide", onPageHide);
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      window.fetch = originalFetch;
-      try {
-        Object.defineProperty(window.location, "reload", {
-          configurable: true,
-          value: originalReload,
-        });
-      } catch {
-        /* ignore */
-      }
-    };
+    // No cleanup on purpose. Everything installed above lives for the life of
+    // the document: the listeners must still be there when the page is being
+    // destroyed (that IS the event we are trying to catch), and unwrapping
+    // fetch/reload on unmount is what broke the first version.
   }, []);
 
   return null;
