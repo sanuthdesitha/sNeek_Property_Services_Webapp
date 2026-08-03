@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TextHistorySuggestions } from "@/components/shared/text-history-suggestions";
 import { GlobalRequestProgress } from "@/components/shared/global-request-progress";
 import { ReturnSync } from "@/components/shared/return-sync";
+import { UploadWatchdog } from "@/components/shared/upload-watchdog";
 import { LiveNotifications } from "@/components/shared/live-notifications";
 import { NativeDevicePushRegistration } from "@/components/shared/native-device-push-registration";
 import { WebPushSubscriber } from "@/components/notifications/web-push-subscriber";
@@ -67,6 +68,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <SessionProvider>
       <QueryClientProvider client={queryClient}>
         <ReturnSync onHardSync={() => setHardRefreshKey((current) => current + 1)} />
+        {/* TEMPORARY: reports what tears the page down mid-upload. Remove with
+            the bug — see components/shared/upload-watchdog.tsx. */}
+        <UploadWatchdog />
         <div key={hardRefreshKey}>{children}</div>
         <GlobalRequestProgress />
         <LiveNotifications />
