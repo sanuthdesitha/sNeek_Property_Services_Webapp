@@ -29,9 +29,18 @@ import { useEffect } from "react";
 
 const UPLOAD_URL_FRAGMENT = "/api/uploads/direct";
 const BREADCRUMB_KEY = "__sneek_upload_watchdog__";
+/** Set the moment a file input's picker returns with a file — see below. */
+const PICK_KEY = "__sneek_upload_pick__";
 const REPORT_URL = "/api/debug/upload-watchdog";
 /** Ignore stale breadcrumbs — only a recent upload is evidence of anything. */
 const BREADCRUMB_MAX_AGE_MS = 5 * 60_000;
+/**
+ * How long after a file pick a teardown is still blamed on the pick. The
+ * owner's symptom is "I press OK and the page refreshes" — seconds, not
+ * minutes — but decode + stamping of a huge photo can take a while on a slow
+ * phone, so the window is generous.
+ */
+const PICK_WINDOW_MS = 30_000;
 
 type Report = {
   reason: string;
@@ -79,6 +88,35 @@ function report(payload: Report) {
 let installed = false;
 let inFlight = 0;
 let startedAt = 0;
+/** When a file input last produced a file (the picker's OK), 0 = never. */
+let lastPickAt = 0;
+
+/** True while we are inside the window where a teardown is pick-related. */
+function withinPickWindow() {
+  return lastPickAt > 0 && Date.now() - lastPickAt <= PICK_WINDOW_MS;
+}
+
+/**
+ * Called by providers.tsx when the hard-sync path bumps `hardRefreshKey`.
+ *
+ * That bump REMOUNTS the entire app tree. To a person mid-upload it is
+ * indistinguishable from a page refresh — the form resets, the photo vanishes —
+ * yet the document never navigates, so pagehide, beforeunload and the
+ * navigation-type breadcrumb all stay silent. This is the one teardown shape
+ * the document-level detectors are structurally blind to, so the trigger
+ * reports itself.
+ */
+export function reportUploadWatchdogRemount() {
+  if (inFlight === 0 && !withinPickWindow()) return;
+  report({
+    reason: "app-remount-during-upload",
+    uploadAgeMs: inFlight > 0 ? Date.now() - startedAt : undefined,
+    extra: {
+      inFlight,
+      msSincePick: lastPickAt ? Date.now() - lastPickAt : -1,
+    },
+  });
+}
 
 export function UploadWatchdog() {
   useEffect(() => {
@@ -106,18 +144,37 @@ export function UploadWatchdog() {
       }
     };
 
-    // --- Detector 2, run first: did the PREVIOUS page die mid-upload? ---
+    // --- Detector 2, run first: did the PREVIOUS page die mid-upload,
+    // or right after a file pick that never became an upload? ---
     try {
+      const nav = performance.getEntriesByType("navigation")[0] as
+        | PerformanceNavigationTiming
+        | undefined;
+
       const crumb = sessionStorage.getItem(BREADCRUMB_KEY);
       if (crumb) {
         sessionStorage.removeItem(BREADCRUMB_KEY);
         const age = Date.now() - Number(crumb);
         if (Number.isFinite(age) && age >= 0 && age < BREADCRUMB_MAX_AGE_MS) {
-          const nav = performance.getEntriesByType("navigation")[0] as
-            | PerformanceNavigationTiming
-            | undefined;
           report({
             reason: "page-restarted-during-upload",
+            navType: nav?.type ?? "unknown",
+            uploadAgeMs: age,
+          });
+        }
+      }
+
+      // The owner's symptom is that the refresh happens as the picker closes —
+      // often BEFORE any POST begins (decode/stamping runs first, and a huge
+      // photo can OOM the tab right there). The upload crumb never gets set in
+      // that case, so the pick itself leaves one.
+      const pick = sessionStorage.getItem(PICK_KEY);
+      if (pick) {
+        sessionStorage.removeItem(PICK_KEY);
+        const age = Date.now() - Number(pick);
+        if (Number.isFinite(age) && age >= 0 && age < BREADCRUMB_MAX_AGE_MS && !crumb) {
+          report({
+            reason: "page-restarted-after-file-pick",
             navType: nav?.type ?? "unknown",
             uploadAgeMs: age,
           });
@@ -126,6 +183,22 @@ export function UploadWatchdog() {
     } catch {
       /* ignore */
     }
+
+    // --- The pick itself: a file input produced a file. Capture phase on
+    // `change` so it fires for every picker in the app, whether the input is
+    // visible, hidden behind a label, or clicked programmatically. ---
+    const onFilePicked = (event: Event) => {
+      const target = event.target as HTMLInputElement | null;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (target.type !== "file" || !target.files || target.files.length === 0) return;
+      lastPickAt = Date.now();
+      try {
+        sessionStorage.setItem(PICK_KEY, String(lastPickAt));
+      } catch {
+        /* private mode — the live detectors still work */
+      }
+    };
+    document.addEventListener("change", onFilePicked, true);
 
     // --- Watch uploads by wrapping fetch ---
     const originalFetch = window.fetch;
@@ -161,6 +234,14 @@ export function UploadWatchdog() {
               uploadAgeMs: Date.now() - requestStartedAt,
               extra: { status: res.status, statusText: String(res.statusText).slice(0, 100) },
             });
+          } else {
+            // The pick made it all the way through — nothing left to blame on it.
+            lastPickAt = 0;
+            try {
+              sessionStorage.removeItem(PICK_KEY);
+            } catch {
+              /* ignore */
+            }
           }
           return res;
         })
@@ -191,19 +272,27 @@ export function UploadWatchdog() {
     // `navType === "reload"` says the document was reloaded mid-upload — so
     // nothing is lost except the stack, which was never obtainable.
 
-    // --- Detector 1: the page is going away ---
+    // --- Detector 1: the page is going away. Armed while a POST is in flight
+    // OR shortly after a file pick — the second case is the owner's actual
+    // symptom, where the page dies during decode/stamping before any request
+    // exists. (A tab merely hiding for the picker does NOT fire pagehide, so
+    // the pick window cannot false-positive on opening the next picker.) ---
+    const teardownReason = (base: string) => {
+      if (inFlight > 0) return `${base}-during-upload`;
+      return `${base}-after-file-pick`;
+    };
     const onPageHide = (event: PageTransitionEvent) => {
-      if (inFlight === 0) return;
+      if (inFlight === 0 && !withinPickWindow()) return;
       report({
-        reason: event.persisted ? "bfcached-during-upload" : "pagehide-during-upload",
-        uploadAgeMs: Date.now() - startedAt,
+        reason: event.persisted ? "bfcached-during-upload" : teardownReason("pagehide"),
+        uploadAgeMs: inFlight > 0 ? Date.now() - startedAt : Date.now() - lastPickAt,
       });
     };
     const onBeforeUnload = () => {
-      if (inFlight === 0) return;
+      if (inFlight === 0 && !withinPickWindow()) return;
       report({
-        reason: "beforeunload-during-upload",
-        uploadAgeMs: Date.now() - startedAt,
+        reason: teardownReason("beforeunload"),
+        uploadAgeMs: inFlight > 0 ? Date.now() - startedAt : Date.now() - lastPickAt,
       });
     };
 
