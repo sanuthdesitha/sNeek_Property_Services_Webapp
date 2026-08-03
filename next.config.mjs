@@ -65,7 +65,26 @@ const withPWA = withPWAInit({
   customWorkerSrc: "worker",
   cacheOnFrontEndNav: true,
   aggressiveFrontEndNavCaching: true,
-  reloadOnOnline: true,
+  // NEVER reload the page when connectivity returns.
+  //
+  // This option injects `addEventListener("online", () => location.reload())`.
+  // A cleaner uploading a photo is performing the longest, heaviest network
+  // operation in the app, and a momentary blip — Wi-Fi roaming, mobile
+  // handover, a saturated uplink — fires `online` and hard-reloads the page
+  // mid-request. The browser aborts the POST, and the server records it as
+  // `Error: aborted … ECONNRESET` from abortIncoming: a body that started
+  // arriving and then stopped.
+  //
+  // That is what "I pick a photo, press OK, the page refreshes and nothing
+  // uploads" was. It looked account-specific because it tracks the person's
+  // NETWORK rather than their identity, and it never reproduced locally
+  // because the service worker is disabled in development (`disable` below).
+  //
+  // Reloading on reconnect is hostile here regardless of uploads: these
+  // portals are full of long forms, and discarding the page throws away work
+  // nobody asked us to throw away. Refreshing data after a genuine absence is
+  // handled deliberately in components/shared/return-sync.tsx instead.
+  reloadOnOnline: false,
   disable: process.env.NODE_ENV === "development",
   extendDefaultRuntimeCaching: true,
   workboxOptions: {
