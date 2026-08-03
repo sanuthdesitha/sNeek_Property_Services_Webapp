@@ -13,6 +13,12 @@ const MIN_SYNC_GAP_MS = 12_000;
  * minute later is still treated as a real absence.
  */
 const FILE_DIALOG_HIDE_WINDOW_MS = 3_000;
+/**
+ * How long after clicking a file input a bfcache restore still counts as the
+ * picker returning. Far wider than the hide window because the whole point is
+ * that the person spent real time browsing for a photo before coming back.
+ */
+const FILE_DIALOG_RESTORE_WINDOW_MS = 10 * 60_000;
 
 type SyncMode = "soft" | "hard";
 
@@ -114,9 +120,25 @@ export function ReturnSync({ onHardSync }: { onHardSync: () => void }) {
 
     function onPageShow(event: PageTransitionEvent) {
       // Browser back/forward cache restore can preserve stale UI state.
-      if (event.persisted) {
-        runSync("hard", true);
+      if (!event.persisted) return;
+
+      // ...but a file picker also puts the page in bfcache on some browsers,
+      // and restoring from THAT is not a stale page — it is someone who just
+      // chose a photo. This branch is the dangerous one: "hard" bumps
+      // providers.tsx's `hardRefreshKey`, which keys the <div> wrapping the
+      // entire app and therefore REMOUNTS the whole tree, unmounting whatever
+      // holds the in-flight upload. The request dies and the server logs
+      // `abortIncoming` / ECONNRESET.
+      //
+      // It also passed force=true, which skipped the guard the other handlers
+      // use — so excluding file dialogs from visibilitychange/focus alone left
+      // this path wide open.
+      const openedAt = fileDialogAtRef.current;
+      if (openedAt && Date.now() - openedAt <= FILE_DIALOG_RESTORE_WINDOW_MS) {
+        fileDialogAtRef.current = 0;
+        return;
       }
+      runSync("hard", true);
     }
 
     // Capture phase: a click on a <label> wrapping a hidden input reaches the
