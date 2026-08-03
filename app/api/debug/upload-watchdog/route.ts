@@ -48,7 +48,11 @@ export async function POST(req: NextRequest) {
 
     // warn, not error: expected noise while the bug is open, and it should
     // stand out in the log without paging anyone.
-    logger.warn({ uploadWatchdog: parsed.data }, "[upload-watchdog] page torn down during upload");
+    // `reason` says which of the two ECONNRESET causes this was: a *-during-upload
+    // reason means the browser destroyed the page; upload-fetch-failed /
+    // upload-http-error mean the page lived and the request died on the wire
+    // (proxy body limit, offline blip) — a server-side fix, not a client one.
+    logger.warn({ uploadWatchdog: parsed.data }, "[upload-watchdog] upload interrupted");
   } catch {
     // A diagnostic must never become a second fault.
   }
