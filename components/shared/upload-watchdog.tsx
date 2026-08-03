@@ -31,6 +31,16 @@ const UPLOAD_URL_FRAGMENT = "/api/uploads/direct";
 const BREADCRUMB_KEY = "__sneek_upload_watchdog__";
 /** Set the moment a file input's picker returns with a file — see below. */
 const PICK_KEY = "__sneek_upload_pick__";
+/**
+ * Set the moment a file input is CLICKED (picker opening). The one teardown the
+ * pick crumb cannot see is the tab being discarded WHILE the picker/camera is
+ * open — Android does this to heavy tabs under memory pressure, and the cleaner
+ * job workspace is the heaviest page in the app. In that case the change event
+ * never fires on the old document, so only an opened-and-never-returned crumb
+ * can witness it. Cleared when the pick lands. A cancelled picker leaves it
+ * behind, so the next-load check requires freshness before reporting.
+ */
+const PICKER_OPEN_KEY = "__sneek_picker_open__";
 const REPORT_URL = "/api/debug/upload-watchdog";
 /** Ignore stale breadcrumbs — only a recent upload is evidence of anything. */
 const BREADCRUMB_MAX_AGE_MS = 5 * 60_000;
@@ -180,6 +190,22 @@ export function UploadWatchdog() {
           });
         }
       }
+
+      // Opened-and-never-returned: the tab died while the picker/camera was up.
+      // This is the Android memory-kill signature — the change event never had
+      // a document to fire on, so neither crumb above exists.
+      const pickerOpen = sessionStorage.getItem(PICKER_OPEN_KEY);
+      if (pickerOpen) {
+        sessionStorage.removeItem(PICKER_OPEN_KEY);
+        const age = Date.now() - Number(pickerOpen);
+        if (Number.isFinite(age) && age >= 0 && age < BREADCRUMB_MAX_AGE_MS && !crumb && !pick) {
+          report({
+            reason: "page-restarted-while-picker-open",
+            navType: nav?.type ?? "unknown",
+            uploadAgeMs: age,
+          });
+        }
+      }
     } catch {
       /* ignore */
     }
@@ -194,11 +220,24 @@ export function UploadWatchdog() {
       lastPickAt = Date.now();
       try {
         sessionStorage.setItem(PICK_KEY, String(lastPickAt));
+        // The picker returned — the opened-crumb served its purpose.
+        sessionStorage.removeItem(PICKER_OPEN_KEY);
       } catch {
         /* private mode — the live detectors still work */
       }
     };
     document.addEventListener("change", onFilePicked, true);
+
+    const onFileInputClick = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      if (!(target instanceof HTMLInputElement) || target.type !== "file" || target.disabled) return;
+      try {
+        sessionStorage.setItem(PICKER_OPEN_KEY, String(Date.now()));
+      } catch {
+        /* ignore */
+      }
+    };
+    document.addEventListener("click", onFileInputClick, true);
 
     // --- Watch uploads by wrapping fetch ---
     const originalFetch = window.fetch;
