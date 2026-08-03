@@ -398,6 +398,50 @@ function roundRectPath(
 }
 
 /**
+ * Downscale + re-encode an image WITHOUT stamping, using the same memory-safe
+ * scaled decode as `stampImage`.
+ *
+ * This exists because the gallery-pick path used to go through
+ * `browser-image-compression`, which decodes the photo at FULL resolution
+ * before shrinking it — a 48–108MP phone photo is 190–430MB of RGBA the moment
+ * the picker returns, and Android answers that by killing the tab, which the
+ * cleaner experiences as "I picked a photo, the page flashed, nothing
+ * uploaded". Only evidence flows compress client-side, which is why the laundry
+ * portal (no image processing) uploads fine on the same phone. Camera shots
+ * were already safe via `stampImage`'s `decodeScaled`; this gives gallery picks
+ * the same ceiling: peak memory is the ~2400px working bitmap (~23MB), never
+ * the original.
+ *
+ * Throws on failure so the caller can choose its fallback.
+ */
+export async function downscaleImage(
+  file: File,
+  opts: { maxDimension?: number; targetBytes?: number } = {}
+): Promise<File> {
+  if (typeof document === "undefined") return file;
+  const maxDimension = opts.maxDimension ?? 2400;
+  const targetBytes = opts.targetBytes ?? DEFAULT_TARGET_BYTES;
+
+  const decoded = await decodeScaled(file, maxDimension);
+  try {
+    const { width, height } = scaledDimensions(decoded.width, decoded.height, maxDimension);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("no-2d-context");
+    ctx.drawImage(decoded.source, 0, 0, width, height);
+    decoded.release();
+    const encoded = await encodeAdaptiveJpeg(canvas, file.name, targetBytes);
+    if (!encoded) throw new Error("encode-failed");
+    return encoded;
+  } catch (err) {
+    decoded.release();
+    throw err;
+  }
+}
+
+/**
  * Burn the evidence overlay onto a copy of `file` and return a new JPEG File.
  * Returns the original file untouched only when the browser lacks canvas
  * support (SSR / very old browsers). Any rendering error throws so callers can

@@ -1,5 +1,5 @@
 import imageCompression from "browser-image-compression";
-import { isStampableImage, stampImage, type StampOptions } from "./stamp";
+import { downscaleImage, isStampableImage, stampImage, type StampOptions } from "./stamp";
 
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic"]);
 const MAX_SIZE_MB = 0.8;
@@ -21,6 +21,30 @@ export async function compressImage(file: File): Promise<CompressResult> {
   // Skip files already smaller than target
   if (file.size <= MAX_SIZE_MB * 1024 * 1024) {
     return { blob: file, originalSize: file.size, finalSize: file.size, durationMs: 0, skipped: true };
+  }
+  // ROOT CAUSE of "picking a photo flashes/reloads the page on phones":
+  // `browser-image-compression` decodes the image at FULL resolution before
+  // shrinking it — a 48–108MP phone photo is 190–430MB of RGBA the moment the
+  // picker returns, and Android kills the tab for it. `downscaleImage` decodes
+  // AT the target size (createImageBitmap resize), capping peak memory at the
+  // ~2400px working bitmap regardless of the source. The library remains only
+  // as a fallback for files the scaled decoder refuses (some HEIC paths) —
+  // those rarely decode in-canvas at all, so the fallback risk is unchanged.
+  try {
+    const shrunk = await downscaleImage(file, {
+      maxDimension: MAX_WIDTH_OR_HEIGHT,
+      targetBytes: MAX_SIZE_MB * 1024 * 1024,
+    });
+    const end = typeof performance !== "undefined" ? performance.now() : Date.now();
+    return {
+      blob: shrunk,
+      originalSize: file.size,
+      finalSize: shrunk.size,
+      durationMs: end - start,
+      skipped: false,
+    };
+  } catch {
+    // Fall through to the legacy full-decode path below.
   }
   const compressed = await imageCompression(file, {
     maxSizeMB: MAX_SIZE_MB,
