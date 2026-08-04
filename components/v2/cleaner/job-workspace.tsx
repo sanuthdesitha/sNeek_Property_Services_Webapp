@@ -307,6 +307,8 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     `v2-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`
   );
   const draftHydratedRef = React.useRef(false);
+  /** True after the first successful load — later refreshes must not blank the UI. */
+  const hasLoadedOnceRef = React.useRef(false);
   const draftTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [draftInfo, setDraftInfo] = React.useState<{ updatedAt: string | null; updatedByName: string | null }>({
     updatedAt: null,
@@ -379,7 +381,14 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   }, []);
 
   const load = React.useCallback(async () => {
-    setLoading(true);
+    // Only the FIRST load may blank the screen. This function is also the
+    // visibility/focus/interval refresher below, and on a phone the file
+    // picker always hides the tab — so returning with a photo used to flip
+    // the workspace to the loading skeleton, which unmounted the file input
+    // BEFORE the browser delivered the change event to it. The cleaner saw a
+    // quick flash and their photo silently never uploaded. Refreshes now
+    // update in place; the form stays mounted and the pick lands.
+    if (!hasLoadedOnceRef.current) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`/api/jobs/${jobId}/form`, { cache: "no-store" });
@@ -442,6 +451,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     } catch (e: any) {
       setError(e?.message || "Could not load job");
     } finally {
+      hasLoadedOnceRef.current = true;
       setLoading(false);
     }
   }, [jobId, restoreDraftState]);
