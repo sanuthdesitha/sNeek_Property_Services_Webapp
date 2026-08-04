@@ -120,6 +120,18 @@ export default withAuth(
       return applySecurityHeaders(NextResponse.redirect(new URL(homeForLook(role), req.url)));
     }
 
+    // Signing IN is an entry point too, so it follows the current look: on v2
+    // the Estate login is the front door and nobody should meet the classic one
+    // on the way in. A personal v1 override still lands on the v1 page, which is
+    // what keeps "switch back to classic" honest. No loop is possible — the
+    // /v2/login branch below renders rather than redirecting when signed out.
+    if (pathname === "/login" && !token && look === "v2") {
+      const login = new URL("/v2/login", req.url);
+      const callbackUrl = req.nextUrl.searchParams.get("callbackUrl");
+      if (callbackUrl) login.searchParams.set("callbackUrl", callbackUrl);
+      return applySecurityHeaders(NextResponse.redirect(login));
+    }
+
     // A portal ROOT opened in the other version follows the current look. Only
     // roots are rewritten — deep links stay exactly where they point, so a
     // bookmark or an emailed link never breaks because of a global switch, and

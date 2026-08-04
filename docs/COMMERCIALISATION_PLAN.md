@@ -144,10 +144,12 @@ the QA + laundry moat lives and should be the default; Scale monetises the brand
 CMS/template machinery that already exists. Annual = 2 months free.
 
 ### 4.2 Launch mechanics
-- Marketing site: reposition the existing public CMS pages from "hire sNeek to
-  clean" to a product site under a product brand (decision needed: sell under
-  "sNeek" or a neutral SaaS name — a neutral name avoids "you're my competitor"
-  friction when selling to other Sydney cleaning companies).
+- Marketing site: **DECIDED (owner, 2026-08-05): the product is a separate brand
+  on a separate domain.** sneekholdings.com and its CMS pages stay exclusively the
+  sNeek cleaning business. The SaaS gets its own neutral name + domain with its own
+  marketing site; the app itself can be served on the product domain while sNeek's
+  operating tenant keeps its own entry point. Product-name shortlist is an open
+  owner task.
 - Comparison landing pages: "vs Turno", "vs Jobber", "vs spreadsheets" (SEO;
   competitors' names are the highest-intent queries in this market).
 - Case study from the best pilot, with real numbers (hours saved, rework rate drop).

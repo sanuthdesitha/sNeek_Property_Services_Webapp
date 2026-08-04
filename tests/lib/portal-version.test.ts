@@ -102,9 +102,10 @@ describe("effectivePortalVersion", () => {
     expect(effectivePortalVersion("v1", null)).toBe("v1");
   });
 
-  it("falls back to the classic app when nothing is known", () => {
-    // e.g. the settings lookup failed — routing must not start guessing.
-    expect(effectivePortalVersion(undefined, null)).toBe("v1");
+  it("falls back to Estate when nothing is known", () => {
+    // e.g. a fresh install, or the settings lookup failed. Since the 2026-08
+    // cutover the unknown case lands in v2 — v1 requires an explicit choice.
+    expect(effectivePortalVersion(undefined, null)).toBe("v2");
   });
 });
 

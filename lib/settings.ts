@@ -367,8 +367,10 @@ export interface AppSettings {
    * Which look everyone lands in: "v1" = the classic app, "v2" = the Estate
    * redesign. Both remain fully routable — this only decides where the entry
    * points (login, `/`, a portal root) send people, so a deep link into either
-   * version keeps working and nobody can be stranded. Defaults to "v1" so
-   * existing installs are unaffected until an admin flips it.
+   * version keeps working and nobody can be stranded. Defaults to "v2" (Estate)
+   * since the 2026-08 cutover: v2 is the product every role is built for, and
+   * v1 is legacy kept routable for deep links and for anyone who deliberately
+   * switches back. An install that explicitly stored "v1" still gets v1.
    */
   defaultPortalVersion: "v1" | "v2";
   projectName: string;
@@ -667,7 +669,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   companyName: "sNeek Property Services",
   companyPhone: "",
   cleanerClientContact: true,
-  defaultPortalVersion: "v1",
+  defaultPortalVersion: "v2",
   projectName: "sneek-ops-dashboard",
   logoUrl: "",
   logoDarkBgUrl: "",

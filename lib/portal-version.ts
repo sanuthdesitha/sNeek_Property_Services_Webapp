@@ -67,12 +67,16 @@ export function versionOfPath(pathname: string): PortalVersion {
  * The version to actually use: a personal override always beats the house
  * default, so an admin can work in one look while the team is on the other,
  * and so anyone who deliberately switched is not yanked back on next login.
+ *
+ * The final fallback is "v2" as of the 2026-08 cutover: when nothing is stored
+ * anywhere — a fresh install, or a settings read that failed — Estate is what a
+ * person should land in. v1 is reached only by explicitly asking for it.
  */
 export function effectivePortalVersion(
   houseDefault: PortalVersion | undefined,
   override: PortalVersion | null,
 ): PortalVersion {
-  return override ?? houseDefault ?? "v1";
+  return override ?? houseDefault ?? "v2";
 }
 
 function normalize(pathname: string): string {
