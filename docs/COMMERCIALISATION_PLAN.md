@@ -17,6 +17,34 @@ spreadsheet.
 
 ---
 
+## Codebase split (decided 2026-08-05)
+
+Two working copies, both on v2/Estate, sharing full git history:
+
+| | Business | Product |
+|---|---|---|
+| Path | `E:\sNeek Property Service\Website` (this tree) | `E:\sNeek Property Service\Platform` |
+| Serves | sNeek's own cleaning operation, `www.sneekholdings.com` | the multi-tenant SaaS, separate brand + domain |
+| Remote | GitHub `sNeek_Property_Services_Webapp` | its own repo (to be created) |
+
+The product tree was created by `git clone` (not a file copy) so it carries full
+history and **no `.env`** — the business's production secrets never entered it. Its
+`origin` was removed and an `upstream` remote points here **fetch-only**, so product
+code cannot be pushed into the business repo by accident.
+
+Sync is deliberately one-way: bug fixes and shared-engine improvements (QA, forms,
+uploads, finance) are cherry-picked business → product; business content (sNeek
+marketing pages, rate card, branding) and product-only work (onboarding wizard,
+tenant module flags, PMS adapters, billing UI) never cross. Drift is the cost of a
+fork — cherry-pick upstream at least fortnightly, and fix shared bugs in the
+business tree first so both benefit. Details in `Platform/PRODUCT.md`.
+
+**Consequence for the phases below:** Phase 0.1 is done in both trees. Everything
+from Phase 0.2 onward is product work and belongs in `Platform` — the business tree
+only receives shared fixes and keeps running sNeek.
+
+---
+
 ## Phase 0 — Foundation hardening (2–3 weeks)
 
 Make the platform presentable and safe to put strangers on. No revenue yet; this is
