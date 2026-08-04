@@ -21,13 +21,15 @@ export async function getDefaultPortalVersion(): Promise<PortalVersion> {
   if (cached && now - cached.at < CACHE_TTL_MS) return cached.value;
   try {
     const settings = await getAppSettings();
-    const value: PortalVersion = settings.defaultPortalVersion === "v2" ? "v2" : "v1";
+    // Only an explicit "v1" opts out of Estate — see the 2026-08 cutover note in
+    // portal-version.ts. Anything else, including a missing value, is v2.
+    const value: PortalVersion = settings.defaultPortalVersion === "v1" ? "v1" : "v2";
     cached = { value, at: now };
     return value;
   } catch {
     // Never let a settings read failure decide routing — fall back to whatever
-    // we last knew, else the classic app.
-    return cached?.value ?? "v1";
+    // we last knew, else Estate.
+    return cached?.value ?? "v2";
   }
 }
 
