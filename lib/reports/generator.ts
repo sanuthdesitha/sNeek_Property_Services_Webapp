@@ -681,6 +681,11 @@ function buildReportHtml({ job, submission, qa, qaSubmission, localDate, setting
       resolveKeyUrl: (key: string) => publicUrl(key),
       includeQa: showQaSummary,
     });
+    // The Estate cover band is dark (primary gradient), so the white-letter
+    // logo (settings.logoDarkBgUrl) is the right mark there. A theme's own
+    // logo still wins; the standard logos remain the fallback.
+    const estateLogoUrl =
+      themedLogo || settings?.logoDarkBgUrl?.trim() || logoUrl;
     return renderEstateReport(vm, {
       headTags: `<meta charset="UTF-8"/>
 <!-- report-template:${REPORT_TEMPLATE_VERSION} -->
@@ -689,7 +694,7 @@ function buildReportHtml({ job, submission, qa, qaSubmission, localDate, setting
       primaryHsl,
       accentHsl,
       companyName,
-      logoUrl,
+      logoUrl: estateLogoUrl,
       renderedTitle,
       photoDims,
       showHeader,

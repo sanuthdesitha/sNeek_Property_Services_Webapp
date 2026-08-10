@@ -309,6 +309,31 @@ describe("buildReportViewModel", () => {
     expect(timing.value).toBe("—");
   });
 
+  it("maps the GPS attendance record (coords, map links, accuracy, distance, adjusted flag)", () => {
+    const vm = build({
+      gpsCheckInLat: -33.86881,
+      gpsCheckInLng: 151.2093,
+      gpsCheckInAccuracyM: 12.4,
+      gpsCheckOutLat: -33.8689,
+      gpsCheckOutLng: 151.2094,
+      gpsDistanceMeters: 34,
+      gpsCheckInAdjusted: true,
+    });
+    expect(vm.gps).not.toBeNull();
+    expect(vm.gps?.checkIn?.coords).toBe("-33.86881, 151.20930");
+    expect(vm.gps?.checkIn?.mapUrl).toBe("https://www.google.com/maps?q=-33.86881,151.2093");
+    expect(vm.gps?.checkIn?.accuracyLabel).toBe("±12 m");
+    expect(vm.gps?.checkIn?.timeLabel).toBe("12 Jul 2026, 9:05 am");
+    expect(vm.gps?.checkOut?.coords).toBe("-33.86890, 151.20940");
+    expect(vm.gps?.distanceLabel).toBe("34 m");
+    expect(vm.gps?.adjusted).toBe(true);
+  });
+
+  it("omits the GPS record entirely when no coordinates were captured", () => {
+    const vm = build();
+    expect(vm.gps).toBeNull();
+  });
+
   it("counts checklist completion and issues in the stat tiles", () => {
     const vm = build();
     const checklist = vm.stats.find((s) => s.label === "Checklist completed")!;
@@ -405,6 +430,34 @@ describe("renderEstateReport", () => {
     });
     const html = renderEstateReport(vm, ctx);
     expect(html).toContain("Clock-out:</strong> not clocked out");
+  });
+
+  it("renders photos uncropped inside links that open each image separately", () => {
+    const html = renderEstateReport(build(), ctx);
+    // Every photo is wrapped in its own anchor, like videos.
+    expect(html).toContain(
+      '<a href="https://cdn/x1.jpg" target="_blank" rel="noreferrer"><img src="https://cdn/x1.jpg"'
+    );
+    // No fixed-height crop in the photo CSS.
+    expect(html).toContain(".est-photo img { width: 100%; height: auto;");
+    expect(html).not.toContain("object-fit: cover; border-radius: 12px");
+  });
+
+  it("renders the GPS attendance card with map links", () => {
+    const vm = build({
+      gpsCheckInLat: -33.86881,
+      gpsCheckInLng: 151.2093,
+      gpsCheckOutLat: -33.8689,
+      gpsCheckOutLng: 151.2094,
+      gpsDistanceMeters: 34,
+    });
+    const html = renderEstateReport(vm, ctx);
+    expect(html).toContain("<h2>GPS attendance</h2>");
+    expect(html).toContain("https://www.google.com/maps?q=-33.86881,151.2093");
+    expect(html).toContain("-33.86881, 151.20930");
+    expect(html).toContain("Distance from property at check-in");
+    // No GPS captured → no card.
+    expect(renderEstateReport(build(), ctx)).not.toContain("GPS attendance");
   });
 
   it("omits theme-hidden sections (supplies, gallery, QA)", () => {

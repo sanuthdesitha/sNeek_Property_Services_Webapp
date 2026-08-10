@@ -49,8 +49,10 @@ function mediaGridHtml(media: ReportMediaVM[], klass = ""): string {
           m.timestamp ? ` · ${esc(m.timestamp)}` : ""
         }</a>`;
       }
+      // Uncropped and clickable: the full frame renders (no aspect-ratio crop)
+      // and every photo opens on its own in a new tab, same as videos.
       return `<figure class="est-photo">
-  <img src="${esc(m.url)}" alt="${esc(m.caption)}" />
+  <a href="${esc(m.url)}" target="_blank" rel="noreferrer"><img src="${esc(m.url)}" alt="${esc(m.caption)}" /></a>
   <figcaption>${esc(m.caption)}${m.timestamp ? `<span>${esc(m.timestamp)}</span>` : ""}</figcaption>
 </figure>`;
     })
@@ -154,6 +156,34 @@ function tasksHtml(title: string, tasks: ReportTaskVM[]): string {
 </section>`;
 }
 
+function gpsHtml(vm: ReportViewModel): string {
+  const gps = vm.gps;
+  if (!gps) return "";
+  const row = (label: string, value: string) => `<div class="est-row">
+  <div class="est-row-label">${label}</div>
+  <div class="est-row-value">${value}</div>
+</div>`;
+
+  const point = (
+    p: { timeLabel: string | null; coords: string; mapUrl: string; accuracyLabel?: string | null } | null,
+    fallback: string
+  ) =>
+    p
+      ? `${p.timeLabel ? `${esc(p.timeLabel)} · ` : ""}<a class="est-map-link" href="${esc(p.mapUrl)}" target="_blank" rel="noreferrer">${esc(p.coords)}</a>${
+          p.accuracyLabel ? ` <span class="est-muted">(${esc(p.accuracyLabel)})</span>` : ""
+        }`
+      : `<span class="est-muted">${fallback}</span>`;
+
+  return `<section class="est-card">
+  <header class="est-card-head"><h2>GPS attendance</h2>${
+    gps.adjusted ? `<span class="est-pill neutral">Amended by admin</span>` : ""
+  }</header>
+  ${row("GPS check-in", point(gps.checkIn, "not recorded"))}
+  ${row("GPS check-out", point(gps.checkOut, "not recorded"))}
+  ${gps.distanceLabel ? row("Distance from property at check-in", esc(gps.distanceLabel)) : ""}
+</section>`;
+}
+
 function qaHtml(vm: ReportViewModel): string {
   const qa = vm.qa;
   if (!qa) return "";
@@ -178,7 +208,7 @@ function qaHtml(vm: ReportViewModel): string {
 <div class="est-media-grid">${qa.photoUrls
         .map(
           (url) =>
-            `<figure class="est-photo"><img src="${esc(url)}" alt="QA inspection photo" /><figcaption>Quality inspection</figcaption></figure>`
+            `<figure class="est-photo"><a href="${esc(url)}" target="_blank" rel="noreferrer"><img src="${esc(url)}" alt="QA inspection photo" /></a><figcaption>Quality inspection</figcaption></figure>`
         )
         .join("")}</div>`
     : "";
@@ -204,7 +234,7 @@ function extrasHtml(vm: ReportViewModel, showSupplies: boolean): string {
             ? `<div class="est-media-grid">${a.photoUrls
                 .map(
                   (url) =>
-                    `<figure class="est-photo"><img src="${esc(url)}" alt="${esc(a.label)}" /><figcaption>${esc(a.label)} — flagged</figcaption></figure>`
+                    `<figure class="est-photo"><a href="${esc(url)}" target="_blank" rel="noreferrer"><img src="${esc(url)}" alt="${esc(a.label)}" /></a><figcaption>${esc(a.label)} — flagged</figcaption></figure>`
                 )
                 .join("")}</div>`
             : ""
@@ -363,7 +393,7 @@ ${c.headTags}
   /* Cover */
   .est-cover { padding: 34px 36px 28px; background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 94%, #000) 0%, var(--primary) 60%); color: #fff; border-radius: 0 0 18px 18px; }
   .est-cover-brand { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
-  .est-cover-brand img { max-height: 44px; max-width: 170px; object-fit: contain; }
+  .est-cover-brand img { max-height: 76px; max-width: 300px; object-fit: contain; }
   .est-cover-company { font-weight: 700; letter-spacing: 0.06em; }
   .est-cover-eyebrow { font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; opacity: 0.85; }
   .est-cover h1 { margin: 0; font-size: 32px; line-height: 1.1; letter-spacing: -0.01em; }
@@ -425,10 +455,14 @@ ${c.headTags}
   /* Media */
   .est-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(${c.photoDims.w}px, 1fr)); gap: 12px; margin: 10px 0 6px; }
   .est-photo { margin: 0; break-inside: avoid; }
-  .est-photo img { width: 100%; height: ${c.photoDims.h}px; object-fit: cover; border-radius: 12px; border: 1px solid var(--line); display: block; }
+  /* Uncropped: photos render at their natural aspect ratio (no object-fit
+     crop) — nothing the cleaner captured is hidden by the layout. */
+  .est-photo img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); display: block; }
+  .est-photo a { display: block; }
   .est-photo figcaption { font-size: 10px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
   .est-photo figcaption span { display: block; }
   .est-video { display: inline-block; padding: 8px 12px; background: var(--bg-soft); border-radius: 10px; font-size: 11px; color: var(--primary); text-decoration: none; break-inside: avoid; }
+  .est-map-link { color: var(--primary); text-decoration: none; }
 
   /* Tasks */
   .est-task { padding: 10px 0; border-bottom: 1px solid var(--bg-soft); break-inside: avoid; }
@@ -456,6 +490,7 @@ ${c.headTags}
 <body>
 ${header}
 ${summary}
+${gpsHtml(vm)}
 ${checklist}
 ${c.showQaSummary ? qaHtml(vm) : ""}
 ${extrasHtml(vm, c.showSupplies)}
