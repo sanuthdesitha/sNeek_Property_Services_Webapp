@@ -525,6 +525,12 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
     include: {
       property: { include: { client: true } },
       assignments: { include: { user: { select: { name: true } } } },
+      // Clock truth for the report: the cleaner's actual clock-in/out segments.
+      // The report must never present the form-submission time as a clock-out.
+      timeLogs: {
+        include: { user: { select: { name: true } } },
+        orderBy: { startedAt: "asc" },
+      },
       formSubmissions: {
         include: {
           template: true,

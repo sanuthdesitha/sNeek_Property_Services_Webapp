@@ -242,6 +242,73 @@ describe("buildReportViewModel", () => {
     expect(vm.flags.some((f) => f.label === "Rework visit")).toBe(true);
   });
 
+  it("derives clock-in/out from TimeLogs (earliest start, latest stop, summed duration)", () => {
+    const vm = build({
+      timeLogs: [
+        {
+          startedAt: new Date("2026-07-11T23:05:00.000Z"), // 9:05 am Sydney
+          stoppedAt: new Date("2026-07-12T00:05:00.000Z"), // 10:05 am
+          durationM: 60,
+        },
+        {
+          startedAt: new Date("2026-07-12T00:35:00.000Z"), // 10:35 am
+          stoppedAt: new Date("2026-07-12T01:35:00.000Z"), // 11:35 am
+          durationM: 60,
+        },
+      ],
+    });
+    expect(vm.clockInLabel).toBe("12 Jul 2026, 9:05 am");
+    expect(vm.clockOutLabel).toBe("12 Jul 2026, 11:35 am");
+    expect(vm.clockOutMissing).toBe(false);
+    expect(vm.clockDurationLabel).toBe("2h");
+
+    const timing = vm.stats.find((s) => s.label === "Timing")!;
+    expect(timing.value).toBe("9:05 am – 11:35 am");
+    expect(timing.sub).toBe("2h");
+  });
+
+  it("reports a missing clock-out honestly and never substitutes the submission time", () => {
+    const vm = build({
+      timeLogs: [
+        { startedAt: new Date("2026-07-11T23:05:00.000Z"), stoppedAt: null, durationM: null },
+      ],
+    });
+    expect(vm.clockInLabel).toBe("12 Jul 2026, 9:05 am");
+    expect(vm.clockOutLabel).toBeNull();
+    expect(vm.clockOutMissing).toBe(true);
+    expect(vm.clockDurationLabel).toBeNull();
+    // Submission time stays on its own labelled field, not as a clock-out.
+    expect(vm.submittedAtLabel).toBe("12 Jul 2026, 12:00 pm");
+
+    const timing = vm.stats.find((s) => s.label === "Timing")!;
+    expect(timing.value).toBe("9:05 am");
+    expect(timing.sub).toBe("clock-out not recorded");
+  });
+
+  it("treats a job with an open segment among stopped ones as not clocked out", () => {
+    const vm = build({
+      timeLogs: [
+        {
+          startedAt: new Date("2026-07-11T23:05:00.000Z"),
+          stoppedAt: new Date("2026-07-12T00:05:00.000Z"),
+          durationM: 60,
+        },
+        { startedAt: new Date("2026-07-12T00:35:00.000Z"), stoppedAt: null, durationM: null },
+      ],
+    });
+    expect(vm.clockOutLabel).toBeNull();
+    expect(vm.clockOutMissing).toBe(true);
+  });
+
+  it("shows no clock data when the job has no TimeLogs at all", () => {
+    const vm = build({ timeLogs: [], gpsCheckInAt: null, gpsCheckOutAt: null });
+    expect(vm.clockInLabel).toBeNull();
+    expect(vm.clockOutLabel).toBeNull();
+    expect(vm.clockOutMissing).toBe(false);
+    const timing = vm.stats.find((s) => s.label === "Timing")!;
+    expect(timing.value).toBe("—");
+  });
+
   it("counts checklist completion and issues in the stat tiles", () => {
     const vm = build();
     const checklist = vm.stats.find((s) => s.label === "Checklist completed")!;
@@ -311,6 +378,33 @@ describe("renderEstateReport", () => {
     const html = renderEstateReport(vm, ctx);
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("renders the clock-truth line and keeps the submission time separately labelled", () => {
+    const vm = build({
+      timeLogs: [
+        {
+          startedAt: new Date("2026-07-11T23:05:00.000Z"),
+          stoppedAt: new Date("2026-07-12T01:35:00.000Z"),
+          durationM: 150,
+        },
+      ],
+    });
+    const html = renderEstateReport(vm, ctx);
+    expect(html).toContain("Clock-in:</strong> 12 Jul 2026, 9:05 am");
+    expect(html).toContain("Clock-out:</strong> 12 Jul 2026, 11:35 am");
+    expect(html).toContain("2h 30m on site");
+    expect(html).toContain("form submitted 12 Jul 2026, 12:00 pm");
+  });
+
+  it("says 'not clocked out' instead of borrowing the submission time", () => {
+    const vm = build({
+      timeLogs: [
+        { startedAt: new Date("2026-07-11T23:05:00.000Z"), stoppedAt: null, durationM: null },
+      ],
+    });
+    const html = renderEstateReport(vm, ctx);
+    expect(html).toContain("Clock-out:</strong> not clocked out");
   });
 
   it("omits theme-hidden sections (supplies, gallery, QA)", () => {

@@ -113,6 +113,17 @@ export type ReportViewModel = {
   cleaners: string[];
   submittedBy: string;
   submittedAtLabel: string | null;
+  /** Earliest TimeLog clock-in (Sydney). Null when no clock-in was recorded. */
+  clockInLabel: string | null;
+  /**
+   * Latest TimeLog clock-out (Sydney). Null when not clocked out — the report
+   * must say so honestly, never substitute the form-submission time.
+   */
+  clockOutLabel: string | null;
+  /** True when a clock-in exists but no completed clock-out does. */
+  clockOutMissing: boolean;
+  /** Total clocked time across all segments, e.g. "2h 28m". */
+  clockDurationLabel: string | null;
   stats: ReportStatVM[];
   flags: ReportFlagVM[];
   sections: ReportSectionVM[];
@@ -146,6 +157,66 @@ function fmtSydney(value: unknown, pattern: string): string | null {
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) return null;
   return format(toZonedTime(date, TZ), pattern);
+}
+
+type ClockSummary = {
+  clockIn: Date | null;
+  clockOut: Date | null;
+  clockOutMissing: boolean;
+  totalMinutes: number | null;
+};
+
+/**
+ * Collapse a job's TimeLog segments into one clock window: earliest clock-in,
+ * latest clock-out, and total clocked minutes. If ANY segment is still open
+ * (stoppedAt null) the job has no honest clock-out — report it as missing
+ * rather than substituting another timestamp.
+ */
+function summarizeTimeLogs(rawLogs: unknown): ClockSummary {
+  const logs = (Array.isArray(rawLogs) ? rawLogs : []).filter(
+    (log: any) => log && log.startedAt
+  );
+  if (logs.length === 0) {
+    return { clockIn: null, clockOut: null, clockOutMissing: false, totalMinutes: null };
+  }
+
+  let clockIn: Date | null = null;
+  let clockOut: Date | null = null;
+  let hasOpenLog = false;
+  let totalMinutes = 0;
+
+  for (const log of logs) {
+    const started = log.startedAt instanceof Date ? log.startedAt : new Date(String(log.startedAt));
+    if (!Number.isNaN(started.getTime()) && (!clockIn || started < clockIn)) clockIn = started;
+
+    if (!log.stoppedAt) {
+      hasOpenLog = true;
+      continue;
+    }
+    const stopped = log.stoppedAt instanceof Date ? log.stoppedAt : new Date(String(log.stoppedAt));
+    if (Number.isNaN(stopped.getTime())) continue;
+    if (!clockOut || stopped > clockOut) clockOut = stopped;
+    const minutes =
+      typeof log.durationM === "number" && Number.isFinite(log.durationM)
+        ? log.durationM
+        : Math.max(0, Math.round((stopped.getTime() - started.getTime()) / 60_000));
+    totalMinutes += minutes;
+  }
+
+  const clockOutMissing = hasOpenLog || clockOut == null;
+  return {
+    clockIn,
+    clockOut: clockOutMissing ? null : clockOut,
+    clockOutMissing,
+    totalMinutes: clockOutMissing ? null : totalMinutes,
+  };
+}
+
+function formatMinutes(totalMinutes: number): string {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
 }
 
 function isBalconyLikeField(field: any): boolean {
@@ -499,13 +570,25 @@ export function buildReportViewModel(input: BuildReportViewModelInput): ReportVi
   const qaVm = input.includeQa === false ? null : buildQa(qa, qaSubmission, resolveKeyUrl);
 
   // ── At-a-glance stats ─────────────────────────────────────────────────────
-  const arrived = fmtSydney(job?.gpsCheckInAt, "h:mm aaa");
-  const finished = fmtSydney(job?.gpsCheckOutAt ?? job?.completedAt, "h:mm aaa");
-  const submittedAtLabel = fmtSydney(submission?.createdAt, "d MMM yyyy, h:mm aaa");
-  const durationLabel =
+  // Clock truth comes from TimeLog only. The form-submission time is shown as
+  // "Submitted" and must NEVER stand in for the clock-out (forms are often
+  // submitted well after the clean finishes).
+  const clock = summarizeTimeLogs(job?.timeLogs);
+  const clockInLabel = fmtSydney(clock.clockIn, "d MMM yyyy, h:mm aaa");
+  const clockOutLabel = fmtSydney(clock.clockOut, "d MMM yyyy, h:mm aaa");
+  const clockDurationLabel = clock.totalMinutes != null ? formatMinutes(clock.totalMinutes) : null;
+  // Timing stat: strictly clock data when TimeLogs exist (a missing clock-out
+  // is reported, not papered over). Only a job with NO TimeLogs at all falls
+  // back to the GPS check-in/out pair — a genuine on-site signal, unlike the
+  // form-submission or completed-at timestamps which are never used here.
+  const hasClockData = clock.clockIn != null;
+  const arrived = fmtSydney(hasClockData ? clock.clockIn : job?.gpsCheckInAt, "h:mm aaa");
+  const finished = fmtSydney(hasClockData ? clock.clockOut : job?.gpsCheckOutAt, "h:mm aaa");
+  const legacyDurationLabel =
     typeof job?.actualHours === "number" && Number.isFinite(job.actualHours) && job.actualHours > 0
       ? `${job.actualHours.toFixed(1)} h`
       : null;
+  const submittedAtLabel = fmtSydney(submission?.createdAt, "d MMM yyyy, h:mm aaa");
 
   const totalAnswerable = sections.reduce((n, s) => n + s.answerableCount, 0);
   const totalAnswered = sections.reduce((n, s) => n + s.answeredCount, 0);
@@ -528,8 +611,12 @@ export function buildReportViewModel(input: BuildReportViewModelInput): ReportVi
     { label: "Issues reported", value: String(issueCount), sub: issueCount === 0 ? "all clear" : "see details" },
     {
       label: "Timing",
-      value: arrived && finished ? `${arrived} – ${finished}` : (arrived ?? finished ?? UNANSWERED),
-      sub: durationLabel ?? undefined,
+      value: arrived && finished ? `${arrived} – ${finished}` : (arrived ?? UNANSWERED),
+      sub: hasClockData
+        ? clock.clockOutMissing && arrived
+          ? "clock-out not recorded"
+          : (clockDurationLabel ?? undefined)
+        : (legacyDurationLabel ?? undefined),
     },
   ];
 
@@ -557,6 +644,10 @@ export function buildReportViewModel(input: BuildReportViewModelInput): ReportVi
       .filter(Boolean),
     submittedBy: String(submission?.submittedBy?.name ?? "Unknown"),
     submittedAtLabel,
+    clockInLabel,
+    clockOutLabel,
+    clockOutMissing: clock.clockOutMissing,
+    clockDurationLabel,
     stats,
     flags,
     sections,
