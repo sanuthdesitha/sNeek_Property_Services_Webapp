@@ -288,12 +288,23 @@ export function renderEstateReport(vm: ReportViewModel, c: EstateRenderCtx): str
 </header>`
     : "";
 
+  // Clock truth line: TimeLog clock-in/out only. When the cleaner never
+  // clocked out we say so — the submission time is NOT a clock-out and is kept
+  // on its own labelled "Submitted" line below.
+  const clockLine =
+    vm.clockInLabel || vm.clockOutLabel || vm.clockOutMissing
+      ? `<div class="est-clock"><strong>Clock-in:</strong> ${esc(vm.clockInLabel ?? "not recorded")} · <strong>Clock-out:</strong> ${esc(
+          vm.clockOutLabel ?? "not clocked out"
+        )}${vm.clockDurationLabel ? ` · ${esc(vm.clockDurationLabel)} on site` : ""}</div>`
+      : "";
+
   const summary = c.showSummary
     ? `<section class="est-summary">
   <div class="est-stats">${statsHtml}</div>
   ${flagsHtml}
+  ${clockLine}
   <div class="est-submitted">Submitted by ${esc(vm.submittedBy)}${
-    vm.submittedAtLabel ? ` · ${esc(vm.submittedAtLabel)}` : ""
+    vm.submittedAtLabel ? ` · form submitted ${esc(vm.submittedAtLabel)}` : ""
   }</div>
 </section>`
     : "";
@@ -371,7 +382,9 @@ ${c.headTags}
   .est-flag.warn { background: #fef3c7; color: #92400e; }
   .est-flag.info { background: #e0ecff; color: #1d4ed8; }
   .est-flag.good { background: #dcfce7; color: #166534; }
-  .est-submitted { margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .est-clock { margin-top: 12px; font-size: 12px; color: var(--ink); }
+  .est-clock strong { color: var(--primary); font-weight: 600; }
+  .est-submitted { margin-top: 4px; font-size: 12px; color: var(--muted); }
 
   /* Cards */
   .est-card { border: 1px solid var(--line); border-radius: 16px; background: #fff; padding: 18px 22px 16px; margin: 0 0 16px; break-inside: avoid-page; }

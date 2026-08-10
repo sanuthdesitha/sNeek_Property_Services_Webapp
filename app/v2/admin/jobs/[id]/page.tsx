@@ -7,7 +7,7 @@ import { requireRole } from "@/lib/auth/session";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { jobDetailTabHref, resolveJobDetailTab } from "@/lib/jobs/detail-tabs";
-import { offSiteReasonLabel, reasonClaimsOnSite } from "@/lib/gps/off-site-reasons";
+import { ClockRecordsEditor, GpsRecordEditor } from "@/components/v2/admin/jobs/job-clock-gps-editor";
 import {
   EBadge,
   EButton,
@@ -92,16 +92,6 @@ function money(n: number): string {
   return "$" + Math.round(n).toLocaleString("en-AU");
 }
 
-function minutesLabel(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
-function mapsLink(lat: number, lng: number): string {
-  return `https://www.google.com/maps?q=${lat},${lng}`;
-}
-
 async function getJob(id: string) {
   return db.job
     .findUnique({
@@ -133,6 +123,7 @@ async function getJob(id: string) {
         gpsDistanceMeters: true,
         gpsCheckInReasonCode: true,
         gpsCheckInNote: true,
+        gpsCheckInAdjusted: true,
         property: {
           select: {
             id: true,
@@ -930,72 +921,35 @@ export default async function AdminJobDetailPage({
             </ECardTitle>
           </ECardHeader>
           <ECardBody className="space-y-3 pt-0">
-            {job.timeLogs.length === 0 ? (
-              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No time logs recorded.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-[0.8125rem]">
-                  <thead>
-                    <tr className="border-b border-[hsl(var(--e-border))] text-left text-[0.6875rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
-                      <th className="py-2 pr-3">Cleaner</th>
-                      <th className="py-2 pr-3">Start</th>
-                      <th className="py-2 pr-3">Stop</th>
-                      <th className="py-2 text-right">Duration</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[hsl(var(--e-border))]">
-                    {job.timeLogs.map((log) => (
-                      <tr key={log.id}>
-                        <td className="py-2 pr-3 font-[550]">{log.user?.name ?? log.user?.email ?? "Cleaner"}</td>
-                        <td className="py-2 pr-3 tabular-nums">{format(new Date(log.startedAt), "dd MMM HH:mm")}</td>
-                        <td className="py-2 pr-3 tabular-nums">{log.stoppedAt ? format(new Date(log.stoppedAt), "dd MMM HH:mm") : "—"}</td>
-                        <td className="py-2 text-right tabular-nums">
-                          {log.durationM != null ? minutesLabel(log.durationM) : <EBadge tone="info" soft>Active</EBadge>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {job.gpsCheckInLat != null && job.gpsCheckInLng != null ? (
-              <div className="space-y-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                <p>
-                  Clock-in GPS:{" "}
-                  <a className="text-[hsl(var(--e-accent-portal))] hover:underline" href={mapsLink(job.gpsCheckInLat, job.gpsCheckInLng)} target="_blank" rel="noreferrer">
-                    {job.gpsCheckInLat.toFixed(5)}, {job.gpsCheckInLng.toFixed(5)}
-                  </a>
-                  {job.gpsCheckInAt ? ` · ${format(new Date(job.gpsCheckInAt), "dd MMM HH:mm")}` : ""}
-                  {job.gpsCheckInAccuracyM != null ? ` · ±${Math.round(job.gpsCheckInAccuracyM)}m` : ""}
-                </p>
-                {job.gpsCheckOutLat != null && job.gpsCheckOutLng != null ? (
-                  <p>
-                    Clock-out GPS:{" "}
-                    <a className="text-[hsl(var(--e-accent-portal))] hover:underline" href={mapsLink(job.gpsCheckOutLat, job.gpsCheckOutLng)} target="_blank" rel="noreferrer">
-                      {job.gpsCheckOutLat.toFixed(5)}, {job.gpsCheckOutLng.toFixed(5)}
-                    </a>
-                    {job.gpsCheckOutAt ? ` · ${format(new Date(job.gpsCheckOutAt), "dd MMM HH:mm")}` : ""}
-                  </p>
-                ) : null}
-                {job.gpsDistanceMeters != null ? (
-                  <p>Distance from property at clock-in: {job.gpsDistanceMeters}m</p>
-                ) : null}
-                {/* An off-site start is now an attributable act, not a number
-                    nobody reads — show the reason the cleaner had to give. */}
-                {job.gpsCheckInReasonCode ? (
-                  <p className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-surface-2))] px-2.5 py-2">
-                    <span className="font-[600]">
-                      {reasonClaimsOnSite(job.gpsCheckInReasonCode)
-                        ? "Started away from the pin (says they were on site)"
-                        : "Started away from the property"}
-                    </span>
-                    <br />
-                    {offSiteReasonLabel(job.gpsCheckInReasonCode)}
-                    {job.gpsCheckInNote ? ` — ${job.gpsCheckInNote}` : ""}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
+            {/* Clock + GPS records are admin-editable: server recomputes the
+                pay-driving durationM, audit-logs before/after, notifies the
+                cleaner and refreshes any generated report. */}
+            <ClockRecordsEditor
+              jobId={job.id}
+              timeLogs={job.timeLogs.map((log) => ({
+                id: log.id,
+                startedAt: log.startedAt.toISOString(),
+                stoppedAt: log.stoppedAt?.toISOString() ?? null,
+                durationM: log.durationM,
+                userName: log.user?.name ?? log.user?.email ?? "Cleaner",
+              }))}
+            />
+            <GpsRecordEditor
+              jobId={job.id}
+              gps={{
+                checkInLat: job.gpsCheckInLat,
+                checkInLng: job.gpsCheckInLng,
+                checkInAt: job.gpsCheckInAt?.toISOString() ?? null,
+                checkInAccuracyM: job.gpsCheckInAccuracyM,
+                checkOutLat: job.gpsCheckOutLat,
+                checkOutLng: job.gpsCheckOutLng,
+                checkOutAt: job.gpsCheckOutAt?.toISOString() ?? null,
+                distanceMeters: job.gpsDistanceMeters,
+                adjusted: job.gpsCheckInAdjusted,
+                reasonCode: job.gpsCheckInReasonCode,
+                note: job.gpsCheckInNote,
+              }}
+            />
           </ECardBody>
         </ECard>
 
