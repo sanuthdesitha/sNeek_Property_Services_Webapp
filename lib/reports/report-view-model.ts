@@ -87,6 +87,19 @@ export type ReportQaVM = {
   photoUrls: string[];
 } | null;
 
+export type ReportGpsVM = {
+  checkIn: {
+    timeLabel: string | null;
+    coords: string;
+    mapUrl: string;
+    accuracyLabel: string | null;
+  } | null;
+  checkOut: { timeLabel: string | null; coords: string; mapUrl: string } | null;
+  distanceLabel: string | null;
+  /** True when an admin amended the GPS record after capture. */
+  adjusted: boolean;
+} | null;
+
 export type ReportStatVM = { label: string; value: string; sub?: string };
 export type ReportFlagVM = { label: string; tone: "warn" | "info" | "good" };
 
@@ -124,6 +137,8 @@ export type ReportViewModel = {
   clockOutMissing: boolean;
   /** Total clocked time across all segments, e.g. "2h 28m". */
   clockDurationLabel: string | null;
+  /** GPS attendance record (check-in/out coordinates, times, distance). */
+  gps: ReportGpsVM;
   stats: ReportStatVM[];
   flags: ReportFlagVM[];
   sections: ReportSectionVM[];
@@ -209,6 +224,41 @@ function summarizeTimeLogs(rawLogs: unknown): ClockSummary {
     clockOut: clockOutMissing ? null : clockOut,
     clockOutMissing,
     totalMinutes: clockOutMissing ? null : totalMinutes,
+  };
+}
+
+function buildGpsVm(job: any): ReportGpsVM {
+  const hasCheckIn = job?.gpsCheckInLat != null && job?.gpsCheckInLng != null;
+  const hasCheckOut = job?.gpsCheckOutLat != null && job?.gpsCheckOutLng != null;
+  if (!hasCheckIn && !hasCheckOut) return null;
+
+  const coords = (lat: number, lng: number) => `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  const mapUrl = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`;
+
+  return {
+    checkIn: hasCheckIn
+      ? {
+          timeLabel: fmtSydney(job.gpsCheckInAt, "d MMM yyyy, h:mm aaa"),
+          coords: coords(job.gpsCheckInLat, job.gpsCheckInLng),
+          mapUrl: mapUrl(job.gpsCheckInLat, job.gpsCheckInLng),
+          accuracyLabel:
+            typeof job.gpsCheckInAccuracyM === "number" && Number.isFinite(job.gpsCheckInAccuracyM)
+              ? `±${Math.round(job.gpsCheckInAccuracyM)} m`
+              : null,
+        }
+      : null,
+    checkOut: hasCheckOut
+      ? {
+          timeLabel: fmtSydney(job.gpsCheckOutAt, "d MMM yyyy, h:mm aaa"),
+          coords: coords(job.gpsCheckOutLat, job.gpsCheckOutLng),
+          mapUrl: mapUrl(job.gpsCheckOutLat, job.gpsCheckOutLng),
+        }
+      : null,
+    distanceLabel:
+      typeof job?.gpsDistanceMeters === "number" && Number.isFinite(job.gpsDistanceMeters)
+        ? `${job.gpsDistanceMeters} m`
+        : null,
+    adjusted: job?.gpsCheckInAdjusted === true,
   };
 }
 
@@ -648,6 +698,7 @@ export function buildReportViewModel(input: BuildReportViewModelInput): ReportVi
     clockOutLabel,
     clockOutMissing: clock.clockOutMissing,
     clockDurationLabel,
+    gps: buildGpsVm(job),
     stats,
     flags,
     sections,
