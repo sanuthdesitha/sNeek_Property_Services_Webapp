@@ -1328,6 +1328,7 @@ model Job {
   maintenanceItems       PropertyMaintenanceItem[]
   laundryTask            LaundryTask?
   report                 Report?
+  reportVerification     ReportVerification?
   issueTickets           IssueTicket[]
   payAdjustments         CleanerPayAdjustment[]
   timeAdjustmentRequests TimeLogAdjustmentRequest[]
@@ -2301,6 +2302,21 @@ model Report {
   visibilityUpdatedBy User?         @relation("ReportVisibilityUpdatedBy", fields: [visibilityUpdatedById], references: [id])
 
   @@index([themeId])
+}
+
+/// Public verification for a job report. `code` is a non-enumerable
+/// crypto-random token (Crockford base32, no ambiguous characters) printed on
+/// the report; the public /verify/[code] page resolves it to a DEDICATED
+/// minimal view (never the internal report). `revokedAt` kills a code without
+/// deleting the audit trail.
+model ReportVerification {
+  id        String    @id @default(cuid())
+  code      String    @unique
+  jobId     String    @unique
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
 }
 
 enum ReportThemeKind {

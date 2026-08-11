@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { Check, Pencil, X } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { EInput } from "@/components/v2/admin/estate-kit";
 import { offSiteReasonLabel, reasonClaimsOnSite } from "@/lib/gps/off-site-reasons";
@@ -69,6 +69,7 @@ export function ClockRecordsEditor({ jobId, timeLogs }: { jobId: string; timeLog
   const [startInput, setStartInput] = useState("");
   const [stopInput, setStopInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const editingLog = timeLogs.find((log) => log.id === editingId) ?? null;
 
   function beginEdit(log: ClockLogRow) {
     setEditingId(log.id);
@@ -132,77 +133,87 @@ export function ClockRecordsEditor({ jobId, timeLogs }: { jobId: string; timeLog
             </tr>
           </thead>
           <tbody className="divide-y divide-[hsl(var(--e-border))]">
-            {timeLogs.map((log) => {
-              const isEditing = editingId === log.id;
-              return (
-                <tr key={log.id}>
-                  <td className="py-2 pr-3 font-[550]">{log.userName}</td>
-                  <td className="py-2 pr-3 tabular-nums">
-                    {isEditing ? (
-                      <EInput
-                        type="datetime-local"
-                        value={startInput}
-                        onChange={(e) => setStartInput(e.target.value)}
-                        className="h-8 w-52"
-                        disabled={busy}
-                      />
-                    ) : (
-                      format(new Date(log.startedAt), "dd MMM HH:mm")
-                    )}
-                  </td>
-                  <td className="py-2 pr-3 tabular-nums">
-                    {isEditing ? (
-                      <div className="space-y-1">
-                        <EInput
-                          type="datetime-local"
-                          value={stopInput}
-                          onChange={(e) => setStopInput(e.target.value)}
-                          className="h-8 w-52"
-                          disabled={busy}
-                        />
-                        <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-                          Leave empty to mark as not clocked out.
-                        </p>
-                      </div>
-                    ) : log.stoppedAt ? (
-                      format(new Date(log.stoppedAt), "dd MMM HH:mm")
-                    ) : (
-                      <EBadge tone="warning" soft>
-                        Not clocked out
-                      </EBadge>
-                    )}
-                  </td>
-                  <td className="py-2 text-right tabular-nums">
-                    {log.durationM != null ? (
-                      minutesLabel(log.durationM)
-                    ) : (
-                      <EBadge tone="info" soft>
-                        Active
-                      </EBadge>
-                    )}
-                  </td>
-                  <td className="py-2 text-right">
-                    {isEditing ? (
-                      <span className="inline-flex gap-1">
-                        <EButton size="sm" variant="ghost" onClick={() => void save(log)} disabled={busy} aria-label="Save clock times">
-                          <Check className="h-4 w-4" />
-                        </EButton>
-                        <EButton size="sm" variant="ghost" onClick={() => setEditingId(null)} disabled={busy} aria-label="Cancel edit">
-                          <X className="h-4 w-4" />
-                        </EButton>
-                      </span>
-                    ) : (
-                      <EButton size="sm" variant="ghost" onClick={() => beginEdit(log)} aria-label="Edit clock times">
-                        <Pencil className="h-4 w-4" />
-                      </EButton>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {timeLogs.map((log) => (
+              <tr
+                key={log.id}
+                className={editingId === log.id ? "bg-[hsl(var(--e-surface-2))]" : undefined}
+              >
+                <td className="py-2 pr-3 font-[550]">{log.userName}</td>
+                <td className="py-2 pr-3 tabular-nums">
+                  {format(new Date(log.startedAt), "dd MMM HH:mm")}
+                </td>
+                <td className="py-2 pr-3 tabular-nums">
+                  {log.stoppedAt ? (
+                    format(new Date(log.stoppedAt), "dd MMM HH:mm")
+                  ) : (
+                    <EBadge tone="warning" soft>
+                      Not clocked out
+                    </EBadge>
+                  )}
+                </td>
+                <td className="py-2 text-right tabular-nums">
+                  {log.durationM != null ? (
+                    minutesLabel(log.durationM)
+                  ) : (
+                    <EBadge tone="info" soft>
+                      Active
+                    </EBadge>
+                  )}
+                </td>
+                <td className="py-2 text-right">
+                  <EButton size="sm" variant="ghost" onClick={() => beginEdit(log)} disabled={busy} aria-label="Edit clock times">
+                    <Pencil className="h-4 w-4" />
+                  </EButton>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
+      {/* The edit form lives BELOW the table, stacked and full-width, so it
+          never widens the table beyond a phone screen. */}
+      {editingLog ? (
+        <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-2))] p-3">
+          <p className="text-[0.8125rem] font-[600]">Edit clock times — {editingLog.userName}</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block min-w-0 space-y-1">
+              <span className="block text-[0.6875rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
+                Clock-in
+              </span>
+              <EInput
+                type="datetime-local"
+                value={startInput}
+                onChange={(e) => setStartInput(e.target.value)}
+                className="h-8 w-full"
+                disabled={busy}
+              />
+            </label>
+            <label className="block min-w-0 space-y-1">
+              <span className="block text-[0.6875rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
+                Clock-out
+              </span>
+              <EInput
+                type="datetime-local"
+                value={stopInput}
+                onChange={(e) => setStopInput(e.target.value)}
+                className="h-8 w-full"
+                disabled={busy}
+              />
+              <span className="block text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                Leave empty to mark as not clocked out.
+              </span>
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <EButton size="sm" variant="ghost" onClick={() => setEditingId(null)} disabled={busy}>
+              Cancel
+            </EButton>
+            <EButton size="sm" variant="gold" onClick={() => void save(editingLog)} disabled={busy}>
+              {busy ? "Saving…" : "Save clock times"}
+            </EButton>
+          </div>
+        </div>
+      ) : null}
       <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
         Edits recompute the pay-driving duration, notify the cleaner and are audit-logged. Any
         generated report refreshes automatically.
@@ -307,9 +318,9 @@ export function GpsRecordEditor({ jobId, gps }: { jobId: string; gps: GpsRecordP
   const hasCheckIn = gps.checkInLat != null && gps.checkInLng != null;
 
   return (
-    <div className="space-y-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-      <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-2 font-[600] text-[hsl(var(--e-foreground))]">
+    <div className="min-w-0 space-y-1 break-words rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="inline-flex flex-wrap items-center gap-2 font-[600] text-[hsl(var(--e-foreground))]">
           GPS record
           {gps.adjusted ? (
             <EBadge tone="warning" soft>

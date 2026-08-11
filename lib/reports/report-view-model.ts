@@ -167,14 +167,14 @@ export type BuildReportViewModelInput = {
   includeQa?: boolean;
 };
 
-function fmtSydney(value: unknown, pattern: string): string | null {
+export function fmtSydney(value: unknown, pattern: string): string | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) return null;
   return format(toZonedTime(date, TZ), pattern);
 }
 
-type ClockSummary = {
+export type ClockSummary = {
   clockIn: Date | null;
   clockOut: Date | null;
   clockOutMissing: boolean;
@@ -185,9 +185,10 @@ type ClockSummary = {
  * Collapse a job's TimeLog segments into one clock window: earliest clock-in,
  * latest clock-out, and total clocked minutes. If ANY segment is still open
  * (stoppedAt null) the job has no honest clock-out — report it as missing
- * rather than substituting another timestamp.
+ * rather than substituting another timestamp. Exported for the public
+ * verification view, which shows the same honest clock times.
  */
-function summarizeTimeLogs(rawLogs: unknown): ClockSummary {
+export function summarizeTimeLogs(rawLogs: unknown): ClockSummary {
   const logs = (Array.isArray(rawLogs) ? rawLogs : []).filter(
     (log: any) => log && log.startedAt
   );

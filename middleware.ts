@@ -266,6 +266,9 @@ export default withAuth(
           pathname.startsWith("/quiz/") ||
           pathname.startsWith("/amenities/") ||
           pathname.startsWith("/accept-invite/") ||
+          // Public report verification — anyone holding a report code may check it.
+          pathname === "/verify" ||
+          pathname.startsWith("/verify/") ||
           pathname === "/icon" ||
           pathname === "/manifest.json"
         ) {

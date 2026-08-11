@@ -29,6 +29,8 @@ export type EstateRenderCtx = {
   showSupplies: boolean;
   showFooter: boolean;
   customFooter: string;
+  /** Public verification: code (display-formatted), public URL and QR. */
+  verification?: { codeDisplay: string; url: string | null; qrDataUrl: string | null };
 };
 
 function esc(value: unknown): string {
@@ -357,6 +359,23 @@ export function renderEstateReport(vm: ReportViewModel, c: EstateRenderCtx): str
 </section>`
       : "";
 
+  // Public verification block: the code (and QR when a public URL exists)
+  // lets anyone confirm this report is genuine at /verify — showing only the
+  // dedicated minimal public view, never this report's contents.
+  const verification = c.verification
+    ? `<section class="est-card est-verify">
+  <div class="est-verify-main">
+    <header class="est-card-head"><h2>Verify this report</h2></header>
+    <p class="est-verify-text">This report can be independently verified. Enter the code${
+      c.verification.url ? " or scan the QR" : ""
+    } at our verification page to confirm this clean was performed and recorded by ${esc(c.companyName)}.</p>
+    <div class="est-verify-code">${esc(c.verification.codeDisplay)}</div>
+    ${c.verification.url ? `<a class="est-verify-link" href="${esc(c.verification.url)}" target="_blank" rel="noreferrer">${esc(c.verification.url)}</a>` : ""}
+  </div>
+  ${c.verification.qrDataUrl ? `<img class="est-verify-qr" src="${esc(c.verification.qrDataUrl)}" alt="Report verification QR code" />` : ""}
+</section>`
+    : "";
+
   const footer = c.showFooter
     ? `<footer class="est-footer">${
         c.customFooter || `${esc(c.companyName)} · Report generated ${esc(new Date().toISOString())}`
@@ -476,6 +495,14 @@ ${c.headTags}
   .est-table th { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
   .est-table td { padding: 8px 10px; border-bottom: 1px solid var(--bg-soft); vertical-align: top; }
 
+  /* Verification */
+  .est-verify { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+  .est-verify-main { min-width: 0; }
+  .est-verify-text { font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
+  .est-verify-code { font-family: "Consolas", "SF Mono", "Courier New", monospace; font-size: 18px; font-weight: 700; letter-spacing: 0.12em; color: var(--primary); }
+  .est-verify-link { display: inline-block; margin-top: 6px; font-size: 11px; color: var(--primary); text-decoration: none; word-break: break-all; }
+  .est-verify-qr { width: 108px; height: 108px; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 10px; }
+
   .est-footer { margin: 26px 0 10px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); text-align: center; }
 
   /* Screen-only responsiveness (harmless in print) */
@@ -495,6 +522,7 @@ ${checklist}
 ${c.showQaSummary ? qaHtml(vm) : ""}
 ${extrasHtml(vm, c.showSupplies)}
 ${gallery}
+${verification}
 ${footer}
 </body>
 </html>`;
