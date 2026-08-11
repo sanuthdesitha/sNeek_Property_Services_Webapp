@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { haversineMeters } from "@/lib/jobs/gps";
 
 const isoDate = z
   .string()
@@ -55,6 +56,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         gpsCheckOutAt: true,
         gpsCheckInAdjusted: true,
         gpsCheckInNote: true,
+        gpsDistanceMeters: true,
+        property: { select: { latitude: true, longitude: true } },
       },
     });
     if (!job) {
@@ -69,6 +72,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         data.gpsCheckInAt = body.checkIn.at === null ? null : new Date(body.checkIn.at);
       }
       data.gpsCheckInAdjusted = true;
+
+      // The report's "distance from property at check-in" derives from these
+      // coordinates — recompute it or the corrected pin ships a stale number.
+      const finalLat =
+        body.checkIn.lat !== undefined ? body.checkIn.lat : job.gpsCheckInLat;
+      const finalLng =
+        body.checkIn.lng !== undefined ? body.checkIn.lng : job.gpsCheckInLng;
+      data.gpsDistanceMeters =
+        finalLat != null &&
+        finalLng != null &&
+        job.property?.latitude != null &&
+        job.property?.longitude != null
+          ? Math.round(
+              haversineMeters(finalLat, finalLng, job.property.latitude, job.property.longitude)
+            )
+          : null;
     }
     if (body.checkOut) {
       if (body.checkOut.lat !== undefined) data.gpsCheckOutLat = body.checkOut.lat;
@@ -93,6 +112,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           gpsCheckOutAt: true,
           gpsCheckInAdjusted: true,
           gpsCheckInNote: true,
+          gpsDistanceMeters: true,
         },
       });
 
@@ -111,6 +131,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
             gpsCheckOutLng: job.gpsCheckOutLng,
             gpsCheckOutAt: job.gpsCheckOutAt?.toISOString() ?? null,
             gpsCheckInNote: job.gpsCheckInNote,
+            gpsDistanceMeters: job.gpsDistanceMeters,
           } as any,
           after: {
             gpsCheckInLat: row.gpsCheckInLat,
@@ -120,6 +141,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
             gpsCheckOutLng: row.gpsCheckOutLng,
             gpsCheckOutAt: row.gpsCheckOutAt?.toISOString() ?? null,
             gpsCheckInNote: row.gpsCheckInNote,
+            gpsDistanceMeters: row.gpsDistanceMeters,
           } as any,
         },
       });

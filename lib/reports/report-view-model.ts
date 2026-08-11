@@ -556,6 +556,65 @@ function buildQa(
   return { score: score == null ? null : Number(score), passed, notes, damage, photoUrls };
 }
 
+/**
+ * Laundry truth for the report. The LaundryTask is the authoritative record —
+ * it carries the cleaner's explicit mid-job updates and admin overrides that
+ * the form answers miss when the report form is submitted hours later. The
+ * form answers remain only as a fallback for legacy jobs without a task.
+ */
+function buildLaundryVm(job: any, submission: any): ReportLaundryVM {
+  const task = job?.laundryTask;
+  const confirmation = task?.confirmations?.[0] ?? null;
+  const status = String(task?.status ?? "");
+
+  if (task && (status !== "PENDING" || confirmation)) {
+    const ready = status === "CONFIRMED" || status === "PICKED_UP" || status === "DROPPED";
+    const outcomeByStatus: Record<string, string> = {
+      CONFIRMED: "READY FOR PICKUP",
+      PICKED_UP: "PICKED UP",
+      DROPPED: "DROPPED OFF",
+      SKIPPED_PICKUP: "NO PICKUP REQUIRED",
+      FLAGGED: "NOT READY",
+    };
+    return {
+      readyLabel: ready
+        ? "Yes"
+        : status === "FLAGGED" || status === "SKIPPED_PICKUP"
+          ? "No"
+          : UNANSWERED,
+      outcome: outcomeByStatus[status] ?? null,
+      bagLocation: confirmation?.bagLocation
+        ? String(confirmation.bagLocation)
+        : submission?.bagLocation
+          ? String(submission.bagLocation)
+          : null,
+      skipReason: task.skipReasonNote
+        ? String(task.skipReasonNote)
+        : task.skipReasonCode
+          ? String(task.skipReasonCode).replace(/_/g, " ")
+          : null,
+    };
+  }
+
+  if (
+    !submission ||
+    (submission.laundryReady == null && !submission.laundryOutcome && !submission.bagLocation)
+  ) {
+    return null;
+  }
+  return {
+    readyLabel:
+      submission.laundryReady === true ? "Yes" : submission.laundryReady === false ? "No" : UNANSWERED,
+    outcome: submission.laundryOutcome ? String(submission.laundryOutcome).replace(/_/g, " ") : null,
+    bagLocation: submission.bagLocation ? String(submission.bagLocation) : null,
+    skipReason: submission.laundrySkipReasonNote
+      ? String(submission.laundrySkipReasonNote)
+      : submission.laundrySkipReasonCode
+        ? String(submission.laundrySkipReasonCode).replace(/_/g, " ")
+        : null,
+  };
+}
+
 export function buildReportViewModel(input: BuildReportViewModelInput): ReportViewModel {
   const { job, submission, qa, qaSubmission, localDate } = input;
   const resolveKeyUrl = input.resolveKeyUrl ?? ((key: string) => key);
@@ -583,26 +642,7 @@ export function buildReportViewModel(input: BuildReportViewModelInput): ReportVi
       quantity: Math.abs(Number(tx.quantity)),
     }));
 
-  const laundry: ReportLaundryVM =
-    submission && (submission.laundryReady != null || submission.laundryOutcome || submission.bagLocation)
-      ? {
-          readyLabel:
-            submission.laundryReady === true
-              ? "Yes"
-              : submission.laundryReady === false
-                ? "No"
-                : UNANSWERED,
-          outcome: submission.laundryOutcome
-            ? String(submission.laundryOutcome).replace(/_/g, " ")
-            : null,
-          bagLocation: submission.bagLocation ? String(submission.bagLocation) : null,
-          skipReason: submission.laundrySkipReasonNote
-            ? String(submission.laundrySkipReasonNote)
-            : submission.laundrySkipReasonCode
-              ? String(submission.laundrySkipReasonCode).replace(/_/g, " ")
-              : null,
-        }
-      : null;
+  const laundry = buildLaundryVm(job, submission);
 
   const selfInspectionIncomplete = Array.isArray(data.__selfInspectionIncomplete)
     ? data.__selfInspectionIncomplete.map((k: unknown) => String(k))
