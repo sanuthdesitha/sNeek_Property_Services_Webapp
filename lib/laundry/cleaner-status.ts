@@ -14,6 +14,24 @@ import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 export type CleanerLaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
 export type CleanerLaundryUpdateSource = "EARLY_UPDATE" | "FINAL_SUBMISSION";
 
+/**
+ * A final form submission must never silently undo a pickup that an earlier
+ * explicit update already CONFIRMED and told the laundry partners about — the
+ * form is often submitted hours later with stale laundry answers, and the
+ * partners are already en route. An explicit EARLY_UPDATE correction (the
+ * dedicated laundry-status flow) is still allowed to downgrade.
+ */
+export function blocksLaundryFinalSubmissionDowngrade(
+  task: { status: LaundryStatus; notifyLaundry: boolean | null },
+  source: CleanerLaundryUpdateSource
+): boolean {
+  return (
+    source === "FINAL_SUBMISSION" &&
+    task.status === LaundryStatus.CONFIRMED &&
+    task.notifyLaundry === true
+  );
+}
+
 function buildCleanerConfirmationNotes(params: {
   source: CleanerLaundryUpdateSource;
   laundryOutcome: CleanerLaundryOutcome;
@@ -106,6 +124,31 @@ async function alertAdminsLaundryNotReady(jobId: string, propertyName: string, j
         channel: NotificationChannel.EMAIL,
         subject: `Laundry not ready - ${jobNumber}`,
         body: `${jobNumber}: Cleaner submitted job for ${propertyName} with laundry_ready=NO. Laundry partner was not notified.`,
+        status: NotificationStatus.PENDING,
+      },
+    });
+  }
+}
+
+async function alertAdminsLaundryContradiction(params: {
+  jobId: string;
+  propertyName: string;
+  jobNumber: string;
+  submittedOutcome: CleanerLaundryOutcome;
+}) {
+  const adminUsers = await db.user.findMany({
+    where: { role: Role.ADMIN, isActive: true },
+    select: { id: true },
+  });
+
+  for (const admin of adminUsers) {
+    await db.notification.create({
+      data: {
+        userId: admin.id,
+        jobId: params.jobId,
+        channel: NotificationChannel.EMAIL,
+        subject: `Laundry contradiction - ${params.jobNumber}`,
+        body: `${params.jobNumber}: Final submission for ${params.propertyName} said laundry ${params.submittedOutcome.replace(/_/g, " ").toLowerCase()}, but an earlier update already confirmed the pickup and laundry partners were notified. The confirmed pickup was KEPT - review and adjust the laundry task manually if the pickup really should be cancelled.`,
         status: NotificationStatus.PENDING,
       },
     });
@@ -329,6 +372,19 @@ export async function applyCleanerLaundryStatusUpdate(params: {
     laundryTask.status === LaundryStatus.DROPPED ||
     laundryTask.status === LaundryStatus.SKIPPED_PICKUP
   ) {
+    return { ok: true, duplicated: true, laundryTask };
+  }
+
+  // A confirmed-and-notified pickup survives a contradictory FINAL_SUBMISSION —
+  // keep the task as the cleaner's explicit earlier update left it and put the
+  // contradiction in front of admins instead of silently un-notifying partners.
+  if (blocksLaundryFinalSubmissionDowngrade(laundryTask, params.source)) {
+    await alertAdminsLaundryContradiction({
+      jobId: job.id,
+      propertyName: job.property.name,
+      jobNumber,
+      submittedOutcome: params.laundryOutcome,
+    });
     return { ok: true, duplicated: true, laundryTask };
   }
 

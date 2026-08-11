@@ -533,6 +533,11 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
         include: { user: { select: { name: true } } },
         orderBy: { startedAt: "asc" },
       },
+      // Laundry truth: the task (early updates + admin overrides) outranks the
+      // form's laundry answers, which go stale when the form is submitted late.
+      laundryTask: {
+        include: { confirmations: { orderBy: { createdAt: "desc" }, take: 1 } },
+      },
       formSubmissions: {
         include: {
           template: true,

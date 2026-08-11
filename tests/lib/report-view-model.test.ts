@@ -198,6 +198,46 @@ describe("buildReportViewModel", () => {
     expect(timing.sub).toBe("2.5 h");
   });
 
+  it("prefers the authoritative LaundryTask over stale form answers", () => {
+    // Cleaner sent an explicit "ready" update mid-job; the form (submitted
+    // hours later) still says not ready. The task must win.
+    const vm = build(
+      {
+        laundryTask: {
+          status: "CONFIRMED",
+          skipReasonCode: null,
+          skipReasonNote: null,
+          confirmations: [{ laundryReady: true, bagLocation: "Garage cupboard" }],
+        },
+      },
+      { laundryReady: false, laundryOutcome: "NOT_READY", bagLocation: null }
+    );
+    expect(vm.laundry?.readyLabel).toBe("Yes");
+    expect(vm.laundry?.outcome).toBe("READY FOR PICKUP");
+    expect(vm.laundry?.bagLocation).toBe("Garage cupboard");
+    expect(vm.flags.some((f) => f.label === "Laundry ready")).toBe(true);
+  });
+
+  it("maps skipped-pickup tasks with their reason", () => {
+    const vm = build({
+      laundryTask: {
+        status: "SKIPPED_PICKUP",
+        skipReasonCode: "NO_LINEN_USED",
+        skipReasonNote: null,
+        confirmations: [],
+      },
+    });
+    expect(vm.laundry?.readyLabel).toBe("No");
+    expect(vm.laundry?.outcome).toBe("NO PICKUP REQUIRED");
+    expect(vm.laundry?.skipReason).toBe("NO LINEN USED");
+  });
+
+  it("falls back to the form's laundry answers when no task exists", () => {
+    const vm = build(); // makeJob has no laundryTask
+    expect(vm.laundry?.readyLabel).toBe("Yes");
+    expect(vm.laundry?.bagLocation).toBe("Front hallway");
+  });
+
   it("builds a client-safe QA summary (score, notes, damage, photos — no costs) and honours includeQa: false", () => {
     const qaSubmission = {
       data: {
