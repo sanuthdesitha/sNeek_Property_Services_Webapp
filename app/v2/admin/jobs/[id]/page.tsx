@@ -913,8 +913,9 @@ export default async function AdminJobDetailPage({
       {/* ── Activity ─────────────────────────────────────────────────────── */}
       {tab === "activity" ? (
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Clock records */}
-        <ECard>
+        {/* Clock records. min-w-0 lets the table's overflow-x-auto scroll
+            inside the card on phones instead of widening the whole page. */}
+        <ECard className="min-w-0">
           <ECardHeader className="pb-2">
             <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
               <Clock className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Clock records
@@ -954,7 +955,7 @@ export default async function AdminJobDetailPage({
         </ECard>
 
         {/* Audit trail */}
-        <ECard>
+        <ECard className="min-w-0">
           <ECardHeader className="pb-2">
             <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
               <History className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Audit trail

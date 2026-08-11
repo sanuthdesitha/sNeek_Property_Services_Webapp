@@ -15,6 +15,8 @@ import { publicUrl } from "@/lib/s3";
 
 import { buildReportViewModel } from "./report-view-model";
 import { renderEstateReport } from "./estate-template";
+import { ensureReportVerification, formatVerificationCode } from "./verification";
+import { getAppBaseUrl } from "@/lib/app-url";
 
 const TZ = "Australia/Sydney";
 export const REPORT_TEMPLATE_VERSION = "v5-estate-modern";
@@ -565,7 +567,29 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
   const settings = await getAppSettings();
   const theme = await loadTheme(themeId);
 
-  const html = buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme });
+  // Public verification: every report carries a stable crypto-random code and
+  // (when a base URL is configured) a QR link to the public /verify page.
+  let verification: { codeDisplay: string; url: string | null; qrDataUrl: string | null } | null =
+    null;
+  try {
+    const { code } = await ensureReportVerification(jobId);
+    const baseUrl = getAppBaseUrl();
+    const url = baseUrl ? `${baseUrl}/verify/${code}` : null;
+    let qrDataUrl: string | null = null;
+    if (url) {
+      try {
+        const QRCode = (await import("qrcode")).default;
+        qrDataUrl = await QRCode.toDataURL(url, { margin: 1, scale: 4 });
+      } catch (err) {
+        logger.warn({ err, jobId }, "QR generation failed; report will show code only");
+      }
+    }
+    verification = { codeDisplay: formatVerificationCode(code), url, qrDataUrl };
+  } catch (err) {
+    logger.error({ err, jobId }, "Verification code allocation failed; report renders without it");
+  }
+
+  const html = buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme, verification });
 
   const htmlKey = `reports/${jobId}/report.html`;
   let storedHtmlKey: string | null = null;
@@ -629,7 +653,7 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
   logger.info({ jobId, pdfUrl }, "Job report generated");
 }
 
-function buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme }: any): string {
+function buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme, verification }: any): string {
   const checklist = submission ? buildChecklistHtml(job, submission) : { html: "", usedMediaIds: new Set<string>() };
   const adminRequestedTasks = submission
     ? buildAdminRequestedTasksHtml(submission)
@@ -705,6 +729,7 @@ function buildReportHtml({ job, submission, qa, qaSubmission, localDate, setting
       showSupplies: isSectionVisible(themeRec, "supplies"),
       showFooter,
       customFooter,
+      verification: verification ?? undefined,
     });
   }
 
