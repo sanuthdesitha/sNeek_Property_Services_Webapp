@@ -22,6 +22,7 @@ import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { clearSharedCleanerJobDraft } from "@/lib/cleaner/shared-job-draft";
 import { collectRequiredAnswerFields, collectRequiredUploadFields } from "@/lib/forms/visibility";
+import { sanitizeNoPhotoReasons } from "@/lib/forms/no-photo-reasons";
 import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
 import { applyCleanerJobTaskUpdates, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
@@ -351,13 +352,28 @@ export async function POST(
         proofKeys: Array.isArray(update?.proofKeys) ? update.proofKeys : [],
       };
     });
+    // "No photo taken" exemption: only cleaners the admin selected in settings
+    // may waive an upload requirement, every waived field needs a valid coded
+    // reason, and an actual upload always beats an excuse. The sanitized map is
+    // the ONLY thing stored — an unearned or malformed entry never survives.
+    const appSettings = await getAppSettings();
+    const canUseNoPhoto = appSettings.noPhotoExemptCleanerIds.includes(session.user.id);
+    const noPhotoReasons = canUseNoPhoto
+      ? Object.fromEntries(
+          Object.entries(
+            sanitizeNoPhotoReasons((answers as Record<string, unknown>).__noPhotoReasons)
+          ).filter(([fieldId]) => !uploads[fieldId] || uploads[fieldId].length === 0)
+        )
+      : {};
+
     const missingRequiredUploads = collectRequiredUploadFields(
       effectiveSchema,
       answers,
       (job.property ?? {}) as Record<string, unknown>,
       legacyReady
     ).filter(
-      (field) => !uploads[field.id] || uploads[field.id].length === 0
+      (field) =>
+        (!uploads[field.id] || uploads[field.id].length === 0) && !noPhotoReasons[field.id]
     );
     if (missingRequiredUploads.length > 0) {
       const missingUploadSummary = missingRequiredUploads
@@ -385,7 +401,7 @@ export async function POST(
     // every generated checklist tick mandatory). The flag is handed to the same
     // pure helper the cleaner's client gate uses (it also receives it in the
     // GET /api/jobs/[id]/form payload), so the two can never disagree.
-    const submitGateSettings = (await getAppSettings()).accountability;
+    const submitGateSettings = appSettings.accountability;
     const missingRequiredAnswers = collectRequiredAnswerFields(
       effectiveSchema,
       answers,
@@ -603,6 +619,10 @@ export async function POST(
               __templateVersion: template.id,
               __adminRequestedTasks: adminRequestedTasks,
               __jobTasks: unifiedTaskSnapshot,
+              // Controlled system key: the server-sanctioned waivers only —
+              // whatever the client sent under this key is overridden.
+              __noPhotoReasons:
+                Object.keys(noPhotoReasons).length > 0 ? noPhotoReasons : undefined,
               ...(selfInspectionIncompleteKeys.length > 0
                 ? { __selfInspectionIncomplete: selfInspectionIncompleteKeys }
                 : {}),

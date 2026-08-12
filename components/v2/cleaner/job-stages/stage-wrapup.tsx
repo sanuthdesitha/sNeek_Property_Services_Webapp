@@ -165,7 +165,15 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
         uploadCounts,
         property ?? {},
         laundryEnabled ? api.laundryOutcome === "READY_FOR_PICKUP" : undefined,
-        api.requiredChecklistTicksBlockSubmit
+        api.requiredChecklistTicksBlockSubmit,
+        {
+          canUseNoPhoto: api.canUseNoPhoto,
+          reasons:
+            ((answers as Record<string, unknown>).__noPhotoReasons as Record<
+              string,
+              { reasonCode: string }
+            >) ?? {},
+        }
       )
     : [];
 

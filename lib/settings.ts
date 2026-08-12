@@ -383,6 +383,9 @@ export interface AppSettings {
   // Legacy: an optional light-background logo override just for PDF reports /
   // cleaner invoices. Falls back to logoUrl when empty.
   reportLogoUrl: string;
+  // Cleaners (user ids) allowed to use the "no photo taken" option on upload
+  // fields — an admin-granted exemption for unavoidable circumstances only.
+  noPhotoExemptCleanerIds: string[];
   accountsEmail: string;
   timezone: string;
   websiteContent: WebsiteContent;
@@ -674,6 +677,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   logoUrl: "",
   logoDarkBgUrl: "",
   reportLogoUrl: "",
+  noPhotoExemptCleanerIds: [],
   accountsEmail: "accounts@sneekproservices.com.au",
   timezone: "Australia/Sydney",
   websiteContent: DEFAULT_WEBSITE_CONTENT,
@@ -1638,6 +1642,11 @@ function sanitizeSettings(input: unknown): AppSettings {
       typeof (parsed as any).reportLogoUrl === "string"
         ? (parsed as any).reportLogoUrl.trim()
         : DEFAULT_SETTINGS.reportLogoUrl,
+    noPhotoExemptCleanerIds: Array.isArray((parsed as any).noPhotoExemptCleanerIds)
+      ? ((parsed as any).noPhotoExemptCleanerIds as unknown[])
+          .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+          .map((id) => id.trim())
+      : DEFAULT_SETTINGS.noPhotoExemptCleanerIds,
     accountsEmail:
       typeof (parsed as any).accountsEmail === "string" && (parsed as any).accountsEmail.trim()
         ? (parsed as any).accountsEmail.trim()

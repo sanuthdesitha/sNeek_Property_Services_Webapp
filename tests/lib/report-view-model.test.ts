@@ -198,6 +198,31 @@ describe("buildReportViewModel", () => {
     expect(timing.sub).toBe("2.5 h");
   });
 
+  it("renders a sanctioned no-photo reason as an explicit answer on media fields", () => {
+    const vm = build({}, {
+      data: {
+        __templateSchema: {
+          sections: [
+            {
+              id: "k",
+              label: "Kitchen",
+              fields: [{ id: "kitchen_photos", label: "Kitchen photos", type: "photo" }],
+            },
+          ],
+        },
+        __noPhotoReasons: {
+          kitchen_photos: { reasonCode: "AREA_INACCESSIBLE" },
+        },
+      },
+      media: [],
+      stockTxs: [],
+    });
+    const field = vm.sections[0].fields.find((f) => f.id === "kitchen_photos")!;
+    expect(field.noPhoto).toBe(true);
+    expect(field.answered).toBe(true);
+    expect(field.value).toBe("No photo — Area locked or inaccessible");
+  });
+
   it("prefers the authoritative LaundryTask over stale form answers", () => {
     // Cleaner sent an explicit "ready" update mid-job; the form (submitted
     // hours later) still says not ready. The task must win.

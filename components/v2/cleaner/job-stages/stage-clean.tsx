@@ -54,7 +54,15 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
       uploadCounts,
       property ?? {},
       api.laundryEnabled ? api.laundryOutcome === "READY_FOR_PICKUP" : undefined,
-      api.requiredChecklistTicksBlockSubmit
+      api.requiredChecklistTicksBlockSubmit,
+      {
+        canUseNoPhoto: api.canUseNoPhoto,
+        reasons:
+          ((answers as Record<string, unknown>).__noPhotoReasons as Record<
+            string,
+            { reasonCode: string }
+          >) ?? {},
+      }
     );
     return new Set(errs.map((e) => e.fieldId));
   }, [
@@ -65,6 +73,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
     api.laundryEnabled,
     api.laundryOutcome,
     api.requiredChecklistTicksBlockSubmit,
+    api.canUseNoPhoto,
   ]);
 
   // Per-section required tallies (data + photos), computed the same way
@@ -282,6 +291,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
             collapsibleSections
             sectionProgress={sectionProgress}
             requiredChecklistTicksBlockSubmit={api.requiredChecklistTicksBlockSubmit}
+            canUseNoPhoto={api.canUseNoPhoto}
           />
         </div>
       ) : (

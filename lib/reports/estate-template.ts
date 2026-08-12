@@ -91,6 +91,11 @@ function fieldValueHtml(field: ReportFieldVM): string {
         ? `<img class="est-signature" src="${esc(field.signatureDataUrl)}" alt="${esc(field.label)}" />`
         : `<span class="est-muted">—</span>`;
     case "media":
+      // A sanctioned "no photo taken" reason is a real, visible answer — amber
+      // so it reads as an exception, never silently blank.
+      if (field.noPhoto) {
+        return `<span class="est-pill warn">${esc(field.value)}</span>`;
+      }
       return field.answered
         ? `<span class="est-muted">${esc(field.value)}</span>`
         : `<span class="est-muted">Not uploaded</span>`;
@@ -463,6 +468,7 @@ ${c.headTags}
   .est-pill.good { background: #dcfce7; color: #166534; }
   .est-pill.bad { background: #fee2e2; color: #991b1b; }
   .est-pill.neutral { background: var(--bg-soft); color: var(--muted); }
+  .est-pill.warn { background: #fef3c7; color: #92400e; }
 
   .est-rating { display: inline-flex; align-items: center; gap: 3px; }
   .est-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); display: inline-block; }

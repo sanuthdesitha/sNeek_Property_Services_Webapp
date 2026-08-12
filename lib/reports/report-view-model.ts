@@ -23,6 +23,7 @@ import {
   isFlattenedFieldVisible,
 } from "@/lib/forms/visibility";
 import { QA_TOOLS_DATA_KEY } from "@/lib/qa/inspection-tools";
+import { noPhotoReasonLabel, sanitizeNoPhotoReasons } from "@/lib/forms/no-photo-reasons";
 
 const TZ = "Australia/Sydney";
 const UNANSWERED = "—"; // em dash
@@ -57,6 +58,8 @@ export type ReportFieldVM = {
   signatureDataUrl?: string;
   isChild: boolean;
   media: ReportMediaVM[];
+  /** True when the cleaner recorded a sanctioned "no photo taken" reason. */
+  noPhoto?: boolean;
 };
 
 export type ReportSectionVM = {
@@ -412,6 +415,7 @@ function buildSections(
   const sections = Array.isArray(templateSchema?.sections) ? templateSchema.sections : [];
   const property = job?.property ?? {};
   const media: any[] = Array.isArray(submission?.media) ? submission.media : [];
+  const noPhotoReasons = sanitizeNoPhotoReasons(data.__noPhotoReasons);
 
   const out: ReportSectionVM[] = [];
   for (const section of sections) {
@@ -430,8 +434,22 @@ function buildSections(
       vm.media = rows.map((m) => toMediaVM(m, vm.label));
       rows.forEach((m) => m?.id && usedMediaIds.add(String(m.id)));
       if (vm.kind === "media") {
-        vm.answered = vm.media.length > 0;
-        vm.value = vm.media.length > 0 ? `${vm.media.length} file(s)` : UNANSWERED;
+        // A sanctioned "no photo taken" reason renders as an explicit answer —
+        // never as an unanswered blank — so the reader sees why it's missing.
+        const noPhoto = noPhotoReasons[vm.id];
+        if (vm.media.length > 0) {
+          vm.answered = true;
+          vm.value = `${vm.media.length} file(s)`;
+        } else if (noPhoto) {
+          vm.answered = true;
+          vm.noPhoto = true;
+          vm.value = `No photo — ${noPhotoReasonLabel(noPhoto.reasonCode)}${
+            noPhoto.note ? `: ${noPhoto.note}` : ""
+          }`;
+        } else {
+          vm.answered = false;
+          vm.value = UNANSWERED;
+        }
       }
       return vm;
     });

@@ -174,6 +174,7 @@ const updateSchema = z.object({
   logoUrl: z.string().trim().optional(),
   logoDarkBgUrl: z.string().trim().optional(),
   reportLogoUrl: z.string().trim().optional(),
+  noPhotoExemptCleanerIds: z.array(z.string().trim().min(1)).max(500).optional(),
   accountsEmail: z.string().trim().email().optional(),
   timezone: z.string().trim().min(1).optional(),
   websiteContent: z.any().optional(),

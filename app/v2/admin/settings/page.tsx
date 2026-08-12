@@ -49,6 +49,7 @@ import { RolesSection } from "@/components/v2/admin/settings/roles-section";
 import { AuditSection } from "@/components/v2/admin/settings/audit-section";
 import { AccountabilitySection } from "@/components/v2/admin/settings/accountability-section";
 import { FinalCheckupSettingsSection } from "@/components/v2/admin/settings/final-checkup-settings";
+import { NoPhotoSection } from "@/components/v2/admin/settings/no-photo-section";
 import { NotificationAudienceSection } from "@/components/v2/admin/settings/notification-audience-section";
 
 export const metadata = { title: "Settings · Estate admin" };
@@ -281,6 +282,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
           {/* Final check-up (R7) — the pre-submit acknowledgement dialog config
               lives beside the other cleaner-submission gates. */}
           <FinalCheckupSettingsSection initial={appSettings.finalCheckup} readOnly={!isAdmin} />
+          {/* "No photo taken" exemption roster — same concern family: what a
+              cleaner may skip at submission and what it costs them. */}
+          <NoPhotoSection initial={appSettings.noPhotoExemptCleanerIds} readOnly={!isAdmin} />
         </>
       ) : null}
 

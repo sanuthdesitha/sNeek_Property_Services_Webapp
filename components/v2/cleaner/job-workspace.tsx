@@ -579,6 +579,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   // Read strictly as `=== true` so a payload from an older server (flag absent)
   // keeps the historic, non-blocking behaviour.
   const requiredChecklistTicksBlockSubmit = payload?.requiredChecklistTicksBlockSubmit === true;
+  const canUseNoPhoto = payload?.canUseNoPhoto === true;
   // Laundry-bag confirmation only when there's a labelled bag on a laundry job.
   const laundryBagConfirmRequired = requireStartConfirmation && laundryEnabled && Boolean(bagLabel);
   // Only the FIRST person to start does the heavyweight confirmations. A second
@@ -1027,7 +1028,15 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         uploadCounts,
         property ?? {},
         laundryEnabled ? laundryOutcome === "READY_FOR_PICKUP" : undefined,
-        requiredChecklistTicksBlockSubmit
+        requiredChecklistTicksBlockSubmit,
+        {
+          canUseNoPhoto,
+          reasons:
+            ((answers as Record<string, unknown>).__noPhotoReasons as Record<
+              string,
+              { reasonCode: string }
+            >) ?? {},
+        }
       );
       if (formErrors.length > 0) {
         if (typeof window !== "undefined") window.dispatchEvent(new Event("sneek:validate-form"));
@@ -1281,6 +1290,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     restockNeeds,
     recurringIssues,
     requiredChecklistTicksBlockSubmit,
+    canUseNoPhoto,
     setupGuideEntries,
     teamStarted,
     ownStarted,

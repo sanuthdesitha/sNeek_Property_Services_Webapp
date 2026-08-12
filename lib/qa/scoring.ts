@@ -48,7 +48,15 @@ const RADIO_SCORES: Record<string, number> = {
   Fail: 0,
 };
 
-export function computeQaScore(template: FormSchema, answers: Record<string, unknown>): QaScoreResult {
+/** A scored miss added on top of the template — e.g. a sanctioned "no photo
+ *  taken" waiver: its points join the achievable max with zero earned. */
+export type QaScorePenalty = { points: number; label: string };
+
+export function computeQaScore(
+  template: FormSchema,
+  answers: Record<string, unknown>,
+  penalties?: QaScorePenalty[]
+): QaScoreResult {
   let total = 0;
   let max = 0;
   const sectionScores: QaSectionScore[] = [];
@@ -118,6 +126,24 @@ export function computeQaScore(template: FormSchema, answers: Record<string, unk
         percent: Math.round((sectionPoints / sectionMax) * 100),
       });
     }
+  }
+
+  // Sanctioned "no photo" waivers: each is a scored miss — points join the
+  // achievable max, nothing is earned, and the miss is visible in the
+  // breakdown under its own synthetic section.
+  const penaltyMax = (penalties ?? []).reduce(
+    (sum, p) => sum + (Number.isFinite(p.points) && p.points > 0 ? p.points : 0),
+    0
+  );
+  if (penaltyMax > 0) {
+    max += penaltyMax;
+    sectionScores.push({
+      sectionId: "__noPhoto",
+      title: "Missing photo evidence",
+      points: 0,
+      max: penaltyMax,
+      percent: 0,
+    });
   }
 
   const percent = max > 0 ? Math.round((total / max) * 100) : 0;
