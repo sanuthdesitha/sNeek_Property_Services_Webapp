@@ -79,29 +79,51 @@ type TabKey =
   | "roles"
   | "audit";
 
-const ALL_TABS: Array<{ key: TabKey; label: string; icon: JSX.Element; adminOnly: boolean }> = [
-  { key: "overview", label: "Overview", icon: <LayoutGrid className="h-4 w-4" />, adminOnly: false },
-  { key: "look", label: "Default look", icon: <Palette className="h-4 w-4" />, adminOnly: true },
-  { key: "company", label: "Company & brand", icon: <Building2 className="h-4 w-4" />, adminOnly: false },
-  { key: "bank", label: "Bank & payment", icon: <Landmark className="h-4 w-4" />, adminOnly: false },
-  { key: "safeguards", label: "Operational safeguards", icon: <ShieldCheck className="h-4 w-4" />, adminOnly: true },
-  { key: "notifications", label: "Scheduled notifications", icon: <BellRing className="h-4 w-4" />, adminOnly: true },
-  { key: "message-channels", label: "Message channels", icon: <Megaphone className="h-4 w-4" />, adminOnly: true },
-  { key: "rates", label: "Cleaner rates", icon: <DollarSign className="h-4 w-4" />, adminOnly: true },
-  { key: "pricing-variables", label: "Pricing variables", icon: <SlidersHorizontal className="h-4 w-4" />, adminOnly: true },
-  { key: "accountability", label: "Accountability", icon: <ClipboardCheck className="h-4 w-4" />, adminOnly: true },
-  { key: "portals", label: "Portal visibility", icon: <Eye className="h-4 w-4" />, adminOnly: true },
-  { key: "laundry", label: "Laundry & locations", icon: <Shirt className="h-4 w-4" />, adminOnly: true },
-  { key: "public-widgets", label: "Public site widgets", icon: <Globe className="h-4 w-4" />, adminOnly: true },
-  { key: "profile-permissions", label: "Profile permissions", icon: <UserCog className="h-4 w-4" />, adminOnly: true },
-  { key: "integrations", label: "Integrations", icon: <Plug className="h-4 w-4" />, adminOnly: true },
-  { key: "ical-sync", label: "iCal sync", icon: <CalendarCheck className="h-4 w-4" />, adminOnly: true },
-  { key: "payment-gateways", label: "Payment gateways", icon: <CreditCard className="h-4 w-4" />, adminOnly: true },
-  { key: "xero", label: "Xero", icon: <FileSpreadsheet className="h-4 w-4" />, adminOnly: true },
-  { key: "finance-notifications", label: "Finance notifications", icon: <BellRing className="h-4 w-4" />, adminOnly: true },
-  { key: "notification-tools", label: "Notification tools", icon: <Send className="h-4 w-4" />, adminOnly: false },
-  { key: "roles", label: "Roles & permissions", icon: <KeyRound className="h-4 w-4" />, adminOnly: true },
-  { key: "audit", label: "Audit log", icon: <History className="h-4 w-4" />, adminOnly: true },
+// Every tab now belongs to a labelled GROUP so related settings sit together
+// (all notification surfaces in one row, all money in another, …). Keys are
+// unchanged — every existing ?tab= deep link keeps working.
+const GROUP_ORDER = [
+  "Overview",
+  "Company & brand",
+  "Notifications",
+  "Money",
+  "Cleaners & quality",
+  "Operations",
+  "Access & permissions",
+  "System",
+] as const;
+type TabGroup = (typeof GROUP_ORDER)[number];
+
+const ALL_TABS: Array<{ key: TabKey; label: string; icon: JSX.Element; adminOnly: boolean; group: TabGroup }> = [
+  { key: "overview", label: "Overview", icon: <LayoutGrid className="h-4 w-4" />, adminOnly: false, group: "Overview" },
+  // Company & brand — identity, look, and everything the public site shows.
+  { key: "company", label: "Company & brand", icon: <Building2 className="h-4 w-4" />, adminOnly: false, group: "Company & brand" },
+  { key: "look", label: "Default look", icon: <Palette className="h-4 w-4" />, adminOnly: true, group: "Company & brand" },
+  { key: "public-widgets", label: "Public site widgets", icon: <Globe className="h-4 w-4" />, adminOnly: true, group: "Company & brand" },
+  // Notifications — every channel and schedule in one place.
+  { key: "notifications", label: "Scheduled notifications", icon: <BellRing className="h-4 w-4" />, adminOnly: true, group: "Notifications" },
+  { key: "message-channels", label: "Message channels", icon: <Megaphone className="h-4 w-4" />, adminOnly: true, group: "Notifications" },
+  { key: "finance-notifications", label: "Finance notifications", icon: <BellRing className="h-4 w-4" />, adminOnly: true, group: "Notifications" },
+  { key: "notification-tools", label: "Notification tools", icon: <Send className="h-4 w-4" />, adminOnly: false, group: "Notifications" },
+  // Money — banking, rates, pricing and the systems that move funds.
+  { key: "bank", label: "Bank & payment", icon: <Landmark className="h-4 w-4" />, adminOnly: false, group: "Money" },
+  { key: "rates", label: "Cleaner rates", icon: <DollarSign className="h-4 w-4" />, adminOnly: true, group: "Money" },
+  { key: "pricing-variables", label: "Pricing variables", icon: <SlidersHorizontal className="h-4 w-4" />, adminOnly: true, group: "Money" },
+  { key: "payment-gateways", label: "Payment gateways", icon: <CreditCard className="h-4 w-4" />, adminOnly: true, group: "Money" },
+  { key: "xero", label: "Xero", icon: <FileSpreadsheet className="h-4 w-4" />, adminOnly: true, group: "Money" },
+  // Cleaners & quality — submission gates, QA automation, accountability.
+  { key: "safeguards", label: "Operational safeguards", icon: <ShieldCheck className="h-4 w-4" />, adminOnly: true, group: "Cleaners & quality" },
+  { key: "accountability", label: "Accountability", icon: <ClipboardCheck className="h-4 w-4" />, adminOnly: true, group: "Cleaners & quality" },
+  // Operations — day-to-day logistics and calendar plumbing.
+  { key: "laundry", label: "Laundry & locations", icon: <Shirt className="h-4 w-4" />, adminOnly: true, group: "Operations" },
+  { key: "ical-sync", label: "iCal sync", icon: <CalendarCheck className="h-4 w-4" />, adminOnly: true, group: "Operations" },
+  { key: "integrations", label: "Integrations", icon: <Plug className="h-4 w-4" />, adminOnly: true, group: "Operations" },
+  // Access & permissions — who can see and do what.
+  { key: "portals", label: "Portal visibility", icon: <Eye className="h-4 w-4" />, adminOnly: true, group: "Access & permissions" },
+  { key: "profile-permissions", label: "Profile permissions", icon: <UserCog className="h-4 w-4" />, adminOnly: true, group: "Access & permissions" },
+  { key: "roles", label: "Roles & permissions", icon: <KeyRound className="h-4 w-4" />, adminOnly: true, group: "Access & permissions" },
+  // System — the record of everything.
+  { key: "audit", label: "Audit log", icon: <History className="h-4 w-4" />, adminOnly: true, group: "System" },
 ];
 
 export default async function SettingsPage({ searchParams }: { searchParams: { tab?: string } }) {
@@ -126,29 +148,43 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
         description="Grouped operational settings with integrations and API credentials."
       />
 
-      <EChipTabs
-        tabs={[
-          ...availableTabs.map((t) => ({
-            key: t.key,
-            label: t.label,
-            icon: t.icon,
-            href: `/v2/admin/settings?tab=${t.key}`,
-            active: t.key === activeTab,
-          })),
-          // Standalone editor (its own route) — surfaced here for discoverability.
-          ...(isAdmin
-            ? [
-                {
-                  key: "property-form",
-                  label: "Property form",
-                  icon: <ClipboardCheck className="h-4 w-4" />,
-                  href: "/v2/admin/settings/property-form",
-                  active: false,
-                },
-              ]
-            : []),
-        ]}
-      />
+      {/* Grouped rail: one labelled row per settings family, so every
+          notification surface (for example) sits together instead of being
+          scattered through a 23-chip strip. */}
+      <div className="space-y-3">
+        {GROUP_ORDER.map((group) => {
+          const tabs: Array<{ key: string; label: string; icon: JSX.Element; href: string; active: boolean }> =
+            availableTabs.filter((t) => t.group === group).map((t) => ({
+              key: t.key,
+              label: t.label,
+              icon: t.icon,
+              href: `/v2/admin/settings?tab=${t.key}`,
+              active: t.key === activeTab,
+            }));
+          // Standalone editor (its own route) — surfaced with its family for
+          // discoverability.
+          if (group === "Company & brand" && isAdmin) {
+            tabs.push({
+              key: "property-form",
+              label: "Property form",
+              icon: <ClipboardCheck className="h-4 w-4" />,
+              href: "/v2/admin/settings/property-form",
+              active: false,
+            });
+          }
+          if (tabs.length === 0) return null;
+          return (
+            <div key={group} className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <span className="w-40 shrink-0 text-[0.6875rem] font-[600] uppercase tracking-[0.12em] text-[hsl(var(--e-text-faint))]">
+                {group}
+              </span>
+              <div className="min-w-0 flex-1">
+                <EChipTabs tabs={tabs} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       {activeTab === "overview" ? <OverviewSection isAdmin={isAdmin} /> : null}
 
