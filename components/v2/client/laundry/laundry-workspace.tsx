@@ -34,7 +34,11 @@ const TZ = "Australia/Sydney";
 // "DROPPED_OFF"/"COMPLETED" — values that never exist — so a returned/skipped
 // bag never showed as done and stayed out of sync with what admin/cleaner sent.
 const COMPLETED_LAUNDRY_STATUSES = new Set(["DROPPED", "SKIPPED_PICKUP"]);
-type FilterMode = "day" | "week" | "month";
+// "all" exists and is the DEFAULT because the page previously opened on a
+// week window anchored to today: a client whose laundry fell outside the
+// current week landed on two empty cards and reasonably read the page as
+// broken. The page must always show the client's laundry until they narrow it.
+type FilterMode = "all" | "day" | "week" | "month";
 
 function toLocalDate(value: string | Date) {
   return toZonedTime(new Date(value), TZ);
@@ -88,6 +92,7 @@ function compareLaundryTasks(left: any, right: any, today: Date) {
 }
 function getFilterRange(mode: FilterMode, anchorDate: string) {
   const anchor = parseDayKey(anchorDate);
+  if (mode === "all") return null;
   if (mode === "day") return { start: startOfDay(anchor), end: endOfDay(anchor) };
   if (mode === "week") return { start: startOfWeek(anchor, { weekStartsOn: 1 }), end: endOfWeek(anchor, { weekStartsOn: 1 }) };
   return { start: startOfMonth(anchor), end: endOfMonth(anchor) };
@@ -182,7 +187,7 @@ export function LaundryWorkspace({ tasks, showLaundryImages }: { tasks: any[]; s
   const linkedTaskId = searchParams.get("task");
   const linkedJobId = searchParams.get("job");
   const today = useMemo(() => todayLocal(), []);
-  const [filterMode, setFilterMode] = useState<FilterMode>("week");
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [anchorDate, setAnchorDate] = useState(defaultDayKey());
   const taskRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const linkedTargetInitialized = useRef(false);
@@ -207,7 +212,8 @@ export function LaundryWorkspace({ tasks, showLaundryImages }: { tasks: any[]; s
 
   const filteredTasks = useMemo(() => {
     const range = getFilterRange(filterMode, anchorDate);
-    return tasks.filter((t) => touchesRange(t, range.start, range.end)).sort((l, r) => compareLaundryTasks(l, r, today));
+    const inRange = range ? tasks.filter((t) => touchesRange(t, range.start, range.end)) : [...tasks];
+    return inRange.sort((l, r) => compareLaundryTasks(l, r, today));
   }, [anchorDate, filterMode, tasks, today]);
 
   const visibleFilteredTasks = useMemo(() => {
@@ -290,21 +296,30 @@ export function LaundryWorkspace({ tasks, showLaundryImages }: { tasks: any[]; s
           <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{summary.detail}</p>
         </div>
 
-        <div className="mt-3 space-y-2">
-          {Array.isArray(task.confirmations) && task.confirmations.length > 0 ? (
-            task.confirmations.map((confirmation: any) => (
-              <div key={confirmation.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3">
-                <p className="font-[550]">{format(new Date(confirmation.createdAt), "dd MMM yyyy HH:mm")}</p>
-                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                  {getLaundryConfirmationLabel(confirmation)}
-                  {confirmation.bagLocation ? ` • ${confirmation.bagLocation}` : ""}
-                </p>
-              </div>
-            ))
-          ) : (
-            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">No laundry confirmations recorded yet.</p>
-          )}
-        </div>
+        {/* Brief by default: the "Latest update" box above already says what
+            happened, so the full confirmation feed stays folded away and is
+            opened only when someone actually wants the history. */}
+        {Array.isArray(task.confirmations) && task.confirmations.length > 0 ? (
+          <details className="mt-3 group">
+            <summary className="cursor-pointer select-none list-none text-[0.75rem] font-[550] text-[hsl(var(--e-gold-ink))] hover:underline">
+              {task.confirmations.length} update{task.confirmations.length === 1 ? "" : "s"} · show details
+            </summary>
+            <div className="mt-2 space-y-2">
+              {task.confirmations.map((confirmation: any) => (
+                <div
+                  key={confirmation.id}
+                  className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3"
+                >
+                  <p className="font-[550]">{format(new Date(confirmation.createdAt), "dd MMM yyyy HH:mm")}</p>
+                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    {getLaundryConfirmationLabel(confirmation)}
+                    {confirmation.bagLocation ? ` • ${confirmation.bagLocation}` : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : null}
 
         {task.skipReasonCode ? (
           <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
@@ -368,6 +383,7 @@ export function LaundryWorkspace({ tasks, showLaundryImages }: { tasks: any[]; s
       <ECard>
         <ECardBody className="flex flex-col gap-3 p-4">
           <div className="flex flex-wrap items-center gap-2">
+            <FilterChip active={filterMode === "all"} label="All" onClick={() => setFilterMode("all")} />
             <FilterChip active={filterMode === "day"} label="Day" onClick={() => setFilterMode("day")} />
             <FilterChip active={filterMode === "week"} label="Week" onClick={() => setFilterMode("week")} />
             <FilterChip active={filterMode === "month"} label="Month" onClick={() => setFilterMode("month")} />
@@ -416,10 +432,14 @@ export function LaundryWorkspace({ tasks, showLaundryImages }: { tasks: any[]; s
       <div className="space-y-4">
         <div>
           <p className="text-[0.875rem] font-[550]">
-            {filterMode === "day" ? "Selected day" : filterMode === "week" ? "Selected week" : "Selected month"} schedule
+            {filterMode === "all"
+              ? "All laundry schedules"
+              : `${filterMode === "day" ? "Selected day" : filterMode === "week" ? "Selected week" : "Selected month"} schedule`}
           </p>
           <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-            Filtered by cleaning, pickup, or drop-off date around {format(parseDayKey(anchorDate), "dd MMM yyyy")}.
+            {filterMode === "all"
+              ? "Every laundry schedule for your properties, newest activity first."
+              : `Filtered by cleaning, pickup, or drop-off date around ${format(parseDayKey(anchorDate), "dd MMM yyyy")}.`}
           </p>
         </div>
         {visibleFilteredTasks.length > 0 ? (

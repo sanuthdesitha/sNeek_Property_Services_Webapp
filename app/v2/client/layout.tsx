@@ -4,47 +4,74 @@ import * as React from "react";
 import { usePathname } from "next/navigation";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
 import {
+  Boxes,
+  Briefcase,
   Building2,
+  CalendarPlus,
   CalendarRange,
   ClipboardCheck,
+  ClipboardList,
+  FileSpreadsheet,
   FileText,
+  Gift,
   Home,
   MessageSquare,
-  MoreHorizontal,
+  PackageSearch,
+  Scale,
+  Settings,
+  Shirt,
+  ShoppingCart,
+  UserRound,
   Wallet,
+  Wrench,
 } from "lucide-react";
 
 /**
- * Client nav. PortalShell renders nav.slice(0,5) as the mobile bottom tabs and
- * the FULL list as the desktop rail + mobile drawer.
+ * Client nav — every destination is listed and grouped under a small heading.
  *
- * The first five are the bottom bar — Home, Services, Approvals, Messages, More.
- * Approvals was promoted out of the More hub because it is the only destination
- * that blocks work (extras must be OK'd before they're done and billed) and the
- * only one carrying a count; "More" now actually appears on the bottom bar
- * instead of being clipped off the end by slice(0,5).
+ * There is no "More" catch-all any more: it sat mid-list, hid a dozen real
+ * destinations behind an extra tap, and meant the rail's order didn't reflect
+ * how the portal is actually used. "Services" is gone too — it was the jobs
+ * list under another name (that route now redirects to /jobs).
  *
- * Reports, Properties and Money sit after More: always visible on the desktop
- * rail + mobile drawer, and still listed in the /more hub on phones. Everything
- * else (booking, quotes, calendar, laundry, inventory, maintenance, cases,
- * referrals, profile, settings) stays in the More hub — nothing is orphaned.
+ * PortalShell renders nav.slice(0,5) as the mobile bottom tabs, so the first
+ * five are deliberately the daily destinations — Home, Jobs, Laundry,
+ * Approvals, Reports. Everything else is one tap away in the mobile drawer and
+ * always visible on the desktop rail.
  */
 function buildNav(pendingApprovals: number): NavItem[] {
   return [
-    { href: "/v2/client", label: "Home", icon: Home },
-    { href: "/v2/client/services", label: "Services", icon: CalendarRange },
+    { href: "/v2/client", label: "Home", icon: Home, group: "Overview" },
+    // Bottom-bar four (after Home) — the daily flow.
+    { href: "/v2/client/jobs", label: "Jobs", icon: Briefcase, group: "Your cleans" },
+    { href: "/v2/client/laundry", label: "Laundry", icon: Shirt, group: "Your cleans" },
     {
       href: "/v2/client/approvals",
       label: "Approvals",
       icon: ClipboardCheck,
       badge: pendingApprovals || undefined,
+      group: "Your cleans",
     },
-    { href: "/v2/client/messages", label: "Messages", icon: MessageSquare },
-    { href: "/v2/client/more", label: "More", icon: MoreHorizontal },
-    // After More → desktop rail + mobile drawer only (not the bottom bar).
-    { href: "/v2/client/reports", label: "Reports", icon: FileText },
-    { href: "/v2/client/properties", label: "Properties", icon: Building2 },
-    { href: "/v2/client/money", label: "Money", icon: Wallet },
+    { href: "/v2/client/reports", label: "Reports", icon: FileText, group: "Your cleans" },
+    { href: "/v2/client/calendar", label: "Calendar", icon: CalendarRange, group: "Your cleans" },
+    { href: "/v2/client/booking", label: "Book a clean", icon: CalendarPlus, group: "Your cleans" },
+
+    { href: "/v2/client/properties", label: "Properties", icon: Building2, group: "Your homes" },
+    { href: "/v2/client/inventory", label: "Inventory", icon: Boxes, group: "Your homes" },
+    { href: "/v2/client/shopping", label: "Shopping", icon: ShoppingCart, group: "Your homes" },
+    { href: "/v2/client/stock-runs", label: "Stock runs", icon: PackageSearch, group: "Your homes" },
+
+    { href: "/v2/client/cases", label: "Cases", icon: ClipboardList, group: "Support" },
+    { href: "/v2/client/disputes", label: "Disputes", icon: Scale, group: "Support" },
+    { href: "/v2/client/maintenance", label: "Maintenance", icon: Wrench, group: "Support" },
+    { href: "/v2/client/messages", label: "Messages", icon: MessageSquare, group: "Support" },
+
+    { href: "/v2/client/money", label: "Money", icon: Wallet, group: "Billing" },
+    { href: "/v2/client/quotes", label: "Quotes", icon: FileSpreadsheet, group: "Billing" },
+
+    { href: "/v2/client/referrals", label: "Referrals", icon: Gift, group: "Account" },
+    { href: "/v2/client/profile", label: "Profile", icon: UserRound, group: "Account" },
+    { href: "/v2/client/settings", label: "Settings", icon: Settings, group: "Account" },
   ];
 }
 
