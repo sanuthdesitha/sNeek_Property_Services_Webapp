@@ -225,6 +225,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
               autoCreateReworkJob: appSettings.qaAutomation.autoCreateReworkJob,
               failureThreshold: appSettings.qaAutomation.failureThreshold,
               reworkDelayHours: appSettings.qaAutomation.reworkDelayHours,
+              autoScoreEnabled: appSettings.qaAutomation.autoScoreEnabled,
+              autoScoreAfterHours: appSettings.qaAutomation.autoScoreAfterHours,
             },
             qaPay: {
               defaultMode: appSettings.qaPay.defaultMode,
