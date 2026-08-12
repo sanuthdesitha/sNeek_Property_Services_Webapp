@@ -235,6 +235,15 @@ export interface QaAutomationSettings {
    * wants an open pool can say so explicitly.
    */
   assignedOnly: boolean;
+  /**
+   * Auto-score a submitted job that never got a real QA inspection, once its
+   * submission is `autoScoreAfterHours` old. The score is the same suggestion
+   * the admin's quick-score queue shows, filed as an AUTO review — a real
+   * inspection (kind "QA") always outranks it and is never overwritten.
+   */
+  autoScoreEnabled: boolean;
+  /** Hours after submission before the auto score applies (1-720). */
+  autoScoreAfterHours: number;
 }
 
 /**
@@ -838,6 +847,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     reworkDelayHours: 24,
     createIssueTicket: true,
     assignedOnly: true,
+    autoScoreEnabled: true,
+    autoScoreAfterHours: 24,
   },
   qaPay: DEFAULT_QA_PAY_SETTINGS,
   accountability: DEFAULT_ACCOUNTABILITY_SETTINGS,
@@ -1265,6 +1276,16 @@ function sanitizeQaAutomationSettings(
         : fallback.createIssueTicket,
     assignedOnly:
       typeof row.assignedOnly === "boolean" ? row.assignedOnly : fallback.assignedOnly,
+    autoScoreEnabled:
+      typeof row.autoScoreEnabled === "boolean" ? row.autoScoreEnabled : fallback.autoScoreEnabled,
+    // Up to 30 days: some clients only dispute a clean a week later, so an
+    // admin may legitimately want a long grace period before automation closes
+    // the job out.
+    autoScoreAfterHours: clamp(
+      Number(row.autoScoreAfterHours ?? fallback.autoScoreAfterHours),
+      1,
+      720
+    ),
   };
 }
 

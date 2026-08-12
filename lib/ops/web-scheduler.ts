@@ -90,6 +90,15 @@ const JOBS: FallbackJob[] = [
   // Close the clocks on jobs stuck IN_PROGRESS > 24h and move them to PAUSED so
   // they land back on the admin radar (see lib/ops/auto-pause.ts).
   { name: "auto-pause-stale-jobs", minIntervalMs: 30 * MIN, run: async () => { await autoPauseStaleJobs(new Date()); } },
+  // Close out submitted jobs nobody inspected: after settings.qaAutomation
+  // .autoScoreAfterHours (default 24h) apply the suggested score as an AUTO
+  // review. A real inspection always outranks it (lib/qa/authority.ts), and the
+  // sweep no-ops when autoScoreEnabled is off. Hourly is enough for an
+  // hours-granularity window.
+  { name: "qa-auto-score", minIntervalMs: HOUR, run: async () => {
+    const { runQaAutoScoreSweep } = await import("@/lib/qa/auto-score");
+    await runQaAutoScoreSweep({ now: new Date() });
+  } },
   // Time-pinned daily jobs (Sydney). minInterval > 1h so they only fire once
   // per window across multiple 5-min ticks.
   { name: "daily-ops-briefing", minIntervalMs: 20 * HOUR, hour: 7, run: async () => { await sendDailyOpsBriefing(new Date()); } },

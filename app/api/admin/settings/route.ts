@@ -149,6 +149,9 @@ const qaAutomationSchema = z.object({
   autoCreateReworkJob: z.boolean().optional(),
   reworkDelayHours: z.number().int().min(1).max(168).optional(),
   createIssueTicket: z.boolean().optional(),
+  autoScoreEnabled: z.boolean().optional(),
+  // Up to 30 days — the admin owns how long a clean may sit uninspected.
+  autoScoreAfterHours: z.number().int().min(1).max(720).optional(),
 });
 
 const qaPaySchema = z.object({

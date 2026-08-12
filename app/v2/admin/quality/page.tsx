@@ -12,6 +12,7 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { ClipboardCheck, ShieldCheck, CheckCircle2 } from "lucide-react";
+import { QuickScoreQueue } from "@/components/v2/admin/quality/quick-score-queue";
 
 export const metadata = { title: "Quality · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -83,6 +84,10 @@ export default async function AdminQualityPage() {
         <EStatCard label="In progress" value={String(inProgress)} delta="being inspected" deltaTone="neutral" icon={<ClipboardCheck className="h-4 w-4" />} />
         <EStatCard label="Completed today" value={String(completedToday)} delta="reviews closed" deltaTone="neutral" icon={<CheckCircle2 className="h-4 w-4" />} />
       </section>
+
+      {/* Jobs nobody inspected: suggested scores the admin can bulk-approve to
+          completion. Jobs WITH a real inspection never appear here. */}
+      <QuickScoreQueue />
 
       <div className="space-y-3">
         <span className="e-eyebrow">INSPECTION QUEUE</span>

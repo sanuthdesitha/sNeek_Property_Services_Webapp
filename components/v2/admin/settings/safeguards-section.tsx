@@ -48,6 +48,8 @@ export type SafeguardsSettings = {
     autoCreateReworkJob: boolean;
     failureThreshold: number;
     reworkDelayHours: number;
+    autoScoreEnabled: boolean;
+    autoScoreAfterHours: number;
   };
   /** What a QA inspection pays by default. Per-assignment overrides win, and an
    *  inspector's own hourly rate (User.hourlyRate) sits between the two. */
@@ -383,6 +385,34 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
                 />
               </EField>
             </div>
+            {/* Auto-score: closes out submitted jobs nobody inspected. A real
+                inspection always outranks the auto score and is never
+                overwritten. */}
+            <EToggle
+              checked={form.qaAutomation.autoScoreEnabled}
+              onChange={(v) => setForm((p) => ({ ...p, qaAutomation: { ...p.qaAutomation, autoScoreEnabled: v } }))}
+              disabled={readOnly}
+              label="Auto-score uninspected jobs"
+              description="Applies the suggested score (from the cleaner's submission) to submitted jobs that never got a QA inspection. A real inspection always wins and is never overwritten."
+            />
+            <EField label="Auto-score after (hours)">
+              <EInput
+                type="number"
+                min={1}
+                max={720}
+                value={form.qaAutomation.autoScoreAfterHours}
+                onChange={(e) =>
+                  setForm((p) => ({
+                    ...p,
+                    qaAutomation: {
+                      ...p.qaAutomation,
+                      autoScoreAfterHours: Number(e.target.value || p.qaAutomation.autoScoreAfterHours),
+                    },
+                  }))
+                }
+                disabled={readOnly || !form.qaAutomation.autoScoreEnabled}
+              />
+            </EField>
           </div>
         </ECard>
         <ECard className="p-6">
