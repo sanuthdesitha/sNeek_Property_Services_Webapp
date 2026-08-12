@@ -35,6 +35,11 @@ import {
 } from "@/lib/forms/visibility";
 import { collectFormErrors, type FormFieldError } from "@/lib/forms/validate-submission";
 import { isUploadFieldType } from "@/lib/forms/field-types";
+import {
+  NO_PHOTO_REASONS,
+  type NoPhotoReasonCode,
+  type NoPhotoReasonEntry,
+} from "@/lib/forms/no-photo-reasons";
 import { stripHtmlToText } from "@/lib/forms/sanitize";
 import type { StampOptions } from "@/lib/uploads/stamp";
 import { cn } from "@/lib/utils";
@@ -79,6 +84,9 @@ const ValidationContext = React.createContext<ValidationCtx>({
   registerAnchor: () => {},
 });
 
+/** Whether THIS cleaner may use the "no photo taken" option (admin-granted). */
+const NoPhotoContext = React.createContext<boolean>(false);
+
 export function FormRenderer({
   schema,
   answers,
@@ -94,6 +102,7 @@ export function FormRenderer({
   restockNeeds,
   onExtrasChanged,
   requiredChecklistTicksBlockSubmit = false,
+  canUseNoPhoto = false,
 }: {
   schema: FormSchema;
   answers: AnswerMap;
@@ -132,6 +141,11 @@ export function FormRenderer({
    * validation matches the wrap-up gate and the submit route exactly.
    */
   requiredChecklistTicksBlockSubmit?: boolean;
+  /**
+   * Admin-granted "no photo taken" exemption for THIS cleaner (from the form
+   * payload). Shows the option on photo fields; the submit route re-checks it.
+   */
+  canUseNoPhoto?: boolean;
 }) {
   const sections = Array.isArray(schema?.sections) ? schema.sections : [];
 
@@ -191,9 +205,17 @@ export function FormRenderer({
         uploadCounts,
         property,
         undefined,
-        requiredChecklistTicksBlockSubmit
+        requiredChecklistTicksBlockSubmit,
+        {
+          canUseNoPhoto,
+          reasons:
+            ((answers as Record<string, unknown>).__noPhotoReasons as Record<
+              string,
+              { reasonCode: string }
+            >) ?? {},
+        }
       ),
-    [schema, answers, uploadCounts, property, requiredChecklistTicksBlockSubmit]
+    [schema, answers, uploadCounts, property, requiredChecklistTicksBlockSubmit, canUseNoPhoto]
   );
   const errorMap = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -264,6 +286,7 @@ export function FormRenderer({
     : errors.filter((e) => touched.has(e.fieldId));
 
   return (
+    <NoPhotoContext.Provider value={canUseNoPhoto}>
     <ValidationContext.Provider value={validation}>
       <div className="space-y-5">
         {visibleErrors.length > 0 ? (
@@ -298,6 +321,7 @@ export function FormRenderer({
         />
       </div>
     </ValidationContext.Provider>
+    </NoPhotoContext.Provider>
   );
 }
 
@@ -937,6 +961,16 @@ function FieldBlock({
         property={property}
         error={showFieldError}
       />
+      {isUploadFieldType(field.type) &&
+      (field.type === "photo" || (field as { mediaMode?: string }).mediaMode === "both") ? (
+        <NoPhotoOption
+          fieldId={String(field.id)}
+          hasUploads={(uploads[field.id]?.length ?? 0) > 0}
+          answers={answers}
+          onAnswer={onAnswer}
+          disabled={disabled}
+        />
+      ) : null}
       {/* yes/no detail note when answered "No" */}
       {field.type === "yesno" && field.detailsWhenNo && (value === "no" || value === false) ? (
         <ETextarea
@@ -1232,6 +1266,134 @@ function FieldControl({
  * Reference/example media shown next to a task: small image thumbnails that open
  * a swipeable lightbox (prev/next) on tap, plus plain links for videos/URLs.
  */
+/**
+ * "I couldn't take a photo" — admin-granted exemption, deliberately understated
+ * so it never reads as an easy way out. Recording a reason waives the field's
+ * photo requirement (the server re-checks the grant); an actual upload always
+ * beats the waiver, and a recorded miss deducts QA points automatically.
+ */
+function NoPhotoOption({
+  fieldId,
+  hasUploads,
+  answers,
+  onAnswer,
+  disabled,
+}: {
+  fieldId: string;
+  hasUploads: boolean;
+  answers: Record<string, unknown>;
+  onAnswer: (fieldId: string, value: unknown) => void;
+  disabled: boolean;
+}) {
+  const canUseNoPhoto = React.useContext(NoPhotoContext);
+  const [expanded, setExpanded] = React.useState(false);
+  const [reasonCode, setReasonCode] = React.useState<NoPhotoReasonCode | "">("");
+  const [note, setNote] = React.useState("");
+
+  const reasonsMap =
+    ((answers as Record<string, unknown>).__noPhotoReasons as
+      | Record<string, NoPhotoReasonEntry>
+      | undefined) ?? {};
+  const entry = reasonsMap[fieldId];
+
+  if (!canUseNoPhoto || hasUploads) return null;
+
+  const writeMap = (next: Record<string, NoPhotoReasonEntry>) => {
+    onAnswer("__noPhotoReasons", next);
+  };
+
+  if (entry) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning))] bg-[hsl(var(--e-surface-2))] px-3 py-2 text-[0.75rem]">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-warning))]" />
+        <span className="min-w-0 font-[550]">
+          No photo — {NO_PHOTO_REASONS[entry.reasonCode]}
+          {entry.note ? ` (${entry.note})` : ""}
+        </span>
+        <span className="text-[hsl(var(--e-text-faint))]">QA points will be deducted.</span>
+        <EButton
+          size="sm"
+          variant="ghost"
+          disabled={disabled}
+          onClick={() => {
+            const next = { ...reasonsMap };
+            delete next[fieldId];
+            writeMap(next);
+            setExpanded(false);
+          }}
+        >
+          Undo
+        </EButton>
+      </div>
+    );
+  }
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setExpanded(true)}
+        className="text-left text-[0.75rem] text-[hsl(var(--e-text-faint))] underline-offset-2 hover:underline disabled:opacity-50"
+      >
+        I couldn&apos;t take a photo…
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-2))] p-3">
+      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+        Photos are expected for every item — use this only when a photo is genuinely impossible.
+        Missing photos automatically deduct points from your QA score.
+      </p>
+      <ESelect
+        value={reasonCode}
+        disabled={disabled}
+        onChange={(e) => setReasonCode(e.target.value as NoPhotoReasonCode | "")}
+      >
+        <option value="">Why couldn&apos;t you take a photo?</option>
+        {Object.entries(NO_PHOTO_REASONS).map(([code, label]) => (
+          <option key={code} value={code}>
+            {label}
+          </option>
+        ))}
+      </ESelect>
+      <ETextarea
+        placeholder={reasonCode === "OTHER" ? "Explain what happened (required)" : "Add a note (optional)"}
+        value={note}
+        disabled={disabled}
+        onChange={(e) => setNote(e.target.value)}
+      />
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <EButton size="sm" variant="ghost" disabled={disabled} onClick={() => setExpanded(false)}>
+          Cancel
+        </EButton>
+        <EButton
+          size="sm"
+          variant="outline"
+          disabled={disabled || !reasonCode || (reasonCode === "OTHER" && !note.trim())}
+          onClick={() => {
+            if (!reasonCode) return;
+            writeMap({
+              ...reasonsMap,
+              [fieldId]: {
+                reasonCode,
+                ...(note.trim() ? { note: note.trim() } : {}),
+              },
+            });
+            setExpanded(false);
+            setReasonCode("");
+            setNote("");
+          }}
+        >
+          Record no photo
+        </EButton>
+      </div>
+    </div>
+  );
+}
+
 function ReferenceThumbs({ references }: { references: any[] }) {
   const [lightbox, setLightbox] = React.useState<number | null>(null);
   const imageRefs = references.filter((r) => r?.kind === "image" && r?.url);

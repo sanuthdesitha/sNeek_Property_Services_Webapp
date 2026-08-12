@@ -53,10 +53,22 @@ export function collectFormErrors(
    * false so a caller that doesn't pass it keeps the historic behaviour, and so
    * this client mirror can never be stricter than the server by accident.
    */
-  requiredChecklistTicksBlockSubmit: boolean = false
+  requiredChecklistTicksBlockSubmit: boolean = false,
+  /**
+   * "No photo taken" exemption (admin-granted per cleaner). When the cleaner
+   * holds the exemption and has recorded a reason for a field, that field's
+   * upload requirement and minimum-file rule are waived here — mirroring the
+   * server, which stays authoritative and re-checks the grant.
+   */
+  noPhoto?: {
+    canUseNoPhoto: boolean;
+    reasons: Record<string, { reasonCode: string } | undefined>;
+  }
 ): FormFieldError[] {
   const errors: FormFieldError[] = [];
   const seen = new Set<string>();
+  const hasNoPhotoWaiver = (fieldId: string) =>
+    noPhoto?.canUseNoPhoto === true && Boolean(noPhoto.reasons?.[fieldId]);
 
   const push = (err: FormFieldError) => {
     if (seen.has(err.fieldId)) return;
@@ -83,6 +95,7 @@ export function collectFormErrors(
   // 2) Required upload fields with nothing committed.
   for (const field of collectRequiredUploadFields(templateSchema, answers, property, laundryReady)) {
     if ((uploadCounts[field.id] ?? 0) > 0) continue;
+    if (hasNoPhotoWaiver(field.id)) continue;
     push({
       fieldId: field.id,
       sectionId: field.sectionId,
@@ -116,7 +129,7 @@ export function collectFormErrors(
       if (type === "photo" || type === "file") {
         const need = Math.max(0, Number(field.minPhotos ?? 0));
         const have = uploadCounts[String(field.id)] ?? 0;
-        if (need > 0 && have < need) {
+        if (need > 0 && have < need && !hasNoPhotoWaiver(String(field.id))) {
           const noun = type === "file" ? "file" : "photo";
           push({
             fieldId: String(field.id),

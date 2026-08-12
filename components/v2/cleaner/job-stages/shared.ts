@@ -96,6 +96,8 @@ export interface WorkspaceApi {
    * verbatim into collectFormErrors so the client mirrors the submit route.
    */
   requiredChecklistTicksBlockSubmit: boolean;
+  /** Admin-granted "no photo taken" exemption for this cleaner (form payload). */
+  canUseNoPhoto: boolean;
   setupGuideEntries: Array<{
     id?: string;
     kind?: string;

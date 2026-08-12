@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { buildDefaultQaTemplateSchema, scoreQaSubmission, QA_TEMPLATE_VERSION } from "@/lib/qa/templates";
+import { buildNoPhotoPenalties } from "@/lib/qa/no-photo-penalty";
 import { generateJobReport } from "@/lib/reports/generator";
 import { createCase } from "@/lib/cases/service";
 import { createQaReworkTransfer } from "@/lib/qa/rework-transfers";
@@ -767,7 +768,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    const result = scoreQaSubmission(template.schema as any, body.data);
+    // Sanctioned "no photo taken" waivers in the cleaner's submission count as
+    // scored misses — the field's points join the max with zero earned, so the
+    // QA percentage drops automatically per the points assigned to the field.
+    const cleanerSubmission = await db.formSubmission.findFirst({
+      where: { jobId: job.id },
+      orderBy: { createdAt: "desc" },
+      select: { data: true },
+    });
+    const noPhotoPenalties = buildNoPhotoPenalties(cleanerSubmission?.data);
+
+    const result = scoreQaSubmission(template.schema as any, body.data, noPhotoPenalties);
     const tools = body.tools ?? null;
 
     // ACCOUNTABILITY ASSESSMENT (Phase 4a). When the QA submit carries a

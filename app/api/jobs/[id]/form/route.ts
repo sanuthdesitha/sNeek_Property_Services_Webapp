@@ -331,6 +331,15 @@ export async function GET(
         accountability?: { requiredChecklistTicksBlockSubmit?: boolean };
       }).accountability?.requiredChecklistTicksBlockSubmit === true;
 
+    // "No photo taken" exemption — admin-granted per cleaner in settings. The
+    // submit route re-checks the grant; this only tells the renderer whether
+    // to show the option at all.
+    const canUseNoPhoto =
+      session.user.role === Role.CLEANER &&
+      ((settings as unknown as { noPhotoExemptCleanerIds?: string[] }).noPhotoExemptCleanerIds ?? []).includes(
+        session.user.id
+      );
+
     const cleanerTimeLogs =
       session.user.role === Role.CLEANER
         ? await db.timeLog.findMany({
@@ -576,6 +585,7 @@ export async function GET(
       recurringIssues,
       requireJobStartConfirmation,
       requiredChecklistTicksBlockSubmit,
+      canUseNoPhoto,
       carryForwardTasks: unresolvedCarryForwardTasks.map((ticket) => ({
         id: ticket.id,
         description: ticket.description,

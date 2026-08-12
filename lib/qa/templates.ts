@@ -170,7 +170,13 @@ export function buildDefaultQaTemplateSchema(jobType: JobType): QaTemplateSchema
   };
 }
 
-export function scoreQaSubmission(schema: QaTemplateSchema, data: Record<string, unknown>) {
+export function scoreQaSubmission(
+  schema: QaTemplateSchema,
+  data: Record<string, unknown>,
+  /** Extra scored misses (e.g. sanctioned "no photo" waivers) — canonical
+   *  nested-scoring templates only; the legacy rating path ignores them. */
+  penalties?: import("@/lib/qa/scoring").QaScorePenalty[]
+) {
   // Real (seeded/authored) QA templates use FormSchema fields — radio/select/
   // yesno/checkbox with a NESTED `scoring: { max, weight }` — and are scored by
   // the canonical engine in lib/qa/scoring.ts (Pass/Minor/Fail → 2/1/0). The
@@ -188,7 +194,7 @@ export function scoreQaSubmission(schema: QaTemplateSchema, data: Record<string,
     )
   );
   if (hasNestedScoring) {
-    const result = computeQaScore(schema as never, data);
+    const result = computeQaScore(schema as never, data, penalties);
     const categoryScores: Record<string, number> = {};
     for (const s of result.sectionScores) categoryScores[s.sectionId] = s.percent;
     const reworkRequired = data.rework_required === true;
