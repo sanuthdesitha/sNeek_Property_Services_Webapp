@@ -18,6 +18,12 @@ export interface NavItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: number;
+  /**
+   * Optional section heading. When an item's group differs from the previous
+   * item's, a small label is rendered above it in the desktop rail and mobile
+   * drawer. Portals that omit it render exactly as before (flat list).
+   */
+  group?: string;
 }
 
 export function PortalShell({
@@ -65,10 +71,21 @@ export function PortalShell({
         <span className="e-serif text-[1.25rem] font-[520] text-[hsl(var(--e-sidebar-fg))]">{wordmark}</span>
       </div>
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
-        {nav.map((item) => {
+        {nav.map((item, index) => {
           const active = isActive(item.href);
           const Icon = item.icon;
-          return (
+          // A heading appears only where the group changes, so a flat nav
+          // (every other portal) renders no headings at all.
+          const heading =
+            item.group && item.group !== nav[index - 1]?.group ? (
+              <p
+                key={`${item.group}-heading`}
+                className="px-3 pb-1 pt-3 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-text-faint))] first:pt-0"
+              >
+                {item.group}
+              </p>
+            ) : null;
+          const link = (
             <Link
               key={item.href}
               href={item.href}
@@ -91,6 +108,14 @@ export function PortalShell({
                 </span>
               ) : null}
             </Link>
+          );
+          return heading ? (
+            <React.Fragment key={`${item.href}-grouped`}>
+              {heading}
+              {link}
+            </React.Fragment>
+          ) : (
+            link
           );
         })}
       </nav>
