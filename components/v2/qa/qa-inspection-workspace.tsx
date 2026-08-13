@@ -2392,6 +2392,21 @@ export function QaInspectionWorkspace({
         </div>
       ) : null}
 
+      {/* This inspection was started before the cleaner filed their form. The
+          inspector had to justify that (see lib/qa/inspection-gate.ts), so show
+          admin/QA the stated reason rather than leaving it buried in the audit
+          log — anything graded here may predate the cleaner's own submission. */}
+      {payload?.assignment?.earlyStartReason ? (
+        <div className="flex flex-wrap items-start gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.75rem]">
+          <EBadge tone="warning" soft>
+            Started before submission
+          </EBadge>
+          <span className="min-w-0 text-[hsl(var(--e-foreground))]">
+            {payload.assignment.earlyStartReason}
+          </span>
+        </div>
+      ) : null}
+
       <div className={needsCheckIn || monitoring ? "hidden" : "space-y-6"}>
       {/* step tabs */}
       <div className="sticky top-0 z-20 flex gap-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]/95 p-2 backdrop-blur">
