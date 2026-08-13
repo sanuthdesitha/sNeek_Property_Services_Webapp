@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getClientApprovalById, respondClientApproval } from "@/lib/commercial/client-approvals";
+import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 
 const respondSchema = z.object({
   decision: z.enum(["APPROVE", "DECLINE"]),
@@ -82,8 +83,34 @@ export async function POST(
       return NextResponse.json({ error: "Approval not found." }, { status: 404 });
     }
 
+    // The client's decision has to leave a trace admin can find LATER. Flipping
+    // the record's status drops it out of the pending Approvals queue
+    // (listClientApprovals({status:"PENDING"})), and the History tab renders
+    // AuditLog APPROVAL_DECISION rows — which only admin routes were writing.
+    // So a client approval used to vanish from every admin surface the moment
+    // it was given, leaving only a transient push/email. This is the same
+    // fire-and-forget writer the fifteen admin queues use; the decider here is
+    // the client user rather than an admin.
+    await recordApprovalDecision({
+      queue: "clientApprovals",
+      decision: updated.status === "APPROVED" ? "APPROVED" : "DECLINED",
+      userId: session.user.id,
+      entity: "ClientApproval",
+      entityId: updated.id,
+      jobId: updated.jobId,
+      label: updated.title,
+      amount: updated.amount,
+      note: updated.responseNote,
+      subjectUserId: session.user.id,
+      subjectName: user.name ?? user.email ?? null,
+      fromStatus: "PENDING",
+      toStatus: updated.status,
+    });
+
+    // OPS_MANAGER can send a pay request to a client, so they must hear the
+    // answer too — previously only ADMIN was notified.
     const admins = await db.user.findMany({
-      where: { role: Role.ADMIN, isActive: true },
+      where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
       select: { id: true, email: true, name: true },
       take: 20,
     });
