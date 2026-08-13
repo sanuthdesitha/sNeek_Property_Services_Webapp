@@ -297,6 +297,7 @@ export default async function AdminJobDetailPage({
           id: true,
           status: true,
           assignedToId: true,
+          earlyStartReason: true,
           assignedTo: { select: { name: true, email: true } },
         },
       })
@@ -683,6 +684,7 @@ export default async function AdminJobDetailPage({
                       status: String(qaAssignment.status),
                       assignedToId: qaAssignment.assignedToId,
                       assignedToName: qaAssignment.assignedTo?.name ?? qaAssignment.assignedTo?.email ?? null,
+                      earlyStartReason: qaAssignment.earlyStartReason,
                     }
                   : null
               }

@@ -23,6 +23,12 @@ export type QaAssignCurrent = {
   status: string;
   assignedToId: string | null;
   assignedToName: string | null;
+  /**
+   * Set when the inspector started before the cleaner submitted their form.
+   * Optional: the calendar agenda feeds this panel from GET /api/jobs, which
+   * does not carry the field, and there it simply goes unshown.
+   */
+  earlyStartReason?: string | null;
 } | null;
 
 function titleCase(value: string): string {
@@ -110,6 +116,17 @@ export function QaAssignPanel({
           <span className="text-[hsl(var(--e-muted-foreground))]">No QA assignment yet.</span>
         )}
       </div>
+      {/* The inspector started before the cleaner filed their form and had to
+          say why (lib/qa/inspection-gate.ts). Surface it here so admin sees it
+          on the job without digging through the audit log. */}
+      {current?.earlyStartReason ? (
+        <div className="flex flex-wrap items-start gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.75rem]">
+          <EBadge tone="warning" soft>
+            Started before submission
+          </EBadge>
+          <span className="min-w-0">{current.earlyStartReason}</span>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <ESelect
           value={assignedToId}
