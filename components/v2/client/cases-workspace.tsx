@@ -584,35 +584,61 @@ function CaseDetail({ caseId, onBack }: { caseId: string; onBack: () => void }) 
                 No files attached yet.
               </p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {attachments.map((att) => {
-                  const isImage = (att.mimeType ?? "").startsWith("image/");
-                  return (
-                    <a
-                      key={att.id}
-                      href={att.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group flex items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-1.5 pr-3 text-[0.75rem] transition-colors hover:border-[hsl(var(--e-border-strong))]"
-                    >
-                      {isImage ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={att.url}
-                          alt={att.label ?? "Attachment"}
-                          className="h-12 w-12 rounded-[var(--e-radius-sm)] object-cover"
-                        />
-                      ) : (
-                        <span className="flex h-12 w-12 items-center justify-center rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-muted))]">
-                          <Paperclip className="h-4 w-4 text-[hsl(var(--e-muted-foreground))]" />
-                        </span>
-                      )}
-                      <span className="max-w-[10rem] truncate text-[hsl(var(--e-text-secondary))] group-hover:text-[hsl(var(--e-foreground))]">
-                        {att.label ?? "Attachment"}
-                      </span>
-                    </a>
-                  );
-                })}
+              <div className="space-y-3">
+                {/* Photos are the evidence on a case — they render as real
+                    previews rather than 48px cropped chips, uncropped so
+                    nothing in frame is hidden, each opening on its own. */}
+                {attachments.filter((att) => (att.mimeType ?? "").startsWith("image/")).length > 0 ? (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {attachments
+                      .filter((att) => (att.mimeType ?? "").startsWith("image/"))
+                      .map((att) => (
+                        <a
+                          key={att.id}
+                          href={att.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group block overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] transition-colors hover:border-[hsl(var(--e-border-strong))]"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={att.url}
+                            alt={att.label ?? "Case photo"}
+                            loading="lazy"
+                            className="block h-auto w-full"
+                          />
+                          <span className="block truncate px-2 py-1.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                            {att.label ?? "Case photo"}
+                          </span>
+                        </a>
+                      ))}
+                  </div>
+                ) : null}
+
+                {/* Non-image files stay as compact rows — a PDF has no preview
+                    worth showing, and mixing them into the grid breaks it. */}
+                {attachments.filter((att) => !(att.mimeType ?? "").startsWith("image/")).length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {attachments
+                      .filter((att) => !(att.mimeType ?? "").startsWith("image/"))
+                      .map((att) => (
+                        <a
+                          key={att.id}
+                          href={att.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group flex items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-1.5 pr-3 text-[0.75rem] transition-colors hover:border-[hsl(var(--e-border-strong))]"
+                        >
+                          <span className="flex h-10 w-10 items-center justify-center rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-muted))]">
+                            <Paperclip className="h-4 w-4 text-[hsl(var(--e-muted-foreground))]" />
+                          </span>
+                          <span className="max-w-[10rem] truncate text-[hsl(var(--e-text-secondary))] group-hover:text-[hsl(var(--e-foreground))]">
+                            {att.label ?? "Attachment"}
+                          </span>
+                        </a>
+                      ))}
+                  </div>
+                ) : null}
               </div>
             )}
           </div>

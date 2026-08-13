@@ -608,6 +608,11 @@ export function ClientJobsBoard({
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [selectedDate, setSelectedDate] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  // Admin-side parity: narrow by property, job type and an explicit date range.
+  const [propertyId, setPropertyId] = useState("ALL");
+  const [jobType, setJobType] = useState("ALL");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [calendarMonth, setCalendarMonth] = useState(() =>
     startOfMonth(toZonedTime(new Date(), TZ))
   );
@@ -655,18 +660,77 @@ export function ClientJobsBoard({
     return eachDayOfInterval({ start, end });
   }, [calendarMonth]);
 
+  const properties = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const job of jobs) {
+      const id = job.property.id ?? job.property.name;
+      if (id && !seen.has(id)) seen.set(id, job.property.name);
+    }
+    return Array.from(seen, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [jobs]);
+
+  const jobTypes = useMemo(
+    () => Array.from(new Set(jobs.map((job) => job.jobType))).sort(),
+    [jobs]
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return jobs.filter((job) => {
       if (!matchesFilter(job, filterMode, selectedDate)) return false;
       if (status !== "ALL" && job.status !== status) return false;
+      if (propertyId !== "ALL" && (job.property.id ?? job.property.name) !== propertyId) return false;
+      if (jobType !== "ALL" && job.jobType !== jobType) return false;
+      // Explicit range, inclusive at both ends; either bound may stand alone.
+      const key = dayKey(job.scheduledDate);
+      if (fromDate && key < fromDate) return false;
+      if (toDate && key > toDate) return false;
       if (!q) return true;
       return [job.property.name, job.property.suburb ?? "", job.jobNumber ?? "", titleCase(job.jobType)]
         .join(" ")
         .toLowerCase()
         .includes(q);
     });
-  }, [jobs, query, status, filterMode, selectedDate]);
+  }, [jobs, query, status, filterMode, selectedDate, propertyId, jobType, fromDate, toDate]);
+
+  // Every narrowing control in one place, so an active filter is always
+  // visible and clearable. The board restores the last-used filter from
+  // localStorage, which previously meant a client who once picked "Today"
+  // saw only today's jobs on every later visit with nothing on screen
+  // explaining why the list looked empty.
+  const activeFilters = useMemo(() => {
+    const chips: Array<{ label: string; clear: () => void }> = [];
+    if (filterMode !== "all")
+      chips.push({
+        label: filterMode === "date" ? `Date: ${selectedDate}` : `Quick filter: ${titleCase(filterMode)}`,
+        clear: () => {
+          setFilterMode("all");
+          setSelectedDate("");
+        },
+      });
+    if (status !== "ALL") chips.push({ label: `Status: ${titleCase(status)}`, clear: () => setStatus("ALL") });
+    if (propertyId !== "ALL")
+      chips.push({
+        label: `Property: ${properties.find((p) => p.id === propertyId)?.name ?? propertyId}`,
+        clear: () => setPropertyId("ALL"),
+      });
+    if (jobType !== "ALL") chips.push({ label: `Type: ${titleCase(jobType)}`, clear: () => setJobType("ALL") });
+    if (fromDate) chips.push({ label: `From ${fromDate}`, clear: () => setFromDate("") });
+    if (toDate) chips.push({ label: `To ${toDate}`, clear: () => setToDate("") });
+    if (query.trim()) chips.push({ label: `Search: "${query.trim()}"`, clear: () => setQuery("") });
+    return chips;
+  }, [filterMode, selectedDate, status, propertyId, jobType, fromDate, toDate, query, properties]);
+
+  function clearAllFilters() {
+    setFilterMode("all");
+    setSelectedDate("");
+    setStatus("ALL");
+    setPropertyId("ALL");
+    setJobType("ALL");
+    setFromDate("");
+    setToDate("");
+    setQuery("");
+  }
 
   const upcoming = useMemo(
     () =>
@@ -735,6 +799,83 @@ export function ClientJobsBoard({
           ))}
         </div>
       </div>
+
+      {/* Property / type / explicit date range — admin-side parity */}
+      <div className="flex flex-wrap items-end gap-3">
+        <ESelect
+          value={propertyId}
+          onChange={(e) => setPropertyId(e.target.value)}
+          className="w-auto min-w-[180px]"
+          aria-label="Filter by property"
+        >
+          <option value="ALL">All properties</option>
+          {properties.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </ESelect>
+        <ESelect
+          value={jobType}
+          onChange={(e) => setJobType(e.target.value)}
+          className="w-auto min-w-[170px]"
+          aria-label="Filter by job type"
+        >
+          <option value="ALL">All job types</option>
+          {jobTypes.map((value) => (
+            <option key={value} value={value}>
+              {titleCase(value)}
+            </option>
+          ))}
+        </ESelect>
+        <label className="flex flex-col gap-1">
+          <span className="text-[0.6875rem] uppercase tracking-[0.12em] text-[hsl(var(--e-muted-foreground))]">From</span>
+          <EInput
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="w-[10.5rem]"
+            aria-label="From date"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[0.6875rem] uppercase tracking-[0.12em] text-[hsl(var(--e-muted-foreground))]">To</span>
+          <EInput
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="w-[10.5rem]"
+            aria-label="To date"
+          />
+        </label>
+      </div>
+
+      {/* Active filters — never let a restored filter hide jobs silently. */}
+      {activeFilters.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface-2))] px-3 py-2">
+          <span className="text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">
+            Showing {filtered.length} of {jobs.length} jobs ·
+          </span>
+          {activeFilters.map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              onClick={chip.clear}
+              className="inline-flex items-center gap-1 rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2.5 py-1 text-[0.75rem] hover:bg-[hsl(var(--e-muted))]"
+            >
+              {chip.label} <span aria-hidden>×</span>
+              <span className="sr-only">Remove filter</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            className="text-[0.75rem] font-[550] text-[hsl(var(--e-gold-ink))] hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      ) : null}
 
       {/* Quick date filters */}
       <div className="flex flex-wrap items-center gap-2">
