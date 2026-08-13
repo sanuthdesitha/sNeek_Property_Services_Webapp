@@ -119,7 +119,9 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     parking: "",
     other: "",
     instructions: "",
+    laundryTeamUserIds: [] as string[],
   });
+  const [laundryUsers, setLaundryUsers] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [savingProperty, setSavingProperty] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -166,6 +168,9 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       parking: typeof acc.parking === "string" ? acc.parking : "",
       other: typeof acc.other === "string" ? acc.other : "",
       instructions: typeof acc.instructions === "string" ? acc.instructions : "",
+      laundryTeamUserIds: Array.isArray(acc.laundryTeamUserIds)
+        ? acc.laundryTeamUserIds.filter((v: unknown): v is string => typeof v === "string")
+        : [],
     });
     setForm({
       name: data.name ?? "",
@@ -227,6 +232,42 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     loadPendingTasks();
   }, [loadProperty, loadPendingTasks]);
 
+  // Laundry partners available to allocate to this property. Failure leaves the
+  // list empty (the picker then explains itself); the property's own saved
+  // allocation is read from accessInfo, so it round-trips even if this fails.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin/users?role=LAUNDRY")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        if (cancelled) return;
+        setLaundryUsers(
+          Array.isArray(rows)
+            ? rows
+                .filter((row: any) => row?.id)
+                .map((row: any) => ({
+                  id: String(row.id),
+                  name: String(row.name ?? row.email ?? row.id),
+                  email: String(row.email ?? ""),
+                }))
+            : [],
+        );
+      })
+      .catch(() => setLaundryUsers([]));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function toggleLaundryMember(id: string) {
+    setAccess((prev) => ({
+      ...prev,
+      laundryTeamUserIds: prev.laundryTeamUserIds.includes(id)
+        ? prev.laundryTeamUserIds.filter((x) => x !== id)
+        : [...prev.laundryTeamUserIds, id],
+    }));
+  }
+
   function setF<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
@@ -243,12 +284,18 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       longitude: form.longitude ?? undefined,
       placeId: form.placeId ?? undefined,
       notes: form.notes || undefined,
+      // Send every key this form owns as an explicit value (empty string, not
+      // undefined) — the API merges accessInfo over the stored row, so an
+      // omitted key means "leave alone", which would make clearing a field
+      // impossible. Keys this form does NOT own (attachments, onboarding
+      // fields) are preserved server-side by that same merge.
       accessInfo: {
-        lockbox: access.lockbox || undefined,
-        codes: access.codes || undefined,
-        parking: access.parking || undefined,
-        other: access.other || undefined,
-        instructions: access.instructions || undefined,
+        lockbox: access.lockbox,
+        codes: access.codes,
+        parking: access.parking,
+        other: access.other,
+        instructions: access.instructions,
+        laundryTeamUserIds: access.laundryTeamUserIds,
       },
       linenBufferSets: Number(form.linenBufferSets || 0),
       inventoryEnabled: form.inventoryEnabled,
@@ -657,6 +704,47 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
                 <EField label="Access instructions">
                   <ETextarea value={access.instructions} onChange={(e) => setAccess((p) => ({ ...p, instructions: e.target.value }))} />
                 </EField>
+
+                {form.laundryEnabled ? (
+                  <div className="space-y-2">
+                    <p className="text-[0.8125rem] font-[550]">Laundry partners</p>
+                    {laundryUsers.length === 0 ? (
+                      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                        No laundry users found. Add laundry staff, or turn Laundry service off for this property.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {laundryUsers.map((user) => (
+                            <label
+                              key={user.id}
+                              className="flex items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2 text-[0.8125rem]"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={access.laundryTeamUserIds.includes(user.id)}
+                                onChange={() => toggleLaundryMember(user.id)}
+                                className="accent-[hsl(var(--e-primary))]"
+                              />
+                              <span className="min-w-0">
+                                <span className="font-[550]">{user.name}</span>{" "}
+                                {user.email ? (
+                                  <span className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">{user.email}</span>
+                                ) : null}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                        {access.laundryTeamUserIds.length === 0 ? (
+                          <p className="text-[0.75rem] text-[hsl(var(--e-warning))]">
+                            No partners allocated — every active laundry user can see this property and all of
+                            them are notified. Pick the partners who actually service it.
+                          </p>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                ) : null}
               </div>
 
               <EField label="Notes">

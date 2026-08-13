@@ -10,6 +10,7 @@ import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { encryptSecret } from "@/lib/security/encryption";
 import { getPropertyFormConfig } from "@/lib/property-form/config-store";
 import { collectMissingRequired, pruneCustomValues } from "@/lib/property-form/config";
+import { buildPropertyAccessInfo } from "@/lib/properties/access-info";
 
 /**
  * Assemble the flat field-value map the property-form config evaluates its
@@ -49,49 +50,6 @@ function buildSystemValues(body: Record<string, any>): Record<string, unknown> {
     laundryBagColor: body.laundryBagColor,
     setupGuide: body.setupGuide,
     notes: body.notes,
-  };
-}
-
-function buildPropertyAccessInfo(input: Record<string, any>) {
-  const accessInfo =
-    input.accessInfo && typeof input.accessInfo === "object" && !Array.isArray(input.accessInfo)
-      ? { ...(input.accessInfo as Record<string, unknown>) }
-      : {};
-
-  const codeValue =
-    typeof input.accessCode === "string" && input.accessCode.trim()
-      ? input.accessCode.trim()
-      : typeof accessInfo.codes === "string"
-        ? String(accessInfo.codes).trim()
-        : "";
-  const keyLocation =
-    typeof input.keyLocation === "string" && input.keyLocation.trim()
-      ? input.keyLocation.trim()
-      : typeof accessInfo.lockbox === "string"
-        ? String(accessInfo.lockbox).trim()
-        : "";
-  const accessNotesParts = [
-    typeof input.accessNotes === "string" ? input.accessNotes.trim() : "",
-    typeof accessInfo.instructions === "string" ? String(accessInfo.instructions).trim() : "",
-    typeof accessInfo.other === "string" ? String(accessInfo.other).trim() : "",
-  ].filter(Boolean);
-
-  return {
-    ...accessInfo,
-    lockbox: keyLocation,
-    codes: codeValue,
-    instructions:
-      typeof accessInfo.instructions === "string" ? String(accessInfo.instructions).trim() : "",
-    other: typeof accessInfo.other === "string" ? String(accessInfo.other).trim() : "",
-    parking:
-      typeof accessInfo.parking === "string" ? String(accessInfo.parking).trim() : "",
-    laundryTeamUserIds: Array.isArray((accessInfo as any).laundryTeamUserIds)
-      ? (accessInfo as any).laundryTeamUserIds
-      : [],
-    attachments: Array.isArray((accessInfo as any).attachments)
-      ? (accessInfo as any).attachments
-      : [],
-    accessNotesSummary: accessNotesParts.join("\n\n"),
   };
 }
 
