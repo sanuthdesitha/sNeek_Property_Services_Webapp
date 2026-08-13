@@ -21,7 +21,10 @@ export const dynamic = "force-dynamic";
 
 const TZ = "Australia/Sydney";
 
-type RangeType = "weekly" | "monthly" | "annual";
+// "all" exists so a client can actually reach older reports: the page used to
+// offer nothing wider than the current calendar year, so anything before
+// 1 January was unreachable from this screen.
+type RangeType = "weekly" | "monthly" | "annual" | "all";
 
 function titleCase(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -29,6 +32,7 @@ function titleCase(value: string) {
 
 function startDateForRange(range: RangeType) {
   const now = new Date();
+  if (range === "all") return null;
   if (range === "weekly") {
     const day = now.getDay();
     const diff = day === 0 ? 6 : day - 1;
@@ -72,7 +76,7 @@ function FilterRowLabel({ children }: { children: React.ReactNode }) {
 export default async function ClientReportsPage({
   searchParams,
 }: {
-  searchParams?: { range?: string; propertyId?: string; type?: string };
+  searchParams?: { range?: string; propertyId?: string; type?: string; from?: string; to?: string };
 }) {
   const session = await requireRole([Role.CLIENT]);
   const portal = await getClientPortalContext(session.user.id).catch(() => null);
@@ -91,7 +95,20 @@ export default async function ClientReportsPage({
   }
 
   const range = (searchParams?.range as RangeType) || "monthly";
-  const rangeType: RangeType = ["weekly", "monthly", "annual"].includes(range) ? range : "monthly";
+  const rangeType: RangeType = ["weekly", "monthly", "annual", "all"].includes(range) ? range : "monthly";
+
+  // An explicit from/to range wins over the period chips — a custom window is
+  // a deliberate act, so it must not be silently re-widened by the period.
+  const parseDay = (value?: string) => {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const parsed = new Date(`${value}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+  const customFrom = parseDay(searchParams?.from);
+  const customToRaw = parseDay(searchParams?.to);
+  // Inclusive end: the whole of the "to" day counts.
+  const customTo = customToRaw ? new Date(customToRaw.getTime() + 24 * 60 * 60 * 1000 - 1) : null;
+  const hasCustomRange = Boolean(customFrom || customTo);
 
   const user = await db.user.findUnique({
     where: { id: session.user.id },
@@ -109,7 +126,13 @@ export default async function ClientReportsPage({
     },
   });
 
-  const fromDate = startDateForRange(rangeType);
+  const fromDate = hasCustomRange ? customFrom : startDateForRange(rangeType);
+  const scheduledDateFilter =
+    hasCustomRange
+      ? { ...(customFrom ? { gte: customFrom } : {}), ...(customTo ? { lte: customTo } : {}) }
+      : fromDate
+        ? { gte: fromDate }
+        : undefined;
   const clientProperties = user?.client?.properties ?? [];
   const allowedPropertyIds = new Set(clientProperties.map((property) => property.id));
   const selectedPropertyId =
@@ -131,7 +154,7 @@ export default async function ClientReportsPage({
           // createdAt, so a regenerated/edited report can't drop out of the slice.
           clientVisible: true,
           job: {
-            scheduledDate: { gte: fromDate },
+            ...(scheduledDateFilter ? { scheduledDate: scheduledDateFilter } : {}),
             property: { clientId: user.clientId, ...(selectedPropertyId ? { id: selectedPropertyId } : {}) },
           },
         },
@@ -160,13 +183,24 @@ export default async function ClientReportsPage({
   const showDownloads = portal.visibility.showReportDownloads;
 
   // Build hrefs that preserve the other active filters.
-  const buildHref = (overrides: { range?: RangeType; propertyId?: string | null; type?: string | null }) => {
+  const buildHref = (overrides: {
+    range?: RangeType;
+    propertyId?: string | null;
+    type?: string | null;
+    clearCustomRange?: boolean;
+  }) => {
     const params = new URLSearchParams();
     params.set("range", overrides.range ?? rangeType);
     const p = overrides.propertyId === null ? undefined : overrides.propertyId ?? selectedPropertyId;
     if (p) params.set("propertyId", p);
     const t = overrides.type === null ? undefined : overrides.type ?? selectedType;
     if (t) params.set("type", t);
+    // Picking a period chip is a request for that period — drop any custom
+    // window so the two can't silently contradict each other.
+    if (!overrides.clearCustomRange && overrides.range === undefined) {
+      if (searchParams?.from) params.set("from", searchParams.from);
+      if (searchParams?.to) params.set("to", searchParams.to);
+    }
     return `/v2/client/reports?${params.toString()}`;
   };
 
@@ -175,19 +209,67 @@ export default async function ClientReportsPage({
       <EPageHeader
         eyebrow="Service records"
         title="Reports"
-        description={`${titleCase(rangeType)} view from ${format(fromDate, "d MMM yyyy")}.`}
+        description={
+          hasCustomRange
+            ? `Reports from ${customFrom ? format(customFrom, "d MMM yyyy") : "the beginning"} to ${
+                customToRaw ? format(customToRaw, "d MMM yyyy") : "today"
+              }.`
+            : fromDate
+              ? `${titleCase(rangeType)} view from ${format(fromDate, "d MMM yyyy")}.`
+              : "Every report on record for your properties."
+        }
       />
 
       {/* Filters */}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <FilterRowLabel>Period</FilterRowLabel>
-          {(["weekly", "monthly", "annual"] as const).map((r) => (
-            <FilterChip key={r} href={buildHref({ range: r })} active={rangeType === r}>
-              {titleCase(r)}
+          {(["weekly", "monthly", "annual", "all"] as const).map((r) => (
+            <FilterChip key={r} href={buildHref({ range: r })} active={!hasCustomRange && rangeType === r}>
+              {r === "all" ? "All time" : titleCase(r)}
             </FilterChip>
           ))}
         </div>
+
+        {/* Explicit date range. A plain GET form so it works without JS and
+            keeps the page a server component. */}
+        <form method="get" action="/v2/client/reports" className="flex flex-wrap items-end gap-2">
+          <FilterRowLabel>Dates</FilterRowLabel>
+          {selectedPropertyId ? <input type="hidden" name="propertyId" value={selectedPropertyId} /> : null}
+          {selectedType ? <input type="hidden" name="type" value={selectedType} /> : null}
+          <label className="flex flex-col gap-1">
+            <span className="text-[0.625rem] uppercase tracking-[0.12em] text-[hsl(var(--e-muted-foreground))]">From</span>
+            <input
+              type="date"
+              name="from"
+              defaultValue={searchParams?.from ?? ""}
+              className="h-9 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2 text-[0.8125rem]"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[0.625rem] uppercase tracking-[0.12em] text-[hsl(var(--e-muted-foreground))]">To</span>
+            <input
+              type="date"
+              name="to"
+              defaultValue={searchParams?.to ?? ""}
+              className="h-9 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2 text-[0.8125rem]"
+            />
+          </label>
+          <button
+            type="submit"
+            className="h-9 rounded-[var(--e-radius)] bg-[hsl(var(--e-primary))] px-4 text-[0.8125rem] font-[550] text-[hsl(var(--e-primary-foreground))]"
+          >
+            Apply
+          </button>
+          {hasCustomRange ? (
+            <Link
+              href={buildHref({ range: rangeType, clearCustomRange: true })}
+              className="h-9 self-end px-2 text-[0.8125rem] font-[550] leading-9 text-[hsl(var(--e-gold-ink))] hover:underline"
+            >
+              Clear dates
+            </Link>
+          ) : null}
+        </form>
 
         <div className="flex flex-wrap items-center gap-2">
           <FilterRowLabel>Property</FilterRowLabel>
@@ -249,8 +331,15 @@ export default async function ClientReportsPage({
                       </p>
                       <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                         {titleCase(report.job.jobType)} ·{" "}
-                        {format(toZonedTime(report.job.scheduledDate, TZ), "d MMM yyyy")}
+                        {format(toZonedTime(report.job.scheduledDate, TZ), "EEE d MMM yyyy")}
+                        {report.job.property.suburb ? ` · ${report.job.property.suburb}` : ""}
                       </p>
+                      <Link
+                        href={`/v2/client/jobs/${report.job.id}`}
+                        className="text-[0.75rem] font-[550] text-[hsl(var(--e-gold-ink))] hover:underline"
+                      >
+                        Open job
+                      </Link>
                     </div>
                   </div>
                   {showDownloads ? (

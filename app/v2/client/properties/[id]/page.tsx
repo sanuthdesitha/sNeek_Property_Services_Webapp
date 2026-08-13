@@ -58,6 +58,55 @@ function titleCase(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+type TimelineMedia = {
+  id: string;
+  url: string;
+  label?: string | null;
+  mediaType: string;
+  submission: {
+    job: { id: string; jobNumber?: string | null; jobType: string; scheduledDate: Date | string };
+  };
+};
+
+/**
+ * Collapse the flat media feed into one entry per job, newest first — a
+ * client thinks in visits ("what did the clean on 3 August look like?"), not
+ * in individual files. Input order is preserved within each group.
+ */
+function groupTimelineByJob(items: TimelineMedia[]) {
+  const groups = new Map<
+    string,
+    {
+      jobId: string;
+      jobNumber?: string | null;
+      jobType: string;
+      scheduledDate: Date | string;
+      items: TimelineMedia[];
+    }
+  >();
+
+  for (const item of items) {
+    const job = item.submission?.job;
+    if (!job?.id) continue;
+    const existing = groups.get(job.id);
+    if (existing) {
+      existing.items.push(item);
+      continue;
+    }
+    groups.set(job.id, {
+      jobId: job.id,
+      jobNumber: job.jobNumber,
+      jobType: job.jobType,
+      scheduledDate: job.scheduledDate,
+      items: [item],
+    });
+  }
+
+  return Array.from(groups.values()).sort(
+    (a, b) => new Date(b.scheduledDate).getTime() - new Date(a.scheduledDate).getTime()
+  );
+}
+
 export default async function EstateClientPropertyDetailPage({
   params,
 }: {
@@ -83,6 +132,17 @@ export default async function EstateClientPropertyDetailPage({
     preferredCleanerOptions,
   } = detail;
   const lowStock = stocks.filter((row) => Number(row.onHand) <= Number(row.reorderThreshold));
+
+  // "Active" job types are the ones this property actually gets. Listing every
+  // template in the system made a client with only turnovers scroll past
+  // deep-clean, end-of-lease and commercial checklists that will never run
+  // here. A property with no jobs yet still shows everything — otherwise a
+  // newly onboarded home would show nothing at all, which is worse.
+  const activeJobTypes = new Set(jobs.map((job) => job.jobType));
+  const visibleChecklistTemplates =
+    activeJobTypes.size > 0
+      ? checklistTemplates.filter((template) => activeJobTypes.has(template.jobType))
+      : checklistTemplates;
 
   return (
     <div className="space-y-8">
@@ -161,12 +221,12 @@ export default async function EstateClientPropertyDetailPage({
                 </p>
               </ECardHeader>
               <ECardBody className="space-y-4">
-                {checklistTemplates.length === 0 ? (
+                {visibleChecklistTemplates.length === 0 ? (
                   <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
                     No active checklist templates found.
                   </p>
                 ) : (
-                  checklistTemplates.map((template) => (
+                  visibleChecklistTemplates.map((template) => (
                     <div
                       key={`${template.jobType}-${template.id}`}
                       className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-4"
@@ -457,34 +517,39 @@ export default async function EstateClientPropertyDetailPage({
                   No media history is available for this property yet.
                 </p>
               ) : (
-                conditionTimeline.map((item) => (
+                // One card per VISIT, not per photo. Rendering each image as
+                // its own card repeated the job header down the page and broke
+                // a single clean's evidence into unrelated-looking fragments.
+                groupTimelineByJob(conditionTimeline).map((group) => (
                   <div
-                    key={item.id}
+                    key={group.jobId}
                     className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-4"
                   >
                     <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <p className="text-[0.875rem] font-medium">
-                          {item.submission.job.jobNumber
-                            ? `Job ${item.submission.job.jobNumber}`
-                            : "Completed job"}{" "}
-                          · {titleCase(item.submission.job.jobType)}
+                          {group.jobNumber ? `Job ${group.jobNumber}` : "Completed job"} ·{" "}
+                          {titleCase(group.jobType)}
                         </p>
                         <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))] tabular-nums">
-                          {format(toZonedTime(item.submission.job.scheduledDate, TZ), "dd MMM yyyy")}
+                          {format(toZonedTime(group.scheduledDate, TZ), "EEE dd MMM yyyy")} ·{" "}
+                          {group.items.length} item{group.items.length === 1 ? "" : "s"}
                         </p>
                       </div>
-                      <EBadge tone="neutral" soft>{item.mediaType}</EBadge>
+                      <Link
+                        href={`/v2/client/jobs/${group.jobId}`}
+                        className="text-[0.75rem] font-[550] text-[hsl(var(--e-gold-ink))] hover:underline"
+                      >
+                        Open job
+                      </Link>
                     </div>
                     <EMediaStrip
-                      items={[
-                        {
-                          id: item.id,
-                          url: item.url,
-                          label: item.label || "Property history media",
-                          mediaType: item.mediaType,
-                        },
-                      ]}
+                      items={group.items.map((item) => ({
+                        id: item.id,
+                        url: item.url,
+                        label: item.label || "Property history media",
+                        mediaType: item.mediaType,
+                      }))}
                     />
                   </div>
                 ))
