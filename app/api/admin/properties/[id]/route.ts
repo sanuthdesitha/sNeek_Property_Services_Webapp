@@ -12,49 +12,7 @@ import {
   clearPendingLaundrySyncDraftForProperty,
   notifyLaundryTeamsForApprovedSyncDraft,
 } from "@/lib/laundry/sync-draft";
-
-function buildPropertyAccessInfo(input: Record<string, any>) {
-  const accessInfo =
-    input.accessInfo && typeof input.accessInfo === "object" && !Array.isArray(input.accessInfo)
-      ? { ...(input.accessInfo as Record<string, unknown>) }
-      : {};
-
-  const codeValue =
-    typeof input.accessCode === "string" && input.accessCode.trim()
-      ? input.accessCode.trim()
-      : typeof accessInfo.codes === "string"
-        ? String(accessInfo.codes).trim()
-        : "";
-  const keyLocation =
-    typeof input.keyLocation === "string" && input.keyLocation.trim()
-      ? input.keyLocation.trim()
-      : typeof accessInfo.lockbox === "string"
-        ? String(accessInfo.lockbox).trim()
-        : "";
-  const accessNotesParts = [
-    typeof input.accessNotes === "string" ? input.accessNotes.trim() : "",
-    typeof accessInfo.instructions === "string" ? String(accessInfo.instructions).trim() : "",
-    typeof accessInfo.other === "string" ? String(accessInfo.other).trim() : "",
-  ].filter(Boolean);
-
-  return {
-    ...accessInfo,
-    lockbox: keyLocation,
-    codes: codeValue,
-    instructions:
-      typeof accessInfo.instructions === "string" ? String(accessInfo.instructions).trim() : "",
-    other: typeof accessInfo.other === "string" ? String(accessInfo.other).trim() : "",
-    parking:
-      typeof accessInfo.parking === "string" ? String(accessInfo.parking).trim() : "",
-    laundryTeamUserIds: Array.isArray((accessInfo as any).laundryTeamUserIds)
-      ? (accessInfo as any).laundryTeamUserIds
-      : [],
-    attachments: Array.isArray((accessInfo as any).attachments)
-      ? (accessInfo as any).attachments
-      : [],
-    accessNotesSummary: accessNotesParts.join("\n\n"),
-  };
-}
+import { buildPropertyAccessInfo } from "@/lib/properties/access-info";
 
 export async function GET(
   _req: NextRequest,
@@ -100,15 +58,26 @@ export async function PATCH(
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = updatePropertySchema.parse(await req.json());
-    const normalizedAccessInfo = buildPropertyAccessInfo(body as Record<string, any>);
+
+    // The stored row is needed for two independent reasons: to merge accessInfo
+    // (a form that edits only some keys must not drop the rest — see
+    // lib/properties/access-info.ts) and for key-lost bookkeeping below.
+    const existing =
+      body.accessInfo !== undefined || body.keyLostMode !== undefined
+        ? await db.property.findUnique({
+            where: { id: params.id },
+            select: { keyLostMode: true, accessInfo: true },
+          })
+        : null;
+    const normalizedAccessInfo = buildPropertyAccessInfo(
+      body as Record<string, unknown>,
+      existing?.accessInfo
+    );
 
     // Key-lost mode bookkeeping: keyLostSince is server-managed — stamped when
     // the mode turns ON, cleared when it turns OFF, untouched otherwise.
-    const existing =
-      body.keyLostMode !== undefined
-        ? await db.property.findUnique({ where: { id: params.id }, select: { keyLostMode: true } })
-        : null;
-    const keyLostModeChanged = existing !== null && body.keyLostMode !== existing.keyLostMode;
+    const keyLostModeChanged =
+      body.keyLostMode !== undefined && existing !== null && body.keyLostMode !== existing.keyLostMode;
 
     const property = await db.property.update({
       where: { id: params.id },
