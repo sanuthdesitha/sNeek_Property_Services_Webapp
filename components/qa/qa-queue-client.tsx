@@ -196,14 +196,34 @@ export function QaQueueClient({ inspectors, canAssign = false }: { inspectors: I
     await load();
   }
 
-  async function pickup(jobId: string) {
-    const res = await fetch(`/api/qa/jobs/${jobId}/pickup`, { method: "POST" });
+  async function pickup(jobId: string, reason?: string) {
+    const res = await fetch(`/api/qa/jobs/${jobId}/pickup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reason ? { reason } : {}),
+    });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
+      // The cleaner has not submitted yet. Inspecting anyway is allowed with a
+      // stated reason (which also pushes the cleaner to finish their form).
+      // This legacy screen uses a plain prompt; the v2 QA queue has a proper
+      // dialog — see components/v2/qa/qa-queue-workspace.tsx.
+      if (body?.code === "INSPECTION_REASON_REQUIRED" && !reason) {
+        const entered = window.prompt(`${body.error ?? ""}\n\nReason for inspecting now:`)?.trim();
+        if (entered && entered.length >= 10) {
+          await pickup(jobId, entered);
+        } else if (entered !== undefined) {
+          toast({
+            title: "A reason of at least 10 characters is required.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
       toast({ title: "Could not pick up QA", description: body.error ?? "Please retry.", variant: "destructive" });
       return;
     }
-    toast({ title: "QA picked up" });
+    toast({ title: reason ? "Inspection started — cleaner notified" : "QA picked up" });
     await load();
   }
 

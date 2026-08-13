@@ -37,7 +37,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState, EStatCard } from "@/components/v2/ui/primitives";
-import { EInput, ESelect } from "@/components/v2/admin/estate-kit";
+import { EInput, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import { computeQaAssignmentPay, type QaPaySettingsInput } from "@/lib/finance/qa-pay";
 
 type Inspector = { id: string; name: string | null; email: string; role: string };
@@ -352,6 +352,10 @@ export function QaQueueWorkspace({
   const [selectedInspector, setSelectedInspector] = useState("");
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  // Set when the API refuses a pickup because the cleaner has not submitted.
+  const [earlyStartFor, setEarlyStartFor] = useState<{ jobId: string; message: string } | null>(null);
+  const [earlyStartReason, setEarlyStartReason] = useState("");
+  const [earlyStartSaving, setEarlyStartSaving] = useState(false);
   // Per-row inline assign: keyed by jobId (assign) or assignmentId (reassign).
   const [rowInspector, setRowInspector] = useState<Record<string, string>>({});
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
@@ -532,19 +536,94 @@ export function QaQueueWorkspace({
     await load();
   }
 
-  async function pickup(jobId: string) {
-    const res = await fetch(`/api/qa/jobs/${jobId}/pickup`, { method: "POST" });
+  /**
+   * Pick up a job for inspection. If the cleaner has not submitted their form,
+   * the API answers 409 INSPECTION_REASON_REQUIRED rather than starting: the
+   * inspector may still proceed, but must say why, and that nudges the cleaner
+   * to finish the form. Retried here with the reason attached.
+   */
+  async function pickup(jobId: string, reason?: string) {
+    const res = await fetch(`/api/qa/jobs/${jobId}/pickup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reason ? { reason } : {}),
+    });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
+      if (body?.code === "INSPECTION_REASON_REQUIRED") {
+        setEarlyStartFor({ jobId, message: body.error ?? "" });
+        return;
+      }
       pushToast({ title: "Could not pick up QA", description: body.error ?? "Please retry.", tone: "danger" });
       return;
     }
-    pushToast({ title: "QA picked up", tone: "info" });
+    setEarlyStartFor(null);
+    setEarlyStartReason("");
+    pushToast({
+      title: reason ? "Inspection started — cleaner notified" : "QA picked up",
+      tone: "info",
+    });
     await load();
+  }
+
+  async function confirmEarlyStart() {
+    if (!earlyStartFor) return;
+    setEarlyStartSaving(true);
+    try {
+      await pickup(earlyStartFor.jobId, earlyStartReason.trim());
+    } finally {
+      setEarlyStartSaving(false);
+    }
   }
 
   return (
     <div className="space-y-6">
+      {/* Inspecting before the cleaner has filed their form is allowed, but it
+          must be justified — and doing it pushes the cleaner to submit. */}
+      <EModal
+        open={earlyStartFor !== null}
+        onClose={() => {
+          setEarlyStartFor(null);
+          setEarlyStartReason("");
+        }}
+        title="Start inspection before the form is submitted?"
+      >
+        <div className="space-y-3">
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            {earlyStartFor?.message ?? "The cleaner has not submitted their form yet."}
+          </p>
+          <ETextarea
+            value={earlyStartReason}
+            onChange={(e) => setEarlyStartReason(e.target.value)}
+            placeholder="Why are you inspecting now? e.g. guest checks in at 2pm and the cleaner has left site"
+            className="min-h-[90px]"
+          />
+          <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+            The cleaner is notified to complete their form. Your reason is saved on the inspection.
+          </p>
+          <div className="flex justify-end gap-2">
+            <EButton
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setEarlyStartFor(null);
+                setEarlyStartReason("");
+              }}
+            >
+              Cancel
+            </EButton>
+            <EButton
+              variant="gold"
+              size="sm"
+              disabled={earlyStartSaving || earlyStartReason.trim().length < 10}
+              onClick={confirmEarlyStart}
+            >
+              {earlyStartSaving ? "Starting…" : "Start anyway"}
+            </EButton>
+          </div>
+        </div>
+      </EModal>
+
       {toasts.length > 0 ? (
         <div className="fixed inset-x-0 top-4 z-[60] flex flex-col items-center gap-2 px-4">
           {toasts.map((t) => (

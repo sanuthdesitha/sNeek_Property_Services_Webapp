@@ -1794,6 +1794,10 @@ model QaAssignment {
   checkInLat      Float?
   checkInLng      Float?
   checkInAccuracyM Float?
+  /// Why the inspector started BEFORE the cleaner filed their form. Null on a
+  /// normal pickup. Mirrors checkInSkippedReason: the action is allowed, but it
+  /// must say why, and the cleaner is pushed to finish the form when it is set.
+  earlyStartReason String?           @db.Text
   /// Remote review (inspector explicitly skipped on-site check-in) + why.
   checkInSkippedReason String?       @db.Text
   /// Coded counterpart to checkInSkippedReason — why the inspector reviewed
