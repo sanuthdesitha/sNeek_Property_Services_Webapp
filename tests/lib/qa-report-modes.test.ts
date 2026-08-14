@@ -133,8 +133,20 @@ function fixture() {
   };
 }
 
+/**
+ * Imported statically, NOT via `await import()` inside the test body.
+ *
+ * `vi.mock` is hoisted above imports, so the mocks above still apply. The
+ * difference is where the cost lands: a dynamic import charged the whole
+ * lib/reports/qa-report module graph — template, pdf and image helpers — to
+ * whichever test ran first, against the 5s test timeout. Under a loaded shard
+ * that tipped over, so this file "flaked" on shard 2/3 while passing in
+ * isolation, and the failure spread to a second test as the suite grew.
+ * Collection-phase module loading is not charged to a test timeout.
+ */
+import { buildQaReportHtml } from "@/lib/reports/qa-report";
+
 async function build(mode: "internal" | "cleanerSafe") {
-  const { buildQaReportHtml } = await import("@/lib/reports/qa-report");
   const out = await buildQaReportHtml("job1", { mode });
   if (!out) throw new Error("expected a report");
   return out.html;

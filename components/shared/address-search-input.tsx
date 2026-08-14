@@ -54,6 +54,12 @@ export function AddressSearchInput({
   const seqRef = React.useRef(0);
 
   const [ready, setReady] = React.useState(false);
+  /**
+   * Distinct from `!ready`, which is also the initial "still loading" state.
+   * Only true once the Places load has actually failed or come back without
+   * autocomplete — so the notice never flashes while the SDK is still loading.
+   */
+  const [unavailable, setUnavailable] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [suggestions, setSuggestions] = React.useState<Suggestion[]>([]);
@@ -69,6 +75,7 @@ export function AddressSearchInput({
         if (!places?.AutocompleteSuggestion) {
           // No new-API autocomplete — degrade to a plain typed input.
           setReady(false);
+          setUnavailable(true);
           return;
         }
         placesRef.current = places;
@@ -78,8 +85,12 @@ export function AddressSearchInput({
           tokenRef.current = null;
         }
         setReady(true);
+        setUnavailable(false);
       } catch {
-        if (active) setReady(false);
+        if (active) {
+          setReady(false);
+          setUnavailable(true);
+        }
       }
     })();
     return () => {
@@ -210,6 +221,16 @@ export function AddressSearchInput({
           <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
         ) : null}
       </div>
+
+      {/* Say so when there will be no suggestions. Silently degrading to a
+          plain box leaves the user unable to tell whether lookup is broken or
+          they are typing it wrong — they just keep waiting for a dropdown that
+          is never coming. Typing the address by hand still works. */}
+      {unavailable ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Address lookup unavailable — type the full address manually.
+        </p>
+      ) : null}
 
       {open && suggestions.length > 0 ? (
         <ul className="absolute z-50 mt-1 max-h-72 w-full overflow-auto rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-md">
