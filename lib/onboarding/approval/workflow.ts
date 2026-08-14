@@ -432,7 +432,6 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
   const sizeSqm = typeof survey.sizeSqm === "number" ? survey.sizeSqm : null;
   const floorCount = typeof survey.floorCount === "number" ? survey.floorCount : null;
   const laundryDetailJson = buildLaundryDetailJson(survey);
-  const emergencyContactJson = nonEmptyObject(meta.emergencyContact);
   const recurringScheduleJson = nonEmptyObject(meta.recurringSchedule);
   const accessGuide = buildAccessGuide(survey, meta);
   const inventoryEnabled = deriveInventoryEnabled(scenarios);
@@ -630,9 +629,8 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
         laundryDetail: laundryDetailJson
           ? (laundryDetailJson as Prisma.InputJsonValue)
           : undefined,
-        emergencyContact: emergencyContactJson
-          ? (emergencyContactJson as Prisma.InputJsonValue)
-          : undefined,
+        // Property.emergencyContact was dropped (ACCESS-3): nothing read it.
+        // The survey's copy still reaches the onboarding job's internalNotes.
         recurringSchedule: recurringScheduleJson
           ? (recurringScheduleJson as Prisma.InputJsonValue)
           : undefined,

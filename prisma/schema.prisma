@@ -905,7 +905,11 @@ model Property {
   // Setup instructions + reference-position images, same shape as accessGuide:
   // [{ id, kind: SETUP|REFERENCE_POSITION|SOFA_BED|OTHER, label, instructions, images: [{url,key,caption?}] }]
   setupGuide                 Json?
-  emergencyContact           Json? // { name, phone, relationship }
+  // `emergencyContact` was dropped 2026-08 (ACCESS-3 audit): onboarding approval
+  // wrote it and nothing ever read it. The survey's copy still reaches the first
+  // job's `internalNotes`, so the intake data is not lost. `recurringSchedule`
+  // was audited alongside it and KEPT — lib/marketing/segments.ts reads it to
+  // derive hasRecurringSchedule, and quote→job conversion writes it.
   recurringSchedule          Json? // { frequency, day, time, notes } captured for recurring services
   latitude                   Float?
   longitude                  Float?
