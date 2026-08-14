@@ -502,6 +502,7 @@ model PropertyMaintenanceItem {
   contactPerson  User?                      @relation("MaintenanceContactPerson", fields: [contactPersonUserId], references: [id], onDelete: SetNull)
   events         PropertyMaintenanceEvent[]
   pings          MaintenanceLocationPing[]
+  roleAssignments MaintenanceItemAssignment[]
 
   @@index([propertyId, status])
   @@index([status, priority])
@@ -533,6 +534,44 @@ model MaintenanceWorker {
   pings       MaintenanceLocationPing[]
 
   @@index([isActive, isPermanent])
+}
+
+/// CP-6 — a maintenance item is rarely one person's job: a trade fixes it, a
+/// cleaner tidies after, a QA inspector signs it off. One row is one PERSON in
+/// one ROLE, so the three roles stay separately addressable instead of collapsing
+/// into a single mixed assignee list.
+///
+/// Follows the JobAssignment convention: rows are never deleted, they are stamped
+/// `removedAt` (null = active) so the assignment history survives an un-assign.
+/// The legacy single `PropertyMaintenanceItem.assignedWorkerId` is untouched and
+/// still drives the ad-hoc trade's visit lifecycle (en route → clock out).
+model MaintenanceItemAssignment {
+  id           String                  @id @default(cuid())
+  itemId       String
+  userId       String
+  role         MaintenanceAssigneeRole
+  assignedAt   DateTime                @default(now())
+  assignedById String?
+  removedAt    DateTime?
+  /// Stamped when the "you've been assigned" email actually went out. Null
+  /// means never notified, so a re-offer can email again without spamming.
+  notifiedAt   DateTime?
+
+  item       PropertyMaintenanceItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user       User                    @relation("MaintenanceItemAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy User?                   @relation("MaintenanceItemAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@unique([itemId, userId, role])
+  @@index([itemId, role])
+  @@index([userId, removedAt])
+}
+
+/// Which hat a person wears on a maintenance item. Deliberately NOT the global
+/// `Role` enum — only these three can be assigned to maintenance work.
+enum MaintenanceAssigneeRole {
+  MAINTENANCE
+  CLEANER
+  QA
 }
 
 /// GPS breadcrumb for a maintenance visit (en route → arrived → clock in/out).
@@ -690,6 +729,8 @@ model User {
   maintenanceContactFor        PropertyMaintenanceItem[]   @relation("MaintenanceContactPerson")
   maintenanceWorker            MaintenanceWorker?          @relation("MaintenanceWorkerUser")
   maintenanceWorkersCreated    MaintenanceWorker[]         @relation("MaintenanceWorkerCreatedBy")
+  maintenanceItemAssignments     MaintenanceItemAssignment[] @relation("MaintenanceItemAssignee")
+  maintenanceItemAssignmentsMade MaintenanceItemAssignment[] @relation("MaintenanceItemAssignedBy")
   mediaOverrideRequests        MediaOverrideRequest[]      @relation("MediaOverrideRequestedBy")
   mediaOverrideDecisions       MediaOverrideRequest[]      @relation("MediaOverrideDecidedBy")
   auditLogs                    AuditLog[]                  @relation("AuditUser")

@@ -66,6 +66,7 @@ import {
   EAlert,
 } from "@/components/v2/ui/primitives";
 import { EInput, EField, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
+import { MaintenanceRoleAssignmentsPanel } from "@/components/v2/admin/maintenance/role-assignments-panel";
 
 // ─── Estate tone helpers ─────────────────────────────────────────────────────
 type ETone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";

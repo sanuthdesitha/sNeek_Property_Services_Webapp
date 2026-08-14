@@ -6,6 +6,7 @@ import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { getJobTimingHighlights, parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
+import { buildCleanerGuestSummary } from "@/lib/jobs/guest-summary";
 import {
   guestSummaryFromReservation,
   resolveFinalCheckupItems,
@@ -520,6 +521,13 @@ export async function GET(
       clientName || clientPhone || companyPhone || guestName || guestPhone
         ? { clientName, clientPhone, companyPhone, guestName, guestPhone }
         : null;
+    // The guest ARRIVING after this clean, trimmed for cleaner eyes. Name and
+    // phone were already exposed above via `contact`; this adds only the
+    // operationally useful extras (country, arrival time, headcount). The
+    // builder nulls the guest's email, profile link and reservation code —
+    // none of that helps clean a property.
+    const nextGuestSummary = buildCleanerGuestSummary(jobMeta.reservationContext);
+    const nextGuest = nextGuestSummary.hasAnything ? nextGuestSummary : null;
 
     // Final check-up (R7): resolve the acknowledgement items server-side so the
     // cleaner dialog and the submit-route gate work from the same list. Admin
@@ -548,6 +556,7 @@ export async function GET(
     return NextResponse.json({
       job,
       contact,
+      nextGuest,
       jobMeta,
       jobTasks,
       jobTimingHighlights,

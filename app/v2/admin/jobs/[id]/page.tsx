@@ -9,6 +9,7 @@ import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { jobDetailTabHref, resolveJobDetailTab } from "@/lib/jobs/detail-tabs";
 import { ClockRecordsEditor, GpsRecordEditor } from "@/components/v2/admin/jobs/job-clock-gps-editor";
 import { ClockLocationsMap } from "@/components/shared/clock-locations-map";
+import { buildGuestCountLabel, buildGuestSummary } from "@/lib/jobs/guest-summary";
 import {
   EBadge,
   EButton,
@@ -31,6 +32,7 @@ import {
   MessageCircle,
   CalendarDays,
   PackagePlus,
+  Phone,
   Receipt,
   RefreshCw,
   Shirt,
@@ -424,18 +426,6 @@ export default async function AdminJobDetailPage({
     return rows;
   })();
 
-  // "2 adults · 1 child" — only the counts the feed actually supplied.
-  const guestCountLabel = (() => {
-    const r = job.reservation;
-    if (!r) return null;
-    const parts: string[] = [];
-    const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-    if (r.adults != null && r.adults > 0) parts.push(plural(r.adults, "adult", "adults"));
-    if (r.children != null && r.children > 0) parts.push(plural(r.children, "child", "children"));
-    if (r.infants != null && r.infants > 0) parts.push(plural(r.infants, "infant", "infants"));
-    return parts.length > 0 ? parts.join(" · ") : null;
-  })();
-
   const scheduledLabel = (() => {
     const parsed = new Date(job.scheduledDate);
     return Number.isNaN(parsed.getTime()) ? "Date not set" : format(parsed, "EEEE d MMMM yyyy");
@@ -577,6 +567,20 @@ export default async function AdminJobDetailPage({
   // Per-cleaner pay: custom payout overrides the hours × rate estimate; transport
   // is added on top. Same inputs the payroll + v1 billing panel read from.
   const jobMeta = parseJobInternalNotes(job.internalNotes);
+
+  // The guest ARRIVING after this clean. Job.reservation is the booking whose
+  // checkout triggered the job — i.e. the guest who just left — so it must not
+  // be read as "the guest for this job". See lib/jobs/guest-summary.ts.
+  const nextGuest = buildGuestSummary(jobMeta.reservationContext);
+
+  // Counts for the departing booking, shown in the secondary block below.
+  const departingGuestCountLabel = job.reservation
+    ? buildGuestCountLabel({
+        adults: job.reservation.adults,
+        children: job.reservation.children,
+        infants: job.reservation.infants,
+      })
+    : null;
   const payHours = job.actualHours ?? job.estimatedHours ?? null;
   const payRows = job.assignments.map((a) => {
     const custom = jobMeta.cleanerPayouts[a.userId];
@@ -738,59 +742,121 @@ export default async function AdminJobDetailPage({
         {/* iCal feed data for this job's booking. Everything the sync captured,
             shown in full — admin previously had to open the property's sync log
             to see who was staying. */}
-        {job.reservation ? (
+        {nextGuest.hasAnything || job.reservation ? (
           <ECard>
             <ECardHeader className="pb-2">
               <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
-                <CalendarDays className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Booking (iCal)
+                <CalendarDays className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Guests (iCal)
               </ECardTitle>
             </ECardHeader>
-            <ECardBody className="space-y-1 pt-0 text-[0.8125rem]">
-              {job.reservation.guestName ? <p className="font-[550]">{job.reservation.guestName}</p> : null}
-              <p className="text-[hsl(var(--e-muted-foreground))] tabular-nums">
-                {format(new Date(job.reservation.startDate), "d MMM yyyy")} → {format(new Date(job.reservation.endDate), "d MMM yyyy")}
-              </p>
-              {job.reservation.checkinAtLocal || job.reservation.checkoutAtLocal ? (
-                <p className="text-[hsl(var(--e-muted-foreground))] tabular-nums">
-                  {job.reservation.checkinAtLocal ? `Check-in ${format(new Date(job.reservation.checkinAtLocal), "d MMM HH:mm")}` : ""}
-                  {job.reservation.checkinAtLocal && job.reservation.checkoutAtLocal ? " · " : ""}
-                  {job.reservation.checkoutAtLocal ? `Check-out ${format(new Date(job.reservation.checkoutAtLocal), "d MMM HH:mm")}` : ""}
-                </p>
-              ) : null}
-              {guestCountLabel ? <p className="text-[hsl(var(--e-muted-foreground))]">{guestCountLabel}</p> : null}
-              {job.reservation.reservationCode ? (
-                <p className="text-[hsl(var(--e-muted-foreground))]">Code: <span className="tabular-nums">{job.reservation.reservationCode}</span></p>
-              ) : null}
-              {job.reservation.guestPhone ? (
+            <ECardBody className="space-y-3 pt-0 text-[0.8125rem]">
+              {/* ARRIVING guest first — this is who the property is being
+                  prepared for. Comes from jobMeta.reservationContext, which the
+                  sync builds from the incoming booking. */}
+              {nextGuest.hasAnything ? (
+                <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <EBadge tone="success" soft>Arriving next</EBadge>
+                    {nextGuest.checkinAtLocal ? (
+                      <span className="tabular-nums text-[hsl(var(--e-muted-foreground))]">
+                        {format(new Date(nextGuest.checkinAtLocal), "d MMM HH:mm")}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 font-[600] text-[0.9375rem]">{nextGuest.name ?? "Guest"}</p>
+                  {nextGuest.country || nextGuest.origin ? (
+                    <p className="text-[hsl(var(--e-muted-foreground))]">
+                      {nextGuest.country}
+                      {nextGuest.origin && nextGuest.origin !== nextGuest.country ? (
+                        <span className="text-[hsl(var(--e-text-faint))]"> · {nextGuest.origin}</span>
+                      ) : null}
+                    </p>
+                  ) : null}
+                  {nextGuest.guestCountLabel ? (
+                    <p className="text-[hsl(var(--e-muted-foreground))]">{nextGuest.guestCountLabel}</p>
+                  ) : null}
+                  {nextGuest.preparationGuestCount != null ? (
+                    <p className="text-[hsl(var(--e-text-faint))]">
+                      Prepare for {nextGuest.preparationGuestCount}
+                      {nextGuest.preparationIsFallback ? " (property max — no booking count)" : ""}
+                    </p>
+                  ) : null}
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    {nextGuest.phone ? (
+                      <a
+                        href={`tel:${nextGuest.phone}`}
+                        className="inline-flex items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-2.5 py-1 font-[550] text-[hsl(var(--e-accent-portal))] hover:border-[hsl(var(--e-border-strong))]"
+                      >
+                        <Phone className="h-3.5 w-3.5" /> {nextGuest.phoneLabel}
+                      </a>
+                    ) : null}
+                    {nextGuest.email ? (
+                      <a href={`mailto:${nextGuest.email}`} className="text-[hsl(var(--e-muted-foreground))] hover:underline">
+                        {nextGuest.email}
+                      </a>
+                    ) : null}
+                    {nextGuest.profileUrl ? (
+                      <a href={nextGuest.profileUrl} target="_blank" rel="noreferrer" className="text-[0.75rem] text-[hsl(var(--e-accent-portal))] hover:underline">
+                        Guest profile
+                      </a>
+                    ) : null}
+                  </div>
+                  {nextGuest.reservationCode ? (
+                    <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                      Code <span className="tabular-nums">{nextGuest.reservationCode}</span>
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
                 <p className="text-[hsl(var(--e-muted-foreground))]">
-                  <a href={`tel:${job.reservation.guestPhone}`} className="hover:underline">{job.reservation.guestPhone}</a>
+                  No incoming booking on the feed for this turnover.
                 </p>
+              )}
+
+              {/* DEPARTING booking — the reservation this job hangs off. Kept
+                  because admin asked to see everything, but clearly demoted so
+                  it can never be mistaken for the arriving guest again. */}
+              {job.reservation ? (
+                <details className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                  <summary className="cursor-pointer text-[hsl(var(--e-muted-foreground))]">
+                    Departing booking{job.reservation.guestName ? ` — ${job.reservation.guestName}` : ""}
+                  </summary>
+                  <div className="mt-2 space-y-1">
+                    <p className="tabular-nums text-[hsl(var(--e-muted-foreground))]">
+                      {format(new Date(job.reservation.startDate), "d MMM yyyy")} → {format(new Date(job.reservation.endDate), "d MMM yyyy")}
+                    </p>
+                    {job.reservation.checkoutAtLocal ? (
+                      <p className="tabular-nums text-[hsl(var(--e-muted-foreground))]">
+                        Check-out {format(new Date(job.reservation.checkoutAtLocal), "d MMM HH:mm")}
+                      </p>
+                    ) : null}
+                    {departingGuestCountLabel ? (
+                      <p className="text-[hsl(var(--e-muted-foreground))]">{departingGuestCountLabel}</p>
+                    ) : null}
+                    {job.reservation.reservationCode ? (
+                      <p className="text-[hsl(var(--e-muted-foreground))]">
+                        Code <span className="tabular-nums">{job.reservation.reservationCode}</span>
+                      </p>
+                    ) : null}
+                    {job.reservation.guestPhone ? (
+                      <p><a href={`tel:${job.reservation.guestPhone}`} className="text-[hsl(var(--e-muted-foreground))] hover:underline">{job.reservation.guestPhone}</a></p>
+                    ) : null}
+                    {job.reservation.guestEmail ? (
+                      <p><a href={`mailto:${job.reservation.guestEmail}`} className="text-[hsl(var(--e-muted-foreground))] hover:underline">{job.reservation.guestEmail}</a></p>
+                    ) : null}
+                    {job.reservation.summary ? (
+                      <p className="text-[hsl(var(--e-text-faint))]">{job.reservation.summary}</p>
+                    ) : null}
+                    {job.reservation.locationText ? (
+                      <p className="text-[hsl(var(--e-text-faint))]">{job.reservation.locationText}</p>
+                    ) : null}
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      {job.reservation.source ? <EBadge tone="neutral" soft>{job.reservation.source}</EBadge> : null}
+                    </div>
+                    <p className="pt-1 text-[0.6875rem] text-[hsl(var(--e-text-faint))] break-all">UID {job.reservation.uid}</p>
+                  </div>
+                </details>
               ) : null}
-              {job.reservation.guestEmail ? (
-                <p className="text-[hsl(var(--e-muted-foreground))]">
-                  <a href={`mailto:${job.reservation.guestEmail}`} className="hover:underline">{job.reservation.guestEmail}</a>
-                </p>
-              ) : null}
-              {job.reservation.summary ? (
-                <p className="text-[hsl(var(--e-text-faint))]">{job.reservation.summary}</p>
-              ) : null}
-              {job.reservation.locationText ? (
-                <p className="text-[hsl(var(--e-text-faint))]">{job.reservation.locationText}</p>
-              ) : null}
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                {job.reservation.source ? <EBadge tone="neutral" soft>{job.reservation.source}</EBadge> : null}
-                {job.reservation.guestProfileUrl ? (
-                  <a
-                    href={job.reservation.guestProfileUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[0.75rem] text-[hsl(var(--e-accent-portal))] hover:underline"
-                  >
-                    Guest profile
-                  </a>
-                ) : null}
-              </div>
-              <p className="pt-1 text-[0.6875rem] text-[hsl(var(--e-text-faint))] break-all">UID {job.reservation.uid}</p>
             </ECardBody>
           </ECard>
         ) : null}

@@ -7,7 +7,11 @@
  * context, restock needs, and contact numbers. Pure props — no data fetching.
  */
 import * as React from "react";
-import { Check, Copy, KeyRound, MapPin, Shirt, Package, User, X } from "lucide-react";
+import { Check, Copy, KeyRound, MapPin, PhoneCall, Shirt, Package, User, UserRound, X } from "lucide-react";
+import type { GuestSummary } from "@/lib/jobs/guest-summary";
+
+/** The trimmed arriving-guest summary the cleaner API returns as `nextGuest`. */
+export type CleanerNextGuest = GuestSummary;
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
 import { EAccessInfo } from "@/components/v2/shared/access-info";
 import PropertyAccessGuide from "@/components/v2/cleaner/property-access-guide";
@@ -168,6 +172,71 @@ function ClientBlock({ contact }: { contact: JobContact | null }) {
   );
 }
 
+/**
+ * The guest ARRIVING after this clean — who the property is being prepared for.
+ *
+ * Not the departing guest: a turnover job is linked to the booking whose
+ * checkout triggered it, so reading `Job.reservation` shows whoever just left.
+ * This comes from the API's `nextGuest`, built by
+ * lib/jobs/guest-summary.ts#buildCleanerGuestSummary, which deliberately
+ * withholds the guest's email, profile link and reservation code — a cleaner
+ * needs to know who is coming, from where, when, and how many, not their
+ * booking paperwork.
+ */
+function NextGuestBlock({ nextGuest }: { nextGuest?: CleanerNextGuest | null }) {
+  if (!nextGuest) return null;
+  const arrival = (() => {
+    if (!nextGuest.checkinAtLocal) return null;
+    const parsed = new Date(nextGuest.checkinAtLocal);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toLocaleString(undefined, {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  })();
+
+  return (
+    <div className="space-y-2">
+      <SectionHeading icon={<UserRound className="h-3.5 w-3.5" />}>Next guest</SectionHeading>
+      <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+        <p className="text-[0.875rem] font-[600] text-[hsl(var(--e-foreground))]">
+          {nextGuest.name ?? "Guest"}
+        </p>
+        {nextGuest.country ? (
+          <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            {nextGuest.country}
+          </p>
+        ) : null}
+        {arrival ? (
+          <p className="mt-0.5 text-[0.8125rem] tabular-nums text-[hsl(var(--e-muted-foreground))]">
+            Arrives {arrival}
+          </p>
+        ) : null}
+        {nextGuest.guestCountLabel ? (
+          <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            {nextGuest.guestCountLabel}
+          </p>
+        ) : nextGuest.preparationGuestCount != null ? (
+          <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Prepare for {nextGuest.preparationGuestCount}
+          </p>
+        ) : null}
+        {nextGuest.phone ? (
+          <a
+            href={`tel:${nextGuest.phone}`}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-1.5 text-[0.8125rem] font-[550] text-[hsl(var(--e-primary))]"
+          >
+            <PhoneCall className="h-3.5 w-3.5" />
+            Call guest
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function RestockBlock({
   restockNeeds,
 }: {
@@ -199,6 +268,7 @@ export function PropertyInfoDrawer({
   propertyId,
   keyPickupLocation,
   contact,
+  nextGuest,
   readFirstItems,
   restockNeeds,
 }: {
@@ -210,6 +280,9 @@ export function PropertyInfoDrawer({
   /** Where the cleaner collects keys (jobMeta.serviceContext.keyPickupLocation). */
   keyPickupLocation?: string | null;
   contact: JobContact | null;
+  /** Arriving guest, from the API's `nextGuest`. Optional so other call sites
+   *  (and any cached payload predating the field) compile and simply omit it. */
+  nextGuest?: CleanerNextGuest | null;
   readFirstItems: ReadFirstItem[];
   restockNeeds: { name: string; needed: number; unit?: string | null }[];
 }) {
@@ -263,6 +336,8 @@ export function PropertyInfoDrawer({
           <AddressBlock property={property} />
 
           <ClientBlock contact={contact} />
+
+          <NextGuestBlock nextGuest={nextGuest} />
 
           {keyPickup ? (
             <div className="space-y-2">
