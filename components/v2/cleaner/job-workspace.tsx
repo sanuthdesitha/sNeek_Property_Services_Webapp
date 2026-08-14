@@ -1367,8 +1367,17 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
 
       <JobHeader api={api} />
 
-      {/* Early-check-in / late-checkout rules (R6c) — visible on every stage. */}
-      {!locked ? <TimingRuleBanners rules={timingRules} /> : null}
+      {/* Early-check-in / late-checkout rules (R6c) — visible on every stage.
+          Same-day check-in rides along here: v1 job details surfaced it and v2
+          dropped it (CP-9), leaving the cleaner blind to the hardest deadline on
+          the job. It reads straight off the job row (the form route uses a
+          Prisma `include`, so every Job scalar is already on the payload). */}
+      {!locked ? (
+        <TimingRuleBanners
+          rules={timingRules}
+          sameDayCheckin={{ active: job?.sameDayCheckin === true, time: job?.sameDayCheckinTime ?? null }}
+        />
+      ) : null}
 
       {notice ? (
         <EAlert tone={notice.tone === "danger" ? "danger" : notice.tone === "success" ? "success" : "info"}>
