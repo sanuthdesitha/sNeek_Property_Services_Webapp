@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, MapPin, Search } from "lucide-react";
+import { AlertCircle, Loader2, MapPin, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { loadPlacesLibrary } from "@/lib/google-maps/client";
 
@@ -53,13 +53,13 @@ export function AddressSearchInput({
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const seqRef = React.useRef(0);
 
-  const [ready, setReady] = React.useState(false);
   /**
-   * Distinct from `!ready`, which is also the initial "still loading" state.
-   * Only true once the Places load has actually failed or come back without
-   * autocomplete — so the notice never flashes while the SDK is still loading.
+   * Tri-state, and it has to be: a boolean cannot tell "still loading" apart
+   * from "failed", so a notice keyed on `!ready` would flash on every mount
+   * before the SDK resolves. Only `unavailable` is a real failure.
    */
-  const [unavailable, setUnavailable] = React.useState(false);
+  const [status, setStatus] = React.useState<"loading" | "ready" | "unavailable">("loading");
+  const ready = status === "ready";
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [suggestions, setSuggestions] = React.useState<Suggestion[]>([]);
@@ -74,8 +74,7 @@ export function AddressSearchInput({
         if (!active) return;
         if (!places?.AutocompleteSuggestion) {
           // No new-API autocomplete — degrade to a plain typed input.
-          setReady(false);
-          setUnavailable(true);
+          setStatus("unavailable");
           return;
         }
         placesRef.current = places;
@@ -84,13 +83,9 @@ export function AddressSearchInput({
         } catch {
           tokenRef.current = null;
         }
-        setReady(true);
-        setUnavailable(false);
+        setStatus("ready");
       } catch {
-        if (active) {
-          setReady(false);
-          setUnavailable(true);
-        }
+        if (active) setStatus("unavailable");
       }
     })();
     return () => {
@@ -222,13 +217,24 @@ export function AddressSearchInput({
         ) : null}
       </div>
 
-      {/* Say so when there will be no suggestions. Silently degrading to a
-          plain box leaves the user unable to tell whether lookup is broken or
-          they are typing it wrong — they just keep waiting for a dropdown that
-          is never coming. Typing the address by hand still works. */}
-      {unavailable ? (
-        <p className="mt-1 text-xs text-muted-foreground">
-          Address lookup unavailable — type the full address manually.
+      {/* Only when the SDK genuinely failed — never while it is still loading.
+          Without this the field looks identical to a working one, so someone
+          types an address, gets no suggestions, and has no idea whether the
+          feature is broken or they mistyped. The consequence is not cosmetic:
+          an address entered this way carries no coordinates, which silently
+          removes the property from the ops map and from clock-in distance
+          checks. `role="status"` rather than `alert` — it is information, not
+          an interruption, and the field still works. */}
+      {status === "unavailable" ? (
+        <p
+          role="status"
+          className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground"
+        >
+          <AlertCircle aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Address lookup unavailable — type the full address manually. Ask an admin to check the
+            Google Maps key if this keeps happening.
+          </span>
         </p>
       ) : null}
 
