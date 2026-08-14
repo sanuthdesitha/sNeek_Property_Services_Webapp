@@ -16,7 +16,13 @@ import {
   decideMaintenanceCost,
 } from "@/lib/maintenance/service";
 import { resolvePropertyAccess, resolvePhotoUrls } from "@/lib/maintenance/access";
-import { userIsAssignedWorker, assignMaintenanceItem } from "@/lib/maintenance/workers";
+import {
+  userIsAssignedWorker,
+  assignMaintenanceItem,
+  routeMaintenanceToAdmin,
+  attachMaintenanceItemToJob,
+} from "@/lib/maintenance/workers";
+import { parseAssignTarget } from "@/lib/maintenance/assignment-routing";
 import { decryptSecret } from "@/lib/security/encryption";
 
 /** Decrypt the stored access codes so on-site staff see the real values. */
@@ -50,8 +56,13 @@ const patchSchema = z
     priority: z.nativeEnum(MaintenancePriority).optional(),
     estimatedCost: z.number().nonnegative().optional().nullable(),
     clientVisible: z.boolean().optional(),
-    // Assign an existing maintenance worker (admin/ops or the owning client).
-    assignWorkerId: z.string().trim().min(1).optional(),
+    // CP-8 assignment rule: "clients may assign directly to a maintenance
+    // worker OR to admin". A worker id assigns to that worker; explicit NULL
+    // means "send it to admin to arrange" — the same field, so a client who can
+    // assign can also hand it back without a second permission surface.
+    assignWorkerId: z.string().trim().min(1).nullable().optional(),
+    // CP-8: attach the item to a job, which auto-creates the job task.
+    attachJobId: z.string().trim().min(1).optional(),
     // Cost quote (admin/ops set a price for the client to approve).
     quotedCost: z.number().nonnegative().optional(),
     // Client (or admin/ops) approves/declines the quoted cost.
@@ -179,11 +190,40 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       await decideMaintenanceCost({ itemId: params.id, decision: body.costDecision, userId: session.user.id });
     }
 
-    if (wantsAssign && body.assignWorkerId) {
-      await assignMaintenanceItem({
+    // CP-8 — a worker id assigns; an explicit null routes to admin. Both are
+    // open to admin/ops AND the owning client, which is the owner-confirmed
+    // rule: "clients may assign directly to a maintenance worker OR to admin".
+    if (wantsAssign) {
+      const target = parseAssignTarget(body.assignWorkerId);
+      if (target?.kind === "WORKER") {
+        await assignMaintenanceItem({
+          itemId: params.id,
+          workerId: target.workerId,
+          assignedByUserId: session.user.id,
+        });
+      } else if (target?.kind === "ADMIN") {
+        await routeMaintenanceToAdmin({
+          itemId: params.id,
+          routedByUserId: session.user.id,
+          note: body.note ?? null,
+        });
+      }
+    }
+
+    // CP-8 — attaching to a job creates the job task, so the cleaner who turns
+    // up actually learns there is maintenance to do. Admin/ops only: putting
+    // work onto a scheduled job is a dispatch decision.
+    if (body.attachJobId !== undefined) {
+      if (!canManage) {
+        return NextResponse.json(
+          { error: "Only admins can attach maintenance to a job." },
+          { status: 403 }
+        );
+      }
+      await attachMaintenanceItemToJob({
         itemId: params.id,
-        workerId: body.assignWorkerId,
-        assignedByUserId: session.user.id,
+        jobId: body.attachJobId,
+        actorUserId: session.user.id,
       });
     }
 
