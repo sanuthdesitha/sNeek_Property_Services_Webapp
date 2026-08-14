@@ -11,9 +11,17 @@ import {
   MaintenanceStatus,
   MaintenancePingKind,
   MaintenanceOutcome,
+  MaintenanceSource,
   Prisma,
 } from "@prisma/client";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
+import {
+  buildJobTaskDraftFromMaintenance,
+  shouldCreateJobTaskOnAttach,
+  statusAfterRouting,
+  visitFieldsToClear,
+} from "@/lib/maintenance/assignment-routing";
 
 /** The MaintenanceWorker linked to a portal user (role MAINTENANCE), if any. */
 export async function getWorkerForUser(userId: string) {
@@ -111,6 +119,128 @@ export async function assignMaintenanceItem(input: {
     });
     return updated;
   });
+}
+
+/**
+ * CP-8 — route an item to ADMIN rather than to a named worker.
+ *
+ * The other half of "clients may assign directly to a maintenance worker OR to
+ * admin": a client who does not know who should do the work hands it back for
+ * triage. Clearing `assignedWorkerId` is the whole mechanism — an unassigned
+ * item is exactly what the admin queue already lists — but the visit must be
+ * re-armed too, or the next worker inherits the last one's arrival stamps.
+ *
+ * Everything else on the row (title, photos, quote, cost approval, the CP-7
+ * case link, CP-6 role assignments) is untouched, which is what "carrying the
+ * full record across" means in practice.
+ */
+export async function routeMaintenanceToAdmin(input: {
+  itemId: string;
+  routedByUserId?: string | null;
+  note?: string | null;
+}) {
+  return db.$transaction(async (tx) => {
+    const item = await tx.propertyMaintenanceItem.findUnique({
+      where: { id: input.itemId },
+      select: { status: true },
+    });
+    if (!item) throw new Error("Maintenance item not found.");
+    const nextStatus = statusAfterRouting(item.status, { kind: "ADMIN" }) ?? item.status;
+    const updated = await tx.propertyMaintenanceItem.update({
+      where: { id: input.itemId },
+      data: {
+        assignedWorkerId: null,
+        assignedAt: null,
+        assignedByUserId: input.routedByUserId ?? null,
+        scheduledFor: null,
+        status: nextStatus,
+        ...visitFieldsToClear,
+      },
+    });
+    await tx.propertyMaintenanceEvent.create({
+      data: {
+        itemId: input.itemId,
+        userId: input.routedByUserId ?? null,
+        fromStatus: item.status,
+        toStatus: nextStatus,
+        note: input.note?.trim() || "Sent to admin to arrange.",
+      },
+    });
+    return updated;
+  });
+}
+
+/**
+ * CP-8 — attach a maintenance item to a job and put the work ON that job.
+ *
+ * "auto-creating the job task on attach": without the task, attaching changes a
+ * foreign key and nothing else — the cleaner who turns up never learns there is
+ * maintenance to do. Only fires when the job actually changed, so re-saving an
+ * item already on a job does not mint duplicate tasks.
+ *
+ * The task write is best-effort: the attach itself is already committed, and a
+ * failed task must not roll back the link.
+ */
+export async function attachMaintenanceItemToJob(input: {
+  itemId: string;
+  jobId: string;
+  actorUserId?: string | null;
+}) {
+  const item = await db.propertyMaintenanceItem.findUnique({
+    where: { id: input.itemId },
+    select: {
+      id: true,
+      jobId: true,
+      propertyId: true,
+      title: true,
+      description: true,
+      source: true,
+      property: { select: { clientId: true } },
+    },
+  });
+  if (!item) throw new Error("Maintenance item not found.");
+
+  const creates = shouldCreateJobTaskOnAttach({
+    previousJobId: item.jobId,
+    nextJobId: input.jobId,
+  });
+
+  const updated = await db.propertyMaintenanceItem.update({
+    where: { id: input.itemId },
+    data: { jobId: input.jobId },
+  });
+
+  if (creates) {
+    const draft = buildJobTaskDraftFromMaintenance({
+      title: item.title,
+      description: item.description,
+      raisedByClient: item.source === MaintenanceSource.CLIENT,
+    });
+    try {
+      await db.jobTask.create({
+        data: {
+          jobId: input.jobId,
+          propertyId: item.propertyId,
+          clientId: item.property?.clientId ?? null,
+          source: draft.source,
+          title: draft.title,
+          description: draft.description,
+          visibleToCleaner: draft.visibleToCleaner,
+          requiresPhoto: draft.requiresPhoto,
+          requiresNote: draft.requiresNote,
+          requestedByUserId: input.actorUserId ?? null,
+          metadata: { maintenanceItemId: item.id } as any,
+        },
+      });
+    } catch (err) {
+      logger.error(
+        { err, itemId: item.id, jobId: input.jobId },
+        "CP-8: could not auto-create the job task for an attached maintenance item"
+      );
+    }
+  }
+
+  return updated;
 }
 
 export async function recordMaintenancePing(input: {
