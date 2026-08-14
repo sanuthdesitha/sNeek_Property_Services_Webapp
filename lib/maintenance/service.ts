@@ -7,6 +7,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { db } from "@/lib/db";
+import { syncCaseFromMaintenance } from "@/lib/cases/damage-maintenance-sync";
 
 // ─── Constant lists (re-used by API validation + UI) ──────────────────────────
 
@@ -271,6 +272,14 @@ export async function updateMaintenanceStatus(
       });
     }
   });
+
+  // CP-7 — carry the repair's new status back to the DAMAGE case that spawned
+  // it, so the client's case and the repair never disagree. Deliberately AFTER
+  // the transaction: syncing is best-effort and must not be able to roll back a
+  // status change that has already been recorded. No-op for unlinked items.
+  for (const id of ids) {
+    await syncCaseFromMaintenance({ itemId: id, status: input.status });
+  }
 
   return { updated: ids.length };
 }

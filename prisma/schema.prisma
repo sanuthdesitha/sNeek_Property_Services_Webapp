@@ -453,6 +453,11 @@ model PropertyMaintenanceItem {
   id                 String              @id @default(cuid())
   propertyId         String
   jobId              String?
+  /// CP-7 — the DAMAGE case this item was auto-created from, if any. The link
+  /// is what lets the two stay in sync: resolving the case resolves the item
+  /// and vice versa, instead of a client seeing a closed case beside an open
+  /// repair. Null for items raised directly (cleaner/QA/admin reports).
+  caseId             String?
   reportedByUserId   String
   source             MaintenanceSource
   category           MaintenanceCategory @default(OTHER)
@@ -503,11 +508,13 @@ model PropertyMaintenanceItem {
   events         PropertyMaintenanceEvent[]
   pings          MaintenanceLocationPing[]
   roleAssignments MaintenanceItemAssignment[]
+  case            IssueTicket?               @relation("CaseMaintenanceItems", fields: [caseId], references: [id], onDelete: SetNull)
 
   @@index([propertyId, status])
   @@index([status, priority])
   @@index([reportedByUserId])
   @@index([assignedWorkerId, status])
+  @@index([caseId])
 }
 
 /// A maintenance/repair person. May be ad-hoc (no portal login) or permanent
@@ -2061,6 +2068,8 @@ model IssueTicket {
   comments    CaseComment[]
   attachments CaseAttachment[]
   transitions CaseTransition[]
+  /// CP-7 — maintenance items auto-created from this case (DAMAGE cases only).
+  maintenanceItems PropertyMaintenanceItem[] @relation("CaseMaintenanceItems")
 }
 
 model CaseTransition {
