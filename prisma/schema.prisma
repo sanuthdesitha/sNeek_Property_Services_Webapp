@@ -885,8 +885,10 @@ model Property {
   bathrooms                  Int      @default(1)
   // Captured during onboarding — persisted so nothing is dropped and cleaners/
   // pricing can use them.
-  propertyType               String? // house | apartment | townhouse | unit | commercial | other
-  sizeSqm                    Float?
+  // `propertyType` and `sizeSqm` were dropped 2026-08 (ACCESS-3 audit): written
+  // on onboarding approval, read by nothing. They live on where they are
+  // actually used — PropertyOnboardingSurvey (intake + the cleaner-count
+  // estimator in lib/onboarding/estimation/calculator.ts).
   floorCount                 Int?
   laundryDetail              Json? // { washerType, dryerType, laundryLocation, detergentType, suppliesProvided, notes }
   // ── Quality / accountability config ────────────────────────────────────────

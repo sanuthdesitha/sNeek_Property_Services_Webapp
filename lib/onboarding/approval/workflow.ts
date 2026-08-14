@@ -423,13 +423,10 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
   const checkoutTime = HH_MM.test(String(meta.defaultCheckoutTime ?? "")) ? String(meta.defaultCheckoutTime) : "10:00";
 
   // ── Dropped-input recovery: structured property attributes ─────────────────
-  // These were captured/validated on the survey but never landed on the Property
-  // (columns now exist). All reads guarded so old surveys stay backward-compatible.
-  const propertyType =
-    typeof survey.propertyType === "string" && survey.propertyType.trim()
-      ? survey.propertyType.trim()
-      : null;
-  const sizeSqm = typeof survey.sizeSqm === "number" ? survey.sizeSqm : null;
+  // Captured/validated on the survey and copied onto the Property. Reads are
+  // guarded so old surveys stay backward-compatible. propertyType/sizeSqm are
+  // deliberately NOT copied any more (ACCESS-3) — nothing read them on the
+  // Property, and they remain on the survey for the estimator.
   const floorCount = typeof survey.floorCount === "number" ? survey.floorCount : null;
   const laundryDetailJson = buildLaundryDetailJson(survey);
   const recurringScheduleJson = nonEmptyObject(meta.recurringSchedule);
@@ -623,8 +620,8 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
         bathrooms: survey.bathrooms,
         hasBalcony: survey.hasBalcony,
         // Structured attributes recovered from the survey (previously dropped).
-        propertyType: propertyType ?? undefined,
-        sizeSqm: sizeSqm ?? undefined,
+        // propertyType / sizeSqm dropped from Property (ACCESS-3) — nothing read
+        // them there. They stay on the survey, which is what the estimator uses.
         floorCount: floorCount ?? undefined,
         laundryDetail: laundryDetailJson
           ? (laundryDetailJson as Prisma.InputJsonValue)
