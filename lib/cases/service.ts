@@ -5,6 +5,10 @@ import { readSettingStore, writeSettingStore } from "@/lib/phase4/store";
 import { publicUrl } from "@/lib/s3";
 import { listDisputes, type DisputeRecord } from "@/lib/phase4/disputes";
 import { normalizeUnifiedCaseStatus, type UnifiedCaseStatus } from "@/lib/cases/status";
+import {
+  autoCreateMaintenanceForDamageCase,
+  syncMaintenanceFromCase,
+} from "@/lib/cases/damage-maintenance-sync";
 import type { CaseState } from "@/lib/cases/lifecycle-fsm";
 
 const LEGACY_MIGRATION_KEY = "cases_legacy_disputes_migration_v1";
@@ -445,6 +449,29 @@ export async function createCase(input: {
     },
   });
 
+  // CP-7 — a DAMAGE case is something physically broken, so raise the repair and
+  // tell the client + admin. Post-commit and best-effort by contract: the case
+  // is already saved, and a failed automation must never lose a damage report.
+  await autoCreateMaintenanceForDamageCase({
+    caseRow: {
+      id: created.id,
+      caseType: created.caseType,
+      propertyId: created.propertyId,
+      clientId: created.clientId,
+      title: created.title,
+      description: created.description,
+      severity: created.severity,
+      status: created.status,
+    },
+    reportedByUserId:
+      input.comment?.authorUserId ??
+      input.attachments?.[0]?.uploadedByUserId ??
+      created.assignedToUserId ??
+      "",
+    jobId: created.jobId,
+    photoKeys: (input.attachments ?? []).map((a) => a.s3Key).filter(Boolean),
+  });
+
   return getCaseById(created.id);
 }
 
@@ -501,6 +528,13 @@ export async function updateCase(
       metadata: nextMetadata as any,
     },
   });
+
+  // CP-7 — carry a case status change onto the repair it spawned, so a client
+  // never sees a closed damage case beside an open repair. No-ops when the case
+  // has no linked item, or when the new status says nothing about the repair.
+  if (nextStatus && nextStatus !== existing.status) {
+    await syncMaintenanceFromCase({ caseId: id, status: nextStatus });
+  }
 
   if (stateChanged && nextState) {
     await db.caseTransition
