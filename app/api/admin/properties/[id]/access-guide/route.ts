@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import {
+  accessGuideSaveSchema,
+  cleanAccessGuideForSave,
+  sanitizeAccessGuide,
+} from "@/lib/properties/access-guide";
 
 export const runtime = "nodejs";
 
@@ -16,47 +20,8 @@ export const runtime = "nodejs";
  *   kind ∈ LOCKBOX|KEYS|ENTRY|ALARM|PARKING|BIN_ROOM|SUPPLIES_CUPBOARD|WIFI|OTHER
  */
 
-// Not exported: a Next route module may only export HTTP handlers + route config.
-const ACCESS_GUIDE_KINDS = [
-  "LOCKBOX",
-  "KEYS",
-  "ENTRY",
-  "ALARM",
-  "PARKING",
-  "BIN_ROOM",
-  "SUPPLIES_CUPBOARD",
-  "WIFI",
-  "OTHER",
-] as const;
-
-const imageSchema = z.object({
-  url: z.string().trim().min(1).max(2048),
-  key: z.string().trim().min(1).max(1024),
-  caption: z.string().trim().max(280).optional(),
-});
-
-const entrySchema = z.object({
-  id: z.string().trim().min(1).max(64),
-  kind: z.enum(ACCESS_GUIDE_KINDS),
-  label: z.string().trim().min(1).max(120),
-  instructions: z.string().trim().max(4000).optional(),
-  images: z.array(imageSchema).max(24).default([]),
-});
-
-const saveSchema = z.object({
-  accessGuide: z.array(entrySchema).max(40),
-});
-
-/** Normalise stored JSON into a clean array (defensive against legacy shapes). */
-function sanitizeStored(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  const out: z.infer<typeof entrySchema>[] = [];
-  for (const raw of value) {
-    const parsed = entrySchema.safeParse(raw);
-    if (parsed.success) out.push(parsed.data);
-  }
-  return out;
-}
+// The kinds list, entry schema and sanitiser live in lib/properties/access-guide
+// so this route, the cleaner route and both editors cannot drift apart.
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -69,7 +34,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({
       propertyId: property.id,
       propertyName: property.name,
-      accessGuide: sanitizeStored(property.accessGuide),
+      accessGuide: sanitizeAccessGuide(property.accessGuide),
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
@@ -80,24 +45,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const body = saveSchema.parse(await req.json());
+    const body = accessGuideSaveSchema.parse(await req.json());
     const property = await db.property.findUnique({ where: { id: params.id }, select: { id: true } });
     if (!property) return NextResponse.json({ error: "Property not found." }, { status: 404 });
 
     // Strip empty-image captions and drop entries that carry no useful content.
-    const cleaned = body.accessGuide
-      .map((entry) => ({
-        id: entry.id,
-        kind: entry.kind,
-        label: entry.label,
-        instructions: entry.instructions?.trim() || undefined,
-        images: entry.images.map((img) => ({
-          url: img.url,
-          key: img.key,
-          caption: img.caption?.trim() || undefined,
-        })),
-      }))
-      .filter((entry) => entry.label || entry.instructions || entry.images.length > 0);
+    const cleaned = cleanAccessGuideForSave(body.accessGuide);
 
     await db.property.update({
       where: { id: params.id },

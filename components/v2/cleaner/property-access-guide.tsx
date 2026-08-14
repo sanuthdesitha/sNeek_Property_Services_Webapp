@@ -38,6 +38,12 @@ type GuideEntry = {
   label: string;
   instructions?: string;
   images: GuideImage[];
+  /** ACCESS-2 — which floor, where exactly, and an optional map pin. */
+  level?: string;
+  locationNote?: string;
+  lat?: number;
+  lng?: number;
+  sequence?: number;
 };
 
 const KIND_META: Record<string, { label: string; icon: React.ReactNode }> = {
@@ -47,6 +53,7 @@ const KIND_META: Record<string, { label: string; icon: React.ReactNode }> = {
   ALARM: { label: "Alarm", icon: <AlarmSmoke className="h-4 w-4" /> },
   PARKING: { label: "Parking", icon: <Car className="h-4 w-4" /> },
   BIN_ROOM: { label: "Bin room", icon: <Trash className="h-4 w-4" /> },
+  BIN_CHUTE: { label: "Bin chute", icon: <Trash className="h-4 w-4" /> },
   SUPPLIES_CUPBOARD: { label: "Supplies", icon: <Boxes className="h-4 w-4" /> },
   WIFI: { label: "Wi-Fi", icon: <Wifi className="h-4 w-4" /> },
   OTHER: { label: "Other", icon: <Info className="h-4 w-4" /> },
@@ -181,6 +188,34 @@ export default function PropertyAccessGuide({
 
                 {isOpen ? (
                   <div className="space-y-3 border-t border-[hsl(var(--e-border))] px-3 py-3">
+                    {/* ACCESS-2 — level first: knowing a bin room exists is
+                        useless without the floor it is on. The maps link only
+                        appears when a pin was actually set, so nothing here
+                        depends on a Google Maps API key being configured. */}
+                    {entry.level || entry.locationNote || (entry.lat != null && entry.lng != null) ? (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.8125rem]">
+                        {entry.level ? (
+                          <span className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-2 py-0.5 font-[550]">
+                            {entry.level}
+                          </span>
+                        ) : null}
+                        {entry.locationNote ? (
+                          <span className="text-[hsl(var(--e-muted-foreground))]">
+                            {entry.locationNote}
+                          </span>
+                        ) : null}
+                        {entry.lat != null && entry.lng != null ? (
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${entry.lat},${entry.lng}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[hsl(var(--e-primary))] underline underline-offset-2"
+                          >
+                            Open in Maps
+                          </a>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {entry.instructions ? (
                       <p className="whitespace-pre-wrap text-[0.875rem] leading-6 text-[hsl(var(--e-text-secondary))]">
                         {entry.instructions}
