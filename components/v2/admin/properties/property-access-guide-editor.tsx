@@ -41,17 +41,11 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { EField, EInput, ETextarea, ESelect } from "@/components/v2/admin/estate-kit";
+import type { AccessGuideKind } from "@/lib/properties/access-guide";
 
-type AccessKind =
-  | "LOCKBOX"
-  | "KEYS"
-  | "ENTRY"
-  | "ALARM"
-  | "PARKING"
-  | "BIN_ROOM"
-  | "SUPPLIES_CUPBOARD"
-  | "WIFI"
-  | "OTHER";
+// Kind list + entry shape come from lib/properties/access-guide so the editor,
+// both API routes and the cleaner view cannot drift (ACCESS-2 added BIN_CHUTE).
+type AccessKind = AccessGuideKind;
 
 type GuideImage = { url: string; key: string; caption?: string };
 type GuideEntry = {
@@ -60,6 +54,12 @@ type GuideEntry = {
   label: string;
   instructions?: string;
   images: GuideImage[];
+  /** ACCESS-2 — where to go, and in what order. All optional. */
+  level?: string;
+  locationNote?: string;
+  lat?: number;
+  lng?: number;
+  sequence?: number;
 };
 
 export const ACCESS_KIND_META: Record<AccessKind, { label: string; icon: React.ReactNode }> = {
@@ -69,6 +69,7 @@ export const ACCESS_KIND_META: Record<AccessKind, { label: string; icon: React.R
   ALARM: { label: "Alarm", icon: <AlarmSmoke className="h-4 w-4" /> },
   PARKING: { label: "Parking", icon: <Car className="h-4 w-4" /> },
   BIN_ROOM: { label: "Bin room", icon: <Trash className="h-4 w-4" /> },
+  BIN_CHUTE: { label: "Bin chute", icon: <Trash2 className="h-4 w-4" /> },
   SUPPLIES_CUPBOARD: { label: "Supplies cupboard", icon: <Boxes className="h-4 w-4" /> },
   WIFI: { label: "Wi-Fi", icon: <Wifi className="h-4 w-4" /> },
   OTHER: { label: "Other", icon: <Info className="h-4 w-4" /> },
@@ -315,6 +316,72 @@ function EntryCard({
               onChange={(e) => onChange({ instructions: e.target.value })}
             />
           </EField>
+
+          {/* ACCESS-2 — where this point actually is. A bin room without a
+              level is the original complaint: the cleaner knows it exists but
+              not which floor. `sequence` is the shared hook ACCESS-1's guided
+              route orders on, so the two features use one waypoint list. */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <EField label="Level / floor">
+              <EInput
+                value={entry.level ?? ""}
+                placeholder="e.g. Basement 2"
+                onChange={(e) => onChange({ level: e.target.value })}
+              />
+            </EField>
+            <EField label="Where it is">
+              <EInput
+                value={entry.locationNote ?? ""}
+                placeholder="e.g. behind the lift lobby"
+                onChange={(e) => onChange({ locationNote: e.target.value })}
+              />
+            </EField>
+            <EField label="Order in route">
+              <EInput
+                type="number"
+                min="1"
+                max="99"
+                value={entry.sequence ?? ""}
+                placeholder="—"
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  const next = Number(raw);
+                  onChange({
+                    sequence: raw && Number.isFinite(next) ? Math.trunc(next) : undefined,
+                  });
+                }}
+              />
+            </EField>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <EField label="Latitude (optional map pin)">
+              <EInput
+                type="number"
+                step="any"
+                value={entry.lat ?? ""}
+                placeholder="-33.8688"
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  const next = Number(raw);
+                  onChange({ lat: raw && Number.isFinite(next) ? next : undefined });
+                }}
+              />
+            </EField>
+            <EField label="Longitude">
+              <EInput
+                type="number"
+                step="any"
+                value={entry.lng ?? ""}
+                placeholder="151.2093"
+                onChange={(e) => {
+                  const raw = e.target.value.trim();
+                  const next = Number(raw);
+                  onChange({ lng: raw && Number.isFinite(next) ? next : undefined });
+                }}
+              />
+            </EField>
+          </div>
 
           {/* Images */}
           <div className="space-y-2">
