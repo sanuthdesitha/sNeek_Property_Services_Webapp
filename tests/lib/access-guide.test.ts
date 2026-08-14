@@ -3,6 +3,7 @@ import {
   ACCESS_GUIDE_KINDS,
   ACCESS_GUIDE_KIND_LABELS,
   cleanAccessGuideForSave,
+  entriesForAudience,
   hasWaypoint,
   orderedRoute,
   sanitizeAccessGuide,
@@ -70,6 +71,49 @@ describe("sanitizeAccessGuide", () => {
 
   it("rejects out-of-range coordinates rather than storing a bad pin", () => {
     expect(sanitizeAccessGuide([{ ...BIN_ROOM, lat: 999 }])).toEqual([]);
+  });
+});
+
+describe("entriesForAudience (ACCESS-1 per-role guides)", () => {
+  const cleanerOnly: AccessGuideEntry = { ...BIN_ROOM, id: "c", audience: "CLEANER" };
+  const laundryOnly: AccessGuideEntry = { ...BIN_ROOM, id: "l", audience: "LAUNDRY" };
+  const both: AccessGuideEntry = { ...BIN_ROOM, id: "b", audience: "BOTH" };
+  const legacy: AccessGuideEntry = { ...BIN_ROOM, id: "legacy", audience: undefined };
+  const all = [cleanerOnly, laundryOnly, both, legacy];
+
+  it("shows a legacy entry with no audience to everyone", () => {
+    // Entries written before per-role guides existed must not vanish from a
+    // portal just because nobody has re-tagged them.
+    expect(entriesForAudience([legacy], "CLEANER").map((e) => e.id)).toEqual(["legacy"]);
+    expect(entriesForAudience([legacy], "LAUNDRY").map((e) => e.id)).toEqual(["legacy"]);
+  });
+
+  it("gives the cleaner cleaner-only and shared entries, never laundry-only", () => {
+    expect(entriesForAudience(all, "CLEANER").map((e) => e.id)).toEqual(["c", "b", "legacy"]);
+  });
+
+  it("gives laundry only laundry and shared entries when the flag is off", () => {
+    expect(entriesForAudience(all, "LAUNDRY", false).map((e) => e.id)).toEqual(["l", "b", "legacy"]);
+  });
+
+  it("adds the cleaner's entries for laundry when 'same as cleaner' is on", () => {
+    expect(entriesForAudience(all, "LAUNDRY", true).map((e) => e.id)).toEqual([
+      "c",
+      "l",
+      "b",
+      "legacy",
+    ]);
+  });
+
+  it("keeps laundry-specific entries even under 'same as cleaner'", () => {
+    // "Same as cleaner, PLUS here is where the bags go" must work without
+    // duplicating the whole guide.
+    const result = entriesForAudience([cleanerOnly, laundryOnly], "LAUNDRY", true);
+    expect(result.map((e) => e.id)).toContain("l");
+  });
+
+  it("never leaks cleaner-only entries to laundry with the flag off", () => {
+    expect(entriesForAudience([cleanerOnly], "LAUNDRY", false)).toEqual([]);
   });
 });
 
