@@ -13,6 +13,7 @@ import {
   type ProfileCustomItem,
 } from "@/lib/checklists/compose";
 import { featuresFromAppliances, sanitizeFeatures } from "@/lib/checklists/features";
+import { ensurePropertyDefaultStock } from "@/lib/inventory/default-items";
 import { logger } from "@/lib/logger";
 
 interface ApproveInput {
@@ -558,6 +559,27 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
       { err, surveyId: survey.id, propertyId: result.propertyId },
       "Onboarding checklist materialisation failed (non-fatal — set it up from the property's Forms tab)"
     );
+  }
+
+  // ── Post-step: default inventory (best-effort, never blocks approval) ──────
+  // The transaction above sets `inventoryEnabled` from the wizard's consumables
+  // answers but created no stock — approval was the SECOND creation path and
+  // only the admin create-property POST ever seeded. An approved survey that
+  // opted into restocking therefore produced a property whose supplies screen
+  // was empty. Seeding is idempotent, so a re-approval is a no-op.
+  if (inventoryEnabled) {
+    try {
+      const { created } = await ensurePropertyDefaultStock(result.propertyId);
+      logger.info(
+        { surveyId: survey.id, propertyId: result.propertyId, created },
+        "Onboarding approval seeded default inventory"
+      );
+    } catch (err) {
+      logger.error(
+        { err, surveyId: survey.id, propertyId: result.propertyId },
+        "Onboarding default-inventory seeding failed (non-fatal — re-save the property with stock tracking on to retry)"
+      );
+    }
   }
 
   return {

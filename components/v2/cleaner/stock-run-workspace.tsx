@@ -74,6 +74,17 @@ const STATUS_TONE: Record<RunStatus, "neutral" | "primary" | "warning" | "succes
   DISCARDED: "danger",
 };
 
+/**
+ * Counting fields are deliberately small: a stock run is a long list of
+ * two-digit numbers typed on a phone, so a full-width h-10 field per value made
+ * every row a screenful. Matches the admin stock-count table
+ * (components/v2/admin/inventory/estate-stock-runs.tsx), which already uses
+ * `h-8 w-20 text-center`.
+ */
+const STOCK_FIELD_CLASS = "h-8 w-[4.25rem] px-2 text-center e-tnum text-[0.8125rem]";
+const STOCK_FIELD_LABEL_CLASS =
+  "text-[0.625rem] font-[550] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]";
+
 function numberValue(value: string, fallback: number | null = null) {
   if (value.trim() === "") return fallback;
   const parsed = Number(value);
@@ -372,63 +383,86 @@ export function StockRunWorkspace({ apiBase }: { apiBase: string }) {
                         return (
                           <div
                             key={line.id}
-                            className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3"
+                            className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2.5"
                           >
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div>
-                                <p className="text-[0.875rem] font-[550]">{line.item.name}</p>
-                                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                              <div className="min-w-0">
+                                <p className="text-[0.8125rem] font-[550] leading-tight">{line.item.name}</p>
+                                <p className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
                                   Expected {line.expectedOnHand} {line.item.unit}
                                   {line.item.supplier ? ` · ${line.item.supplier}` : ""}
                                 </p>
                               </div>
-                              <div className="grid grid-cols-3 gap-2">
-                                <EInput
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  disabled={runIsReadOnly}
-                                  value={draft.countedOnHand}
-                                  onChange={(e) =>
-                                    setDraftLines((prev) => ({ ...prev, [line.id]: { ...draft, countedOnHand: e.target.value } }))
-                                  }
-                                  aria-label="Counted on hand"
-                                />
-                                <EInput
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  disabled={!run.canEditThresholds || runIsReadOnly}
-                                  value={draft.parLevel}
-                                  onChange={(e) =>
-                                    setDraftLines((prev) => ({ ...prev, [line.id]: { ...draft, parLevel: e.target.value } }))
-                                  }
-                                  aria-label="Par level"
-                                />
-                                <EInput
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  disabled={!run.canEditThresholds || runIsReadOnly}
-                                  value={draft.reorderThreshold}
-                                  onChange={(e) =>
-                                    setDraftLines((prev) => ({ ...prev, [line.id]: { ...draft, reorderThreshold: e.target.value } }))
-                                  }
-                                  aria-label="Reorder threshold"
-                                />
+                              {/* Compact counting fields: short, centred, numeric
+                                  keypad on mobile so a whole property can be
+                                  counted with thumb taps. Par / reorder are only
+                                  rendered for roles that may edit them — showing
+                                  them greyed out just made every row taller. */}
+                              <div className="flex shrink-0 items-end gap-2">
+                                <label className="flex flex-col items-center gap-1">
+                                  <span className={STOCK_FIELD_LABEL_CLASS}>Count</span>
+                                  <EInput
+                                    type="number"
+                                    inputMode="decimal"
+                                    min="0"
+                                    step="0.01"
+                                    disabled={runIsReadOnly}
+                                    value={draft.countedOnHand}
+                                    onChange={(e) =>
+                                      setDraftLines((prev) => ({ ...prev, [line.id]: { ...draft, countedOnHand: e.target.value } }))
+                                    }
+                                    aria-label={`Counted on hand — ${line.item.name}`}
+                                    className={STOCK_FIELD_CLASS}
+                                  />
+                                </label>
+                                {run.canEditThresholds ? (
+                                  <>
+                                    <label className="flex flex-col items-center gap-1">
+                                      <span className={STOCK_FIELD_LABEL_CLASS}>Par</span>
+                                      <EInput
+                                        type="number"
+                                        inputMode="decimal"
+                                        min="0"
+                                        step="0.01"
+                                        disabled={runIsReadOnly}
+                                        value={draft.parLevel}
+                                        onChange={(e) =>
+                                          setDraftLines((prev) => ({ ...prev, [line.id]: { ...draft, parLevel: e.target.value } }))
+                                        }
+                                        aria-label={`Par level — ${line.item.name}`}
+                                        className={STOCK_FIELD_CLASS}
+                                      />
+                                    </label>
+                                    <label className="flex flex-col items-center gap-1">
+                                      <span className={STOCK_FIELD_LABEL_CLASS}>Min</span>
+                                      <EInput
+                                        type="number"
+                                        inputMode="decimal"
+                                        min="0"
+                                        step="0.01"
+                                        disabled={runIsReadOnly}
+                                        value={draft.reorderThreshold}
+                                        onChange={(e) =>
+                                          setDraftLines((prev) => ({ ...prev, [line.id]: { ...draft, reorderThreshold: e.target.value } }))
+                                        }
+                                        aria-label={`Reorder threshold — ${line.item.name}`}
+                                        className={STOCK_FIELD_CLASS}
+                                      />
+                                    </label>
+                                  </>
+                                ) : null}
                               </div>
                             </div>
-                            <div className="mt-2">
-                              <ETextarea
-                                rows={2}
-                                placeholder="Notes"
-                                disabled={runIsReadOnly}
-                                value={draft.note}
-                                onChange={(e) =>
-                                  setDraftLines((prev) => ({ ...prev, [line.id]: { ...draft, note: e.target.value } }))
-                                }
-                              />
-                            </div>
+                            <EInput
+                              placeholder="Note (optional)"
+                              disabled={runIsReadOnly}
+                              value={draft.note}
+                              onChange={(e) =>
+                                setDraftLines((prev) => ({ ...prev, [line.id]: { ...draft, note: e.target.value } }))
+                              }
+                              aria-label={`Note — ${line.item.name}`}
+                              className="mt-2 h-8 text-[0.8125rem]"
+                            />
                           </div>
                         );
                       })}

@@ -1263,13 +1263,49 @@ export function ApprovalsWorkspace() {
                     </span>
                   </>,
                   row.description ?? null,
+                  // CP-3b — the client answered with a different figure. Both
+                  // numbers stay visible so admin can see what moved.
+                  row.status === "COUNTERED" ? (
+                    <span className="text-[hsl(var(--e-warning))]">
+                      Client counter-offer:{" "}
+                      <span className="e-numeral text-[0.9375rem]">
+                        {row.currency} {Number(row.counterAmount ?? 0).toFixed(2)}
+                      </span>
+                      {row.counterNote ? ` — "${row.counterNote}"` : ""}
+                    </span>
+                  ) : null,
                 ]}
                 footer={`Requested ${fmt(row.requestedAt)}${row.expiresAt ? ` · Expires ${fmt(row.expiresAt)}` : ""}`}
                 actions={
                   <>
+                    {/* Settle at the client's number in one click. Sets the
+                        agreed amount as well as the status, so the record shows
+                        what was actually agreed rather than the original ask. */}
+                    {row.status === "COUNTERED" ? (
+                      <EButton
+                        size="sm"
+                        variant="gold"
+                        disabled={busy}
+                        onClick={() =>
+                          decide({
+                            url: `/api/admin/client-approvals/${row.id}`,
+                            body: {
+                              status: "APPROVED",
+                              amount: Number(row.counterAmount ?? row.amount ?? 0),
+                            },
+                            queue: "clientApprovals",
+                            rowId: row.id,
+                            successMsg: "Counter-offer accepted",
+                          })
+                        }
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Accept {row.currency} {Number(row.counterAmount ?? 0).toFixed(2)}
+                      </EButton>
+                    ) : null}
                     <EButton
                       size="sm"
-                      variant="gold"
+                      variant={row.status === "COUNTERED" ? "outline" : "gold"}
                       disabled={busy}
                       onClick={() =>
                         decide({
@@ -1282,7 +1318,7 @@ export function ApprovalsWorkspace() {
                       }
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      Approve
+                      {row.status === "COUNTERED" ? "Approve original" : "Approve"}
                     </EButton>
                     <ConfirmButton
                       label={

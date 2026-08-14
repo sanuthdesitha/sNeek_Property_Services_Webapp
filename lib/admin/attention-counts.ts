@@ -91,7 +91,11 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
     db.timeLogAdjustmentRequest.count({ where: { status: "PENDING" } }),
     listContinuationRequests({ status: "PENDING" }).then((rows) => rows.length),
     listEarlyCheckoutRequests({ status: "PENDING" }).then((rows) => rows.length),
-    listClientApprovals({ status: "PENDING" }).then((rows) => rows.length),
+    // COUNTERED counts too — a client's counter-offer is waiting on admin just
+    // as much as an unanswered request is (CP-3b).
+    listClientApprovals().then(
+      (rows) => rows.filter((row) => row.status === "PENDING" || row.status === "COUNTERED").length
+    ),
     db.laundryTask.count({ where: { status: "FLAGGED" } }),
     db.jobTask.count({ where: { source: "CLIENT", approvalStatus: "PENDING_APPROVAL" } }),
     listQaReworkTransfers(QaReworkTransferStatus.PENDING).then((rows) => rows.length),

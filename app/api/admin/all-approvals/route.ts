@@ -103,7 +103,12 @@ export async function GET() {
           orderBy: { createdAt: "desc" },
           take: 50,
         }),
-        listClientApprovals({ status: "PENDING" }),
+        // PENDING *and* COUNTERED: a counter-offer is unfinished business for
+        // admin, so it must stay in the queue. Filtering to PENDING alone would
+        // make a client's counter vanish the moment they sent it (CP-3b).
+        listClientApprovals().then((rows) =>
+          rows.filter((row) => row.status === "PENDING" || row.status === "COUNTERED")
+        ),
         db.laundryTask.findMany({
           where: { status: "FLAGGED" },
           include: {

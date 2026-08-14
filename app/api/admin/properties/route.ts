@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { createPropertySchema, sanitizeSetupGuide } from "@/lib/validations/client";
 import { Role } from "@prisma/client";
-import { applyDefaultStockToProperty, ensureDefaultInventoryItems } from "@/lib/inventory/default-items";
+import { ensurePropertyDefaultStock } from "@/lib/inventory/default-items";
 import { getApiErrorStatus } from "@/lib/api/http";
 import { normalizeInventoryLocation } from "@/lib/inventory/locations";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
@@ -144,12 +144,11 @@ export async function POST(req: NextRequest) {
     });
 
     if (property.inventoryEnabled) {
-      await ensureDefaultInventoryItems();
-
-      const selectedItemIds = defaultInventoryItemIds ?? [];
-      if (selectedItemIds.length > 0) {
-        await applyDefaultStockToProperty(property.id, selectedItemIds);
-      }
+      // An empty selection means "give it the standard set", not "give it
+      // nothing" — a property created with the inventory toggle on and no boxes
+      // ticked used to land with zero PropertyStock rows and an empty supplies
+      // screen. ensurePropertyDefaultStock also seeds the catalog itself.
+      await ensurePropertyDefaultStock(property.id, defaultInventoryItemIds);
 
       if (customInventoryItems && customInventoryItems.length > 0) {
         for (const custom of customInventoryItems) {
