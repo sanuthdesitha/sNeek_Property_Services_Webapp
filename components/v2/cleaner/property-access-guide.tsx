@@ -31,6 +31,9 @@ import {
   X,
 } from "lucide-react";
 
+import { AccessRoute } from "@/components/v2/shared/access-route";
+import type { AccessGuideEntry } from "@/lib/properties/access-guide";
+
 type GuideImage = { url: string; caption?: string };
 type GuideEntry = {
   id: string;
@@ -146,6 +149,17 @@ export default function PropertyAccessGuide({
 
       {open ? (
         <div className="space-y-2.5 border-t border-[hsl(var(--e-border))] p-3">
+          {/* ACCESS-1 — the guided route, when admin has numbered the steps.
+              Rendered above the full list because "where do I go first" is the
+              question someone standing at the kerb is actually asking. */}
+          {entries.some((e) => typeof e.sequence === "number") ? (
+            <div className="space-y-2">
+              <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.16em] text-[hsl(var(--e-muted-foreground))]">
+                Follow this route
+              </p>
+              <AccessRoute entries={entries as unknown as AccessGuideEntry[]} />
+            </div>
+          ) : null}
           {entries.map((entry) => {
             const meta = metaFor(entry.kind);
             const isOpen = !!expanded[entry.id];

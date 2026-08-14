@@ -26,6 +26,7 @@ import {
   Lock,
   Plus,
   Save,
+  Shirt,
   Trash2,
   Trash,
   Wifi,
@@ -60,16 +61,20 @@ type GuideEntry = {
   lat?: number;
   lng?: number;
   sequence?: number;
+  /** ACCESS-1 — who reads this step. Absent = both. */
+  audience?: "CLEANER" | "LAUNDRY" | "BOTH";
 };
 
 export const ACCESS_KIND_META: Record<AccessKind, { label: string; icon: React.ReactNode }> = {
   LOCKBOX: { label: "Lockbox", icon: <Lock className="h-4 w-4" /> },
   KEYS: { label: "Keys", icon: <KeyRound className="h-4 w-4" /> },
-  ENTRY: { label: "Entry", icon: <DoorOpen className="h-4 w-4" /> },
+  KEY_PICKUP: { label: "Key pickup", icon: <KeyRound className="h-4 w-4" /> },
+  ENTRY: { label: "Entrance", icon: <DoorOpen className="h-4 w-4" /> },
   ALARM: { label: "Alarm", icon: <AlarmSmoke className="h-4 w-4" /> },
   PARKING: { label: "Parking", icon: <Car className="h-4 w-4" /> },
   BIN_ROOM: { label: "Bin room", icon: <Trash className="h-4 w-4" /> },
   BIN_CHUTE: { label: "Bin chute", icon: <Trash2 className="h-4 w-4" /> },
+  LAUNDRY_PICKUP: { label: "Laundry pickup", icon: <Shirt className="h-4 w-4" /> },
   SUPPLIES_CUPBOARD: { label: "Supplies cupboard", icon: <Boxes className="h-4 w-4" /> },
   WIFI: { label: "Wi-Fi", icon: <Wifi className="h-4 w-4" /> },
   OTHER: { label: "Other", icon: <Info className="h-4 w-4" /> },
@@ -308,6 +313,24 @@ function EntryCard({
               />
             </EField>
           </div>
+
+          {/* ACCESS-1 — who this step is written for. The laundry driver and
+              the cleaner often use different doors at different hours, so an
+              entry can be aimed at one of them. Existing entries have no
+              audience and are treated as "Both", which is why nothing had to
+              be re-tagged when per-role guides shipped. */}
+          <EField label="Show to">
+            <ESelect
+              value={entry.audience ?? "BOTH"}
+              onChange={(e) =>
+                onChange({ audience: e.target.value as GuideEntry["audience"] })
+              }
+            >
+              <option value="BOTH">Both cleaners and laundry</option>
+              <option value="CLEANER">Cleaners only</option>
+              <option value="LAUNDRY">Laundry only</option>
+            </ESelect>
+          </EField>
 
           <EField label="Instructions">
             <ETextarea

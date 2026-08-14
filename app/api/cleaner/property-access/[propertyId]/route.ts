@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { ACCESS_GUIDE_KINDS } from "@/lib/properties/access-guide";
+import {
+  ACCESS_GUIDE_KINDS,
+  entriesForAudience,
+  type AccessGuideEntry,
+  type AccessReader,
+} from "@/lib/properties/access-guide";
+import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 
 export const runtime = "nodejs";
 
@@ -79,30 +85,58 @@ function sanitizeForCleaner(value: unknown) {
  */
 export async function GET(_req: Request, { params }: { params: { propertyId: string } }) {
   try {
-    const session = await requireRole([Role.CLEANER]);
-
-    const assignment = await db.job.findFirst({
-      where: {
-        propertyId: params.propertyId,
-        assignments: { some: { userId: session.user.id, removedAt: null } },
-      },
-      select: { id: true },
-    });
-    if (!assignment) {
-      return NextResponse.json({ error: "Not authorized for this property." }, { status: 403 });
-    }
+    // ACCESS-1 — the same guide serves two readers with different filters, so
+    // laundry reads here too rather than through a duplicate route.
+    const session = await requireRole([Role.CLEANER, Role.LAUNDRY]);
+    const reader: AccessReader = session.user.role === Role.LAUNDRY ? "LAUNDRY" : "CLEANER";
 
     const property = await db.property.findUnique({
       where: { id: params.propertyId },
-      select: { id: true, accessGuide: true },
+      select: { id: true, accessGuide: true, accessInfo: true, laundryEnabled: true },
     });
     if (!property) {
       return NextResponse.json({ error: "Property not found." }, { status: 404 });
     }
 
+    // Each reader earns access a different way: a cleaner through a job
+    // assignment at this property, a laundry user through the property's
+    // laundry team scoping (lib/laundry/teams.ts) — the same rule that governs
+    // every other laundry surface.
+    if (reader === "CLEANER") {
+      const assignment = await db.job.findFirst({
+        where: {
+          propertyId: params.propertyId,
+          assignments: { some: { userId: session.user.id, removedAt: null } },
+        },
+        select: { id: true },
+      });
+      if (!assignment) {
+        return NextResponse.json({ error: "Not authorized for this property." }, { status: 403 });
+      }
+    } else if (!propertyIsVisibleToLaundry(property, session.user.id)) {
+      return NextResponse.json({ error: "Not authorized for this property." }, { status: 403 });
+    }
+
+    // "Same as cleaner": when set, the laundry driver reads the cleaner's
+    // guide as well as their own. Stored on accessInfo, so no schema change.
+    const accessInfo =
+      property.accessInfo && typeof property.accessInfo === "object" && !Array.isArray(property.accessInfo)
+        ? (property.accessInfo as Record<string, unknown>)
+        : {};
+    const laundrySameAsCleaner = accessInfo.laundrySameAsCleaner === true;
+
+    const all = sanitizeForCleaner(property.accessGuide);
+    const visible = entriesForAudience(
+      all as unknown as AccessGuideEntry[],
+      reader,
+      laundrySameAsCleaner
+    );
+
     return NextResponse.json({
       propertyId: property.id,
-      accessGuide: sanitizeForCleaner(property.accessGuide),
+      audience: reader,
+      laundrySameAsCleaner,
+      accessGuide: visible,
     });
   } catch (err: any) {
     const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 400;

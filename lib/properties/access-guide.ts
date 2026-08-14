@@ -28,16 +28,35 @@ import { z } from "zod";
 export const ACCESS_GUIDE_KINDS = [
   "LOCKBOX",
   "KEYS",
+  /** ACCESS-1 — where you collect the key, distinct from where the keys live. */
+  "KEY_PICKUP",
   "ENTRY",
   "ALARM",
   "PARKING",
   "BIN_ROOM",
   /** ACCESS-2 — the chute is a different place from the bin room. */
   "BIN_CHUTE",
+  /** ACCESS-1 — where laundry is collected/dropped. */
+  "LAUNDRY_PICKUP",
   "SUPPLIES_CUPBOARD",
   "WIFI",
   "OTHER",
 ] as const;
+
+/**
+ * ACCESS-1 — who an entry is written for.
+ *
+ * Admin authors access instructions SEPARATELY for cleaners and laundry: the
+ * laundry driver and the cleaner often enter the same building by different
+ * doors, at different hours, for different things. `BOTH` is the default and
+ * the meaning of an ABSENT value, so every entry written before this existed
+ * keeps showing to everyone rather than silently vanishing from one portal.
+ */
+export const ACCESS_AUDIENCES = ["CLEANER", "LAUNDRY", "BOTH"] as const;
+export type AccessAudience = (typeof ACCESS_AUDIENCES)[number];
+
+/** The portals that read a guide. `BOTH` is an authoring choice, not a reader. */
+export type AccessReader = "CLEANER" | "LAUNDRY";
 
 export type AccessGuideKind = (typeof ACCESS_GUIDE_KINDS)[number];
 
@@ -45,11 +64,13 @@ export type AccessGuideKind = (typeof ACCESS_GUIDE_KINDS)[number];
 export const ACCESS_GUIDE_KIND_LABELS: Record<AccessGuideKind, string> = {
   LOCKBOX: "Lockbox",
   KEYS: "Keys",
-  ENTRY: "Entry",
+  KEY_PICKUP: "Key pickup",
+  ENTRY: "Entrance",
   ALARM: "Alarm",
   PARKING: "Parking",
   BIN_ROOM: "Bin room",
   BIN_CHUTE: "Bin chute",
+  LAUNDRY_PICKUP: "Laundry pickup",
   SUPPLIES_CUPBOARD: "Supplies cupboard",
   WIFI: "Wi-Fi",
   OTHER: "Other",
@@ -75,6 +96,11 @@ export const accessGuideEntrySchema = z.object({
   lng: z.number().min(-180).max(180).optional(),
   /** 1-based visit order for the guided route. */
   sequence: z.number().int().min(1).max(99).optional(),
+  /**
+   * ACCESS-1 — who this entry is for. Absent means BOTH, so entries written
+   * before per-role guides existed keep showing to everyone.
+   */
+  audience: z.enum(ACCESS_AUDIENCES).optional(),
 });
 
 export type AccessGuideEntry = z.infer<typeof accessGuideEntrySchema>;
@@ -98,6 +124,36 @@ export function sanitizeAccessGuide(value: unknown): AccessGuideEntry[] {
     if (parsed.success) out.push(parsed.data);
   }
   return out;
+}
+
+/**
+ * ACCESS-1 — the entries a given portal should see.
+ *
+ * @param reader          who is looking (cleaner or laundry driver)
+ * @param laundrySameAsCleaner  the property's "laundry: same as cleaner" flag
+ *
+ * When the flag is on, the laundry driver reads the CLEANER guide — that is
+ * what "same as cleaner" means, and it is the common case (one door, one key
+ * safe, one set of instructions). Entries explicitly marked LAUNDRY still show
+ * to laundry regardless, so a property can be "same as cleaner, PLUS here is
+ * where the bags go" without duplicating the whole guide.
+ *
+ * With the flag off, laundry sees only LAUNDRY and BOTH entries — never
+ * cleaner-only ones.
+ */
+export function entriesForAudience(
+  entries: readonly AccessGuideEntry[],
+  reader: AccessReader,
+  laundrySameAsCleaner = false
+): AccessGuideEntry[] {
+  return entries.filter((entry) => {
+    const audience = entry.audience ?? "BOTH";
+    if (audience === "BOTH") return true;
+    if (reader === "CLEANER") return audience === "CLEANER";
+    // reader === "LAUNDRY"
+    if (audience === "LAUNDRY") return true;
+    return laundrySameAsCleaner && audience === "CLEANER";
+  });
 }
 
 /** True when this entry can be put on a map. */
@@ -138,6 +194,7 @@ export function cleanAccessGuideForSave(entries: readonly AccessGuideEntry[]): A
       lat: entry.lat,
       lng: entry.lng,
       sequence: entry.sequence,
+      audience: entry.audience,
     }))
     .filter(
       (entry) =>

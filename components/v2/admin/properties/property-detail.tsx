@@ -205,6 +205,8 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     other: "",
     instructions: "",
     laundryTeamUserIds: [] as string[],
+    /** ACCESS-1 — laundry reads the cleaner's access guide as well as its own. */
+    laundrySameAsCleaner: false,
   });
   const [laundryUsers, setLaundryUsers] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [savingProperty, setSavingProperty] = useState(false);
@@ -256,6 +258,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       laundryTeamUserIds: Array.isArray(acc.laundryTeamUserIds)
         ? acc.laundryTeamUserIds.filter((v: unknown): v is string => typeof v === "string")
         : [],
+      laundrySameAsCleaner: acc.laundrySameAsCleaner === true,
     });
     setForm({
       name: data.name ?? "",
@@ -381,6 +384,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
         other: access.other,
         instructions: access.instructions,
         laundryTeamUserIds: access.laundryTeamUserIds,
+        laundrySameAsCleaner: access.laundrySameAsCleaner,
       },
       linenBufferSets: Number(form.linenBufferSets || 0),
       inventoryEnabled: form.inventoryEnabled,
@@ -792,6 +796,26 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
 
                 {form.laundryEnabled ? (
                   <div className="space-y-2">
+                    {/* ACCESS-1 — most properties have one door and one key
+                        safe, so laundry usually follows the cleaner's guide.
+                        When they differ, turn this off and author laundry-only
+                        steps in the Access tab. */}
+                    <label className="flex items-start gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2 text-[0.8125rem]">
+                      <input
+                        type="checkbox"
+                        checked={access.laundrySameAsCleaner}
+                        onChange={(e) =>
+                          setAccess((p) => ({ ...p, laundrySameAsCleaner: e.target.checked }))
+                        }
+                        className="mt-0.5 accent-[hsl(var(--e-primary))]"
+                      />
+                      <span className="min-w-0">
+                        <span className="font-[550]">Laundry access is the same as the cleaner's</span>
+                        <span className="block text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                          Laundry then sees the cleaner's access steps as well as any laundry-only ones.
+                        </span>
+                      </span>
+                    </label>
                     <p className="text-[0.8125rem] font-[550]">Laundry partners</p>
                     {laundryUsers.length === 0 ? (
                       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
