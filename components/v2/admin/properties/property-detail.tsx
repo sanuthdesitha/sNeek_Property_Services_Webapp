@@ -77,6 +77,91 @@ function titleCase(value?: string | null) {
     .join(" ");
 }
 
+const LAUNDRY_DETAIL_LABELS: Array<[string, string]> = [
+  ["washerType", "Washer"],
+  ["dryerType", "Dryer"],
+  ["laundryLocation", "Location"],
+  ["detergentType", "Detergent"],
+  ["suppliesProvided", "Supplies provided"],
+  ["notes", "Notes"],
+];
+
+const RECURRING_LABELS: Array<[string, string]> = [
+  ["frequency", "Frequency"],
+  ["day", "Day"],
+  ["time", "Time"],
+  ["notes", "Notes"],
+];
+
+function displayValue(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+function jsonRows(value: unknown, labels: Array<[string, string]>) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const record = value as Record<string, unknown>;
+  return labels
+    .map(([key, label]) => [label, displayValue(record[key])] as const)
+    .filter((row): row is readonly [string, string] => row[1] !== null);
+}
+
+/**
+ * Onboarding-captured detail that had no display anywhere until the ACCESS-3
+ * audit found it write-only. Read-only by design — these columns are not part
+ * of updatePropertySchema, so there is no save path to wire them to yet.
+ */
+function OnboardingCaptureCard({ property }: { property: any }) {
+  const laundryRows = jsonRows(property?.laundryDetail, LAUNDRY_DETAIL_LABELS);
+  const recurringRows = jsonRows(property?.recurringSchedule, RECURRING_LABELS);
+  const floors = displayValue(property?.floorCount);
+  if (laundryRows.length === 0 && recurringRows.length === 0 && !floors) return null;
+
+  return (
+    <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+      <div>
+        <p className="text-[0.8125rem] font-[550]">From onboarding</p>
+        <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+          Captured when this property was set up. Read-only here — edit it on the onboarding survey.
+        </p>
+      </div>
+      {floors ? (
+        <p className="text-[0.8125rem]">
+          <span className="text-[hsl(var(--e-muted-foreground))]">Floors: </span>
+          {floors}
+        </p>
+      ) : null}
+      {laundryRows.length > 0 ? (
+        <div>
+          <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Laundry setup</p>
+          <dl className="mt-1 grid gap-x-4 gap-y-1 text-[0.8125rem] sm:grid-cols-2">
+            {laundryRows.map(([label, value]) => (
+              <div key={label} className="flex gap-2">
+                <dt className="text-[hsl(var(--e-muted-foreground))]">{label}:</dt>
+                <dd className="min-w-0">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+      {recurringRows.length > 0 ? (
+        <div>
+          <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Recurring service</p>
+          <dl className="mt-1 grid gap-x-4 gap-y-1 text-[0.8125rem] sm:grid-cols-2">
+            {recurringRows.map(([label, value]) => (
+              <div key={label} className="flex gap-2">
+                <dt className="text-[hsl(var(--e-muted-foreground))]">{label}:</dt>
+                <dd className="min-w-0">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function PropertyDetail({ propertyId }: { propertyId: string }) {
   const router = useRouter();
   const [property, setProperty] = useState<any>(null);
@@ -746,6 +831,12 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
                   </div>
                 ) : null}
               </div>
+
+              {/* Captured at onboarding and previously written to the property
+                  then never displayed anywhere (ACCESS-3 audit). Read-only:
+                  these are not in updatePropertySchema, and half-wiring a write
+                  path is what caused the laundry-allocation wipe. */}
+              <OnboardingCaptureCard property={property} />
 
               <EField label="Notes">
                 <ETextarea value={form.notes} onChange={(e) => setF("notes", e.target.value)} />
