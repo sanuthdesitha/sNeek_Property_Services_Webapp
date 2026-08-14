@@ -1591,6 +1591,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         propertyId={propertyId}
         keyPickupLocation={payload?.keyPickupLocation ?? null}
         contact={contact}
+        nextGuest={payload?.nextGuest ?? null}
         readFirstItems={readFirstItems}
         restockNeeds={restockNeeds}
       />

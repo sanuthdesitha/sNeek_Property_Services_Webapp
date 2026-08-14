@@ -3,6 +3,7 @@
 import * as React from "react";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
 import { LocationTracker } from "@/components/v2/cleaner/location-tracker";
+import { useMaintenanceSection } from "@/components/v2/portal/use-maintenance-section";
 import {
   Home,
   CalendarDays,
@@ -13,6 +14,7 @@ import {
   LineChart,
   ShieldCheck,
   Users,
+  Wrench,
 } from "lucide-react";
 
 // Cleaner nav. PortalShell renders nav.slice(0,5) as the mobile bottom tabs and
@@ -46,6 +48,11 @@ export default function V2CleanerLayout({ children }: { children: React.ReactNod
   // because a count could not be computed.
   const [counts, setCounts] = React.useState<Record<string, number>>({});
 
+  // CP-6. A cleaner has no maintenance screen by default — the entry appears
+  // only while they are actually assigned to a maintenance item, and goes away
+  // again when they are taken off it.
+  const maintenance = useMaintenanceSection();
+
   React.useEffect(() => {
     let cancelled = false;
     const load = () => {
@@ -66,14 +73,26 @@ export default function V2CleanerLayout({ children }: { children: React.ReactNod
     };
   }, []);
 
-  const nav = React.useMemo(
-    () =>
-      NAV.map((item) => {
-        const count = counts[item.href] ?? 0;
-        return count > 0 ? { ...item, badge: count } : item;
-      }),
-    [counts]
-  );
+  const nav = React.useMemo(() => {
+    // Appended AFTER the base list on purpose: PortalShell renders
+    // nav.slice(0, 5) as the mobile bottom tabs, so a conditional entry must
+    // never push a daily tab off the thumb bar.
+    const items = maintenance.assigned
+      ? [
+          ...NAV,
+          {
+            href: "/v2/cleaner/maintenance",
+            label: "Maintenance",
+            icon: Wrench,
+            badge: maintenance.count || undefined,
+          } satisfies NavItem,
+        ]
+      : NAV;
+    return items.map((item) => {
+      const count = counts[item.href] ?? 0;
+      return count > 0 ? { ...item, badge: count } : item;
+    });
+  }, [counts, maintenance.assigned, maintenance.count]);
 
   return (
     <div data-skin="estate" data-portal-accent="cleaner">
