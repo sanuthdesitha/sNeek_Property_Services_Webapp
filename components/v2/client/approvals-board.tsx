@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
-import { Check, Loader2, RotateCw, X } from "lucide-react";
+import { Check, Loader2, RotateCw, Send, X } from "lucide-react";
 import {
   EBadge,
   EButton,
@@ -17,7 +17,7 @@ import {
   EEyebrow,
   EThread,
 } from "@/components/v2/ui/primitives";
-import { EInlineNotice, ELabel, ETextarea } from "@/components/v2/client/fields";
+import { EInlineNotice, EInput, ELabel, ETextarea } from "@/components/v2/client/fields";
 
 type ApprovalRow = {
   id: string;
@@ -25,10 +25,14 @@ type ApprovalRow = {
   description: string;
   amount: number;
   currency: string;
-  status: "PENDING" | "APPROVED" | "DECLINED" | "CANCELLED" | "EXPIRED";
+  status: "PENDING" | "APPROVED" | "DECLINED" | "CANCELLED" | "EXPIRED" | "COUNTERED";
   requestedAt: string;
   expiresAt: string | null;
   responseNote: string | null;
+  /** CP-3b — what this client proposed instead, once they have countered. */
+  counterAmount?: number | null;
+  counterNote?: string | null;
+  counterAt?: string | null;
   property: { name: string; suburb: string } | null;
   job: { id: string; jobType: string; scheduledDate: string; property: { name: string } } | null;
 };
@@ -40,6 +44,7 @@ function statusTone(status: ApprovalRow["status"]): "success" | "danger" | "warn
     case "DECLINED":
       return "danger";
     case "PENDING":
+    case "COUNTERED":
       return "warning";
     default:
       return "neutral";
@@ -56,6 +61,8 @@ export function ClientApprovalsBoard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [noteById, setNoteById] = useState<Record<string, string>>({});
+  /** CP-3b — the amount the client is proposing, keyed by approval id. */
+  const [counterById, setCounterById] = useState<Record<string, string>>({});
   const [errorById, setErrorById] = useState<Record<string, string>>({});
 
   const loadRows = useCallback(async () => {
@@ -99,8 +106,41 @@ export function ClientApprovalsBoard() {
     }
   }
 
-  const pending = rows.filter((row) => row.status === "PENDING");
-  const history = rows.filter((row) => row.status !== "PENDING");
+  /**
+   * CP-3b — propose a different amount instead of a plain yes/no. The request's
+   * own amount is untouched server-side; the proposal rides alongside it so
+   * both numbers stay visible while admin decides.
+   */
+  async function counter(id: string) {
+    const raw = counterById[id]?.trim();
+    const amount = Number(raw);
+    if (!raw || !Number.isFinite(amount) || amount < 0) {
+      setErrorById((prev) => ({ ...prev, [id]: "Enter the amount you want to propose." }));
+      return;
+    }
+    setSavingId(id);
+    setErrorById((prev) => ({ ...prev, [id]: "" }));
+    try {
+      const res = await fetch(`/api/client/approvals/${id}/counter`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount, note: noteById[id]?.trim() || undefined }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Could not send your counter-offer.");
+      setCounterById((prev) => ({ ...prev, [id]: "" }));
+      await loadRows();
+    } catch (err: any) {
+      setErrorById((prev) => ({ ...prev, [id]: err?.message ?? "Could not send your counter-offer." }));
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  // A COUNTERED row is still live: the client has answered, but the ball is
+  // with admin, so it stays out of history rather than looking settled.
+  const pending = rows.filter((row) => row.status === "PENDING" || row.status === "COUNTERED");
+  const history = rows.filter((row) => row.status !== "PENDING" && row.status !== "COUNTERED");
 
   if (loading) {
     return (
@@ -170,6 +210,15 @@ export function ClientApprovalsBoard() {
 
                 <EThread />
 
+                {/* Already countered: the client has answered and it is with
+                    admin, so show what was proposed instead of offering the
+                    buttons again. */}
+                {row.status === "COUNTERED" ? (
+                  <EInlineNotice tone="info">
+                    You proposed {money(row.counterAmount ?? 0, row.currency)}
+                    {row.counterNote ? ` — "${row.counterNote}"` : ""}. We will come back to you.
+                  </EInlineNotice>
+                ) : (
                 <div className="space-y-2">
                   <ELabel htmlFor={`approval-note-${row.id}`}>Optional note</ELabel>
                   <ETextarea
@@ -181,6 +230,37 @@ export function ClientApprovalsBoard() {
                     rows={2}
                     placeholder="Add context for your decision…"
                   />
+
+                  {/* CP-3b — propose a different figure rather than only
+                      accepting or refusing the one you were sent. */}
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-[10rem] flex-1 space-y-1">
+                      <ELabel htmlFor={`approval-counter-${row.id}`}>
+                        Or propose a different amount ({row.currency})
+                      </ELabel>
+                      <EInput
+                        id={`approval-counter-${row.id}`}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        inputMode="decimal"
+                        value={counterById[row.id] ?? ""}
+                        onChange={(event) =>
+                          setCounterById((prev) => ({ ...prev, [row.id]: event.target.value }))
+                        }
+                        placeholder={String(row.amount)}
+                      />
+                    </div>
+                    <EButton
+                      variant="outline"
+                      size="sm"
+                      disabled={savingId === row.id || !(counterById[row.id] ?? "").trim()}
+                      onClick={() => counter(row.id)}
+                    >
+                      <Send className="h-3.5 w-3.5" /> Send counter-offer
+                    </EButton>
+                  </div>
+
                   {errorById[row.id] ? (
                     <EInlineNotice tone="danger">{errorById[row.id]}</EInlineNotice>
                   ) : null}
@@ -208,6 +288,7 @@ export function ClientApprovalsBoard() {
                     </EButton>
                   </div>
                 </div>
+                )}
               </ECardBody>
             </ECard>
           ))

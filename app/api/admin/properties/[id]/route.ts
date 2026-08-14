@@ -13,6 +13,7 @@ import {
   notifyLaundryTeamsForApprovedSyncDraft,
 } from "@/lib/laundry/sync-draft";
 import { buildPropertyAccessInfo } from "@/lib/properties/access-info";
+import { ensurePropertyDefaultStock } from "@/lib/inventory/default-items";
 
 export async function GET(
   _req: NextRequest,
@@ -109,6 +110,31 @@ export async function PATCH(
         keyLostSince: keyLostModeChanged ? (body.keyLostMode ? new Date() : null) : undefined,
       },
     });
+
+    // Turning stock tracking ON has to actually give the property something to
+    // track. Flipping the flag was historically the ONLY thing that happened
+    // here (and in the 2026-08 enable_inventory_on_active_properties backfill),
+    // which is why properties sat at inventoryEnabled = true with zero
+    // PropertyStock rows and an empty supplies screen. Seeding on "flag is true
+    // AND nothing is tracked" also self-heals the ones already in that state,
+    // and the count keeps it a no-op for every property that is already stocked.
+    if (body.inventoryEnabled === true) {
+      try {
+        const trackedItems = await db.propertyStock.count({ where: { propertyId: params.id } });
+        if (trackedItems === 0) {
+          const { created } = await ensurePropertyDefaultStock(params.id);
+          logger.info(
+            { propertyId: params.id, created },
+            "Seeded default inventory for a property with stock tracking enabled and no stock rows"
+          );
+        }
+      } catch (stockError: any) {
+        logger.error(
+          { err: stockError, propertyId: params.id },
+          "Default inventory seeding after enabling stock tracking failed — the property save itself succeeded"
+        );
+      }
+    }
 
     // Toggling key-lost mode reschedules this property's future laundry in
     // BOTH directions (into same-clean-day service, or back to the normal

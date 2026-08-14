@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { ensureCleanerModuleAccess } from "@/lib/portal-access";
 import { ShoppingRunWorkspace } from "@/components/v2/cleaner/shopping-run-workspace";
+import { getShoppingGroupMode } from "@/lib/inventory/shopping-settings";
 
 export const metadata = { title: "Shopping run · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -16,6 +17,8 @@ export const dynamic = "force-dynamic";
 export default async function V2CleanerShoppingRunPage({ params }: { params: { id: string } }) {
   await ensureCleanerModuleAccess("shopping");
   await requireRole([Role.CLEANER, Role.ADMIN, Role.OPS_MANAGER]);
+  // Starting grouping comes from the admin Inventory hub, not a hardcode.
+  const defaultGroupMode = await getShoppingGroupMode();
   return (
     <div className="space-y-6">
       <ShoppingRunWorkspace
@@ -24,6 +27,7 @@ export default async function V2CleanerShoppingRunPage({ params }: { params: { i
         backHref="/v2/cleaner/shopping"
         backLabel="Back to shopping"
         title="Active Shopping Run"
+        defaultGroupMode={defaultGroupMode}
       />
     </div>
   );

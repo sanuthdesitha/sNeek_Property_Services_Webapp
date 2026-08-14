@@ -8,7 +8,14 @@ export type ClientApprovalStatus =
   | "APPROVED"
   | "DECLINED"
   | "CANCELLED"
-  | "EXPIRED";
+  | "EXPIRED"
+  /**
+   * CP-3b — the client neither accepted nor refused: they proposed different
+   * terms and handed it back. A countered approval is still LIVE work for
+   * admin, so it deliberately stays out of the terminal statuses and keeps
+   * appearing in the admin queue until somebody settles it.
+   */
+  | "COUNTERED";
 
 export interface ClientApprovalRecord {
   id: string;
@@ -27,6 +34,11 @@ export interface ClientApprovalRecord {
   respondedByUserId: string | null;
   respondedAt: string | null;
   responseNote: string | null;
+  /** CP-3b — the amount the CLIENT proposed instead, when they countered. */
+  counterAmount: number | null;
+  counterNote: string | null;
+  counterAt: string | null;
+  counterByUserId: string | null;
   metadata: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
@@ -81,9 +93,15 @@ function sanitizeStatus(value: unknown): ClientApprovalStatus {
   return value === "APPROVED" ||
     value === "DECLINED" ||
     value === "CANCELLED" ||
-    value === "EXPIRED"
+    value === "EXPIRED" ||
+    value === "COUNTERED"
     ? value
     : "PENDING";
+}
+
+function sanitizeAmount(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 function sanitizeText(value: unknown, max: number, fallback = "") {
@@ -135,6 +153,11 @@ function sanitizeRecord(value: unknown): ClientApprovalRecord | null {
       row.respondedByUserId == null ? null : sanitizeText(row.respondedByUserId, 100) || null,
     respondedAt: sanitizeIsoDate(row.respondedAt),
     responseNote: row.responseNote == null ? null : sanitizeText(row.responseNote, 2000) || null,
+    counterAmount: sanitizeAmount(row.counterAmount),
+    counterNote: row.counterNote == null ? null : sanitizeText(row.counterNote, 2000) || null,
+    counterAt: sanitizeIsoDate(row.counterAt),
+    counterByUserId:
+      row.counterByUserId == null ? null : sanitizeText(row.counterByUserId, 100) || null,
     metadata,
     createdAt: sanitizeIsoDate(row.createdAt) ?? nowIso,
     updatedAt: sanitizeIsoDate(row.updatedAt) ?? nowIso,
@@ -209,6 +232,10 @@ export async function createClientApproval(input: CreateInput) {
     respondedByUserId: null,
     respondedAt: null,
     responseNote: null,
+    counterAmount: null,
+    counterNote: null,
+    counterAt: null,
+    counterByUserId: null,
     metadata: input.metadata && typeof input.metadata === "object" ? input.metadata : null,
     createdAt: now,
     updatedAt: now,
@@ -260,6 +287,13 @@ export async function updateClientApprovalById(id: string, patch: UpdateInput) {
           ? patch.metadata
           : null
         : existing.metadata,
+    // CP-3b — moving OFF a counter settles it, so the proposal must not linger.
+    // A stale counterAmount beside a new agreed amount is how the two sides end
+    // up arguing about different numbers. Cleared on every exit path (approve,
+    // decline, reopen) rather than only the one the UI happens to use.
+    ...(patch.status && patch.status !== "COUNTERED" && existing.status === "COUNTERED"
+      ? { counterAmount: null, counterNote: null, counterAt: null, counterByUserId: null }
+      : {}),
     updatedAt: new Date().toISOString(),
   };
   store.approvals[index] = updated;
@@ -282,6 +316,90 @@ export async function respondClientApproval(input: RespondInput) {
     respondedByUserId: input.respondedByUserId.trim(),
     respondedAt: now,
     responseNote: input.responseNote?.trim().slice(0, 2000) || null,
+    updatedAt: now,
+  };
+  store.approvals[index] = updated;
+  await writeStore(store);
+  return updated;
+}
+
+/**
+ * CP-3b — the client hands it back with different terms instead of a yes/no.
+ *
+ * The request's own amount is left ALONE: overwriting it would destroy what
+ * admin actually asked for, and the two numbers side by side are the whole
+ * point of a counter-offer. The proposal lives in `counterAmount`/`counterNote`
+ * until an admin settles it.
+ *
+ * Only a PENDING request may be countered — the same rule `respondClientApproval`
+ * enforces — so a client cannot reopen something already decided, and cannot
+ * counter twice in a row without admin coming back to them.
+ */
+export async function counterClientApproval(input: {
+  id: string;
+  clientId: string;
+  amount: number;
+  note?: string | null;
+  counteredByUserId: string;
+}) {
+  const store = await readStore();
+  const index = store.approvals.findIndex((approval) => approval.id === input.id);
+  if (index === -1) return null;
+  const existing = withDerivedStatus(store.approvals[index]);
+  if (existing.clientId !== input.clientId) throw new Error("FORBIDDEN");
+  if (existing.status !== "PENDING") throw new Error("INVALID_STATE");
+
+  const amount = sanitizeAmount(input.amount);
+  if (amount === null) throw new Error("INVALID_AMOUNT");
+
+  const now = new Date().toISOString();
+  const updated: ClientApprovalRecord = {
+    ...existing,
+    status: "COUNTERED",
+    counterAmount: amount,
+    counterNote: input.note?.trim().slice(0, 2000) || null,
+    counterAt: now,
+    counterByUserId: input.counteredByUserId.trim(),
+    updatedAt: now,
+  };
+  store.approvals[index] = updated;
+  await writeStore(store);
+  return updated;
+}
+
+/**
+ * Admin's answer to a counter-offer: put the request back in front of the
+ * client at a (possibly new) price. Clearing the counter fields is deliberate —
+ * leaving a stale proposal attached to a re-opened request is how the two sides
+ * end up arguing about different numbers.
+ */
+export async function reopenCounteredApproval(input: {
+  id: string;
+  amount?: number | null;
+  description?: string | null;
+}) {
+  const store = await readStore();
+  const index = store.approvals.findIndex((approval) => approval.id === input.id);
+  if (index === -1) return null;
+  const existing = store.approvals[index];
+  if (existing.status !== "COUNTERED") throw new Error("INVALID_STATE");
+
+  const nextAmount = input.amount == null ? existing.amount : sanitizeAmount(input.amount);
+  if (nextAmount === null) throw new Error("INVALID_AMOUNT");
+
+  const now = new Date().toISOString();
+  const updated: ClientApprovalRecord = {
+    ...existing,
+    status: "PENDING",
+    amount: nextAmount,
+    description:
+      input.description !== undefined && input.description !== null
+        ? input.description.trim().slice(0, 6000)
+        : existing.description,
+    counterAmount: null,
+    counterNote: null,
+    counterAt: null,
+    counterByUserId: null,
     updatedAt: now,
   };
   store.approvals[index] = updated;

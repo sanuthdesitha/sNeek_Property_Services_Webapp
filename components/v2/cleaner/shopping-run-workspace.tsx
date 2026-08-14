@@ -32,7 +32,15 @@ import {
   ECardHeader,
   ECardTitle,
 } from "@/components/v2/ui/primitives";
-import { ECheckbox, EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
+import { EChip, ECheckbox, EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
+import {
+  DEFAULT_SHOPPING_GROUP_MODE,
+  SHOPPING_GROUP_MODES,
+  SHOPPING_GROUP_MODE_LABELS,
+  groupShoppingRows,
+  normalizeShoppingGroupMode,
+  type ShoppingGroupMode,
+} from "@/lib/inventory/shopping-grouping";
 import { toast } from "@/hooks/use-toast";
 
 type RunStatus = "DRAFT" | "IN_PROGRESS" | "COMPLETED";
@@ -166,13 +174,19 @@ export function ShoppingRunWorkspace({
   backHref,
   backLabel,
   title,
+  defaultGroupMode = DEFAULT_SHOPPING_GROUP_MODE,
 }: {
   apiBase: string;
   runId: string;
   backHref: string;
   backLabel: string;
   title: string;
+  /** Admin-configured starting grouping (Inventory hub → Shopping runs). */
+  defaultGroupMode?: ShoppingGroupMode;
 }) {
+  const [groupMode, setGroupMode] = useState<ShoppingGroupMode>(() =>
+    normalizeShoppingGroupMode(defaultGroupMode)
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -207,18 +221,12 @@ export function ShoppingRunWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiBase, runId]);
 
-  const grouped = useMemo(() => {
-    if (!run) return [] as Array<{ propertyId: string; propertyName: string; suburb: string; rows: RunRow[] }>;
-    const map = new Map<string, { propertyId: string; propertyName: string; suburb: string; rows: RunRow[] }>();
-    for (const row of run.rows.filter((e) => !e.isCustom)) {
-      const key = row.propertyId;
-      if (!map.has(key)) {
-        map.set(key, { propertyId: row.propertyId, propertyName: row.propertyName, suburb: row.suburb, rows: [] });
-      }
-      map.get(key)!.rows.push(row);
-    }
-    return Array.from(map.values());
-  }, [run]);
+  // Grouping is a pure lib function (lib/inventory/shopping-grouping.ts) so the
+  // cleaner run, the client run and the unit tests all bundle lines identically.
+  const grouped = useMemo(
+    () => groupShoppingRows((run?.rows ?? []).filter((e) => !e.isCustom), groupMode),
+    [run, groupMode]
+  );
 
   const customRows = useMemo(() => (run?.rows ?? []).filter((e) => e.isCustom), [run]);
 
@@ -811,15 +819,29 @@ export function ShoppingRunWorkspace({
         </ECardBody>
       </ECard>
 
-      {/* Planned rows by property */}
+      {/* Planned rows — grouped by property / item / supplier */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Group by</span>
+        {SHOPPING_GROUP_MODES.map((mode) => (
+          <EChip key={mode} active={groupMode === mode} onClick={() => setGroupMode(mode)}>
+            {SHOPPING_GROUP_MODE_LABELS[mode].replace(/^By /, "")}
+          </EChip>
+        ))}
+      </div>
+
       <div className="space-y-4">
         {grouped.map((group) => (
-          <ECard key={group.propertyId}>
+          <ECard key={group.key}>
             <ECardHeader>
-              <ECardTitle>
-                {group.propertyName}{" "}
-                <span className="text-[0.8125rem] font-normal text-[hsl(var(--e-muted-foreground))]">
-                  ({group.suburb})
+              <ECardTitle className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span>{group.title}</span>
+                {group.subtitle ? (
+                  <span className="text-[0.8125rem] font-normal text-[hsl(var(--e-muted-foreground))]">
+                    {group.subtitle}
+                  </span>
+                ) : null}
+                <span className="text-[0.75rem] font-normal text-[hsl(var(--e-text-faint))]">
+                  {group.purchasedLineCount}/{group.lineCount} bought · {group.plannedUnits} planned
                 </span>
               </ECardTitle>
             </ECardHeader>
@@ -831,10 +853,19 @@ export function ShoppingRunWorkspace({
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-[0.875rem] font-[550]">{row.itemName}</p>
+                      {/* Whatever the card header already says is dropped from the
+                          row line, so the shopper always sees the OTHER half. */}
+                      <p className="text-[0.875rem] font-[550]">
+                        {groupMode === "item" ? row.propertyName : row.itemName}
+                      </p>
                       <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                        {row.category}
-                        {row.supplier ? ` · ${row.supplier}` : ""} · {row.unit}
+                        {[
+                          groupMode === "item" ? row.suburb : row.category,
+                          groupMode === "supplier" ? row.propertyName : row.supplier,
+                          row.unit,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </p>
                       <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                         On hand {row.onHand} · Need {row.needed} · Planned {row.plannedQty}

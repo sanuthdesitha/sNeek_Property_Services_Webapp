@@ -68,6 +68,40 @@ export async function ensureDefaultInventoryItems() {
   });
 }
 
+/**
+ * Give a property its default stock rows — THE single entry point every
+ * "this property now tracks inventory" path must go through.
+ *
+ * Why it exists: seeding used to happen in exactly one place (the create-property
+ * POST) and only when the admin had already ticked the inventory toggle AND the
+ * selection was non-empty. Every other route to `inventoryEnabled = true` — the
+ * 2026-08 `enable_inventory_on_active_properties` backfill, the property detail
+ * toggle, onboarding-survey approval — flipped the flag and created NOTHING,
+ * which is why properties showed an empty supplies screen.
+ *
+ * An empty/absent `itemIds` means "the whole default set", NOT "no stock" —
+ * that distinction is the other half of the same bug.
+ *
+ * Idempotent: existing rows are left exactly as they are (upsert `update: {}`),
+ * so it is safe to call on every save and safe to re-run as a repair.
+ */
+export async function ensurePropertyDefaultStock(
+  propertyId: string,
+  itemIds?: string[] | null
+): Promise<{ created: number; total: number }> {
+  const catalog = await ensureDefaultInventoryItems();
+  const requested = (itemIds ?? []).filter(
+    (id): id is string => typeof id === "string" && id.trim().length > 0
+  );
+  const targetIds = requested.length > 0 ? requested : catalog.map((item) => item.id);
+  if (targetIds.length === 0) return { created: 0, total: 0 };
+
+  const before = await db.propertyStock.count({ where: { propertyId } });
+  await applyDefaultStockToProperty(propertyId, targetIds);
+  const total = await db.propertyStock.count({ where: { propertyId } });
+  return { created: total - before, total };
+}
+
 export async function applyDefaultStockToProperty(propertyId: string, itemIds: string[]) {
   const defaultsBySku = new Map(DEFAULT_INVENTORY_ITEMS.map((item) => [item.sku, item]));
   const items = await db.inventoryItem.findMany({

@@ -8,9 +8,17 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, ShoppingCart } from "lucide-react";
+import { ArrowRight, Layers, ShoppingCart } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 import { EBadge, ECard, EStatCard } from "@/components/v2/ui/primitives";
-import { ETableShell } from "@/components/v2/admin/estate-kit";
+import { EField, ESelect, ETableShell } from "@/components/v2/admin/estate-kit";
+import {
+  DEFAULT_SHOPPING_GROUP_MODE,
+  SHOPPING_GROUP_MODES,
+  SHOPPING_GROUP_MODE_LABELS,
+  normalizeShoppingGroupMode,
+  type ShoppingGroupMode,
+} from "@/lib/inventory/shopping-grouping";
 
 type RunStatus = "DRAFT" | "IN_PROGRESS" | "COMPLETED";
 type ShoppingRun = {
@@ -39,6 +47,8 @@ const fmt = (v: string) => new Date(v).toLocaleDateString("en-AU", { day: "2-dig
 export function EstateShoppingRuns() {
   const [runs, setRuns] = useState<ShoppingRun[]>([]);
   const [loading, setLoading] = useState(true);
+  const [groupMode, setGroupMode] = useState<ShoppingGroupMode>(DEFAULT_SHOPPING_GROUP_MODE);
+  const [savingGroupMode, setSavingGroupMode] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -51,6 +61,38 @@ export function EstateShoppingRuns() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      const res = await fetch("/api/admin/inventory/settings", { cache: "no-store" });
+      if (!res.ok) return;
+      const body = await res.json().catch(() => ({}));
+      setGroupMode(normalizeShoppingGroupMode(body?.shoppingGroupMode));
+    })();
+  }, []);
+
+  async function saveGroupMode(next: ShoppingGroupMode) {
+    const previous = groupMode;
+    setGroupMode(next);
+    setSavingGroupMode(true);
+    try {
+      const res = await fetch("/api/admin/inventory/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shoppingGroupMode: next }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setGroupMode(previous);
+        toast({ title: "Could not save grouping", description: body.error, variant: "destructive" });
+        return;
+      }
+      setGroupMode(normalizeShoppingGroupMode(body?.shoppingGroupMode));
+      toast({ title: `Shopping runs now open ${SHOPPING_GROUP_MODE_LABELS[next].toLowerCase()}` });
+    } finally {
+      setSavingGroupMode(false);
+    }
+  }
 
   const totals = useMemo(
     () => ({
@@ -66,6 +108,35 @@ export function EstateShoppingRuns() {
         <EStatCard label="Open runs" value={totals.open} icon={<ShoppingCart className="h-4 w-4" />} />
         <EStatCard label="Estimated value" value={money(totals.value)} icon={<ShoppingCart className="h-4 w-4" />} />
       </section>
+
+      {/* Run settings — the DEFAULT grouping every shopping run opens with.
+          Shoppers can still switch on the run itself; this sets the starting
+          point so a team that always shops supplier-by-supplier never has to. */}
+      <ECard className="p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Layers className="h-4 w-4 text-[hsl(var(--e-gold-ink))]" />
+          <h2 className="text-[0.9375rem] font-[600] text-[hsl(var(--e-foreground))]">Shopping run settings</h2>
+        </div>
+        <div className="grid gap-3 sm:max-w-md">
+          <EField
+            label="Default grouping"
+            hint="How a shopping run is bundled when it opens. Shoppers can change it per run."
+          >
+            <ESelect
+              className="h-9"
+              value={groupMode}
+              disabled={savingGroupMode}
+              onChange={(e) => void saveGroupMode(normalizeShoppingGroupMode(e.target.value))}
+            >
+              {SHOPPING_GROUP_MODES.map((mode) => (
+                <option key={mode} value={mode}>
+                  {SHOPPING_GROUP_MODE_LABELS[mode]}
+                </option>
+              ))}
+            </ESelect>
+          </EField>
+        </div>
+      </ECard>
 
       <ECard className="overflow-hidden p-0">
         {loading ? (

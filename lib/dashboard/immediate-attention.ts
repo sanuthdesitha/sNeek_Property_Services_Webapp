@@ -110,8 +110,15 @@ export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary>
       // Exclude pay-request client approvals — they are surfaced under Pay
       // Requests, not as standalone admin client approvals (matches the approval
       // center + dashboard banner, so counts don't disagree).
-      listClientApprovals({ status: "PENDING" }).then(
-        (rows) => rows.filter((r) => (r.metadata as Record<string, unknown> | null)?.source !== "pay_adjustment").length,
+      // COUNTERED as well as PENDING — a counter-offer is still waiting on
+      // admin, so it belongs in the same count (CP-3b).
+      listClientApprovals().then(
+        (rows) =>
+          rows.filter(
+            (r) =>
+              (r.status === "PENDING" || r.status === "COUNTERED") &&
+              (r.metadata as Record<string, unknown> | null)?.source !== "pay_adjustment",
+          ).length,
       ),
       db.issueTicket.findMany({
         where: { status: { in: ["OPEN", "IN_PROGRESS"] } },
