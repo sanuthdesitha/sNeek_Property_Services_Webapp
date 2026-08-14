@@ -7,7 +7,7 @@
  * context, restock needs, and contact numbers. Pure props — no data fetching.
  */
 import * as React from "react";
-import { Check, Copy, KeyRound, MapPin, Shirt, Package, X } from "lucide-react";
+import { Check, Copy, KeyRound, MapPin, Shirt, Package, User, X } from "lucide-react";
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
 import { EAccessInfo } from "@/components/v2/shared/access-info";
 import PropertyAccessGuide from "@/components/v2/cleaner/property-access-guide";
@@ -134,6 +134,40 @@ function SetupGuideBlock({ property }: { property: any }) {
   );
 }
 
+/**
+ * Who the job is FOR. v1 job details named the client; v2 only ever rendered
+ * them through ContactRows, which drops any client that has no phone number on
+ * file — so on those properties the cleaner saw no client at all (CP-9).
+ *
+ * Deliberately NOT a wider exposure than v1: the name/phone pair is the exact
+ * set `/api/jobs/[id]/form` will release, it is only present when the
+ * `cleanerClientContact` app setting is on (the route skips the whole relation
+ * otherwise), and the client's EMAIL is never selected server-side so it cannot
+ * appear here. The tap-to-dial duplicate of the Contact list below is
+ * intentional: this block answers "who is this for", that one is the call list.
+ */
+function ClientBlock({ contact }: { contact: JobContact | null }) {
+  const name = (contact?.clientName ?? "").trim();
+  const phone = (contact?.clientPhone ?? "").trim();
+  if (!name && !phone) return null;
+  return (
+    <div className="space-y-2">
+      <SectionHeading icon={<User className="h-3.5 w-3.5" />}>Client</SectionHeading>
+      <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+        <p className="text-[0.875rem] font-[600] text-[hsl(var(--e-foreground))]">{name || "Client"}</p>
+        {phone ? (
+          <a
+            href={`tel:${phone.replace(/\s+/g, "")}`}
+            className="mt-0.5 inline-block text-[0.8125rem] text-[hsl(var(--e-primary))] underline underline-offset-2"
+          >
+            {phone}
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function RestockBlock({
   restockNeeds,
 }: {
@@ -227,6 +261,8 @@ export function PropertyInfoDrawer({
         </div>
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
           <AddressBlock property={property} />
+
+          <ClientBlock contact={contact} />
 
           {keyPickup ? (
             <div className="space-y-2">

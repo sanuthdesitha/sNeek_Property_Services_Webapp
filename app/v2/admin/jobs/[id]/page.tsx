@@ -8,6 +8,7 @@ import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { jobDetailTabHref, resolveJobDetailTab } from "@/lib/jobs/detail-tabs";
 import { ClockRecordsEditor, GpsRecordEditor } from "@/components/v2/admin/jobs/job-clock-gps-editor";
+import { ClockLocationsMap } from "@/components/shared/clock-locations-map";
 import {
   EBadge,
   EButton,
@@ -28,6 +29,7 @@ import {
   ListChecks,
   MapPin,
   MessageCircle,
+  CalendarDays,
   PackagePlus,
   Receipt,
   RefreshCw,
@@ -124,13 +126,39 @@ async function getJob(id: string) {
         gpsCheckInReasonCode: true,
         gpsCheckInNote: true,
         gpsCheckInAdjusted: true,
+        sameDayCheckin: true,
+        sameDayCheckinTime: true,
         property: {
           select: {
             id: true,
             name: true,
             address: true,
             suburb: true,
-            client: { select: { id: true, name: true, email: true } },
+            // lat/lng anchor the clock-in/out map below.
+            latitude: true,
+            longitude: true,
+            client: { select: { id: true, name: true, email: true, phone: true } },
+          },
+        },
+        // Everything the iCal feed gave us for this job's booking.
+        reservation: {
+          select: {
+            uid: true,
+            startDate: true,
+            endDate: true,
+            summary: true,
+            guestName: true,
+            reservationCode: true,
+            guestPhone: true,
+            guestEmail: true,
+            guestProfileUrl: true,
+            adults: true,
+            children: true,
+            infants: true,
+            locationText: true,
+            checkinAtLocal: true,
+            checkoutAtLocal: true,
+            source: true,
           },
         },
         assignments: {
@@ -185,8 +213,37 @@ async function getJob(id: string) {
           },
         },
         report: { select: { clientVisible: true, sentToClient: true } },
+        // Planned dates AND the actual stamps — showing only pickupDate/
+        // dropoffDate made the laundry read as "scheduled" when it had already
+        // happened (or hadn't), which is the timing complaint in CP-9.
         laundryTask: {
-          select: { status: true, pickupDate: true, dropoffDate: true, flagNotes: true },
+          select: {
+            status: true,
+            pickupDate: true,
+            dropoffDate: true,
+            flagNotes: true,
+            confirmedAt: true,
+            pickedUpAt: true,
+            droppedAt: true,
+            noPickupRequired: true,
+            bagWeightKg: true,
+            dropoffCostAud: true,
+            receiptImageUrl: true,
+            pickupKeyPhotoUrl: true,
+            dropoffKeyPhotoUrl: true,
+            supplier: { select: { name: true } },
+            confirmations: {
+              orderBy: { createdAt: "asc" },
+              select: {
+                id: true,
+                laundryReady: true,
+                bagLocation: true,
+                photoUrl: true,
+                notes: true,
+                createdAt: true,
+              },
+            },
+          },
         },
         timeLogs: {
           orderBy: { startedAt: "asc" },
@@ -333,6 +390,51 @@ export default async function AdminJobDetailPage({
   const qa = job.qaReviews[0] ?? null;
   const reworkFlags: string[] =
     qa && !qa.passed && Array.isArray(qa.flags) ? (qa.flags as unknown[]).map((f) => String(f)) : [];
+
+  // Planned date vs the actual stamp for each leg of the laundry run.
+  const laundryTimingRows = (() => {
+    const t = job.laundryTask;
+    if (!t) return [] as Array<{ label: string; planned: string; actual: string | null }>;
+    return [
+      {
+        label: "Pickup",
+        planned: format(new Date(t.pickupDate), "d MMM"),
+        actual: t.pickedUpAt ? format(new Date(t.pickedUpAt), "d MMM HH:mm") : null,
+      },
+      {
+        label: "Drop-off",
+        planned: format(new Date(t.dropoffDate), "d MMM"),
+        actual: t.droppedAt ? format(new Date(t.droppedAt), "d MMM HH:mm") : null,
+      },
+    ];
+  })();
+
+  const laundryImages = (() => {
+    const t = job.laundryTask;
+    if (!t) return [] as Array<{ url: string; label: string }>;
+    const rows: Array<{ url: string; label: string }> = [];
+    if (t.pickupKeyPhotoUrl) rows.push({ url: t.pickupKeyPhotoUrl, label: "Key at pickup" });
+    if (t.dropoffKeyPhotoUrl) rows.push({ url: t.dropoffKeyPhotoUrl, label: "Key returned at drop-off" });
+    if (t.receiptImageUrl) rows.push({ url: t.receiptImageUrl, label: "Drop-off receipt" });
+    for (const c of t.confirmations) {
+      if (c.photoUrl) {
+        rows.push({ url: c.photoUrl, label: `Confirmation ${format(new Date(c.createdAt), "d MMM")}` });
+      }
+    }
+    return rows;
+  })();
+
+  // "2 adults · 1 child" — only the counts the feed actually supplied.
+  const guestCountLabel = (() => {
+    const r = job.reservation;
+    if (!r) return null;
+    const parts: string[] = [];
+    const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+    if (r.adults != null && r.adults > 0) parts.push(plural(r.adults, "adult", "adults"));
+    if (r.children != null && r.children > 0) parts.push(plural(r.children, "child", "children"));
+    if (r.infants != null && r.infants > 0) parts.push(plural(r.infants, "infant", "infants"));
+    return parts.length > 0 ? parts.join(" · ") : null;
+  })();
 
   const scheduledLabel = (() => {
     const parsed = new Date(job.scheduledDate);
@@ -579,12 +681,30 @@ export default async function AdminJobDetailPage({
               {job.property?.address ?? "—"}{job.property?.suburb ? `, ${job.property.suburb}` : ""}
             </p>
             {job.property?.client ? (
-              <p className="pt-1 text-[hsl(var(--e-text-secondary))]">
-                Client:{" "}
-                <Link href={`/v2/admin/clients/${job.property.client.id}`} className="font-medium text-[hsl(var(--e-accent-portal))] hover:underline">
-                  {job.property.client.name}
-                </Link>
-              </p>
+              <div className="pt-1">
+                <p className="text-[hsl(var(--e-text-secondary))]">
+                  Client:{" "}
+                  <Link href={`/v2/admin/clients/${job.property.client.id}`} className="font-medium text-[hsl(var(--e-accent-portal))] hover:underline">
+                    {job.property.client.name}
+                  </Link>
+                </p>
+                {/* Contact details, as v1 had them — admin needs to reach the
+                    client from the job without a detour via the client page. */}
+                {job.property.client.phone ? (
+                  <p className="text-[hsl(var(--e-muted-foreground))]">
+                    <a href={`tel:${job.property.client.phone}`} className="hover:underline">
+                      {job.property.client.phone}
+                    </a>
+                  </p>
+                ) : null}
+                {job.property.client.email ? (
+                  <p className="text-[hsl(var(--e-muted-foreground))]">
+                    <a href={`mailto:${job.property.client.email}`} className="hover:underline">
+                      {job.property.client.email}
+                    </a>
+                  </p>
+                ) : null}
+              </div>
             ) : null}
             <p className="text-[hsl(var(--e-muted-foreground))]">Type: {titleCase(job.jobType)}</p>
           </ECardBody>
@@ -602,8 +722,78 @@ export default async function AdminJobDetailPage({
             {job.completedAt ? (
               <p className="text-[hsl(var(--e-muted-foreground))]">Completed {format(new Date(job.completedAt), "d MMM yyyy")}</p>
             ) : null}
+            {/* Same-day check-in: a new guest arrives the day of this clean, so
+                the clean cannot run late. v1 showed it; v2 did not select it. */}
+            {job.sameDayCheckin ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-2.5 py-1.5">
+                <EBadge tone="warning" soft>Same-day check-in</EBadge>
+                {job.sameDayCheckinTime ? (
+                  <span className="text-[0.75rem] tabular-nums">Guest arrives {job.sameDayCheckinTime}</span>
+                ) : null}
+              </div>
+            ) : null}
           </ECardBody>
         </ECard>
+
+        {/* iCal feed data for this job's booking. Everything the sync captured,
+            shown in full — admin previously had to open the property's sync log
+            to see who was staying. */}
+        {job.reservation ? (
+          <ECard>
+            <ECardHeader className="pb-2">
+              <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
+                <CalendarDays className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Booking (iCal)
+              </ECardTitle>
+            </ECardHeader>
+            <ECardBody className="space-y-1 pt-0 text-[0.8125rem]">
+              {job.reservation.guestName ? <p className="font-[550]">{job.reservation.guestName}</p> : null}
+              <p className="text-[hsl(var(--e-muted-foreground))] tabular-nums">
+                {format(new Date(job.reservation.startDate), "d MMM yyyy")} → {format(new Date(job.reservation.endDate), "d MMM yyyy")}
+              </p>
+              {job.reservation.checkinAtLocal || job.reservation.checkoutAtLocal ? (
+                <p className="text-[hsl(var(--e-muted-foreground))] tabular-nums">
+                  {job.reservation.checkinAtLocal ? `Check-in ${format(new Date(job.reservation.checkinAtLocal), "d MMM HH:mm")}` : ""}
+                  {job.reservation.checkinAtLocal && job.reservation.checkoutAtLocal ? " · " : ""}
+                  {job.reservation.checkoutAtLocal ? `Check-out ${format(new Date(job.reservation.checkoutAtLocal), "d MMM HH:mm")}` : ""}
+                </p>
+              ) : null}
+              {guestCountLabel ? <p className="text-[hsl(var(--e-muted-foreground))]">{guestCountLabel}</p> : null}
+              {job.reservation.reservationCode ? (
+                <p className="text-[hsl(var(--e-muted-foreground))]">Code: <span className="tabular-nums">{job.reservation.reservationCode}</span></p>
+              ) : null}
+              {job.reservation.guestPhone ? (
+                <p className="text-[hsl(var(--e-muted-foreground))]">
+                  <a href={`tel:${job.reservation.guestPhone}`} className="hover:underline">{job.reservation.guestPhone}</a>
+                </p>
+              ) : null}
+              {job.reservation.guestEmail ? (
+                <p className="text-[hsl(var(--e-muted-foreground))]">
+                  <a href={`mailto:${job.reservation.guestEmail}`} className="hover:underline">{job.reservation.guestEmail}</a>
+                </p>
+              ) : null}
+              {job.reservation.summary ? (
+                <p className="text-[hsl(var(--e-text-faint))]">{job.reservation.summary}</p>
+              ) : null}
+              {job.reservation.locationText ? (
+                <p className="text-[hsl(var(--e-text-faint))]">{job.reservation.locationText}</p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {job.reservation.source ? <EBadge tone="neutral" soft>{job.reservation.source}</EBadge> : null}
+                {job.reservation.guestProfileUrl ? (
+                  <a
+                    href={job.reservation.guestProfileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[0.75rem] text-[hsl(var(--e-accent-portal))] hover:underline"
+                  >
+                    Guest profile
+                  </a>
+                ) : null}
+              </div>
+              <p className="pt-1 text-[0.6875rem] text-[hsl(var(--e-text-faint))] break-all">UID {job.reservation.uid}</p>
+            </ECardBody>
+          </ECard>
+        ) : null}
 
         {job.notes ? (
           <ECard className="md:col-span-2">
@@ -802,11 +992,77 @@ export default async function AdminJobDetailPage({
           <ECardBody className="space-y-1 pt-0 text-[0.8125rem]">
             {job.laundryTask ? (
               <>
-                <EBadge tone="info" soft>{titleCase(String(job.laundryTask.status))}</EBadge>
-                <p className="pt-1 text-[hsl(var(--e-muted-foreground))]">
-                  Pickup {format(new Date(job.laundryTask.pickupDate), "d MMM")} · Dropoff {format(new Date(job.laundryTask.dropoffDate), "d MMM")}
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <EBadge tone="info" soft>{titleCase(String(job.laundryTask.status))}</EBadge>
+                  {job.laundryTask.noPickupRequired ? <EBadge tone="neutral" soft>No pickup required</EBadge> : null}
+                  {job.laundryTask.supplier?.name ? (
+                    <EBadge tone="neutral" soft>{job.laundryTask.supplier.name}</EBadge>
+                  ) : null}
+                </div>
+                {/* Planned vs actual, side by side. Showing only the planned
+                    dates made a task read as done when it had not happened —
+                    the timing complaint in CP-9. Actuals carry the time. */}
+                <dl className="pt-1 space-y-0.5 text-[hsl(var(--e-muted-foreground))]">
+                  {laundryTimingRows.map((row) => (
+                    <div key={row.label} className="flex flex-wrap gap-x-2">
+                      <dt className="min-w-[5.5rem]">{row.label}</dt>
+                      <dd className="tabular-nums">{row.planned}</dd>
+                      <dd className={row.actual ? "tabular-nums text-[hsl(var(--e-text-secondary))]" : "text-[hsl(var(--e-text-faint))]"}>
+                        {row.actual ? `· actual ${row.actual}` : "· not yet"}
+                      </dd>
+                    </div>
+                  ))}
+                  {job.laundryTask.confirmedAt ? (
+                    <div className="flex flex-wrap gap-x-2">
+                      <dt className="min-w-[5.5rem]">Confirmed</dt>
+                      <dd className="tabular-nums">{format(new Date(job.laundryTask.confirmedAt), "d MMM HH:mm")}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+                {job.laundryTask.bagWeightKg != null || job.laundryTask.dropoffCostAud != null ? (
+                  <p className="text-[hsl(var(--e-muted-foreground))]">
+                    {job.laundryTask.bagWeightKg != null ? `${job.laundryTask.bagWeightKg} kg` : ""}
+                    {job.laundryTask.bagWeightKg != null && job.laundryTask.dropoffCostAud != null ? " · " : ""}
+                    {job.laundryTask.dropoffCostAud != null ? money(job.laundryTask.dropoffCostAud) : ""}
+                  </p>
+                ) : null}
                 {job.laundryTask.flagNotes ? <p className="text-[hsl(var(--e-text-faint))]">{job.laundryTask.flagNotes}</p> : null}
+
+                {/* Evidence photos: key handling at both ends, the drop-off
+                    receipt, and whatever the cleaner attached on confirmation. */}
+                {laundryImages.length > 0 ? (
+                  <div className="grid gap-3 pt-2 sm:grid-cols-3">
+                    {laundryImages.map((img) => (
+                      <a
+                        key={img.url}
+                        href={img.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2 hover:border-[hsl(var(--e-border-strong))]"
+                      >
+                        <img
+                          src={img.url}
+                          alt={img.label}
+                          className="mb-2 h-28 w-full rounded object-cover"
+                        />
+                        <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{img.label}</span>
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+
+                {job.laundryTask.confirmations.length > 0 ? (
+                  <ul className="space-y-1 pt-2">
+                    {job.laundryTask.confirmations.map((c) => (
+                      <li key={c.id} className="text-[hsl(var(--e-muted-foreground))]">
+                        {format(new Date(c.createdAt), "d MMM HH:mm")} ·{" "}
+                        {c.laundryReady ? "Ready" : "Not ready"}
+                        {c.bagLocation ? ` · ${c.bagLocation}` : ""}
+                        {c.notes ? ` · ${c.notes}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </>
             ) : (
               <p className="text-[hsl(var(--e-muted-foreground))]">No laundry task for this job.</p>
@@ -937,6 +1193,39 @@ export default async function AdminJobDetailPage({
                 userName: log.user?.name ?? log.user?.email ?? "Cleaner",
               }))}
             />
+            {/* Where the cleaner actually clocked in and out, against the
+                property pin. The editor below shows the same numbers; the map
+                is what makes an off-site clock-in obvious at a glance. Degrades
+                to "open in Google Maps" links without a maps API key. */}
+            {job.gpsCheckInLat != null || job.gpsCheckOutLat != null ? (
+              <ClockLocationsMap
+                property={{
+                  lat: job.property?.latitude ?? null,
+                  lng: job.property?.longitude ?? null,
+                  name: job.property?.name ?? null,
+                }}
+                checkIn={
+                  job.gpsCheckInLat != null && job.gpsCheckInLng != null
+                    ? {
+                        lat: job.gpsCheckInLat,
+                        lng: job.gpsCheckInLng,
+                        at: job.gpsCheckInAt?.toISOString() ?? null,
+                        accuracy: job.gpsCheckInAccuracyM,
+                      }
+                    : null
+                }
+                checkOut={
+                  job.gpsCheckOutLat != null && job.gpsCheckOutLng != null
+                    ? {
+                        lat: job.gpsCheckOutLat,
+                        lng: job.gpsCheckOutLng,
+                        at: job.gpsCheckOutAt?.toISOString() ?? null,
+                      }
+                    : null
+                }
+                distanceMeters={job.gpsDistanceMeters}
+              />
+            ) : null}
             <GpsRecordEditor
               jobId={job.id}
               gps={{
