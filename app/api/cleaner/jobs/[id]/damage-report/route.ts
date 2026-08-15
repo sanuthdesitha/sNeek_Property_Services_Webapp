@@ -65,8 +65,12 @@ export async function POST(
       clientId: job.property.clientId,
       propertyId: job.propertyId,
       jobId: job.id,
-      clientVisible: true,
-      clientCanReply: true,
+      // Damage reaches the client only after an admin review says so (D1/D2).
+      // This route is the legacy single-damage path, superseded by
+      // POST /api/cleaner/jobs/[id]/damage; it is kept for any client still
+      // calling it, but it must not be a way around the visibility gate.
+      clientVisible: false,
+      clientCanReply: false,
       metadata: {
         tags: ["damage"],
         estimatedCost: body.estimatedCost ?? null,

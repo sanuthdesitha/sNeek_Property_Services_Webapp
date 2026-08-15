@@ -21,10 +21,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  DamageReport,
   ExtraPayRequest,
   ContinuationRequest,
 } from "@/components/v2/cleaner/job-actions";
+import { DamageReportForm } from "@/components/v2/cleaner/damage-report-form";
 import { ReportMaintenance } from "@/components/v2/cleaner/report-maintenance";
 import { SafetyCheckin } from "@/components/v2/cleaner/job-actions";
 import { LostFoundForm } from "@/components/v2/cleaner/lost-found-form";
@@ -163,7 +163,7 @@ function ActionBody({
   const jobId = api.jobId;
   switch (action) {
     case "damage":
-      return <DamageReport jobId={jobId} onChanged={onDone} embedded />;
+      return <DamageReportForm jobId={jobId} onSubmitted={onDone} embedded />;
     case "maintenance":
       return <ReportMaintenance jobId={jobId} onChanged={onDone} />;
     case "pay":

@@ -859,8 +859,12 @@ export async function POST(
           jobId: job.id,
           clientId: job.property.clientId,
           propertyId: job.propertyId,
-          clientVisible: true,
-          clientCanReply: true,
+          // Hidden until an admin review releases it. The client also reads
+          // damage through the cases workspace, so leaving this true would let
+          // damage reach them the moment a cleaner submitted — around the
+          // report-level gate entirely (D1).
+          clientVisible: false,
+          clientCanReply: false,
           metadata: {
             estimatedCost: damage.estimatedCost ?? null,
             area: damageArea || null,

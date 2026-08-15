@@ -38,6 +38,7 @@ import { EBadge, EButton, ECard, ECardBody, EAlert } from "@/components/v2/ui/pr
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import { ReportMaintenance } from "@/components/v2/cleaner/report-maintenance";
+import { DamageReportForm } from "@/components/v2/cleaner/damage-report-form";
 
 type Notice = { tone: "success" | "danger" | "info"; text: string } | null;
 
@@ -103,7 +104,7 @@ export function JobActions({
 
       <ExtraPayRequest jobId={jobId} onChanged={onChanged} />
 
-      <DamageReport jobId={jobId} onChanged={onChanged} />
+      <DamageReportForm jobId={jobId} onSubmitted={onChanged} />
 
       <ReportMaintenance jobId={jobId} onChanged={onChanged} />
     </div>
