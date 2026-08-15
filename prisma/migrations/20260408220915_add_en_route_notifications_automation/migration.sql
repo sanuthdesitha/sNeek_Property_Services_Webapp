@@ -5,7 +5,12 @@ BEGIN
     SELECT 1
     FROM pg_enum
     WHERE enumlabel = 'EN_ROUTE'
-      AND enumtypid = 'JobStatus'::regtype
+      -- The inner double quotes are load-bearing. `'JobStatus'::regtype` parses
+      -- the string as an UNQUOTED identifier, which Postgres folds to
+      -- `jobstatus` — a type that does not exist, because Prisma creates the
+      -- enum as "JobStatus". Without them this guard raises 42704 and the whole
+      -- migration fails on any fresh database, which is every new environment.
+      AND enumtypid = '"JobStatus"'::regtype
   ) THEN
     ALTER TYPE "JobStatus" ADD VALUE 'EN_ROUTE';
   END IF;
