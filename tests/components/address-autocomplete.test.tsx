@@ -34,4 +34,13 @@ describe("AddressAutocomplete", () => {
     await new Promise((r) => setTimeout(r, 80));
     expect(screen.getByText(/Address lookup unavailable/i)).toBeInTheDocument();
   });
+
+  it("does not show the notice while the SDK is still loading", () => {
+    // Guards the reason the load state is a tri-state rather than a boolean.
+    // `ready === false` also means "still loading", so a notice keyed on it
+    // would flash on every mount before the SDK resolves — on a working
+    // deployment, telling every user their address lookup is broken.
+    render(<AddressAutocomplete onSelect={() => {}} />);
+    expect(screen.queryByText(/Address lookup unavailable/i)).toBeNull();
+  });
 });
