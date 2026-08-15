@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { JobType, JobStatus } from "@prisma/client";
 import { PAY_ADJUSTMENT_CATEGORY_VALUES } from "@/lib/finance/pay-categories";
+import { LAUNDRY_SKIP_REASON_CODES } from "@/lib/laundry/constants";
 import {
   optionalAddressSchema,
   optionalAustralianPhoneSchema,
@@ -190,7 +191,10 @@ export const submitJobSchema = z.object({
     .optional(),
   laundryReady: z.boolean().optional(),
   laundryOutcome: z.enum(["READY_FOR_PICKUP", "NOT_READY", "NO_PICKUP_REQUIRED"]).optional(),
-  laundrySkipReasonCode: z.string().trim().max(120).optional(),
+  // Enum, not a free string: an unrecognised code here is what permanently
+  // blocked admins from saving the resulting laundry task (see
+  // lib/laundry/constants.ts).
+  laundrySkipReasonCode: z.enum(LAUNDRY_SKIP_REASON_CODES).optional(),
   laundrySkipReasonNote: z.string().trim().max(2000).optional(),
   bagLocation: z.string().optional(),
   clockAdjustmentRequest: z
@@ -223,7 +227,10 @@ export const submitJobSchema = z.object({
 export const cleanerLaundryStatusSchema = z.object({
   laundryReady: z.boolean().optional(),
   laundryOutcome: z.enum(["READY_FOR_PICKUP", "NOT_READY", "NO_PICKUP_REQUIRED"]).optional(),
-  laundrySkipReasonCode: z.string().trim().max(120).optional(),
+  // Enum, not a free string: an unrecognised code here is what permanently
+  // blocked admins from saving the resulting laundry task (see
+  // lib/laundry/constants.ts).
+  laundrySkipReasonCode: z.enum(LAUNDRY_SKIP_REASON_CODES).optional(),
   laundrySkipReasonNote: z.string().trim().max(2000).optional(),
   bagLocation: z.string().optional(),
   laundryPhotoKey: z.string().trim().min(1).optional(),

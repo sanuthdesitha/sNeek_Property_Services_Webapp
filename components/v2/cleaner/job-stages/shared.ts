@@ -202,13 +202,13 @@ export interface WorkspaceApi {
   openContactSheet: () => void;
 }
 
-export const LAUNDRY_SKIP_REASONS: Array<{ value: string; label: string }> = [
-  { value: "LINEN_STILL_WASHING", label: "Linen still washing" },
-  { value: "LINEN_STILL_DRYING", label: "Linen still drying" },
-  { value: "NO_LINEN_ON_SITE", label: "No linen on site" },
-  { value: "NO_PICKUP_REQUIRED", label: "No pickup required" },
-  { value: "OTHER", label: "Other" },
-];
+/**
+ * Re-exported from the one canonical list. This file used to declare its own
+ * shorter set, which let a v2 cleaner store a code the admin PATCH rejects —
+ * permanently blocking every admin save on that laundry task. Do not
+ * re-declare it here.
+ */
+export { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 
 export function titleCase(v: string) {
   return v

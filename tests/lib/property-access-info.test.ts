@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildPropertyAccessInfo } from "@/lib/properties/access-info";
+import {
+  buildPropertyAccessInfo,
+  pickLegacyAccessCode,
+  resolvePropertyAccessCode,
+} from "@/lib/properties/access-info";
 
 /**
  * Regression cover for the laundry-allocation data loss: the v2 property detail
@@ -64,12 +68,11 @@ describe("buildPropertyAccessInfo", () => {
     expect(result.laundryTeamUserIds).toEqual(["clx0000laundryuser1"]);
   });
 
-  it("prefers the flat accessCode/keyLocation columns over the stored JSON", () => {
+  it("prefers the flat keyLocation column over the stored JSON", () => {
     const result = buildPropertyAccessInfo(
       { accessCode: " 9999# ", keyLocation: " Concierge ", accessInfo: {} },
       STORED
     );
-    expect(result.codes).toBe("9999#");
     expect(result.lockbox).toBe("Concierge");
   });
 
@@ -82,8 +85,62 @@ describe("buildPropertyAccessInfo", () => {
   });
 
   it("ignores a non-object stored value", () => {
-    const result = buildPropertyAccessInfo({ accessInfo: { codes: "1111" } }, "corrupt");
-    expect(result.codes).toBe("1111");
+    const result = buildPropertyAccessInfo({ accessInfo: { parking: "Bay 1" } }, "corrupt");
+    expect(result.parking).toBe("Bay 1");
     expect(result.laundryTeamUserIds).toEqual([]);
+  });
+
+  /**
+   * The door code belongs in the encrypted Property.accessCode column alone.
+   * It used to be copied into accessInfo.codes as plain JSON, so every save
+   * must now scrub the key rather than merge it forward.
+   */
+  it("never writes the door code into the JSON, from either input field", () => {
+    const fromFlatField = buildPropertyAccessInfo({ accessCode: "9999#", accessInfo: {} });
+    const fromJson = buildPropertyAccessInfo({ accessInfo: { codes: "1111" } });
+    expect(fromFlatField).not.toHaveProperty("codes");
+    expect(fromJson).not.toHaveProperty("codes");
+  });
+
+  it("scrubs a stored plaintext code on any save that touches the row", () => {
+    expect(STORED.codes).toBe("1234#"); // guards the fixture against drift
+    const result = buildPropertyAccessInfo({ accessInfo: { parking: "Visitor bay 4" } }, STORED);
+    expect(result).not.toHaveProperty("codes");
+    // The scrub must not cost the caller anything else it did not send.
+    expect(result.laundryTeamUserIds).toEqual(["clx0000laundryuser1", "clx0000laundryuser2"]);
+    expect(result.lockbox).toBe("Key safe left of door");
+  });
+});
+
+describe("pickLegacyAccessCode", () => {
+  it("reads a legacy plaintext code out of stored JSON", () => {
+    expect(pickLegacyAccessCode({ codes: " 1234# " })).toBe("1234#");
+  });
+
+  it("returns null once the row has been scrubbed", () => {
+    expect(pickLegacyAccessCode({ lockbox: "Front desk" })).toBeNull();
+    expect(pickLegacyAccessCode({ codes: "   " })).toBeNull();
+    expect(pickLegacyAccessCode(null)).toBeNull();
+    expect(pickLegacyAccessCode("corrupt")).toBeNull();
+  });
+});
+
+describe("resolvePropertyAccessCode", () => {
+  it("prefers the flat accessCode field", () => {
+    expect(resolvePropertyAccessCode({ accessCode: " 9999# ", accessInfo: { codes: "1111" } })).toBe(
+      "9999#"
+    );
+  });
+
+  it("falls back to the legacy JSON so a JSON-only code is not blanked", () => {
+    expect(resolvePropertyAccessCode({ accessInfo: { codes: " 1111 " } })).toBe("1111");
+  });
+
+  it("reads the stored JSON when the request carries no code at all", () => {
+    expect(resolvePropertyAccessCode({}, STORED)).toBe("1234#");
+  });
+
+  it("returns an empty string when no code is available anywhere", () => {
+    expect(resolvePropertyAccessCode({ accessInfo: {} })).toBe("");
   });
 });

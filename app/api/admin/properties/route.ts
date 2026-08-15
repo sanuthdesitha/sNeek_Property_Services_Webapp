@@ -10,7 +10,7 @@ import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { encryptSecret } from "@/lib/security/encryption";
 import { getPropertyFormConfig } from "@/lib/property-form/config-store";
 import { collectMissingRequired, pruneCustomValues } from "@/lib/property-form/config";
-import { buildPropertyAccessInfo } from "@/lib/properties/access-info";
+import { buildPropertyAccessInfo, resolvePropertyAccessCode } from "@/lib/properties/access-info";
 
 /**
  * Assemble the flat field-value map the property-form config evaluates its
@@ -115,6 +115,9 @@ export async function POST(req: NextRequest) {
     const prunedCustomFields = pruneCustomValues(formConfig, systemValues, customValues);
 
     const normalizedAccessInfo = buildPropertyAccessInfo(propertyData as Record<string, any>);
+    // Plaintext, resolved separately because accessInfo no longer carries the
+    // door code. Its only consumer is encryptSecret() further down.
+    const accessCodePlaintext = resolvePropertyAccessCode(propertyData as Record<string, any>);
 
     const property = await db.property.create({
       data: {
@@ -122,7 +125,7 @@ export async function POST(req: NextRequest) {
         latitude: propertyData.latitude ?? undefined,
         longitude: propertyData.longitude ?? undefined,
         placeId: propertyData.placeId ?? undefined,
-        accessCode: encryptSecret(propertyData.accessCode ?? normalizedAccessInfo.codes ?? ""),
+        accessCode: encryptSecret(accessCodePlaintext),
         alarmCode: encryptSecret(propertyData.alarmCode ?? ""),
         keyLocation:
           (typeof propertyData.keyLocation === "string" ? propertyData.keyLocation.trim() : "") ||

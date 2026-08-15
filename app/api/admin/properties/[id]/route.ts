@@ -12,7 +12,11 @@ import {
   clearPendingLaundrySyncDraftForProperty,
   notifyLaundryTeamsForApprovedSyncDraft,
 } from "@/lib/laundry/sync-draft";
-import { buildPropertyAccessInfo } from "@/lib/properties/access-info";
+import {
+  buildPropertyAccessInfo,
+  pickLegacyAccessCode,
+  resolvePropertyAccessCode,
+} from "@/lib/properties/access-info";
 import { ensurePropertyDefaultStock } from "@/lib/inventory/default-items";
 
 export async function GET(
@@ -87,9 +91,15 @@ export async function PATCH(
         latitude: body.latitude ?? undefined,
         longitude: body.longitude ?? undefined,
         placeId: body.placeId ?? undefined,
+        // The door code may arrive in either the flat `accessCode` field or the
+        // legacy `accessInfo.codes` the older property form still sends.
+        // Whichever carries it, it lands in the encrypted column — accessInfo
+        // no longer stores it, so ignoring the JSON here would silently discard
+        // the admin's edit. Resolved from the BODY only: pulling the stored
+        // JSON in would let a stale plaintext code overwrite a newer one.
         accessCode:
-          body.accessCode !== undefined
-            ? encryptSecret(body.accessCode ?? "")
+          body.accessCode !== undefined || pickLegacyAccessCode(body.accessInfo) !== null
+            ? encryptSecret(resolvePropertyAccessCode(body as Record<string, unknown>))
             : undefined,
         alarmCode:
           body.alarmCode !== undefined
