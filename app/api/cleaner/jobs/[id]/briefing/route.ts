@@ -3,6 +3,7 @@ import { JobStatus, LaundryStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/security/encryption";
+import { pickLegacyAccessCode } from "@/lib/properties/access-info";
 import { getNegativeQaWarning } from "@/lib/qa/feedback-history";
 import { listConfirmedReworkForCleanerJob } from "@/lib/qa/rework-transfers";
 import { publicUrl } from "@/lib/s3";
@@ -15,12 +16,6 @@ function pickLegacyAccessNote(accessInfo: unknown) {
   const parking = typeof row.parking === "string" ? row.parking.trim() : "";
   const other = typeof row.other === "string" ? row.other.trim() : "";
   return [lockbox, parking, other].filter(Boolean).join("\n") || null;
-}
-
-function pickLegacyAccessCode(accessInfo: unknown) {
-  if (!accessInfo || typeof accessInfo !== "object" || Array.isArray(accessInfo)) return null;
-  const value = (accessInfo as Record<string, unknown>).codes;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {

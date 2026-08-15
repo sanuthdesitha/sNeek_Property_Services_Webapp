@@ -66,6 +66,7 @@ import {
 import type { FormSchema } from "@/lib/forms/types";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
 import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
+import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { FinalCheckupDialog } from "@/components/v2/cleaner/final-checkup-dialog";
 import { StartBriefingDialog } from "@/components/v2/cleaner/start-briefing-dialog";
 import type {
@@ -156,13 +157,6 @@ interface ImportantRequest {
 const LOCKED = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"];
 
 type LaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
-const LAUNDRY_SKIP_REASONS: Array<{ value: string; label: string }> = [
-  { value: "LINEN_STILL_WASHING", label: "Linen still washing" },
-  { value: "LINEN_STILL_DRYING", label: "Linen still drying" },
-  { value: "NO_LINEN_ON_SITE", label: "No linen on site" },
-  { value: "NO_PICKUP_REQUIRED", label: "No pickup required" },
-  { value: "OTHER", label: "Other" },
-];
 /** Upload key the submit route reads for the laundry-ready photo. */
 const LAUNDRY_PHOTO_KEY = "laundry_photo";
 

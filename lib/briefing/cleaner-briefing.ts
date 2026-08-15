@@ -13,6 +13,8 @@
 import { format } from "date-fns";
 import { JobStatus, JobAssignmentResponseStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { decryptSecret } from "@/lib/security/encryption";
+import { pickLegacyAccessCode } from "@/lib/properties/access-info";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
@@ -140,8 +142,15 @@ function buildAccessItems(p: LoadedJob["property"]): string[] {
   const lockbox = nonEmpty(info?.lockbox);
   if (lockbox) items.push(`Lockbox: ${lockbox}`);
   if (nonEmpty(p.keyLocation)) items.push(`Key: ${p.keyLocation!.trim()}`);
-  if (nonEmpty(p.accessCode)) items.push(`Entry code: ${p.accessCode!.trim()}`);
-  if (nonEmpty(p.alarmCode)) items.push(`Alarm code: ${p.alarmCode!.trim()}`);
+  // Both codes live encrypted in their columns (enc:v1:…). Printing them raw
+  // hands the cleaner ciphertext instead of a door code. decryptSecret passes
+  // legacy plaintext straight through, so rows not yet re-encrypted still read
+  // correctly, and the accessInfo fallback covers rows whose code only ever
+  // lived in the JSON that lib/properties/access-info.ts no longer writes.
+  const entryCode = nonEmpty(decryptSecret(p.accessCode)) ?? pickLegacyAccessCode(p.accessInfo);
+  if (entryCode) items.push(`Entry code: ${entryCode}`);
+  const alarmCode = nonEmpty(decryptSecret(p.alarmCode));
+  if (alarmCode) items.push(`Alarm code: ${alarmCode}`);
   const features = asRecord(p.features);
   if (features?.petFriendly === true || features?.pet === true) {
     items.push("Pet on site — mind doors and gates.");
