@@ -12,6 +12,7 @@ import {
   submitDamageReportSchema,
 } from "@/lib/damage/validation";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
+import { publicUrl } from "@/lib/s3";
 
 /**
  * The cleaner's damage report for one job.
@@ -28,6 +29,31 @@ import { getValidationErrorMessage } from "@/lib/validations/errors";
  * the list, and a dropped partial request must never leave a saved draft in a
  * state the cleaner never saw.
  */
+
+/**
+ * Add a resolvable URL to every photo.
+ *
+ * The database stores S3 keys only, but the form has to render thumbnails for
+ * a draft it reloaded — without this a cleaner reopening a half-finished report
+ * sees broken images and reasonably concludes the evidence was lost. Prefers
+ * the flattened composite so annotations show once they exist; never the bare
+ * overlay, which is marks on transparency.
+ */
+function serializeReport<T extends { items: Array<{ photos: Array<Record<string, any>> }> } | null>(
+  report: T
+): T {
+  if (!report) return report;
+  return {
+    ...report,
+    items: report.items.map((item) => ({
+      ...item,
+      photos: item.photos.map((photo) => ({
+        ...photo,
+        url: publicUrl(photo.flatKey || photo.s3Key),
+      })),
+    })),
+  } as T;
+}
 
 /** The job, only if this cleaner is actually on it. */
 async function requireAssignedJob(jobId: string, userId: string) {
@@ -79,7 +105,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       propertyId: job.propertyId,
       userId: session.user.id,
     });
-    return NextResponse.json({ report });
+    return NextResponse.json({ report: serializeReport(report) });
   } catch (err) {
     return errorResponse(err);
   }
@@ -112,7 +138,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       userId: session.user.id,
       items: body.items,
     });
-    return NextResponse.json({ report });
+    return NextResponse.json({ report: serializeReport(report) });
   } catch (err) {
     return errorResponse(err);
   }
@@ -142,7 +168,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       userId: session.user.id,
       items: body.items,
     });
-    return NextResponse.json({ report });
+    return NextResponse.json({ report: serializeReport(report) });
   } catch (err) {
     return errorResponse(err);
   }

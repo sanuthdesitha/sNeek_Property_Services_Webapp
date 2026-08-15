@@ -22,7 +22,8 @@
  */
 
 import * as React from "react";
-import { AlertTriangle, Check, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { ImageAnnotator } from "@/components/shared/image-annotator";
 import { EAlert, EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
@@ -57,6 +58,14 @@ type DamagePhoto = {
   flatKey?: string | null;
   caption?: string | null;
   section: PhotoSection;
+  /**
+   * Display-only, never sent to the server (the schema ignores it). The
+   * database stores keys, but MediaCapture renders from URLs — a reloaded
+   * draft without these shows broken thumbnails, which reads as "my evidence
+   * is gone".
+   */
+  url?: string;
+  kind?: "image" | "video" | "file";
 };
 
 type DamageItem = {
@@ -102,6 +111,8 @@ function toFormItem(raw: any): DamageItem {
           flatKey: photo.flatKey ?? null,
           caption: photo.caption ?? null,
           section: photo.section ?? "OVERVIEW",
+          url: photo.url,
+          kind: "image" as const,
         }))
       : [],
   };
@@ -138,6 +149,13 @@ export function DamageReportForm({
   const [submitting, setSubmitting] = React.useState(false);
   const [submitted, setSubmitted] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [annotating, setAnnotating] = React.useState<{
+    clientId: string;
+    s3Key: string;
+    url: string;
+    caption: string;
+  } | null>(null);
+  const [savingMarkup, setSavingMarkup] = React.useState(false);
 
   // Skips the autosave that would otherwise fire immediately after hydration
   // and write the draft straight back over itself.
@@ -210,6 +228,8 @@ export function DamageReportForm({
             flatKey: existing?.flatKey ?? null,
             caption: existing?.caption ?? null,
             section,
+            url: m.url ?? existing?.url,
+            kind: m.kind ?? existing?.kind,
           };
         });
         return { ...item, photos: [...others, ...next] };
@@ -220,7 +240,68 @@ export function DamageReportForm({
   function sectionMedia(item: DamageItem, section: PhotoSection): CapturedMedia[] {
     return item.photos
       .filter((photo) => photo.section === section)
-      .map((photo) => ({ key: photo.s3Key }) as CapturedMedia);
+      .map((photo) => ({
+        key: photo.s3Key,
+        url: photo.url ?? "",
+        kind: photo.kind ?? "image",
+      }));
+  }
+
+  /**
+   * Store the uploaded overlay against its photo. The overlay is a transparent
+   * PNG of the marks only — it is never displayed alone, and the server
+   * flattens it onto the original at submit.
+   */
+  function setAnnotation(
+    clientId: string,
+    s3Key: string,
+    annotatedKey: string,
+    caption: string | null
+  ) {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.clientId !== clientId
+          ? item
+          : {
+              ...item,
+              photos: item.photos.map((photo) =>
+                photo.s3Key === s3Key
+                  ? {
+                      ...photo,
+                      annotatedKey,
+                      caption: caption || (photo.caption ?? null),
+                      // Force a re-flatten at submit: the old composite is stale.
+                      flatKey: null,
+                    }
+                  : photo
+              ),
+            }
+      )
+    );
+  }
+
+  /**
+   * Upload the overlay PNG the annotator produced, then attach its key.
+   * Same endpoint and shape the QA inspection workspace uses.
+   */
+  async function saveMarkup(blob: Blob, comment: string) {
+    if (!annotating) return;
+    setSavingMarkup(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", new File([blob], `damage-markup-${Date.now()}.png`, { type: "image/png" }));
+      fd.append("folder", "damage-annotations");
+      fd.append("jobId", jobId);
+      const res = await fetch("/api/uploads/direct", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.key) throw new Error(data?.error || "Could not save the markup.");
+      setAnnotation(annotating.clientId, annotating.s3Key, String(data.key), comment || null);
+      setAnnotating(null);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSavingMarkup(false);
+    }
   }
 
   async function submit() {
@@ -371,22 +452,48 @@ export function DamageReportForm({
             />
           </EField>
 
-          {PHOTO_SECTIONS.map((section) => (
-            <EField key={section.value} label={`${section.label} — ${section.hint}`}>
-              <MediaCapture
-                value={sectionMedia(item, section.value)}
-                onChange={(media) => setSectionPhotos(item.clientId, section.value, media)}
-                mode="photo"
-                folder="evidence"
-                multiple
-                stamp={{
-                  tag: "damage",
-                  contextLabel: `Damage — ${section.label}`,
-                  address: address || undefined,
-                }}
-              />
-            </EField>
-          ))}
+          {PHOTO_SECTIONS.map((section) => {
+            const shots = item.photos.filter((photo) => photo.section === section.value);
+            return (
+              <EField key={section.value} label={`${section.label} — ${section.hint}`}>
+                <MediaCapture
+                  value={sectionMedia(item, section.value)}
+                  onChange={(media) => setSectionPhotos(item.clientId, section.value, media)}
+                  mode="photo"
+                  folder="evidence"
+                  multiple
+                  stamp={{
+                    tag: "damage",
+                    contextLabel: `Damage — ${section.label}`,
+                    address: address || undefined,
+                  }}
+                />
+                {shots.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {shots.map((photo) => (
+                      <EButton
+                        key={photo.s3Key}
+                        variant="ghost"
+                        size="sm"
+                        disabled={!photo.url}
+                        onClick={() =>
+                          setAnnotating({
+                            clientId: item.clientId,
+                            s3Key: photo.s3Key,
+                            url: photo.url ?? "",
+                            caption: photo.caption ?? "",
+                          })
+                        }
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        {photo.annotatedKey ? "Edit markup" : "Circle the damage"}
+                      </EButton>
+                    ))}
+                  </div>
+                ) : null}
+              </EField>
+            );
+          })}
         </div>
       ))}
 
@@ -400,6 +507,19 @@ export function DamageReportForm({
         {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         Submit damage report
       </EButton>
+
+      {annotating ? (
+        <ImageAnnotator
+          src={annotating.url}
+          open={Boolean(annotating)}
+          onOpenChange={(v) => {
+            if (!v) setAnnotating(null);
+          }}
+          initialComment={annotating.caption}
+          saving={savingMarkup}
+          onSave={({ blob, comment }) => saveMarkup(blob, comment)}
+        />
+      ) : null}
     </Chrome>
   );
 }
