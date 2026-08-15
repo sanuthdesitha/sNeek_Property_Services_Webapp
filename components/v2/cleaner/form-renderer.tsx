@@ -52,7 +52,8 @@ import {
   type LightboxItem,
 } from "@/components/v2/cleaner/media-capture";
 import { GuidedCapture, type GuidedCaptureTarget } from "@/components/v2/cleaner/guided-capture";
-import { DamageReport, ExtraPayRequest } from "@/components/v2/cleaner/job-actions";
+import { ExtraPayRequest } from "@/components/v2/cleaner/job-actions";
+import { DamageReportForm } from "@/components/v2/cleaner/damage-report-form";
 import { ReportMaintenance } from "@/components/v2/cleaner/report-maintenance";
 
 export type AnswerMap = Record<string, unknown>;
@@ -405,7 +406,7 @@ function ExtrasRegion({
 
       {jobId && open.damage ? (
         <ExtraBlock title="Damage report">
-          <DamageReport jobId={jobId} onChanged={onChanged} embedded />
+          <DamageReportForm jobId={jobId} onSubmitted={onChanged} embedded />
         </ExtraBlock>
       ) : null}
       {jobId && open["extra-pay"] ? (

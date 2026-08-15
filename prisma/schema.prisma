@@ -757,6 +757,8 @@ model User {
   icalSyncRunsTriggered        IcalSyncRun[]               @relation("IcalSyncTriggeredBy")
   icalSyncRunsReverted         IcalSyncRun[]               @relation("IcalSyncRevertedBy")
   assignedCases                IssueTicket[]               @relation("IssueTicketAssignedTo")
+  damageReportsReported        DamageReport[]              @relation("DamageReportReportedBy")
+  damageReportsReviewed        DamageReport[]              @relation("DamageReportReviewedBy")
   caseComments                 CaseComment[]
   payrollRunsCreated           PayrollRun[]                @relation("PayrollRunCreatedBy")
   payouts                      Payout[]                    @relation("CleanerPayouts")
@@ -1004,6 +1006,7 @@ model Property {
   laundryTasks        LaundryTask[]
   icalSyncRuns        IcalSyncRun[]
   cases               IssueTicket[]
+  damageReports       DamageReport[]
   stockRuns           StockRun[]
   shoppingRunLines    ShoppingRunLine[]
   clientRates         PropertyClientRate[]
@@ -1384,6 +1387,7 @@ model Job {
   report                 Report?
   reportVerification     ReportVerification?
   issueTickets           IssueTicket[]
+  damageReports          DamageReport[]
   payAdjustments         CleanerPayAdjustment[]
   timeAdjustmentRequests TimeLogAdjustmentRequest[]
   auditLogs              AuditLog[]                 @relation("AuditJob")
@@ -2070,6 +2074,9 @@ model IssueTicket {
   transitions CaseTransition[]
   /// CP-7 — maintenance items auto-created from this case (DAMAGE cases only).
   maintenanceItems PropertyMaintenanceItem[] @relation("CaseMaintenanceItems")
+  /// D1 — the damage item that opened this case, when it came from a report.
+  /// At most one: the case↔item pairing is 1:1 (see DamageItem.caseId).
+  damageItem DamageItem? @relation("DamageItemCase")
 }
 
 model CaseTransition {
@@ -2432,6 +2439,121 @@ model CaseAttachment {
 
   issueTicket IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
   uploadedBy  User        @relation(fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// Damage reporting (D1)
+// ─────────────────────────────────────────────
+// One submission groups MANY damaged items, and each item opens exactly one
+// DAMAGE IssueTicket — CP-7 turns that case into a repair, so one-case-per-item
+// is load-bearing, not a style choice (lib/cases/damage-maintenance.ts).
+
+enum DamageReportStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  CLOSED
+}
+
+/// Cleaner-facing scale. Deliberately NOT IssueTicket.severity
+/// (LOW|MEDIUM|HIGH|CRITICAL) — a cleaner judges how bad the damage looks, not
+/// how urgent the ops queue is. lib/damage/severity.ts maps between the two.
+enum DamageSeverity {
+  MINOR
+  MODERATE
+  MAJOR
+  SEVERE
+}
+
+enum DamageSuspectedCause {
+  GUEST
+  WEAR
+  UNKNOWN
+  PRE_EXISTING
+}
+
+enum DamagePhotoSection {
+  OVERVIEW
+  CLOSE_UP
+  CONTEXT
+  EVIDENCE
+}
+
+model DamageReport {
+  id           String             @id @default(cuid())
+  jobId        String
+  propertyId   String
+  reportedById String
+  status       DamageReportStatus @default(DRAFT)
+  submittedAt  DateTime?
+  /// False until an admin review flips it. The per-item IssueTicket is created
+  /// clientVisible=false to match: the client reads damage through the cases
+  /// workspace too, so a report-level gate alone would not actually hold.
+  clientVisible Boolean   @default(false)
+  reviewedById  String?
+  reviewedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  job        Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  property   Property     @relation(fields: [propertyId], references: [id])
+  reportedBy User         @relation("DamageReportReportedBy", fields: [reportedById], references: [id])
+  reviewedBy User?        @relation("DamageReportReviewedBy", fields: [reviewedById], references: [id])
+  items      DamageItem[]
+
+  @@index([jobId])
+  @@index([propertyId, status])
+  @@index([status, submittedAt])
+}
+
+model DamageItem {
+  id String @id @default(cuid())
+
+  reportId String
+  /// CP-7 anchor — the one case this item opened. Unique because two items must
+  /// never share a case: the sync would then raise one repair for two faults.
+  /// Nullable so a DRAFT item exists before any case does, and SetNull rather
+  /// than Cascade so deleting a case never silently destroys the evidence.
+  caseId String? @unique
+
+  area           String
+  category       String
+  severity       DamageSeverity       @default(MODERATE)
+  description    String               @db.Text
+  suspectedCause DamageSuspectedCause @default(UNKNOWN)
+  /// ADMIN-WRITE ONLY. Cleaners never send this and the cleaner routes must not
+  /// accept it — cost is decided on the investigation page (D2).
+  estimatedCost Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  report DamageReport      @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  case   IssueTicket?      @relation("DamageItemCase", fields: [caseId], references: [id], onDelete: SetNull)
+  photos DamageItemPhoto[]
+
+  @@index([reportId])
+}
+
+model DamageItemPhoto {
+  id     String @id @default(cuid())
+  itemId String
+
+  /// The photo as uploaded.
+  s3Key String
+  /// Annotation overlay data/render kept while the cleaner is still marking up.
+  annotatedKey String?
+  /// The flattened composite produced at submit by lib/qa/annotation-composite.ts.
+  /// Reports render this, so annotations cannot go missing after the fact.
+  flatKey String?
+
+  caption   String?
+  section   DamagePhotoSection @default(OVERVIEW)
+  createdAt DateTime           @default(now())
+
+  item DamageItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId, section])
 }
 
 // ─────────────────────────────────────────────

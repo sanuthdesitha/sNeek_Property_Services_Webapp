@@ -456,6 +456,24 @@ Automation runs on two rails: a dedicated pg-boss worker and the in-web fallback
 
 ---
 
+### B10. Damage reporting (D1, 2026-08)
+
+One visit produces ONE `DamageReport` holding MANY `DamageItem`s, each with its own `DamageItemPhoto`s. This replaced a single-damage form (`DamageReport` in `components/v2/cleaner/job-actions.tsx`) that forced a cleaner who found two faults to submit twice, with nothing recording that they came from the same visit.
+
+**One case per item, and why it is load-bearing.** Every `DamageItem` opens exactly one DAMAGE `IssueTicket`, and `createCase()` raises the repair through CP-7 (`lib/cases/service.ts` → `autoCreateMaintenanceForDamageCase`). `DamageItem.caseId` is UNIQUE so the database refuses to let two items share a case — batching them would make CP-7 raise a single repair for several separate faults. The FK is `ON DELETE SET NULL`, not cascade: deleting a case must never destroy the photographic evidence of the damage it was opened for.
+
+**Two severity scales, deliberately.** Cleaners grade what they can see (`DamageSeverity`: MINOR|MODERATE|MAJOR|SEVERE); ops runs on urgency (`IssueTicket.severity`: LOW|MEDIUM|HIGH|CRITICAL). `lib/damage/severity.ts` is the only bridge, and `tests/lib/damage-severity.test.ts` asserts the end-to-end consequence — that a SEVERE report still arrives as an URGENT repair, and that the four grades stay four distinct priorities. The old path hardcoded `severity: damage.severity ?? "HIGH"`, so anything unexpected collapsed to MEDIUM and every grade queued alike.
+
+**The client sees nothing until admin review, and that gate now actually holds.** `DamageReport.clientVisible` defaults false, and — critically — the per-item cases are created `clientVisible: false` too. Previously both cleaner damage paths (`app/api/cleaner/jobs/[id]/damage-report/route.ts` and the `draftDamageItems` loop in the submit route) opened cases with `clientVisible: true`, so the client saw reported damage the instant a cleaner submitted, through the cases workspace, regardless of any report-level flag. Both were flipped to false; a report-level gate alone was decorative.
+
+**No cost field on the cleaner side.** The old form asked cleaners for an estimated cost. `DamageItem.estimatedCost` is admin-write-only, decided on the investigation page (D2), and it is absent from every schema in `lib/damage/validation.ts` — the routes build their Prisma payload from the PARSED object, so a cleaner sending it has it stripped rather than merely ignored (`tests/lib/damage-validation.test.ts` pins this).
+
+**Draft and submit are different contracts.** `PUT /api/cleaner/jobs/[id]/damage` autosaves on a debounce and accepts half-finished work — a card with photos and no text yet must save, because the failure mode being designed against is a phone dying mid-documentation. `POST` requires an area, a category, a description of at least a sentence, and at least one photo per item. Blank cards are dropped at submit rather than rejected: an empty extra card is a normal artefact of "add item", and failing the whole submission over one is hostile to somebody standing in a property. Saves replace the whole item list rather than patching — the form owns the list, and a dropped partial write must never leave a draft the cleaner never saw.
+
+**Submit is resumable, not atomic.** Cases are opened one at a time after the rows commit, each guarded, and an item records its `caseId` as soon as it has one. If case 3 of 5 fails the report stays submitted, the first two keep their cases, and re-running submit fills only the gaps. Wrapping five external-effect calls in a transaction would instead roll back a report the cleaner was already told was sent. Annotated photos are flattened at submit via `lib/qa/annotation-composite.ts#ensureFlattened` (idempotent, best-effort) so cases attach the composite rather than an un-marked original — the bare overlay is marks on transparency and renders as a black tile once anything converts it to JPEG.
+
+---
+
 ## Section C — Laundry operation & the QA/accountability system
 
 ### C1. Laundry scheduling engine
