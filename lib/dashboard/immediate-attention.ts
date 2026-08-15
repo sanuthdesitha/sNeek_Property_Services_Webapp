@@ -17,6 +17,9 @@ const ACTIVE_JOB_STATUSES: JobStatus[] = [
   JobStatus.UNASSIGNED,
   JobStatus.OFFERED,
   JobStatus.ASSIGNED,
+  // Without EN_ROUTE the "ongoing today" count under-reported for exactly as
+  // long as a cleaner was driving to the property.
+  JobStatus.EN_ROUTE,
   JobStatus.IN_PROGRESS,
   JobStatus.PAUSED,
   JobStatus.WAITING_CONTINUATION_APPROVAL,

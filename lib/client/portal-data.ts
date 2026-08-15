@@ -8,6 +8,9 @@ const ACTIVE_JOB_STATUSES: JobStatus[] = [
   JobStatus.UNASSIGNED,
   JobStatus.OFFERED,
   JobStatus.ASSIGNED,
+  // Without EN_ROUTE the job disappeared from the client's board while the
+  // cleaner was on the way, then reappeared at IN_PROGRESS.
+  JobStatus.EN_ROUTE,
   JobStatus.IN_PROGRESS,
   JobStatus.PAUSED,
   JobStatus.WAITING_CONTINUATION_APPROVAL,

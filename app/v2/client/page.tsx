@@ -42,6 +42,9 @@ const ACTIVE_JOB_STATUSES = [
   "UNASSIGNED",
   "OFFERED",
   "ASSIGNED",
+  // Without EN_ROUTE the home card skipped today's job while the cleaner was
+  // driving to it and advertised tomorrow's as "next" instead.
+  "EN_ROUTE",
   "IN_PROGRESS",
   "PAUSED",
   "WAITING_CONTINUATION_APPROVAL",

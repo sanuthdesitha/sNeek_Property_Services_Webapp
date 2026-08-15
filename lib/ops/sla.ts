@@ -14,6 +14,11 @@ const ACTIVE_JOB_STATUSES: JobStatus[] = [
   JobStatus.UNASSIGNED,
   JobStatus.OFFERED,
   JobStatus.ASSIGNED,
+  // EN_ROUTE was added to the enum but never to this list, so a job whose
+  // cleaner had tapped "start driving" was excluded from the overdue query
+  // entirely — never warned, never escalated, however far past dueTime it ran.
+  // That is precisely the state a running-late job sits in.
+  JobStatus.EN_ROUTE,
   JobStatus.IN_PROGRESS,
   JobStatus.SUBMITTED,
   JobStatus.QA_REVIEW,

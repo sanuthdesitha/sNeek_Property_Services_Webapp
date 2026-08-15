@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { getBranchById, listBranches, resolveBranchPropertyIds } from "@/lib/phase3/branches";
 import { suggestAutoAssignment } from "@/lib/ops/dispatch";
-import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 
@@ -335,15 +335,29 @@ export async function applyReschedule(input: {
   if (!date) throw new Error("Invalid date.");
   const job = await db.job.findUnique({ where: { id: input.jobId } });
   if (!job) throw new Error("Job not found.");
+  const meta = parseJobInternalNotes(job.internalNotes);
   const updated = await db.job.update({
     where: { id: input.jobId },
     data: {
       scheduledDate: date,
       startTime: input.startTime !== undefined ? input.startTime || null : job.startTime,
       dueTime: input.dueTime !== undefined ? input.dueTime || null : job.dueTime,
-      internalNotes: [job.internalNotes || "", input.reason ? `Reschedule reason: ${input.reason}` : ""]
-        .filter(Boolean)
-        .join("\n"),
+      // `internalNotes` is NOT free text — it carries the whole serialised
+      // JobMeta blob. Appending a line made it invalid JSON, so the next
+      // parseJobInternalNotes fell back to defaults and the next writer
+      // re-serialised those defaults as clean JSON, permanently destroying the
+      // job's timing rules, per-cleaner payouts, transport allowances,
+      // special-request tasks, attachments and quote extras. The reason now
+      // goes into the blob's own free-text field. Same approach as the QA route
+      // ("append to job internalNotes (preserving structured meta)").
+      internalNotes: input.reason
+        ? serializeJobInternalNotes({
+            ...meta,
+            internalNoteText: [meta.internalNoteText.trim(), `Reschedule reason: ${input.reason}`]
+              .filter(Boolean)
+              .join("\n"),
+          })
+        : job.internalNotes,
       manuallyRescheduledAt: new Date(),
       rescheduledBy: input.userId,
     },
