@@ -120,22 +120,38 @@ export default async function VerifyCodePage({ params }: { params: { code: strin
         <div>
           <p className="font-semibold">Verified — this report is genuine</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            This clean was performed and recorded in our system.
+            {vm.kind === "DAMAGE"
+              ? "This damage report was filed and recorded in our system. This check confirms the report exists; it does not reveal what it contains."
+              : "This clean was performed and recorded in our system."}
           </p>
         </div>
       </div>
       <div className="mt-5">
-        <Row label="Service date" value={vm.dateLabel} />
-        <Row label="Service type" value={vm.jobTypeLabel || "Cleaning service"} />
+        <Row label={vm.kind === "DAMAGE" ? "Reported on" : "Service date"} value={vm.dateLabel} />
+        <Row
+          label={vm.kind === "DAMAGE" ? "Document" : "Service type"}
+          value={vm.jobTypeLabel || "Cleaning service"}
+        />
+        {vm.kind === "DAMAGE" && typeof vm.damageItemCount === "number" ? (
+          <Row label="Items recorded" value={String(vm.damageItemCount)} />
+        ) : null}
         {vm.suburb ? <Row label="Suburb" value={vm.suburb} /> : null}
         {vm.cleanerFirstNames.length ? (
-          <Row label="Cleaned by" value={vm.cleanerFirstNames.join(", ")} />
+          <Row
+            label={vm.kind === "DAMAGE" ? "Reported by" : "Cleaned by"}
+            value={vm.cleanerFirstNames.join(", ")}
+          />
         ) : null}
-        <Row label="Clock-in" value={vm.clockInLabel ?? "Not recorded"} />
-        <Row
-          label="Clock-out"
-          value={vm.clockOutMissing ? "Not clocked out" : (vm.clockOutLabel ?? "Not recorded")}
-        />
+        {/* Clock times belong to a clean, not to a damage report. */}
+        {vm.kind === "CLEANING" ? (
+          <>
+            <Row label="Clock-in" value={vm.clockInLabel ?? "Not recorded"} />
+            <Row
+              label="Clock-out"
+              value={vm.clockOutMissing ? "Not clocked out" : (vm.clockOutLabel ?? "Not recorded")}
+            />
+          </>
+        ) : null}
         {vm.issuedLabel ? <Row label="Code issued" value={vm.issuedLabel} /> : null}
       </div>
     </div>

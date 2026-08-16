@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+﻿import { describe, it, expect } from "vitest";
 import {
   buildPublicVerificationVm,
+  buildDamageVerificationVm,
   generateVerificationCode,
 } from "@/lib/reports/verification";
 import {
@@ -77,6 +78,10 @@ describe("buildPublicVerificationVm", () => {
 
   it("exposes ONLY the minimal public fields — no pay, addresses or notes can leak", () => {
     const vm = buildPublicVerificationVm(row);
+    // `kind` was added when damage reports became separately verifiable. It is
+    // safe for a stranger (it says which KIND of document, nothing about it),
+    // and this exact-key assertion is what forces that judgement to be made
+    // deliberately rather than by accident.
     expect(Object.keys(vm).sort()).toEqual([
       "cleanerFirstNames",
       "clockInLabel",
@@ -85,9 +90,14 @@ describe("buildPublicVerificationVm", () => {
       "dateLabel",
       "issuedLabel",
       "jobTypeLabel",
+      "kind",
       "status",
       "suburb",
     ]);
+  });
+
+  it("labels a cleaning verification as CLEANING", () => {
+    expect(buildPublicVerificationVm(row).kind).toBe("CLEANING");
   });
 
   it("marks revoked codes and reports missing clock-outs honestly", () => {
@@ -105,5 +115,63 @@ describe("buildPublicVerificationVm", () => {
     });
     expect(open.clockOutMissing).toBe(true);
     expect(open.clockOutLabel).toBeNull();
+  });
+});
+
+describe("buildDamageVerificationVm", () => {
+  const damageRow = {
+    createdAt: new Date("2026-08-16T04:00:00.000Z"),
+    revokedAt: null as Date | null,
+    damageReport: {
+      submittedAt: new Date("2026-08-15T22:00:00.000Z"),
+      reportedBy: { name: "Alice Smith" },
+      property: { suburb: "Bondi" },
+      _count: { items: 3 },
+    },
+  };
+
+  it("confirms the report exists without describing it", () => {
+    const vm = buildDamageVerificationVm(damageRow);
+    expect(vm.kind).toBe("DAMAGE");
+    expect(vm.status).toBe("verified");
+    expect(vm.suburb).toBe("Bondi");
+    expect(vm.jobTypeLabel).toBe("Damage report");
+    expect(vm.damageItemCount).toBe(3);
+  });
+
+  it("gives a first name only, never a full name", () => {
+    const vm = buildDamageVerificationVm(damageRow);
+    expect(vm.cleanerFirstNames).toEqual(["Alice"]);
+    expect(JSON.stringify(vm)).not.toContain("Smith");
+  });
+
+  it("leaks nothing about WHAT was damaged", () => {
+    // A verification code can be forwarded to anyone, so the payload must not
+    // carry descriptions, severities, causes, costs or photo keys.
+    const keys = Object.keys(buildDamageVerificationVm(damageRow)).sort();
+    expect(keys).toEqual([
+      "cleanerFirstNames",
+      "clockInLabel",
+      "clockOutLabel",
+      "clockOutMissing",
+      "damageItemCount",
+      "dateLabel",
+      "issuedLabel",
+      "jobTypeLabel",
+      "kind",
+      "status",
+      "suburb",
+    ]);
+  });
+
+  it("omits clock times, which belong to a clean and not to a report", () => {
+    const vm = buildDamageVerificationVm(damageRow);
+    expect(vm.clockInLabel).toBeNull();
+    expect(vm.clockOutLabel).toBeNull();
+    expect(vm.clockOutMissing).toBe(false);
+  });
+
+  it("marks a revoked damage code", () => {
+    expect(buildDamageVerificationVm({ ...damageRow, revokedAt: new Date() }).status).toBe("revoked");
   });
 });

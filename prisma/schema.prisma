@@ -1385,7 +1385,7 @@ model Job {
   maintenanceItems       PropertyMaintenanceItem[]
   laundryTask            LaundryTask?
   report                 Report?
-  reportVerification     ReportVerification?
+  reportVerification     ReportVerification[]
   issueTickets           IssueTicket[]
   damageReports          DamageReport[]
   payAdjustments         CleanerPayAdjustment[]
@@ -2376,14 +2376,32 @@ model Report {
 /// the report; the public /verify/[code] page resolves it to a DEDICATED
 /// minimal view (never the internal report). `revokedAt` kills a code without
 /// deleting the audit trail.
-model ReportVerification {
-  id        String    @id @default(cuid())
-  code      String    @unique
-  jobId     String    @unique
-  createdAt DateTime  @default(now())
-  revokedAt DateTime?
+/// What a verification code stands for. A cleaning report and a damage report
+/// are separately verifiable documents — a client holding a damage PDF must be
+/// able to check THAT, not the clean it came from.
+enum ReportVerificationKind {
+  CLEANING
+  DAMAGE
+}
 
-  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+model ReportVerification {
+  id             String                 @id @default(cuid())
+  code           String                 @unique
+  kind           ReportVerificationKind @default(CLEANING)
+  /// Set for CLEANING, NULL for DAMAGE (the damage report carries its own job).
+  jobId          String?
+  /// Set for DAMAGE, NULL for CLEANING.
+  damageReportId String?                @unique
+  createdAt      DateTime               @default(now())
+  revokedAt      DateTime?
+
+  job          Job?          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  damageReport DamageReport? @relation(fields: [damageReportId], references: [id], onDelete: Cascade)
+
+  /// One CLEANING code per job, as before. DAMAGE rows leave jobId NULL, and
+  /// Postgres treats NULLs as distinct, so a job with several damage reports
+  /// gets a code for each — uniqueness for those is carried by damageReportId.
+  @@unique([jobId, kind])
 }
 
 enum ReportThemeKind {
@@ -2500,6 +2518,8 @@ model DamageReport {
   reportedBy User         @relation("DamageReportReportedBy", fields: [reportedById], references: [id])
   reviewedBy User?        @relation("DamageReportReviewedBy", fields: [reviewedById], references: [id])
   items      DamageItem[]
+  /// D3 — the public /verify code for this report's PDF, once one is issued.
+  verification ReportVerification?
 
   @@index([jobId])
   @@index([propertyId, status])

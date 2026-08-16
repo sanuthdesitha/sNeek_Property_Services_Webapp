@@ -472,6 +472,42 @@ One visit produces ONE `DamageReport` holding MANY `DamageItem`s, each with its 
 
 **Submit is resumable, not atomic.** Cases are opened one at a time after the rows commit, each guarded, and an item records its `caseId` as soon as it has one. If case 3 of 5 fails the report stays submitted, the first two keep their cases, and re-running submit fills only the gaps. Wrapping five external-effect calls in a transaction would instead roll back a report the cleaner was already told was sent. Annotated photos are flattened at submit via `lib/qa/annotation-composite.ts#ensureFlattened` (idempotent, best-effort) so cases attach the composite rather than an un-marked original — the bare overlay is marks on transparency and renders as a black tile once anything converts it to JPEG.
 
+### B11. Damage investigation — admin and client (D2, 2026-08)
+
+`GET /api/admin/damage/:reportId` and `GET /api/client/damage/:reportId` render the same report through one assembler, `lib/damage/investigation.ts`. The audience is a parameter, not a second query: two separately-shaped reads are how a field ends up visible on one screen and hidden on the other.
+
+**What the client never receives.** `estimatedCost` is nulled for CLIENT — a client seeing an internal working figure would read it as a quote — as are `CaseTransition.reason` (internal triage notes) and the reviewer's name. They are removed from the payload before it leaves the server, so a template mistake cannot leak them; `tests/lib/damage-investigation.test.ts` asserts the serialised JSON contains neither the cost nor the note text. The rendering rule and the security rule are deliberately different mechanisms.
+
+**Client access is decided in the query, not after it.** `getDamageInvestigationForClient` matches on `clientVisible: true`, a non-DRAFT status, and `property.clientId` in the `where` clause. A report failing any of those returns the same 404 as one that does not exist — a 403 would confirm the report is real, telling one client that another client's property has damage on file.
+
+**Release is two writes in one transaction.** `reviewDamageReport` (`lib/damage/review.ts`) sets `DamageReport.clientVisible` *and* flips the linked `IssueTicket.clientVisible`/`clientCanReply` together, because the client also reads damage as cases through the cases workspace. Lifting only the report would show a report whose cases stay invisible; lifting only the cases would leak damage the admin has not approved. Retraction is the same call with `release: false`, so a mistaken release can be taken back and the cases go with it. It refuses to act on a DRAFT — an unsubmitted report is the cleaner's working notes.
+
+**Status is read live, never snapshotted.** Case state, the linked maintenance status, the assigned worker and the transition timeline are all joined at read time, so the page reflects whatever CP-7's sync currently says rather than a copy taken at submit. Photos resolve to the flattened composite when one exists and the original otherwise — never the bare overlay, which is marks on transparency and renders as a black tile once anything converts it to JPEG.
+
+**Cost is admin-only in three independent places**: absent from every cleaner schema (`lib/damage/validation.ts`), nulled in the client view model, and written only by the admin-role route. Any one alone would be a single point of failure.
+
+### B12. The damage report document + verification (D3, 2026-08)
+
+`GET /api/damage/:reportId/report` renders the damage PDF (`?format=html` for a preview). It follows `lib/reports/qa-report.ts`, **not** `generator.ts`: built on demand and never persisted. The cleaning report is stored because one exists per completed job; damage is not like that — a job can produce several reports, admins edit costs afterwards, and a released report can be retracted, so a stored HTML blob would go stale on any of those. `Report.jobId` is UNIQUE anyway, so there is nowhere to put a second document per job.
+
+**The audience is derived from the session, never from a query parameter** — the same decision the QA report route made. The internal copy carries per-item repair costs; if audience were a parameter, a client could ask for it by editing the URL. A client must additionally clear the same gate as the on-screen page, and that check calls `getDamageInvestigationForClient` rather than reimplementing the rule, so the PDF can never be obtainable when the page is not. Redaction itself is not re-implemented in the template: the audience is handed to `lib/damage/investigation.ts`, the one place that decides it.
+
+**Images are presigned, not public URLs.** Playwright renders on `about:blank` with no session, so a cookie-gated or private-bucket URL arrives as a broken image. `toInvestigationViewModel` therefore takes a `resolveKeyUrl` seam (the same pattern `report-view-model.ts` uses): the in-app pages pass the default public resolver, the PDF passes a presigning map built in one pass up front.
+
+**`ReportVerification` gained a kind.** It was one-code-per-job — `jobId` UNIQUE, no discriminator — so a damage PDF could not carry its own `/verify` code at all. Now: a CLEANING row keeps `jobId` set with `damageReportId` NULL, and `@@unique([jobId, kind])` preserves the old one-per-job guarantee; a DAMAGE row leaves `jobId` NULL (Postgres treats NULLs as distinct, so a job with several damage reports gets a code for each) and is made unique by `damageReportId`. Migration `20260816010000_report_verification_kind` is backfill-free — every existing row is a cleaning verification, so the `CLEANING` default is already correct for all of them.
+
+**The public damage check says less than the cleaning one.** A code can be forwarded to anyone, so `buildDamageVerificationVm` returns only that the report exists, its suburb, date, reporter's FIRST name and the item COUNT — no descriptions, severities, causes, photos or costs. `tests/lib/report-verification.test.ts` pins the exact key set of both VMs; that assertion is what caught the new `kind` field and forced a deliberate judgement that it is safe to publish.
+
+### B13. Job-level Forms & QA centre (D4, 2026-08)
+
+One panel per job listing every document it produced — cleaning report, QA report, and each damage report — on the admin job detail (`forms` tab) and, in a reduced form, on the client job page. Damage reports were previously reachable from **nowhere** on a job: a submitted report existed only as its cases, so nothing led back to the report that grouped them.
+
+**One download dialog, not three.** `components/v2/shared/report-download-dialog.tsx` handles all three kinds, tone-coded — cleaning gold, damage danger, QA info — built on the existing `EModal` and `downloadFromApi`. This was a stated requirement and the codebase shows why: four hand-rolled `fixed inset-0` modal shells already exist (`jobs-workspace`, `quotes-pipeline`, `job-action-hub`, `reports-manager`), and damage would have been the fifth.
+
+**"Include the cleaning report" is chosen at download time**, not baked into the damage PDF, because whether the two belong together is a per-download judgement — an insurer wants both, an internal triage does not. The two arrive as separate files rather than merged: merging PDFs would add a dependency, and two named files can be forwarded selectively. They download sequentially, because concurrent renders contend for the single-flight Playwright lock anyway.
+
+The client card renders **nothing** when there are no released reports — an empty "Damage" heading on every clean would imply damage is expected — and the client list query filters on released + non-draft + own-property, so an unreleased report is absent rather than hidden.
+
 ---
 
 ## Section C — Laundry operation & the QA/accountability system

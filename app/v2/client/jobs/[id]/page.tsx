@@ -21,6 +21,7 @@ import {
 import { JobLivePanel } from "@/components/v2/client/job-live-panel";
 import { JobActionHub } from "@/components/v2/client/job-action-hub";
 import { JobProgressPanel } from "@/components/v2/client/job-progress";
+import { DamageReportsCard } from "@/components/v2/client/damage-reports-card";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { computeJobProgressPercent } from "@/lib/jobs/progress";
 import { clientRequestMeta } from "@/lib/job-tasks/client-requests";
@@ -647,6 +648,10 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
           </ECardBody>
         </ECard>
       ) : null}
+
+      {/* D4 — damage reported at this clean. Renders nothing unless an admin
+          has reviewed and released a report, so it stays absent on a normal job. */}
+      <DamageReportsCard jobId={job.id} />
 
       {/* Before/after gallery — report media on completed jobs */}
       {galleryEligible && galleryMedia.length > 0 ? (
