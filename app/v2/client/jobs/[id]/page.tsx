@@ -23,6 +23,8 @@ import { JobActionHub } from "@/components/v2/client/job-action-hub";
 import { JobProgressPanel } from "@/components/v2/client/job-progress";
 import { DamageReportsCard } from "@/components/v2/client/damage-reports-card";
 import { MediaGallery } from "@/components/shared/media-gallery";
+import { describeLaundryConfirmation } from "@/lib/laundry/media";
+import { ReportAccessCard } from "@/components/v2/client/report-access-card";
 import { computeJobProgressPercent } from "@/lib/jobs/progress";
 import { clientRequestMeta } from "@/lib/job-tasks/client-requests";
 import {
@@ -534,8 +536,13 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
                           {c.bagLocation}
                         </p>
                       ) : null}
-                      {c.notes ? (
-                        <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">{c.notes}</p>
+                      {/* `notes` is a JSON envelope written by the cleaner and
+                          driver apps. Printing it raw showed the client the
+                          event keys, S3 object keys and ISO timestamps. */}
+                      {describeLaundryConfirmation(c) ? (
+                        <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+                          {describeLaundryConfirmation(c)}
+                        </p>
                       ) : null}
                     </div>
                   </div>
@@ -620,34 +627,17 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
         </ECard>
       ) : null}
 
-      {/* Report */}
-      {showReportTab ? (
-        <ECard id="job-report">
-          <ECardHeader>
-            <ECardTitle className="flex items-center gap-2 text-[1rem]">
-              <FileText className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Cleaning report
-            </ECardTitle>
-          </ECardHeader>
-          <ECardBody className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[0.875rem] font-medium">Job report</p>
-              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                {job.report?.generatedAt
-                  ? `Generated ${format(new Date(job.report.generatedAt), "d MMM yyyy")}`
-                  : "Report available"}
-                {job.report?.sentAt ? ` · Sent ${format(new Date(job.report.sentAt), "d MMM")}` : ""}
-              </p>
-            </div>
-            {job.report?.pdfUrl ? (
-              <a href={job.report.pdfUrl} target="_blank" rel="noopener noreferrer">
-                <EButton variant="outline" size="sm">
-                  <Download className="h-3.5 w-3.5" /> Download PDF
-                </EButton>
-              </a>
-            ) : null}
-          </ECardBody>
-        </ECard>
-      ) : null}
+      {/* Report — always rendered. When it is not shared yet the client can ask
+          for it, instead of the card vanishing and implying no report exists. */}
+      <ReportAccessCard
+        jobId={job.id}
+        available={Boolean(showReportTab && job.report)}
+        subtitle={`${
+          job.report?.generatedAt
+            ? `Generated ${format(new Date(job.report.generatedAt), "d MMM yyyy")}`
+            : "Report available"
+        }${job.report?.sentAt ? ` · Sent ${format(new Date(job.report.sentAt), "d MMM")}` : ""}`}
+      />
 
       {/* D4 — damage reported at this clean. Renders nothing unless an admin
           has reviewed and released a report, so it stays absent on a normal job. */}

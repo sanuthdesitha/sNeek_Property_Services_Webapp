@@ -11,6 +11,8 @@ import { isClientModuleEnabled } from "@/lib/portal-access";
 
 const TZ = "Australia/Sydney";
 const MAX_BOOKINGS_PER_DAY = 8;
+/** How far ahead a client may book. Reported to the UI as windowStart/windowEnd. */
+const BOOKING_WINDOW_DAYS = 30;
 
 const schema = z.object({
   propertyId: z.string().trim().min(1),
@@ -72,19 +74,35 @@ export async function GET(req: NextRequest) {
       countByDay.set(key, (countByDay.get(key) ?? 0) + 1);
     }
 
+    const startLocal = new Date(
+      nowLocal.getFullYear(),
+      nowLocal.getMonth(),
+      nowLocal.getDate(),
+      0,
+      0,
+      0,
+      0
+    );
+
     const available: string[] = [];
-    for (let offset = 0; offset < 30; offset += 1) {
-      const candidateLocal = addDays(
-        new Date(nowLocal.getFullYear(), nowLocal.getMonth(), nowLocal.getDate(), 0, 0, 0, 0),
-        offset
-      );
+    for (let offset = 0; offset < BOOKING_WINDOW_DAYS; offset += 1) {
+      const candidateLocal = addDays(startLocal, offset);
       const key = format(candidateLocal, "yyyy-MM-dd");
       if ((countByDay.get(key) ?? 0) < MAX_BOOKINGS_PER_DAY) {
         available.push(key);
       }
     }
 
-    return NextResponse.json({ available });
+    // The window bounds travel with the list. `available` only says which days
+    // ARE bookable — an unavailable day and a day outside the booking window
+    // are both simply absent, which a flat list of buttons never had to tell
+    // apart but a calendar does: without these, every day in the surrounding
+    // month renders disabled with no way to explain why.
+    return NextResponse.json({
+      available,
+      windowStart: format(startLocal, "yyyy-MM-dd"),
+      windowEnd: format(addDays(startLocal, BOOKING_WINDOW_DAYS - 1), "yyyy-MM-dd"),
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message ?? "Could not load booking availability." },

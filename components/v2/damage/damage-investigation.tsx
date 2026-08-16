@@ -22,6 +22,7 @@ import * as React from "react";
 import { AlertTriangle, Camera, Loader2, ShieldCheck, Undo2, Wrench } from "lucide-react";
 import { EAlert, EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
+import { MediaGallery } from "@/components/shared/media-gallery";
 
 type Audience = "ADMIN" | "CLIENT";
 

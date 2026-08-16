@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { Check, Loader2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
 import type { MarketedJobTypeValue } from "@/lib/marketing/job-types";
 import {
@@ -42,6 +42,154 @@ const STEPS = [
   { n: 3, label: "Confirm" },
 ] as const;
 
+/**
+ * Month calendar for picking a booking date.
+ *
+ * This replaced a flat grid of up to thirty buttons — one per bookable day —
+ * which gave no sense of week, weekend or month, and grew unusable the moment
+ * availability was wide. A calendar answers "which Saturday?" in one glance.
+ *
+ * Three states a day can be in, and they are NOT the same thing:
+ *   - available      → in the window and not fully booked
+ *   - fully booked   → in the window, absent from `availableDates`
+ *   - out of window  → outside windowStart..windowEnd (we only take bookings
+ *                      thirty days ahead)
+ * The API returns only the available days, so without the window bounds every
+ * surrounding day would render identically disabled with nothing to explain it.
+ *
+ * Dates are `yyyy-MM-dd` strings compared as strings — lexicographic order is
+ * chronological for that format, which sidesteps timezone drift entirely. The
+ * one place a Date is constructed uses a `T00:00:00` suffix so it is parsed as
+ * local rather than UTC.
+ */
+function BookingCalendar({
+  availableDates,
+  windowStart,
+  windowEnd,
+  selectedDate,
+  onSelect,
+}: {
+  availableDates: string[];
+  windowStart: string;
+  windowEnd: string;
+  selectedDate: string;
+  onSelect: (date: string) => void;
+}) {
+  const availableSet = useMemo(() => new Set(availableDates), [availableDates]);
+
+  // Start on the month of the first bookable day, so the client opens straight
+  // onto dates they can actually pick.
+  const [month, setMonth] = useState(() => {
+    const anchor = availableDates[0] ?? windowStart;
+    const parsed = anchor ? new Date(`${anchor}T00:00:00`) : new Date();
+    return new Date(parsed.getFullYear(), parsed.getMonth(), 1);
+  });
+
+  const grid = useMemo(() => {
+    const first = new Date(month.getFullYear(), month.getMonth(), 1);
+    // Monday-first, matching the rest of the portal's calendars.
+    const lead = (first.getDay() + 6) % 7;
+    const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+    const cells: Array<{ key: string; day: number } | null> = [];
+    for (let i = 0; i < lead; i += 1) cells.push(null);
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const key = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      cells.push({ key, day });
+    }
+    return cells;
+  }, [month]);
+
+  const monthLabel = format(month, "MMMM yyyy");
+  // Only step within months that can contain bookable days.
+  const canGoBack = windowStart ? `${format(month, "yyyy-MM")}-01` > windowStart.slice(0, 8) + "01" : true;
+  const canGoForward = windowEnd
+    ? `${format(month, "yyyy-MM")}-01` < windowEnd.slice(0, 8) + "01"
+    : true;
+
+  function step(delta: number) {
+    setMonth((m) => new Date(m.getFullYear(), m.getMonth() + delta, 1));
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <EButton
+          variant="ghost"
+          size="sm"
+          onClick={() => step(-1)}
+          disabled={!canGoBack}
+          aria-label="Previous month"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </EButton>
+        <p className="text-[0.9375rem] font-[600]">{monthLabel}</p>
+        <EButton
+          variant="ghost"
+          size="sm"
+          onClick={() => step(1)}
+          disabled={!canGoForward}
+          aria-label="Next month"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </EButton>
+      </div>
+
+      <div className="grid grid-cols-7 gap-1 text-center text-[0.6875rem] uppercase tracking-[0.14em] text-[hsl(var(--e-text-faint))]">
+        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+          <span key={d}>{d}</span>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1">
+        {grid.map((cell, index) => {
+          if (!cell) return <span key={`pad-${index}`} />;
+          const outOfWindow =
+            (windowStart && cell.key < windowStart) || (windowEnd && cell.key > windowEnd);
+          const available = availableSet.has(cell.key);
+          const selected = selectedDate === cell.key;
+
+          return (
+            <button
+              key={cell.key}
+              type="button"
+              disabled={!available}
+              onClick={() => onSelect(cell.key)}
+              title={
+                available
+                  ? "Available"
+                  : outOfWindow
+                    ? "Outside the booking window"
+                    : "Fully booked"
+              }
+              className={cn(
+                "aspect-square rounded-[var(--e-radius-sm)] border text-[0.875rem] transition-colors duration-[160ms]",
+                selected
+                  ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] font-[600] shadow-[var(--e-elevation-1)]"
+                  : available
+                    ? "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] hover:border-[hsl(var(--e-border-strong))]"
+                    : // Fully booked reads as struck through; outside the window
+                      // simply fades, because there is nothing to reconsider.
+                      cn(
+                        "cursor-not-allowed border-transparent text-[hsl(var(--e-text-faint))]",
+                        outOfWindow ? "opacity-40" : "line-through"
+                      )
+              )}
+            >
+              {cell.day}
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+        {selectedDate
+          ? `Selected ${formatSlot(selectedDate)}`
+          : "Pick a highlighted day. Struck-through days are fully booked."}
+      </p>
+    </div>
+  );
+}
+
 function formatSlot(date: string) {
   const parsed = new Date(`${date}T00:00:00`);
   return Number.isNaN(parsed.getTime()) ? date : format(parsed, "EEE d MMM");
@@ -55,6 +203,11 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
   );
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState("");
+  // The bookable window, so the calendar can tell "fully booked" apart from
+  // "outside the 30 days we take bookings for" — both are simply absent from
+  // `availableDates`.
+  const [windowStart, setWindowStart] = useState("");
+  const [windowEnd, setWindowEnd] = useState("");
   const [notes, setNotes] = useState("");
   const [loadingDates, setLoadingDates] = useState(false);
   const [datesError, setDatesError] = useState<string | null>(null);
@@ -87,6 +240,8 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
         if (!ok) throw new Error(body?.error ?? "Could not load booking dates.");
         const nextDates = Array.isArray(body?.available) ? body.available : [];
         setAvailableDates(nextDates);
+        setWindowStart(typeof body?.windowStart === "string" ? body.windowStart : "");
+        setWindowEnd(typeof body?.windowEnd === "string" ? body.windowEnd : "");
         setSelectedDate((current) => (nextDates.includes(current) ? current : nextDates[0] ?? ""));
       })
       .catch((error: any) => {
@@ -295,29 +450,13 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
                 sheet changes.
               </EAlert>
             ) : (
-              <div className="grid gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-                {availableDates.map((date) => {
-                  const active = selectedDate === date;
-                  return (
-                    <button
-                      key={date}
-                      type="button"
-                      onClick={() => setSelectedDate(date)}
-                      className={cn(
-                        "rounded-[var(--e-radius)] border px-4 py-3 text-left transition-colors duration-[160ms]",
-                        active
-                          ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] shadow-[var(--e-elevation-1)]"
-                          : "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] hover:border-[hsl(var(--e-border-strong))]"
-                      )}
-                    >
-                      <p className="e-numeral text-[1rem]">{formatSlot(date)}</p>
-                      <p className="mt-0.5 text-[0.6875rem] uppercase tracking-[0.14em] text-[hsl(var(--e-text-faint))]">
-                        {active ? "Selected" : "Available"}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
+              <BookingCalendar
+                availableDates={availableDates}
+                windowStart={windowStart}
+                windowEnd={windowEnd}
+                selectedDate={selectedDate}
+                onSelect={setSelectedDate}
+              />
             )}
             {datesError ? <EInlineNotice tone="danger">{datesError}</EInlineNotice> : null}
 

@@ -241,6 +241,17 @@ async function openCasesForReport(input: {
           damageItemId: item.id,
           tags: ["damage", "damage-report"],
         },
+        // Names the reporter explicitly. createCase derives CP-7's required
+        // `reportedByUserId` from `comment.authorUserId ?? attachments[0]
+        // .uploadedByUserId ?? ... ?? ""`, and an empty string violates a
+        // NOT NULL foreign key — which CP-7 catches and only logs. Relying on
+        // the attachment fallback meant a damage item with no photo produced
+        // NO maintenance item at all, silently, and admin never saw the repair.
+        comment: {
+          authorUserId: input.userId,
+          body: description || title || "Reported damage",
+          isInternal: false,
+        },
         attachments: item.photos.map((photo) => ({
           uploadedByUserId: input.userId,
           // Prefer the flattened composite so the case carries the annotations.

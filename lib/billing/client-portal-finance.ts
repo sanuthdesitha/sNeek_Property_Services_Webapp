@@ -31,7 +31,16 @@ export async function getClientFinanceOverview(clientId: string) {
       select: { jobId: true },
     }),
     db.clientInvoice.findMany({
-      where: { clientId },
+      // A DRAFT invoice is unfinished internal work — figures still being
+      // adjusted, lines still being added — and DRAFT is the model DEFAULT, so
+      // every invoice passed through the client's view the moment it was
+      // created. VOID is excluded for the same reason it already is on the
+      // lines query above: a cancelled invoice is not something the client
+      // owes. Both were also being summed into "total billed".
+      where: {
+        clientId,
+        status: { notIn: [ClientInvoiceStatus.DRAFT, ClientInvoiceStatus.VOID] },
+      },
       select: {
         id: true,
         invoiceNumber: true,

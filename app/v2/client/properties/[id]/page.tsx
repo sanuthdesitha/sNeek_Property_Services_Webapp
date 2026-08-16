@@ -107,6 +107,38 @@ function groupTimelineByJob(items: TimelineMedia[]) {
   );
 }
 
+/**
+ * How many rows each section on this page shows.
+ *
+ * The property page had become a dumping ground: every laundry task, every
+ * upcoming job, every report and twenty activity entries, all expanded, so the
+ * thing a client actually came for was several screens down. Each section is
+ * now a recent snapshot with a link to the full page for that topic, which is
+ * where the filtering and paging already live.
+ */
+const BRIEF_ROWS = 3;
+
+/**
+ * Footer link out of a summarised section.
+ *
+ * Renders nothing when the section already showed everything — a "see all 2 of
+ * 2" link is noise. When there IS more, it says how much, so the client knows
+ * the list was trimmed rather than assuming that is all there is.
+ */
+function SeeAll({ href, total, label }: { href: string; total: number; label: string }) {
+  if (total <= BRIEF_ROWS) return null;
+  return (
+    <div className="pt-3">
+      <Link
+        href={href}
+        className="text-[0.8125rem] font-[600] text-[hsl(var(--e-gold-ink))] hover:underline"
+      >
+        See all {total} {label} →
+      </Link>
+    </div>
+  );
+}
+
 export default async function EstateClientPropertyDetailPage({
   params,
 }: {
@@ -139,6 +171,7 @@ export default async function EstateClientPropertyDetailPage({
   // here. A property with no jobs yet still shows everything — otherwise a
   // newly onboarded home would show nothing at all, which is worse.
   const activeJobTypes = new Set(jobs.map((job) => job.jobType));
+
   const visibleChecklistTemplates =
     activeJobTypes.size > 0
       ? checklistTemplates.filter((template) => activeJobTypes.has(template.jobType))
@@ -319,7 +352,7 @@ export default async function EstateClientPropertyDetailPage({
                     No laundry updates for this property.
                   </p>
                 ) : (
-                  laundryTasks.map((task) => (
+                  laundryTasks.slice(0, BRIEF_ROWS).map((task) => (
                     <div
                       key={task.id}
                       className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-4"
@@ -372,6 +405,7 @@ export default async function EstateClientPropertyDetailPage({
                     </div>
                   ))
                 )}
+                <SeeAll href="/v2/client/laundry" total={laundryTasks.length} label="laundry" />
               </ECardBody>
             </ECard>
           ) : null}
@@ -392,7 +426,7 @@ export default async function EstateClientPropertyDetailPage({
                   No active services scheduled right now.
                 </p>
               ) : (
-                jobs.map((job) => (
+                jobs.slice(0, BRIEF_ROWS).map((job) => (
                   <div
                     key={job.id}
                     className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-4"
@@ -423,6 +457,7 @@ export default async function EstateClientPropertyDetailPage({
                   </div>
                 ))
               )}
+              <SeeAll href="/v2/client/jobs" total={jobs.length} label="jobs" />
             </ECardBody>
           </ECard>
 
@@ -441,7 +476,7 @@ export default async function EstateClientPropertyDetailPage({
                     No reports available yet.
                   </p>
                 ) : (
-                  reports.map((report) => (
+                  reports.slice(0, BRIEF_ROWS).map((report) => (
                     <div
                       key={report.id}
                       className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-4"
@@ -461,6 +496,7 @@ export default async function EstateClientPropertyDetailPage({
                     </div>
                   ))
                 )}
+                <SeeAll href="/v2/client/reports" total={reports.length} label="reports" />
               </ECardBody>
             </ECard>
           ) : null}
@@ -479,7 +515,7 @@ export default async function EstateClientPropertyDetailPage({
                   No recent activity for this property.
                 </p>
               ) : (
-                activity.slice(0, 20).map((item, index) => (
+                activity.slice(0, BRIEF_ROWS).map((item, index) => (
                   <div key={`${item.type}-${index}-${item.at.toISOString()}`}>
                     {index > 0 ? <EThread className="my-1" /> : null}
                     <div className="py-1.5">
@@ -520,7 +556,7 @@ export default async function EstateClientPropertyDetailPage({
                 // One card per VISIT, not per photo. Rendering each image as
                 // its own card repeated the job header down the page and broke
                 // a single clean's evidence into unrelated-looking fragments.
-                groupTimelineByJob(conditionTimeline).map((group) => (
+                groupTimelineByJob(conditionTimeline).slice(0, 2).map((group) => (
                   <div
                     key={group.jobId}
                     className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-4"

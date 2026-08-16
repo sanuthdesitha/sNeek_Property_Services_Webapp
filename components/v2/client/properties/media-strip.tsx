@@ -1,10 +1,24 @@
+"use client";
+
 /**
- * Estate media strip — hairline thumbnail grid that opens each asset in a new
- * tab. Server-safe (no client hooks); replaces the v1 MediaGallery for the
- * Estate client portal.
+ * Estate media strip — thumbnail grid that opens each asset in an IN-PORTAL
+ * lightbox with prev/next, the same viewer the staff surfaces use.
+ *
+ * It used to render `<a target="_blank">` per thumbnail, which threw the client
+ * out of the portal into a bare S3 URL: no label, no next image, no way back
+ * except the browser's back button. That was the documented intent of the
+ * original component ("opens each asset in a new tab") and it was simply the
+ * wrong call — admin has had a real lightbox all along.
+ *
+ * It is now a client component. It was previously "server-safe (no client
+ * hooks)"; the callers are server pages, which may render a client component
+ * freely, and every prop here is serialisable.
+ *
+ * The grid classes are kept as they were so the property pages that size this
+ * strip are unaffected.
  */
-import { FileText, PlayCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
+
+import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
 
 export type EMediaItem = {
   id: string;
@@ -22,45 +36,18 @@ export function EMediaStrip({
   className?: string;
   emptyText?: string;
 }) {
-  if (items.length === 0) {
-    return emptyText ? (
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">{emptyText}</p>
-    ) : null;
-  }
+  const galleryItems: MediaGalleryItem[] = items.map((item) => ({
+    id: item.id,
+    url: item.url,
+    label: item.label ?? undefined,
+    mediaType: item.mediaType ?? undefined,
+  }));
+
   return (
-    <div className={cn("grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6", className)}>
-      {items.map((item) => {
-        const type = (item.mediaType ?? "PHOTO").toUpperCase();
-        const isVideo = type.includes("VIDEO");
-        const isPdf = type.includes("PDF") || item.url.toLowerCase().endsWith(".pdf");
-        return (
-          <a
-            key={item.id}
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={item.label ?? undefined}
-            className="group relative block aspect-square overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted))]"
-          >
-            {isVideo || isPdf ? (
-              <span className="flex h-full w-full flex-col items-center justify-center gap-1 text-[hsl(var(--e-muted-foreground))]">
-                {isVideo ? <PlayCircle className="h-6 w-6" /> : <FileText className="h-6 w-6" />}
-                <span className="text-[0.625rem] font-medium uppercase tracking-[0.14em]">
-                  {isVideo ? "Video" : "PDF"}
-                </span>
-              </span>
-            ) : (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={item.url}
-                alt={item.label ?? "Media"}
-                className="h-full w-full object-cover transition-transform duration-[240ms] group-hover:scale-[1.04]"
-                loading="lazy"
-              />
-            )}
-          </a>
-        );
-      })}
-    </div>
+    <MediaGallery
+      items={galleryItems}
+      emptyText={emptyText ?? ""}
+      className={className ?? "grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6"}
+    />
   );
 }

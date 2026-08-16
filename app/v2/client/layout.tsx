@@ -17,7 +17,6 @@ import {
   Home,
   MessageSquare,
   PackageSearch,
-  Scale,
   Settings,
   Shirt,
   ShoppingCart,
@@ -61,8 +60,11 @@ function buildNav(pendingApprovals: number): NavItem[] {
     { href: "/v2/client/shopping", label: "Shopping", icon: ShoppingCart, group: "Your homes" },
     { href: "/v2/client/stock-runs", label: "Stock runs", icon: PackageSearch, group: "Your homes" },
 
-    { href: "/v2/client/cases", label: "Cases", icon: ClipboardList, group: "Support" },
-    { href: "/v2/client/disputes", label: "Disputes", icon: Scale, group: "Support" },
+    // Disputes are handled inside the cases workspace (its own heading reads
+    // "Cases & disputes"), and /v2/client/disputes is a bare redirect to this
+    // very page — so the second nav item cost a round trip to land exactly
+    // where the first one already goes. The redirect route stays for bookmarks.
+    { href: "/v2/client/cases", label: "Cases & disputes", icon: ClipboardList, group: "Support" },
     { href: "/v2/client/maintenance", label: "Maintenance", icon: Wrench, group: "Support" },
     { href: "/v2/client/messages", label: "Messages", icon: MessageSquare, group: "Support" },
 

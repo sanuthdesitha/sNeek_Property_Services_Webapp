@@ -747,6 +747,15 @@ export function ClientJobsBoard({
     [filtered, todayKey]
   );
 
+  // When the only matches are in the past, open that section rather than
+  // leaving the client staring at an empty Upcoming list behind a collapsed
+  // "Show (N)". Only forces it open — a client who then collapses it manually
+  // is not fought with, because this runs on the emptiness of Upcoming, not on
+  // every render.
+  useEffect(() => {
+    if (upcoming.length === 0 && past.length > 0) setShowPast(true);
+  }, [upcoming.length, past.length]);
+
   return (
     <div className="space-y-8">
       {/* Search + status filter + view toggle */}
@@ -1007,7 +1016,14 @@ export function ClientJobsBoard({
           <EEmptyState
             eyebrow="All quiet"
             title="No upcoming services match"
-            description="Adjust the filters, or book a clean to see it appear here."
+            description={
+              // Filtering to a past date emptied Upcoming while the matches sat
+              // inside the collapsed Past section, so the board looked broken.
+              // Say where they went; the section below also auto-opens.
+              past.length > 0
+                ? `No upcoming services match, but ${past.length} past ${past.length === 1 ? "service does" : "services do"} — see Past services below.`
+                : "Adjust the filters, or book a clean to see it appear here."
+            }
           />
         ) : (
           <div className="space-y-3">
