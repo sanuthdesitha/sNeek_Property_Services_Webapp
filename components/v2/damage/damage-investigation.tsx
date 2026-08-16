@@ -19,9 +19,9 @@
  */
 
 import * as React from "react";
-import { AlertTriangle, Camera, Loader2, ShieldCheck, Wrench } from "lucide-react";
+import { AlertTriangle, Camera, Loader2, ShieldCheck, Undo2, Wrench } from "lucide-react";
 import { EAlert, EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
-import { EField, EInput } from "@/components/v2/cleaner/fields";
+import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 
 type Audience = "ADMIN" | "CLIENT";
 
@@ -64,6 +64,14 @@ type Item = {
   transitions: Transition[];
   maintenance: Maintenance[];
 };
+type VoidRecord = {
+  id: string;
+  mode: string;
+  reason: string;
+  voidedByName: string | null;
+  voidedAt: string;
+};
+
 type Report = {
   id: string;
   status: string;
@@ -72,11 +80,27 @@ type Report = {
   reviewedAt: string | null;
   reviewedByName: string | null;
   reportedByName: string | null;
+  acknowledgedAt: string | null;
+  acknowledgedName: string | null;
+  voids: VoidRecord[];
   jobId: string;
   propertyName: string | null;
   highestSeverity: string | null;
   items: Item[];
 };
+
+const VOID_MODES = [
+  {
+    value: "KEEP_AND_REOPEN",
+    label: "Reopen for editing",
+    hint: "Keeps everything. The cleaner corrects what is already there.",
+  },
+  {
+    value: "CLEAR_AND_REDO",
+    label: "Clear and start again",
+    hint: "Archives the current answers and gives the cleaner a blank form.",
+  },
+] as const;
 
 const SEVERITY_TONE: Record<string, "danger" | "warning" | "info" | "neutral"> = {
   SEVERE: "danger",
@@ -108,6 +132,147 @@ function formatDate(value: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * Send the report back to the cleaner.
+ *
+ * The reason is mandatory and shown to them verbatim — a void with no usable
+ * reason just produces the same report again. The mode is an explicit choice
+ * rather than a default because the two are not interchangeable: one preserves
+ * the evidence for editing, the other archives it and starts over.
+ */
+function VoidPanel({
+  busy,
+  onVoid,
+}: {
+  busy: boolean;
+  onVoid: (mode: string, reason: string) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [mode, setMode] = React.useState<string>("KEEP_AND_REOPEN");
+  const [reason, setReason] = React.useState("");
+
+  const tooShort = reason.trim().length < 10;
+
+  if (!open) {
+    return (
+      <ECard>
+        <ECardBody className="flex flex-wrap items-center gap-2 pt-6">
+          <Undo2 className="h-4 w-4 text-[hsl(var(--e-muted-foreground))]" />
+          <span className="text-[0.8125rem]">
+            Something wrong with this report? Send it back to the cleaner.
+          </span>
+          <EButton size="sm" variant="outline" className="ml-auto" onClick={() => setOpen(true)}>
+            Void submission
+          </EButton>
+        </ECardBody>
+      </ECard>
+    );
+  }
+
+  return (
+    <ECard>
+      <ECardBody className="space-y-3 pt-6">
+        <p className="text-[0.9375rem] font-[600]">Void this submission</p>
+        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+          Nothing is deleted. The report is archived, un-released from the client, and returned to
+          the cleaner with your reason.
+        </p>
+
+        <EField label="What should happen to the answers">
+          <ESelect value={mode} onChange={(e) => setMode(e.target.value)}>
+            {VOID_MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label} — {m.hint}
+              </option>
+            ))}
+          </ESelect>
+        </EField>
+
+        <EField label="Reason (the cleaner sees this)">
+          <ETextarea
+            rows={3}
+            value={reason}
+            placeholder="e.g. The close-up photos are too blurry to show the crack — please retake them."
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </EField>
+
+        <div className="flex justify-end gap-2">
+          <EButton variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={busy}>
+            Cancel
+          </EButton>
+          <EButton
+            variant="danger"
+            size="sm"
+            disabled={busy || tooShort}
+            onClick={() => onVoid(mode, reason.trim())}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Send back to cleaner
+          </EButton>
+        </div>
+        {tooShort ? (
+          <p className="text-right text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            Give at least a sentence of reason.
+          </p>
+        ) : null}
+      </ECardBody>
+    </ECard>
+  );
+}
+
+/** The client's in-portal sign-off — the half of verification the code cannot do. */
+function AcknowledgePanel({ reportId, onDone }: { reportId: string; onDone: () => void }) {
+  const [name, setName] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/client/damage/${reportId}/acknowledge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signedName: name.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not record your acknowledgement.");
+      onDone();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ECard>
+      <ECardBody className="space-y-3 pt-6">
+        <p className="text-[0.9375rem] font-[600]">Acknowledge this report</p>
+        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+          Confirming you have read this record. The code on the PDF proves the document is genuine;
+          this records that you have seen it.
+        </p>
+        <EField label="Your name">
+          <EInput
+            value={name}
+            placeholder="Full name of the person signing off"
+            onChange={(e) => setName(e.target.value)}
+          />
+        </EField>
+        {error ? <EAlert tone="danger">{error}</EAlert> : null}
+        <div className="flex justify-end">
+          <EButton size="sm" disabled={busy || name.trim().length < 2} onClick={submit}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Acknowledge
+          </EButton>
+        </div>
+      </ECardBody>
+    </ECard>
+  );
 }
 
 export function DamageInvestigation({
@@ -229,10 +394,42 @@ export function DamageInvestigation({
               ) : null}
             </div>
           ) : null}
+
+          {/* The client's sign-off, shown to both sides. Pairs with the /verify
+              code on the PDF: the code proves the document, this proves they
+              accepted it. */}
+          {report.acknowledgedAt ? (
+            <div className="flex items-center gap-2 border-t border-[hsl(var(--e-border))] pt-3 text-[0.8125rem]">
+              <ShieldCheck className="h-4 w-4 text-[hsl(var(--e-success))]" />
+              Acknowledged by {report.acknowledgedName ?? "the client"} on{" "}
+              {formatDate(report.acknowledgedAt)}
+            </div>
+          ) : null}
+
+          {isAdmin && report.voids.length > 0 ? (
+            <div className="space-y-1 border-t border-[hsl(var(--e-border))] pt-3">
+              <p className="text-[0.75rem] font-[600]">Sent back {report.voids.length}×</p>
+              {report.voids.map((v) => (
+                <p key={v.id} className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  {v.mode === "CLEAR_AND_REDO" ? "Cleared and redone" : "Reopened for editing"} ·{" "}
+                  {formatDate(v.voidedAt)}
+                  {v.voidedByName ? ` · ${v.voidedByName}` : ""} — {v.reason}
+                </p>
+              ))}
+            </div>
+          ) : null}
         </ECardBody>
       </ECard>
 
       {error ? <EAlert tone="danger">{error}</EAlert> : null}
+
+      {isAdmin && report.status !== "DRAFT" ? (
+        <VoidPanel busy={busy} onVoid={(mode, reason) => patch({ action: "VOID", mode, reason })} />
+      ) : null}
+
+      {!isAdmin && !report.acknowledgedAt ? (
+        <AcknowledgePanel reportId={report.id} onDone={load} />
+      ) : null}
 
       {report.items.map((item, index) => (
         <ECard key={item.id}>

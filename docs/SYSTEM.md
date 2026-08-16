@@ -508,6 +508,22 @@ One panel per job listing every document it produced — cleaning report, QA rep
 
 The client card renders **nothing** when there are no released reports — an empty "Damage" heading on every clean would imply damage is expected — and the client list query filters on released + non-draft + own-property, so an unreleased report is absent rather than hidden.
 
+### B14. Voiding a damage submission, and the client's sign-off (D4, 2026-08)
+
+**Reports are never hard-deleted.** An admin VOIDs a submission, and every void appends a `DamageReportVoid` row — a list rather than a field, because a report can be voided, redone and voided again, and each is an audit event carrying who, when, why and which mode.
+
+Two modes, chosen at void time because the right answer depends on why it is being sent back. **KEEP_AND_REOPEN** leaves items and photos untouched and undoes the submission, so the cleaner corrects what is already there. **CLEAR_AND_REDO** archives the items into `DamageReportVoid.archivedItems` as JSON *and then* clears them, so the cleaner starts from a blank form — nothing is destroyed, and the S3 objects behind the photos are never touched.
+
+**The reason is mandatory (10 characters minimum) and shown to the cleaner verbatim**, with a notification. Voiding somebody's documented work without saying why is how the same mistake gets made twice.
+
+**A void un-releases the report and its cases together**, for the same reason release lifts them together, and posts an internal `CaseComment` on every linked case recording the void and its reason. That comment is the stale flag. It is deliberately *not* a case status change: the repair may genuinely still be needed, and closing the case would tell CP-7 to resolve a maintenance item nobody has fixed. A DRAFT cannot be voided — there is no submission to undo, and voiding one would only destroy in-progress work.
+
+**KEEP_AND_REOPEN forced a fix in the draft writer.** `saveDamageDraft` replaces items wholesale, which silently dropped `caseId`; a reopened report would then have resubmitted into a *second* case per damage and CP-7 would have raised duplicate repairs for one fault. The form echoes each server item id back as `clientId`, and the save now carries the existing `caseId` across on that match.
+
+**Client verification is two things, and neither substitutes for the other.** The public `/verify` code proves the document is genuine to anyone holding it — including an insurer with no portal login — while `DamageReport.acknowledgedAt`/`acknowledgedById`/`acknowledgedName` records that the client themselves read and accepted it. Sign-off is once: a repeat POST returns the existing record rather than restamping it, so a double-tap is not a failure, and "when did the client accept this" has one answer. The eligibility gate is the same query the read path uses, so a client can never sign something they were never shown. Voiding nulls the acknowledgement — a signature belongs to the report the client actually read, not to whatever replaces it.
+
+**Void history is admin-only** (`tests/lib/damage-investigation.test.ts` asserts the client payload contains neither the reasons nor the mode): "we sent this back twice" reads as doubt about the damage rather than about the paperwork. The client's own signature is shown to both sides.
+
 ---
 
 ## Section C — Laundry operation & the QA/accountability system

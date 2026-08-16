@@ -72,6 +72,14 @@ export interface DamageInvestigationItem {
   maintenance: DamageInvestigationMaintenance[];
 }
 
+export interface DamageInvestigationVoid {
+  id: string;
+  mode: string;
+  reason: string;
+  voidedByName: string | null;
+  voidedAt: Date;
+}
+
 export interface DamageInvestigation {
   id: string;
   status: DamageReportStatus;
@@ -79,6 +87,15 @@ export interface DamageInvestigation {
   clientVisible: boolean;
   reviewedAt: Date | null;
   reviewedByName: string | null;
+  /** The client's sign-off. Shown to both — it is the client's own signature. */
+  acknowledgedAt: Date | null;
+  acknowledgedName: string | null;
+  /**
+   * Void history. ADMIN only: the reasons are written for the cleaner and the
+   * internal team, and a client seeing "we sent this back twice" would read it
+   * as doubt about the damage rather than about the paperwork.
+   */
+  voids: DamageInvestigationVoid[];
   reportedByName: string | null;
   jobId: string;
   propertyId: string;
@@ -92,6 +109,10 @@ const INVESTIGATION_INCLUDE = {
   reportedBy: { select: { name: true, email: true } },
   reviewedBy: { select: { name: true, email: true } },
   property: { select: { id: true, name: true } },
+  voids: {
+    orderBy: { voidedAt: "desc" },
+    include: { voidedBy: { select: { name: true, email: true } } },
+  },
   items: {
     orderBy: { createdAt: "asc" },
     include: {
@@ -184,6 +205,17 @@ export function toInvestigationViewModel(
     clientVisible: row.clientVisible,
     reviewedAt: row.reviewedAt ?? null,
     reviewedByName: isAdmin ? personName(row.reviewedBy) : null,
+    acknowledgedAt: row.acknowledgedAt ?? null,
+    acknowledgedName: row.acknowledgedName ?? null,
+    voids: isAdmin
+      ? (row.voids ?? []).map((v: any) => ({
+          id: v.id,
+          mode: v.mode,
+          reason: v.reason,
+          voidedByName: personName(v.voidedBy),
+          voidedAt: v.voidedAt,
+        }))
+      : [],
     reportedByName: personName(row.reportedBy),
     jobId: row.jobId,
     propertyId: row.propertyId,
