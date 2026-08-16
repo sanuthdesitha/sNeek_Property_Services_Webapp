@@ -1,7 +1,7 @@
 import { JobStatus, JobType, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings, type ClientPortalVisibility } from "@/lib/settings";
-import { getClientPortalContext } from "@/lib/client/portal";
+import { resolvePortalScopeForUser } from "@/lib/auth/client-portal";
 import { resolveJobFormTemplate } from "@/lib/forms/resolve-job-template";
 
 const ACTIVE_JOB_STATUSES: JobStatus[] = [
@@ -96,17 +96,40 @@ async function resolvePropertyChecklistTemplates(propertyId: string) {
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
 }
 
-async function getClientIdForUser(userId: string) {
-  const portal = await getClientPortalContext(userId);
-  return portal.clientId;
+/**
+ * Which client this user reads, and which of that client's properties.
+ *
+ * Delegates to the portal chokepoint so a VA resolves through their team rather
+ * than through `user.clientId` (which a VA does not have). The property scope
+ * comes back WITH the client id on purpose: every query below filters on both,
+ * so it is not possible to use one and forget the other and hand a VA their
+ * client's whole portfolio.
+ *
+ * `propertyIds: null` means unrestricted — always true for a CLIENT.
+ */
+async function getPortalScope(userId: string) {
+  return resolvePortalScopeForUser(userId);
+}
+
+/** The property-id filter for a scope, or {} when unrestricted. */
+function scopedPropertyFilter(scope: { propertyIds: string[] | null }) {
+  return scope.propertyIds ? { id: { in: scope.propertyIds } } : {};
+}
+
+/** The same restriction expressed against a nested `property` relation. */
+function scopedNestedPropertyFilter(scope: { clientId: string; propertyIds: string[] | null }) {
+  return scope.propertyIds
+    ? { clientId: scope.clientId, id: { in: scope.propertyIds } }
+    : { clientId: scope.clientId };
 }
 
 export async function listClientPropertiesForUser(userId: string) {
-  const clientId = await getClientIdForUser(userId);
-  if (!clientId) return [];
+  const scope = await getPortalScope(userId);
+  if (!scope) return [];
+  const clientId = scope.clientId;
 
   return db.property.findMany({
-    where: { clientId, isActive: true },
+    where: { clientId, isActive: true, ...scopedPropertyFilter(scope) },
     select: {
       id: true,
       name: true,
@@ -134,11 +157,15 @@ export async function getClientPropertyDetailForUser(
   propertyId: string,
   visibility: ClientPortalVisibility
 ) {
-  const clientId = await getClientIdForUser(userId);
-  if (!clientId) return null;
+  const scope = await getPortalScope(userId);
+  if (!scope) return null;
+  const clientId = scope.clientId;
 
   const property = await db.property.findFirst({
-    where: { id: propertyId, clientId, isActive: true },
+    // The id filter is ANDed with the scope, so a scoped VA asking for a
+    // property outside their grant gets null — the same answer as a property
+    // that does not exist.
+    where: { id: propertyId, clientId, isActive: true, ...scopedPropertyFilter(scope) },
     select: {
       id: true,
       name: true,
@@ -394,14 +421,35 @@ export async function getClientPropertyDetailForUser(
   };
 }
 
+/**
+ * How far back the client jobs board reaches, and how many rows it will carry.
+ *
+ * This used to be a bare `take: 100` ordered `scheduledDate DESC`. Descending
+ * means furthest-FUTURE first, so a client with recurring bookings filled all
+ * 100 slots with scheduled work and their past jobs never reached the browser
+ * at all — the board's "Past services" section then had nothing to show and
+ * disappeared, with no indication anything had been dropped. Filtering to a
+ * past date then looked like the filters were broken.
+ *
+ * Bounding the window by DATE rather than by row count is what fixes it: every
+ * job in the last year is included regardless of how much future work exists.
+ * The cap is a safety limit, not the selection rule.
+ */
+const CLIENT_JOBS_HISTORY_DAYS = 365;
+const CLIENT_JOBS_MAX = 500;
+
 export async function listClientJobsForUser(userId: string) {
-  const clientId = await getClientIdForUser(userId);
-  if (!clientId) return [];
+  const scope = await getPortalScope(userId);
+  if (!scope) return [];
+
+  const historyFrom = new Date();
+  historyFrom.setDate(historyFrom.getDate() - CLIENT_JOBS_HISTORY_DAYS);
 
   return db.job
     .findMany({
       where: {
-        property: { clientId },
+        property: scopedNestedPropertyFilter(scope),
+        scheduledDate: { gte: historyFrom },
       },
       select: {
         id: true,
@@ -475,7 +523,7 @@ export async function listClientJobsForUser(userId: string) {
         },
       },
       orderBy: [{ scheduledDate: "desc" }, { startTime: "desc" }, { dueTime: "desc" }],
-      take: 100,
+      take: CLIENT_JOBS_MAX,
     })
     .then((rows) =>
       rows.map((row) => ({
@@ -494,12 +542,22 @@ export async function listClientJobsForUser(userId: string) {
 }
 
 export async function listClientLaundryForUser(userId: string) {
-  const clientId = await getClientIdForUser(userId);
-  if (!clientId) return [];
+  const scope = await getPortalScope(userId);
+  if (!scope) return [];
+
+  // The mirror of the jobs bug: this was `pickupDate ASC` with `take: 200`,
+  // i.e. the two hundred OLDEST tasks. A client with any history had their
+  // CURRENT laundry cut off the end. Bounding by date keeps the recent window
+  // whole; the cap is a safety limit, not the selection rule.
+  const historyFrom = new Date();
+  historyFrom.setDate(historyFrom.getDate() - CLIENT_JOBS_HISTORY_DAYS);
 
   return db.laundryTask.findMany({
     where: {
-      property: { clientId },
+      property: scopedNestedPropertyFilter(scope),
+      // pickupDate is non-nullable on LaundryTask, so a plain lower bound is
+      // enough — no null branch to consider.
+      pickupDate: { gte: historyFrom },
     },
     select: {
       id: true,
@@ -555,16 +613,20 @@ export async function listClientReportsForUser(
   userId: string,
   options?: { propertyId?: string | null; fromDate?: Date | null }
 ) {
-  const clientId = await getClientIdForUser(userId);
-  if (!clientId) return [];
+  const scope = await getPortalScope(userId);
+  if (!scope) return [];
+
+  // The caller-supplied propertyId and the actor's scope must BOTH hold, so the
+  // scope goes in an AND rather than being spread over `id` — spreading would
+  // let a scoped VA name any property of their client and have it win.
+  const propertyWhere: Prisma.PropertyWhereInput = { clientId: scope.clientId };
+  if (options?.propertyId) propertyWhere.id = options.propertyId;
+  if (scope.propertyIds) propertyWhere.AND = [{ id: { in: scope.propertyIds } }];
 
   const where: Prisma.ReportWhereInput = {
     clientVisible: true,
     job: {
-      property: {
-        clientId,
-        ...(options?.propertyId ? { id: options.propertyId } : {}),
-      },
+      property: propertyWhere,
       status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] },
     },
   };

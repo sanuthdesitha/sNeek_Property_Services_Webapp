@@ -12,6 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
+import { MediaGallery } from "@/components/shared/media-gallery";
 import {
   ArrowLeft,
   Loader2,
@@ -585,34 +586,24 @@ function CaseDetail({ caseId, onBack }: { caseId: string; onBack: () => void }) 
               </p>
             ) : (
               <div className="space-y-3">
-                {/* Photos are the evidence on a case — they render as real
-                    previews rather than 48px cropped chips, uncropped so
-                    nothing in frame is hidden, each opening on its own. */}
+                {/* Photos are the evidence on a case, so they open in the
+                    in-portal lightbox with prev/next — the same viewer the
+                    staff surfaces use. They previously each opened in a new tab
+                    on a bare S3 URL: no label, no next image, and no way back
+                    but the browser button. */}
                 {attachments.filter((att) => (att.mimeType ?? "").startsWith("image/")).length > 0 ? (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {attachments
+                  <MediaGallery
+                    title="Case photo"
+                    className="grid grid-cols-2 gap-3 sm:grid-cols-3"
+                    items={attachments
                       .filter((att) => (att.mimeType ?? "").startsWith("image/"))
-                      .map((att) => (
-                        <a
-                          key={att.id}
-                          href={att.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="group block overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] transition-colors hover:border-[hsl(var(--e-border-strong))]"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={att.url}
-                            alt={att.label ?? "Case photo"}
-                            loading="lazy"
-                            className="block h-auto w-full"
-                          />
-                          <span className="block truncate px-2 py-1.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
-                            {att.label ?? "Case photo"}
-                          </span>
-                        </a>
-                      ))}
-                  </div>
+                      .map((att) => ({
+                        id: att.id,
+                        url: att.url,
+                        label: att.label ?? "Case photo",
+                        mediaType: att.mimeType ?? undefined,
+                      }))}
+                  />
                 ) : null}
 
                 {/* Non-image files stay as compact rows — a PDF has no preview

@@ -201,6 +201,45 @@ export async function requireClientPortal(options?: {
 }
 
 /**
+ * The portal scope for a user id, with no session involved.
+ *
+ * `lib/client/portal-data.ts` resolves a client from a bare userId (the pages
+ * call it that way), and every one of its queries filters on that clientId. If
+ * that resolver stayed VA-blind, a VA would either see nothing or — worse, once
+ * it learned about teams — see their client's ENTIRE portfolio regardless of
+ * the property scope the client granted. Returning the scope alongside the
+ * client id is what stops the second case: the filter lives with the lookup, so
+ * a query cannot use one without the other.
+ *
+ * Returns null when the user resolves to no client at all.
+ */
+export async function resolvePortalScopeForUser(
+  userId: string
+): Promise<{ clientId: string; propertyIds: string[] | null } | null> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: {
+      role: true,
+      clientId: true,
+      vaTeam: {
+        select: { isActive: true, clientId: true, propertyIds: true },
+      },
+    },
+  });
+  if (!user) return null;
+
+  if (user.role === Role.VA) {
+    const team = user.vaTeam;
+    // Same fail-closed rule as requireClientPortal: never fall back to
+    // user.clientId for a VA.
+    if (!team || !team.isActive) return null;
+    return { clientId: team.clientId, propertyIds: parseVaPropertyScope(team.propertyIds) };
+  }
+
+  return user.clientId ? { clientId: user.clientId, propertyIds: null } : null;
+}
+
+/**
  * Narrow a Prisma `where` on properties to the actor's scope.
  *
  * Returns the clause to spread into a query. A CLIENT (or an unrestricted VA

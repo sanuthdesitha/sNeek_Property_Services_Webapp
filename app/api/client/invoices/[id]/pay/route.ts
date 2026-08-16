@@ -30,6 +30,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     if (!invoice) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
     if (invoice.status === "PAID") return NextResponse.json({ error: "Invoice already paid." }, { status: 400 });
+    // Only an invoice that has actually been issued can be paid. This checked
+    // PAID alone, so a DRAFT or VOID id would still open a payment intent for a
+    // figure nobody had finalised or for one already cancelled. The
+    // payment-link route already enforced this; this one did not.
+    if (invoice.status !== "SENT" && invoice.status !== "APPROVED" && invoice.status !== "PART_PAID") {
+      return NextResponse.json({ error: "This invoice is not payable yet." }, { status: 400 });
+    }
 
     const gateway = await getPrimaryGateway();
     if (!gateway) return NextResponse.json({ error: "No payment gateway configured." }, { status: 503 });
