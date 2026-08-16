@@ -22,6 +22,13 @@ enum Role {
   CLIENT
   LAUNDRY
   MAINTENANCE
+  /// V1 — a virtual assistant acting on behalf of a client. Sees the client
+  /// portal, scoped by their VaTeam's permissions and property scope. NEVER
+  /// add this to a `requireRole([Role.CLIENT])` call: use requireClientPortal()
+  /// (lib/auth/client-portal.ts), which is the one place that knows what a VA
+  /// may do. Sprinkling Role.VA across ~33 routes is the exact drift class the
+  /// 2026-08-15 audit kept finding.
+  VA
 }
 
 enum MaintenanceOutcome {
@@ -761,6 +768,13 @@ model User {
   damageReportsReviewed        DamageReport[]              @relation("DamageReportReviewedBy")
   damageReportsAcknowledged    DamageReport[]              @relation("DamageReportAcknowledgedBy")
   damageReportVoids            DamageReportVoid[]          @relation("DamageReportVoidedBy")
+
+  /// V1 — set only on Role.VA users: which VA team this login belongs to. The
+  /// team carries the clientId, so a VA's scope is never stored on the user
+  /// directly and cannot drift away from the team's.
+  vaTeamId       String?
+  vaTeam         VaTeam?  @relation("VaTeamMembers", fields: [vaTeamId], references: [id], onDelete: SetNull)
+  createdVaTeams VaTeam[] @relation("VaTeamCreatedBy")
   caseComments                 CaseComment[]
   payrollRunsCreated           PayrollRun[]                @relation("PayrollRunCreatedBy")
   payouts                      Payout[]                    @relation("CleanerPayouts")
@@ -894,6 +908,8 @@ model Client {
   jobTasks                 JobTask[]
   leads                    QuoteLead[]
   cases                    IssueTicket[]
+  /// V1 — VA teams acting on this client's behalf.
+  vaTeams                  VaTeam[]
   shoppingRuns             ShoppingRun[]
   invoices                 ClientInvoice[]
   loyaltyAccount           LoyaltyAccount?
@@ -2459,6 +2475,47 @@ model CaseAttachment {
 
   issueTicket IssueTicket @relation(fields: [caseId], references: [id], onDelete: Cascade)
   uploadedBy  User        @relation(fields: [uploadedByUserId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// VA teams (V1)
+// ─────────────────────────────────────────────
+
+/// A group of virtual-assistant logins acting on behalf of ONE client.
+///
+/// Many teams per client (an owner might use one agency for bookings and
+/// another for maintenance) and many logins per team (an agency has staff and
+/// turnover). The team — not the user — owns the clientId, the permissions and
+/// the property scope, so revoking an agency is one row and a departing staff
+/// member never leaves a login with its own private grant.
+///
+/// `permissions` is Json rather than columns because the client toggles these
+/// per team from the portal and the set will grow (V2). It is validated by a
+/// zod schema at the chokepoint, never trusted raw — see
+/// lib/auth/client-portal.ts.
+model VaTeam {
+  id       String @id @default(cuid())
+  clientId String
+  name     String
+  isActive Boolean @default(true)
+
+  /// Toggled by the client. Shape validated in lib/va/permissions.ts.
+  permissions Json
+
+  /// Property scope: empty/absent means every property this client owns.
+  /// Stored as ids rather than a relation because it is a filter, not
+  /// ownership, and a removed property should simply drop out of scope.
+  propertyIds Json?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client    Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdBy User   @relation("VaTeamCreatedBy", fields: [createdById], references: [id])
+  members   User[] @relation("VaTeamMembers")
+
+  @@index([clientId, isActive])
 }
 
 // ─────────────────────────────────────────────

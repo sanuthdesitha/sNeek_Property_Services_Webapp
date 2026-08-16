@@ -727,6 +727,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     [Role.CLIENT]: { canEditName: true, canEditPhone: true, canEditEmail: true },
     [Role.LAUNDRY]: { canEditName: true, canEditPhone: true, canEditEmail: true },
     [Role.MAINTENANCE]: { canEditName: true, canEditPhone: true, canEditEmail: true },
+    // A VA edits their own name and phone, but not their email: the login is
+    // issued by the client who engaged them, and letting a VA move it would let
+    // a departing assistant keep the account.
+    [Role.VA]: { canEditName: true, canEditPhone: true, canEditEmail: false },
   },
   profileEditOverrides: {},
   clientPortalVisibility: {

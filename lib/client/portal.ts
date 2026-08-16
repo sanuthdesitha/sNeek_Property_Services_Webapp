@@ -17,7 +17,12 @@ export function mergeClientPortalVisibility(
   return next;
 }
 
-function sanitizeClientVisibilityOverride(input: unknown): ClientVisibilityOverride | null {
+/**
+ * Exported so lib/auth/client-portal.ts can reuse it. The VA chokepoint has to
+ * merge the same per-client overrides this context does; a second sanitiser
+ * would be a second place for the two to disagree.
+ */
+export function sanitizeClientVisibilityOverride(input: unknown): ClientVisibilityOverride | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const row = input as Record<string, unknown>;
   const out: ClientVisibilityOverride = {};

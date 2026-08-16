@@ -29,6 +29,7 @@ const ROLE_SUMMARY: Record<Role, string> = {
   [Role.CLIENT]: "Own properties and reports only",
   [Role.LAUNDRY]: "Laundry week schedule and ready queue",
   [Role.MAINTENANCE]: "Assigned repair jobs, access details, and on-site visit tracking",
+  [Role.VA]: "Acts for a client, limited to what that client's VA team allows",
 };
 
 // Column order for the matrix — every role that appears anywhere in the map.
