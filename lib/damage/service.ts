@@ -99,13 +99,30 @@ export async function saveDamageDraft(input: {
   if (report.reportedById !== input.userId) throw new Error("FORBIDDEN");
   if (report.status !== DamageReportStatus.DRAFT) throw new Error("DAMAGE_REPORT_NOT_EDITABLE");
 
+  // Items are replaced wholesale, so any case already opened for an item has
+  // to be carried across explicitly. Without this, editing a reopened report
+  // (D4's KEEP_AND_REOPEN void) would drop every caseId, and resubmitting would
+  // open a SECOND case per damage — CP-7 would then raise duplicate repairs for
+  // one fault. The form echoes the server id back as `clientId`, which is what
+  // makes the match possible.
+  const existingCaseIds = new Map<string, string>();
+  const existingItems = await db.damageItem.findMany({
+    where: { reportId: input.reportId, caseId: { not: null } },
+    select: { id: true, caseId: true },
+  });
+  for (const item of existingItems) {
+    if (item.caseId) existingCaseIds.set(item.id, item.caseId);
+  }
+
   return db.$transaction(async (tx) => {
     await tx.damageItem.deleteMany({ where: { reportId: input.reportId } });
 
     for (const item of input.items) {
+      const carriedCaseId = item.clientId ? existingCaseIds.get(item.clientId) : undefined;
       await tx.damageItem.create({
         data: {
           reportId: input.reportId,
+          caseId: carriedCaseId ?? null,
           area: item.area,
           category: item.category,
           severity: item.severity,

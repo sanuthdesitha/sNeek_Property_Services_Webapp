@@ -145,6 +145,55 @@ describe("photo selection", () => {
   });
 });
 
+describe("void history and acknowledgement", () => {
+  const withHistory = {
+    ...row,
+    acknowledgedAt: new Date("2026-08-17T01:00:00.000Z"),
+    acknowledgedName: "Jane Owner",
+    voids: [
+      {
+        id: "v1",
+        mode: "CLEAR_AND_REDO",
+        reason: "Internal: cleaner photographed the wrong unit, chase their supervisor",
+        voidedAt: new Date("2026-08-16T07:00:00.000Z"),
+        voidedBy: { name: "Admin Person", email: "admin@example.com" },
+      },
+    ],
+  };
+
+  it("shows the admin the full void history", () => {
+    const vm = toInvestigationViewModel(withHistory, "ADMIN");
+    expect(vm.voids).toHaveLength(1);
+    expect(vm.voids[0].mode).toBe("CLEAR_AND_REDO");
+    expect(vm.voids[0].voidedByName).toBe("Admin Person");
+    expect(vm.voids[0].reason).toMatch(/wrong unit/i);
+  });
+
+  it("hides void history from the client entirely", () => {
+    // "We sent this back twice" reads as doubt about the damage rather than
+    // about the paperwork, and the reasons are written for internal readers.
+    const vm = toInvestigationViewModel(withHistory, "CLIENT");
+    expect(vm.voids).toEqual([]);
+    expect(JSON.stringify(vm)).not.toContain("wrong unit");
+    expect(JSON.stringify(vm)).not.toContain("CLEAR_AND_REDO");
+  });
+
+  it("shows the client's own sign-off to both audiences", () => {
+    for (const audience of ["ADMIN", "CLIENT"] as const) {
+      const vm = toInvestigationViewModel(withHistory, audience);
+      expect(vm.acknowledgedName).toBe("Jane Owner");
+      expect(vm.acknowledgedAt).toEqual(new Date("2026-08-17T01:00:00.000Z"));
+    }
+  });
+
+  it("reports an unsigned, never-voided report as exactly that", () => {
+    const vm = toInvestigationViewModel(row, "ADMIN");
+    expect(vm.acknowledgedAt).toBeNull();
+    expect(vm.acknowledgedName).toBeNull();
+    expect(vm.voids).toEqual([]);
+  });
+});
+
 describe("report-level derivation", () => {
   it("reports the worst severity across its items", () => {
     expect(toInvestigationViewModel(row, "ADMIN").highestSeverity).toBe(DamageSeverity.MAJOR);

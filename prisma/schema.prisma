@@ -759,6 +759,8 @@ model User {
   assignedCases                IssueTicket[]               @relation("IssueTicketAssignedTo")
   damageReportsReported        DamageReport[]              @relation("DamageReportReportedBy")
   damageReportsReviewed        DamageReport[]              @relation("DamageReportReviewedBy")
+  damageReportsAcknowledged    DamageReport[]              @relation("DamageReportAcknowledgedBy")
+  damageReportVoids            DamageReportVoid[]          @relation("DamageReportVoidedBy")
   caseComments                 CaseComment[]
   payrollRunsCreated           PayrollRun[]                @relation("PayrollRunCreatedBy")
   payouts                      Payout[]                    @relation("CleanerPayouts")
@@ -2515,11 +2517,25 @@ model DamageReport {
 
   job        Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
   property   Property     @relation(fields: [propertyId], references: [id])
-  reportedBy User         @relation("DamageReportReportedBy", fields: [reportedById], references: [id])
-  reviewedBy User?        @relation("DamageReportReviewedBy", fields: [reviewedById], references: [id])
-  items      DamageItem[]
+  /// D4 — the client's in-portal sign-off. Paired with the public /verify code:
+  /// the code proves the document is genuine, this proves the client read and
+  /// accepted it. Both are required for a verified report.
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  /// Typed name at sign-off, kept verbatim — the person who accepted it may not
+  /// be the account holder, and "who signed" is the point of the record.
+  acknowledgedName String?
+
+  reportedBy     User  @relation("DamageReportReportedBy", fields: [reportedById], references: [id])
+  reviewedBy     User? @relation("DamageReportReviewedBy", fields: [reviewedById], references: [id])
+  acknowledgedBy User? @relation("DamageReportAcknowledgedBy", fields: [acknowledgedById], references: [id])
+
+  items DamageItem[]
   /// D3 — the public /verify code for this report's PDF, once one is issued.
   verification ReportVerification?
+  /// D4 — every void this report has been through. A list, not a field: a
+  /// report can be voided, redone and voided again, and each is an audit event.
+  voids DamageReportVoid[]
 
   @@index([jobId])
   @@index([propertyId, status])
@@ -2553,6 +2569,43 @@ model DamageItem {
   photos DamageItemPhoto[]
 
   @@index([reportId])
+}
+
+/// How a voided submission is handed back to the cleaner. Chosen at void time,
+/// because the right answer depends on WHY it is being voided: a report that is
+/// merely incomplete should be edited, one that documented the wrong property
+/// or is unusable should be started again.
+enum DamageVoidMode {
+  /// Data preserved, submission undone. The cleaner edits what is there.
+  KEEP_AND_REOPEN
+  /// Previous answers ARCHIVED into DamageReportVoid.archivedItems (never
+  /// deleted) and cleared from the report. The cleaner starts fresh.
+  CLEAR_AND_REDO
+}
+
+/// One void event. Reports are NEVER hard-deleted — this is the audit trail
+/// that makes voiding safe: who did it, when, why, in which mode, and (for
+/// CLEAR_AND_REDO) the full snapshot of what was cleared.
+model DamageReportVoid {
+  id       String         @id @default(cuid())
+  reportId String
+  mode     DamageVoidMode
+  /// Shown to the cleaner. Required — voiding someone's documented work without
+  /// telling them why is how the same mistake gets made twice.
+  reason     String   @db.Text
+  voidedById String
+  voidedAt   DateTime @default(now())
+  /// CLEAR_AND_REDO only: the items and photos as they stood, so nothing a
+  /// cleaner recorded is ever actually destroyed.
+  archivedItems Json?
+  /// The cases that were linked when this void happened, kept so the trail
+  /// survives even after the items are cleared.
+  archivedCaseIds Json?
+
+  report   DamageReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  voidedBy User         @relation("DamageReportVoidedBy", fields: [voidedById], references: [id])
+
+  @@index([reportId, voidedAt])
 }
 
 model DamageItemPhoto {

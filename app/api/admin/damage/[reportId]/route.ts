@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { Role } from "@prisma/client";
+import { DamageVoidMode, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getDamageInvestigationForAdmin } from "@/lib/damage/investigation";
 import { setDamageItemCost, reviewDamageReport } from "@/lib/damage/review";
+import { voidDamageReport } from "@/lib/damage/void";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 
 /**
@@ -33,6 +34,19 @@ const patchSchema = z.union([
     release: z.boolean(),
     /** Close the report outright rather than leaving it under review. */
     close: z.boolean().optional(),
+  }),
+  z.object({
+    action: z.literal("VOID"),
+    mode: z.nativeEnum(DamageVoidMode),
+    /**
+     * Required and non-trivial. The cleaner is shown this verbatim, and a void
+     * with no usable reason just produces the same report again.
+     */
+    reason: z
+      .string()
+      .trim()
+      .min(10, "Say why this is being sent back — at least a sentence.")
+      .max(2_000),
   }),
 ]);
 
@@ -86,6 +100,13 @@ export async function PATCH(req: Request, { params }: { params: { reportId: stri
 
     if (body.action === "SET_COST") {
       await setDamageItemCost({ itemId: body.itemId, estimatedCost: body.estimatedCost });
+    } else if (body.action === "VOID") {
+      await voidDamageReport({
+        reportId: params.reportId,
+        actorUserId: session.user.id,
+        mode: body.mode,
+        reason: body.reason,
+      });
     } else {
       await reviewDamageReport({
         reportId: params.reportId,
