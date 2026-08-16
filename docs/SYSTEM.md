@@ -472,6 +472,20 @@ One visit produces ONE `DamageReport` holding MANY `DamageItem`s, each with its 
 
 **Submit is resumable, not atomic.** Cases are opened one at a time after the rows commit, each guarded, and an item records its `caseId` as soon as it has one. If case 3 of 5 fails the report stays submitted, the first two keep their cases, and re-running submit fills only the gaps. Wrapping five external-effect calls in a transaction would instead roll back a report the cleaner was already told was sent. Annotated photos are flattened at submit via `lib/qa/annotation-composite.ts#ensureFlattened` (idempotent, best-effort) so cases attach the composite rather than an un-marked original — the bare overlay is marks on transparency and renders as a black tile once anything converts it to JPEG.
 
+### B11. Damage investigation — admin and client (D2, 2026-08)
+
+`GET /api/admin/damage/:reportId` and `GET /api/client/damage/:reportId` render the same report through one assembler, `lib/damage/investigation.ts`. The audience is a parameter, not a second query: two separately-shaped reads are how a field ends up visible on one screen and hidden on the other.
+
+**What the client never receives.** `estimatedCost` is nulled for CLIENT — a client seeing an internal working figure would read it as a quote — as are `CaseTransition.reason` (internal triage notes) and the reviewer's name. They are removed from the payload before it leaves the server, so a template mistake cannot leak them; `tests/lib/damage-investigation.test.ts` asserts the serialised JSON contains neither the cost nor the note text. The rendering rule and the security rule are deliberately different mechanisms.
+
+**Client access is decided in the query, not after it.** `getDamageInvestigationForClient` matches on `clientVisible: true`, a non-DRAFT status, and `property.clientId` in the `where` clause. A report failing any of those returns the same 404 as one that does not exist — a 403 would confirm the report is real, telling one client that another client's property has damage on file.
+
+**Release is two writes in one transaction.** `reviewDamageReport` (`lib/damage/review.ts`) sets `DamageReport.clientVisible` *and* flips the linked `IssueTicket.clientVisible`/`clientCanReply` together, because the client also reads damage as cases through the cases workspace. Lifting only the report would show a report whose cases stay invisible; lifting only the cases would leak damage the admin has not approved. Retraction is the same call with `release: false`, so a mistaken release can be taken back and the cases go with it. It refuses to act on a DRAFT — an unsubmitted report is the cleaner's working notes.
+
+**Status is read live, never snapshotted.** Case state, the linked maintenance status, the assigned worker and the transition timeline are all joined at read time, so the page reflects whatever CP-7's sync currently says rather than a copy taken at submit. Photos resolve to the flattened composite when one exists and the original otherwise — never the bare overlay, which is marks on transparency and renders as a black tile once anything converts it to JPEG.
+
+**Cost is admin-only in three independent places**: absent from every cleaner schema (`lib/damage/validation.ts`), nulled in the client view model, and written only by the admin-role route. Any one alone would be a single point of failure.
+
 ---
 
 ## Section C — Laundry operation & the QA/accountability system
