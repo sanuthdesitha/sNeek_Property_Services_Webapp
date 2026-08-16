@@ -31,6 +31,7 @@ import {
   Plus,
   Shirt,
   Star,
+  ClipboardCheck,
 } from "lucide-react";
 
 export const metadata = { title: "Home · Estate client" };
@@ -188,6 +189,18 @@ export default async function ClientHomePage() {
     ? nextJob?.assignments.filter((a) => a.user?.name).length ?? 0
     : 0;
 
+  // Daily-use derivations. All from data already loaded above — no extra query.
+  const todayJobs = activeJobs.filter(
+    (job) => format(toZonedTime(job.scheduledDate, TZ), "yyyy-MM-dd") === todayKey
+  );
+  const nextJobLabel = nextJob
+    ? format(toZonedTime(nextJob.scheduledDate, TZ), "EEE d MMM")
+    : "—";
+  // What is actually blocking the client: the same items the attention strip
+  // above lists, counted so the number and the list can never disagree.
+  const needsYouCount = urgentItems.length;
+  const lowStockTotal = inventoryByProperty.reduce((sum, row) => sum + row.lowCount, 0);
+
   const balanceDue = money(finance?.summary.pendingChargeTotal);
   const openInvoices =
     finance?.invoices.filter((inv) => inv.status === "SENT" || inv.status === "APPROVED").length ?? 0;
@@ -321,31 +334,55 @@ export default async function ClientHomePage() {
         </ECard>
       ) : null}
 
-      {/* KPIs */}
-      <section className="grid gap-4 sm:grid-cols-3">
+      {/* KPIs — daily-use figures only.
+          "Total on record" and "reports available" are inventory counts, not
+          things a client acts on in a morning; what matters day to day is
+          whether something is happening today, what is coming next, whether
+          anything is waiting on them, and whether a property will run out of
+          something. Each tile answers one of those. */}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <EStatCard
+          label="Today"
+          value={String(todayJobs.length)}
+          delta={
+            todayJobs.length === 0
+              ? "Nothing scheduled"
+              : todayJobs.map((job) => job.property?.name).filter(Boolean).join(", ") || "Scheduled"
+          }
+          deltaTone="neutral"
+          icon={<CalendarClock className="h-4 w-4" />}
+        />
+        <EStatCard
+          label="Next clean"
+          value={nextJobLabel}
+          delta={nextJob?.property?.name ?? "Nothing upcoming"}
+          deltaTone="neutral"
+          icon={<CalendarClock className="h-4 w-4" />}
+        />
+        <EStatCard
+          label="Needs you"
+          value={String(needsYouCount)}
+          delta={needsYouCount === 0 ? "Nothing waiting" : "Approvals and requests"}
+          deltaTone={needsYouCount > 0 ? "danger" : "neutral"}
+          icon={<ClipboardCheck className="h-4 w-4" />}
+        />
         {visibility?.showFinanceDetails ? (
           <EStatCard
             label="Balance due"
             value={balanceDue}
             delta={`${openInvoices} invoice${openInvoices === 1 ? "" : "s"} open`}
-            deltaTone="neutral"
+            deltaTone={openInvoices > 0 ? "danger" : "neutral"}
             icon={<FileText className="h-4 w-4" />}
           />
-        ) : null}
-        <EStatCard
-          label="Active services"
-          value={String(activeJobs.length)}
-          delta={`${jobs.length} total on record`}
-          deltaTone="neutral"
-          icon={<CalendarClock className="h-4 w-4" />}
-        />
-        <EStatCard
-          label="Recent reports"
-          value={String(reports.length)}
-          delta="available to view"
-          deltaTone="neutral"
-          icon={<Star className="h-4 w-4" />}
-        />
+        ) : (
+          <EStatCard
+            label="Low stock"
+            value={String(lowStockTotal)}
+            delta={lowStockTotal === 0 ? "All topped up" : "Items at or below threshold"}
+            deltaTone={lowStockTotal > 0 ? "danger" : "neutral"}
+            icon={<Star className="h-4 w-4" />}
+          />
+        )}
       </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
