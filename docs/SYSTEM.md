@@ -524,6 +524,20 @@ Two modes, chosen at void time because the right answer depends on why it is bei
 
 **Void history is admin-only** (`tests/lib/damage-investigation.test.ts` asserts the client payload contains neither the reasons nor the mode): "we sent this back twice" reads as doubt about the damage rather than about the paperwork. The client's own signature is shown to both sides.
 
+### B15. VA logins — schema and the client-portal chokepoint (V1, 2026-08)
+
+A `Role.VA` acts on behalf of a client. `VaTeam` (many teams per client, many logins per team) owns the `clientId`, the `permissions` Json and the `propertyIds` scope — **the user row does not**. Revoking an agency is therefore one row, and a departing staff member never leaves behind a login carrying its own private grant. `User.vaTeamId` is the only link, and it is `ON DELETE SET NULL`: deleting a team leaves the person with no team, which the chokepoint reads as *no access* rather than *all access*.
+
+**`requireClientPortal()` (`lib/auth/client-portal.ts`) is the one place that authorises a portal request**, returning `{clientId, actor, userId, team, permissions, propertyIds, visibility, actorLabel}`. Adding `Role.VA` to the ~36 existing `requireRole([Role.CLIENT])` calls would compile and look fine, and would be wrong in a way nobody notices for months: each route would then need its own permission check and its own property filter, on top of the **six different client-id resolution patterns those routes already use** (several of which silently ignore per-client `portalVisibilityOverrides` by passing raw `AppSettings` to `isClientModuleEnabled`). One function, one set of rules.
+
+**The actor is never swapped.** Impersonation swaps `session.user` to the target and lets downstream code stay ignorant, which is safe because the admin could already read everything the target can. A VA is the opposite — their access is a *subset* — so subject (`clientId`) and actor (`actor`/`userId`/`team`) are returned separately and both stay visible. `auditClientPortalAction` writes the real acting user to `AuditLog.userId` (as the impersonation route does) and carries the delegation in `after`, because `AuditLog` has a single actor column and a VA's action would otherwise be indistinguishable from the client's.
+
+**Money is not a permission.** A VA never approves a quote or extra, never approves a cost, never pays an invoice. Those are absent from the grantable set *and* enforced independently by `assertVaMayAct`, so no permissions blob — hand-edited, half-written, or from an older shape — can switch one on. Invoice *visibility* is separate and grantable: a client may want an assistant reconciling invoices they cannot pay. `parseVaPermissions` fails closed on anything malformed, and requires boolean `true` (the string `"false"` is truthy in JS and must not grant).
+
+**Middleware had to change too.** `middleware.ts` bounced any non-`CLIENT` role off `/client/**` and `/v2/client/**` before route code ran, so an API-only chokepoint could never have worked. Middleware now decides only *which portal* a VA may enter; what they may do inside remains `requireClientPortal()`'s job.
+
+**Known gaps, deliberately not yet touched:** none of the 36 client routes have been migrated to the chokepoint (so no VA can do anything yet — fail-closed), the approvals trio resolves a *set* of client ids by email match which the chokepoint preserves via `clientIds` only for the CLIENT actor, and the v2 client pages wrap their portal context in `.catch(() => null)` — a fail-open pattern that must not be carried into the migration.
+
 ---
 
 ## Section C — Laundry operation & the QA/accountability system

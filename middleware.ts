@@ -173,7 +173,12 @@ export default withAuth(
       const isAdminOps = role === Role.ADMIN || role === Role.OPS_MANAGER;
       if (!isAdminOps) {
         const ownsPortal =
-          (pathname.startsWith("/v2/client") && role === Role.CLIENT) ||
+          // V1 — a VA works inside the client portal on their client's behalf.
+          // Middleware only decides WHICH portal they may enter; what they may
+          // do once inside is requireClientPortal()'s job
+          // (lib/auth/client-portal.ts), which is the only place that reads the
+          // team's permissions and property scope.
+          (pathname.startsWith("/v2/client") && (role === Role.CLIENT || role === Role.VA)) ||
           (pathname.startsWith("/v2/cleaner") && role === Role.CLEANER) ||
           (pathname.startsWith("/v2/laundry") && role === Role.LAUNDRY) ||
           (pathname.startsWith("/v2/qa") && role === Role.QA_INSPECTOR) ||
@@ -204,8 +209,8 @@ export default withAuth(
       return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
     }
 
-    // Client routes
-    if (pathname.startsWith("/client") && role !== Role.CLIENT) {
+    // Client routes — a VA enters the same portal as the client they act for.
+    if (pathname.startsWith("/client") && role !== Role.CLIENT && role !== Role.VA) {
       return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
     }
 
@@ -310,6 +315,9 @@ function v2PortalHome(role: Role | undefined): string {
     case Role.CLEANER:
       return "/v2/cleaner";
     case Role.CLIENT:
+    // A VA lands in the portal of the client they act for — they have no
+    // surface of their own.
+    case Role.VA:
       return "/v2/client";
     case Role.LAUNDRY:
       return "/v2/laundry";
@@ -332,6 +340,7 @@ function portalHome(role: Role | undefined): string {
     case Role.CLEANER:
       return "/cleaner";
     case Role.CLIENT:
+    case Role.VA:
       return "/client";
     case Role.LAUNDRY:
       return "/laundry";
