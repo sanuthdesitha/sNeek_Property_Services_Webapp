@@ -9,6 +9,7 @@
 // carries pay, notes, scores, client contacts and full addresses.
 
 import { randomBytes } from "crypto";
+import { ReportVerificationKind } from "@prisma/client";
 import { db } from "@/lib/db";
 import { fmtSydney, summarizeTimeLogs } from "@/lib/reports/report-view-model";
 import {
@@ -30,26 +31,27 @@ export function generateVerificationCode(): string {
   return code;
 }
 
-/** Get or create the verification code for a job (one per job, stable). */
+/** Get or create the CLEANING verification code for a job (one per job, stable). */
 export async function ensureReportVerification(jobId: string): Promise<{ code: string }> {
   const existing = await db.reportVerification.findUnique({
-    where: { jobId },
+    where: { jobId_kind: { jobId, kind: ReportVerificationKind.CLEANING } },
     select: { code: true },
   });
   if (existing) return existing;
 
-  // Retry on the (astronomically unlikely) code collision; the jobId unique
-  // also races benignly if two generations run at once — take the winner's row.
+  // Retry on the (astronomically unlikely) code collision; the (jobId, kind)
+  // unique also races benignly if two generations run at once — take the
+  // winner's row.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await db.reportVerification.create({
-        data: { jobId, code: generateVerificationCode() },
+        data: { jobId, kind: ReportVerificationKind.CLEANING, code: generateVerificationCode() },
         select: { code: true },
       });
     } catch (err: any) {
       if (err?.code === "P2002") {
         const winner = await db.reportVerification.findUnique({
-          where: { jobId },
+          where: { jobId_kind: { jobId, kind: ReportVerificationKind.CLEANING } },
           select: { code: true },
         });
         if (winner) return winner;
@@ -61,7 +63,51 @@ export async function ensureReportVerification(jobId: string): Promise<{ code: s
   throw new Error("Could not allocate a report verification code.");
 }
 
+/**
+ * Get or create the DAMAGE verification code for one damage report.
+ *
+ * Separate from the job's cleaning code on purpose: a client holding a damage
+ * PDF is verifying THAT document, and a job can produce several damage reports
+ * over its life. DAMAGE rows leave `jobId` NULL — the damage report already
+ * carries the job — so they never contend for the one-per-job cleaning slot.
+ */
+export async function ensureDamageReportVerification(
+  damageReportId: string
+): Promise<{ code: string }> {
+  const existing = await db.reportVerification.findUnique({
+    where: { damageReportId },
+    select: { code: true },
+  });
+  if (existing) return existing;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await db.reportVerification.create({
+        data: {
+          damageReportId,
+          kind: ReportVerificationKind.DAMAGE,
+          code: generateVerificationCode(),
+        },
+        select: { code: true },
+      });
+    } catch (err: any) {
+      if (err?.code === "P2002") {
+        const winner = await db.reportVerification.findUnique({
+          where: { damageReportId },
+          select: { code: true },
+        });
+        if (winner) return winner;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("Could not allocate a damage report verification code.");
+}
+
 export type PublicVerificationVM = {
+  /** Which document this code proves. Drives the wording on the public page. */
+  kind: "CLEANING" | "DAMAGE";
   status: "verified" | "revoked";
   suburb: string;
   dateLabel: string;
@@ -71,6 +117,12 @@ export type PublicVerificationVM = {
   clockOutLabel: string | null;
   clockOutMissing: boolean;
   issuedLabel: string | null;
+  /**
+   * DAMAGE only — how many damaged items the report records. A count is safe
+   * for a stranger; the descriptions, photos, severities and costs are not, so
+   * none of them appear here.
+   */
+  damageItemCount?: number;
 };
 
 /**
@@ -91,6 +143,7 @@ export function buildPublicVerificationVm(row: {
 }): PublicVerificationVM {
   const clock = summarizeTimeLogs(row.job.timeLogs);
   return {
+    kind: "CLEANING",
     status: row.revokedAt ? "revoked" : "verified",
     suburb: String(row.job.property?.suburb ?? ""),
     dateLabel: fmtSydney(row.job.scheduledDate, "d MMMM yyyy") ?? "",
@@ -110,6 +163,40 @@ export function buildPublicVerificationVm(row: {
  * or malformed codes (the page renders both identically, so responses do not
  * leak which codes exist).
  */
+/**
+ * Pure mapping for a DAMAGE code.
+ *
+ * Even more restrained than the cleaning VM: a damage report describes faults in
+ * somebody's home, so the public page confirms only that a report exists, for
+ * which suburb and date, and how many items it covers. No descriptions, photos,
+ * severities, causes or costs — a code can be forwarded to anyone.
+ */
+export function buildDamageVerificationVm(row: {
+  createdAt: Date;
+  revokedAt: Date | null;
+  damageReport: {
+    submittedAt: Date | null;
+    reportedBy: { name: string | null } | null;
+    property: { suburb: string | null } | null;
+    _count: { items: number };
+  };
+}): PublicVerificationVM {
+  return {
+    kind: "DAMAGE",
+    status: row.revokedAt ? "revoked" : "verified",
+    suburb: String(row.damageReport.property?.suburb ?? ""),
+    dateLabel: fmtSydney(row.damageReport.submittedAt, "d MMMM yyyy") ?? "",
+    jobTypeLabel: "Damage report",
+    cleanerFirstNames: [String(row.damageReport.reportedBy?.name ?? "").trim().split(/\s+/)[0]]
+      .filter(Boolean),
+    clockInLabel: null,
+    clockOutLabel: null,
+    clockOutMissing: false,
+    issuedLabel: fmtSydney(row.createdAt, "d MMM yyyy"),
+    damageItemCount: row.damageReport._count.items,
+  };
+}
+
 export async function lookupVerificationByCode(raw: string): Promise<PublicVerificationVM | null> {
   const code = normalizeVerificationCode(raw);
   if (!code) return null;
@@ -119,6 +206,15 @@ export async function lookupVerificationByCode(raw: string): Promise<PublicVerif
     select: {
       createdAt: true,
       revokedAt: true,
+      kind: true,
+      damageReport: {
+        select: {
+          submittedAt: true,
+          reportedBy: { select: { name: true } },
+          property: { select: { suburb: true } },
+          _count: { select: { items: true } },
+        },
+      },
       job: {
         select: {
           jobType: true,
@@ -137,5 +233,22 @@ export async function lookupVerificationByCode(raw: string): Promise<PublicVerif
     },
   });
   if (!row) return null;
-  return buildPublicVerificationVm(row);
+
+  if (row.kind === ReportVerificationKind.DAMAGE) {
+    // A DAMAGE row with no damage report left (cascade-deleted) is treated as
+    // unknown rather than half-rendered.
+    if (!row.damageReport) return null;
+    return buildDamageVerificationVm({
+      createdAt: row.createdAt,
+      revokedAt: row.revokedAt,
+      damageReport: row.damageReport,
+    });
+  }
+
+  if (!row.job) return null;
+  return buildPublicVerificationVm({
+    createdAt: row.createdAt,
+    revokedAt: row.revokedAt,
+    job: row.job,
+  });
 }

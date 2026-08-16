@@ -123,7 +123,17 @@ function personName(person: { name?: string | null; email?: string | null } | nu
  * matters (a client never receives a cost) should not depend on a live query
  * to prove.
  */
-export function toInvestigationViewModel(row: any, audience: DamageAudience): DamageInvestigation {
+export function toInvestigationViewModel(
+  row: any,
+  audience: DamageAudience,
+  /**
+   * How a stored S3 key becomes a URL. Defaults to the public URL, which is
+   * what the in-app pages use. The PDF builder passes a presigning resolver
+   * instead: Playwright renders on about:blank with no session, so a
+   * cookie-gated URL would come back as a broken image in the document.
+   */
+  resolveKeyUrl: (key: string) => string = publicUrl
+): DamageInvestigation {
   const isAdmin = audience === "ADMIN";
 
   const items: DamageInvestigationItem[] = (row.items ?? []).map((item: any) => ({
@@ -139,7 +149,7 @@ export function toInvestigationViewModel(row: any, audience: DamageAudience): Da
       id: photo.id,
       // The flattened composite when one exists, else the original. NEVER the
       // bare overlay — on transparency it renders as a black tile.
-      url: publicUrl(photo.flatKey || photo.s3Key),
+      url: resolveKeyUrl(photo.flatKey || photo.s3Key),
       caption: photo.caption ?? null,
       section: photo.section,
       annotated: Boolean(photo.flatKey || photo.annotatedKey),
@@ -185,13 +195,28 @@ export function toInvestigationViewModel(row: any, audience: DamageAudience): Da
 
 /** Admin view: any report, released or not, costs included. */
 export async function getDamageInvestigationForAdmin(
-  reportId: string
+  reportId: string,
+  resolveKeyUrl?: (key: string) => string
 ): Promise<DamageInvestigation | null> {
   const row = await db.damageReport.findUnique({
     where: { id: reportId },
     include: INVESTIGATION_INCLUDE,
   });
-  return row ? toInvestigationViewModel(row, "ADMIN") : null;
+  return row ? toInvestigationViewModel(row, "ADMIN", resolveKeyUrl) : null;
+}
+
+/**
+ * The raw photo keys a report's PDF needs to presign, in one pass.
+ *
+ * Kept beside the include so it cannot fall out of step with what the view
+ * model actually renders — the same flatKey-then-original preference.
+ */
+export async function listDamageReportPhotoKeys(reportId: string): Promise<string[]> {
+  const photos = await db.damageItemPhoto.findMany({
+    where: { item: { reportId } },
+    select: { s3Key: true, flatKey: true },
+  });
+  return photos.map((photo) => photo.flatKey || photo.s3Key).filter(Boolean);
 }
 
 /**

@@ -53,6 +53,7 @@ import { SubmissionReview, type SubmissionRow } from "@/components/v2/admin/jobs
 import { JobExtrasPanel } from "@/components/v2/admin/jobs/job-extras-panel";
 import { JobChatAdmin } from "@/components/v2/admin/jobs/job-chat-admin";
 import { ReportActions } from "@/components/v2/admin/jobs/report-actions";
+import { FormsQaCentre } from "@/components/v2/admin/jobs/forms-qa-centre";
 import { JobReminderButton } from "@/components/v2/admin/jobs/job-reminder-button";
 
 export const metadata = { title: "Job · Estate admin" };
@@ -1158,6 +1159,14 @@ export default async function AdminJobDetailPage({
           hasQaReview={Boolean(qa)}
           qaReviewId={qa?.id ?? null}
           initialQaCleanerVisible={qa?.cleanerReportVisible !== false}
+        />
+
+        {/* D4 — every document this job produced, incl. damage reports, which
+            were previously reachable from nowhere on the job. */}
+        <FormsQaCentre
+          jobId={job.id}
+          hasReport={Boolean(job.report)}
+          hasQaReview={Boolean(qa)}
         />
 
         {/* Submitted job form */}
