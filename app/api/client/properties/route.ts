@@ -1,20 +1,18 @@
 import { NextResponse } from "next/server";
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
-import { getAppSettings } from "@/lib/settings";
-import { getClientPortalContext } from "@/lib/client/portal";
+import { requireClientPortal } from "@/lib/auth/client-portal";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 import { listClientPropertiesForUser } from "@/lib/client/portal-data";
 
 export async function GET() {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
+    // One chokepoint replaces the role check, the client lookup and the portal
+    // context. A VA additionally needs the `properties` grant, and the list is
+    // narrowed to their team's property scope inside the data layer.
+    const portal = await requireClientPortal({ permission: "properties" });
     if (!isClientModuleEnabled(portal.visibility, "properties")) {
       return NextResponse.json({ error: "Properties are hidden for this client." }, { status: 403 });
     }
-    const properties = await listClientPropertiesForUser(session.user.id);
+    const properties = await listClientPropertiesForUser(portal.userId);
     return NextResponse.json(properties);
   } catch (err: any) {
     return NextResponse.json(

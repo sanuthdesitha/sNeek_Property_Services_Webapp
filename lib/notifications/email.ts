@@ -180,9 +180,21 @@ export async function sendEmailDetailed(
           continue;
         }
         // The person's own choice, which is the narrowest and therefore the
-        // last word. `allEmailOff` covers kinds that don't exist yet; a
-        // per-kind row covers the one they named.
-        if (payload.kind && resolved && (resolved.allEmailOff || resolved.disabledKinds.has(payload.kind))) {
+        // last word.
+        //
+        // `allEmailOff` means "stop emailing me entirely", so it is checked
+        // WITHOUT requiring a kind. It used to sit behind `payload.kind &&`,
+        // which meant every automatic email that forgot to declare its kind
+        // sailed past someone who had asked to receive nothing at all — and
+        // "no kind" is exactly the case `allEmailOff` exists to cover. Critical
+        // mail (auth, recovery) never reaches here, so nobody can lock
+        // themselves out with it.
+        if (resolved?.allEmailOff) {
+          blocked.push(address);
+          continue;
+        }
+        // A per-kind row covers the one kind they named.
+        if (payload.kind && resolved?.disabledKinds.has(payload.kind)) {
           blocked.push(address);
           continue;
         }

@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
-import { getAppSettings } from "@/lib/settings";
-import { getClientPortalContext } from "@/lib/client/portal";
+import { requireClientPortal } from "@/lib/auth/client-portal";
 import { getClientPropertyDetailForUser } from "@/lib/client/portal-data";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 
@@ -11,13 +8,14 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
+    const portal = await requireClientPortal({ permission: "properties" });
     if (!isClientModuleEnabled(portal.visibility, "properties")) {
       return NextResponse.json({ error: "Properties are hidden for this client." }, { status: 403 });
     }
-    const detail = await getClientPropertyDetailForUser(session.user.id, params.id, portal.visibility);
+    // The requested id is ANDed with the caller's property scope in the data
+    // layer, so a scoped VA reaching for a property outside their grant gets
+    // the same 404 as one that does not exist — no existence oracle.
+    const detail = await getClientPropertyDetailForUser(portal.userId, params.id, portal.visibility);
     if (!detail) {
       return NextResponse.json({ error: "Property not found." }, { status: 404 });
     }
