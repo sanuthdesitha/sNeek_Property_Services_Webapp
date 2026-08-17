@@ -6,7 +6,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
-import { getClientPortalContext } from "@/lib/client/portal";
+import { requireClientPortal } from "@/lib/auth/client-portal";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 
 const TZ = "Australia/Sydney";
@@ -21,12 +21,10 @@ const schema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
-    if (!portal.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+    // Booking is a VA-grantable action, so a VA needs the `bookings`
+    // permission; a CLIENT always holds it. requireClientPortal also
+    // guarantees a clientId, so the old null check is no longer reachable.
+    const portal = await requireClientPortal({ permission: "bookings" });
     if (!isClientModuleEnabled(portal.visibility, "booking")) {
       return NextResponse.json({ error: "Booking is disabled for this client." }, { status: 403 });
     }

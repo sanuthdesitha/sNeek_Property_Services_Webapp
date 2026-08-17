@@ -6,7 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { getAppSettings } from "@/lib/settings";
-import { getClientPortalContext } from "@/lib/client/portal";
+import { requireClientPortal } from "@/lib/auth/client-portal";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 import { calculateQuote } from "@/lib/pricing/calculator";
 import { notifyAdminsByEmail, notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
@@ -23,19 +23,17 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireRole([Role.CLIENT]);
+    // Booking creates work and spends the client's money, so a VA needs the
+    // `bookings` grant. requireClientPortal guarantees a clientId.
+    const portal = await requireClientPortal({ permission: "bookings" });
     const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
-    if (!portal.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
     if (!isClientModuleEnabled(portal.visibility, "booking")) {
       return NextResponse.json({ error: "Booking is disabled for this client." }, { status: 403 });
     }
 
     const body = schema.parse(await req.json().catch(() => ({})));
     const clientUser = await db.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: portal.userId },
       select: {
         id: true,
         name: true,
@@ -45,15 +43,23 @@ export async function POST(req: NextRequest) {
         client: { select: { id: true, name: true, email: true, phone: true } },
       },
     });
-    if (!clientUser?.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
+    // The signed-in user row must exist. Note this no longer requires
+    // user.clientId — a VA has none, and the client comes from portal.clientId.
+    if (!clientUser) {
+      return NextResponse.json({ error: "Account not found." }, { status: 400 });
     }
 
     const property = await db.property.findFirst({
       where: {
         id: body.propertyId,
-        clientId: clientUser.clientId,
+        // The PORTAL's clientId, not the user row's — a VA has no
+        // user.clientId and would otherwise never match.
+        clientId: portal.clientId,
         isActive: true,
+        // ANDed, not spread: `{ id: { in: scope } }` at this level would
+        // OVERWRITE `id: body.propertyId` and let a scoped VA book any of the
+        // client's properties.
+        ...(portal.propertyIds ? { AND: [{ id: { in: portal.propertyIds } }] } : {}),
       },
       select: {
         id: true,
@@ -118,7 +124,7 @@ export async function POST(req: NextRequest) {
 
       await tx.auditLog.create({
         data: {
-          userId: session.user.id,
+          userId: portal.userId,
           jobId: job.id,
           action: "CLIENT_SELF_BOOKING_CREATED",
           entity: "Job",

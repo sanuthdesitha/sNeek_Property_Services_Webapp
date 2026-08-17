@@ -1,20 +1,18 @@
 import { NextResponse } from "next/server";
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
-import { getAppSettings } from "@/lib/settings";
-import { getClientPortalContext } from "@/lib/client/portal";
+import { requireClientPortal } from "@/lib/auth/client-portal";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 import { listClientJobsForUser } from "@/lib/client/portal-data";
 
 export async function GET() {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
+    // Reading the schedule is core portal access, so no extra VA grant is
+    // required — but the list is still narrowed to the team's property scope
+    // inside the data layer, so a scoped VA never sees the whole portfolio.
+    const portal = await requireClientPortal();
     if (!isClientModuleEnabled(portal.visibility, "jobs")) {
       return NextResponse.json({ error: "Jobs are hidden for this client." }, { status: 403 });
     }
-    const jobs = await listClientJobsForUser(session.user.id);
+    const jobs = await listClientJobsForUser(portal.userId);
     return NextResponse.json(jobs);
   } catch (err: any) {
     return NextResponse.json(
