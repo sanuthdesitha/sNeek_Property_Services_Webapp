@@ -104,47 +104,32 @@ async function sendViaChannel(
     switch (channel) {
       case NotificationChannel.EMAIL: {
         if (!content.html || !options.to) return { ok: false, error: "Missing HTML or recipient email" };
-        // Master email kill-switch — when off, no automatic notification emails
-        // go out (per-category email toggles are applied upstream).
-        const appSettings = await getAppSettings();
-        if (!appSettings.emailAutomation?.masterEnabled) {
-          return { ok: false, error: "auto-email-disabled" };
-        }
-        // Audience-level gating: this engine uses its own Resend transport (not
-        // the shared chokepoint), so gate here too. Resolve the recipient's
-        // audience by email → user role (no account → PUBLIC).
-        const emailUser = await db.user.findFirst({
-          where: { email: { equals: options.to, mode: "insensitive" } },
-          select: { role: true },
-        });
-        if (!isChannelAllowed(appSettings.notificationAudienceControls, audienceForRole(emailUser?.role ?? null), "email")) {
-          return { ok: false, error: "audience_disabled" };
-        }
-        const creds = await getIntegrationCredentials();
-        const resendApiKey = (creds.resendApiKey as string) || process.env.RESEND_API_KEY;
-        if (!resendApiKey) return { ok: false, error: "RESEND_API_KEY not configured" };
 
-        const emailFrom = (creds.emailFrom as string) || "sNeek Ops <onboarding@resend.dev>";
-
-        const res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${resendApiKey}`,
-          },
-          body: JSON.stringify({
-            from: emailFrom,
-            to: [options.to],
-            subject: content.subject || "sNeek Ops Notification",
-            html: content.html,
-            ...(content.text ? { text: content.text } : {}),
-          }),
+        // Delegated to the shared chokepoint rather than this engine's own
+        // Resend transport.
+        //
+        // It used to POST to Resend directly and re-implement only two of the
+        // gates (master switch, audience channel). That silently bypassed the
+        // suppression list, the per-audience x kind matrix, `User.allEmailOff`
+        // and every per-kind `UserEmailPreference` — so all 35 finance events
+        // (invoices, payroll, payouts, Xero) ignored what a person had actually
+        // asked for, and turning them off in the admin UI appeared to do
+        // nothing. Every gate now applies in one place.
+        //
+        // No `kind` is passed because these events are their own taxonomy
+        // (lib/notifications/events.ts) with no EmailAutoKind equivalent. That
+        // means the per-KIND switch still cannot target them individually —
+        // but `allEmailOff` and the suppression list now do reach them, which
+        // is the difference between "unsubscribed" being honoured and ignored.
+        const { sendEmailDetailed } = await import("@/lib/notifications/email");
+        const result = await sendEmailDetailed({
+          to: options.to,
+          subject: content.subject || "sNeek Ops Notification",
+          html: content.html,
         });
 
-        if (!res.ok) {
-          const body = await res.text().catch(() => "");
-          return { ok: false, error: `Resend API error: ${body}` };
-        }
+        if (result.skipped) return { ok: false, error: result.error ?? "skipped" };
+        if (!result.ok) return { ok: false, error: result.error ?? "send failed" };
         return { ok: true };
       }
 
