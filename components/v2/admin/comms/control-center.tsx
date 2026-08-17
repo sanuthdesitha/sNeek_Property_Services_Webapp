@@ -13,6 +13,7 @@ import {
   ECardTitle,
 } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
+import { UserEmailPreferencesModal } from "@/components/v2/admin/comms/user-email-preferences";
 import type { EstateToast } from "@/components/v2/admin/comms/toast";
 
 type NotificationCategory =
@@ -112,6 +113,8 @@ export function CommsControlCenter({ onToast }: { onToast: (t: EstateToast) => v
   const [savingUser, setSavingUser] = useState(false);
   // Per-person email overrides. `disabledKinds` holds only the deviations, so
   // an absent entry means the person follows the global setting.
+  /** The person whose full email grid is open, or null. */
+  const [editingUser, setEditingUser] = useState<{ id: string; label: string } | null>(null);
   const [emailPrefs, setEmailPrefs] = useState<{
     disabledKinds: Record<string, string[]>;
     allEmailOff: string[];
@@ -559,6 +562,21 @@ export function CommsControlCenter({ onToast }: { onToast: (t: EstateToast) => v
                     ) : disabledKinds.length > 0 ? (
                       <EBadge tone="warning" soft>{disabledKinds.length}</EBadge>
                     ) : null}
+                    {/* The bulk controls above answer "silence this kind for
+                        these people". This answers "what is THIS person
+                        getting?", which the count badge could only hint at.
+                        preventDefault because the row is a <label>: without it
+                        the click would also toggle the selection checkbox. */}
+                    <EButton
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setEditingUser({ id: u.id, label: u.name || u.email });
+                      }}
+                    >
+                      Edit
+                    </EButton>
                   </label>
                 );
               })
@@ -566,6 +584,25 @@ export function CommsControlCenter({ onToast }: { onToast: (t: EstateToast) => v
           </div>
         </ECardBody>
       </ECard>
+
+      {editingUser ? (
+        <UserEmailPreferencesModal
+          open
+          userId={editingUser.id}
+          userLabel={editingUser.label}
+          onClose={() => setEditingUser(null)}
+          // Update the row badges in place rather than refetching the whole
+          // control centre for one person's change.
+          onSaved={(next) =>
+            setEmailPrefs((prev) => ({
+              disabledKinds: { ...prev.disabledKinds, [editingUser.id]: next.disabledKinds },
+              allEmailOff: next.allEmailOff
+                ? Array.from(new Set([...prev.allEmailOff, editingUser.id]))
+                : prev.allEmailOff.filter((id) => id !== editingUser.id),
+            }))
+          }
+        />
+      ) : null}
 
       {/* Profile overrides */}
       <ECard>
