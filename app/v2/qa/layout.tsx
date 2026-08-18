@@ -2,6 +2,10 @@
 
 import * as React from "react";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
+import {
+  useAttentionCounts,
+  withAttentionBadges,
+} from "@/components/v2/portal/use-attention-counts";
 import { useMaintenanceSection } from "@/components/v2/portal/use-maintenance-section";
 import {
   CalendarCheck,
@@ -32,6 +36,10 @@ export default function V2QaLayout({ children }: { children: React.ReactNode }) 
   // bottom bar (nav.slice(0, 5)) keeps its daily tabs.
   const maintenance = useMaintenanceSection();
 
+  // Queue badges, so an inspector sees waiting work without opening each
+  // screen. The maintenance entry keeps its own CP-6 count below.
+  const counts = useAttentionCounts("/api/qa/attention-counts");
+
   const nav = React.useMemo<NavItem[]>(
     () =>
       maintenance.assigned
@@ -48,9 +56,11 @@ export default function V2QaLayout({ children }: { children: React.ReactNode }) 
     [maintenance.assigned, maintenance.count]
   );
 
+  const navWithCounts = React.useMemo(() => withAttentionBadges(nav, counts), [nav, counts]);
+
   return (
     <div data-skin="estate" data-portal-accent="qa">
-      <PortalShell accent="qa" wordmark="sNeek" nav={nav} roleLabel="QA">
+      <PortalShell accent="qa" wordmark="sNeek" nav={navWithCounts} roleLabel="QA">
         {children}
       </PortalShell>
     </div>

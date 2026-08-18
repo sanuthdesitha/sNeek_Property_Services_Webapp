@@ -1,6 +1,11 @@
 "use client";
 
+import * as React from "react";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
+import {
+  useAttentionCounts,
+  withAttentionBadges,
+} from "@/components/v2/portal/use-attention-counts";
 import {
   Home,
   Waves,
@@ -34,9 +39,14 @@ const NAV: NavItem[] = [
 ];
 
 export default function V2LaundryLayout({ children }: { children: React.ReactNode }) {
+  // Nav badges: work waiting, so a driver does not have to open each board to
+  // find it. Counts mirror each page's own queue definition.
+  const counts = useAttentionCounts("/api/laundry/attention-counts");
+  const nav = React.useMemo(() => withAttentionBadges(NAV, counts), [counts]);
+
   return (
     <div data-skin="estate" data-portal-accent="laundry">
-      <PortalShell accent="laundry" wordmark="sNeek" nav={NAV} roleLabel="Laundry">
+      <PortalShell accent="laundry" wordmark="sNeek" nav={nav} roleLabel="Laundry">
         {children}
       </PortalShell>
     </div>

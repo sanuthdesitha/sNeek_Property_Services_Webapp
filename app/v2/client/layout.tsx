@@ -1,8 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { usePathname } from "next/navigation";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
+import {
+  useAttentionCounts,
+  withAttentionBadges,
+} from "@/components/v2/portal/use-attention-counts";
 import {
   Boxes,
   Briefcase,
@@ -38,7 +41,7 @@ import {
  * Approvals, Reports. Everything else is one tap away in the mobile drawer and
  * always visible on the desktop rail.
  */
-function buildNav(pendingApprovals: number): NavItem[] {
+function buildNav(): NavItem[] {
   return [
     { href: "/v2/client", label: "Home", icon: Home, group: "Overview" },
     // Bottom-bar four (after Home) — the daily flow.
@@ -48,7 +51,6 @@ function buildNav(pendingApprovals: number): NavItem[] {
       href: "/v2/client/approvals",
       label: "Approvals",
       icon: ClipboardCheck,
-      badge: pendingApprovals || undefined,
       group: "Your cleans",
     },
     { href: "/v2/client/reports", label: "Reports", icon: FileText, group: "Your cleans" },
@@ -77,35 +79,12 @@ function buildNav(pendingApprovals: number): NavItem[] {
   ];
 }
 
-/** Pending-approval count for the nav badge; re-read on every navigation. */
-function usePendingApprovalCount() {
-  const pathname = usePathname();
-  const [count, setCount] = React.useState(0);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    fetch("/api/client/approvals", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((rows) => {
-        if (cancelled) return;
-        setCount(
-          Array.isArray(rows) ? rows.filter((row) => row?.status === "PENDING").length : 0
-        );
-      })
-      .catch(() => {
-        // A nav badge is never worth surfacing an error for.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [pathname]);
-
-  return count;
-}
-
 export default function V2ClientLayout({ children }: { children: React.ReactNode }) {
-  const pendingApprovals = usePendingApprovalCount();
-  const nav = React.useMemo(() => buildNav(pendingApprovals), [pendingApprovals]);
+  // Everything waiting on this client, not just approvals: a case asking them
+  // a question, a quote to decide, an invoice to pay. Each count is "waiting
+  // on YOU" rather than "exists" — see the route for each definition.
+  const counts = useAttentionCounts("/api/client/attention-counts");
+  const nav = React.useMemo(() => withAttentionBadges(buildNav(), counts), [counts]);
 
   return (
     <div data-skin="estate" data-portal-accent="client">
