@@ -1,6 +1,11 @@
 "use client";
 
+import * as React from "react";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
+import {
+  useAttentionCounts,
+  withAttentionBadges,
+} from "@/components/v2/portal/use-attention-counts";
 import { Home, Wrench, Package, ClipboardList, MoreHorizontal } from "lucide-react";
 
 const NAV: NavItem[] = [
@@ -12,9 +17,14 @@ const NAV: NavItem[] = [
 ];
 
 export default function V2MaintenanceLayout({ children }: { children: React.ReactNode }) {
+  // Nav badges mirroring app/v2/maintenance/page.tsx exactly, so a badge can
+  // never disagree with the number the page itself prints.
+  const counts = useAttentionCounts("/api/maintenance/attention-counts");
+  const nav = React.useMemo(() => withAttentionBadges(NAV, counts), [counts]);
+
   return (
     <div data-skin="estate" data-portal-accent="maintenance">
-      <PortalShell accent="maintenance" wordmark="sNeek" nav={NAV} roleLabel="Maintenance">
+      <PortalShell accent="maintenance" wordmark="sNeek" nav={nav} roleLabel="Maintenance">
         {children}
       </PortalShell>
     </div>
