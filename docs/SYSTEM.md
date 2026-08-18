@@ -536,7 +536,21 @@ A `Role.VA` acts on behalf of a client. `VaTeam` (many teams per client, many lo
 
 **Middleware had to change too.** `middleware.ts` bounced any non-`CLIENT` role off `/client/**` and `/v2/client/**` before route code ran, so an API-only chokepoint could never have worked. Middleware now decides only *which portal* a VA may enter; what they may do inside remains `requireClientPortal()`'s job.
 
-**Known gaps, deliberately not yet touched:** none of the 36 client routes have been migrated to the chokepoint (so no VA can do anything yet — fail-closed), the approvals trio resolves a *set* of client ids by email match which the chokepoint preserves via `clientIds` only for the CLIENT actor, and the v2 client pages wrap their portal context in `.catch(() => null)` — a fail-open pattern that must not be carried into the migration.
+**Known gaps.** Seven client routes now go through the chokepoint (`properties`, `properties/[id]`, `jobs`, `laundry`, `available-slots`, `booking`, `attention-counts`); the remaining 28 still call `requireRole([Role.CLIENT])` and reject a VA outright — fail-closed, so the gap costs reach, never safety. The approvals trio resolves a *set* of client ids by email match, which the chokepoint preserves via `clientIds` for the CLIENT actor only. The v2 client pages still wrap their portal context in `.catch(() => null)` — a fail-open pattern that must not be carried into the rest of the migration.
+
+### B16. VA team management — the half that makes a VA possible (V2, 2026-08)
+
+B15 built the lock; nothing could cut a key. `VaTeam` was referenced only by `requireClientPortal` and `lib/va/permissions.ts`, and no code path in the product could create a team, attach a login to one, or set its grants — so `Role.VA` was unreachable in practice. `lib/va/teams.ts` plus four routes under `/api/client/va-teams` and the `/v2/client/team` page are that missing half.
+
+**Managing a team is not a permission — it is not delegable at all.** There is deliberately no `team` key in `VA_PERMISSION_KEYS`; `assertTeamManager` refuses any VA actor outright, on the actor rather than on a grant. This is the money rule taken one step further: the money rule stops a VA approving a spend, but a VA who could edit their own team could simply tick the boxes and then approve it, which would make every other check decorative. The page guards with `requireRole([Role.CLIENT])` and the nav item is hidden from a VA via `useSession`, so the refusal is stated three times rather than left to the API alone.
+
+**Property scope is validated against ownership, not trusted.** `VaTeam.propertyIds` is a Json filter with no foreign key, so nothing in the database stops a client posting *another* client’s property id and scoping a VA onto it. Every write checks the ids belong to the acting client and **rejects unknown ones rather than quietly dropping them** — a scope that silently shrinks leaves a client believing their assistant can see something they cannot.
+
+**The invitation flow needed no VA special case.** `lib/auth/invitations.ts` already takes a userId and reads the role off the user, and `/accept-invite/[token]` never gated on role — so inviting a VA is the generic flow with `Role.VA`. The account is created **without a password hash**, and `auth-options` refuses any credentials login without one, so the row is inert until the person accepts. An email already belonging to any other account is refused (`EMAIL_IN_USE`) because re-pointing a live login at a team would be an account takeover; re-inviting someone already on *this* team is treated as a resend, since the first email is the one that gets lost.
+
+**Removal is two writes, and both matter.** Clearing `vaTeamId` makes the chokepoint fail closed for them; `isActive: false` stops the credential signing in at all. Without the second, a removed assistant still holds a working login that merely resolves to no client. Deleting a whole team does the same to its members first — the `VaTeamMembers` relation is `ON DELETE SET NULL`, which would otherwise leave live logins behind as orphans.
+
+**Send failures are reported, not swallowed.** The invitation row is valid whether or not the email left the building, so the API returns `emailSent`/`emailError` and the UI says which happened, letting the client resend or pass the link on themselves. Covered by `tests/lib/va-teams.test.ts` (15 tests, all on the invariants above).
 
 ---
 

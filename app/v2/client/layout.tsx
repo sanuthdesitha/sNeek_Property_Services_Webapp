@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSession } from "next-auth/react";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
 import {
   useAttentionCounts,
@@ -24,6 +25,7 @@ import {
   Shirt,
   ShoppingCart,
   UserRound,
+  Users,
   Wallet,
   Wrench,
 } from "lucide-react";
@@ -41,7 +43,7 @@ import {
  * Approvals, Reports. Everything else is one tap away in the mobile drawer and
  * always visible on the desktop rail.
  */
-function buildNav(): NavItem[] {
+function buildNav(canManageTeam: boolean): NavItem[] {
   return [
     { href: "/v2/client", label: "Home", icon: Home, group: "Overview" },
     // Bottom-bar four (after Home) — the daily flow.
@@ -75,6 +77,13 @@ function buildNav(): NavItem[] {
 
     { href: "/v2/client/referrals", label: "Referrals", icon: Gift, group: "Account" },
     { href: "/v2/client/profile", label: "Profile", icon: UserRound, group: "Account" },
+    // Managing assistants is the client's own power and is not delegable, so a
+    // VA signed into this same portal must not even see the destination. The
+    // page and every endpoint refuse them too; this only avoids offering a tap
+    // that would 403.
+    ...(canManageTeam
+      ? [{ href: "/v2/client/team", label: "Assistants", icon: Users, group: "Account" } as NavItem]
+      : []),
     { href: "/v2/client/settings", label: "Settings", icon: Settings, group: "Account" },
   ];
 }
@@ -84,7 +93,13 @@ export default function V2ClientLayout({ children }: { children: React.ReactNode
   // a question, a quote to decide, an invoice to pay. Each count is "waiting
   // on YOU" rather than "exists" — see the route for each definition.
   const counts = useAttentionCounts("/api/client/attention-counts");
-  const nav = React.useMemo(() => withAttentionBadges(buildNav(), counts), [counts]);
+  // Both CLIENT and VA render this portal; only the client manages assistants.
+  const { data: session } = useSession();
+  const canManageTeam = session?.user?.role === "CLIENT";
+  const nav = React.useMemo(
+    () => withAttentionBadges(buildNav(canManageTeam), counts),
+    [counts, canManageTeam]
+  );
 
   return (
     <div data-skin="estate" data-portal-accent="client">
