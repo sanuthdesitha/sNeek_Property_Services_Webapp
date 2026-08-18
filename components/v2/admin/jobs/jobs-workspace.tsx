@@ -177,7 +177,11 @@ export function JobsWorkspace() {
   const [loading, setLoading] = useState(true);
 
   const [dateScope, setDateScope] = useState<DateScope>("all");
-  const [statusChip, setStatusChip] = useState("active");
+  // Defaults to every job, not just active ones. "active" sent
+  // statusGroup=active, which excludes COMPLETED and INVOICED — i.e. almost
+  // every job that has already happened — so the jobs page silently hid the
+  // past and an admin had to know to click a chip to see it at all.
+  const [statusChip, setStatusChip] = useState("all");
   const [sort, setSort] = useState<JobSort>("soonest");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"list" | "board">("list");
