@@ -1037,6 +1037,7 @@ model Property {
   rotationStates      PropertyRotationState[]
   qaIssues            QaIssue[]
   cleanerStats        CleanerPropertyStat[]
+  invoiceLines        ClientInvoiceLine[]
 
   @@index([placeId])
   @@index([suburb])
@@ -3085,16 +3086,25 @@ model ClientInvoiceLine {
   lineTotal     Float    @default(0)
   category      String
   sortOrder     Int      @default(0) // admin-controlled ordering (group by property + drag)
+  /// Grouping ONLY, and only ever set on a manual line (jobId null).
+  /// A job-backed line already knows its property through the job, and that is
+  /// the truthful one — an override there would let an invoice claim work
+  /// happened somewhere it did not. This exists so a hand-added charge can sit
+  /// under the property it relates to instead of sinking into "Other charges".
+  propertyId    String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   invoice     ClientInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   job         Job?          @relation(fields: [jobId], references: [id])
   shoppingRun ShoppingRun?  @relation(fields: [shoppingRunId], references: [id])
+  // SetNull, not Cascade: deleting a property must never delete a billed line.
+  property    Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)
 
   // generateClientInvoice scans lines by jobId to skip already-invoiced jobs.
   @@index([jobId])
   @@index([invoiceId])
+  @@index([propertyId])
 }
 
 /// One person's opt-out of ONE kind of automatic email.

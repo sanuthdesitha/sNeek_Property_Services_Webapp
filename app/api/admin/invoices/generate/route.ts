@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { generateClientInvoice } from "@/lib/billing/client-invoices";
+import { sydneyDayBoundary } from "@/lib/billing/period";
 
 const schema = z.object({
   clientId: z.string().trim().min(1),
@@ -10,6 +11,8 @@ const schema = z.object({
   periodStart: z.string().trim().optional().nullable(),
   periodEnd: z.string().trim().optional().nullable(),
   gstEnabled: z.boolean().optional(),
+  // Which date the period is measured against - see InvoicePeriodBasis.
+  periodBasis: z.enum(["SERVICE", "SCHEDULED"]).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -20,9 +23,10 @@ export async function POST(req: NextRequest) {
       await generateClientInvoice({
         clientId: body.clientId,
         propertyId: body.propertyId || null,
-        periodStart: body.periodStart ? new Date(body.periodStart) : null,
-        periodEnd: body.periodEnd ? new Date(body.periodEnd) : null,
+        periodStart: sydneyDayBoundary(body.periodStart, "start"),
+        periodEnd: sydneyDayBoundary(body.periodEnd, "end"),
         gstEnabled: body.gstEnabled,
+        periodBasis: body.periodBasis,
       })
     );
   } catch (err: any) {
