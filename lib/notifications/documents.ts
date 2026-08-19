@@ -294,7 +294,10 @@ export async function sendDocument(clientId: string, docType: DocumentType, targ
 
   // Manual re-send — always delivers (transactional, ungated).
   const result = await sendEmailDetailed({
-    kind: "workforce_update",
+    // No kind on purpose: this is a client document re-send (invoice/quote/
+      // report), which the comment above already calls transactional and
+      // ungated. It was mislabelled workforce_update, so switching off
+      // "Workforce & learning" silently killed client document delivery.
     to: doc.recipients,
     subject: doc.subject,
     html: doc.html,

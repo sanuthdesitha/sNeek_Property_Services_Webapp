@@ -8,6 +8,16 @@ import { getAppSettings } from "@/lib/settings";
 
 export const INVITATION_LIFETIME_DAYS = 7;
 
+/** Values interpolated into invite HTML are data, never markup. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export function generateInvitationToken(): string {
   // 24 bytes => 32-char base64url string.
   return randomBytes(24).toString("base64url");
@@ -57,7 +67,7 @@ export async function sendInvitationEmail(params: {
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const settings = await getAppSettings();
-    const greeting = params.name ? `Hi ${params.name},` : "Hi,";
+    const greeting = params.name ? `Hi ${escapeHtml(params.name)},` : "Hi,";
     const expiresLabel = params.expiresAt.toLocaleDateString("en-AU", {
       day: "numeric",
       month: "long",
@@ -66,7 +76,7 @@ export async function sendInvitationEmail(params: {
     const roleLabel = params.role.replace(/_/g, " ").toLowerCase();
     const subject = `You're invited to ${settings.companyName}`;
     const html = `
-      <h2 style="margin:0 0 16px;font-size:20px;">Welcome to ${settings.companyName}</h2>
+      <h2 style="margin:0 0 16px;font-size:20px;">Welcome to ${escapeHtml(settings.companyName)}</h2>
       <p style="margin:0 0 12px;">${greeting}</p>
       <p style="margin:0 0 12px;">
         An administrator has created a ${roleLabel} account for you. Click the
@@ -88,7 +98,7 @@ export async function sendInvitationEmail(params: {
       </p>
     `;
 
-    const ok = await sendEmail({ to: params.to, subject, html, transactional: true });
+    const ok = await sendEmail({ to: params.to, subject, html, transactional: true, critical: true });
     return { ok };
   } catch (err: any) {
     logger.error({ err, to: params.to }, "Failed to send invitation email");

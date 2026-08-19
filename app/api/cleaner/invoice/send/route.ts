@@ -213,6 +213,9 @@ export async function POST(req: NextRequest) {
       subject: emailTemplate.subject,
       html: `${emailTemplate.html}${html}`,
       attachments: [{ filename: fileName, content: pdf }],
+      // A finance document the admin explicitly sent — a stale suppression
+      // must not silently eat an invoice.
+      transactional: true,
     });
 
     if (!emailResult.ok) {
