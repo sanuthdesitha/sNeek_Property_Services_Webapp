@@ -123,6 +123,22 @@ export interface CleanerInvoiceData {
   showSpentHours: boolean;
   /** When false the PDF omits every hours column/tile. Defaults to true. */
   showHours: boolean;
+  /**
+   * DETECTION ONLY — these jobs are NOT billed and this field changes no
+   * amount. A job whose completedAt landed OUTSIDE the period while its
+   * scheduledDate is INSIDE matches neither branch of the date window above
+   * (the evening clean submitted after midnight Sydney is the classic case)
+   * and silently vanishes from the invoice. Until the period rule itself is
+   * decided (it decides what people are PAID, so it needs the owner's call),
+   * the payee and admin at least get told instead of the job disappearing.
+   */
+  gapJobs?: Array<{
+    jobId: string;
+    jobNumber: string | null;
+    property: string;
+    scheduledDate: string;
+    completedAt: string;
+  }>;
   rows: Array<{
     jobId: string;
     date: string;
@@ -346,6 +362,39 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     },
     orderBy: { scheduledDate: "asc" },
   });
+
+  // The fail-safe for the known window gap (see gapJobs on the interface).
+  // Same status, assignment and exclusion filters as the payable query — only
+  // the date arm differs: scheduled INSIDE, completed OUTSIDE. Never throws;
+  // a broken detector must not block an invoice.
+  const gapJobRows = await db.job
+    .findMany({
+      where: {
+        scheduledDate: { gte: start, lte: end },
+        completedAt: { not: null },
+        NOT: { completedAt: { gte: start, lte: end } },
+        status: {
+          in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED],
+        },
+        assignments: { some: { userId: options.userId, removedAt: null } },
+        ...(excludedJobIds.length > 0 ? { id: { notIn: excludedJobIds } } : {}),
+        ...(options.excludePaidJobs
+          ? options.includePaidRunId
+            ? { OR: [{ payrollRunId: null }, { payrollRunId: options.includePaidRunId }] }
+            : { payrollRunId: null }
+          : {}),
+      },
+      select: {
+        id: true,
+        jobNumber: true,
+        scheduledDate: true,
+        completedAt: true,
+        property: { select: { name: true } },
+      },
+      orderBy: { scheduledDate: "asc" },
+      take: 50,
+    })
+    .catch(() => []);
 
   const jobIds = payableJobs.map((job) => job.id);
 
@@ -841,6 +890,13 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     cleanerBankAccountName: user.bankAccountName ?? undefined,
     start,
     end,
+    gapJobs: gapJobRows.map((job) => ({
+      jobId: job.id,
+      jobNumber: job.jobNumber,
+      property: job.property?.name ?? "",
+      scheduledDate: job.scheduledDate.toISOString(),
+      completedAt: job.completedAt?.toISOString() ?? "",
+    })),
     hours,
     estimatedPay,
     showSpentHours,

@@ -13,7 +13,7 @@ type CleanerModule =
   | "payRequests"
   | "lostFound";
 
-type ClientModule =
+export type ClientModule =
   | "properties"
   | "jobs"
   | "booking"

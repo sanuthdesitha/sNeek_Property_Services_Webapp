@@ -41,6 +41,15 @@ function buildEtaUpdateSmsBody(companyName: string, propertyName: string, eta: s
   return `Your ${companyName} cleaner is on the way to ${propertyName}.${liveTripLine}`;
 }
 
+/** HTML builders only — property, cleaner and note text are free-typed fields. */
+function esc(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function buildEnRouteEmailHtml(
   companyName: string,
   cleanerName: string,
@@ -49,9 +58,9 @@ function buildEnRouteEmailHtml(
   liveTripUrl?: string | null,
   scheduleNote?: string | null
 ) {
-  const etaHtml = eta ? `<p><strong>ETA:</strong> ${eta}</p>` : "";
-  const scheduleHtml = scheduleNote ? `<p style="color:#b45309">${scheduleNote}</p>` : "";
-  return `<p>Hi! Your ${companyName} cleaner <strong>${cleanerName}</strong> is on the way to <strong>${propertyName}</strong>.</p>${etaHtml}${scheduleHtml}${buildLiveTripActionHtml("Track live", liveTripUrl)}`;
+  const etaHtml = eta ? `<p><strong>ETA:</strong> ${esc(eta)}</p>` : "";
+  const scheduleHtml = scheduleNote ? `<p style="color:#b45309">${esc(scheduleNote)}</p>` : "";
+  return `<p>Hi! Your ${companyName} cleaner <strong>${esc(cleanerName)}</strong> is on the way to <strong>${esc(propertyName)}</strong>.</p>${etaHtml}${scheduleHtml}${buildLiveTripActionHtml("Track live", liveTripUrl)}`;
 }
 
 function buildEtaUpdateEmailHtml(
@@ -63,14 +72,14 @@ function buildEtaUpdateEmailHtml(
   scheduleNote?: string | null
 ) {
   const etaHtml = eta
-    ? `<p><strong>${cleanerName}</strong> is now ${eta} from <strong>${propertyName}</strong>.</p>`
-    : `<p>Your ${companyName} cleaner is on the way to <strong>${propertyName}</strong>.</p>`;
-  const scheduleHtml = scheduleNote ? `<p style="color:#b45309">${scheduleNote}</p>` : "";
+    ? `<p><strong>${esc(cleanerName)}</strong> is now ${esc(eta)} from <strong>${esc(propertyName)}</strong>.</p>`
+    : `<p>Your ${companyName} cleaner is on the way to <strong>${esc(propertyName)}</strong>.</p>`;
+  const scheduleHtml = scheduleNote ? `<p style="color:#b45309">${esc(scheduleNote)}</p>` : "";
   return `${etaHtml}${scheduleHtml}${buildLiveTripActionHtml("Track live", liveTripUrl)}`;
 }
 
 function buildArrivedEmailHtml(companyName: string, cleanerName: string, propertyName: string, liveTripUrl?: string | null) {
-  return `<p>Your ${companyName} cleaner <strong>${cleanerName}</strong> has arrived at <strong>${propertyName}</strong> and will begin shortly.</p>${buildLiveTripActionHtml("View job details", liveTripUrl)}`;
+  return `<p>Your ${companyName} cleaner <strong>${esc(cleanerName)}</strong> has arrived at <strong>${esc(propertyName)}</strong> and will begin shortly.</p>${buildLiveTripActionHtml("View job details", liveTripUrl)}`;
 }
 
 function buildMessage(
@@ -141,7 +150,8 @@ function buildEmailPayload(
   recipientEmail: string,
   msg: NotificationMessage
 ): { subject: string; html: string; logBody: string } {
-  const html = msg.emailHtml ?? `<p>${msg.smsBody}</p>`;
+  // The SMS body is plain text being promoted into HTML — escape it.
+  const html = msg.emailHtml ?? `<p>${esc(msg.smsBody)}</p>`;
   return { subject: msg.subject, html, logBody: `Client notification sent to ${recipientEmail}` };
 }
 

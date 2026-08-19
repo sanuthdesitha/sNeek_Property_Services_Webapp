@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { DamageReportStatus, Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
+import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { highestDamageSeverity } from "@/lib/damage/severity";
 
@@ -18,13 +18,9 @@ import { highestDamageSeverity } from "@/lib/damage/severity";
  */
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { clientId: true },
-    });
-    if (!user?.clientId) return NextResponse.json({ reports: [] });
+    // Chokepoint with the "damage" grant — this is exactly the capability the
+    // key describes: viewing released damage reports.
+    const portal = await requireClientPortal({ permission: "damage" });
 
     const reports = await db.damageReport.findMany({
       where: {
@@ -37,7 +33,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
             DamageReportStatus.CLOSED,
           ],
         },
-        property: { clientId: user.clientId },
+        property: propertyScopeWhere(portal),
       },
       orderBy: { submittedAt: "desc" },
       select: {

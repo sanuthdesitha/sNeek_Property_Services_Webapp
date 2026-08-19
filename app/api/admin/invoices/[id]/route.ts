@@ -12,6 +12,10 @@ const lineUpdateSchema = z.object({
   description: z.string().trim().min(1).optional(),
   quantity: z.number().positive().optional(),
   unitPrice: z.number().min(0).optional(),
+  // Grouping hint for a MANUAL line. null clears it. Rejected on a job-backed
+  // line: that line already knows its property through the job, and letting an
+  // override win would let an invoice claim work happened somewhere it did not.
+  propertyId: z.string().cuid().nullable().optional(),
 });
 
 const recordPaymentSchema = z.object({
@@ -41,6 +45,13 @@ const patchSchema = z.object({
   removeLineId: z.string().cuid().optional(),
   // Full ordered list of line ids → persisted as sortOrder (group by property + drag).
   reorderLineIds: z.array(z.string().cuid()).optional(),
+  /**
+   * Admin-only escape hatch past the lifecycle graph, for correcting a status
+   * set in error (a PAID stamped on the wrong invoice, a premature VOID).
+   * The graph stays the default for everyone and every other call — this is a
+   * deliberate, audited override, never a silent widening of the rules.
+   */
+  forceStatus: z.boolean().optional(),
 });
 
 export async function GET(
@@ -73,12 +84,66 @@ export async function PATCH(
     });
     if (!existing) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
 
-    // Status changes must follow the allowed lifecycle graph.
+    let statusOverride: { from: string; to: string } | null = null;
+    // Status changes must follow the allowed lifecycle graph, unless an ADMIN
+    // has explicitly asked to override it. OPS_MANAGER may drive the invoice
+    // through its normal lifecycle but may not step outside it: reopening a
+    // PAID invoice is a correction to money already recorded.
     if (body.status && !canTransitionInvoice(existing.status, body.status)) {
-      return NextResponse.json(
-        { error: `Cannot move invoice from ${existing.status} to ${body.status}.` },
-        { status: 400 },
+      if (!body.forceStatus) {
+        return NextResponse.json(
+          { error: `Cannot move invoice from ${existing.status} to ${body.status}.` },
+          { status: 400 },
+        );
+      }
+      if (session.user.role !== Role.ADMIN) {
+        return NextResponse.json(
+          { error: "Only an admin can override the invoice status lifecycle." },
+          { status: 403 },
+        );
+      }
+      // The audit row is written AFTER the update succeeds (below) — an
+      // override that failed to apply must not leave a log entry claiming it
+      // happened.
+      statusOverride = { from: existing.status, to: body.status };
+    }
+
+    // Validate any property hints BEFORE the transaction, so a bad one refuses
+    // the whole request rather than half-applying alongside the price edits.
+    const propertyHints = (body.updateLines ?? []).filter((l) => l.propertyId !== undefined);
+    if (propertyHints.length) {
+      for (const hint of propertyHints) {
+        const line = existing.lines.find((l) => l.id === hint.id);
+        if (!line) {
+          return NextResponse.json({ error: "Line not found on this invoice." }, { status: 404 });
+        }
+        // The whole point of the column: it groups a hand-added charge. A
+        // job-backed line reads its property off the job, and pretending
+        // otherwise would misstate where the work happened.
+        if (line.jobId) {
+          return NextResponse.json(
+            { error: "This line belongs to a job, so its property comes from that job and cannot be changed." },
+            { status: 400 },
+          );
+        }
+      }
+      const wanted = Array.from(
+        new Set(propertyHints.map((h) => h.propertyId).filter((id): id is string => typeof id === "string")),
       );
+      if (wanted.length) {
+        // A property from another client would put someone else’s address on
+        // this invoice, so ownership is checked rather than assumed.
+        const owned = await db.property.findMany({
+          where: { id: { in: wanted }, clientId: existing.clientId },
+          select: { id: true },
+        });
+        if (owned.length !== wanted.length) {
+          return NextResponse.json(
+            { error: "That property does not belong to this client." },
+            { status: 400 },
+          );
+        }
+      }
     }
 
     // Handle line operations in a transaction
@@ -122,6 +187,8 @@ export async function PATCH(
               quantity: lineUpdate.quantity,
               unitPrice: lineUpdate.unitPrice,
               lineTotal: Number((quantity * unitPrice).toFixed(2)),
+              // undefined leaves it alone; null clears it back to "Other charges".
+              ...(lineUpdate.propertyId !== undefined ? { propertyId: lineUpdate.propertyId } : {}),
             },
           });
         }
@@ -156,6 +223,26 @@ export async function PATCH(
     if (body.status === ClientInvoiceStatus.SENT && existing.status !== ClientInvoiceStatus.SENT) {
       statusData.sentAt = new Date();
     }
+    // A forced move OUT of a paid state must not leave the invoice reading as
+    // settled: outstandingOf() derives from paidAmount, so stale stamps would
+    // hide the payment actions on an invoice the admin just reopened. The
+    // metadata.payments ledger is deliberately left intact — the money history
+    // survives; only the settled-state stamps are cleared. The override audit
+    // row records the from/to for the trail.
+    if (
+      statusOverride &&
+      (existing.status === ClientInvoiceStatus.PAID ||
+        existing.status === ClientInvoiceStatus.PART_PAID) &&
+      (body.status === ClientInvoiceStatus.DRAFT ||
+        body.status === ClientInvoiceStatus.APPROVED ||
+        body.status === ClientInvoiceStatus.SENT)
+    ) {
+      statusData.paidAt = null;
+      statusData.paidDate = null;
+      statusData.paidAmount = null;
+      statusData.paymentMethod = null;
+      statusData.paymentReference = null;
+    }
 
     // ── Payment-recording procedure ──────────────────────────────────────
     // Reuses ClientInvoice columns + a metadata.payments[] ledger. (ClientPayment
@@ -166,6 +253,22 @@ export async function PATCH(
     let paymentUpdate: Record<string, unknown> = {};
     let paymentStatus: ClientInvoiceStatus | undefined;
     let paymentLedger: Array<Record<string, unknown>> | undefined;
+    if (statusOverride) {
+      await db.auditLog.create({
+        data: {
+          userId: session.user.id,
+          action: "invoice.status_override",
+          entity: "ClientInvoice",
+          entityId: params.id,
+          after: {
+            from: statusOverride.from,
+            to: statusOverride.to,
+            invoiceNumber: existing.invoiceNumber,
+          } as object,
+        },
+      });
+    }
+
     if (body.recordPayment) {
       const rp = body.recordPayment;
       const prevPaid = Number(existing.paidAmount ?? 0);

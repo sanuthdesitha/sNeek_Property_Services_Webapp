@@ -1,7 +1,6 @@
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
+import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
 import {
@@ -43,7 +42,10 @@ function invoiceTone(status: string): Tone {
 }
 
 export default async function ClientMoneyPage() {
-  const session = await requireRole([Role.CLIENT]);
+  const portalCtx = await requireClientPortalPage({ module: "finance", permission: "invoicesView" });
+  // Shim: downstream code reads session.user.id — for a VA that is THEIR id,
+  // and the VA-aware resolvers scope it to their team's client and properties.
+  const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
   const portal = await getClientPortalContext(session.user.id).catch(() => null);
 
   if (!portal?.visibility.showFinanceDetails) {
@@ -141,7 +143,7 @@ export default async function ClientMoneyPage() {
                         </td>
                         <td className="px-3 py-3 text-right">
                           {inv.status === "SENT" || inv.status === "APPROVED" ? (
-                            <PayInvoiceButton invoiceId={inv.id} />
+                            portalCtx.actor === "CLIENT" ? <PayInvoiceButton invoiceId={inv.id} /> : null
                           ) : null}
                         </td>
                       </tr>

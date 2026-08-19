@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { resolvePortalScopeForUser } from "@/lib/auth/client-portal";
 import { getAppSettings, type AppSettings, type ClientPortalVisibility } from "@/lib/settings";
 
 type ClientVisibilityOverride = Partial<Record<keyof ClientPortalVisibility, boolean>>;
@@ -36,26 +37,25 @@ export function sanitizeClientVisibilityOverride(input: unknown): ClientVisibili
 
 export async function getClientPortalContext(userId: string, settings?: AppSettings) {
   const appSettings = settings ?? (await getAppSettings());
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: {
-      clientId: true,
-      client: {
-        select: {
-          id: true,
-          name: true,
-          portalVisibilityOverrides: true,
-        },
-      },
-    },
-  });
+  // Resolve the client THROUGH the portal-scope resolver, never user.clientId
+  // directly: a VA has clientId null and resolves to their team's client
+  // (fail-closed — no team means no client). Reading user.clientId here was
+  // exactly the fail-open pattern B15 flagged: a VA got clientId null and the
+  // app-default visibility, silently dropping the client's own overrides.
+  const scope = await resolvePortalScopeForUser(userId);
+  const client = scope
+    ? await db.client.findUnique({
+        where: { id: scope.clientId },
+        select: { id: true, name: true, portalVisibilityOverrides: true },
+      })
+    : null;
 
-  const overrides = sanitizeClientVisibilityOverride(user?.client?.portalVisibilityOverrides);
+  const overrides = sanitizeClientVisibilityOverride(client?.portalVisibilityOverrides);
   const visibility = mergeClientPortalVisibility(appSettings.clientPortalVisibility, overrides);
 
   return {
-    clientId: user?.clientId ?? null,
-    client: user?.client ?? null,
+    clientId: client?.id ?? null,
+    client: client ? { id: client.id, name: client.name, portalVisibilityOverrides: client.portalVisibilityOverrides } : null,
     visibility,
     overrides,
     settings: appSettings,

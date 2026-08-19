@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
+import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
-import { getAppSettings } from "@/lib/settings";
-import { getClientPortalContext } from "@/lib/client/portal";
 import { createClientJobTaskRequest } from "@/lib/job-tasks/service";
 
 const schema = z.object({
@@ -21,18 +19,13 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
-    if (!portal.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+        const portal = await requireClientPortal({ permission: "bookings" });
 
     const body = schema.parse(await req.json().catch(() => ({})));
     const job = await db.job.findFirst({
       where: {
         id: params.id,
-        property: { clientId: portal.clientId },
+        property: propertyScopeWhere(portal),
       },
       select: {
         id: true,
@@ -49,7 +42,7 @@ export async function POST(
     const task = await createClientJobTaskRequest({
       jobId: job.id,
       clientId: portal.clientId,
-      requestedByUserId: session.user.id,
+      requestedByUserId: portal.userId,
       title: "Cancellation request",
       description: `Client requested cancellation. Reason: ${body.reason}`,
       baseUrl: req,

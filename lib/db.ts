@@ -69,7 +69,14 @@ function registerNotificationMiddleware(prisma: PrismaClientType) {
     }
 
     if (params.action === "create") {
-      await dispatchMobilePushForNotifications(prisma as any, [result]);
+      // Only PUSH rows go to the phone — matching the createMany branch below.
+      // Without this, every EMAIL log row (including ones whose email was
+      // correctly SUPPRESSED by the user's preferences) still buzzed their
+      // phone: a duplicate for delivered mail, a preference bypass for
+      // suppressed mail.
+      if ((result as any)?.channel === "PUSH") {
+        await dispatchMobilePushForNotifications(prisma as any, [result]);
+      }
       return result;
     }
 

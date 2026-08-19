@@ -258,7 +258,7 @@ export function TeamHub() {
         <div className="space-y-3">
           {/* Your recognition stats — QA average, month jobs, shout-outs (v1 parity) */}
           {me ? (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <ECard>
                 <ECardBody className="pt-6 text-center">
                   <p className="e-eyebrow">QA average</p>

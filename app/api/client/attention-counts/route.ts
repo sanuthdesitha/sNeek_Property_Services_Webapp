@@ -65,6 +65,9 @@ export async function GET() {
     ]);
 
     return NextResponse.json({
+      // The nav uses this to gate destinations for a VA: what they may see is
+      // decided here by the chokepoint, never inferred client-side.
+      portal: { actor: portal.actor, permissions: portal.permissions },
       counts: {
         "/v2/client/approvals": approvals,
         "/v2/client/cases": cases,

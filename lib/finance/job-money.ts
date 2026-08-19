@@ -270,7 +270,14 @@ export function computeClientCharge(
   const propertyRate = (rates.propertyRates ?? []).find(
     (rate) => rate.propertyId === job.propertyId && rate.jobType === job.jobType
   );
-  if (propertyRate && Number.isFinite(Number(propertyRate.baseCharge))) {
+  // Require a POSITIVE base charge, for the same reason the fixed price above
+  // does. A rate row that exists but still reads 0 is an unfinished setup, not
+  // an agreed price of nothing — and accepting it returned rateMissing:false,
+  // which sailed straight past the missing-rate guard in generateClientInvoice
+  // and billed the client $0. A newly added property is exactly where a 0 rate
+  // is found. Falling through to the price book (or to MISSING, which makes
+  // generation refuse loudly) fails visibly instead of quietly under-billing.
+  if (propertyRate && Number.isFinite(Number(propertyRate.baseCharge)) && Number(propertyRate.baseCharge) > 0) {
     return {
       amount: roundCents(Number(propertyRate.baseCharge)),
       source: "PROPERTY_RATE",

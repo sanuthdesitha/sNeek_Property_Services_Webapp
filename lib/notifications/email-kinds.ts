@@ -35,6 +35,15 @@ export const EMAIL_AUTO_KINDS = [
   { key: "timing_rule_changed", label: "Timing rule changes", description: "Early check-in / late check-out rules changed on an assigned job." },
   { key: "job_task_added", label: "Extra tasks added", description: "An admin or approved client request added tasks to an assigned job." },
   { key: "special_note_changed", label: "Job note changes", description: "The job's special note was edited or cleared." },
+  // Finance events (lib/notifications/events.ts) previously carried no kind at
+  // all, so the per-kind switches could not target them. Five kinds cover the
+  // 34 events; the rest map onto existing kinds (see FINANCE_EVENT_EMAIL_KIND
+  // in lib/notifications/engine.ts).
+  { key: "payment_receipt", label: "Payment receipts", description: "Client-facing receipts for payments and refunds." },
+  { key: "payment_reminder", label: "Payment reminders", description: "Overdue invoices, payment links and failed payments." },
+  { key: "payout_notice", label: "Payout notices", description: "A cleaner's own payout sent or failed." },
+  { key: "payroll_update", label: "Payroll updates", description: "Payroll run lifecycle and ABA file notices." },
+  { key: "integration_sync", label: "Integration sync notices", description: "Xero connection and sync events." },
 ] as const;
 
 export type EmailAutoKind = (typeof EMAIL_AUTO_KINDS)[number]["key"];

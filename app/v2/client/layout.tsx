@@ -4,8 +4,9 @@ import * as React from "react";
 import { useSession } from "next-auth/react";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
 import {
-  useAttentionCounts,
+  useClientPortalCounts,
   withAttentionBadges,
+  type ClientPortalGate,
 } from "@/components/v2/portal/use-attention-counts";
 import {
   Boxes,
@@ -43,6 +44,51 @@ import {
  * Approvals, Reports. Everything else is one tap away in the mobile drawer and
  * always visible on the desktop rail.
  */
+/**
+ * What a VA may be OFFERED, by destination.
+ *
+ * "client" = never shown to a VA (money decisions, account management, and
+ * modules with no grant key). A permission name = shown only with that grant.
+ * "always" = any active VA (the pages themselves still enforce, this only
+ * avoids offering a tap that would refuse). Destinations missing from this map
+ * default to client-only, so a NEW nav item is hidden from VAs until someone
+ * decides otherwise — fail closed, not fail visible.
+ */
+const VA_NAV_GATE: Record<string, "always" | "client" | string> = {
+  "/v2/client": "always",
+  "/v2/client/jobs": "always",
+  "/v2/client/laundry": "always",
+  "/v2/client/calendar": "always",
+  "/v2/client/booking": "bookings",
+  "/v2/client/reports": "reports",
+  "/v2/client/properties": "properties",
+  "/v2/client/inventory": "properties",
+  "/v2/client/cases": "maintenance",
+  "/v2/client/maintenance": "maintenance",
+  "/v2/client/messages": "messages",
+  "/v2/client/money": "invoicesView",
+  "/v2/client/approvals": "client",
+  "/v2/client/quotes": "client",
+  "/v2/client/shopping": "client",
+  "/v2/client/stock-runs": "client",
+  "/v2/client/referrals": "client",
+  "/v2/client/profile": "client",
+  "/v2/client/settings": "client",
+  "/v2/client/team": "client",
+};
+
+function filterNavForVa(nav: NavItem[], gate: ClientPortalGate | null): NavItem[] {
+  return nav.filter((item) => {
+    const rule = VA_NAV_GATE[item.href] ?? "client";
+    if (rule === "always") return true;
+    if (rule === "client") return false;
+    // Grants arrive with the first counts poll; until then only the
+    // always-set shows, which then EXPANDS — better than offering taps that
+    // bounce and then vanish.
+    return gate?.permissions?.[rule] === true;
+  });
+}
+
 function buildNav(canManageTeam: boolean): NavItem[] {
   return [
     { href: "/v2/client", label: "Home", icon: Home, group: "Overview" },
@@ -92,14 +138,16 @@ export default function V2ClientLayout({ children }: { children: React.ReactNode
   // Everything waiting on this client, not just approvals: a case asking them
   // a question, a quote to decide, an invoice to pay. Each count is "waiting
   // on YOU" rather than "exists" — see the route for each definition.
-  const counts = useAttentionCounts("/api/client/attention-counts");
-  // Both CLIENT and VA render this portal; only the client manages assistants.
+  const { counts, gate } = useClientPortalCounts("/api/client/attention-counts");
+  // Both CLIENT and VA render this portal; only the client manages assistants,
+  // and a VA is only OFFERED destinations their grants can actually open.
   const { data: session } = useSession();
+  const isVa = session?.user?.role === "VA";
   const canManageTeam = session?.user?.role === "CLIENT";
-  const nav = React.useMemo(
-    () => withAttentionBadges(buildNav(canManageTeam), counts),
-    [counts, canManageTeam]
-  );
+  const nav = React.useMemo(() => {
+    const base = buildNav(canManageTeam);
+    return withAttentionBadges(isVa ? filterNavForVa(base, gate) : base, counts);
+  }, [counts, canManageTeam, isVa, gate]);
 
   return (
     <div data-skin="estate" data-portal-accent="client">

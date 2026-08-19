@@ -29,10 +29,12 @@
  */
 
 import { Role } from "@prisma/client";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireSession } from "@/lib/auth/session";
 import { getAppSettings, type AppSettings } from "@/lib/settings";
 import { mergeClientPortalVisibility, sanitizeClientVisibilityOverride } from "@/lib/client/portal";
+import { isClientModuleEnabled, type ClientModule } from "@/lib/portal-access";
 import {
   parseVaPermissions,
   parseVaPropertyScope,
@@ -56,6 +58,8 @@ export interface ClientPortalContext {
   actor: ClientPortalActor;
   /** The acting user's own id — the VA's, not the client's. Audit uses this. */
   userId: string;
+  /** The acting user's display name (pages greet with it). */
+  userName: string | null;
   /** Set only for a VA. */
   team: ClientPortalTeam | null;
   /** What this actor may do. A CLIENT is granted everything. */
@@ -115,6 +119,7 @@ export async function requireClientPortal(options?: {
     where: { id: session.user.id },
     select: {
       id: true,
+      name: true,
       email: true,
       clientId: true,
       vaTeamId: true,
@@ -191,6 +196,7 @@ export async function requireClientPortal(options?: {
     clientIds,
     actor,
     userId: user.id,
+    userName: user.name,
     team,
     permissions,
     propertyIds,
@@ -259,6 +265,24 @@ export function nestedPropertyScopeWhere(
   return { property: propertyScopeWhere(ctx) };
 }
 
+/**
+ * Resolve a job ONLY if it sits inside the actor's scope.
+ *
+ * Job-bound routes historically scoped by clientId alone, which is complete
+ * for a CLIENT but leaks for a scoped VA: their client's OTHER properties'
+ * jobs would resolve. Same-shaped 404 for out-of-scope and nonexistent, so
+ * the route is not an existence oracle.
+ */
+export async function findJobInScope(
+  jobId: string,
+  ctx: Pick<ClientPortalContext, "clientId" | "propertyIds">
+) {
+  return db.job.findFirst({
+    where: { id: jobId, property: propertyScopeWhere(ctx) },
+    select: { id: true },
+  });
+}
+
 /** Re-exported so routes assert money rules from the same import. */
 export { assertVaMayAct };
 
@@ -294,4 +318,47 @@ export async function auditClientPortalAction(input: {
       } as object,
     },
   });
+}
+
+/**
+ * The PAGE-side twin of requireClientPortal.
+ *
+ * Every v2 client page guarded with requireRole([Role.CLIENT]) bounced a VA
+ * even though middleware admits them and the data layer already scopes them —
+ * the API chokepoint shipped while the pages kept the old guard. This helper
+ * is the one place pages authorise, so the fix is a guard swap per page, not
+ * 22 hand-rolled variants.
+ *
+ * API routes answer a machine, so they THROW and the route maps the message to
+ * a status. A page answers a person mid-navigation, so failures REDIRECT:
+ * signed out → login; wrong role or a VA without the grant → /unauthorized
+ * (the nav never offers a VA a destination they lack, so landing there means a
+ * typed URL, and a plain refusal beats a broken render); a module the client
+ * has hidden → the portal home, exactly as ensureClientModuleAccess does.
+ */
+export async function requireClientPortalPage(options?: {
+  module?: ClientModule;
+  permission?: VaPermissionKey;
+}): Promise<ClientPortalContext & { clientIds: string[] }> {
+  let ctx: (ClientPortalContext & { clientIds: string[] }) | null = null;
+  let failure: "UNAUTHORIZED" | "FORBIDDEN" | null = null;
+  try {
+    ctx = await requireClientPortal(
+      options?.permission ? { permission: options.permission } : undefined
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    // CLIENT_PROFILE_MISSING is a data problem, not an access decision — let
+    // it surface loudly rather than masquerade as a permissions refusal.
+    if (message === "UNAUTHORIZED") failure = "UNAUTHORIZED";
+    else if (message === "FORBIDDEN") failure = "FORBIDDEN";
+    else throw err;
+  }
+  // redirect() throws NEXT_REDIRECT, so it must run OUTSIDE the try above.
+  if (failure === "UNAUTHORIZED") redirect("/login");
+  if (failure === "FORBIDDEN" || !ctx) redirect("/unauthorized");
+  if (options?.module && !isClientModuleEnabled(ctx.visibility, options.module)) {
+    redirect("/v2/client");
+  }
+  return ctx;
 }

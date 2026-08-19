@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
+import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
-import { getAppSettings } from "@/lib/settings";
-import { getClientPortalContext } from "@/lib/client/portal";
 import { notifyAdminsByEmail, notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
 
 const schema = z.object({
@@ -35,12 +32,9 @@ async function buildJobChips(rows: Array<{ jobId: string | null }>) {
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
-    if (!portal.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+    // One chokepoint: role check, client resolution and the "messages" grant.
+    // A VA posts under their own user id, so the thread shows who really wrote.
+    const portal = await requireClientPortal({ permission: "messages" });
 
     // ?jobId= scopes to that job's thread; absent = every message (global page
     // shows job-thread rows with a job chip).
@@ -85,12 +79,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
-    if (!portal.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+    // One chokepoint: role check, client resolution and the "messages" grant.
+    // A VA posts under their own user id, so the thread shows who really wrote.
+    const portal = await requireClientPortal({ permission: "messages" });
 
     const body = schema.parse(await req.json().catch(() => ({})));
     const client = await db.client.findUnique({
@@ -105,7 +96,7 @@ export async function POST(req: NextRequest) {
     let job: { id: string; jobNumber: string | null; property: { name: string } | null } | null = null;
     if (body.jobId) {
       job = await db.job.findFirst({
-        where: { id: body.jobId, property: { clientId: client.id } },
+        where: { id: body.jobId, property: propertyScopeWhere(portal) },
         select: { id: true, jobNumber: true, property: { select: { name: true } } },
       });
       if (!job) {
@@ -117,7 +108,7 @@ export async function POST(req: NextRequest) {
       data: {
         clientId: client.id,
         jobId: job?.id ?? null,
-        sentById: session.user.id,
+        sentById: portal.userId,
         body: body.body,
         isFromAdmin: false,
       },

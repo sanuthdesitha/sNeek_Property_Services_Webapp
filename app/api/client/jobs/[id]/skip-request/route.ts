@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
+import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
-import { getAppSettings } from "@/lib/settings";
-import { getClientPortalContext } from "@/lib/client/portal";
 import { notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
 
 const requestSchema = z.object({
@@ -21,16 +19,11 @@ const BLOCKED_STATUSES: JobStatus[] = [JobStatus.COMPLETED, JobStatus.INVOICED];
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
-    if (!portal.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+        const portal = await requireClientPortal({ permission: "bookings" });
 
     const body = requestSchema.parse(await req.json().catch(() => ({})));
     const job = await db.job.findFirst({
-      where: { id: params.id, property: { clientId: portal.clientId } },
+      where: { id: params.id, property: propertyScopeWhere(portal) },
       select: { id: true, status: true, cleanSkipStatus: true, property: { select: { name: true } } },
     });
     if (!job) {
@@ -54,7 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       data: {
         cleanSkipStatus: "REQUESTED",
         cleanSkipReason: body.reason?.trim() || null,
-        cleanSkipRequestedById: session.user.id,
+        cleanSkipRequestedById: portal.userId,
         cleanSkipDecidedById: null,
         cleanSkipAt: new Date(),
       },
@@ -87,15 +80,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
-    if (!portal.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+        const portal = await requireClientPortal({ permission: "bookings" });
 
     const job = await db.job.findFirst({
-      where: { id: params.id, property: { clientId: portal.clientId } },
+      where: { id: params.id, property: propertyScopeWhere(portal) },
       select: { id: true, cleanSkipStatus: true },
     });
     if (!job) {

@@ -119,13 +119,13 @@ export function EstateCalendarGrid({
           </div>
         </div>
 
-        <div className="grid grid-cols-7 gap-1.5 text-center text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-muted-foreground))]">
+        <div className="grid grid-cols-7 gap-0.5 text-center text-[0.5625rem] font-semibold uppercase tracking-[0.02em] sm:gap-1.5 sm:text-[0.6875rem] sm:tracking-[0.14em] text-[hsl(var(--e-muted-foreground))]">
           {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => (
             <div key={label}>{label}</div>
           ))}
         </div>
 
-        <div className="grid grid-cols-7 gap-1.5">
+        <div className="grid grid-cols-7 gap-0.5 sm:gap-1.5">
           {days.map((day) => {
             const key = format(day, "yyyy-MM-dd");
             const inMonth = isSameMonth(day, month);
@@ -135,7 +135,7 @@ export function EstateCalendarGrid({
               <div
                 key={key}
                 className={cn(
-                  "min-h-[4.5rem] rounded-[var(--e-radius)] border p-1.5 text-left align-top sm:min-h-[5.5rem]",
+                  "min-h-[3rem] rounded-[var(--e-radius)] border p-0.5 text-left align-top sm:min-h-[5.5rem] sm:p-1.5",
                   inMonth
                     ? "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]"
                     : "border-transparent bg-[hsl(var(--e-surface-sunken))]",

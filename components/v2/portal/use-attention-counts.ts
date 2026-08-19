@@ -65,3 +65,52 @@ export function withAttentionBadges<T extends { href: string; badge?: React.Reac
     return count > 0 ? { ...item, badge: count } : item;
   });
 }
+
+/** The client portal's gate payload — who is acting and what they may do. */
+export interface ClientPortalGate {
+  actor: "CLIENT" | "VA";
+  permissions: Record<string, boolean>;
+}
+
+/**
+ * Client-portal variant: counts PLUS the actor/permissions the API resolved.
+ *
+ * A separate hook rather than a changed return shape because five other
+ * portals share useAttentionCounts and none of them has actors. Same rules:
+ * failed polls keep the previous payload, errors are swallowed.
+ */
+export function useClientPortalCounts(endpoint: string): {
+  counts: Record<string, number>;
+  gate: ClientPortalGate | null;
+} {
+  const [state, setState] = React.useState<{
+    counts: Record<string, number>;
+    gate: ClientPortalGate | null;
+  }>({ counts: {}, gate: null });
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetch(endpoint, { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body) => {
+          if (cancelled || !body?.counts) return;
+          setState({
+            counts: body.counts as Record<string, number>,
+            gate: body.portal ?? null,
+          });
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const timer = setInterval(load, REFRESH_MS);
+    window.addEventListener("focus", load);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      window.removeEventListener("focus", load);
+    };
+  }, [endpoint]);
+
+  return state;
+}

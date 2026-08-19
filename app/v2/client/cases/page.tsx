@@ -1,6 +1,4 @@
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
-import { ensureClientModuleAccess } from "@/lib/portal-access";
+import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { ClientCasesWorkspace } from "@/components/v2/client/cases-workspace";
 
@@ -8,8 +6,8 @@ export const metadata = { title: "Cases · Estate client" };
 export const dynamic = "force-dynamic";
 
 export default async function V2ClientCasesRoute() {
-  await ensureClientModuleAccess("cases");
-  await requireRole([Role.CLIENT]);
+  const portalCtx = await requireClientPortalPage({ module: "cases", permission: "maintenance" });
+  void portalCtx;
 
   return (
     <div className="space-y-6">

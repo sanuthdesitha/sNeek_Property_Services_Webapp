@@ -51,6 +51,9 @@ export async function POST(
           content: pdf,
         },
       ],
+      // A finance document the admin explicitly sent — a stale suppression
+      // must not silently eat an invoice.
+      transactional: true,
     });
     if (!result.ok) {
       return NextResponse.json({ error: result.error ?? "Email provider failed." }, { status: 502 });

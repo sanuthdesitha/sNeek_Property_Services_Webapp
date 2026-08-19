@@ -16,15 +16,32 @@
  *   POST  /api/admin/invoices/[id]/xero-push
  *   GET   /api/admin/invoices/[id]/pdf              (view / download)
  */
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
-  ArrowDown,
-  ArrowUp,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   BadgeCheck,
   Building2,
   Check,
   FileText,
+  GripVertical,
+  Layers,
   Loader2,
   Pencil,
   Plus,
@@ -101,6 +118,7 @@ const outstandingOf = (inv: { totalAmount?: number | null; paidAmount?: number |
 type Client = { id: string; name: string; email: string };
 type Property = { id: string; name: string; suburb: string; clientId: string };
 
+type LineProperty = { id: string; name: string; suburb: string };
 type InvoiceLine = {
   id: string;
   description: string;
@@ -108,9 +126,28 @@ type InvoiceLine = {
   unitPrice: number;
   lineTotal: number;
   category: string;
+  /** Job-backed lines carry their property through the job. */
+  job?: { id: string; jobNumber: string | null; scheduledDate: string; property: LineProperty | null } | null;
+  /** Manual lines only — a grouping hint the admin sets by hand. */
+  property?: LineProperty | null;
 };
+
+/**
+ * Which property a line groups under.
+ *
+ * The job wins when there is one: that is where the work actually happened, and
+ * the API refuses to let a hand-set hint override it. A manual line uses its
+ * own hint, and anything with neither sinks into a single trailing bucket —
+ * which is exactly the pile "Group by property" exists to break up.
+ */
+const OTHER_CHARGES = "Other charges";
+function linePropertyLabel(line: InvoiceLine): string {
+  return line.job?.property?.name ?? line.property?.name ?? OTHER_CHARGES;
+}
 type FullInvoice = {
   id: string;
+  /** Server-side reconciliation: stored total disagrees with the lines. */
+  totalsMismatch?: boolean;
   invoiceNumber: string;
   status: InvoiceStatus;
   subtotal: number;
@@ -171,6 +208,9 @@ export function EstateInvoices() {
   const [genPeriodStart, setGenPeriodStart] = useState("");
   const [genPeriodEnd, setGenPeriodEnd] = useState("");
   const [genGstEnabled, setGenGstEnabled] = useState(true);
+  // Defaults to the basis that cannot produce an out-of-period line. SERVICE
+  // remains available for billing strictly by when work was finished.
+  const [genPeriodBasis, setGenPeriodBasis] = useState<"SCHEDULED" | "SERVICE">("SCHEDULED");
 
   // Send modal
   const [sendFor, setSendFor] = useState<Invoice | null>(null);
@@ -415,6 +455,7 @@ export function EstateInvoices() {
           periodStart: genPeriodStart ? `${genPeriodStart}T00:00:00.000Z` : undefined,
           periodEnd: genPeriodEnd ? `${genPeriodEnd}T23:59:59.999Z` : undefined,
           gstEnabled: genGstEnabled,
+          periodBasis: genPeriodBasis,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -560,19 +601,82 @@ export function EstateInvoices() {
     await patchInvoiceLines({ removeLineId: id }, "Line removed");
   }
 
-  // Reorder — same PATCH { reorderLineIds } the v1 drag editor persists
-  // (full ordered list of line ids → saved as 0-based sortOrder). Optimistic
-  // local swap so the row moves immediately; patchInvoiceLines re-fetches to
-  // stay in sync with the server order.
-  async function moveLine(index: number, direction: -1 | 1) {
+  const dndSensors = useSensors(
+    // A small distance threshold so clicking into a price field is not read as
+    // the start of a drag.
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  /** Persist a whole new order, optimistically. */
+  async function persistLineOrder(next: InvoiceLine[]) {
     if (!editInvoice) return;
-    const target = index + direction;
-    if (target < 0 || target >= editInvoice.lines.length) return;
-    const reordered = [...editInvoice.lines];
-    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
-    setEditInvoice({ ...editInvoice, lines: reordered });
-    await patchInvoiceLines({ reorderLineIds: reordered.map((l) => l.id) }, "Line order updated");
+    setEditInvoice({ ...editInvoice, lines: next });
+    await patchInvoiceLines({ reorderLineIds: next.map((l) => l.id) }, "Line order saved");
   }
+
+  function onLineDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!editInvoice || !over || active.id === over.id) return;
+    const from = editInvoice.lines.findIndex((l) => l.id === active.id);
+    const to = editInvoice.lines.findIndex((l) => l.id === over.id);
+    if (from < 0 || to < 0) return;
+    void persistLineOrder(arrayMove(editInvoice.lines, from, to));
+  }
+
+  /**
+   * Cluster lines by property, keeping the existing order inside each cluster.
+   *
+   * Sorted by label with the unattached bucket forced last, then SAVED - the
+   * stored order is what the PDF and the emailed copy render from, so a
+   * view-only grouping would look right to the admin and wrong to the client.
+   */
+  function groupLinesByProperty() {
+    if (!editInvoice) return;
+    const key = (l: InvoiceLine) => {
+      const label = linePropertyLabel(l);
+      return label === OTHER_CHARGES ? "￿" : label;
+    };
+    const next = editInvoice.lines
+      .map((line, index) => ({ line, index }))
+      .sort((a, b) => key(a.line).localeCompare(key(b.line)) || a.index - b.index)
+      .map((x) => x.line);
+    void persistLineOrder(next);
+  }
+
+  /**
+   * Set a status directly, stepping outside the lifecycle graph if needed.
+   *
+   * forceStatus is only consulted by the API when the normal graph refuses, so
+   * sending it here is not a blanket bypass: a legal move stays a legal move,
+   * and only a genuine override is recorded in the audit log. The API also
+   * insists on ADMIN for the override, so an OPS_MANAGER simply gets a 403
+   * rather than a silently ignored click.
+   */
+  async function overrideStatus(next: InvoiceStatus) {
+    if (!editFor || next === editFor.status) return;
+    const res = await fetch("/api/admin/invoices/" + editFor.id, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: next, forceStatus: true }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast({ title: "Could not change status", description: body.error, variant: "destructive" });
+      return;
+    }
+    setEditFor({ ...editFor, status: next });
+    toast({ title: "Status set to " + STATUS_LABEL[next] });
+    await load();
+  }
+  /** Set (or clear) a manual line grouping property. */
+  async function setLineProperty(line: InvoiceLine, propertyId: string) {
+    await patchInvoiceLines(
+      { updateLines: [{ id: line.id, propertyId: propertyId || null }] },
+      propertyId ? "Line grouped" : "Grouping cleared",
+    );
+  }
+
 
   const FILTERS = [
     { key: "active", label: "Active" },
@@ -825,6 +929,28 @@ export function EstateInvoices() {
               <EInput type="date" value={genPeriodEnd} onChange={(e) => setGenPeriodEnd(e.target.value)} />
             </EField>
           </div>
+          <EField
+            label="Bill jobs by"
+            hint="Which date the period above is measured against. Only applies when a period is set."
+          >
+            <ESelect
+              value={genPeriodBasis}
+              onChange={(e) => setGenPeriodBasis(e.target.value as "SCHEDULED" | "SERVICE")}
+            >
+              <option value="SCHEDULED">Scheduled date — matches the date printed on each line</option>
+              <option value="SERVICE">Completion date — bills by when work was finished</option>
+            </ESelect>
+          </EField>
+          {genPeriodBasis === "SERVICE" && (genPeriodStart || genPeriodEnd) ? (
+            // Said plainly at the point of choosing, because the resulting
+            // invoice is the thing that looks wrong: the line prints its
+            // SCHEDULED date, so a job finished inside the window but scheduled
+            // before it reads as out of period to whoever opens the invoice.
+            <p className="text-[0.75rem] text-[hsl(var(--e-warning))]">
+              A job scheduled before this period but completed inside it will be included, and its
+              line will show that earlier scheduled date.
+            </p>
+          ) : null}
           <div className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2.5">
             <span className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">Include GST (10%)</span>
             <ESwitch checked={genGstEnabled} onCheckedChange={setGenGstEnabled} />
@@ -907,105 +1033,94 @@ export function EstateInvoices() {
           </p>
         ) : (
           <div className="space-y-5">
+            {editInvoice.totalsMismatch ? (
+              <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger)/0.08)] p-3 text-[0.8125rem] font-medium text-[hsl(var(--e-danger))]">
+                This invoice&rsquo;s stored total does not match its line items. Do not send it —
+                edit any line (or the GST switch) to force a recalculation, then re-check.
+              </p>
+            ) : null}
             {/* Existing lines */}
             <div className="space-y-2">
-              <EEyebrow>Line items</EEyebrow>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <EEyebrow>Line items</EEyebrow>
+                <EButton
+                  size="sm"
+                  variant="outline"
+                  disabled={editSaving || editInvoice.lines.length < 2}
+                  onClick={groupLinesByProperty}
+                  title="Cluster lines by property, then fine-tune by dragging"
+                >
+                  <Layers className="h-3.5 w-3.5" /> Group by property
+                </EButton>
+              </div>
               {editInvoice.lines.length === 0 ? (
                 <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
                   No line items yet — add one below.
                 </p>
               ) : (
-                editInvoice.lines.map((line, index) => (
-                  <div
-                    key={line.id}
-                    className="grid grid-cols-12 items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2"
+                <>
+                  {editInvoice.lines.length > 1 ? (
+                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      Drag a row by its handle to reorder. Grouping saves immediately, so the PDF
+                      and the client’s copy match what you see here.
+                    </p>
+                  ) : null}
+                  <DndContext
+                    sensors={dndSensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={onLineDragEnd}
                   >
-                    <div className="col-span-1 flex flex-col items-center">
-                      <EButton
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6"
-                        disabled={editSaving || index === 0}
-                        onClick={() => moveLine(index, -1)}
-                        title="Move line up"
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </EButton>
-                      <EButton
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6"
-                        disabled={editSaving || index === editInvoice.lines.length - 1}
-                        onClick={() => moveLine(index, 1)}
-                        title="Move line down"
-                      >
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </EButton>
-                    </div>
-                    <EInput
-                      className="col-span-4 h-9"
-                      value={line.description}
-                      placeholder="Description"
-                      onChange={(e) => updateLineField(line.id, { description: e.target.value })}
-                    />
-                    <EInput
-                      className="col-span-2 h-9"
-                      type="number"
-                      step="0.01"
-                      value={line.quantity}
-                      onChange={(e) => updateLineField(line.id, { quantity: Number(e.target.value) })}
-                      title="Quantity"
-                    />
-                    <EInput
-                      className="col-span-2 h-9"
-                      type="number"
-                      step="0.01"
-                      value={line.unitPrice}
-                      onChange={(e) => updateLineField(line.id, { unitPrice: Number(e.target.value) })}
-                      title="Unit price"
-                    />
-                    <div className="col-span-2 text-right text-[0.8125rem] e-tnum">
-                      {money(line.lineTotal)}
-                    </div>
-                    <div className="col-span-1 flex justify-end gap-1">
-                      <EButton
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8"
-                        disabled={editSaving}
-                        onClick={() => saveLine(line)}
-                        title="Save this line"
-                      >
-                        <Check className="h-4 w-4 text-[hsl(var(--e-success))]" />
-                      </EButton>
-                      <EButton
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8"
-                        disabled={editSaving}
-                        onClick={() => removeLine(line.id)}
-                        title="Remove this line"
-                      >
-                        <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                      </EButton>
-                    </div>
-                  </div>
-                ))
+                    <SortableContext
+                      items={editInvoice.lines.map((l) => l.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="space-y-2">
+                        {editInvoice.lines.map((line, index) => {
+                          // A heading whenever the property changes, so a grouped
+                          // invoice reads as blocks rather than one flat list.
+                          const label = linePropertyLabel(line);
+                          const previous =
+                            index > 0 ? linePropertyLabel(editInvoice.lines[index - 1]) : null;
+                          return (
+                            <Fragment key={line.id}>
+                              {label !== previous ? (
+                                <div className="flex items-center gap-1.5 pt-1.5 text-[0.75rem] font-semibold text-[hsl(var(--e-muted-foreground))]">
+                                  <Building2 className="h-3 w-3" /> {label}
+                                </div>
+                              ) : null}
+                              <SortableLineRow
+                                line={line}
+                                disabled={editSaving}
+                                clientProperties={properties.filter(
+                                  (prop) => prop.clientId === editFor?.client.id,
+                                )}
+                                onField={(patch) => updateLineField(line.id, patch)}
+                                onSave={() => saveLine(line)}
+                                onRemove={() => removeLine(line.id)}
+                                onProperty={(propertyId) => setLineProperty(line, propertyId)}
+                              />
+                            </Fragment>
+                          );
+                        })}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </>
               )}
             </div>
 
             {/* Add line */}
             <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
               <EEyebrow>Add a line</EEyebrow>
-              <div className="grid grid-cols-12 items-end gap-2">
-                <EField label="Description" className="col-span-5">
+              <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-12">
+                <EField label="Description" className="sm:col-span-5">
                   <EInput
                     className="h-9"
                     value={newLine.description}
                     onChange={(e) => setNewLine({ ...newLine, description: e.target.value })}
                   />
                 </EField>
-                <EField label="Qty" className="col-span-2">
+                <EField label="Qty" className="sm:col-span-2">
                   <EInput
                     className="h-9"
                     type="number"
@@ -1014,7 +1129,7 @@ export function EstateInvoices() {
                     onChange={(e) => setNewLine({ ...newLine, quantity: e.target.value })}
                   />
                 </EField>
-                <EField label="Unit price" className="col-span-3">
+                <EField label="Unit price" className="sm:col-span-3">
                   <EInput
                     className="h-9"
                     type="number"
@@ -1023,7 +1138,7 @@ export function EstateInvoices() {
                     onChange={(e) => setNewLine({ ...newLine, unitPrice: e.target.value })}
                   />
                 </EField>
-                <div className="col-span-2">
+                <div className="sm:col-span-2">
                   <EButton className="w-full" size="sm" variant="outline" disabled={editSaving} onClick={addLine}>
                     <Plus className="h-3.5 w-3.5" /> Add
                   </EButton>
@@ -1047,8 +1162,39 @@ export function EstateInvoices() {
               />
             </div>
 
+            {/* Advanced */}
+            <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
+              <EEyebrow>Advanced</EEyebrow>
+              <div className="flex flex-wrap items-end gap-2">
+                <EField
+                  label="Force status"
+                  hint="Admin only. Steps outside the normal lifecycle and is recorded in the audit log."
+                  className="min-w-[180px] flex-1"
+                >
+                  <ESelect
+                    value={editFor?.status ?? ""}
+                    onChange={(e) => overrideStatus(e.target.value as InvoiceStatus)}
+                  >
+                    {(Object.keys(STATUS_LABEL) as InvoiceStatus[]).map((key) => (
+                      <option key={key} value={key}>
+                        {STATUS_LABEL[key]}
+                      </option>
+                    ))}
+                  </ESelect>
+                </EField>
+                <EButton
+                  size="sm"
+                  variant="outline"
+                  disabled={!editFor || busy === editFor.id}
+                  onClick={() => editFor && pushToXero(editFor)}
+                  title="Create or update this invoice as a draft in Xero"
+                >
+                  {editFor?.xeroExportedAt ? "Xero ✓" : "Push to Xero"}
+                </EButton>
+              </div>
+            </div>
             {/* Totals */}
-            <div className="grid grid-cols-3 gap-3 border-t border-[hsl(var(--e-border))] pt-4">
+            <div className="grid grid-cols-1 gap-3 border-t border-[hsl(var(--e-border))] pt-4 sm:grid-cols-3">
               <div>
                 <EEyebrow>Subtotal</EEyebrow>
                 <p className="e-numeral mt-1 text-[1.125rem] leading-none">{money(editInvoice.subtotal)}</p>
@@ -1081,7 +1227,7 @@ export function EstateInvoices() {
       >
         {payFor ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
+            <div className="grid grid-cols-1 gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3 sm:grid-cols-3">
               <div>
                 <EEyebrow>Invoice total</EEyebrow>
                 <p className="e-numeral mt-1 text-[1rem] leading-none">{money(payFor.totalAmount)}</p>
@@ -1268,6 +1414,136 @@ export function EstateInvoices() {
         loading={deleting}
         onConfirm={deleteInvoice}
       />
+    </div>
+  );
+}
+
+/**
+ * One editable line, draggable by its handle.
+ *
+ * The handle is deliberately the only drag target: the row is full of number
+ * inputs, and making the whole row draggable would fight every attempt to put a
+ * cursor in one. The KeyboardSensor keeps the handle operable without a mouse,
+ * which is why the old up/down buttons could be retired rather than kept
+ * alongside it.
+ */
+function SortableLineRow({
+  line,
+  disabled,
+  clientProperties,
+  onField,
+  onSave,
+  onRemove,
+  onProperty,
+}: {
+  line: InvoiceLine;
+  disabled: boolean;
+  clientProperties: Property[];
+  onField: (patch: Partial<InvoiceLine>) => void;
+  onSave: () => void;
+  onRemove: () => void;
+  onProperty: (propertyId: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: line.id,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={
+        "rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2 " +
+        (isDragging ? "opacity-60 shadow-lg" : "")
+      }
+    >
+      <div className="grid grid-cols-2 items-center gap-2 md:grid-cols-12">
+        <button
+          type="button"
+          className="col-span-2 flex cursor-grab items-center justify-center md:col-span-1 text-[hsl(var(--e-muted-foreground))] active:cursor-grabbing"
+          aria-label={"Reorder " + line.description}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <EInput
+          className="col-span-2 h-9 md:col-span-4"
+          value={line.description}
+          placeholder="Description"
+          onChange={(e) => onField({ description: e.target.value })}
+        />
+        <EInput
+          className="col-span-1 h-9 md:col-span-2"
+          type="number"
+          step="0.01"
+          value={line.quantity}
+          onChange={(e) => onField({ quantity: Number(e.target.value) })}
+          title="Quantity"
+        />
+        <EInput
+          className="col-span-1 h-9 md:col-span-2"
+          type="number"
+          step="0.01"
+          value={line.unitPrice}
+          onChange={(e) => onField({ unitPrice: Number(e.target.value) })}
+          title="Unit price"
+        />
+        <div className="col-span-1 text-right text-[0.8125rem] e-tnum">{money(line.lineTotal)}</div>
+        <div className="col-span-1 flex justify-end gap-1">
+          <EButton
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8"
+            disabled={disabled}
+            onClick={onSave}
+            title="Save this line"
+          >
+            <Check className="h-4 w-4 text-[hsl(var(--e-success))]" />
+          </EButton>
+          <EButton
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8"
+            disabled={disabled}
+            onClick={onRemove}
+            title="Remove this line"
+          >
+            <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
+          </EButton>
+        </div>
+      </div>
+
+      {/* Context row: where this charge came from. */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-0 md:pl-[8.333%] text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+        {line.job ? (
+          // Job-backed: state the source. Its property is fixed by the job, so no
+          // control is offered here — the API would refuse the change anyway.
+          <span>
+            #{line.job.jobNumber ?? line.job.id.slice(0, 8)}
+            {" · "}
+            {format(new Date(line.job.scheduledDate), "dd MMM yyyy")}
+            {line.job.property ? " · " + line.job.property.name : ""}
+          </span>
+        ) : (
+          <>
+            <span>Manual charge — group under</span>
+            <ESelect
+              className="h-9 w-auto min-w-[150px] text-[0.75rem] sm:h-7"
+              value={line.property?.id ?? ""}
+              disabled={disabled}
+              onChange={(e) => onProperty(e.target.value)}
+            >
+              <option value="">Other charges</option>
+              {clientProperties.map((prop) => (
+                <option key={prop.id} value={prop.id}>
+                  {prop.name}
+                </option>
+              ))}
+            </ESelect>
+          </>
+        )}
+      </div>
     </div>
   );
 }

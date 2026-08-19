@@ -217,17 +217,17 @@ export function LaundrySuppliers() {
                 <td className="px-4 py-3 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
                   <div className="flex flex-col gap-0.5">
                     {s.phone ? (
-                      <span className="inline-flex items-center gap-1">
+                      <span className="inline-flex min-w-0 max-w-full items-center gap-1 truncate">
                         <Phone className="h-3 w-3" /> {s.phone}
                       </span>
                     ) : null}
                     {s.email ? (
-                      <span className="inline-flex items-center gap-1">
+                      <span className="inline-flex min-w-0 max-w-full items-center gap-1 truncate">
                         <Mail className="h-3 w-3" /> {s.email}
                       </span>
                     ) : null}
                     {s.address ? (
-                      <span className="inline-flex items-center gap-1">
+                      <span className="inline-flex min-w-0 max-w-full items-center gap-1 truncate">
                         <MapPin className="h-3 w-3" /> {s.address}
                       </span>
                     ) : null}

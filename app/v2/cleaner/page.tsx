@@ -228,7 +228,7 @@ export default async function CleanerTodayPage() {
       {/* QA feedback — recent inspection outcomes, self-hides when empty */}
       <CleanerQaFeedbackCard />
 
-      <section className="grid grid-cols-3 gap-3">
+      <section className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-3">
         <EStatCard label="Today" value={String(jobCount)} />
         <EStatCard label="This week" value={String(jobs.length)} />
         <EStatCard label="Next" value={nextJob?.startTime || "—"} />

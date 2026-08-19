@@ -554,6 +554,34 @@ B15 built the lock; nothing could cut a key. `VaTeam` was referenced only by `re
 
 ---
 
+### B16b. VA go-live: pages, nav and the remaining routes (2026-08-19)
+
+B15 built the chokepoint, B16 the management UI — but every v2 client PAGE still guarded with requireRole([Role.CLIENT]), so a VA passed middleware and bounced off all 22 pages. The fix is one page-side twin, **requireClientPortalPage({ module?, permission? })** (lib/auth/client-portal.ts): same chokepoint underneath, but failures REDIRECT (signed-out → /login, wrong role or missing grant → /unauthorized, hidden module → portal home) because a page answers a person mid-navigation, not a machine. 13 pages migrated with a session shim (portalCtx.userId keeps every downstream resolver call working); approvals/quotes/shopping/stock-runs/referrals/profile/settings/team stay CLIENT-only by design.
+
+**getClientPortalContext is now VA-aware**: it resolves the client THROUGH resolvePortalScopeForUser instead of user.clientId (null for a VA — the exact fail-open B15 flagged), so per-client visibility overrides reach VAs and every route still calling it inherited the fix.
+
+**Calendar and inventory stopped resolving user.clientId directly** and now feed propertyScopeWhere(portalCtx) — a scoped VA sees only granted properties, and the inventory filter chips are built from the scoped list so an ungranted property is never offered.
+
+**Routes migrated to the chokepoint this pass** (now 21 of 41): messages (GET+POST, "messages"), reports ("reports", merged visibility instead of raw settings), cases (GET+POST, "maintenance", with NEW ownership validation — body propertyId/jobId were previously trusted), jobs/[id] (any VA, scope-narrowed), cancel/reschedule/skip/requests/task-requests ("bookings" — closing the last 2 V1 routes from the queue), damage/[reportId] + jobs/[id]/damage-reports ("damage"). findJobInScope() joins propertyScopeWhere as the standard job-bound scope check.
+
+**Nav is gated server-authoritatively**: /api/client/attention-counts now returns { portal: { actor, permissions } } alongside counts; useClientPortalCounts (a separate hook — five other portals share the plain one) feeds VA_NAV_GATE in the client layout. Unknown destinations default to client-only, so a new nav item is hidden from VAs until someone decides otherwise. Pay buttons on money/finance render only for actor CLIENT — the API refused a VA anyway, but offering a tap that bounces is an issue, not a safeguard.
+
+### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
+
+**Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.
+
+**ClientInvoiceLine.propertyId is a grouping hint for MANUAL lines only** (migration 20260819010000_invoice_line_property, SET NULL). The PATCH endpoint rejects it on a job-backed line — the job's property is where the work happened and an override would let an invoice claim otherwise — and validates ownership so another client's property id cannot be attached.
+
+**forceStatus** on PATCH /api/admin/invoices/[id]: ADMIN-only escape hatch past the canTransitionInvoice graph, audit-logged as invoice.status_override. OPS_MANAGER gets 403. The graph stays the default for every other call.
+
+**The period is Sydney calendar days.** Both panels posted <date>T00:00:00.000Z boundaries, i.e. 10:00 Sydney — a July invoice swept in the first morning of August and dropped the first morning of July. app/api/admin/invoices/generate/route.ts now rebuilds the boundary with fromZonedTime in Australia/Sydney from just the calendar date, fixing both panels at once.
+
+**periodBasis: SERVICE | SCHEDULED** on generateClientInvoice. SERVICE is the historic completion-else-scheduled OR window; SCHEDULED measures against the very date each line prints, so nothing can appear out of frame. The generate dialog asks per run and defaults to SCHEDULED; the generator itself defaults to SERVICE so lib/finance/auto-invoice.ts is byte-for-byte unchanged. Query shapes pinned by tests/lib/client-invoice-generation.test.ts.
+
+**A zero property rate no longer bills $0.** computeClientCharge's property-rate branch now requires baseCharge > 0, matching the fixed-price branch's documented rule; a rate row left at 0 falls through to the price book or surfaces as rateMissing so generation refuses loudly (tests/lib/job-money.test.ts).
+
+---
+
 ## Section C — Laundry operation & the QA/accountability system
 
 ### C1. Laundry scheduling engine

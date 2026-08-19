@@ -2,9 +2,7 @@ import Link from "next/link";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
-import { requireRole } from "@/lib/auth/session";
-import { ensureClientModuleAccess } from "@/lib/portal-access";
-import { Role } from "@prisma/client";
+import { propertyScopeWhere, requireClientPortalPage } from "@/lib/auth/client-portal";
 import {
   EBadge,
   EButton,
@@ -52,20 +50,16 @@ function titleCase(value: string) {
 }
 
 export default async function ClientCalendarPage() {
-  await ensureClientModuleAccess("calendar");
-  const session = await requireRole([Role.CLIENT]);
-  const user = await db.user
-    .findUnique({
-      where: { id: session.user.id },
-      select: { clientId: true },
-    })
-    .catch(() => null);
-
-  const jobs = user?.clientId
-    ? await db.job
+  const portalCtx = await requireClientPortalPage({ module: "calendar" });
+  // Shim: downstream code reads session.user.id — for a VA that is THEIR id,
+  // and the VA-aware resolvers scope it to their team's client and properties.
+  // The client and property scope come from the guard, never user.clientId:
+  // a VA has clientId null (empty calendar), and a scoped VA must only see
+  // jobs on the properties their client granted.
+  const jobs = await db.job
         .findMany({
           where: {
-            property: { clientId: user.clientId },
+            property: propertyScopeWhere(portalCtx),
           },
           select: {
             id: true,
@@ -83,8 +77,7 @@ export default async function ClientCalendarPage() {
           orderBy: [{ scheduledDate: "asc" }],
           take: 500,
         })
-        .catch(() => [])
-    : [];
+        .catch(() => []);
 
   const todayKey = format(toZonedTime(new Date(), TZ), "yyyy-MM-dd");
   const rows = (jobs ?? []).map((job) => {

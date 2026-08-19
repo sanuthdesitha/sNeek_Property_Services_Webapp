@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { audienceForRole, isChannelAllowed } from "@/lib/notifications/audience-controls";
 import { FINANCE_EVENTS } from "./events";
+import type { EmailAutoKind } from "@/lib/notifications/email-kinds";
 
 type NotificationContext = Record<string, string | number | null | undefined>;
 
@@ -60,7 +61,7 @@ export async function sendNotification(
       const substituted = substituteTemplate(template, context);
 
       // Send via channel
-      const result = await sendViaChannel(channel, substituted, options);
+      const result = await sendViaChannel(eventKey, channel, substituted, options);
 
       if (result.ok) {
         await logNotification(eventKey, context, channel, recipientRole, "SENT", undefined, substituted.subject);
@@ -96,6 +97,7 @@ function substituteTemplate(
 }
 
 async function sendViaChannel(
+  eventKey: string,
   channel: NotificationChannel,
   content: { subject?: string; html?: string; text?: string; sms?: string; pushTitle?: string; pushBody?: string },
   options: SendNotificationOptions
@@ -116,16 +118,17 @@ async function sendViaChannel(
         // asked for, and turning them off in the admin UI appeared to do
         // nothing. Every gate now applies in one place.
         //
-        // No `kind` is passed because these events are their own taxonomy
-        // (lib/notifications/events.ts) with no EmailAutoKind equivalent. That
-        // means the per-KIND switch still cannot target them individually —
-        // but `allEmailOff` and the suppression list now do reach them, which
-        // is the difference between "unsubscribed" being honoured and ignored.
+        // Each finance event now maps onto an EmailAutoKind
+        // (FINANCE_EVENT_EMAIL_KIND below), so the per-kind switches in the
+        // admin UI and each user's own preferences genuinely target them —
+        // previously they carried no kind and only allEmailOff/suppression
+        // applied.
         const { sendEmailDetailed } = await import("@/lib/notifications/email");
         const result = await sendEmailDetailed({
           to: options.to,
           subject: content.subject || "sNeek Ops Notification",
           html: content.html,
+          kind: FINANCE_EVENT_EMAIL_KIND[eventKey],
         });
 
         if (result.skipped) return { ok: false, error: result.error ?? "skipped" };
@@ -209,3 +212,49 @@ async function logNotification(
     },
   });
 }
+
+/**
+ * EmailAutoKind for each finance event, so per-kind switches reach them.
+ *
+ * Five kinds carry most of the taxonomy: payment_receipt (client-facing
+ * money-in), payment_reminder (dunning), payout_notice (a cleaner's own
+ * money), payroll_update (run lifecycle), integration_sync (Xero plumbing).
+ * Failures route to admin_alert — a failure is an ops problem, not a
+ * preference topic.
+ */
+export const FINANCE_EVENT_EMAIL_KIND: Record<string, EmailAutoKind> = {
+  invoice_generated: "auto_invoice",
+  invoice_approved: "admin_alert",
+  invoice_sent_to_client: "admin_alert",
+  invoice_paid_by_client: "admin_alert",
+  invoice_payment_received: "payment_receipt",
+  invoice_overdue: "payment_reminder",
+  invoice_voided: "admin_alert",
+  invoice_xero_exported: "integration_sync",
+  payroll_run_created: "payroll_update",
+  payroll_run_confirmed: "payroll_update",
+  payroll_processing: "payroll_update",
+  payroll_completed: "payroll_update",
+  payroll_failed: "admin_alert",
+  payout_sent: "payout_notice",
+  payout_failed: "payout_notice",
+  payout_aba_generated: "payroll_update",
+  pay_adjustment_requested: "pay_adjustment",
+  pay_adjustment_approved: "pay_adjustment",
+  pay_adjustment_rejected: "pay_adjustment",
+  pay_adjustment_sent_to_client: "pay_adjustment",
+  pay_adjustment_client_approved: "pay_adjustment",
+  pay_adjustment_client_declined: "pay_adjustment",
+  pay_adjustment_paid: "pay_adjustment",
+  client_payment_link_created: "payment_reminder",
+  client_payment_initiated: "admin_alert",
+  client_payment_succeeded: "payment_receipt",
+  client_payment_failed: "payment_reminder",
+  client_payment_refunded: "payment_receipt",
+  xero_connected: "integration_sync",
+  xero_disconnected: "admin_alert",
+  xero_contact_synced: "integration_sync",
+  xero_invoice_pushed: "integration_sync",
+  xero_bill_created: "integration_sync",
+  xero_sync_error: "admin_alert",
+};

@@ -1,10 +1,8 @@
 import Link from "next/link";
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
+import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { getAppSettings } from "@/lib/settings";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { listClientJobsForUser } from "@/lib/client/portal-data";
-import { ensureClientModuleAccess } from "@/lib/portal-access";
 import { ClientJobsBoard } from "@/components/v2/client/jobs-board";
 import { EButton, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
 
@@ -12,8 +10,10 @@ export const metadata = { title: "Jobs · Estate client" };
 export const dynamic = "force-dynamic";
 
 export default async function ClientJobsPage() {
-  await ensureClientModuleAccess("jobs");
-  const session = await requireRole([Role.CLIENT]);
+  const portalCtx = await requireClientPortalPage({ module: "jobs" });
+  // Shim: downstream code reads session.user.id — for a VA that is THEIR id,
+  // and the VA-aware resolvers scope it to their team's client and properties.
+  const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
 
   const settings = await getAppSettings().catch(() => null);
   const portal = settings

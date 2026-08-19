@@ -206,6 +206,44 @@ describe("computeClientCharge", () => {
   });
 });
 
+describe("computeClientCharge - a zero rate is unfinished setup, not a price", () => {
+  const priceBook = [{ jobType: JT, baseRate: 200 }];
+
+  it("does not bill $0 from a property rate of 0", () => {
+    // The fixed-price branch already required > 0 for exactly this reason. The
+    // property-rate branch did not, so a rate row left at 0 - which is what a
+    // newly added property looks like before anyone sets it - returned
+    // amount 0 with rateMissing:false. That sailed past the missing-rate guard
+    // in generateClientInvoice and billed the client nothing.
+    const result = computeClientCharge(
+      { jobType: JT, propertyId: "p1", fixedPrice: null },
+      { propertyRates: [{ propertyId: "p1", jobType: JT, baseCharge: 0, defaultDescription: null }], priceBook }
+    );
+    expect(result.amount).not.toBe(0);
+    expect(result.source).toBe("JOBTYPE_PRICE");
+  });
+
+  it("reports the rate as MISSING when nothing else can price the job", () => {
+    // With no price book to fall through to, a 0 rate must surface as missing so
+    // generation refuses loudly rather than issuing a $0 line.
+    const result = computeClientCharge(
+      { jobType: JT, propertyId: "p1", fixedPrice: null },
+      { propertyRates: [{ propertyId: "p1", jobType: JT, baseCharge: 0, defaultDescription: null }], priceBook: [] }
+    );
+    expect(result.rateMissing).toBe(true);
+    expect(result.amount).toBeNull();
+  });
+
+  it("still honours a genuine positive rate", () => {
+    const result = computeClientCharge(
+      { jobType: JT, propertyId: "p1", fixedPrice: null },
+      { propertyRates: [{ propertyId: "p1", jobType: JT, baseCharge: 150, defaultDescription: null }], priceBook }
+    );
+    expect(result.amount).toBe(150);
+    expect(result.source).toBe("PROPERTY_RATE");
+  });
+});
+
 describe("roundCents", () => {
   it("rounds to whole cents", () => {
     expect(roundCents(1.005)).toBe(1.01);

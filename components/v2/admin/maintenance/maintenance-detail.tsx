@@ -734,7 +734,7 @@ export function EstateMaintenanceDetail({ itemId }: { itemId: string }) {
                     href={directionsUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-[hsl(var(--e-gold-ink))] hover:underline"
+                    className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-[hsl(var(--e-gold-ink))] hover:underline"
                   >
                     <MapPin className="h-3.5 w-3.5" /> Directions to property
                     <ExternalLink className="h-3 w-3 opacity-60" />
@@ -806,7 +806,7 @@ export function EstateMaintenanceDetail({ itemId }: { itemId: string }) {
                       {worker.phone ? (
                         <a
                           href={`tel:${worker.phone}`}
-                          className="inline-flex items-center gap-1.5 text-[hsl(var(--e-gold-ink))] hover:underline"
+                          className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-[hsl(var(--e-gold-ink))] hover:underline"
                         >
                           <Phone className="h-3.5 w-3.5" /> {worker.phone}
                         </a>
@@ -814,7 +814,7 @@ export function EstateMaintenanceDetail({ itemId }: { itemId: string }) {
                       {worker.email ? (
                         <a
                           href={`mailto:${worker.email}`}
-                          className="inline-flex items-center gap-1.5 text-[hsl(var(--e-gold-ink))] hover:underline"
+                          className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-[hsl(var(--e-gold-ink))] hover:underline"
                         >
                           <Mail className="h-3.5 w-3.5" /> {worker.email}
                         </a>
@@ -967,7 +967,7 @@ export function EstateMaintenanceDetail({ itemId }: { itemId: string }) {
                 {item.property.client.phone ? (
                   <a
                     href={`tel:${item.property.client.phone}`}
-                    className="inline-flex items-center gap-1.5 text-[hsl(var(--e-gold-ink))] hover:underline"
+                    className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-[hsl(var(--e-gold-ink))] hover:underline"
                   >
                     <Phone className="h-3.5 w-3.5" /> {item.property.client.phone}
                   </a>
@@ -975,7 +975,7 @@ export function EstateMaintenanceDetail({ itemId }: { itemId: string }) {
                 {item.property.client.email ? (
                   <a
                     href={`mailto:${item.property.client.email}`}
-                    className="inline-flex items-center gap-1.5 text-[hsl(var(--e-gold-ink))] hover:underline"
+                    className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-[hsl(var(--e-gold-ink))] hover:underline"
                   >
                     <Mail className="h-3.5 w-3.5" /> {item.property.client.email}
                   </a>

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
+import { findJobInScope, propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { createCase, listCases, toClientCaseView } from "@/lib/cases/service";
 import { notifyCaseCreated } from "@/lib/cases/notifications";
@@ -30,20 +29,15 @@ const createSchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { clientId: true },
-    });
-    if (!user?.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+    // Chokepoint: role, client resolution and the "maintenance" grant (raising
+    // and tracking issues is the granted capability cases fall under).
+    const portal = await requireClientPortal({ permission: "maintenance" });
     const { searchParams } = new URL(req.url);
     const query = querySchema.parse({
       status: searchParams.get("status") ?? undefined,
     });
     const items = await listCases({
-      clientId: user.clientId,
+      clientId: portal.clientId,
       status: query.status ?? null,
       clientVisibleOnly: true,
     });
@@ -58,15 +52,25 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { clientId: true },
-    });
-    if (!user?.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+    // Chokepoint: role, client resolution and the "maintenance" grant (raising
+    // and tracking issues is the granted capability cases fall under).
+    const portal = await requireClientPortal({ permission: "maintenance" });
     const body = createSchema.parse(await req.json().catch(() => ({})));
+
+    // The ids in the body are claims, not facts: a case must not be attachable
+    // to another client's property or job, and a scoped VA must stay inside
+    // the properties their client granted. Same-shaped 404s, no existence oracle.
+    if (body.propertyId) {
+      const property = await db.property.findFirst({
+        where: { ...propertyScopeWhere(portal), id: body.propertyId },
+        select: { id: true },
+      });
+      if (!property) return NextResponse.json({ error: "Property not found." }, { status: 404 });
+    }
+    if (body.jobId) {
+      const job = await findJobInScope(body.jobId, portal);
+      if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    }
     const caseType = body.caseType ?? "CLIENT_DISPUTE";
     const title =
       body.title?.trim() ||
@@ -84,19 +88,19 @@ export async function POST(req: NextRequest) {
       status: "OPEN",
       caseType,
       source: "CLIENT_PORTAL",
-      clientId: user.clientId,
+      clientId: portal.clientId,
       propertyId: body.propertyId ?? null,
       jobId: body.jobId ?? null,
       reportId: body.reportId ?? null,
       clientVisible: true,
       clientCanReply: true,
       comment: {
-        authorUserId: session.user.id,
+        authorUserId: portal.userId,
         body: body.description,
         isInternal: false,
       },
       attachments: (body.attachments ?? []).map((attachment) => ({
-        uploadedByUserId: session.user.id,
+        uploadedByUserId: portal.userId,
         s3Key: attachment.s3Key,
         url: attachment.url ?? null,
         mimeType: attachment.mimeType ?? null,
@@ -106,7 +110,7 @@ export async function POST(req: NextRequest) {
     if (created) {
       await notifyCaseCreated({
         caseItem: created,
-        actorLabel: session.user.name || session.user.email || "Client",
+        actorLabel: portal.actorLabel,
       });
     }
 

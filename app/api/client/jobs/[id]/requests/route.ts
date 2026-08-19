@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
+import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
-import { getAppSettings } from "@/lib/settings";
-import { getClientPortalContext } from "@/lib/client/portal";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 import { createClientLightRequest } from "@/lib/job-tasks/service";
 import {
@@ -21,9 +18,14 @@ const createSchema = z.object({
 
 export const dynamic = "force-dynamic";
 
-async function loadScopedJob(jobId: string, clientId: string) {
+async function loadScopedJob(
+  jobId: string,
+  scope: { clientId: string; propertyIds: string[] | null }
+) {
   return db.job.findFirst({
-    where: { id: jobId, property: { clientId } },
+    // Scope-aware, not clientId-alone: a scoped VA must not resolve jobs on
+    // their client's ungranted properties.
+    where: { id: jobId, property: propertyScopeWhere(scope) },
     select: {
       id: true,
       report: { select: { clientVisible: true } },
@@ -50,16 +52,11 @@ async function loadClientRequestTasks(jobId: string, clientId: string) {
 /** GET → this job's client light-requests (open ones drive hub pending states). */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
-    if (!portal.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+        const portal = await requireClientPortal({ permission: "bookings" });
     if (!isClientModuleEnabled(portal.visibility, "jobs")) {
       return NextResponse.json({ error: "Jobs are hidden for this client." }, { status: 403 });
     }
-    const job = await loadScopedJob(params.id, portal.clientId);
+    const job = await loadScopedJob(params.id, portal);
     if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
 
     const tasks = await loadClientRequestTasks(params.id, portal.clientId);
@@ -91,18 +88,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
-    if (!portal.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+        const portal = await requireClientPortal({ permission: "bookings" });
     if (!isClientModuleEnabled(portal.visibility, "jobs")) {
       return NextResponse.json({ error: "Jobs are hidden for this client." }, { status: 403 });
     }
 
     const body = createSchema.parse(await req.json().catch(() => ({})));
-    const job = await loadScopedJob(params.id, portal.clientId);
+    const job = await loadScopedJob(params.id, portal);
     if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
 
     // Report short-circuit: nothing to request if it is already published.
@@ -121,7 +113,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const created = await createClientLightRequest({
       jobId: params.id,
       clientId: portal.clientId,
-      requestedByUserId: session.user.id,
+      requestedByUserId: portal.userId,
       requestType: body.type,
       note: body.note ?? null,
       baseUrl: req,

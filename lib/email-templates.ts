@@ -933,11 +933,20 @@ export function renderEmailTemplate(
     ...Object.fromEntries(Object.entries(variables).map(([name, value]) => [name, String(value ?? "")])),
   });
 
-  const replaceVariables = (value: string) =>
-    value.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, name: string) => mergedVariables[name] ?? "");
+  // Variable VALUES are data, never markup: a cleaner's note or a client's
+  // name typed as an <img onerror=…> payload must render as text in the
+  // recipient's inbox, not execute. The template TEXT itself stays raw
+  // (admins author real HTML there); only substituted values are escaped —
+  // and only in the HTML pass, because a subject line is a plain-text header
+  // where &amp; would show literally.
+  const replaceVariables = (value: string, escapeValues: boolean) =>
+    value.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, name: string) => {
+      const resolved = mergedVariables[name] ?? "";
+      return escapeValues ? escapeHtml(resolved) : resolved;
+    });
 
-  const subject = replaceVariables(template.subject);
-  const innerHtml = replaceVariables(template.html);
+  const subject = replaceVariables(template.subject, false);
+  const innerHtml = replaceVariables(template.html, true);
   const actionLink = inferActionLink(mergedVariables);
   const shouldRenderActionButton = actionLink && !innerHtml.includes(actionLink.url);
 

@@ -146,6 +146,10 @@ export async function POST(req: NextRequest) {
         to: result.invitedUser.email,
         subject: template.subject,
         html: template.html,
+        // An invite is how this person gets INTO the system — a stale bounce
+        // or allEmailOff must not strand them at the door.
+        transactional: true,
+        critical: true,
       });
       if (emailResult.ok) {
         await upsertAuthUserState(result.invitedUser.id, { welcomeEmailSent: true });

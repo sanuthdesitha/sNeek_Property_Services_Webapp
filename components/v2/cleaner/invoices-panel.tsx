@@ -90,6 +90,14 @@ interface ShoppingTimeRow {
 interface InvoicePreview {
   hours: number;
   estimatedPay: number;
+  /** Jobs the period window MISSED (scheduled inside, completed outside) — see lib/cleaner/invoice.ts. */
+  gapJobs?: Array<{
+    jobId: string;
+    jobNumber: string | null;
+    property: string;
+    scheduledDate: string;
+    completedAt: string;
+  }>;
   rows: InvoiceRow[];
   expenseRows?: ExpenseRow[];
   expenseTotal?: number;
@@ -647,6 +655,30 @@ export function InvoicesPanel({
           </p>
         </ECardHeader>
         <ECardBody className="space-y-3 pt-0">
+          {(invoicePreview?.gapJobs?.length ?? 0) > 0 ? (
+            // The window-gap fail-safe: these jobs earned pay but the period
+            // rule missed them. Detection only — nothing here changes amounts;
+            // it stops a job silently vanishing from someone's pay.
+            <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning)/0.08)] p-3 text-[0.8125rem]">
+              <p className="font-semibold text-[hsl(var(--e-warning))]">
+                {invoicePreview!.gapJobs!.length} completed job{invoicePreview!.gapJobs!.length === 1 ? "" : "s"} fell outside this period window
+              </p>
+              <p className="mt-1 text-[hsl(var(--e-muted-foreground))]">
+                Scheduled inside your dates but completed after the period ended (or before it
+                began), so the invoice does not include them. Adjust the date range to cover the
+                completion date, or contact admin — do not assume they were paid elsewhere.
+              </p>
+              <ul className="mt-1.5 space-y-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                {invoicePreview!.gapJobs!.map((gap) => (
+                  <li key={gap.jobId} className="truncate">
+                    #{gap.jobNumber ?? gap.jobId.slice(0, 8)} · {gap.property} · scheduled{" "}
+                    {new Date(gap.scheduledDate).toLocaleDateString("en-AU")} · completed{" "}
+                    {new Date(gap.completedAt).toLocaleDateString("en-AU")}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {loadingPreview && !invoicePreview ? (
             <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Loading invoice preview…</p>
           ) : !invoicePreview ? (

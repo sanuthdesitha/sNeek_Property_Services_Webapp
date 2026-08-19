@@ -3,6 +3,7 @@ import { ClientInvoiceStatus, JobStatus, JobType } from "@prisma/client";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
 import { publicUrl } from "@/lib/s3";
 import { getAppSettings } from "@/lib/settings";
@@ -113,12 +114,33 @@ async function nextInvoiceNumber() {
   return `INV-${datePart}-${randomUUID().slice(0, 6).toUpperCase()}`;
 }
 
+/**
+ * Which date the invoice period is measured against.
+ *
+ * SERVICE is the historic rule: the completion date when there is one, else the
+ * scheduled date. It bills work by when it was actually finished, but a job
+ * scheduled 28 Jun and completed 3 Jul then lands on a July invoice while every
+ * line still PRINTS its scheduled date - so the invoice appears to contain a
+ * job from outside the period.
+ *
+ * SCHEDULED measures against the same date the line prints, so nothing can ever
+ * appear out of frame. The trade is that a job finished late belongs to the
+ * period it was scheduled in, which needs a catch-up run if that period was
+ * already invoiced.
+ *
+ * Neither is right for every invoice, so the admin chooses per run. SERVICE
+ * stays the default, which keeps automatic invoicing (lib/finance/auto-invoice)
+ * behaving exactly as before.
+ */
+export type InvoicePeriodBasis = "SERVICE" | "SCHEDULED";
+
 export async function generateClientInvoice(input: {
   clientId: string;
   propertyId?: string | null;
   periodStart?: Date | null;
   periodEnd?: Date | null;
   gstEnabled?: boolean;
+  periodBasis?: InvoicePeriodBasis;
 }) {
   const [client, rates, existingInvoiced, settings, priceBook] = await Promise.all([
     db.client.findUnique({ where: { id: input.clientId }, select: { id: true, name: true, email: true } }),
@@ -165,24 +187,33 @@ export async function generateClientInvoice(input: {
       // Skipped cleans ("don't clean this turnover") are never billed.
       cleanSkipStatus: { not: "SKIPPED" },
       ...(input.periodStart || input.periodEnd
-        ? {
-            // Bucket by completion date when set (next-day/custom), else scheduled date.
-            OR: [
-              {
-                completedAt: {
-                  ...(input.periodStart ? { gte: input.periodStart } : {}),
-                  ...(input.periodEnd ? { lte: input.periodEnd } : {}),
-                },
+        ? input.periodBasis === "SCHEDULED"
+          ? {
+              // Measured against the very date each line prints, so a generated
+              // invoice can never show a job from outside the chosen window.
+              scheduledDate: {
+                ...(input.periodStart ? { gte: input.periodStart } : {}),
+                ...(input.periodEnd ? { lte: input.periodEnd } : {}),
               },
-              {
-                completedAt: null,
-                scheduledDate: {
-                  ...(input.periodStart ? { gte: input.periodStart } : {}),
-                  ...(input.periodEnd ? { lte: input.periodEnd } : {}),
+            }
+          : {
+              // Bucket by completion date when set (next-day/custom), else scheduled.
+              OR: [
+                {
+                  completedAt: {
+                    ...(input.periodStart ? { gte: input.periodStart } : {}),
+                    ...(input.periodEnd ? { lte: input.periodEnd } : {}),
+                  },
                 },
-              },
-            ],
-          }
+                {
+                  completedAt: null,
+                  scheduledDate: {
+                    ...(input.periodStart ? { gte: input.periodStart } : {}),
+                    ...(input.periodEnd ? { lte: input.periodEnd } : {}),
+                  },
+                },
+              ],
+            }
         : {}),
     },
     include: {
@@ -369,9 +400,13 @@ export async function generateClientInvoice(input: {
               id: true,
               jobNumber: true,
               scheduledDate: true,
-              property: { select: { name: true, suburb: true } },
+              property: { select: { id: true, name: true, suburb: true } },
             },
           },
+          // Only ever set on a MANUAL line, as its grouping hint. A job-backed
+          // line takes its property from the job above, which is the truthful
+          // one; the admin UI never offers to override that.
+          property: { select: { id: true, name: true, suburb: true } },
         },
       },
     },
@@ -391,7 +426,7 @@ export async function generateClientInvoice(input: {
 }
 
 export async function getClientInvoice(invoiceId: string) {
-  return db.clientInvoice.findUnique({
+  const invoice = await db.clientInvoice.findUnique({
     where: { id: invoiceId },
     include: {
       client: {
@@ -415,6 +450,33 @@ export async function getClientInvoice(invoiceId: string) {
       },
     },
   });
+  if (!invoice) return null;
+
+  // Reconciliation fail-safe: totalAmount is DENORMALISED from the lines, and
+  // several code paths recompute it. If any of them drifts, the stored total
+  // is what the client is charged — so the disagreement must surface, not sit
+  // silent. Detection only: the flag never changes an amount.
+  const lineSum = Number(
+    invoice.lines.reduce((sum, line) => sum + Number(line.lineTotal), 0).toFixed(2)
+  );
+  const expected = calculateGstBreakdown(lineSum, {
+    gstEnabled: invoice.gstEnabled ?? true,
+  });
+  const totalsMismatch = Math.abs(expected.totalAmount - Number(invoice.totalAmount)) > 0.011;
+  if (totalsMismatch) {
+    logger.warn(
+      {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        storedTotal: invoice.totalAmount,
+        expectedTotal: expected.totalAmount,
+        lineSum,
+      },
+      "Client invoice totals disagree with its lines"
+    );
+  }
+
+  return { ...invoice, totalsMismatch };
 }
 
 /** Make a logo value loadable by the server-side PDF renderer: absolute URLs /
