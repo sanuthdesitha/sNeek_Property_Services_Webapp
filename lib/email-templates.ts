@@ -915,6 +915,24 @@ export function wrapEmailHtml(settings: { companyName: string; logoUrl: string }
 </html>`;
 }
 
+/**
+ * Variables that a recipient CANNOT recover on their own.
+ *
+ * Templates are admin-editable, and a stored template outranks the shipped
+ * default (see sanitizeEmailTemplates) — so a template saved before a
+ * credential was added to a flow, or one an admin trimmed while restyling,
+ * silently drops it. That is not a cosmetic loss: the account is created, the
+ * password is hashed and stored, and the person who needs it is never told.
+ * They are locked out of an account that looks fine from the admin side.
+ *
+ * Anything listed here is therefore appended when the caller supplied it and
+ * the template never rendered it. An admin may restyle these emails; they may
+ * not accidentally delete the only copy of a password.
+ */
+const CREDENTIAL_VARIABLES: Array<{ name: string; label: string }> = [
+  { name: "tempPassword", label: "Temporary password" },
+];
+
 export function renderEmailTemplate(
   settings: {
     companyName: string;
@@ -946,7 +964,19 @@ export function renderEmailTemplate(
     });
 
   const subject = replaceVariables(template.subject, false);
-  const innerHtml = replaceVariables(template.html, true);
+  let innerHtml = replaceVariables(template.html, true);
+
+  // Fail safe: a credential the caller passed that the template never renders.
+  const droppedCredentials = CREDENTIAL_VARIABLES.filter(
+    ({ name }) => (mergedVariables[name] ?? "") !== "" && !template.html.includes("{" + name + "}")
+  );
+  if (droppedCredentials.length > 0) {
+    innerHtml += infoBox(
+      ...droppedCredentials.map(
+        ({ name, label }) => [label, escapeHtml(mergedVariables[name])] as [string, string]
+      )
+    );
+  }
   const actionLink = inferActionLink(mergedVariables);
   const shouldRenderActionButton = actionLink && !innerHtml.includes(actionLink.url);
 
