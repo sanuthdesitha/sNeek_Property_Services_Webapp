@@ -3,6 +3,7 @@ import { ClientInvoiceStatus, JobStatus, JobType } from "@prisma/client";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
 import { publicUrl } from "@/lib/s3";
 import { getAppSettings } from "@/lib/settings";
@@ -425,7 +426,7 @@ export async function generateClientInvoice(input: {
 }
 
 export async function getClientInvoice(invoiceId: string) {
-  return db.clientInvoice.findUnique({
+  const invoice = await db.clientInvoice.findUnique({
     where: { id: invoiceId },
     include: {
       client: {
@@ -449,6 +450,33 @@ export async function getClientInvoice(invoiceId: string) {
       },
     },
   });
+  if (!invoice) return null;
+
+  // Reconciliation fail-safe: totalAmount is DENORMALISED from the lines, and
+  // several code paths recompute it. If any of them drifts, the stored total
+  // is what the client is charged — so the disagreement must surface, not sit
+  // silent. Detection only: the flag never changes an amount.
+  const lineSum = Number(
+    invoice.lines.reduce((sum, line) => sum + Number(line.lineTotal), 0).toFixed(2)
+  );
+  const expected = calculateGstBreakdown(lineSum, {
+    gstEnabled: invoice.gstEnabled ?? true,
+  });
+  const totalsMismatch = Math.abs(expected.totalAmount - Number(invoice.totalAmount)) > 0.011;
+  if (totalsMismatch) {
+    logger.warn(
+      {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        storedTotal: invoice.totalAmount,
+        expectedTotal: expected.totalAmount,
+        lineSum,
+      },
+      "Client invoice totals disagree with its lines"
+    );
+  }
+
+  return { ...invoice, totalsMismatch };
 }
 
 /** Make a logo value loadable by the server-side PDF renderer: absolute URLs /

@@ -146,6 +146,8 @@ function linePropertyLabel(line: InvoiceLine): string {
 }
 type FullInvoice = {
   id: string;
+  /** Server-side reconciliation: stored total disagrees with the lines. */
+  totalsMismatch?: boolean;
   invoiceNumber: string;
   status: InvoiceStatus;
   subtotal: number;
@@ -1031,6 +1033,12 @@ export function EstateInvoices() {
           </p>
         ) : (
           <div className="space-y-5">
+            {editInvoice.totalsMismatch ? (
+              <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger)/0.08)] p-3 text-[0.8125rem] font-medium text-[hsl(var(--e-danger))]">
+                This invoice&rsquo;s stored total does not match its line items. Do not send it —
+                edit any line (or the GST switch) to force a recalculation, then re-check.
+              </p>
+            ) : null}
             {/* Existing lines */}
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
