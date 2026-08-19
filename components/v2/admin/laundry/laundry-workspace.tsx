@@ -17,6 +17,7 @@ import { format, startOfWeek } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import {
   ClipboardList,
+  BarChart3,
   Images,
   PackageCheck,
   Pencil,
@@ -28,6 +29,7 @@ import {
   Truck,
   Weight,
 } from "lucide-react";
+import Link from "next/link";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState, EPageHeader, EStatCard } from "@/components/v2/ui/primitives";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -316,7 +318,17 @@ export function LaundryWorkspace() {
         eyebrow="Operations"
         title="Laundry"
         description="Runs, live tracking, completed evidence, reports and suppliers."
-        actions={<LaundryNewRun onApplied={() => void load()} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <EButton asChild variant="ghost" size="sm">
+              <Link href="/v2/admin/laundry/stats">
+                <BarChart3 className="mr-1 h-3.5 w-3.5" />
+                Statistics
+              </Link>
+            </EButton>
+            <LaundryNewRun onApplied={() => void load()} />
+          </div>
+        }
       />
 
       <section className="grid gap-4 sm:grid-cols-3">
