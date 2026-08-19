@@ -11,7 +11,7 @@ import {
   Package,
   Shirt,
 } from "lucide-react";
-import { requireRole } from "@/lib/auth/session";
+import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { getAppSettings } from "@/lib/settings";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { getClientPropertyDetailForUser } from "@/lib/client/portal-data";
@@ -144,8 +144,13 @@ export default async function EstateClientPropertyDetailPage({
 }: {
   params: { id: string };
 }) {
-  await ensureClientModuleAccess("properties");
-  const session = await requireRole([Role.CLIENT]);
+  // Same module and permission as the properties LIST page, so a VA who can
+  // see the list can open a row instead of hitting a crash.
+  const portalCtx = await requireClientPortalPage({
+    module: "properties",
+    permission: "properties",
+  });
+  const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
   const settings = await getAppSettings();
   const portal = await getClientPortalContext(session.user.id, settings);
   const detail = await getClientPropertyDetailForUser(session.user.id, params.id, portal.visibility);

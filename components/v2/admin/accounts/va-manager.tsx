@@ -47,11 +47,22 @@ export interface EstateVaClientOption {
   email: string | null;
 }
 
+interface TeamMember {
+  id: string;
+  name: string | null;
+  email: string;
+  isActive: boolean;
+  acceptedAt: string | null;
+}
+
 interface TeamOption {
   id: string;
   name: string;
   isActive: boolean;
   memberCount: number;
+  permissions: Record<string, boolean> | null;
+  propertyIds: string[] | null;
+  members: TeamMember[];
 }
 
 interface PropertyOption {
@@ -75,13 +86,33 @@ interface InviteResult {
 const NEW_TEAM = "__new__";
 const MAX_MEMBERS = 20;
 
+/** One place that knows the shape of the client-scoped VA payload. */
+async function fetchClientData(clientId: string) {
+  const res = await fetch(`/api/admin/va-invites?clientId=${encodeURIComponent(clientId)}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("Could not load assistant teams.");
+  const data = (await res.json()) as { teams?: TeamOption[]; properties?: PropertyOption[] };
+  return {
+    teams: Array.isArray(data.teams) ? data.teams : [],
+    properties: Array.isArray(data.properties) ? data.properties : [],
+  };
+}
+
 let rowSeq = 0;
 function blankRow(): MemberRow {
   rowSeq += 1;
   return { key: `row-${rowSeq}`, name: "", email: "" };
 }
 
-export function EstateVaManager({ clients }: { clients: EstateVaClientOption[] }) {
+export function EstateVaManager({
+  clients,
+  canManage = true,
+}: {
+  clients: EstateVaClientOption[];
+  /** Only an ADMIN may delete a team outright; OPS_MANAGER can still retune it. */
+  canManage?: boolean;
+}) {
   const [clientId, setClientId] = React.useState("");
   const [teamChoice, setTeamChoice] = React.useState<string>(NEW_TEAM);
   const [teamName, setTeamName] = React.useState("");
@@ -119,12 +150,11 @@ export function EstateVaManager({ clients }: { clients: EstateVaClientOption[] }
     }
     let cancelled = false;
     setLoadingClient(true);
-    fetch(`/api/admin/va-invites?clientId=${encodeURIComponent(clientId)}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("load failed"))))
-      .then((data: { teams?: TeamOption[]; properties?: PropertyOption[] }) => {
+    fetchClientData(clientId)
+      .then((data) => {
         if (cancelled) return;
-        setTeams(Array.isArray(data.teams) ? data.teams : []);
-        setProperties(Array.isArray(data.properties) ? data.properties : []);
+        setTeams(data.teams);
+        setProperties(data.properties);
       })
       .catch(() => {
         if (cancelled) return;
@@ -137,6 +167,18 @@ export function EstateVaManager({ clients }: { clients: EstateVaClientOption[] }
     return () => {
       cancelled = true;
     };
+  }, [clientId]);
+
+  const reloadClientData = React.useCallback(async () => {
+    if (!clientId) return;
+    try {
+      const data = await fetchClientData(clientId);
+      setTeams(data.teams);
+      setProperties(data.properties);
+    } catch {
+      // Leave the last known state on screen: blanking the teams because one
+      // refresh failed would read as the teams having been deleted.
+    }
   }, [clientId]);
 
   function onClientChange(next: string) {
@@ -231,13 +273,11 @@ export function EstateVaManager({ clients }: { clients: EstateVaClientOption[] }
       setPropertyIds([]);
       setPermissions({});
       // The new team must appear in the picker without a reload.
-      if (data.createdTeam && data.teamId) {
-        setTeams((current) => [
-          ...current,
-          { id: data.teamId, name: data.teamName, isActive: true, memberCount: 0 },
-        ]);
-      }
       if (data.teamId) setTeamChoice(data.teamId);
+      // Refetch rather than fabricate a row: the server owns member state and
+      // the parsed grants, and a hand-built row would show a new team as
+      // having no permissions when it was just created with some.
+      void reloadClientData();
     } catch (err: any) {
       setError(err?.message ?? "Could not invite assistants.");
     } finally {
@@ -483,6 +523,274 @@ export function EstateVaManager({ clients }: { clients: EstateVaClientOption[] }
           </ECardBody>
         </ECard>
       ) : null}
+
+      {clientId && teams.length > 0 ? (
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-[1rem] font-semibold tracking-[-0.01em] text-[hsl(var(--e-foreground))]">
+              Existing teams
+            </h3>
+            <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+              These grants belong to the client and they can change them from their own portal.
+              Editing here is for when they ask you to.
+            </p>
+          </div>
+          {teams.map((team) => (
+            <VaTeamEditor
+              key={team.id}
+              team={team}
+              properties={properties}
+              canDelete={canManage}
+              onChanged={reloadClientData}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * One existing team, editable in place.
+ *
+ * The money rule is not represented here at all — no toggle exists for quote,
+ * extra, cost or invoice-payment approval, and assertVaMayAct refuses them
+ * independently of whatever this screen writes. A permission that could be
+ * granted by a checkbox would only ever be as safe as the checkbox.
+ *
+ * After every write the whole client payload is refetched rather than patched
+ * locally: the client may be editing the same team from their own portal, and
+ * a card that trusted its own optimistic state would quietly show one grant
+ * while the chokepoint enforced another.
+ */
+function VaTeamEditor({
+  team,
+  properties,
+  canDelete,
+  onChanged,
+}: {
+  team: TeamOption;
+  properties: PropertyOption[];
+  canDelete: boolean;
+  onChanged: () => void | Promise<void>;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [name, setName] = React.useState(team.name);
+  const [isActive, setIsActive] = React.useState(team.isActive);
+  const [permissions, setPermissions] = React.useState<Record<string, boolean>>(
+    () => team.permissions ?? {}
+  );
+  const [scope, setScope] = React.useState<string[]>(() => team.propertyIds ?? []);
+
+  // The server is the source of truth, so a refetch after anyone's edit wins
+  // over whatever this card was holding.
+  React.useEffect(() => {
+    setName(team.name);
+    setIsActive(team.isActive);
+    setPermissions(team.permissions ?? {});
+    setScope(team.propertyIds ?? []);
+  }, [team]);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/va-teams/${team.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), isActive, permissions, propertyIds: scope }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? "Could not save the team.");
+      await onChanged();
+      setOpen(false);
+    } catch (err: any) {
+      setError(err?.message ?? "Could not save the team.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeMember(userId: string, label: string) {
+    if (!window.confirm(`Remove ${label}? Their login stops working immediately.`)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/va-teams/${team.id}/members/${userId}`, {
+        method: "DELETE",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? "Could not remove the assistant.");
+      await onChanged();
+    } catch (err: any) {
+      setError(err?.message ?? "Could not remove the assistant.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteTeam() {
+    const ok = window.confirm(
+      `Delete ${team.name}? Every assistant on it loses access immediately. This cannot be undone.`
+    );
+    if (!ok) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/va-teams/${team.id}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? "Could not remove the team.");
+      await onChanged();
+    } catch (err: any) {
+      setError(err?.message ?? "Could not remove the team.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const grantedCount = VA_PERMISSION_KEYS.filter((k) => permissions[k] === true).length;
+  const activeMembers = team.members.filter((m) => m.isActive);
+
+  return (
+    <ECard>
+      <ECardBody className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-[0.9375rem] font-semibold text-[hsl(var(--e-foreground))]">
+              {team.name}
+            </p>
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+              {activeMembers.length} {activeMembers.length === 1 ? "assistant" : "assistants"} ·{" "}
+              {grantedCount} of {VA_PERMISSION_KEYS.length} permissions ·{" "}
+              {scope.length === 0 ? "all properties" : `${scope.length} properties`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {team.isActive ? null : <EBadge tone="danger">Disabled</EBadge>}
+            <EButton size="sm" variant="ghost" onClick={() => setOpen((v) => !v)}>
+              {open ? "Close" : "Manage access"}
+            </EButton>
+          </div>
+        </div>
+
+        <ul className="space-y-1">
+          {team.members.map((m) => (
+            <li key={m.id} className="flex items-center justify-between gap-3 text-[0.8125rem]">
+              <span className="truncate text-[hsl(var(--e-text-secondary))]">
+                {m.name ? `${m.name} · ` : ""}
+                {m.email}
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                {!m.isActive ? (
+                  <EBadge tone="danger" soft>
+                    Removed
+                  </EBadge>
+                ) : m.acceptedAt ? null : (
+                  <EBadge tone="warning" soft>
+                    Invite pending
+                  </EBadge>
+                )}
+                {m.isActive ? (
+                  <button
+                    type="button"
+                    aria-label={`Remove ${m.email}`}
+                    disabled={saving}
+                    onClick={() => void removeMember(m.id, m.name || m.email)}
+                    className="rounded-[var(--e-radius-sm)] p-1 text-[hsl(var(--e-text-faint))] transition-colors hover:text-[hsl(var(--e-danger))] disabled:opacity-40"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        {open ? (
+          <div className="space-y-4 border-t border-[hsl(var(--e-border))] pt-4">
+            <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
+              <EField label="Team name">
+                <EInput value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />
+              </EField>
+              <EField label="Active" hint="Off suspends every assistant on this team.">
+                <ESwitch checked={isActive} onCheckedChange={setIsActive} />
+              </EField>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              {VA_PERMISSION_KEYS.map((key: VaPermissionKey) => (
+                <div
+                  key={key}
+                  className="flex items-start justify-between gap-3 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <span className="block text-[0.8125rem] font-medium text-[hsl(var(--e-text))]">
+                      {VA_PERMISSION_LABELS[key].title}
+                    </span>
+                    <span className="block text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                      {VA_PERMISSION_LABELS[key].hint}
+                    </span>
+                  </div>
+                  <ESwitch
+                    checked={permissions[key] === true}
+                    onCheckedChange={(next) =>
+                      setPermissions((current) => ({ ...current, [key]: next }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+
+            {properties.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-[0.8125rem] font-medium text-[hsl(var(--e-text))]">Properties</p>
+                <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                  Nothing ticked means every property. Ticking some narrows the team to just those.
+                </p>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {properties.map((prop) => (
+                    <label
+                      key={prop.id}
+                      className="flex items-center gap-2 text-[0.8125rem] text-[hsl(var(--e-text-muted))]"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={scope.includes(prop.id)}
+                        onChange={(e) =>
+                          setScope((current) =>
+                            e.target.checked
+                              ? [...current, prop.id]
+                              : current.filter((id) => id !== prop.id)
+                          )
+                        }
+                        className="h-3.5 w-3.5 rounded border-[hsl(var(--e-border-strong))]"
+                      />
+                      <span className="truncate">{prop.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {error ? <EAlert tone="danger">{error}</EAlert> : null}
+
+            <div className="flex items-center justify-between gap-3">
+              <EButton variant="gold" size="sm" disabled={saving} onClick={() => void save()}>
+                {saving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                Save access
+              </EButton>
+              {canDelete ? (
+                <EButton variant="ghost" size="sm" disabled={saving} onClick={() => void deleteTeam()}>
+                  <Trash2 className="mr-1 h-3.5 w-3.5" />
+                  Delete team
+                </EButton>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </ECardBody>
+    </ECard>
   );
 }

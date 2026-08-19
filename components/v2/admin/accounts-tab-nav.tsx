@@ -1,17 +1,29 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Users, Building2, UserCog } from "lucide-react";
+import { ShieldCheck, Sparkles, Building2, UserCog, Truck } from "lucide-react";
 import { EChipTabs } from "@/components/v2/admin/estate-kit";
 
-export type EstateAccountsTabKey = "staff" | "clients" | "vas";
-
-export const ESTATE_ACCOUNTS_TABS: EstateAccountsTabKey[] = ["staff", "clients", "vas"];
-
 /**
- * Estate (v2) Accounts hub tab bar. Links stay inside /v2 so the Estate shell
- * is preserved while switching tabs.
+ * Estate (v2) Accounts hub — one tab per ACCOUNT TYPE.
+ *
+ * The old split was "staff" and "clients", which mixed two different questions:
+ * the staff tab was really every login filtered by a dropdown, and the clients
+ * tab duplicated the client list at /v2/admin/clients. Categorising by account
+ * type answers the question an admin actually arrives with — "find this
+ * person's login" — and leaves /v2/admin/clients to be about the BUSINESS
+ * (properties, invoices, jobs) rather than about who can sign in.
  */
+export type EstateAccountsTabKey = "team" | "cleaners" | "clients" | "assistants" | "partners";
+
+export const ESTATE_ACCOUNTS_TABS: EstateAccountsTabKey[] = [
+  "team",
+  "cleaners",
+  "clients",
+  "assistants",
+  "partners",
+];
+
 export function EstateAccountsTabNav({ active }: { active: EstateAccountsTabKey }) {
   const searchParams = useSearchParams();
 
@@ -21,31 +33,23 @@ export function EstateAccountsTabNav({ active }: { active: EstateAccountsTabKey 
     return `/v2/admin/accounts?${params.toString()}`;
   }
 
+  const tabs: Array<{ key: EstateAccountsTabKey; label: string; icon: JSX.Element }> = [
+    { key: "team", label: "Team", icon: <ShieldCheck className="h-4 w-4" /> },
+    { key: "cleaners", label: "Cleaners", icon: <Sparkles className="h-4 w-4" /> },
+    { key: "clients", label: "Client logins", icon: <Building2 className="h-4 w-4" /> },
+    { key: "assistants", label: "Assistants", icon: <UserCog className="h-4 w-4" /> },
+    { key: "partners", label: "Partners", icon: <Truck className="h-4 w-4" /> },
+  ];
+
   return (
     <EChipTabs
-      tabs={[
-        {
-          key: "staff",
-          label: "Staff",
-          icon: <Users className="h-4 w-4" />,
-          href: hrefFor("staff"),
-          active: active === "staff",
-        },
-        {
-          key: "clients",
-          label: "Clients",
-          icon: <Building2 className="h-4 w-4" />,
-          href: hrefFor("clients"),
-          active: active === "clients",
-        },
-        {
-          key: "vas",
-          label: "Assistants",
-          icon: <UserCog className="h-4 w-4" />,
-          href: hrefFor("vas"),
-          active: active === "vas",
-        },
-      ]}
+      tabs={tabs.map((tab) => ({
+        key: tab.key,
+        label: tab.label,
+        icon: tab.icon,
+        href: hrefFor(tab.key),
+        active: active === tab.key,
+      }))}
     />
   );
 }

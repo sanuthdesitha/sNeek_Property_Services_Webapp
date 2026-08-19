@@ -1,5 +1,4 @@
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
+import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { DamageInvestigation } from "@/components/v2/damage/damage-investigation";
 
 export const metadata = { title: "Damage report" };
@@ -13,6 +12,8 @@ export default async function V2ClientDamageReportPage({
 }: {
   params: { reportId: string };
 }) {
-  await requireRole([Role.CLIENT]);
+  // "damage" is a grantable permission and the damage API already honours it;
+  // the page guard did not, so a granted VA still crashed on the way in.
+  await requireClientPortalPage({ permission: "damage" });
   return <DamageInvestigation reportId={params.reportId} audience="CLIENT" />;
 }

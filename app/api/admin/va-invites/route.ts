@@ -3,8 +3,12 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { createVaTeam, inviteVaMember } from "@/lib/va/teams";
-import { vaPermissionsInputSchema } from "@/lib/va/permissions";
+import { createVaTeam, inviteVaMember, listVaTeams } from "@/lib/va/teams";
+import {
+  vaPermissionsInputSchema,
+  parseVaPermissions,
+  parseVaPropertyScope,
+} from "@/lib/va/permissions";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
@@ -87,16 +91,7 @@ export async function GET(req: NextRequest) {
     }
 
     const [teams, properties] = await Promise.all([
-      db.vaTeam.findMany({
-        where: { clientId },
-        select: {
-          id: true,
-          name: true,
-          isActive: true,
-          _count: { select: { members: true } },
-        },
-        orderBy: { name: "asc" },
-      }),
+      listVaTeams(clientId),
       db.property.findMany({
         where: { clientId },
         select: { id: true, name: true },
@@ -104,12 +99,24 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
+    // Grants go through the SAME parsers the auth chokepoint uses, so the
+    // admin screen shows exactly what would be enforced — never a looser
+    // reading of a malformed blob.
     return NextResponse.json({
       teams: teams.map((t) => ({
         id: t.id,
         name: t.name,
         isActive: t.isActive,
-        memberCount: t._count.members,
+        memberCount: t.members.length,
+        permissions: parseVaPermissions(t.permissions),
+        propertyIds: parseVaPropertyScope(t.propertyIds),
+        members: t.members.map((m) => ({
+          id: m.id,
+          name: m.name,
+          email: m.email,
+          isActive: m.isActive,
+          acceptedAt: m.invitation?.acceptedAt?.toISOString() ?? null,
+        })),
       })),
       properties,
     });
