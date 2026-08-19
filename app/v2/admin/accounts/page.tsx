@@ -14,6 +14,10 @@ import {
   type EstateClientRow,
 } from "@/components/v2/admin/accounts/clients-list";
 import { EstateBirthdaysCard } from "@/components/v2/admin/accounts/birthdays-card";
+import {
+  EstateVaManager,
+  type EstateVaClientOption,
+} from "@/components/v2/admin/accounts/va-manager";
 import { EButton, EPageHeader, EStatCard } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Accounts · Estate admin" };
@@ -37,7 +41,7 @@ const fmtMoney = new Intl.NumberFormat("en-AU", {
   maximumFractionDigits: 0,
 });
 
-const TAB_KEYS: EstateAccountsTabKey[] = ["staff", "clients"];
+const TAB_KEYS: EstateAccountsTabKey[] = ["staff", "clients", "vas"];
 
 function normalizeTab(value: string | undefined): EstateAccountsTabKey {
   return (TAB_KEYS as string[]).includes(value ?? "") ? (value as EstateAccountsTabKey) : "staff";
@@ -99,16 +103,25 @@ export default async function EstateAccountsPage({
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const tab = normalizeTab(searchParams?.tab);
 
-  const [overview, clientRows] = await Promise.all([
+  const [overview, clientRows, vaClients] = await Promise.all([
     getAccountsOverview(30),
     tab === "clients" ? getClientRows() : Promise.resolve<EstateClientRow[]>([]),
+    // Only the picker list — teams and properties load per client from the
+    // API once one is chosen, so this stays cheap however many clients exist.
+    tab === "vas"
+      ? db.client.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true, email: true },
+          orderBy: { name: "asc" },
+        })
+      : Promise.resolve<EstateVaClientOption[]>([]),
   ]);
 
   return (
     <div className="space-y-6">
       <EPageHeader
         eyebrow="Accounts"
-        title="Staff & client accounts"
+        title="Staff, client & assistant accounts"
         description="Staff and client accounts in one place — with a rich summary for every account."
         actions={
           tab === "clients" ? (
@@ -151,8 +164,10 @@ export default async function EstateAccountsPage({
             />
           </div>
         </div>
-      ) : (
+      ) : tab === "clients" ? (
         <EstateClientsList clients={clientRows} />
+      ) : (
+        <EstateVaManager clients={vaClients} />
       )}
     </div>
   );

@@ -3,7 +3,7 @@
 /**
  * ESTATE client actions — edit / portal invite / delete for the v2 client 360.
  * Same API surface as the v1 workspace:
- *   edit    → PATCH  /api/admin/clients/:id   (partial: name, email, phone, address, suburb, state, postcode, notes)
+ *   edit    → PATCH  /api/admin/clients/:id   (partial: name, email, phone, address, suburb, state, postcode, notes, portalVisibilityOverrides)
  *   invite  → POST   /api/admin/clients/:id/invite   { welcomeNote?, security }
  *   delete  → DELETE /api/admin/clients/:id          { security }
  */
@@ -17,9 +17,46 @@ import {
   EField,
   EInput,
   EModal,
+  ESelect,
   ETextarea,
 } from "@/components/v2/admin/estate-kit";
 import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
+import type { ClientPortalVisibility } from "@/lib/settings";
+
+/**
+ * Per-client portal visibility overrides — ported from v1's edit-client-form.
+ * The field list mirrors lib/validations/client.ts's
+ * clientPortalVisibilityOverrideSchema (the PATCH route strips anything else),
+ * so a key added here without a schema entry would silently not persist.
+ */
+const CLIENT_PORTAL_OVERRIDE_FIELDS: Array<[keyof ClientPortalVisibility, string]> = [
+  ["showProperties", "Show properties"],
+  ["showJobs", "Show jobs"],
+  ["showCalendar", "Show calendar"],
+  ["showReports", "Show reports"],
+  ["showReportDownloads", "Allow report PDF downloads"],
+  ["showChecklistPreview", "Show checklist preview"],
+  ["showInventory", "Show inventory"],
+  ["showShopping", "Show shopping"],
+  ["showStockRuns", "Show stock count runs"],
+  ["showFinanceDetails", "Show finance details"],
+  ["showOngoingJobs", "Show ongoing jobs"],
+  ["showLaundryUpdates", "Show laundry updates"],
+  ["showLaundryImages", "Show laundry images"],
+  ["showLaundryCosts", "Show laundry costs"],
+  ["showClientTaskRequests", "Allow client task requests"],
+  ["showLiveProgress", "Show live mid-clean progress"],
+  ["showCases", "Show cases/issues"],
+  ["showExtraPayRequests", "Show extra pay requests"],
+  ["showQuoteRequests", "Show quote requests"],
+  ["showApprovals", "Show approval requests"],
+  ["showCleanerNames", "Show cleaner names to client"],
+  ["allowInventoryThresholdEdits", "Allow inventory threshold edits"],
+  ["allowStockRuns", "Allow stock runs"],
+  ["allowCaseReplies", "Allow case replies"],
+];
+
+type PortalVisibilityOverrides = Partial<Record<keyof ClientPortalVisibility, boolean>>;
 
 export type ClientActionsClient = {
   id: string;
@@ -32,9 +69,17 @@ export type ClientActionsClient = {
   postcode?: string | null;
   notes?: string | null;
   isActive: boolean;
+  portalVisibilityOverrides?: PortalVisibilityOverrides | null;
 };
 
-export function ClientActions({ client }: { client: ClientActionsClient }) {
+export function ClientActions({
+  client,
+  defaultPortalVisibility,
+}: {
+  client: ClientActionsClient;
+  /** Workspace-level defaults, so each row can say what "Default" resolves to. */
+  defaultPortalVisibility: ClientPortalVisibility;
+}) {
   const router = useRouter();
 
   const [editOpen, setEditOpen] = useState(false);
@@ -51,6 +96,13 @@ export function ClientActions({ client }: { client: ClientActionsClient }) {
     longitude: null as number | null,
     placeId: null as string | null,
     notes: client.notes ?? "",
+  });
+  // Tri-state per module: key absent = inherit workspace default, true = force
+  // shown, false = force hidden. Kept outside `form` so the save payload can
+  // always include it — sending {} is how "no overrides left" is persisted
+  // (the PATCH route normalises an empty object to JsonNull).
+  const [overrides, setOverrides] = useState<PortalVisibilityOverrides>({
+    ...(client.portalVisibilityOverrides ?? {}),
   });
 
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -84,6 +136,10 @@ export function ClientActions({ client }: { client: ClientActionsClient }) {
           longitude: form.longitude ?? undefined,
           placeId: form.placeId ?? undefined,
           notes: form.notes.trim() || undefined,
+          // Always sent (never undefined) so clearing the last override
+          // actually persists — the API treats an empty object as "no
+          // overrides" and stores JsonNull.
+          portalVisibilityOverrides: overrides,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -220,6 +276,47 @@ export function ClientActions({ client }: { client: ClientActionsClient }) {
           <EField label="Notes" hint="Internal notes about this client.">
             <ETextarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} />
           </EField>
+
+          {/* Portal visibility overrides — tri-state per module (inherit / shown / hidden) */}
+          <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised)/0.5)] p-4">
+            <div>
+              <p className="text-[0.8125rem] font-[550]">Portal visibility overrides</p>
+              <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                Override the workspace portal defaults for this client only. &ldquo;Default&rdquo; follows the global setting, including future changes to it.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {CLIENT_PORTAL_OVERRIDE_FIELDS.map(([key, label]) => {
+                const value = overrides[key];
+                const selected = value === true ? "shown" : value === false ? "hidden" : "inherit";
+                return (
+                  <EField key={key} label={label}>
+                    <ESelect
+                      value={selected}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setOverrides((prev) => {
+                          // "Default" must DELETE the key, not store a boolean:
+                          // a stored boolean would pin this client to today's
+                          // default instead of inheriting future changes.
+                          if (next === "inherit") {
+                            const { [key]: _removed, ...rest } = prev;
+                            return rest;
+                          }
+                          return { ...prev, [key]: next === "shown" };
+                        });
+                      }}
+                    >
+                      <option value="inherit">Default ({defaultPortalVisibility[key] ? "Shown" : "Hidden"})</option>
+                      <option value="shown">Shown</option>
+                      <option value="hidden">Hidden</option>
+                    </ESelect>
+                  </EField>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
             <EButton variant="outline" size="sm" onClick={() => setEditOpen(false)} disabled={saving}>
               Cancel

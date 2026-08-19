@@ -37,9 +37,16 @@ import {
   ECardTitle,
 } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect } from "@/components/v2/cleaner/fields";
+import {
+  EmploymentSections,
+  type EmploymentSectionsUser,
+} from "@/components/v2/cleaner/employment-sections";
 import { toast } from "@/hooks/use-toast";
 
-export interface EstateProfileUser {
+// Extends the cleaner compliance shape (employment/tax/skills/notes fields are
+// all optional there) so the cleaner page can pass them through one `user`
+// prop while the laundry/QA pages keep passing exactly what they do today.
+export interface EstateProfileUser extends EmploymentSectionsUser {
   id: string;
   name: string | null;
   email: string;
@@ -901,6 +908,7 @@ export function EstateProfile({
   editingEnabled = true,
   showBanking = false,
   showPayout = false,
+  showEmploymentSections = false,
   initialCadence,
   initialDayOfWeek,
   initialDayOfMonth,
@@ -913,6 +921,9 @@ export function EstateProfile({
   editingEnabled?: boolean;
   showBanking?: boolean;
   showPayout?: boolean;
+  /** Cleaner portal only: payroll-compliance cards (employment, skills, tax
+   *  declaration, notes to admin). Defaults off so laundry/QA are unchanged. */
+  showEmploymentSections?: boolean;
   initialCadence?: Cadence;
   initialDayOfWeek?: number | null;
   initialDayOfMonth?: number | null;
@@ -932,6 +943,8 @@ export function EstateProfile({
       ) : null}
       <ContactSection user={user} locked={locked} />
       {showBanking ? <BankingSection user={user} locked={locked} /> : null}
+      {/* Employment/tax compliance sits with banking — both feed payroll. */}
+      {showEmploymentSections ? <EmploymentSections user={user} locked={locked} /> : null}
       <PreferencesSection
         initialCadence={initialCadence}
         initialDayOfWeek={initialDayOfWeek}

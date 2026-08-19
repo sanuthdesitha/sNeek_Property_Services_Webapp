@@ -129,3 +129,22 @@ export function parseVaPropertyScope(raw: unknown): string[] | null {
   const ids = raw.filter((id): id is string => typeof id === "string" && id.trim().length > 0);
   return ids.length > 0 ? ids : null;
 }
+
+/**
+ * Plain-language labels for the grantable set.
+ *
+ * Shared rather than copied because the admin invite screen and the client
+ * management screen describe the SAME grants; two copies would drift the
+ * moment a key is added, and a permission described differently in the two
+ * places is a permission the client does not actually understand.
+ * The keys are the contract — these strings are not.
+ */
+export const VA_PERMISSION_LABELS: Record<VaPermissionKey, { title: string; hint: string }> = {
+  bookings: { title: "Bookings", hint: "Book, reschedule and cancel cleans" },
+  maintenance: { title: "Maintenance", hint: "Raise jobs and assign a worker" },
+  reports: { title: "Reports", hint: "View and download cleaning reports" },
+  damage: { title: "Damage", hint: "View released damage reports" },
+  invoicesView: { title: "See invoices", hint: "View only — never pay them" },
+  messages: { title: "Messages", hint: "Read and post on job threads" },
+  properties: { title: "Properties", hint: "View and edit property profiles" },
+};

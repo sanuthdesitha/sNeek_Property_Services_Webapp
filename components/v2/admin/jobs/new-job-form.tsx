@@ -5,10 +5,10 @@
  * NewJobForm (components/admin/new-job-form). Posts to the SAME endpoints
  * (/api/admin/jobs + /api/admin/jobs/{id}/assign) and reads the same reference
  * data (/api/admin/properties, /clients, /users?role=CLEANER). Built purely on
- * the Estate kit — no imports from components/{ui,shared,admin} — so template
- * management, uploaded attachments, and Google address autocomplete (which live
- * in classic-only components) are intentionally omitted here; the classic
- * builder remains reachable for those deep flows.
+ * the Estate kit — no imports from components/{ui,shared,admin}. Saved job
+ * templates (shared /api/admin/job-templates store) and reference-file
+ * attachments (POST /api/uploads/direct, carried on the job payload) are
+ * ported natively via the sibling job-templates-panel / job-attachments-input.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -30,6 +30,13 @@ import {
   ESwitch,
 } from "@/components/v2/admin/estate-kit";
 import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
+import {
+  JobTemplatesPanel,
+  type JobTemplate,
+  type TemplateSnapshot,
+} from "@/components/v2/admin/jobs/job-templates-panel";
+import { JobAttachmentsInput } from "@/components/v2/admin/jobs/job-attachments-input";
+import type { JobReferenceAttachment } from "@/lib/jobs/meta";
 
 const JOB_TYPES = [
   "AIRBNB_TURNOVER", "DEEP_CLEAN", "END_OF_LEASE", "MOVE_IN_CLEAN", "GENERAL_CLEAN", "POST_CONSTRUCTION",
@@ -50,6 +57,7 @@ type FormState = {
   propertyId: string; clientId: string; siteMode: SiteMode; jobType: JobType; scheduledDate: string;
   startTime: string; dueTime: string; endTime: string; estimatedHours: string;
   notes: string; internalNotes: string; tagsText: string; isDraft: boolean;
+  attachments: JobReferenceAttachment[];
   guestName: string; reservationCode: string; guestPhone: string; guestEmail: string; guestProfileUrl: string;
   guestAdults: string; guestChildren: string; guestInfants: string;
   guestCheckinAtLocal: string; guestCheckoutAtLocal: string; guestLocationText: string;
@@ -63,7 +71,7 @@ type FormState = {
 const initialForm = (propertyId = ""): FormState => ({
   propertyId, clientId: "", siteMode: "existing_property", jobType: AIRBNB_JOB_TYPE, scheduledDate: "",
   startTime: "10:00", dueTime: "15:00", endTime: "", estimatedHours: "",
-  notes: "", internalNotes: "", tagsText: "", isDraft: false,
+  notes: "", internalNotes: "", tagsText: "", isDraft: false, attachments: [],
   guestName: "", reservationCode: "", guestPhone: "", guestEmail: "", guestProfileUrl: "",
   guestAdults: "", guestChildren: "", guestInfants: "", guestCheckinAtLocal: "", guestCheckoutAtLocal: "", guestLocationText: "",
   siteName: "", siteAddress: "", siteSuburb: "", siteState: "NSW", sitePostcode: "",
@@ -235,6 +243,54 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
     }
   }
 
+  /** Serialize the reusable slice of the form for the templates API. */
+  function templateSnapshot(): TemplateSnapshot {
+    return {
+      jobType: form.jobType,
+      startTime: form.startTime,
+      dueTime: form.dueTime,
+      endTime: form.endTime,
+      estimatedHours: form.estimatedHours,
+      notes: form.notes,
+      internalNotes: form.internalNotes,
+      isDraft: form.isDraft,
+      tags: parseTags(form.tagsText),
+      attachments: form.attachments,
+      // Turnaround rules only apply to Airbnb turnovers; store them disabled
+      // for other job types so applying the template never resurrects them.
+      earlyCheckin: isAirbnb ? apiRule(form.earlyCheckin) : { enabled: false, preset: "none" as const },
+      lateCheckout: isAirbnb ? apiRule(form.lateCheckout) : { enabled: false, preset: "none" as const },
+    };
+  }
+
+  /** Prefill the form from a saved template (property/dates/assignees stay). */
+  function applyTemplate(t: JobTemplate) {
+    // Templates store rules in the API's {enabled,preset,time} shape; this
+    // form tracks preset-only (preset "none" == disabled), so collapse
+    // enabled=false down to "none" and re-derive the concrete time.
+    const toRule = (rule?: JobTemplate["earlyCheckin"]): TimingRule => {
+      const preset: TimingPreset =
+        rule?.enabled && rule.preset && rule.preset !== "none" ? rule.preset : "none";
+      return { preset, time: preset === "custom" ? rule?.time ?? "" : preset === "none" ? "" : preset };
+    };
+    setForm((prev) => ({
+      ...prev,
+      // Guard against templates saved with a job type this build doesn't know.
+      jobType: (JOB_TYPES as readonly string[]).includes(t.jobType) ? (t.jobType as JobType) : prev.jobType,
+      startTime: t.startTime ?? prev.startTime,
+      dueTime: t.dueTime ?? prev.dueTime,
+      endTime: t.endTime ?? "",
+      estimatedHours: t.estimatedHours != null ? String(t.estimatedHours) : prev.estimatedHours,
+      notes: t.notes ?? "",
+      internalNotes: t.internalNotes ?? "",
+      isDraft: t.isDraft ?? false,
+      tagsText: Array.isArray(t.tags) ? t.tags.join(", ") : "",
+      attachments: Array.isArray(t.attachments) ? t.attachments : [],
+      earlyCheckin: toRule(t.earlyCheckin),
+      lateCheckout: toRule(t.lateCheckout),
+    }));
+  }
+
   const cleanerOptions = useMemo(
     () =>
       cleaners.map((c) => ({
@@ -371,7 +427,9 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
           internalNotes: form.internalNotes || undefined,
           isDraft: asDraft,
           tags: parseTags(form.tagsText),
-          attachments: [],
+          // Same attachment descriptors on every job in a bulk plan — the
+          // files were already uploaded via /api/uploads/direct on selection.
+          attachments: form.attachments,
           earlyCheckin: isAirbnb ? apiRule(form.earlyCheckin) : undefined,
           lateCheckout: isAirbnb ? apiRule(form.lateCheckout) : undefined,
           reservationContext: hasReservation
@@ -464,6 +522,12 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
           </div>
         </ECardBody>
       </ECard>
+
+      {/* Templates live above the form so a prefill happens before any manual
+          entry — applying later would silently overwrite typed values. */}
+      <Section title="Templates">
+        <JobTemplatesPanel snapshot={templateSnapshot} onApply={applyTemplate} />
+      </Section>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-6">
@@ -708,9 +772,15 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
             <EField label="Tags" hint="Comma-separated"><EInput value={form.tagsText} onChange={(e) => setForm((p) => ({ ...p, tagsText: e.target.value }))} placeholder="priority, VIP guest, keys" /></EField>
             <EField label="Cleaner notes"><ETextarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></EField>
             <EField label="Internal notes"><ETextarea value={form.internalNotes} onChange={(e) => setForm((p) => ({ ...p, internalNotes: e.target.value }))} /></EField>
-            <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-              File attachments and saved templates remain in the classic builder.
-            </p>
+            <EField
+              label="Reference files"
+              hint="Photos, PDFs, or notes the team needs before the job starts. Attached to every job created in this batch."
+            >
+              <JobAttachmentsInput
+                value={form.attachments}
+                onChange={(next) => setForm((p) => ({ ...p, attachments: next }))}
+              />
+            </EField>
           </Section>
         </div>
 

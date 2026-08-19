@@ -32,6 +32,16 @@ export default async function CleanerProfilePage() {
         bankBsb: true,
         bankAccountNumber: true,
         abn: true,
+        // Payroll-compliance fields ported from the v1 profile (employment,
+        // skills & equipment, TFN-on-file declaration, notes to admin).
+        visaStatus: true,
+        employmentType: true,
+        taxFileNumberOnFile: true,
+        languages: true,
+        hasVehicle: true,
+        vehicleRegoExpiry: true,
+        driverLicenseExpiry: true,
+        notes: true,
         uiDensity: true,
         themePreference: true,
         invoicingCadence: true,
@@ -59,6 +69,7 @@ export default async function CleanerProfilePage() {
           editingEnabled={editingEnabled}
           showBanking
           showPayout
+          showEmploymentSections
           initialCadence={(user as any).invoicingCadence ?? undefined}
           initialDayOfWeek={(user as any).invoiceDayOfWeek ?? null}
           initialDayOfMonth={(user as any).invoiceDayOfMonth ?? null}

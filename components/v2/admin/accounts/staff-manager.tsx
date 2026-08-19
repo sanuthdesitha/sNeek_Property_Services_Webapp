@@ -12,8 +12,12 @@
  *   reset password → POST   /api/admin/users/[id]/reset-password { security }
  *   reset 2FA      → POST   /api/admin/users/[id]/disable-2fa    { security }
  *   delete         → DELETE /api/admin/users/[id]       { security: { pin?, password? } }
- * Deep profile-permission / bank-detail flows stay in the classic accounts
- * workspace (discreet link below the roster).
+ *   edit override  → PATCH  /api/admin/users            { userId, profileEditOverride }
+ *   availability   → GET    /api/admin/cleaners/availability (roster summary line)
+ *   role defaults  → GET    /api/admin/settings          (profileEditPolicy, read-only here)
+ * Ported from v1 UsersManager: per-user profile-edit overrides, ABN + bank
+ * details at creation, and the cleaner availability summary. Full extended
+ * profile EDITS still live on the account page (Payroll & identity card).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -27,6 +31,7 @@ import {
   UserCog,
   UserRoundPlus,
   UserX,
+  Shield,
   ShieldCheck,
   ShieldOff,
 } from "lucide-react";
@@ -62,6 +67,20 @@ const ROLE_TONE: Record<AccountRole, "gold" | "primary" | "info" | "success" | "
   LAUNDRY: "neutral",
 };
 
+/**
+ * Per-field self-service profile edit rights. The server stores these either
+ * as a role-level default (settings.profileEditPolicy) or as a whole-object
+ * per-user override (settings.profileEditOverrides[userId]). An override
+ * replaces the role default entirely — it is all-or-nothing, never per-field —
+ * and null/absent means "inherit the role default", which is why the UI pairs
+ * one enable switch with three field switches instead of tri-state controls.
+ */
+interface ProfileEditPolicy {
+  canEditName: boolean;
+  canEditPhone: boolean;
+  canEditEmail: boolean;
+}
+
 interface UserItem {
   id: string;
   name: string | null;
@@ -72,6 +91,7 @@ interface UserItem {
   emailVerified?: string | null;
   clientId?: string | null;
   client?: { id: string; name: string } | null;
+  profileEditOverride?: ProfileEditPolicy | null;
 }
 
 interface ClientItem {
@@ -102,6 +122,24 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
   });
   const [saving, setSaving] = useState(false);
 
+  // Role-level profile-edit defaults (read-only here — edited in Settings).
+  // Shown so admins can see what "inherit" resolves to before overriding.
+  const [rolePolicyDefaults, setRolePolicyDefaults] = useState<Record<string, ProfileEditPolicy>>({});
+  // Per-user override editing state. `overrideEnabled` mirrors whether the
+  // server stores an override object (vs null = inherit the role default).
+  const [overrideEnabled, setOverrideEnabled] = useState(false);
+  const [overrideForm, setOverrideForm] = useState<ProfileEditPolicy>({
+    canEditName: true,
+    canEditPhone: true,
+    canEditEmail: false,
+  });
+  // Snapshot of the override as loaded, so save can skip the ADMIN-only
+  // collection PATCH when nothing changed (see saveEdit for why that matters).
+  const [initialOverride, setInitialOverride] = useState<ProfileEditPolicy | null>(null);
+
+  // Cleaner id → compact availability summary for the roster line.
+  const [availabilityByCleaner, setAvailabilityByCleaner] = useState<Record<string, string>>({});
+
   const [deleteTarget, setDeleteTarget] = useState<UserItem | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -113,14 +151,24 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createMode, setCreateMode] = useState<"invite" | "password">("invite");
-  const [createForm, setCreateForm] = useState({
+  // ABN + bank details are captured at creation (v1 parity) so payroll-ready
+  // accounts don't need a second trip to the extended-profile editor. All
+  // optional — blank values are dropped by the API's blank-to-undefined zod
+  // preprocessing.
+  const EMPTY_CREATE_FORM = {
     name: "",
     email: "",
     phone: "",
     role: "CLEANER" as AccountRole,
     clientId: "",
     password: "",
-  });
+    abn: "",
+    bankAccountName: "",
+    bankName: "",
+    bankBsb: "",
+    bankAccountNumber: "",
+  };
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
   const [createdInvitation, setCreatedInvitation] = useState<{ email: string; link: string; emailSent: boolean } | null>(null);
 
   const loadUsers = useCallback(async (filter: string) => {
@@ -148,6 +196,43 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
       .catch(() => setClients([]));
   }, []);
 
+  useEffect(() => {
+    // Same source the Settings page reads; only profileEditPolicy is used.
+    // A failed load is non-fatal — the modal falls back to a safe default.
+    fetch("/api/admin/settings", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (body?.profileEditPolicy) setRolePolicyDefaults(body.profileEditPolicy);
+      })
+      .catch(() => {});
+  }, []);
+
+  const loadCleanerAvailability = useCallback(async () => {
+    // Summary only — full availability editing lives on the cleaner's page.
+    // Failures are swallowed: the roster must still render without the line.
+    try {
+      const res = await fetch("/api/admin/cleaners/availability", { cache: "no-store" });
+      const body = await res.json().catch(() => []);
+      if (!res.ok || !Array.isArray(body)) return;
+      const map: Record<string, string> = {};
+      for (const row of body) {
+        const weeklyDays = Object.keys(row?.availability?.weekly ?? {}).length;
+        const overrides = Object.keys(row?.availability?.dateOverrides ?? {}).length;
+        const mode = row?.availability?.mode === "FLEXIBLE" ? "Flexible" : "Fixed";
+        map[row.id] =
+          `${mode} · ${weeklyDays} weekly day${weeklyDays === 1 ? "" : "s"}` +
+          (overrides > 0 ? ` · ${overrides} override${overrides === 1 ? "" : "s"}` : "");
+      }
+      setAvailabilityByCleaner(map);
+    } catch {
+      /* decorative line — ignore network failures */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCleanerAvailability();
+  }, [loadCleanerAvailability]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return users;
@@ -166,6 +251,15 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
       clientId: user.clientId ?? "",
       isActive: !!user.isActive,
     });
+    const existingOverride = user.profileEditOverride ?? null;
+    setInitialOverride(existingOverride);
+    setOverrideEnabled(!!existingOverride);
+    // Seed the switches from the role default when no override exists yet, so
+    // enabling the override starts from what the user can already do today.
+    setOverrideForm(
+      existingOverride ??
+        rolePolicyDefaults[user.role] ?? { canEditName: true, canEditPhone: true, canEditEmail: false }
+    );
   }
 
   async function saveEdit() {
@@ -194,6 +288,22 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not update account.");
+
+      // Persist the per-user override only when it actually changed: the
+      // collection PATCH is ADMIN-only (stricter than the field PATCH above),
+      // so skipping no-op writes keeps plain field edits working for
+      // OPS_MANAGERs and avoids rewriting the settings blob on every save.
+      const desiredOverride = overrideEnabled ? overrideForm : null;
+      if (JSON.stringify(desiredOverride) !== JSON.stringify(initialOverride)) {
+        const overrideRes = await fetch("/api/admin/users", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: editing.id, profileEditOverride: desiredOverride }),
+        });
+        const overrideBody = await overrideRes.json().catch(() => ({}));
+        if (!overrideRes.ok) throw new Error(overrideBody.error ?? "Could not update profile permissions.");
+      }
+
       toast({ title: "Account updated" });
       setEditing(null);
       await loadUsers(roleFilter);
@@ -301,6 +411,11 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
     }
     setCreating(true);
     try {
+      // Same role gating as v1: ABN is a business identifier (clients /
+      // laundry contractors), bank details are payout rails (cleaners /
+      // laundry). Blank strings are stripped server-side by zod preprocess.
+      const wantsAbn = createForm.role === "CLIENT" || createForm.role === "LAUNDRY";
+      const wantsBank = createForm.role === "CLEANER" || createForm.role === "LAUNDRY";
       const payload: Record<string, unknown> = {
         name: createForm.name.trim(),
         email: createForm.email.trim(),
@@ -308,6 +423,15 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
         role: createForm.role,
         phone: createForm.phone.trim() || undefined,
         clientId: createForm.role === "CLIENT" ? createForm.clientId : undefined,
+        abn: wantsAbn ? createForm.abn.trim() || undefined : undefined,
+        bankDetails: wantsBank
+          ? {
+              accountName: createForm.bankAccountName.trim(),
+              bankName: createForm.bankName.trim(),
+              bsb: createForm.bankBsb.trim(),
+              accountNumber: createForm.bankAccountNumber.trim(),
+            }
+          : undefined,
       };
       if (createMode === "password") payload.password = createForm.password;
       const res = await fetch("/api/admin/users", {
@@ -339,8 +463,10 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
         toast({ title: "Account created", description: "The account is active immediately and can sign in now." });
         setCreateOpen(false);
       }
-      setCreateForm({ name: "", email: "", phone: "", role: "CLEANER", clientId: "", password: "" });
+      setCreateForm(EMPTY_CREATE_FORM);
       await loadUsers(roleFilter);
+      // A freshly created cleaner should get an availability line immediately.
+      await loadCleanerAvailability();
     } catch (err: any) {
       toast({ title: "Create failed", description: err.message ?? "Failed to create account.", variant: "destructive" });
     } finally {
@@ -424,12 +550,22 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
                         {user.isActive ? "Active" : "Disabled"}
                       </EBadge>
                       {!user.emailVerified ? <EBadge tone="warning" soft>Pending verification</EBadge> : null}
+                      {/* Flag deviations from the role-level policy so admins can
+                          spot per-user exceptions without opening each account. */}
+                      {user.profileEditOverride ? (
+                        <EBadge tone="info" soft>Custom profile permissions</EBadge>
+                      ) : null}
                     </div>
                     <p className="mt-0.5 truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                       {user.email}
                       {user.phone ? ` · ${user.phone}` : ""}
                       {user.client ? ` · Client: ${user.client.name}` : ""}
                     </p>
+                    {user.role === "CLEANER" && availabilityByCleaner[user.id] ? (
+                      <p className="mt-0.5 truncate text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                        Availability: {availabilityByCleaner[user.id]}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
@@ -591,6 +727,64 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
             </div>
             <ESwitch checked={form.isActive} onCheckedChange={(v) => setForm((p) => ({ ...p, isActive: v }))} />
           </div>
+
+          {/* Per-user profile-edit override. The server stores either null
+              (inherit the role default) or a complete three-field object, so
+              the enable switch flips between those two shapes rather than
+              offering per-field tri-states. */}
+          <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Shield className="h-4 w-4 text-[hsl(var(--e-muted-foreground))]" />
+                <div>
+                  <p className="text-[0.875rem] font-[550]">Profile edit permissions</p>
+                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    {overrideEnabled
+                      ? "Custom override — replaces the role default for this account."
+                      : `Inheriting the ${roleLabel(form.role)} role default.`}
+                  </p>
+                </div>
+              </div>
+              <ESwitch
+                checked={overrideEnabled}
+                onCheckedChange={(v) => {
+                  setOverrideEnabled(v);
+                  if (v) {
+                    // Start the override from the effective policy (existing
+                    // override, else role default) so enabling it changes
+                    // nothing until a field switch is actually flipped.
+                    setOverrideForm(
+                      initialOverride ??
+                        rolePolicyDefaults[form.role] ?? { canEditName: true, canEditPhone: true, canEditEmail: false }
+                    );
+                  }
+                }}
+              />
+            </div>
+            {overrideEnabled ? (
+              <div className="space-y-2">
+                {(
+                  [
+                    ["canEditName", "Can edit name"],
+                    ["canEditPhone", "Can edit phone"],
+                    ["canEditEmail", "Can edit email"],
+                  ] as Array<[keyof ProfileEditPolicy, string]>
+                ).map(([key, label]) => (
+                  <div
+                    key={key}
+                    className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2"
+                  >
+                    <p className="text-[0.8125rem]">{label}</p>
+                    <ESwitch
+                      checked={overrideForm[key]}
+                      onCheckedChange={(v) => setOverrideForm((p) => ({ ...p, [key]: v }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
           <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
             Extended profile and bank details are edited on the account&apos;s page (Payroll &amp; identity card).
           </p>
@@ -692,6 +886,57 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
                   ))}
                 </ESelect>
               </EField>
+            ) : null}
+            {/* v1 parity: capture ABN (business roles) and bank payout details
+                (paid roles) up front so payroll-ready accounts don't need a
+                second trip to the extended-profile editor after creation. */}
+            {createForm.role === "CLIENT" || createForm.role === "LAUNDRY" ? (
+              <EField label="ABN" hint="Optional. 11 digits.">
+                <EInput
+                  inputMode="numeric"
+                  maxLength={14}
+                  placeholder="11 digits"
+                  value={createForm.abn}
+                  onChange={(e) => setCreateForm((p) => ({ ...p, abn: e.target.value }))}
+                />
+              </EField>
+            ) : null}
+            {createForm.role === "CLEANER" || createForm.role === "LAUNDRY" ? (
+              <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <p className="text-[0.8125rem] font-[550]">Bank details (optional)</p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <EField label="Account name">
+                    <EInput
+                      value={createForm.bankAccountName}
+                      onChange={(e) => setCreateForm((p) => ({ ...p, bankAccountName: e.target.value }))}
+                    />
+                  </EField>
+                  <EField label="Bank name">
+                    <EInput
+                      value={createForm.bankName}
+                      onChange={(e) => setCreateForm((p) => ({ ...p, bankName: e.target.value }))}
+                    />
+                  </EField>
+                  <EField label="BSB">
+                    <EInput
+                      inputMode="numeric"
+                      maxLength={7}
+                      placeholder="123456"
+                      value={createForm.bankBsb}
+                      onChange={(e) => setCreateForm((p) => ({ ...p, bankBsb: e.target.value }))}
+                    />
+                  </EField>
+                  <EField label="Account number">
+                    <EInput
+                      inputMode="numeric"
+                      maxLength={10}
+                      placeholder="6 to 10 digits"
+                      value={createForm.bankAccountNumber}
+                      onChange={(e) => setCreateForm((p) => ({ ...p, bankAccountNumber: e.target.value }))}
+                    />
+                  </EField>
+                </div>
+              </div>
             ) : null}
             {createMode === "password" ? (
               <EField label="Password" hint="The account is active immediately with this password.">
