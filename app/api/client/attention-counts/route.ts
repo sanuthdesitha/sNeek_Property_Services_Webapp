@@ -64,10 +64,31 @@ export async function GET() {
         .catch(() => 0),
     ]);
 
+    // Only for the assistant banner — a CLIENT already knows whose account
+    // they are in, so the lookup is skipped for them entirely.
+    const actingForName =
+      portal.actor === "VA"
+        ? (
+            await db.client
+              .findUnique({ where: { id: portal.clientId }, select: { name: true } })
+              .catch(() => null)
+          )?.name ?? null
+        : null;
+
     return NextResponse.json({
       // The nav uses this to gate destinations for a VA: what they may see is
       // decided here by the chokepoint, never inferred client-side.
-      portal: { actor: portal.actor, permissions: portal.permissions },
+      portal: {
+        actor: portal.actor,
+        permissions: portal.permissions,
+        // An assistant is signed in as themselves but working inside someone
+        // else's account. Naming the client and the team in the shell is the
+        // difference between a portal and a disguise: a VA who works for three
+        // clients otherwise has nothing on screen telling them which account
+        // they are about to change.
+        actingFor: portal.actor === "VA" ? actingForName : null,
+        teamName: portal.team?.name ?? null,
+      },
       counts: {
         "/v2/client/approvals": approvals,
         "/v2/client/cases": cases,

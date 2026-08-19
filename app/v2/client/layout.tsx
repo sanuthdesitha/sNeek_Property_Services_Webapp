@@ -149,11 +149,59 @@ export default function V2ClientLayout({ children }: { children: React.ReactNode
     return withAttentionBadges(isVa ? filterNavForVa(base, gate) : base, counts);
   }, [counts, canManageTeam, isVa, gate]);
 
+  // An assistant sees their OWN name in the rail (PortalShell reads the
+  // session) with the client they act for underneath. Labelling them "Client"
+  // was the portal pretending to be someone it is not, and a VA who works
+  // across several clients had nothing on screen telling them which account
+  // they were about to change.
+  const roleLabel = isVa
+    ? gate?.actingFor
+      ? "Assistant · " + gate.actingFor
+      : "Assistant"
+    : "Client";
+
   return (
-    <div data-skin="estate" data-portal-accent="client">
-      <PortalShell accent="client" wordmark="sNeek" nav={nav} roleLabel="Client">
+    <div
+      data-skin="estate"
+      data-portal-accent="client"
+      data-portal-actor={isVa ? "va" : "client"}
+    >
+      <PortalShell accent="client" wordmark="sNeek" nav={nav} roleLabel={roleLabel}>
+        {isVa ? <VaActingBanner name={session?.user?.name} gate={gate} /> : null}
         {children}
       </PortalShell>
+    </div>
+  );
+}
+
+/**
+ * Standing reminder of whose account this is.
+ *
+ * It renders on every page rather than only on the home screen because the
+ * risk it addresses is not "where am I when I arrive" — it is a VA switching
+ * accounts mid-task and cancelling the wrong clean. The last line states the
+ * one rule that is never delegable, so nobody has to discover it by being
+ * refused.
+ */
+function VaActingBanner({
+  name,
+  gate,
+}: {
+  name?: string | null;
+  gate: ClientPortalGate | null;
+}) {
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[var(--e-radius-md)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] px-3 py-2 text-[0.8125rem]">
+      <span className="font-medium text-[hsl(var(--e-foreground))]">{name || "Assistant"}</span>
+      <span className="text-[hsl(var(--e-muted-foreground))]">
+        {gate?.actingFor
+          ? "is working in " + gate.actingFor + "’s account"
+          : "is working on behalf of a client"}
+        {gate?.teamName ? " · " + gate.teamName : ""}
+      </span>
+      <span className="ml-auto text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+        Approvals and payments stay with the client
+      </span>
     </div>
   );
 }

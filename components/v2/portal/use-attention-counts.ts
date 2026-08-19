@@ -70,6 +70,10 @@ export function withAttentionBadges<T extends { href: string; badge?: React.Reac
 export interface ClientPortalGate {
   actor: "CLIENT" | "VA";
   permissions: Record<string, boolean>;
+  /** Set only for a VA: the client whose account they are working in. */
+  actingFor?: string | null;
+  /** Set only for a VA: which of that client's teams they belong to. */
+  teamName?: string | null;
 }
 
 /**

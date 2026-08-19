@@ -6,6 +6,7 @@ import { JobStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { getClientPortalContext } from "@/lib/client/portal";
+import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { formatCurrency } from "@/lib/utils";
 import { googleMapsSearchUrl } from "@/lib/maps/google-maps-url";
 import {
@@ -256,7 +257,13 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export default async function ClientJobDetailPage({ params }: { params: { id: string } }) {
-  const session = await requireRole([Role.CLIENT]);
+  // Any VA of this client may open a job; getScopedJob then narrows to the
+  // properties their team is scoped to. requireRole([Role.CLIENT]) here THREW
+  // for a VA — an uncaught FORBIDDEN in a server component, which is why the
+  // page rendered as "a server-side exception has occurred" rather than as a
+  // refusal. The matching API route was migrated in B16b; this page was not.
+  const portalCtx = await requireClientPortalPage();
+  const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
   const portal = await getClientPortalContext(session.user.id).catch(() => null);
   const clientId = portal?.clientId;
   if (!clientId) notFound();

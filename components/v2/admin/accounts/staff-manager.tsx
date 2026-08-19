@@ -47,7 +47,14 @@ import {
   ESwitch,
 } from "@/components/v2/admin/estate-kit";
 
-type AccountRole = "ADMIN" | "OPS_MANAGER" | "QA_INSPECTOR" | "CLEANER" | "CLIENT" | "LAUNDRY";
+export type AccountRole =
+  | "ADMIN"
+  | "OPS_MANAGER"
+  | "QA_INSPECTOR"
+  | "CLEANER"
+  | "CLIENT"
+  | "LAUNDRY"
+  | "MAINTENANCE";
 
 const MANAGED_ROLES: AccountRole[] = [
   "ADMIN",
@@ -56,7 +63,13 @@ const MANAGED_ROLES: AccountRole[] = [
   "CLEANER",
   "CLIENT",
   "LAUNDRY",
+  "MAINTENANCE",
 ];
+
+// Role.VA is deliberately absent. An assistant login is meaningless without
+// its VaTeam — the team owns the client link, the grants and the property
+// scope — so editing one as a loose user row here could strand it. Assistants
+// are managed on their own tab, team-first.
 
 const ROLE_TONE: Record<AccountRole, "gold" | "primary" | "info" | "success" | "neutral" | "aubergine"> = {
   ADMIN: "gold",
@@ -65,6 +78,7 @@ const ROLE_TONE: Record<AccountRole, "gold" | "primary" | "info" | "success" | "
   CLEANER: "success",
   CLIENT: "info",
   LAUNDRY: "neutral",
+  MAINTENANCE: "neutral",
 };
 
 /**
@@ -103,10 +117,26 @@ function roleLabel(role: string) {
   return role.replace(/_/g, " ");
 }
 
-export function EstateStaffManager({ canManage }: { canManage: boolean }) {
+/**
+ * @param roles           Restricts the screen to one account category. The
+ *                        role filter then offers only these, and a category of
+ *                        one hides the filter entirely — picking "Cleaner" on
+ *                        the Cleaners tab is not a choice, it is the tab.
+ * @param createRole      Which role a new account defaults to in this category.
+ */
+export function EstateStaffManager({
+  canManage,
+  roles,
+  createRole,
+}: {
+  canManage: boolean;
+  roles?: AccountRole[];
+  createRole?: AccountRole;
+}) {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [clients, setClients] = useState<ClientItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const selectableRoles = roles ?? MANAGED_ROLES;
   const [roleFilter, setRoleFilter] = useState<"all" | string>("all");
   const [search, setSearch] = useState("");
   const [busyUserId, setBusyUserId] = useState("");
@@ -159,7 +189,7 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
     name: "",
     email: "",
     phone: "",
-    role: "CLEANER" as AccountRole,
+    role: (createRole ?? "CLEANER") as AccountRole,
     clientId: "",
     password: "",
     abn: "",
@@ -188,6 +218,11 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
   useEffect(() => {
     void loadUsers(roleFilter);
   }, [roleFilter, loadUsers]);
+
+  // A role left selected on the previous tab would silently empty this one.
+  useEffect(() => {
+    setRoleFilter("all");
+  }, [roles]);
 
   useEffect(() => {
     fetch("/api/admin/clients")
@@ -235,11 +270,14 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) =>
+    // The API filters by ONE role; a category can span three, so the category
+    // narrowing is applied here rather than pushed into the query.
+    const inCategory = roles ? users.filter((u) => roles.includes(u.role)) : users;
+    if (!q) return inCategory;
+    return inCategory.filter((u) =>
       `${u.name ?? ""} ${u.email} ${u.phone ?? ""}`.toLowerCase().includes(q)
     );
-  }, [users, search]);
+  }, [users, search, roles]);
 
   function openEditor(user: UserItem) {
     setEditing(user);
@@ -504,14 +542,18 @@ export function EstateStaffManager({ canManage }: { canManage: boolean }) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <ESelect value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
-          <option value="all">All roles</option>
-          {MANAGED_ROLES.map((role) => (
-            <option key={role} value={role}>
-              {roleLabel(role)}
-            </option>
-          ))}
-        </ESelect>
+        {selectableRoles.length > 1 ? (
+          <ESelect value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+            <option value="all">All roles</option>
+            {selectableRoles.map((role) => (
+              <option key={role} value={role}>
+                {roleLabel(role)}
+              </option>
+            ))}
+          </ESelect>
+        ) : (
+          <div />
+        )}
         {canManage ? (
           <EButton variant="gold" onClick={() => { setCreatedInvitation(null); setCreateOpen(true); }}>
             <UserRoundPlus className="h-4 w-4" />
