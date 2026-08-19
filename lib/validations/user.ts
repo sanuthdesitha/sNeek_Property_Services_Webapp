@@ -20,6 +20,10 @@ const adminCreateRoleSchema = z.enum([
   "CLIENT",
   "LAUNDRY",
   "MAINTENANCE",
+  // A VA is always created against a client — the superRefine below makes
+  // clientId compulsory for this role. A VA with no client would reach
+  // requireClientPortal() with nothing to scope to.
+  "VA",
 ]);
 const registerRoleSchema = z.enum(["CLEANER", "CLIENT"]);
 
@@ -64,6 +68,16 @@ export const createUserByAdminSchema = z
         code: z.ZodIssueCode.custom,
         message: "Password is required when not sending an invitation.",
         path: ["password"],
+      });
+    }
+    // A VA acts on behalf of exactly one client. Without a clientId the
+    // account is unreachable — requireClientPortal() has nothing to scope to —
+    // so this is a hard requirement of the role, not a UI convention.
+    if (value.role === "VA" && !value.clientId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A VA account must be linked to a client.",
+        path: ["clientId"],
       });
     }
   });

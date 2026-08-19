@@ -566,6 +566,20 @@ B15 built the chokepoint, B16 the management UI — but every v2 client PAGE sti
 
 **Nav is gated server-authoritatively**: /api/client/attention-counts now returns { portal: { actor, permissions } } alongside counts; useClientPortalCounts (a separate hook — five other portals share the plain one) feeds VA_NAV_GATE in the client layout. Unknown destinations default to client-only, so a new nav item is hidden from VAs until someone decides otherwise. Pay buttons on money/finance render only for actor CLIENT — the API refused a VA anyway, but offering a tap that bounces is an issue, not a safeguard.
 
+### B16c. Admin-side VA onboarding — the invite an agency actually needs (2026-08-20)
+
+B16 let a CLIENT create their own assistants; nobody could do it FOR them. Real onboarding is an admin sitting with a new account, standing up an offshore team of five in one pass — so `POST /api/admin/va-invites` (ADMIN/OPS_MANAGER) plus the **Assistants** tab on /v2/admin/accounts is that path, and the client picks up management afterwards on their existing /v2/client/team page.
+
+**The client link is compulsory, in two independent places.** `lib/validations/user.ts` now accepts `VA` as an admin-creatable role but a superRefine makes `clientId` required for it, and the invite route resolves the client from the TEAM. A VA with no client is not a limited account, it is an unreachable one: `requireClientPortal()` deliberately refuses to fall back to `user.clientId`, so it would resolve to nothing at all.
+
+**One email to the client, listing only who actually got in.** Bulk invite is the point — five invitations must not become five separate "someone new can see your properties" notices. Per-member errors are isolated (one bad address cannot cost the other four their invitations) and the notification is assembled from the successes only, skipped entirely if none succeeded. `EMAIL_IN_USE` surfaces as "Already used by another account" rather than re-pointing a live login at this team, which would be an account takeover.
+
+**Starting permissions are offered for a NEW team and never for an existing one.** An assistant with an empty grant set is useless on day one, so the admin screen exposes `VA_PERMISSION_KEYS` as toggles and an optional property scope when naming a new team. Adding a sixth member to an existing team does NOT touch its grants — the client may have deliberately narrowed them, and an admin widening a team as a side effect of adding staff is exactly the silent-regrant this model exists to prevent.
+
+**The route is a thin wrapper over `lib/va/teams.ts`, on purpose.** `createVaTeam`/`inviteVaMember` already own temp-password generation, the invitation row, the fail-closed permission parse and the ownership check on property scope. A second implementation here is the same two-copies-of-one-rule that produced the access-info divergence. For the same reason the permission LABELS moved to `VA_PERMISSION_LABELS` in lib/va/permissions.ts and both screens read them — a grant described differently in two places is a grant the client does not understand.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.

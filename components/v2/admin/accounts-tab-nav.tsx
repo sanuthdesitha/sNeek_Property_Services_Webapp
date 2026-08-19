@@ -1,12 +1,12 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Users, Building2 } from "lucide-react";
+import { Users, Building2, UserCog } from "lucide-react";
 import { EChipTabs } from "@/components/v2/admin/estate-kit";
 
-export type EstateAccountsTabKey = "staff" | "clients";
+export type EstateAccountsTabKey = "staff" | "clients" | "vas";
 
-export const ESTATE_ACCOUNTS_TABS: EstateAccountsTabKey[] = ["staff", "clients"];
+export const ESTATE_ACCOUNTS_TABS: EstateAccountsTabKey[] = ["staff", "clients", "vas"];
 
 /**
  * Estate (v2) Accounts hub tab bar. Links stay inside /v2 so the Estate shell
@@ -37,6 +37,13 @@ export function EstateAccountsTabNav({ active }: { active: EstateAccountsTabKey 
           icon: <Building2 className="h-4 w-4" />,
           href: hrefFor("clients"),
           active: active === "clients",
+        },
+        {
+          key: "vas",
+          label: "Assistants",
+          icon: <UserCog className="h-4 w-4" />,
+          href: hrefFor("vas"),
+          active: active === "vas",
         },
       ]}
     />

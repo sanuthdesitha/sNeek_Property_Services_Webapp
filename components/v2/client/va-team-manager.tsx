@@ -24,18 +24,12 @@ import { Loader2, Plus, Trash2, UserPlus, X } from "lucide-react";
 import { ECard, ECardBody, EEyebrow, EButton, EBadge, EEmptyState } from "@/components/v2/ui/primitives";
 import { ECheckTile, EInlineNotice, EInput, ELabel } from "@/components/v2/client/fields";
 import { ESwitch } from "@/components/v2/admin/estate-kit";
-import { VA_PERMISSION_KEYS, type VaPermissionKey } from "@/lib/va/permissions";
+import {
+  VA_PERMISSION_KEYS,
+  VA_PERMISSION_LABELS as PERMISSION_LABELS,
+  type VaPermissionKey,
+} from "@/lib/va/permissions";
 
-/** Plain-language labels. The keys themselves are the contract; these are not. */
-const PERMISSION_LABELS: Record<VaPermissionKey, { title: string; hint: string }> = {
-  bookings: { title: "Bookings", hint: "Book, reschedule and cancel cleans" },
-  maintenance: { title: "Maintenance", hint: "Raise jobs and assign a worker" },
-  reports: { title: "Reports", hint: "View and download cleaning reports" },
-  damage: { title: "Damage", hint: "View released damage reports" },
-  invoicesView: { title: "See invoices", hint: "View only — never pay them" },
-  messages: { title: "Messages", hint: "Read and post on job threads" },
-  properties: { title: "Properties", hint: "View and edit property profiles" },
-};
 
 export interface VaMember {
   id: string;
