@@ -1,23 +1,18 @@
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/session";
+import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
-import { Role } from "@prisma/client";
-import { getAppSettings } from "@/lib/settings";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 import { getApiErrorStatus } from "@/lib/api/http";
 
 export async function GET() {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    if (!isClientModuleEnabled(settings, "reports")) {
+    // Chokepoint: role, client, the "reports" grant, and MERGED visibility —
+    // the old raw-settings check ignored per-client overrides (the exact
+    // resolution drift the 2026-08-15 audit kept finding).
+    const portal = await requireClientPortal({ permission: "reports" });
+    if (!isClientModuleEnabled(portal.visibility, "reports")) {
       return NextResponse.json({ error: "Reports are not available for client users." }, { status: 403 });
     }
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { clientId: true },
-    });
-    if (!user?.clientId) return NextResponse.json([]);
 
     const reports = await db.report.findMany({
       where: {
@@ -29,7 +24,7 @@ export async function GET() {
         // QA_REVIEW.
         clientVisible: true,
         job: {
-          property: { clientId: user.clientId },
+          property: propertyScopeWhere(portal),
         },
       },
       // Return only client-safe fields (no internal columns).

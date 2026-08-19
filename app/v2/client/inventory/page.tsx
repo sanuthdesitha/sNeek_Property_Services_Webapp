@@ -1,10 +1,8 @@
 import Link from "next/link";
-import { Role } from "@prisma/client";
 import { Package } from "lucide-react";
 import { db } from "@/lib/db";
-import { requireRole } from "@/lib/auth/session";
+import { propertyScopeWhere, requireClientPortalPage } from "@/lib/auth/client-portal";
 import { getAppSettings } from "@/lib/settings";
-import { ensureClientModuleAccess } from "@/lib/portal-access";
 import {
   EBadge,
   EButton,
@@ -25,31 +23,32 @@ export default async function ClientInventoryPage({
 }: {
   searchParams?: { propertyId?: string; lowOnly?: string; q?: string };
 }) {
-  await ensureClientModuleAccess("inventory");
-  const session = await requireRole([Role.CLIENT]);
+  const portalCtx = await requireClientPortalPage({ module: "inventory", permission: "properties" });
+  // Shim: downstream code reads session.user.id — for a VA that is THEIR id,
+  // and the VA-aware resolvers scope it to their team's client and properties.
   await getAppSettings().catch(() => null);
-  const user = await db.user
+  // Client and property list come from the guard's ctx: user.clientId is null
+  // for a VA, and a scoped VA must only be offered the properties they were
+  // granted — the filter chips below are built from this list.
+  const client = await db.client
     .findUnique({
-      where: { id: session.user.id },
+      where: { id: portalCtx.clientId },
       select: {
-        clientId: true,
-        client: {
-          select: {
-            id: true,
-            name: true,
-            properties: {
-              where: { isActive: true },
-              select: { id: true, name: true, suburb: true },
-              orderBy: { name: "asc" },
-            },
+        id: true,
+        name: true,
+        properties: {
+          where: {
+            isActive: true,
+            ...(portalCtx.propertyIds ? { id: { in: portalCtx.propertyIds } } : {}),
           },
+          select: { id: true, name: true, suburb: true },
+          orderBy: { name: "asc" },
         },
       },
     })
     .catch(() => null);
 
-  const clientId = user?.clientId;
-  const client = user?.client;
+  const clientId = client?.id;
   const propertyIdRaw = searchParams?.propertyId?.trim();
   const propertyId =
     propertyIdRaw && client?.properties.some((p) => p.id === propertyIdRaw) ? propertyIdRaw : undefined;
@@ -60,7 +59,10 @@ export default async function ClientInventoryPage({
     ? await db.propertyStock
         .findMany({
           where: {
-            property: { clientId, ...(propertyId ? { id: propertyId } : {}) },
+            property: {
+              ...propertyScopeWhere(portalCtx),
+              ...(propertyId ? { id: propertyId } : {}),
+            },
             ...(q
               ? {
                   OR: [

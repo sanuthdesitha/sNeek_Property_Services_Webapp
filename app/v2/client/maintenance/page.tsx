@@ -1,5 +1,4 @@
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
+import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { filterAirbnbPropertyIds } from "@/lib/maintenance/airbnb";
@@ -10,7 +9,10 @@ export const metadata = { title: "Maintenance · Estate client" };
 export const dynamic = "force-dynamic";
 
 export default async function ClientMaintenancePage() {
-  const session = await requireRole([Role.CLIENT]);
+  const portalCtx = await requireClientPortalPage({ permission: "maintenance" });
+  // Shim: downstream code reads session.user.id — for a VA that is THEIR id,
+  // and the VA-aware resolvers scope it to their team's client and properties.
+  const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
   const portal = await getClientPortalContext(session.user.id).catch(() => null);
 
   let airbnbProperties: { id: string; name: string; suburb: string | null }[] = [];

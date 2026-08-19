@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
-import { requireRole } from "@/lib/auth/session";
+import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { listClientJobsForUser, listClientReportsForUser } from "@/lib/client/portal-data";
 import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
@@ -77,7 +76,10 @@ const ATTENTION_TONE: Record<string, string> = {
 };
 
 export default async function ClientHomePage() {
-  const session = await requireRole([Role.CLIENT]);
+  const portalCtx = await requireClientPortalPage();
+  // Shim: downstream code reads session.user.id — for a VA that is THEIR id,
+  // and the VA-aware resolvers scope it to their team's client and properties.
+  const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
   const portal = await getClientPortalContext(session.user.id).catch(() => null);
   const visibility = portal?.visibility;
   const firstName = session.user.name ? session.user.name.split(" ")[0] : null;

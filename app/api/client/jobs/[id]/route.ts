@@ -1,21 +1,18 @@
 import { NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth/session";
-import { Role } from "@prisma/client";
+import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
-import { getClientPortalContext } from "@/lib/client/portal";
 import { computeJobProgressPercent } from "@/lib/jobs/progress";
 
 const STALE_LIVE_PING_MS = 2 * 60 * 1000;
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const session = await requireRole([Role.CLIENT]);
-
-  const portal = await getClientPortalContext(session.user.id);
-  if (!portal.clientId) return NextResponse.json({ error: "Client not found" }, { status: 404 });
-  const clientId = portal.clientId;
+  // Chokepoint: viewing a job needs no specific grant — any active VA — but
+  // the lookup below is narrowed to the actor's property scope, not just the
+  // client, so a scoped VA cannot read jobs on ungranted properties.
+  const portal = await requireClientPortal();
 
   const job = await db.job.findFirst({
-    where: { id: params.id, property: { clientId } },
+    where: { id: params.id, property: propertyScopeWhere(portal) },
     select: {
       id: true,
       jobNumber: true,

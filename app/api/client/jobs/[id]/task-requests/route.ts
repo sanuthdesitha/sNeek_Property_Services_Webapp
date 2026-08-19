@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
-import { getAppSettings } from "@/lib/settings";
-import { getClientPortalContext } from "@/lib/client/portal";
+import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { createClientJobTaskRequest, listClientJobTasks } from "@/lib/job-tasks/service";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 
@@ -20,12 +17,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
-    if (!portal.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+        const portal = await requireClientPortal({ permission: "bookings" });
     if (!isClientModuleEnabled(portal.visibility, "jobs")) {
       return NextResponse.json({ error: "Jobs are hidden for this client." }, { status: 403 });
     }
@@ -44,12 +36,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const settings = await getAppSettings();
-    const portal = await getClientPortalContext(session.user.id, settings);
-    if (!portal.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+        const portal = await requireClientPortal({ permission: "bookings" });
     if (!isClientModuleEnabled(portal.visibility, "jobs")) {
       return NextResponse.json({ error: "Jobs are hidden for this client." }, { status: 403 });
     }
@@ -60,7 +47,7 @@ export async function POST(
     const created = await createClientJobTaskRequest({
       jobId: params.id,
       clientId: portal.clientId,
-      requestedByUserId: session.user.id,
+      requestedByUserId: portal.userId,
       title: body.title,
       description: body.description ?? null,
       requiresPhoto: body.requiresPhoto === true,

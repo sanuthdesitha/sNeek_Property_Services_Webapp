@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
+import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { getDamageInvestigationForClient } from "@/lib/damage/investigation";
 
@@ -24,19 +23,22 @@ import { getDamageInvestigationForClient } from "@/lib/damage/investigation";
  */
 export async function GET(_req: Request, { params }: { params: { reportId: string } }) {
   try {
-    const session = await requireRole([Role.CLIENT]);
+    const portal = await requireClientPortal({ permission: "damage" });
 
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { clientId: true },
-    });
-    if (!user?.clientId) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // The investigation resolver scopes by client; a scoped VA additionally
+    // needs the report's property to be granted, checked up front with the
+    // same 404 shape as a nonexistent report.
+    if (portal.propertyIds) {
+      const inScope = await db.damageReport.findFirst({
+        where: { id: params.reportId, property: propertyScopeWhere(portal) },
+        select: { id: true },
+      });
+      if (!inScope) return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const report = await getDamageInvestigationForClient({
       reportId: params.reportId,
-      clientId: user.clientId,
+      clientId: portal.clientId,
     });
     if (!report) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
