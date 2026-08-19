@@ -1,18 +1,15 @@
-import { fromZonedTime } from "date-fns-tz";
-import { JobStatus, LeadStatus, Role } from "@prisma/client";
+import { LeadStatus, Role } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { reserveJobNumber } from "@/lib/jobs/job-number";
+import { BOOKING_REQUEST_VIA } from "@/lib/booking/requests";
 import { getAppSettings } from "@/lib/settings";
 import { requireClientPortal } from "@/lib/auth/client-portal";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 import { calculateQuote } from "@/lib/pricing/calculator";
 import { notifyAdminsByEmail, notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
-import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 
-const TZ = "Australia/Sydney";
 
 const schema = z.object({
   propertyId: z.string().trim().min(1),
@@ -80,7 +77,6 @@ export async function POST(req: NextRequest) {
       bathrooms: property.bathrooms,
     }).catch(() => null);
 
-    const scheduledDateUtc = fromZonedTime(`${body.scheduledDate}T00:00:00`, TZ);
 
     const result = await db.$transaction(async (tx) => {
       const lead = await tx.quoteLead.create({
@@ -98,39 +94,32 @@ export async function POST(req: NextRequest) {
           estimateMin: estimate ? Number(estimate.total.toFixed(2)) : undefined,
           estimateMax: estimate ? Number(estimate.total.toFixed(2)) : undefined,
           requestedServiceLabel: String(body.jobType).replace(/_/g, " "),
-          status: LeadStatus.CONVERTED,
+          // NEW, not CONVERTED: nothing has been committed to yet. The lead IS
+          // the pending request, and CONVERTED is what approval means.
+          status: LeadStatus.NEW,
           structuredContext: {
-            createdVia: "client_booking",
+            createdVia: BOOKING_REQUEST_VIA,
             propertyId: property.id,
+            // Everything the approval needs to build the job, so approving
+            // never has to re-derive what the client actually asked for.
+            jobType: body.jobType,
+            scheduledDate: body.scheduledDate,
+            requestedByUserId: portal.userId,
           } as any,
         },
       });
 
-      const jobNumber = await reserveJobNumber(tx);
-      const job = await tx.job.create({
-        data: {
-          jobNumber,
-          propertyId: property.id,
-          jobType: body.jobType as any,
-          status: JobStatus.UNASSIGNED,
-          scheduledDate: scheduledDateUtc,
-          notes: body.notes || undefined,
-        },
-        select: {
-          id: true,
-          jobNumber: true,
-        },
-      });
-
+      // No Job here. A booking nobody has agreed to is not work — it appeared
+      // on the jobs board looking exactly like scheduled work, and sat
+      // UNASSIGNED until someone happened to notice. The job is created by
+      // approveBookingRequest once an admin has seen team availability.
       await tx.auditLog.create({
         data: {
           userId: portal.userId,
-          jobId: job.id,
-          action: "CLIENT_SELF_BOOKING_CREATED",
-          entity: "Job",
-          entityId: job.id,
+          action: "CLIENT_BOOKING_REQUESTED",
+          entity: "QuoteLead",
+          entityId: lead.id,
           after: {
-            leadId: lead.id,
             propertyId: property.id,
             jobType: body.jobType,
             scheduledDate: body.scheduledDate,
@@ -138,21 +127,20 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      return { lead, job };
+      return { lead };
     });
 
-    const subject = `New client booking request: ${property.name}`;
+    const subject = `Booking request awaiting approval: ${property.name}`;
     const bookingLabel = `${String(body.jobType).replace(/_/g, " ")} on ${body.scheduledDate}`;
     await Promise.all([
       notifyAdminsByPush({
         subject,
-        body: `${clientUser.client?.name || clientUser.name || "Client"} requested ${bookingLabel} for ${property.name}.`,
-        jobId: result.job.id,
+        body: `${clientUser.client?.name || clientUser.name || "Client"} requested ${bookingLabel} for ${property.name}. Approve it to create the job.`,
       }),
       notifyAdminsByEmail({
         subject,
         html: `
-          <p>A client self-serve booking was created.</p>
+          <p>A client requested a booking. It is <strong>not scheduled yet</strong> — approve it in Approvals to create the job.</p>
           <ul>
             <li><strong>Client:</strong> ${clientUser.client?.name || clientUser.name || "Client"}</li>
             <li><strong>Property:</strong> ${property.name}</li>
@@ -163,16 +151,14 @@ export async function POST(req: NextRequest) {
         `,
       }),
     ]);
-    await assignPreferredCleanerIfAvailable({
-      jobId: result.job.id,
-      propertyId: property.id,
-      jobType: body.jobType as any,
-    });
+    // Preferred-cleaner assignment waits for approval: there is no job to
+    // assign anyone to, and holding a cleaner for work that may be declined is
+    // exactly the double-booking this change exists to stop.
 
     return NextResponse.json({
       ok: true,
-      jobId: result.job.id,
-      jobNumber: result.job.jobNumber,
+      requestId: result.lead.id,
+      pendingApproval: true,
       warning:
         settings.clientPortalVisibility.showBooking
           ? undefined

@@ -25,6 +25,7 @@ import { format, parseISO } from "date-fns";
 import {
   ArrowRight,
   CalendarClock,
+  CalendarPlus,
   CheckCircle2,
   ClipboardCheck,
   Clock,
@@ -68,10 +69,13 @@ type AllApprovals = {
   falseConfirmations: any[];
   managementReviews: any[];
   cleanerInvoicePayClaims: any[];
+  bookingRequests: any[];
+  bookingAvailability: Record<string, any>;
   counts: Record<string, number>;
 };
 
 const QUEUES = [
+  { key: "bookingRequests", label: "Booking requests", icon: CalendarPlus },
   { key: "continuations", label: "Continuations", icon: RefreshCw },
   { key: "timingRequests", label: "Timing", icon: Clock },
   { key: "payAdjustments", label: "Pay requests", icon: DollarSign },
@@ -1834,6 +1838,111 @@ export function ApprovalsWorkspace() {
           )}
 
           {/* ── Skip requests (approving cancels the clean → confirm both) ── */}
+          {active === "bookingRequests" &&
+            activeRows.map((row) => {
+              const avail = row.scheduledDate
+                ? data.bookingAvailability?.[row.scheduledDate]
+                : null;
+              // Nobody free is not a refusal — it is the fact the admin needs
+              // in front of them BEFORE approving, which is the whole point of
+              // routing bookings through here.
+              const tight = avail ? avail.freeCleaners <= 0 : false;
+              return (
+                <QueueCard
+                  key={row.id}
+                  eyebrow="Booking request"
+                  title={
+                    <>
+                      {String(row.jobType ?? "Clean").replace(/_/g, " ")} —{" "}
+                      {row.property?.name ?? row.clientName ?? "Client booking"}
+                    </>
+                  }
+                  status={<StatusPill status="REQUESTED" />}
+                  lines={[
+                    [row.clientName, row.property?.suburb].filter(Boolean).join(" · "),
+                    row.scheduledDate ? (
+                      <>Requested for {fmtDay(row.scheduledDate)}</>
+                    ) : (
+                      <>No date on this request</>
+                    ),
+                    avail ? (
+                      <span
+                        className={
+                          tight
+                            ? "text-[hsl(var(--e-danger))]"
+                            : "text-[hsl(var(--e-muted-foreground))]"
+                        }
+                      >
+                        {avail.freeCleaners} of {avail.activeCleaners} cleaners free ·{" "}
+                        {avail.jobsScheduled} job{avail.jobsScheduled === 1 ? "" : "s"} that day
+                        {avail.unassignedJobs > 0
+                          ? ` · ${avail.unassignedJobs} still unassigned`
+                          : ""}
+                      </span>
+                    ) : null,
+                    row.notes ? <>Notes: {row.notes}</> : null,
+                  ]}
+                  footer={`Requested ${fmt(row.createdAt)}`}
+                  actions={
+                    <>
+                      <ConfirmButton
+                        label={
+                          <>
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                          </>
+                        }
+                        confirmLabel={
+                          tight
+                            ? "Nobody free — approve anyway"
+                            : "Confirm — create the job"
+                        }
+                        variant="gold"
+                        disabled={busy}
+                        onConfirm={() =>
+                          decide({
+                            url: "/api/admin/booking-requests",
+                            body: { requestId: row.id, action: "approve" },
+                            queue: "bookingRequests",
+                            rowId: row.id,
+                            successMsg: "Booking approved — job created",
+                          })
+                        }
+                      />
+                      <ConfirmButton
+                        label={
+                          <>
+                            <XCircle className="h-3.5 w-3.5" /> Decline
+                          </>
+                        }
+                        confirmLabel="Confirm decline"
+                        disabled={busy}
+                        onConfirm={() =>
+                          decide({
+                            url: "/api/admin/booking-requests",
+                            body: {
+                              requestId: row.id,
+                              action: "decline",
+                              reason: "Declined by the office.",
+                            },
+                            queue: "bookingRequests",
+                            rowId: row.id,
+                            successMsg: "Booking declined",
+                          })
+                        }
+                      />
+                      {row.property ? (
+                        <EButton size="sm" variant="ghost" asChild>
+                          <Link href={`/v2/admin/properties/${row.property.id}`}>
+                            View property
+                          </Link>
+                        </EButton>
+                      ) : null}
+                    </>
+                  }
+                />
+              );
+            })}
+
           {active === "skipRequests" &&
             activeRows.map((row) => (
               <QueueCard

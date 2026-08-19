@@ -8,6 +8,7 @@ import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { normalizePayAdjustmentAmounts } from "@/lib/pay-adjustments/display";
 import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
 import { listQaOutcomeApprovals } from "@/lib/qa/outcome-approvals";
+import { listPendingBookingRequests, getTeamAvailability } from "@/lib/booking/requests";
 
 // Accountability-sourced pay adjustments are surfaced in their own dedicated
 // queues (rectificationAdjustments / bonusProposals) — NOT in the generic
@@ -371,6 +372,24 @@ export async function GET() {
       cleaner: r.job?.assignments?.[0]?.user ?? null,
     }));
 
+    // Client bookings nobody has agreed to yet. They are the only queue
+    // here whose approval CREATES the work rather than blessing work that
+    // already exists, so team availability rides along with them.
+    const bookingRequests = await listPendingBookingRequests().catch(() => []);
+    const bookingDateKeys = Array.from(
+      new Set(
+        bookingRequests.map((r) => r.scheduledDate).filter((d) => typeof d === "string")
+      )
+    ) as string[];
+    const bookingAvailabilityRows = await Promise.all(
+      bookingDateKeys.map((key) => getTeamAvailability(key).catch(() => null))
+    );
+    const bookingAvailability = Object.fromEntries(
+      bookingAvailabilityRows
+        .filter((row): row is NonNullable<typeof row> => row !== null)
+        .map((row) => [row.dateKey, row])
+    );
+
     return NextResponse.json({
       continuations: continuations.map((c) => ({ ...c, job: jobMap[c.jobId] ?? null })),
       timingRequests: timingRequests.map((r) => ({ ...r, job: timingJobMap[r.jobId] ?? null })),
@@ -388,6 +407,8 @@ export async function GET() {
       managementReviews: managementReviewRows,
       qaOutcomes,
       cleanerInvoicePayClaims: payClaimRows,
+      bookingRequests,
+      bookingAvailability,
       counts: {
         continuations: continuations.length,
         timingRequests: timingRequests.length,
@@ -405,6 +426,7 @@ export async function GET() {
         managementReviews: managementReviewRows.length,
         qaOutcomes: qaOutcomes.length,
         cleanerInvoicePayClaims: payClaimRows.length,
+        bookingRequests: bookingRequests.length,
         total:
           continuations.length +
           timingRequests.length +
@@ -421,7 +443,8 @@ export async function GET() {
           falseConfirmations.length +
           managementReviewRows.length +
           qaOutcomes.length +
-          payClaimRows.length,
+          payClaimRows.length +
+          bookingRequests.length,
       },
     });
   } catch (err: any) {
