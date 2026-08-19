@@ -137,7 +137,7 @@ export function EstateMessagesWorkspace() {
   return (
     // Cancel the portal shell padding so the messenger is full-height and only
     // the thread scrolls.
-    <div className="-mx-4 -my-6 flex h-[calc(100dvh-4rem)] overflow-hidden rounded-none bg-[hsl(var(--e-background))] md:-mx-6 lg:-mx-8">
+    <div className="-mx-4 -my-6 flex h-[calc(100dvh-4rem)] overflow-hidden rounded-none bg-[hsl(var(--e-background))] lg:-mx-8">
       {/* LEFT — conversation list */}
       <aside
         className={cn(

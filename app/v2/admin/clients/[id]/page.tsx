@@ -255,10 +255,10 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
               <span className="font-[550]">{client.name}</span>
             </div>
             {client.email ? (
-              <p className="flex items-center gap-2 text-[hsl(var(--e-text-secondary))]"><Mail className="h-3.5 w-3.5 text-[hsl(var(--e-text-faint))]" /> {client.email}</p>
+              <p className="flex min-w-0 items-center gap-2 text-[hsl(var(--e-text-secondary))]"><Mail className="h-3.5 w-3.5 text-[hsl(var(--e-text-faint))]" /> {client.email}</p>
             ) : null}
             {client.phone ? (
-              <p className="flex items-center gap-2 text-[hsl(var(--e-text-secondary))]"><Phone className="h-3.5 w-3.5 text-[hsl(var(--e-text-faint))]" /> {client.phone}</p>
+              <p className="flex min-w-0 items-center gap-2 text-[hsl(var(--e-text-secondary))]"><Phone className="h-3.5 w-3.5 text-[hsl(var(--e-text-faint))]" /> {client.phone}</p>
             ) : null}
             {client.address ? (
               <p className="flex items-center gap-2 text-[hsl(var(--e-muted-foreground))]"><Building2 className="h-3.5 w-3.5 text-[hsl(var(--e-text-faint))]" /> {client.address}{client.suburb ? `, ${client.suburb}` : ""}</p>

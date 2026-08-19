@@ -260,7 +260,7 @@ export function EModal({
         <div className="flex items-start justify-between gap-4 border-b border-[hsl(var(--e-border))] px-6 py-4">
           <div className="min-w-0">
             {eyebrow ? <EEyebrow className="mb-1">{eyebrow}</EEyebrow> : null}
-            <h2 className="e-display-sm truncate">{title}</h2>
+            <h2 className="e-display-sm break-words">{title}</h2>
           </div>
           <button
             type="button"
@@ -446,7 +446,9 @@ export function ETableShell({
 }) {
   return (
     <div className={cn("overflow-x-auto", className)}>
-      <table className="w-full text-[0.875rem]">
+      {/* min-w makes the overflow wrapper real: w-full alone just crushed
+          five columns into a 295px card and the scrollbar never appeared. */}
+      <table className="w-full min-w-[46rem] text-[0.875rem]">
         <thead>
           <tr className="border-b border-[hsl(var(--e-border))]">
             {headers.map((h, i) => (

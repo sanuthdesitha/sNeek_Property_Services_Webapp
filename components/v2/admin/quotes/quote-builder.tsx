@@ -2042,15 +2042,15 @@ export function QuoteBuilder({
             </p>
           ) : (
             lineItems.map((li, idx) => (
-              <div key={idx} className="grid grid-cols-12 items-center gap-2">
+              <div key={idx} className="grid grid-cols-4 items-center gap-2 md:grid-cols-12">
                 <EInput
-                  className="col-span-6"
+                  className="col-span-4 md:col-span-6"
                   value={li.label}
                   placeholder="Description"
                   onChange={(e) => updateItem(idx, { label: e.target.value })}
                 />
                 <EInput
-                  className="col-span-2"
+                  className="col-span-2 md:col-span-2"
                   type="number"
                   step="0.01"
                   value={li.unitPrice}
@@ -2062,7 +2062,7 @@ export function QuoteBuilder({
                   value={li.qty}
                   onChange={(e) => updateItem(idx, { qty: Number(e.target.value) })}
                 />
-                <div className="col-span-2 text-right text-[0.875rem] e-tnum">{money(li.total)}</div>
+                <div className="col-span-1 text-right text-[0.875rem] e-tnum md:col-span-2">{money(li.total)}</div>
                 <EButton
                   type="button"
                   size="icon"

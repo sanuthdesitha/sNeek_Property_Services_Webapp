@@ -182,7 +182,7 @@ export function EPageHeader({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           {eyebrow ? <EEyebrow className="mb-1.5">{eyebrow}</EEyebrow> : null}
-          <h1 className="e-display-md truncate">{title}</h1>
+          <h1 className="e-display-md break-words">{title}</h1>
           {description ? (
             <p className="mt-1 text-[0.9375rem] text-[hsl(var(--e-muted-foreground))]">{description}</p>
           ) : null}

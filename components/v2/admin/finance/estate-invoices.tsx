@@ -1112,15 +1112,15 @@ export function EstateInvoices() {
             {/* Add line */}
             <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
               <EEyebrow>Add a line</EEyebrow>
-              <div className="grid grid-cols-12 items-end gap-2">
-                <EField label="Description" className="col-span-5">
+              <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-12">
+                <EField label="Description" className="sm:col-span-5">
                   <EInput
                     className="h-9"
                     value={newLine.description}
                     onChange={(e) => setNewLine({ ...newLine, description: e.target.value })}
                   />
                 </EField>
-                <EField label="Qty" className="col-span-2">
+                <EField label="Qty" className="sm:col-span-2">
                   <EInput
                     className="h-9"
                     type="number"
@@ -1129,7 +1129,7 @@ export function EstateInvoices() {
                     onChange={(e) => setNewLine({ ...newLine, quantity: e.target.value })}
                   />
                 </EField>
-                <EField label="Unit price" className="col-span-3">
+                <EField label="Unit price" className="sm:col-span-3">
                   <EInput
                     className="h-9"
                     type="number"
@@ -1138,7 +1138,7 @@ export function EstateInvoices() {
                     onChange={(e) => setNewLine({ ...newLine, unitPrice: e.target.value })}
                   />
                 </EField>
-                <div className="col-span-2">
+                <div className="sm:col-span-2">
                   <EButton className="w-full" size="sm" variant="outline" disabled={editSaving} onClick={addLine}>
                     <Plus className="h-3.5 w-3.5" /> Add
                   </EButton>
@@ -1194,7 +1194,7 @@ export function EstateInvoices() {
               </div>
             </div>
             {/* Totals */}
-            <div className="grid grid-cols-3 gap-3 border-t border-[hsl(var(--e-border))] pt-4">
+            <div className="grid grid-cols-1 gap-3 border-t border-[hsl(var(--e-border))] pt-4 sm:grid-cols-3">
               <div>
                 <EEyebrow>Subtotal</EEyebrow>
                 <p className="e-numeral mt-1 text-[1.125rem] leading-none">{money(editInvoice.subtotal)}</p>
@@ -1227,7 +1227,7 @@ export function EstateInvoices() {
       >
         {payFor ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
+            <div className="grid grid-cols-1 gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3 sm:grid-cols-3">
               <div>
                 <EEyebrow>Invoice total</EEyebrow>
                 <p className="e-numeral mt-1 text-[1rem] leading-none">{money(payFor.totalAmount)}</p>
@@ -1457,10 +1457,10 @@ function SortableLineRow({
         (isDragging ? "opacity-60 shadow-lg" : "")
       }
     >
-      <div className="grid grid-cols-12 items-center gap-2">
+      <div className="grid grid-cols-2 items-center gap-2 md:grid-cols-12">
         <button
           type="button"
-          className="col-span-1 flex cursor-grab items-center justify-center text-[hsl(var(--e-muted-foreground))] active:cursor-grabbing"
+          className="col-span-2 flex cursor-grab items-center justify-center md:col-span-1 text-[hsl(var(--e-muted-foreground))] active:cursor-grabbing"
           aria-label={"Reorder " + line.description}
           {...attributes}
           {...listeners}
@@ -1468,13 +1468,13 @@ function SortableLineRow({
           <GripVertical className="h-4 w-4" />
         </button>
         <EInput
-          className="col-span-4 h-9"
+          className="col-span-2 h-9 md:col-span-4"
           value={line.description}
           placeholder="Description"
           onChange={(e) => onField({ description: e.target.value })}
         />
         <EInput
-          className="col-span-2 h-9"
+          className="col-span-1 h-9 md:col-span-2"
           type="number"
           step="0.01"
           value={line.quantity}
@@ -1482,14 +1482,14 @@ function SortableLineRow({
           title="Quantity"
         />
         <EInput
-          className="col-span-2 h-9"
+          className="col-span-1 h-9 md:col-span-2"
           type="number"
           step="0.01"
           value={line.unitPrice}
           onChange={(e) => onField({ unitPrice: Number(e.target.value) })}
           title="Unit price"
         />
-        <div className="col-span-2 text-right text-[0.8125rem] e-tnum">{money(line.lineTotal)}</div>
+        <div className="col-span-1 text-right text-[0.8125rem] e-tnum">{money(line.lineTotal)}</div>
         <div className="col-span-1 flex justify-end gap-1">
           <EButton
             size="icon"
@@ -1515,7 +1515,7 @@ function SortableLineRow({
       </div>
 
       {/* Context row: where this charge came from. */}
-      <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-[8.333%] text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-0 md:pl-[8.333%] text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
         {line.job ? (
           // Job-backed: state the source. Its property is fixed by the job, so no
           // control is offered here — the API would refuse the change anyway.
@@ -1529,7 +1529,7 @@ function SortableLineRow({
           <>
             <span>Manual charge — group under</span>
             <ESelect
-              className="h-7 w-auto min-w-[150px] text-[0.75rem]"
+              className="h-9 w-auto min-w-[150px] text-[0.75rem] sm:h-7"
               value={line.property?.id ?? ""}
               disabled={disabled}
               onChange={(e) => onProperty(e.target.value)}

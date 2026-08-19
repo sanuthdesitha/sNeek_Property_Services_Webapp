@@ -414,7 +414,7 @@ function MemberSection({
                 )}
                 <EButton
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   aria-label={`Remove ${m.email}`}
                   onClick={() => removeMember(m.id)}
                 >
