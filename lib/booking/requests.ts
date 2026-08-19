@@ -189,6 +189,49 @@ export async function listPendingBookingRequests(): Promise<BookingRequest[]> {
   }));
 }
 
+/**
+ * Everything needed to tell the client what was decided.
+ *
+ * Returned by approve/decline rather than looked up again by the caller:
+ * the decision already loaded the lead, and a second read could disagree
+ * with what was actually decided if anything changed in between.
+ */
+export interface BookingDecisionNotice {
+  email: string | null;
+  clientName: string;
+  propertyName: string | null;
+  /** What the client originally asked for. */
+  requestedDate: string | null;
+  jobType: string | null;
+}
+
+async function buildDecisionNotice(
+  lead: { name: string; email: string; clientId: string | null },
+  ctx: BookingRequestContext
+): Promise<BookingDecisionNotice> {
+  const [client, property] = await Promise.all([
+    lead.clientId
+      ? db.client
+          .findUnique({ where: { id: lead.clientId }, select: { name: true, email: true } })
+          .catch(() => null)
+      : null,
+    ctx.propertyId
+      ? db.property
+          .findUnique({ where: { id: ctx.propertyId }, select: { name: true } })
+          .catch(() => null)
+      : null,
+  ]);
+  return {
+    // The client record's address wins: the lead copy is a snapshot taken
+    // when the booking was made and may be months stale.
+    email: client?.email?.trim() || lead.email?.trim() || null,
+    clientName: client?.name ?? lead.name,
+    propertyName: property?.name ?? null,
+    requestedDate: ctx.scheduledDate ?? null,
+    jobType: ctx.jobType ?? null,
+  };
+}
+
 export class BookingRequestError extends Error {
   constructor(
     message: string,
@@ -212,10 +255,23 @@ export async function approveBookingRequest(input: {
   adminUserId: string;
   /** Overrides the client's requested date. Sydney yyyy-MM-dd. */
   scheduledDate?: string;
-}): Promise<{ jobId: string; jobNumber: string; scheduledDate: string }> {
+}): Promise<{
+  jobId: string;
+  jobNumber: string;
+  scheduledDate: string;
+  notice: BookingDecisionNotice;
+}> {
   const lead = await db.quoteLead.findUnique({
     where: { id: input.requestId },
-    select: { id: true, status: true, notes: true, structuredContext: true },
+    select: {
+      id: true,
+      status: true,
+      notes: true,
+      structuredContext: true,
+      name: true,
+      email: true,
+      clientId: true,
+    },
   });
   if (!lead) throw new BookingRequestError("That booking request no longer exists.", "NOT_FOUND");
 
@@ -242,6 +298,8 @@ export async function approveBookingRequest(input: {
   if (!property) {
     throw new BookingRequestError("The property on this request no longer exists.", "NOT_FOUND");
   }
+
+  const notice = await buildDecisionNotice(lead, ctx);
 
   return db.$transaction(async (tx) => {
     // Guarded flip FIRST: if another admin already approved this, updateMany
@@ -293,7 +351,7 @@ export async function approveBookingRequest(input: {
       },
     });
 
-    return { jobId: job.id, jobNumber: job.jobNumber, scheduledDate };
+    return { jobId: job.id, jobNumber: job.jobNumber, scheduledDate, notice };
   });
 }
 
@@ -302,10 +360,17 @@ export async function declineBookingRequest(input: {
   requestId: string;
   adminUserId: string;
   reason?: string;
-}): Promise<void> {
+}): Promise<{ notice: BookingDecisionNotice }> {
   const lead = await db.quoteLead.findUnique({
     where: { id: input.requestId },
-    select: { id: true, status: true, structuredContext: true },
+    select: {
+      id: true,
+      status: true,
+      structuredContext: true,
+      name: true,
+      email: true,
+      clientId: true,
+    },
   });
   if (!lead) throw new BookingRequestError("That booking request no longer exists.", "NOT_FOUND");
 
@@ -334,6 +399,8 @@ export async function declineBookingRequest(input: {
     );
   }
 
+  const notice = await buildDecisionNotice(lead, ctx);
+
   await db.auditLog.create({
     data: {
       userId: input.adminUserId,
@@ -343,6 +410,8 @@ export async function declineBookingRequest(input: {
       after: { reason: input.reason ?? null } as any,
     },
   });
+
+  return { notice };
 }
 
 /** Today's Sydney date key, for defaulting an availability lookup. */
