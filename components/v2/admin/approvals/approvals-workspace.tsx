@@ -1884,60 +1884,7 @@ export function ApprovalsWorkspace() {
                   ]}
                   footer={`Requested ${fmt(row.createdAt)}`}
                   actions={
-                    <>
-                      <ConfirmButton
-                        label={
-                          <>
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Approve
-                          </>
-                        }
-                        confirmLabel={
-                          tight
-                            ? "Nobody free — approve anyway"
-                            : "Confirm — create the job"
-                        }
-                        variant="gold"
-                        disabled={busy}
-                        onConfirm={() =>
-                          decide({
-                            url: "/api/admin/booking-requests",
-                            body: { requestId: row.id, action: "approve" },
-                            queue: "bookingRequests",
-                            rowId: row.id,
-                            successMsg: "Booking approved — job created",
-                          })
-                        }
-                      />
-                      <ConfirmButton
-                        label={
-                          <>
-                            <XCircle className="h-3.5 w-3.5" /> Decline
-                          </>
-                        }
-                        confirmLabel="Confirm decline"
-                        disabled={busy}
-                        onConfirm={() =>
-                          decide({
-                            url: "/api/admin/booking-requests",
-                            body: {
-                              requestId: row.id,
-                              action: "decline",
-                              reason: "Declined by the office.",
-                            },
-                            queue: "bookingRequests",
-                            rowId: row.id,
-                            successMsg: "Booking declined",
-                          })
-                        }
-                      />
-                      {row.property ? (
-                        <EButton size="sm" variant="ghost" asChild>
-                          <Link href={`/v2/admin/properties/${row.property.id}`}>
-                            View property
-                          </Link>
-                        </EButton>
-                      ) : null}
-                    </>
+                    <BookingDecision row={row} tight={tight} busy={busy} decide={decide} />
                   }
                 />
               );
@@ -2096,5 +2043,136 @@ export function ApprovalsWorkspace() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Approve or decline one booking request.
+ *
+ * Decline REQUIRES a typed reason — the API rejects a blank one. A client
+ * whose booking quietly dies with no explanation rings up anyway, so the
+ * office may as well say it once, in writing, where it is emailed to them.
+ *
+ * Approve can move the date. The office can often do the job, just not on the
+ * day asked for, and the alternative was decline-and-rebook for what is
+ * really a one-field change.
+ */
+function BookingDecision({
+  row,
+  tight,
+  busy,
+  decide,
+}: {
+  row: any;
+  tight: boolean;
+  busy: boolean;
+  // Matches the workspace's own decide(): QueueKey rather than string, so a
+  // typo'd queue name is a compile error and not a silent no-op refresh.
+  decide: (input: {
+    url: string;
+    method?: string;
+    body: object;
+    queue: QueueKey;
+    rowId: string;
+    successMsg: string;
+  }) => Promise<void> | void;
+}) {
+  const [mode, setMode] = useState<"idle" | "move" | "decline">("idle");
+  const [date, setDate] = useState<string>(row.scheduledDate ?? "");
+  const [reason, setReason] = useState("");
+
+  function approve(scheduledDate?: string) {
+    decide({
+      url: "/api/admin/booking-requests",
+      body: {
+        requestId: row.id,
+        action: "approve",
+        ...(scheduledDate ? { scheduledDate } : {}),
+      },
+      queue: "bookingRequests",
+      rowId: row.id,
+      successMsg: "Booking approved — job created",
+    });
+  }
+
+  if (mode === "decline") {
+    return (
+      <div className="w-full space-y-2">
+        <ETextarea
+          autoFocus
+          value={reason}
+          maxLength={500}
+          placeholder="Why can this not go ahead? The client is emailed this."
+          onChange={(e) => setReason(e.target.value)}
+        />
+        <div className="flex items-center gap-2">
+          <EButton
+            size="sm"
+            variant="danger"
+            disabled={busy || reason.trim().length === 0}
+            onClick={() =>
+              decide({
+                url: "/api/admin/booking-requests",
+                body: { requestId: row.id, action: "decline", reason: reason.trim() },
+                queue: "bookingRequests",
+                rowId: row.id,
+                successMsg: "Booking declined — client notified",
+              })
+            }
+          >
+            Send decline
+          </EButton>
+          <EButton size="sm" variant="ghost" onClick={() => setMode("idle")}>
+            Cancel
+          </EButton>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === "move") {
+    return (
+      <div className="flex w-full flex-wrap items-center gap-2">
+        <EInput
+          type="date"
+          className="w-44"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+        />
+        <EButton size="sm" variant="gold" disabled={busy || !date} onClick={() => approve(date)}>
+          Approve on this date
+        </EButton>
+        <EButton size="sm" variant="ghost" onClick={() => setMode("idle")}>
+          Cancel
+        </EButton>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <ConfirmButton
+        label={
+          <>
+            <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+          </>
+        }
+        confirmLabel={tight ? "Nobody free — approve anyway" : "Confirm — create the job"}
+        variant="gold"
+        disabled={busy}
+        onConfirm={() => approve()}
+      />
+      <EButton size="sm" variant="outline" disabled={busy} onClick={() => setMode("move")}>
+        <CalendarClock className="h-3.5 w-3.5" /> Different date
+      </EButton>
+      <EButton size="sm" variant="outline" disabled={busy} onClick={() => setMode("decline")}>
+        <XCircle className="h-3.5 w-3.5" /> Decline
+      </EButton>
+      {row.property ? (
+        <EButton size="sm" variant="ghost" asChild>
+          <Link href={`/v2/admin/properties/${row.property.id}`}>View property</Link>
+        </EButton>
+      ) : null}
+    </>
   );
 }

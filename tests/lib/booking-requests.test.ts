@@ -12,6 +12,7 @@ const { dbMock } = vi.hoisted(() => ({
     },
     job: { findMany: vi.fn(), create: vi.fn() },
     property: { findUnique: vi.fn(), findMany: vi.fn() },
+    client: { findUnique: vi.fn() },
     user: { count: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
@@ -308,5 +309,85 @@ describe("listPendingBookingRequests", () => {
     const rows = await listPendingBookingRequests();
     expect(rows).toEqual([]);
     expect(dbMock.property.findMany).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The decision notice is what finally closes the loop with the client. The
+ * old flow told them nothing; a queue that also tells them nothing would be
+ * the same silence with an extra step.
+ */
+describe("decision notice", () => {
+  function pendingLead(over: Record<string, unknown> = {}) {
+    return {
+      id: "lead-1",
+      status: "NEW",
+      notes: null,
+      structuredContext: CTX,
+      name: "Lead Snapshot Name",
+      email: "stale@example.test",
+      clientId: "client-1",
+      ...over,
+    };
+  }
+
+  it("prefers the client record over the snapshot copied onto the lead", async () => {
+    dbMock.quoteLead.findUnique.mockResolvedValue(pendingLead());
+    dbMock.client.findUnique.mockResolvedValue({
+      name: "Harbour Stays",
+      email: "ops@harbour.test",
+    });
+    dbMock.property.findUnique.mockResolvedValue({ id: "prop-1", name: "Bondi Loft" });
+    dbMock.quoteLead.updateMany.mockResolvedValue({ count: 1 });
+    dbMock.job.create.mockResolvedValue({ id: "job-1", jobNumber: "J-1001" });
+
+    const { notice } = await approveBookingRequest({ requestId: "lead-1", adminUserId: "a" });
+
+    // The lead copy was taken when the booking was made and may be months old.
+    expect(notice.email).toBe("ops@harbour.test");
+    expect(notice.clientName).toBe("Harbour Stays");
+    expect(notice.propertyName).toBe("Bondi Loft");
+    expect(notice.requestedDate).toBe("2026-09-03");
+  });
+
+  it("falls back to the lead address when the client has none", async () => {
+    dbMock.quoteLead.findUnique.mockResolvedValue(pendingLead());
+    dbMock.client.findUnique.mockResolvedValue({ name: "Harbour Stays", email: "   " });
+    dbMock.property.findUnique.mockResolvedValue({ id: "prop-1", name: "Bondi Loft" });
+    dbMock.quoteLead.updateMany.mockResolvedValue({ count: 1 });
+    dbMock.job.create.mockResolvedValue({ id: "job-1", jobNumber: "J-1001" });
+
+    const { notice } = await approveBookingRequest({ requestId: "lead-1", adminUserId: "a" });
+    expect(notice.email).toBe("stale@example.test");
+  });
+
+  it("reports no address rather than inventing one", async () => {
+    dbMock.quoteLead.findUnique.mockResolvedValue(pendingLead({ clientId: null, email: "" }));
+    dbMock.property.findUnique.mockResolvedValue({ id: "prop-1", name: "Bondi Loft" });
+    dbMock.quoteLead.updateMany.mockResolvedValue({ count: 1 });
+    dbMock.job.create.mockResolvedValue({ id: "job-1", jobNumber: "J-1001" });
+
+    const { notice } = await approveBookingRequest({ requestId: "lead-1", adminUserId: "a" });
+    expect(notice.email).toBeNull();
+    // No clientId means no lookup at all.
+    expect(dbMock.client.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("comes back from a decline too, so the client can be told why", async () => {
+    dbMock.quoteLead.findUnique.mockResolvedValue(pendingLead());
+    dbMock.client.findUnique.mockResolvedValue({
+      name: "Harbour Stays",
+      email: "ops@harbour.test",
+    });
+    dbMock.property.findUnique.mockResolvedValue({ id: "prop-1", name: "Bondi Loft" });
+    dbMock.quoteLead.updateMany.mockResolvedValue({ count: 1 });
+
+    const { notice } = await declineBookingRequest({
+      requestId: "lead-1",
+      adminUserId: "a",
+      reason: "Fully booked",
+    });
+    expect(notice.email).toBe("ops@harbour.test");
+    expect(notice.jobType).toBe("GENERAL_CLEAN");
   });
 });
