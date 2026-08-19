@@ -407,9 +407,15 @@ export function ReportsManager() {
               },
             )}
           </div>
-          <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-            Theme authoring (colours, logo, layout) lives in report settings.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+              Theme authoring (colours, logo, layout) lives in the theme manager.
+            </p>
+            {/* Link (not a nested route) so the picker modal state is simply left behind */}
+            <EButton variant="outline" size="sm" asChild>
+              <Link href="/v2/admin/reports/themes">Manage themes</Link>
+            </EButton>
+          </div>
         </div>
       </EModal>
 

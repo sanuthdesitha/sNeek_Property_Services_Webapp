@@ -9,7 +9,10 @@
  *   POST  /api/admin/properties/:id/integration       (trigger sync)
  *   POST  /api/admin/properties/:id/integration/undo  (undo run)
  *   GET/POST/DELETE /api/admin/properties/:id/pending-tasks[/:taskId]
- *   POST  /api/admin/inventory/property/:id/set-levels
+ *   POST  /api/admin/inventory/property/:id/set-levels (upserts → also creates
+ *         rows for items staged via the Inventory tab's add affordances)
+ *   GET   /api/admin/properties/:id/stats               (performance panel)
+ *   POST  /api/uploads/direct                           (cover photo)
  * Estate token scope only; no components/ui/* dependency.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -51,6 +54,14 @@ import {
   EModal,
 } from "@/components/v2/admin/estate-kit";
 import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
+import { PropertyCoverImage } from "./property-cover-image";
+import {
+  PropertyInventoryAdd,
+  type AddItemDefaults,
+  type InventoryCatalogItem,
+} from "./property-inventory-add";
+import { PropertyJobsHistory } from "./property-jobs-history";
+import { PropertyStatsStrip } from "./property-stats-strip";
 import { PropertyBillingRates } from "./property-billing-rates";
 import { PropertyChecklistProfile, PropertyFormOverrides } from "./property-checklist-profile";
 import { PropertyAccessGuideEditor } from "./property-access-guide-editor";
@@ -179,6 +190,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     latitude: null as number | null,
     longitude: null as number | null,
     placeId: null as string | null,
+    imageUrl: "",
     notes: "",
     linenBufferSets: "0",
     inventoryEnabled: false,
@@ -235,6 +247,15 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     Record<string, { onHand: string; parLevel: string; reorderThreshold: string }>
   >({});
   const [savingStock, setSavingStock] = useState(false);
+  /**
+   * Items added via the Inventory tab but not yet persisted. Mirrors v1's
+   * two-step commit: adding only stages a row; "Save levels" upserts it via
+   * set-levels. Kept separate from property.propertyStock so a profile save
+   * (which reloads the property) can't silently drop staged rows.
+   */
+  const [pendingStock, setPendingStock] = useState<
+    Array<{ itemId: string; item: InventoryCatalogItem }>
+  >([]);
 
   const loadProperty = useCallback(async () => {
     const res = await fetch(`/api/admin/properties/${propertyId}`);
@@ -269,6 +290,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       latitude: typeof data.latitude === "number" ? data.latitude : null,
       longitude: typeof data.longitude === "number" ? data.longitude : null,
       placeId: typeof data.placeId === "string" ? data.placeId : null,
+      imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : "",
       notes: data.notes ?? "",
       linenBufferSets: String(data.linenBufferSets ?? 0),
       inventoryEnabled: Boolean(data.inventoryEnabled),
@@ -371,6 +393,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       latitude: form.latitude ?? undefined,
       longitude: form.longitude ?? undefined,
       placeId: form.placeId ?? undefined,
+      imageUrl: form.imageUrl.trim() || null,
       notes: form.notes || undefined,
       // Send every key this form owns as an explicit value (empty string, not
       // undefined) — the API merges accessInfo over the stored row, so an
@@ -536,10 +559,43 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     }
   }
 
+  /**
+   * Stage a catalog item on this property (parity with v1 addPresetItem /
+   * addCustomItem). Persisted on the next "Save levels" — the set-levels
+   * endpoint upserts, so unknown itemIds become new PropertyStock rows.
+   */
+  function stageInventoryItem(item: InventoryCatalogItem, defaults?: AddItemDefaults) {
+    const saved = Array.isArray(property?.propertyStock) ? property.propertyStock : [];
+    const exists =
+      saved.some((row: any) => row.itemId === item.id) ||
+      pendingStock.some((row) => row.itemId === item.id);
+    if (exists) {
+      toast({ title: "Item already added", description: `${item.name} is already tracked at this property.` });
+      return;
+    }
+    setPendingStock((prev) => [...prev, { itemId: item.id, item }]);
+    setStockDraft((prev) => ({
+      ...prev,
+      [item.id]: {
+        onHand: String(defaults?.onHand ?? 0),
+        parLevel: String(defaults?.parLevel ?? 6),
+        reorderThreshold: String(defaults?.reorderThreshold ?? 2),
+      },
+    }));
+  }
+
   async function saveStockLevels() {
     if (!property) return;
     setSavingStock(true);
-    const rows = Array.isArray(property.propertyStock) ? property.propertyStock : [];
+    const saved = Array.isArray(property.propertyStock) ? property.propertyStock : [];
+    const savedIds = new Set(saved.map((row: any) => row.itemId));
+    const rows = [
+      ...saved,
+      // Staged additions ride along with the level save (set-levels upserts).
+      ...pendingStock
+        .filter((row) => !savedIds.has(row.itemId))
+        .map((row) => ({ itemId: row.itemId, onHand: 0, parLevel: 6, reorderThreshold: 2 })),
+    ];
     const levels = rows.map((row: any) => {
       const draft = stockDraft[row.itemId] ?? {
         onHand: String(row.onHand ?? 0),
@@ -565,6 +621,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       return;
     }
     toast({ title: "Stock levels updated" });
+    setPendingStock([]);
     loadProperty();
   }
 
@@ -605,7 +662,15 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
     );
   }
 
-  const stockRows = Array.isArray(property.propertyStock) ? property.propertyStock : [];
+  const savedStockRows = Array.isArray(property.propertyStock) ? property.propertyStock : [];
+  const savedStockIds = new Set(savedStockRows.map((row: any) => row.itemId));
+  // Saved rows plus staged additions, shaped alike so the table renders both.
+  const stockRows = [
+    ...savedStockRows,
+    ...pendingStock
+      .filter((row) => !savedStockIds.has(row.itemId))
+      .map((row) => ({ itemId: row.itemId, onHand: 0, parLevel: 6, reorderThreshold: 2, item: row.item, pending: true })),
+  ];
   const jobCount = property._count?.jobs ?? 0;
   const reservationCount = property._count?.reservations ?? 0;
 
@@ -696,6 +761,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
 
       {/* PROFILE / EDIT */}
       {tab === "profile" ? (
+        <div className="space-y-4">
         <div className="grid gap-4 lg:grid-cols-3">
           <ECard className="lg:col-span-2">
             <ECardHeader className="pb-2">
@@ -754,6 +820,10 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
                   <EInput type="time" value={form.defaultCheckoutTime} onChange={(e) => setF("defaultCheckoutTime", e.target.value)} />
                 </EField>
               </div>
+
+              <EField label="Cover photo">
+                <PropertyCoverImage value={form.imageUrl} onChange={(url) => setF("imageUrl", url)} />
+              </EField>
 
               <div className="grid gap-3 md:grid-cols-2">
                 <ToggleTile title="Has balcony" hint="Enable balcony checklist fields." checked={form.hasBalcony} onChange={(v) => setF("hasBalcony", v)} />
@@ -993,10 +1063,14 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
             </ECardBody>
           </ECard>
         </div>
+
+        {/* Lifetime performance + recent photos (GET /api/admin/properties/:id/stats) */}
+        <PropertyStatsStrip propertyId={propertyId} />
+        </div>
       ) : null}
 
-      {/* JOBS & HISTORY */}
-      {tab === "jobs" ? <PropertyJobs propertyId={propertyId} /> : null}
+      {/* JOBS & HISTORY — chips, report downloads, forms deep links, quick links */}
+      {tab === "jobs" ? <PropertyJobsHistory propertyId={propertyId} /> : null}
 
       {/* ACCESS GUIDE */}
       {tab === "access" ? <PropertyAccessGuideEditor propertyId={propertyId} /> : null}
@@ -1068,6 +1142,12 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
 
       {/* INVENTORY */}
       {tab === "inventory" ? (
+        <div className="space-y-4">
+        {/* Preset/custom add — staged rows persist on the next "Save levels". */}
+        <PropertyInventoryAdd
+          existingItemIds={new Set(stockRows.map((row: any) => row.itemId))}
+          onAddItem={stageInventoryItem}
+        />
         <ECard>
           <ECardHeader className="flex-row items-center justify-between pb-2">
             <ECardTitle className="text-[0.95rem]">Property stock levels</ECardTitle>
@@ -1082,7 +1162,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
               <EEmptyState
                 eyebrow="No stock"
                 title="Inventory not tracked"
-                description="Enable inventory on the profile tab and add items to track stock for this property."
+                description="Add a preset or custom item above to start tracking stock for this property."
               />
             ) : (
               <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
@@ -1111,7 +1191,14 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
                       return (
                         <tr key={row.itemId} className="border-t border-[hsl(var(--e-border)/0.7)]">
                           <td className="px-3 py-2">
-                            <p className="font-[550]">{row.item?.name ?? "Item"}</p>
+                            <p className="font-[550]">
+                              {row.item?.name ?? "Item"}
+                              {row.pending ? (
+                                <EBadge tone="gold" soft className="ml-1.5">
+                                  Unsaved
+                                </EBadge>
+                              ) : null}
+                            </p>
                             <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
                               {[row.item?.category, row.item?.unit].filter(Boolean).join(" · ")}
                             </p>
@@ -1152,6 +1239,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
             )}
           </ECardBody>
         </ECard>
+        </div>
       ) : null}
 
       {/* Add task modal */}
@@ -1243,86 +1331,3 @@ function ToggleTile({
   );
 }
 
-/* Jobs & history — pulls the same /api/admin/properties/:id/jobs feed the v1 tab used. */
-function PropertyJobs({ propertyId }: { propertyId: string }) {
-  const [jobs, setJobs] = useState<any[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/admin/properties/${propertyId}/jobs`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => {
-        if (cancelled) return;
-        setJobs(Array.isArray(data) ? data : Array.isArray(data?.jobs) ? data.jobs : []);
-      })
-      .catch(() => {
-        if (!cancelled) setJobs([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [propertyId]);
-
-  if (jobs === null) {
-    return (
-      <ECard>
-        <ECardBody className="py-10 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-          Loading jobs…
-        </ECardBody>
-      </ECard>
-    );
-  }
-
-  if (jobs.length === 0) {
-    return (
-      <EEmptyState eyebrow="No jobs" title="Nothing scheduled yet" description="This property's jobs will appear here." />
-    );
-  }
-
-  return (
-    <ECard>
-      <ECardHeader className="pb-2">
-        <ECardTitle className="text-[0.95rem]">Jobs & history</ECardTitle>
-      </ECardHeader>
-      <ECardBody className="pt-0">
-        <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-          <table className="w-full text-[0.8125rem]">
-            <thead>
-              <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
-                {["Date", "Job", "Service", "Status", ""].map((h) => (
-                  <th
-                    key={h}
-                    className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]"
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.map((j: any) => (
-                <tr key={j.id} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
-                  <td className="px-3 py-2.5 tabular-nums whitespace-nowrap">
-                    {j.scheduledDate ? new Date(j.scheduledDate).toLocaleDateString("en-AU") : "—"}
-                  </td>
-                  <td className="px-3 py-2.5 whitespace-nowrap">{j.jobNumber ?? j.id?.slice(0, 8)}</td>
-                  <td className="px-3 py-2.5 text-[hsl(var(--e-text-secondary))]">{titleCase(j.jobType)}</td>
-                  <td className="px-3 py-2.5">
-                    <EBadge tone="neutral" soft>
-                      {titleCase(j.status)}
-                    </EBadge>
-                  </td>
-                  <td className="px-3 py-2.5 text-right">
-                    <EButton asChild variant="ghost" size="sm">
-                      <Link href={`/v2/admin/jobs/${j.id}`}>Open</Link>
-                    </EButton>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </ECardBody>
-    </ECard>
-  );
-}

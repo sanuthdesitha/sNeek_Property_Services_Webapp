@@ -12,9 +12,9 @@
  *   escalate → POST   /api/admin/pay-adjustments/[id]/send-to-client { amount, title, description?, currency }
  *   recall   → DELETE /api/admin/pay-adjustments/[id]/send-to-client
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { format } from "date-fns";
-import { BadgeDollarSign, Link2, Pencil, Plus, RefreshCw, Send, Undo2 } from "lucide-react";
+import { BadgeDollarSign, Eye, FileText, Link2, Pencil, Plus, RefreshCw, Send, Undo2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
 import {
@@ -57,12 +57,23 @@ type PayAdjustmentRow = {
     property: { id: string; name: string; suburb: string };
   } | null;
   property?: { id: string; name: string; suburb: string | null } | null;
+  // Which amount `primaryDisplayAmount` reflects — set server-side by
+  // normalizePayAdjustmentAmounts so the label always matches the number.
+  primaryDisplayAmountSource?: "CLEANER_REQUESTED" | "CLIENT_REQUESTED";
+  // Receipt/evidence photos the cleaner uploaded with the request. The list
+  // API resolves S3 keys to public URLs (publicUrl in lib/s3) — same
+  // mechanism v1's workspace renders, so no extra fetch is needed here.
+  attachmentUrls?: Array<{ key: string; url: string }>;
   // Latest linked client-approval record (source: pay_adjustment), when the
   // request has been escalated to the client portal.
   clientApproval?: {
     id: string;
-    status: "PENDING" | "APPROVED" | "DECLINED" | "EXPIRED" | string;
+    status: "PENDING" | "APPROVED" | "DECLINED" | "CANCELLED" | "EXPIRED" | string;
     amount?: number;
+    currency?: string;
+    title?: string;
+    requestedAt?: string;
+    respondedAt?: string | null;
   } | null;
 };
 
@@ -94,11 +105,43 @@ function dateSafe(value: string | null | undefined): string {
   return Number.isNaN(parsed.getTime()) ? "—" : format(parsed, "dd MMM yyyy");
 }
 
+function dateTimeSafe(value: string | null | undefined): string {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "—" : format(parsed, "dd MMM yyyy HH:mm");
+}
+
+// Documents (receipt PDFs etc.) link out; everything else is shown as an
+// image thumbnail. Unknown extensions default to image — same heuristic as
+// the shared MediaGallery v1 uses, so behaviour matches across versions.
+const ATTACHMENT_DOC_EXT = ["pdf", "doc", "docx", "xls", "xlsx", "csv", "zip"];
+
+function isDocumentAttachment(url: string): boolean {
+  const clean = url.split("?")[0].split("#")[0];
+  const match = /\.([a-z0-9]+)$/i.exec(clean);
+  return match ? ATTACHMENT_DOC_EXT.includes(match[1].toLowerCase()) : false;
+}
+
+// Labelled tile used throughout the detail modal — one shared shape so the
+// v1 dialog's "label over value" boxes translate consistently to Estate.
+function DetailTile({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+      <p className="mb-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{label}</p>
+      {children}
+    </div>
+  );
+}
+
 export function EstatePayAdjustments() {
   const [rows, setRows] = useState<PayAdjustmentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"PENDING" | "APPROVED" | "REJECTED" | "ALL">("PENDING");
   const [cleaners, setCleaners] = useState<Cleaner[]>([]);
+
+  // Detail modal — the full v1 detail set (amount trail, notes, property,
+  // client-approval history, receipt attachments) so admins never approve blind.
+  const [detailFor, setDetailFor] = useState<PayAdjustmentRow | null>(null);
 
   // Review modal
   const [reviewing, setReviewing] = useState<PayAdjustmentRow | null>(null);
@@ -557,6 +600,24 @@ export function EstatePayAdjustments() {
                       ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
+                      {/* Read-only, so available at every status — including settled. */}
+                      <EButton
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setDetailFor(row)}
+                        title="View full request details and receipts"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        Details
+                        {(row.attachmentUrls?.length ?? 0) > 0 ? (
+                          // Surface the receipt count on the button itself so a
+                          // pending row with evidence is obvious at a glance.
+                          <span className="inline-flex items-center gap-0.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                            <FileText className="h-3 w-3" />
+                            {row.attachmentUrls?.length}
+                          </span>
+                        ) : null}
+                      </EButton>
                       {settled ? (
                         // Settled money is immutable — the PATCH route 409s. Say
                         // so instead of offering buttons the server will refuse.
@@ -621,6 +682,189 @@ export function EstatePayAdjustments() {
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
         Approved adjustments flow into the next payroll run automatically.
       </p>
+
+      {/* Details — ported from v1 PayRequestsWorkspace so approvals aren't blind:
+          full amount trail (cleaner vs client vs approved), notes, linked
+          property, client-approval history, and the cleaner's receipt uploads. */}
+      <EModal
+        open={Boolean(detailFor)}
+        onClose={() => setDetailFor(null)}
+        eyebrow="Payroll"
+        title="Pay request details"
+        size="xl"
+      >
+        {detailFor ? (
+          <div className="space-y-4">
+            {/* Stacks to one column below sm so tiles stay readable on phones. */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <DetailTile label="Request title">
+                <p className="text-[0.875rem] font-[550]">{detailFor.title || "Pay request"}</p>
+              </DetailTile>
+              <DetailTile label="Status">
+                <EBadge tone={STATUS_TONE[detailFor.status]} soft>{detailFor.status}</EBadge>
+              </DetailTile>
+              <DetailTile label="Scope and type">
+                <p className="text-[0.875rem] font-[550]">{detailFor.scope} / {detailFor.type}</p>
+              </DetailTile>
+              <DetailTile label="Primary displayed amount">
+                <p className="e-numeral text-[0.9375rem]">{money(primaryAmount(detailFor))}</p>
+                <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  {detailFor.primaryDisplayAmountSource === "CLIENT_REQUESTED"
+                    ? "Client-facing amount"
+                    : "Cleaner-requested amount"}
+                </p>
+                {detailFor.type === "HOURLY" ? (
+                  <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    {detailFor.requestedHours ?? 0}h × {money(detailFor.requestedRate)}
+                  </p>
+                ) : null}
+              </DetailTile>
+              <DetailTile label="Cleaner requested amount">
+                <p className="e-numeral text-[0.9375rem]">
+                  {money(detailFor.cleanerRequestedAmount ?? detailFor.requestedAmount)}
+                </p>
+              </DetailTile>
+              <DetailTile label="Client requested amount">
+                <p className="e-numeral text-[0.9375rem]">
+                  {detailFor.clientRequestedAmount != null ? money(detailFor.clientRequestedAmount) : "—"}
+                </p>
+              </DetailTile>
+              <DetailTile label="Requested on">
+                <p className="text-[0.875rem] font-[550]">{dateTimeSafe(detailFor.requestedAt)}</p>
+              </DetailTile>
+              <DetailTile label="Approved amount">
+                <p className="e-numeral text-[0.9375rem]">
+                  {detailFor.approvedAmount != null ? money(detailFor.approvedAmount) : "—"}
+                </p>
+              </DetailTile>
+            </div>
+
+            <DetailTile label="Cleaner">
+              <p className="text-[0.875rem] font-[550]">
+                {detailFor.cleaner?.name?.trim() || detailFor.cleaner?.email}
+              </p>
+              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{detailFor.cleaner?.email}</p>
+            </DetailTile>
+
+            {detailFor.job || detailFor.property ? (
+              <DetailTile label="Linked property">
+                <p className="text-[0.875rem] font-[550]">
+                  {detailFor.job?.property?.name ?? detailFor.property?.name ?? "No property linked"}
+                </p>
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  {detailFor.job?.property?.suburb ?? detailFor.property?.suburb ?? ""}
+                </p>
+                {detailFor.job ? (
+                  <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    Job date: {dateSafe(detailFor.job.scheduledDate)} · {detailFor.job.jobType.replace(/_/g, " ")}
+                  </p>
+                ) : null}
+              </DetailTile>
+            ) : null}
+
+            {detailFor.cleanerNote ? (
+              <DetailTile label="Cleaner note">
+                <p className="whitespace-pre-wrap text-[0.875rem]">{detailFor.cleanerNote}</p>
+              </DetailTile>
+            ) : null}
+
+            {detailFor.adminNote ? (
+              <DetailTile label="Admin note">
+                <p className="whitespace-pre-wrap text-[0.875rem]">{detailFor.adminNote}</p>
+              </DetailTile>
+            ) : null}
+
+            {detailFor.clientApproval ? (
+              <DetailTile label="Client approval">
+                <p className="text-[0.875rem] font-[550]">
+                  {detailFor.clientApproval.status}
+                  {detailFor.clientApproval.amount != null
+                    ? ` — ${detailFor.clientApproval.currency ?? "AUD"} ${Number(detailFor.clientApproval.amount).toFixed(2)}`
+                    : ""}
+                </p>
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  Requested {dateTimeSafe(detailFor.clientApproval.requestedAt)}
+                  {detailFor.clientApproval.respondedAt
+                    ? ` · Responded ${dateTimeSafe(detailFor.clientApproval.respondedAt)}`
+                    : ""}
+                </p>
+              </DetailTile>
+            ) : null}
+
+            <div>
+              <p className="mb-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                Attachments{(detailFor.attachmentUrls?.length ?? 0) > 0 ? ` (${detailFor.attachmentUrls?.length})` : ""}
+              </p>
+              {(detailFor.attachmentUrls?.length ?? 0) === 0 ? (
+                <p className="text-[0.8125rem] text-[hsl(var(--e-text-faint))]">No receipts or images attached.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {(detailFor.attachmentUrls ?? []).map((item) =>
+                    isDocumentAttachment(item.url) ? (
+                      // Docs (PDF receipts etc.) can't thumbnail — link out instead.
+                      <a
+                        key={item.key}
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2 text-[0.8125rem] transition-colors hover:bg-[hsl(var(--e-muted))]"
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        Open receipt
+                      </a>
+                    ) : (
+                      <a
+                        key={item.key}
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Open full size in a new tab"
+                        className="block overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]"
+                      >
+                        {/* Public S3 URL straight from the list API — no extra fetch. */}
+                        <img
+                          src={item.url}
+                          alt="Pay request evidence"
+                          loading="lazy"
+                          className="h-20 w-20 object-cover"
+                        />
+                      </a>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Jump straight into a decision from the evidence view. */}
+            {detailFor.status === "PENDING" && !adjustmentSettlement(detailFor as any) ? (
+              <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
+                <EButton
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const row = detailFor;
+                    setDetailFor(null);
+                    openReview(row, "REJECTED");
+                  }}
+                >
+                  Reject…
+                </EButton>
+                <EButton
+                  variant="gold"
+                  size="sm"
+                  onClick={() => {
+                    const row = detailFor;
+                    setDetailFor(null);
+                    openReview(row, "APPROVED");
+                  }}
+                >
+                  Approve…
+                </EButton>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </EModal>
 
       {/* Review */}
       <EModal

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { format } from "date-fns";
 import { notFound } from "next/navigation";
-import { ClientInvoiceStatus, JobStatus, Role } from "@prisma/client";
+import { CaseState, ClientInvoiceStatus, JobStatus, LeadStatus, QuoteStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import {
@@ -24,6 +24,8 @@ import ClientCommunications from "@/components/v2/admin/clients/client-communica
 import ClientDocuments from "@/components/v2/admin/clients/client-documents";
 import { getFinanceSummary } from "@/lib/finance/summary";
 import { sydneyTodayKey, addDaysToKey } from "@/lib/time/sydney-range";
+import { getAppSettings } from "@/lib/settings";
+import { sanitizeClientVisibilityOverride } from "@/lib/client/portal";
 
 export const metadata = { title: "Client · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -63,6 +65,62 @@ function invoiceStatusTone(status: ClientInvoiceStatus): Tone {
     default:
       return "neutral";
   }
+}
+
+function quoteStatusTone(status: QuoteStatus): Tone {
+  switch (status) {
+    case QuoteStatus.SENT:
+      return "warning";
+    case QuoteStatus.ACCEPTED:
+      return "success";
+    case QuoteStatus.DECLINED:
+      return "danger";
+    case QuoteStatus.CONVERTED:
+      return "info";
+    default:
+      return "neutral"; // DRAFT
+  }
+}
+
+function caseStateTone(state: CaseState): Tone {
+  switch (state) {
+    case CaseState.OPEN:
+    case CaseState.TRIAGE:
+      return "warning";
+    case CaseState.ASSIGNED:
+    case CaseState.IN_PROGRESS:
+      return "info";
+    case CaseState.AWAITING_CLIENT:
+      return "aubergine";
+    case CaseState.RESOLVED:
+    case CaseState.CLOSED:
+      return "success";
+    default:
+      return "neutral"; // CANCELLED
+  }
+}
+
+function leadStatusTone(status: LeadStatus): Tone {
+  switch (status) {
+    case LeadStatus.NEW:
+      return "warning";
+    case LeadStatus.CONTACTED:
+      return "info";
+    case LeadStatus.QUOTED:
+      return "primary";
+    case LeadStatus.CONVERTED:
+      return "success";
+    default:
+      return "neutral"; // LOST
+  }
+}
+
+/** Lead estimates are optional on both ends — mirror v1's "$a – $b" / single-figure / em-dash fallbacks. */
+function formatEstimate(min: number | null, max: number | null): string {
+  if (min != null && max != null) return `${money(min)} – ${money(max)}`;
+  if (min != null) return `from ${money(min)}`;
+  if (max != null) return `up to ${money(max)}`;
+  return "—";
 }
 
 function titleCase(value: string): string {
@@ -105,6 +163,7 @@ async function getClient(id: string) {
         postcode: true,
         notes: true,
         isActive: true,
+        portalVisibilityOverrides: true,
         createdAt: true,
         properties: {
           where: { isActive: true },
@@ -118,7 +177,7 @@ async function getClient(id: string) {
 
   const propertyIds = client.properties.map((p) => p.id);
 
-  const [recentJobs, outstanding] = await Promise.all([
+  const [recentJobs, outstanding, quotes, cases, leads] = await Promise.all([
     propertyIds.length
       ? db.job
           .findMany({
@@ -153,6 +212,54 @@ async function getClient(id: string) {
         },
       })
       .catch(() => []),
+    // Quotes are linked to the client directly (Quote.clientId), not through
+    // properties — pre-conversion quotes often predate any property record.
+    db.quote
+      .findMany({
+        where: { clientId: id },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          serviceType: true,
+          totalAmount: true,
+          status: true,
+          validUntil: true,
+          createdAt: true,
+        },
+      })
+      .catch(() => []),
+    // "Cases" is the IssueTicket model (legacy name) — filter on the typed
+    // `state`, but keep ALL states so resolved history stays visible here.
+    db.issueTicket
+      .findMany({
+        where: { clientId: id },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          title: true,
+          caseType: true,
+          state: true,
+          createdAt: true,
+        },
+      })
+      .catch(() => []),
+    db.quoteLead
+      .findMany({
+        where: { clientId: id },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          serviceType: true,
+          status: true,
+          estimateMin: true,
+          estimateMax: true,
+          createdAt: true,
+        },
+      })
+      .catch(() => []),
   ]);
 
   const outstandingAud = outstanding.reduce((sum, inv) => sum + (inv.totalAmount ?? 0), 0);
@@ -183,6 +290,9 @@ async function getClient(id: string) {
     recentJobs,
     outstanding,
     outstandingAud,
+    quotes,
+    cases,
+    leads,
     profitRow,
     activeRateCount,
     ratedPropertyCount,
@@ -191,10 +301,12 @@ async function getClient(id: string) {
 
 export default async function AdminClientDetailPage({ params }: { params: { id: string } }) {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  const data = await getClient(params.id);
+  // Settings are needed alongside client data: the edit modal's visibility
+  // overrides must show what each "Default" resolves to right now.
+  const [data, settings] = await Promise.all([getClient(params.id), getAppSettings()]);
   if (!data) notFound();
 
-  const { client, recentJobs, outstanding, outstandingAud, profitRow, activeRateCount, ratedPropertyCount } = data;
+  const { client, recentJobs, outstanding, outstandingAud, quotes, cases, leads, profitRow, activeRateCount, ratedPropertyCount } = data;
 
   const marginPctLabel =
     profitRow && profitRow.marginPct !== null ? `${profitRow.marginPct.toFixed(0)}% margin` : "12-mo";
@@ -230,7 +342,12 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
                 postcode: client.postcode,
                 notes: client.notes,
                 isActive: client.isActive,
+                // Sanitise the raw Json column into the typed tri-state shape
+                // the modal expects — same sanitiser the portal itself uses,
+                // so admin UI and portal can never disagree on what's stored.
+                portalVisibilityOverrides: sanitizeClientVisibilityOverride(client.portalVisibilityOverrides),
               }}
+              defaultPortalVisibility={settings.clientPortalVisibility}
             />
           </div>
         }
@@ -374,6 +491,114 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
                 </tbody>
               </table>
             </div>
+          )}
+        </ECardBody>
+      </ECard>
+
+      {/* Quotes — linked directly via Quote.clientId (may predate any property) */}
+      <ECard>
+        <ECardHeader className="flex-row items-center justify-between pb-2">
+          <ECardTitle className="text-[0.95rem]">Quotes</ECardTitle>
+          <EButton asChild variant="ghost" size="sm"><Link href="/v2/admin/quotes">All quotes</Link></EButton>
+        </ECardHeader>
+        <ECardBody className="pt-0">
+          {quotes.length === 0 ? (
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No quotes for this client yet.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
+              <table className="w-full text-[0.8125rem]">
+                <thead>
+                  <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
+                    {["Created", "Service", "Amount", "Valid until", "Status", ""].map((h) => (
+                      <th key={h} className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {quotes.map((q) => (
+                    <tr key={q.id} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
+                      <td className="px-3 py-2.5 tabular-nums whitespace-nowrap">{format(new Date(q.createdAt), "d MMM yy")}</td>
+                      <td className="px-3 py-2.5 text-[hsl(var(--e-text-secondary))]">{titleCase(q.serviceType)}</td>
+                      {/* Quotes show cents — money() rounds to whole dollars, which is fine for KPIs but not a quoted price. */}
+                      <td className="px-3 py-2.5"><span className="e-numeral text-[0.9375rem]">${q.totalAmount.toFixed(2)}</span></td>
+                      <td className="px-3 py-2.5 tabular-nums whitespace-nowrap text-[hsl(var(--e-text-secondary))]">{q.validUntil ? format(new Date(q.validUntil), "d MMM yy") : "—"}</td>
+                      <td className="px-3 py-2.5"><EBadge tone={quoteStatusTone(q.status)} soft>{titleCase(q.status)}</EBadge></td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                        <EButton asChild variant="ghost" size="sm"><Link href={`/v2/admin/quotes/${q.id}`}>Open</Link></EButton>
+                        {/* PDF renders server-side; new tab so the admin keeps this page. */}
+                        <EButton asChild variant="ghost" size="sm"><Link href={`/api/admin/quotes/${q.id}/pdf`} target="_blank">PDF</Link></EButton>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ECardBody>
+      </ECard>
+
+      {/* Cases (IssueTicket) — all states shown so resolved history stays visible */}
+      <ECard>
+        <ECardHeader className="flex-row items-center justify-between pb-2">
+          <ECardTitle className="text-[0.95rem]">Cases</ECardTitle>
+          <EButton asChild variant="ghost" size="sm"><Link href="/v2/admin/cases">All cases</Link></EButton>
+        </ECardHeader>
+        <ECardBody className="pt-0">
+          {cases.length === 0 ? (
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No cases linked to this client.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
+              <table className="w-full text-[0.8125rem]">
+                <thead>
+                  <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
+                    {["Opened", "Title", "Type", "Status", ""].map((h) => (
+                      <th key={h} className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {cases.map((c) => (
+                    <tr key={c.id} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
+                      <td className="px-3 py-2.5 tabular-nums whitespace-nowrap">{format(new Date(c.createdAt), "d MMM yy")}</td>
+                      <td className="px-3 py-2.5 font-[550]">{c.title}</td>
+                      <td className="px-3 py-2.5 text-[hsl(var(--e-text-secondary))]">{titleCase(c.caseType)}</td>
+                      <td className="px-3 py-2.5"><EBadge tone={caseStateTone(c.state)} soft>{titleCase(c.state)}</EBadge></td>
+                      <td className="px-3 py-2.5 text-right">
+                        {/* v2 case view lives inside the cases workspace; caseId mirrors the v1 deep-link convention. */}
+                        <EButton asChild variant="ghost" size="sm"><Link href={`/v2/admin/cases?caseId=${c.id}`}>Open</Link></EButton>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ECardBody>
+      </ECard>
+
+      {/* Linked leads — display-only, matching v1 (leads are worked in the quotes pipeline) */}
+      <ECard>
+        <ECardHeader className="flex-row items-center justify-between pb-2">
+          <ECardTitle className="text-[0.95rem]">Linked leads</ECardTitle>
+          <EButton asChild variant="ghost" size="sm"><Link href="/v2/admin/quotes">Pipeline</Link></EButton>
+        </ECardHeader>
+        <ECardBody className="pt-0">
+          {leads.length === 0 ? (
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No linked leads.</p>
+          ) : (
+            <ul className="divide-y divide-[hsl(var(--e-border)/0.7)]">
+              {leads.map((lead) => (
+                <li key={lead.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-[0.8125rem]">
+                  <div className="min-w-0">
+                    <p className="font-[550]">{titleCase(lead.serviceType)}</p>
+                    <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                      Estimate {formatEstimate(lead.estimateMin, lead.estimateMax)} · Created {format(new Date(lead.createdAt), "d MMM yy")}
+                    </p>
+                  </div>
+                  <EBadge tone={leadStatusTone(lead.status)} soft>{titleCase(lead.status)}</EBadge>
+                </li>
+              ))}
+            </ul>
           )}
         </ECardBody>
       </ECard>

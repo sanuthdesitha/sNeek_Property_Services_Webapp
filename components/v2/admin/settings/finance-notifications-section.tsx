@@ -39,6 +39,18 @@ type CopyDraft = {
 
 type PreferenceData = { channel: string; role: string; enabled: boolean };
 
+/** Shape returned by POST /api/admin/notifications/preview (v1 parity). */
+type PreviewData = {
+  emailSubject: string;
+  emailBodyText: string;
+  emailBodyHtml: string;
+  smsBody: string;
+  pushTitle: string;
+  pushBody: string;
+};
+
+type PreviewChannel = "email" | "sms" | "push";
+
 const CATEGORY_LABELS: Record<string, string> = {
   invoice: "Invoice",
   payroll: "Payroll",
@@ -75,6 +87,14 @@ export function FinanceNotificationsSection() {
   });
   const [savingCopy, setSavingCopy] = useState(false);
   const { status: copyStatus, flash: flashCopy } = useSaveStatus();
+
+  // Template preview (v1 parity) — POST /api/admin/notifications/preview renders
+  // the SAVED template with sample data, per channel. Kept per-editor-session so
+  // a stale preview never survives into the next template.
+  const [preview, setPreview] = useState<PreviewData | null>(null);
+  const [previewTab, setPreviewTab] = useState<PreviewChannel>("email");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const seeded = templates.some((t) => t.inDb);
 
@@ -185,6 +205,34 @@ export function FinanceNotificationsSection() {
       pushTitle: template.pushTitle ?? "",
       pushBody: template.pushBody ?? "",
     });
+    // A preview belongs to one template only — never carry it across editors.
+    setPreview(null);
+    setPreviewError(null);
+    setPreviewTab("email");
+  }
+
+  async function loadPreview() {
+    if (!editing) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      // Same endpoint as the v1 workspace. It substitutes sample values into the
+      // template stored in the DB, so unsaved draft edits are not reflected —
+      // hence the "save first" hint next to the button.
+      const res = await fetch("/api/admin/notifications/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventKey: editing.eventKey }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) throw new Error(data?.error ?? "Failed to generate preview.");
+      setPreview(data as PreviewData);
+    } catch (err: unknown) {
+      setPreview(null);
+      setPreviewError(err instanceof Error ? err.message : "Failed to generate preview.");
+    } finally {
+      setPreviewLoading(false);
+    }
   }
 
   function insertVariable(field: keyof CopyDraft, variable: string) {
@@ -406,6 +454,80 @@ export function FinanceNotificationsSection() {
                   placeholder="Notification body"
                 />
               </EField>
+            </div>
+
+            {/* ── Preview (v1 parity) ─────────────────────────────────────── */}
+            <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[0.75rem] font-medium text-[hsl(var(--e-text-secondary))]">Preview</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Local chip tabs (not ETabs — that kit tab is href-driven,
+                      and this state must not touch the URL inside a modal). */}
+                  <div className="inline-flex items-center gap-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-0.5">
+                    {(["email", "sms", "push"] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        type="button"
+                        onClick={() => setPreviewTab(tab)}
+                        aria-pressed={previewTab === tab}
+                        className={
+                          previewTab === tab
+                            ? "rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-surface))] px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
+                            : "rounded-[var(--e-radius-sm)] px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))] transition-colors hover:text-[hsl(var(--e-foreground))]"
+                        }
+                      >
+                        {tab}
+                      </button>
+                    ))}
+                  </div>
+                  <EButton variant="outline" size="sm" onClick={loadPreview} disabled={previewLoading}>
+                    {previewLoading ? "Rendering…" : "Preview"}
+                  </EButton>
+                </div>
+              </div>
+
+              {previewError ? (
+                <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-danger))]">{previewError}</p>
+              ) : null}
+
+              {preview && !previewLoading ? (
+                <div className="mt-3 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted)/0.4)] p-3">
+                  {previewTab === "email" ? (
+                    <div className="space-y-2">
+                      <p className="text-[0.8125rem] font-semibold">{preview.emailSubject || "No subject configured"}</p>
+                      {/* Rendered email HTML in a sandboxed iframe: srcDoc keeps it
+                          same-document while the empty sandbox blocks scripts and
+                          navigation, so template HTML can never touch the admin
+                          session. */}
+                      <iframe
+                        title="Email preview"
+                        sandbox=""
+                        srcDoc={preview.emailBodyHtml || "<p style='font-family:sans-serif;color:#666'>No email body configured.</p>"}
+                        className="h-56 w-full rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-white"
+                      />
+                    </div>
+                  ) : null}
+                  {previewTab === "sms" ? (
+                    <p className="whitespace-pre-wrap text-[0.8125rem]">
+                      {preview.smsBody || "No SMS body configured"}
+                    </p>
+                  ) : null}
+                  {previewTab === "push" ? (
+                    <div>
+                      <p className="text-[0.8125rem] font-semibold">{preview.pushTitle || "No push title"}</p>
+                      <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                        {preview.pushBody || "No push body"}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {!preview && !previewLoading && !previewError ? (
+                <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                  Renders the saved template with sample data — save your copy first to preview edits.
+                </p>
+              ) : null}
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-1">
