@@ -270,10 +270,11 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? "Could not create booking.");
+      // No job number to quote any more, and saying one existed would be a
+      // lie: the booking is a request until the office approves it against
+      // the team roster.
       setConfirmation(
-        body.jobNumber
-          ? `Job ${body.jobNumber} has been created for scheduling.`
-          : "The team has been notified and will confirm timing."
+        "The team will confirm your date once they have checked availability."
       );
     } catch (error: any) {
       setSubmitError(error?.message ?? "Could not create booking.");

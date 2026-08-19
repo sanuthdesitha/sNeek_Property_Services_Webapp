@@ -592,6 +592,22 @@ B16 let a CLIENT create their own assistants; nobody could do it FOR them. Real 
 
 ---
 
+### B18. Client bookings become requests, not jobs (2026-08-20)
+
+A client self-serve booking created a `Job` the moment they tapped submit. Nobody had agreed to it, nobody had checked whether a cleaner was free that day, and it landed on the jobs board indistinguishable from work the office had actually scheduled — then sat UNASSIGNED until someone noticed, or got handed on the day to whoever was left.
+
+**The request lives on the QuoteLead the flow already created.** `status: NEW` plus `structuredContext.createdVia === "client_booking"`, now also carrying jobType, scheduledDate and requestedByUserId so approval never has to re-derive what was asked for. No new table and no migration: a lead already means "someone wants work done, we have not committed yet", CONVERTED already means "this became a job", and declining is LOST. `lib/booking/requests.ts` owns all of it.
+
+**Deliberately NOT a new JobStatus.** Statuses are read by dozens of lists, filters and aggregates across three portals, and this codebase has repeatedly shipped one that several of those never learned about — EN_ROUTE most recently, missing from four lists. A booking with no job cannot be missed by a job query that does not know it exists.
+
+**Approval is where the job is created, and it is race-safe.** `approveBookingRequest` flips the lead to CONVERTED with an `updateMany` guarded on `status: NEW` BEFORE creating the job, inside one transaction. Two admins clicking approve together would otherwise produce two jobs for one booking; the second update matches no row and the transaction rolls back. An admin may approve on a different date than requested, and the move is audit-logged because the client will notice it.
+
+**Availability is the point of the queue.** `getTeamAvailability(dateKey)` counts DISTINCT active cleaners already holding work on that Sydney day — one cleaner with three cleans is one unavailable person, and counting jobs would make a productive day look overbooked. The Booking requests queue shows "N of M cleaners free" per request, in red at zero, and the confirm button then reads "Nobody free — approve anyway" rather than blocking: it is the office's call, made with the fact in front of them. Availability is computed per distinct date, so ten bookings for one Saturday cost one lookup.
+
+**Preferred-cleaner auto-assignment moved behind approval.** Holding a cleaner for work that may be declined is the same double-booking this change exists to prevent. The client's confirmation copy no longer quotes a job number, because there is not one yet.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.
