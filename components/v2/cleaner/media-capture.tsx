@@ -150,6 +150,13 @@ async function prepareCapturedFile(
   }
 }
 
+/**
+ * A failure that could not possibly succeed on a retry — the server rejected
+ * the file itself (too large, wrong type, not signed in). Retrying one of
+ * these only makes the cleaner wait longer for the same answer.
+ */
+class PermanentUploadError extends Error {}
+
 async function uploadOne(file: File, folder: string): Promise<CapturedMedia> {
   const fd = new FormData();
   fd.append("file", file);
@@ -157,35 +164,108 @@ async function uploadOne(file: File, folder: string): Promise<CapturedMedia> {
   const res = await fetch("/api/uploads/direct", { method: "POST", body: fd });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "Upload failed");
+    const message = err.error || `Upload failed (${res.status})`;
+    // 4xx is the server saying no. 5xx and network errors are worth one more go.
+    if (res.status >= 400 && res.status < 500) throw new PermanentUploadError(message);
+    throw new Error(message);
   }
   const data = (await res.json()) as { key: string; url: string };
   return { key: data.key, url: data.url, kind: kindForFile(file), name: file.name };
 }
 
 /**
- * Shared stamp → compress → upload pipeline for a batch of files. Reused by both
- * MediaCapture and the guided capture surface so evidence stamping is never
- * bypassed. Uploads run in parallel; resolves with the successful media plus a
- * failed count (never rejects).
+ * One upload with a single retry.
+ *
+ * Cleaners work on mobile data in stairwells and basements. A connection
+ * dropped mid-POST is not an error worth showing a person — it is worth
+ * trying once more.
+ */
+async function uploadWithRetry(file: File, folder: string): Promise<CapturedMedia> {
+  try {
+    return await uploadOne(file, folder);
+  } catch (err) {
+    if (err instanceof PermanentUploadError) throw err;
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    return uploadOne(file, folder);
+  }
+}
+
+/**
+ * How many files are stamped, compressed and uploaded at once.
+ *
+ * Was unbounded: a cleaner selecting thirty photos opened thirty simultaneous
+ * multipart POSTs and thirty canvas compressions on a phone. Browsers only run
+ * about six connections per host, so the rest queued at the socket layer where
+ * a flaky mobile connection quietly killed them — the "random upload issues".
+ * The compressions competed for memory at the same time, which is what took
+ * whole tabs down on older handsets.
+ *
+ * Three is not a throttle, it is faster: uploads that are not fighting each
+ * other for bandwidth finish sooner, and the ones that finish stay finished.
+ */
+const UPLOAD_CONCURRENCY = 3;
+
+export interface UploadFailure {
+  name: string;
+  reason: string;
+}
+
+/**
+ * Shared stamp → compress → upload pipeline for a batch of files. Reused by
+ * both MediaCapture and the guided capture surface so evidence stamping is
+ * never bypassed.
+ *
+ * Runs a bounded pool but writes each result into its ORIGINAL index, so the
+ * gallery ends up in the order the cleaner picked the files rather than the
+ * order the network happened to finish them.
+ *
+ * Never rejects: it reports which files failed and why, because "3 files
+ * failed" leaves a cleaner re-picking all thirty to work out which.
  */
 export async function prepareAndUploadFiles(
   files: File[],
-  opts: { folder: string; stamp?: StampOptions | null; source: CaptureSource }
-): Promise<{ results: CapturedMedia[]; failedCount: number }> {
-  const settled = await Promise.allSettled(
-    files.map(async (file) => {
-      const prepared = await prepareCapturedFile(file, opts.source, opts.stamp);
-      return uploadOne(prepared, opts.folder);
-    })
-  );
-  const results: CapturedMedia[] = [];
-  let failedCount = 0;
-  for (const outcome of settled) {
-    if (outcome.status === "fulfilled") results.push(outcome.value);
-    else failedCount += 1;
+  opts: {
+    folder: string;
+    stamp?: StampOptions | null;
+    source: CaptureSource;
+    /** Called after each file settles, so the UI can count up rather than spin. */
+    onProgress?: (done: number, total: number) => void;
   }
-  return { results, failedCount };
+): Promise<{ results: CapturedMedia[]; failed: UploadFailure[]; failedCount: number }> {
+  const slots: Array<CapturedMedia | null> = new Array(files.length).fill(null);
+  const failed: UploadFailure[] = [];
+  let done = 0;
+  let next = 0;
+
+  async function worker() {
+    // Each worker claims the next index, so the pool drains in pick order.
+    while (next < files.length) {
+      const index = next++;
+      const file = files[index];
+      try {
+        const prepared = await prepareCapturedFile(file, opts.source, opts.stamp);
+        slots[index] = await uploadWithRetry(prepared, opts.folder);
+      } catch (err: any) {
+        failed.push({
+          name: file.name || `File ${index + 1}`,
+          reason: err?.message || "Upload failed",
+        });
+      } finally {
+        done += 1;
+        opts.onProgress?.(done, files.length);
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(UPLOAD_CONCURRENCY, files.length) }, () => worker())
+  );
+
+  return {
+    results: slots.filter((m): m is CapturedMedia => m !== null),
+    failed,
+    failedCount: failed.length,
+  };
 }
 
 /* ── Swipeable media lightbox (shared with the form renderer) ───────────────── */
@@ -356,6 +436,9 @@ export function MediaCapture({
   error?: boolean;
 }) {
   const [busy, setBusy] = React.useState(0);
+  // Counting up beats a spinner: on a slow connection a lump spinner is
+  // indistinguishable from a hang, and cleaners kill the tab.
+  const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [lightbox, setLightbox] = React.useState<number | null>(null);
 
@@ -367,8 +450,23 @@ export function MediaCapture({
       setBusy((n) => n + list.length);
       let current = value;
       try {
-        const { results, failedCount } = await prepareAndUploadFiles(list, { folder, stamp, source });
-        if (failedCount > 0) setUploadError(`${failedCount} file(s) failed to upload.`);
+        const { results, failed } = await prepareAndUploadFiles(list, {
+          folder,
+          stamp,
+          source,
+          onProgress: (uploadDone, total) =>
+            setProgress(total > 1 ? { done: uploadDone, total } : null),
+        });
+        if (failed.length > 0) {
+          // Naming them is the point: a cleaner who knows WHICH two failed
+          // re-picks two files, not thirty.
+          const names = failed.map((f) => f.name).join(', ');
+          setUploadError(
+            failed.length === 1
+              ? `${names} did not upload — ${failed[0].reason}`
+              : `${failed.length} files did not upload: ${names}`
+          );
+        }
         if (results.length > 0) {
           current = multiple ? [...current, ...results] : results.slice(-1);
           onChange(current);
@@ -377,6 +475,7 @@ export function MediaCapture({
         setUploadError(e?.message || "Upload failed");
       } finally {
         setBusy((n) => Math.max(0, n - list.length));
+        setProgress(null);
       }
     },
     [folder, multiple, onChange, value, stamp]
@@ -455,7 +554,8 @@ export function MediaCapture({
         ) : null}
         {busy > 0 ? (
           <span className="inline-flex items-center gap-1.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading {busy}…
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
+            {progress ? `Uploading ${progress.done} of ${progress.total}…` : `Uploading ${busy}…`}
           </span>
         ) : null}
       </div>

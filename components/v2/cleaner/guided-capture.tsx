@@ -98,12 +98,20 @@ export function GuidedCapture({
       setError(null);
       setPending((n) => n + batch.length);
       try {
-        const { results, failedCount } = await prepareAndUploadFiles(batch, {
+        const { results, failed } = await prepareAndUploadFiles(batch, {
           folder,
           stamp: stampFor(fieldId),
           source,
         });
-        if (failedCount > 0) setError(`${failedCount} photo(s) failed — try again.`);
+        if (failed.length > 0) {
+          // Name them: re-picking two files beats re-picking the whole batch.
+          const names = failed.map((f) => f.name).join(', ');
+          setError(
+            failed.length === 1
+              ? `${names} did not upload — ${failed[0].reason}`
+              : `${failed.length} photos did not upload: ${names}`
+          );
+        }
         if (results.length > 0) onCommit(fieldId, results);
       } catch (e: any) {
         setError(e?.message || "Upload failed");

@@ -624,6 +624,20 @@ A client self-serve booking created a `Job` the moment they tapped submit. Nobod
 
 ---
 
+### B20. Cleaner bulk upload — bounded, ordered, and honest about failures (2026-08-20)
+
+**The "random upload issues" were unbounded concurrency.** `prepareAndUploadFiles` did `files.map()` into `Promise.allSettled`, so a cleaner selecting thirty photos opened thirty simultaneous multipart POSTs AND thirty canvas compressions on a phone. Browsers run about six connections per host, so the rest queued at the socket layer where a flaky mobile connection killed them silently; the compressions competed for memory at the same moment, which is what took whole tabs down on older handsets. A pool of three is not a throttle — uploads that are not fighting each other for bandwidth finish sooner, and the ones that finish stay finished.
+
+**Order is now the order the cleaner picked.** Each worker claims the next index and writes its result into that slot, rather than pushing on completion, so the gallery no longer reflects whichever upload happened to win the network.
+
+**Failures are named.** The pipeline returned a bare `failedCount`, so "3 files failed" left a cleaner re-picking all thirty to work out which. It now returns `{ name, reason }` per failure and both call sites print them.
+
+**One retry, and only where a retry could help.** A 4xx is the server saying no (too large, wrong type, signed out) and is thrown as `PermanentUploadError` — retrying only makes the cleaner wait longer for the same answer. 5xx and network errors get one more attempt after 700ms, because cleaners work in stairwells and basements and a connection dropped mid-POST is not worth showing a person.
+
+**Progress counts instead of spinning.** On a slow connection a lump spinner is indistinguishable from a hang, and cleaners kill the tab; the control now reads "Uploading 4 of 12".
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.
