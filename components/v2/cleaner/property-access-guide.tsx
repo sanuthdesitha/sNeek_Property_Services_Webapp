@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 
 import { AccessRoute } from "@/components/v2/shared/access-route";
+import { MapPreview } from "@/components/v2/shared/map-preview";
 import type { AccessGuideEntry } from "@/lib/properties/access-guide";
 
 type GuideImage = { url: string; caption?: string };
@@ -219,14 +220,11 @@ export default function PropertyAccessGuide({
                           </span>
                         ) : null}
                         {entry.lat != null && entry.lng != null ? (
-                          <a
-                            href={`https://www.google.com/maps/search/?api=1&query=${entry.lat},${entry.lng}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-[hsl(var(--e-primary))] underline underline-offset-2"
-                          >
-                            Open in Maps
-                          </a>
+                          <MapPreview
+                            lat={entry.lat}
+                            lng={entry.lng}
+                            label={entry.label}
+                          />
                         ) : null}
                       </div>
                     ) : null}
@@ -236,7 +234,7 @@ export default function PropertyAccessGuide({
                       </p>
                     ) : null}
                     {imgCount > 0 ? (
-                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                         {entry.images.map((img, i) => (
                           <button
                             key={img.url + i}
@@ -249,7 +247,24 @@ export default function PropertyAccessGuide({
                             <img
                               src={img.url}
                               alt={img.caption || entry.label}
-                              className="h-20 w-full object-cover transition-transform duration-200 group-hover:scale-[1.04]"
+                              loading="lazy"
+                              className="h-24 w-full object-cover transition-transform duration-200 group-hover:scale-[1.04]"
+                              onError={(event) => {
+                                // A broken URL used to leave an invisible
+                                // tile, so "no photos" and "photos that
+                                // failed to load" looked identical.
+                                const el = event.currentTarget;
+                                el.style.display = "none";
+                                const host = el.parentElement;
+                                if (host && !host.querySelector('[data-img-failed]')) {
+                                  const note = document.createElement("span");
+                                  note.setAttribute("data-img-failed", "true");
+                                  note.className =
+                                    "flex h-24 w-full items-center justify-center px-1 text-center text-[0.625rem] text-[hsl(var(--e-text-faint))]";
+                                  note.textContent = "Photo unavailable";
+                                  host.appendChild(note);
+                                }
+                              }}
                             />
                             {img.caption ? (
                               <span className="absolute inset-x-0 bottom-0 truncate bg-[hsl(160_18%_8%/0.55)] px-1.5 py-0.5 text-[0.625rem] text-white">

@@ -41,6 +41,10 @@ import {
   User,
   Wallet,
 } from "lucide-react";
+import {
+  CLIENT_TIMELINE_STEPS,
+  resolveClientTimelinePosition,
+} from "@/lib/jobs/client-timeline";
 
 export const metadata = { title: "Job · Estate client" };
 export const dynamic = "force-dynamic";
@@ -184,21 +188,16 @@ async function getScopedJob(id: string, clientId: string) {
     .catch(() => null);
 }
 
-const JOB_STATUS_STEPS = [
-  "UNASSIGNED",
-  "ASSIGNED",
-  "EN_ROUTE",
-  "IN_PROGRESS",
-  "SUBMITTED",
-  "QA_REVIEW",
-  "COMPLETED",
-  "INVOICED",
-];
+const JOB_STATUS_STEPS = CLIENT_TIMELINE_STEPS;
 
 function StatusTimeline({ status }: { status: string }) {
-  const currentIdx = JOB_STATUS_STEPS.indexOf(status);
-  const effectiveIdx = currentIdx === -1 ? 0 : currentIdx;
+  // PAUSED, OFFERED and WAITING_CONTINUATION_APPROVAL are not steps on this
+  // ladder. indexOf returned -1 for them and the old -1 → 0 fallback drew a
+  // paused job as UNASSIGNED — a client mid-clean was told nobody had been
+  // assigned. They now resolve to the step they are actually at, with a note.
+  const { index: effectiveIdx, note, unknown } = resolveClientTimelinePosition(status);
   return (
+    <div>
     <div className="flex items-center gap-0">
       {JOB_STATUS_STEPS.map((step, i) => {
         const done = i < effectiveIdx;
@@ -243,6 +242,15 @@ function StatusTimeline({ status }: { status: string }) {
           </div>
         );
       })}
+    </div>
+    {note ? (
+      <p className="mt-2 text-[0.75rem] font-medium text-[hsl(var(--e-warning))]">{note}</p>
+    ) : null}
+    {unknown ? (
+      <p className="mt-2 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+        This job is in a state we cannot place on the timeline yet.
+      </p>
+    ) : null}
     </div>
   );
 }

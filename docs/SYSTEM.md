@@ -772,6 +772,22 @@ The final check-up acknowledgement dialog rendered see-through. It was not a mis
 
 ---
 
+### B30. Access-guide map previews, and the client timeline that showed the wrong step (2026-08-21)
+
+**Map previews.** The access guide offered only an "Open in Maps" link, which answers "where is the bin room" by sending the cleaner out of the app. `MapPreview` shows a thumbnail in place, served by `GET /api/maps/static` — proxied because a Static Maps URL carries the API key in its query string, and building that URL in the browser would publish a billable key to anyone who opened dev tools. The route 404s when no key is configured and the component falls back to the plain link, so an unconfigured install behaves exactly as before. Property locations are not public, so the route requires a session; that is the whole reason it is a route rather than a direct image URL.
+
+**Access-guide photos.** Two per row on a phone instead of three — three 100px thumbnails of a keybox are decoration, not evidence — and a failed image now says "Photo unavailable" instead of collapsing to an invisible tile, which made "no photos" and "photos that would not load" look identical.
+
+**The guided route was left alone, deliberately.** `orderedRoute` returns only entries an admin has numbered, so a property nobody numbered shows no route — which is the reported "doesn't work". Falling back to entry order was written and then reverted: the existing test states the reason ("a made-up order is worse than none when someone is following it around a building at 7am") and editor order is not a route. Whether numbering should be required is a product decision, not a bug fix.
+
+**The client timeline showed the wrong step, not a missing one.** `StatusTimeline` looked the status up with `indexOf` over an 8-entry ladder and fell back to `-1 → 0`. Three of the eleven `JobStatus` members are off that ladder — OFFERED, PAUSED, WAITING_CONTINUATION_APPROVAL — so a client whose clean was paused mid-way saw a timeline claiming nobody had been assigned yet.
+
+`resolveClientTimelinePosition` (lib/jobs/client-timeline.ts) maps each off-ladder status to the step it is ACTUALLY at, plus a note. They are deliberately not added as steps: a job does not pass through "paused" on its way to finishing, and a ninth step would say it does. An unrecognised status now reports itself as unknown rather than confidently rendering step one — the fallback that caused this in the first place.
+
+Still open on that page: the timeline is server-rendered and only refreshes on the EN_ROUTE exit edge (`job-live-panel.tsx`), so a job moving ASSIGNED → IN_PROGRESS while the tab is open still needs a manual reload.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.
