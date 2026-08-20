@@ -16,7 +16,6 @@ import { LaundryCycleCard } from "@/components/v2/cleaner/laundry-cycle-card";
 import { ReadFirstBlock } from "@/components/v2/cleaner/read-first-block";
 import { ClockCard, BriefingCard } from "@/components/v2/cleaner/job-stages/parts";
 import { BookingCard } from "@/components/v2/cleaner/booking-card";
-import { TimingRuleBanners } from "@/components/v2/cleaner/job-stages/timing-banner";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
 export function StageSetup({ api }: { api: WorkspaceApi }) {
@@ -57,7 +56,10 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
 
       {/* Early-check-in / late-checkout rules (R6c) — right at the top of Set
           up so the start/finish constraints are seen before clocking in. */}
-      <TimingRuleBanners rules={api.timingRules} />
+      {/* The workspace renders TimingRuleBanners above every stage, and with
+          the same-day check-in data this copy never received — so a job with
+          an early check-in showed the notice twice, the second time missing
+          the arrival it was supposed to warn about. */}
 
       {/* Guest count / booking details from the iCal sync — first thing the
           cleaner needs to know when setting the property up. */}

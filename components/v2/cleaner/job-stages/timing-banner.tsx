@@ -11,6 +11,7 @@
  */
 import * as React from "react";
 import { AlarmClock, LogIn, CalendarClock } from "lucide-react";
+import { resolveArrivalNotice } from "@/lib/jobs/arrival-notice";
 
 export interface JobTimingRulesPayload {
   earlyCheckin?: { time: string } | null;
@@ -46,24 +47,36 @@ export function TimingRuleBanners({
   compact?: boolean;
 }) {
   const late = rules?.lateCheckout?.time;
-  const early = rules?.earlyCheckin?.time;
-  const sameDay = sameDayCheckin?.active === true;
-  const sameDayTime = typeof sameDayCheckin?.time === "string" ? sameDayCheckin.time.trim() : "";
-  if (!late && !early && !sameDay) return null;
+  // Same-day and early check-in are the SAME event described twice. They
+  // used to render as two banners carrying two different times.
+  const arrival = resolveArrivalNotice({
+    earlyCheckinTime: rules?.earlyCheckin?.time ?? null,
+    sameDayActive: sameDayCheckin?.active === true,
+    sameDayTime: sameDayCheckin?.time ?? null,
+  });
+  if (!late && !arrival) return null;
 
   const pad = compact ? "p-2.5" : "p-3";
   return (
     <div className="space-y-2">
-      {sameDay ? (
+      {arrival ? (
         <div className={`rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] ${pad}`}>
           <p className="flex items-center gap-1.5 text-[0.8125rem] font-[600]">
-            <CalendarClock className="h-4 w-4 shrink-0 text-[hsl(var(--e-warning))]" />
-            Same-day check-in
-            {sameDayTime ? <span className="tabular-nums font-[550]">— guest arrives {sameDayTime}</span> : null}
+            {arrival.early ? (
+              <AlarmClock className="h-4 w-4 shrink-0 text-[hsl(var(--e-warning))]" />
+            ) : (
+              <CalendarClock className="h-4 w-4 shrink-0 text-[hsl(var(--e-warning))]" />
+            )}
+            {arrival.early ? "Early check-in" : "Same-day check-in"}
+            {arrival.time ? (
+              <span className="tabular-nums font-[550]">— guest arrives {arrival.time}</span>
+            ) : null}
           </p>
           <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
-            A new guest checks in today. This clean cannot run late
-            {sameDayTime ? ` — the property must be guest-ready by ${sameDayTime}.` : "."}
+            {arrival.early
+              ? "The next guests arrive early. This clean cannot run late"
+              : "A new guest checks in today. This clean cannot run late"}
+            {arrival.time ? ` — the property must be guest-ready by ${arrival.time}.` : "."}
           </p>
         </div>
       ) : null}
@@ -78,17 +91,7 @@ export function TimingRuleBanners({
           </p>
         </div>
       ) : null}
-      {early ? (
-        <div className={`rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] ${pad}`}>
-          <p className="flex items-center gap-1.5 text-[0.8125rem] font-[600]">
-            <AlarmClock className="h-4 w-4 shrink-0 text-[hsl(var(--e-warning))]" />
-            Early check-in — finish before {early}
-          </p>
-          <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
-            The next guests arrive early. The property must be guest-ready by {early}.
-          </p>
-        </div>
-      ) : null}
+
     </div>
   );
 }
