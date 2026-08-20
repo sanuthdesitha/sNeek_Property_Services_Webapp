@@ -929,6 +929,23 @@ export function wrapEmailHtml(settings: { companyName: string; logoUrl: string }
  * the template never rendered it. An admin may restyle these emails; they may
  * not accidentally delete the only copy of a password.
  */
+/**
+ * Variables whose value is a MARKUP FRAGMENT this codebase built, not text
+ * a person typed.
+ *
+ * Escaping every substituted value (the XSS fix) was right for names, notes
+ * and reasons — and wrong for these two, which carry an assembled list of
+ * tomorrow's jobs, laundry or low stock. They came out as visible tags: the
+ * laundry team's prep email arrived as a wall of markup.
+ *
+ * The escaping did not go away, it moved DOWN. Each builder in
+ * lib/ops/tomorrow-prep.ts now escapes its own interpolations, so the
+ * fragment arriving here is already safe and the free text inside it is
+ * still inert. Adding a name to this list without escaping at the builder
+ * reopens the hole, which is why the list is short and says so.
+ */
+const HTML_FRAGMENT_VARIABLES = new Set(['summaryHtml', 'inventoryHtml']);
+
 const CREDENTIAL_VARIABLES: Array<{ name: string; label: string }> = [
   { name: "tempPassword", label: "Temporary password" },
 ];
@@ -960,7 +977,9 @@ export function renderEmailTemplate(
   const replaceVariables = (value: string, escapeValues: boolean) =>
     value.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, name: string) => {
       const resolved = mergedVariables[name] ?? "";
-      return escapeValues ? escapeHtml(resolved) : resolved;
+      if (!escapeValues) return resolved;
+      // Pre-built markup passes through; everything else is data.
+      return HTML_FRAGMENT_VARIABLES.has(name) ? resolved : escapeHtml(resolved);
     });
 
   const subject = replaceVariables(template.subject, false);

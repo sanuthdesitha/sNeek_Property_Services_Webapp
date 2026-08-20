@@ -15,6 +15,20 @@ import { isPastLocalDispatchTime, localDateKey } from "@/lib/ops/scheduled-dispa
 import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 
+/**
+ * These builders assemble MARKUP that renderEmailTemplate inserts raw (see
+ * HTML_FRAGMENT_VARIABLES). Property names, job notes and priority reasons are
+ * typed by people, so every interpolation is escaped HERE — the renderer can no
+ * longer do it for us without turning the fragment back into visible tags.
+ */
+function esc(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 const DISPATCH_STATE_KEY = "tomorrow_prep_dispatch_v1";
 
 type Recipient = {
@@ -148,10 +162,10 @@ function buildJobSummaryParts(jobs: JobRow[]) {
 
     htmlParts.push(`
       <li style="margin:0 0 14px 0;">
-        <strong>${priorityLabel} · ${job.jobNumber} · ${propertyLabel}</strong><br/>
-        ${formatJobType(job.jobType)} · ${timing}<br/>
-        <span><strong>Priority:</strong> ${priorityReason}</span>
-        ${notes ? `<br/><span><strong>Notes:</strong> ${notes}</span>` : ""}
+        <strong>${esc(priorityLabel)} · ${esc(job.jobNumber)} · ${esc(propertyLabel)}</strong><br/>
+        ${esc(formatJobType(job.jobType))} · ${esc(timing)}<br/>
+        <span><strong>Priority:</strong> ${esc(priorityReason)}</span>
+        ${notes ? `<br/><span><strong>Notes:</strong> ${esc(notes)}</span>` : ""}
       </li>
     `);
 
@@ -196,7 +210,7 @@ function buildInventorySummaryParts(rows: CriticalStockRow[]) {
       .map((item: CriticalStockRow) => `${item.itemName} (${item.onHand}/${item.reorderThreshold} ${item.unit})`)
       .join(", ");
     htmlParts.push(
-      `<li style="margin:0 0 12px 0;"><strong>${propertyName}</strong><br/>${itemSummary}</li>`
+      `<li style="margin:0 0 12px 0;"><strong>${esc(propertyName)}</strong><br/>${esc(itemSummary)}</li>`
     );
     textParts.push(`${propertyName}: ${itemSummary}`);
   }
@@ -239,9 +253,9 @@ function buildLaundrySummaryParts(tasks: LaundryTaskRow[], targetDate: Date, tim
 
     htmlParts.push(`
       <li style="margin:0 0 14px 0;">
-        <strong>${actionLabel} · ${propertyLabel}</strong><br/>
-        ${timing}<br/>
-        <span><strong>Status:</strong> ${String(task.status).replace(/_/g, " ")}</span>
+        <strong>${esc(actionLabel)} · ${esc(propertyLabel)}</strong><br/>
+        ${esc(timing)}<br/>
+        <span><strong>Status:</strong> ${esc(String(task.status).replace(/_/g, " "))}</span>
       </li>
     `);
     smsLines.push(`${index + 1}) ${actionLabel} ${task.property.name}. ${timing}. ${String(task.status).replace(/_/g, " ")}`);
