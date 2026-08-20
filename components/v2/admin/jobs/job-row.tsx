@@ -140,12 +140,28 @@ type RowProps = {
 };
 
 /** List row: property (serif) · client · cleaner · time · status · money. */
+/**
+ * One job in the list.
+ *
+ * The grid declares SEVEN columns and renders SEVEN children. It used to
+ * render eight, so the actions block wrapped onto a second grid row under the
+ * checkbox — invisible at lg (those buttons are opacity-0 until hover) but
+ * still occupying a full row's height. That was the dead space beside every
+ * job and the reason rows stood twice as tall as their content.
+ *
+ * The property name is what an admin scans for, so it takes the flexible
+ * column and wraps rather than truncating. "Jackson-Pr…" is not an identifier.
+ * Everything that must still truncate carries a title attribute, so the full
+ * value is one hover away.
+ */
 export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage }: RowProps) {
   const router = useRouter();
   const cleaners = assignmentNames(job);
   const clientName = job?.property?.client?.name ?? job?.client?.name ?? "—";
   const money = moneyLabel(job);
   const status = String(job?.status ?? "");
+  const propertyName = job?.property?.name ?? "Unknown property";
+  const cleanerLabel = cleaners.length > 0 ? cleaners.join(", ") : "";
 
   return (
     <div
@@ -155,18 +171,26 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage
       onKeyDown={(event) => {
         if (event.key === "Enter") router.push(`/v2/admin/jobs/${job.id}`);
       }}
-      className="group grid cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-2 px-5 py-4 transition-colors duration-[160ms] hover:bg-[hsl(var(--e-muted)/0.6)] md:grid-cols-[auto_minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.4fr)_auto_auto_auto]"
+      className={
+        "group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 gap-y-2 px-4 py-3 " +
+        "transition-colors duration-[160ms] hover:bg-[hsl(var(--e-muted)/0.6)] sm:px-5 " +
+        "md:grid-cols-[auto_minmax(0,1fr)_9rem_9rem_6rem_auto_auto] md:items-center md:gap-x-5"
+      }
     >
-      <ECheck checked={selected} onChange={() => onToggleSelect(job.id)} label={`Select ${job?.property?.name ?? "job"}`} />
+      <ECheck
+        checked={selected}
+        onChange={() => onToggleSelect(job.id)}
+        label={`Select ${propertyName}`}
+      />
 
-      {/* Property + secondary line */}
+      {/* Property — the identifier, so it gets the room and never truncates */}
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="e-serif truncate text-[1rem] font-[520] leading-tight">
-            {job?.property?.name ?? "Unknown property"}
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <p className="e-serif text-[1rem] font-[520] leading-snug [overflow-wrap:anywhere]">
+            {propertyName}
           </p>
           {job?.jobNumber ? (
-            <span className="e-tnum text-[0.6875rem] tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
+            <span className="e-tnum shrink-0 text-[0.6875rem] tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
               {job.jobNumber}
             </span>
           ) : null}
@@ -176,7 +200,8 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage
             .filter(Boolean)
             .join(" · ")}
         </p>
-        {/* Mobile-only date · time · cleaner (desktop uses the dedicated columns) */}
+
+        {/* Mobile carries what the desktop columns show */}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.75rem] md:hidden">
           <span className="inline-flex items-center gap-1 rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-muted))] px-1.5 py-0.5 text-[hsl(var(--e-text-secondary))]">
             <CalendarDays className="h-3 w-3 shrink-0 text-[hsl(var(--e-text-faint))]" aria-hidden />
@@ -187,15 +212,20 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage
           </span>
           <span className="inline-flex min-w-0 items-center gap-1 text-[hsl(var(--e-text-secondary))]">
             <UserRound className="h-3 w-3 shrink-0 text-[hsl(var(--e-text-faint))]" aria-hidden />
-            <span className="truncate">
-              {cleaners.length > 0 ? (
-                cleaners.join(", ")
-              ) : (
+            <span className="truncate" title={cleanerLabel || undefined}>
+              {cleanerLabel || (
                 <span className="text-[hsl(var(--e-text-faint))]">Unassigned</span>
               )}
             </span>
           </span>
+          <span className="truncate text-[hsl(var(--e-text-faint))]" title={clientName}>
+            {clientName}
+          </span>
+          {money ? (
+            <span className="e-numeral text-[hsl(var(--e-text-secondary))]">{money}</span>
+          ) : null}
         </div>
+
         <div className="mt-1 flex flex-wrap gap-1.5 empty:hidden">
           <FlagPills job={job} />
         </div>
@@ -204,38 +234,57 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage
       {/* Client */}
       <div className="hidden min-w-0 md:block">
         <p className="e-eyebrow text-[0.5625rem]">Client</p>
-        <p className="truncate text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{clientName}</p>
+        <p
+          className="truncate text-[0.8125rem] text-[hsl(var(--e-text-secondary))]"
+          title={clientName}
+        >
+          {clientName}
+        </p>
       </div>
 
       {/* Cleaner */}
       <div className="hidden min-w-0 md:block">
         <p className="e-eyebrow text-[0.5625rem]">Cleaner</p>
-        <p className="flex items-center gap-1.5 truncate text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+        <p
+          className="flex items-center gap-1.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]"
+          title={cleanerLabel || undefined}
+        >
           <UserRound className="h-3 w-3 shrink-0 text-[hsl(var(--e-text-faint))]" />
-          {cleaners.length > 0 ? cleaners.join(", ") : <span className="text-[hsl(var(--e-text-faint))]">Unassigned</span>}
+          <span className="truncate">
+            {cleanerLabel || (
+              <span className="text-[hsl(var(--e-text-faint))]">Unassigned</span>
+            )}
+          </span>
         </p>
       </div>
 
-      {/* Time */}
+      {/* When + money, one column so the grid stays at seven */}
       <div className="hidden text-right md:block">
-        <p className="e-tnum text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{scheduledLabel(job?.scheduledDate)}</p>
-        <p className="e-tnum text-[0.75rem] text-[hsl(var(--e-text-faint))]">{job?.startTime ?? "—"}</p>
-      </div>
-
-      {/* Status + money */}
-      <div className="col-start-3 row-start-1 flex items-center justify-end gap-3 md:col-start-auto md:row-start-auto">
-        <EBadge tone={statusTone(status)} soft>{statusLabel(status)}</EBadge>
-      </div>
-      <div className="hidden w-[5.5rem] text-right md:block">
+        <p className="e-tnum text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+          {scheduledLabel(job?.scheduledDate)}
+        </p>
+        <p className="e-tnum text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+          {job?.startTime ?? "—"}
+        </p>
         {money ? (
-          <p className="e-numeral text-[0.9375rem]">{money}</p>
-        ) : (
-          <p className="text-[0.8125rem] text-[hsl(var(--e-text-faint))]">—</p>
-        )}
+          <p className="e-numeral mt-0.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+            {money}
+          </p>
+        ) : null}
       </div>
 
-      {/* Row actions */}
-      <div className="col-span-3 flex items-center justify-end gap-2 md:col-span-1" onClick={(event) => event.stopPropagation()}>
+      {/* Status */}
+      <div className="col-start-2 row-start-1 justify-self-end md:col-start-auto md:row-start-auto md:justify-self-auto">
+        <EBadge tone={statusTone(status)} soft>
+          {statusLabel(status)}
+        </EBadge>
+      </div>
+
+      {/* Actions — reserved width so the row does not reflow on hover */}
+      <div
+        className="col-span-2 flex items-center justify-end gap-2 md:col-span-1 md:min-w-[9rem]"
+        onClick={(event) => event.stopPropagation()}
+      >
         {status === "UNASSIGNED" && String(job?.cleanSkipStatus ?? "") !== "SKIPPED" ? (
           <EButton size="sm" variant="outline-gold" onClick={() => onQuickAssign(job)}>
             <UserRoundPlus className="h-3.5 w-3.5" />
@@ -246,7 +295,7 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage
           <EButton
             size="sm"
             variant="ghost"
-            aria-label={`Manage ${job?.property?.name ?? "job"}`}
+            aria-label={`Manage ${propertyName}`}
             className="opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100"
             onClick={() => onManage(job)}
           >
