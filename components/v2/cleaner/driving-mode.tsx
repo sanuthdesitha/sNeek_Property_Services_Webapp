@@ -30,7 +30,7 @@
  *    requestFullscreen is unavailable). We mirror that mechanism.
  */
 import * as React from "react";
-import { createPortal } from "react-dom";
+import { EstatePortal } from "@/components/v2/ui/portal-root";
 import {
   MapPin,
   Play,
@@ -552,7 +552,8 @@ export function DrivingMode({
   // missing. Rendered INSTEAD of the inline surface; the component (and its
   // heartbeat interval) stays mounted throughout.
   if (overlayOpen && mounted && activeStop) {
-    return createPortal(
+    return (
+      <EstatePortal>
       <div className="fixed inset-0 z-[70] flex flex-col bg-[hsl(var(--e-background))] text-[hsl(var(--e-foreground))]">
         <header className="flex items-center gap-2 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-3">
           <div className="min-w-0 flex-1">
@@ -574,8 +575,8 @@ export function DrivingMode({
             {heroBody}
           </div>
         </div>
-      </div>,
-      document.body
+      </div>
+      </EstatePortal>
     );
   }
 

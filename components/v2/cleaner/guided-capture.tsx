@@ -18,7 +18,7 @@
  *    evidence stamping is never bypassed.
  */
 import * as React from "react";
-import { createPortal } from "react-dom";
+import { EstatePortal } from "@/components/v2/ui/portal-root";
 import { Camera, ImagePlus, Check, X, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
 import type { StampOptions } from "@/lib/uploads/stamp";
 import {
@@ -284,5 +284,5 @@ export function GuidedCapture({
     </div>
   );
 
-  return createPortal(overlay, document.body);
+  return <EstatePortal>{overlay}</EstatePortal>;
 }

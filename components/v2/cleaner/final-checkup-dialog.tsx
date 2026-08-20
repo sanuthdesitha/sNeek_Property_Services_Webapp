@@ -10,7 +10,7 @@
  * Completing the last item resolves with [{ itemId, at: ISO }] for every item.
  */
 import * as React from "react";
-import { createPortal } from "react-dom";
+import { EstatePortal } from "@/components/v2/ui/portal-root";
 import { ArrowLeft, CheckCircle2, ClipboardCheck, Loader2, X } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
 import type {
@@ -105,7 +105,8 @@ export function FinalCheckupDialog({
     onComplete(items.map((it) => ({ itemId: it.id, at: nextAcks[it.id] ?? new Date().toISOString() })));
   }
 
-  return createPortal(
+  return (
+    <EstatePortal>
     <div className="fixed inset-0 z-[80] flex flex-col bg-[hsl(var(--e-surface))]" role="dialog" aria-modal="true">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--e-border))] px-4 py-3.5">
@@ -194,7 +195,7 @@ export function FinalCheckupDialog({
           <img src={enlarged} alt="Reference enlarged" className="max-h-full max-w-full object-contain" />
         </button>
       ) : null}
-    </div>,
-    document.body
+    </div>
+    </EstatePortal>
   );
 }

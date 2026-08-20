@@ -14,7 +14,7 @@
  * answer can still change what happens.
  */
 import * as React from "react";
-import { createPortal } from "react-dom";
+import { EstatePortal } from "@/components/v2/ui/portal-root";
 import { AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, X } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
 import type {
@@ -76,7 +76,8 @@ export function StartBriefingDialog({
     );
   }
 
-  return createPortal(
+  return (
+    <EstatePortal>
     <div
       className="fixed inset-0 z-[80] flex flex-col bg-[hsl(var(--e-surface))]"
       role="dialog"
@@ -141,7 +142,7 @@ export function StartBriefingDialog({
           {isLast ? "I've read this — start the job" : "I've read this"}
         </EButton>
       </div>
-    </div>,
-    document.body
+    </div>
+    </EstatePortal>
   );
 }
