@@ -682,6 +682,18 @@ B22 surfaced cleaner task evidence in the admin UI. It was still missing from th
 
 ---
 
+### B24. A reschedule is not a task (2026-08-20)
+
+Client scheduling requests are created as `JobTask` rows so they can ride the existing approval queue. Approving one then flipped `visibleToCleaner`, so a cleaner opened their job and found "Reschedule request" in the checklist with a photo box under it — asking them to photograph a date change.
+
+**The rule already existed and was only half applied.** `reviewClientJobTaskRequest` had `isLightRequest` (`metadata.kind === "CLIENT_REQUEST"`), which correctly kept UPDATE/ETA/REPORT off the cleaner list. The reschedule and cancel routes tag `metadata.type` instead, so they never matched it. One predicate, `isAdminOnlyRequest`, now recognises BOTH shapes — which also clears the rows already sitting in cleaners' lists rather than only fixing new ones.
+
+**The auto-approve sweep never had the guard at all.** `autoApprovePendingClientJobTasks` set `visibleToCleaner: true` unconditionally, so anything nobody decided before the job started became cleaner work by default — including the very light requests the admin path was careful to exclude. The same rule living in two places with one of them updated, again. Both paths now share the predicate and complete admin-only requests immediately instead of assigning them.
+
+**The cancel route now tags its metadata.** It previously carried only a title, so nothing but a string comparison could have classified it.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.

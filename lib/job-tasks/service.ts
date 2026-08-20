@@ -272,6 +272,31 @@ async function notifyJobTasksAdded(jobId: string, titles: string[]) {
   });
 }
 
+/**
+ * Request types that are ADMIN INBOX ITEMS, never cleaner work.
+ *
+ * A reschedule is not a task. Showing "Reschedule request" on a cleaner's
+ * job — with a photo box under it — asks them to photograph a date change.
+ * The same is true of a cancellation, and of the light UPDATE/ETA/REPORT
+ * requests that already carried `kind: CLIENT_REQUEST`.
+ *
+ * Matched on either shape because both exist in the database: the light
+ * requests set `kind`, the scheduling routes set `type`. Recognising both
+ * also clears the rows already sitting in a cleaner's list, not just new ones.
+ */
+const ADMIN_ONLY_REQUEST_TYPES = new Set([
+  "RESCHEDULE_REQUEST",
+  "CANCELLATION_REQUEST",
+  "SKIP_REQUEST",
+]);
+
+export function isAdminOnlyRequest(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== "object") return false;
+  const meta = metadata as Record<string, unknown>;
+  if (meta.kind === "CLIENT_REQUEST") return true;
+  return typeof meta.type === "string" && ADMIN_ONLY_REQUEST_TYPES.has(meta.type);
+}
+
 export async function createClientJobTaskRequest(input: {
   jobId: string;
   clientId: string;
@@ -479,11 +504,12 @@ export async function reviewJobTaskRequest(input: {
     throw new Error("TASK_NOT_PENDING");
   }
 
-  // Light requests (metadata.kind CLIENT_REQUEST) are admin-handled inbox
-  // items, not cleaner checklist work — approving one must never surface it on
-  // the cleaner's task list, and it completes immediately.
-  const taskMeta = task.metadata as Record<string, unknown> | null;
-  const isLightRequest = taskMeta?.kind === "CLIENT_REQUEST";
+  // Admin-handled inbox items are not cleaner checklist work — approving one
+  // must never surface it on the cleaner's task list, and it completes
+  // immediately. Reschedules and cancellations are the same kind of thing as
+  // the light UPDATE/ETA/REPORT requests; they were simply tagged with a
+  // different key and so slipped past this check.
+  const isLightRequest = isAdminOnlyRequest(task.metadata);
 
   const approvalStatus = input.decision === "APPROVE" ? "APPROVED" : "REJECTED";
   const updated = await db.jobTask.update({
@@ -595,11 +621,19 @@ export async function autoApprovePendingClientJobTasks(now = new Date(), baseUrl
   for (const task of pending) {
     const context = await buildNotificationContext(task.id);
     if (!context) continue;
+    // The admin-approval path has always excluded admin-only requests from the
+    // cleaner list; this one did not, so anything nobody decided in time became
+    // cleaner work by default — including the very requests the other path was
+    // careful to keep off. One rule, two places, one of them updated.
+    const adminOnly = isAdminOnlyRequest(context.task.metadata);
     const updated = await db.jobTask.update({
       where: { id: task.id },
       data: {
         approvalStatus: "AUTO_APPROVED",
-        visibleToCleaner: true,
+        visibleToCleaner: !adminOnly,
+        ...(adminOnly
+          ? { executionStatus: "COMPLETED" as const, completedAt: now }
+          : {}),
         approvedAt: now,
         events: {
           create: {

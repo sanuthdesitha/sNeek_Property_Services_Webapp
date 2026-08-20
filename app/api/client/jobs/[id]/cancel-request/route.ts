@@ -43,6 +43,10 @@ export async function POST(
       requestedByUserId: portal.userId,
       title: "Cancellation request",
       description: `Client requested cancellation. Reason: ${body.reason}`,
+      // Tagged so the task layer can tell a scheduling request from cleaner
+      // work. Untagged, this became a checklist item asking a cleaner to
+      // photograph a cancellation.
+      metadata: { type: "CANCELLATION_REQUEST", reason: body.reason },
       baseUrl: req,
     });
 
