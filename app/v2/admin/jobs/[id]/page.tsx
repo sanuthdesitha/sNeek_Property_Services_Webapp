@@ -54,6 +54,7 @@ import { JobExtrasPanel } from "@/components/v2/admin/jobs/job-extras-panel";
 import { JobChatAdmin } from "@/components/v2/admin/jobs/job-chat-admin";
 import { ReportActions } from "@/components/v2/admin/jobs/report-actions";
 import { FormsQaCentre } from "@/components/v2/admin/jobs/forms-qa-centre";
+import { TaskEvidence } from "@/components/v2/admin/jobs/task-evidence";
 import { JobReminderButton } from "@/components/v2/admin/jobs/job-reminder-button";
 
 export const metadata = { title: "Job · Estate admin" };
@@ -283,22 +284,36 @@ async function getJob(id: string) {
           },
         },
         jobTasks: {
-          where: { source: JobTaskSource.CLIENT },
+          // CARRY_FORWARD tasks belong to the job they were carried TO and
+          // surface there on their own. Admin-raised tasks were excluded
+          // outright, which is why an admin could ask for something and
+          // never see whether it was done.
+          where: { source: { in: [JobTaskSource.CLIENT, JobTaskSource.ADMIN] } },
           orderBy: { createdAt: "desc" },
           select: {
             id: true,
             title: true,
             description: true,
+            source: true,
             approvalStatus: true,
             executionStatus: true,
+            completedAt: true,
             requiresPhoto: true,
             requiresNote: true,
             createdAt: true,
             requestedBy: { select: { name: true, email: true } },
+            // Every kind: the reference images that came WITH the request,
+            // and the proof the cleaner uploaded when finishing it.
             attachments: {
-              where: { kind: "REQUEST_REFERENCE" },
               orderBy: { createdAt: "asc" },
-              select: { id: true, url: true, s3Key: true, label: true, mediaType: true },
+              select: {
+                id: true,
+                url: true,
+                s3Key: true,
+                label: true,
+                mediaType: true,
+                kind: true,
+              },
             },
             events: {
               orderBy: { createdAt: "desc" },
@@ -442,6 +457,13 @@ export default async function AdminJobDetailPage({
     const reviewEvent = task.events.find(
       (e) => (e.action === "CLIENT_TASK_APPROVED" || e.action === "CLIENT_TASK_REJECTED") && e.note
     );
+    // What the cleaner wrote when marking it done, or explaining why they
+    // could not. Events are newest-first, so this is the latest word.
+    const completionEvent = task.events.find(
+      (e) => e.action === "TASK_COMPLETED" || e.action === "TASK_NOT_COMPLETED"
+    );
+    const isProof = (kind: string) =>
+      kind === "COMPLETION_PROOF" || kind === "FAILURE_PROOF";
     return {
       id: task.id,
       title: task.title,
@@ -453,13 +475,31 @@ export default async function AdminJobDetailPage({
       createdAt: task.createdAt.toISOString(),
       requestedBy: task.requestedBy?.name ?? task.requestedBy?.email ?? null,
       reviewNote: reviewEvent?.note ?? null,
-      attachments: task.attachments.map((att) => ({
-        id: att.id,
-        url: att.url,
-        s3Key: att.s3Key,
-        label: att.label,
-        mediaType: String(att.mediaType),
-      })),
+      source: String(task.source),
+      completedAt: task.completedAt?.toISOString() ?? null,
+      completionNote: completionEvent?.note ?? null,
+      // Reference images stay separate from proof: one is what was asked
+      // for, the other is what came back, and merging them would make an
+      // unfinished task look evidenced.
+      attachments: task.attachments
+        .filter((att) => !isProof(String(att.kind)))
+        .map((att) => ({
+          id: att.id,
+          url: att.url,
+          s3Key: att.s3Key,
+          label: att.label,
+          mediaType: String(att.mediaType),
+        })),
+      proof: task.attachments
+        .filter((att) => isProof(String(att.kind)))
+        .map((att) => ({
+          id: att.id,
+          url: att.url,
+          s3Key: att.s3Key,
+          label: att.label,
+          mediaType: String(att.mediaType),
+          kind: String(att.kind),
+        })),
     };
   });
 
@@ -1169,6 +1209,10 @@ export default async function AdminJobDetailPage({
           hasQaReview={Boolean(qa)}
         />
 
+        {/* What the cleaner sent back for each requested task. Written to
+            JobTaskAttachment on completion and, until now, read by nobody. */}
+        <TaskEvidence tasks={taskRows} />
+
         {/* Submitted job form */}
         <ECard>
           <ECardHeader className="pb-2">
@@ -1225,11 +1269,13 @@ export default async function AdminJobDetailPage({
           </ECardBody>
         </ECard>
 
-        {/* Client task requests */}
+        {/* Task requests — admin- and client-raised alike. Admin ones used to
+            be filtered out entirely, so an admin could ask for something and
+            never see whether it happened. */}
         <ECard>
           <ECardHeader className="pb-2">
             <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
-              <ListChecks className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Client task requests
+              <ListChecks className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Task requests
               {pendingTaskCount > 0 ? <EBadge tone="warning" soft>{pendingTaskCount} pending</EBadge> : null}
             </ECardTitle>
           </ECardHeader>

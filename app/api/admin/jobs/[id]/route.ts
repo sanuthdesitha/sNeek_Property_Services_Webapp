@@ -126,8 +126,11 @@ export async function GET(
           include: {
             requestedBy: { select: { id: true, name: true, email: true } },
             approvedBy: { select: { id: true, name: true, email: true } },
+            // Was filtered to REQUEST_REFERENCE, which silently dropped
+            // COMPLETION_PROOF and FAILURE_PROOF — the photos a cleaner
+            // actually uploaded when finishing the task. They were written
+            // to the database and read by nobody.
             attachments: {
-              where: { kind: "REQUEST_REFERENCE" },
               orderBy: { createdAt: "asc" },
             },
             events: {

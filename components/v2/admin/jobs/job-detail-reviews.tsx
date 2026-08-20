@@ -61,7 +61,22 @@ export type TaskRequestRow = {
   createdAt: string;
   requestedBy: string | null;
   reviewNote: string | null;
+  /** ADMIN or CLIENT — who asked for it. */
+  source?: string;
+  completedAt?: string | null;
+  /** What the cleaner wrote when finishing, or explaining why they could not. */
+  completionNote?: string | null;
+  /** Reference images supplied WITH the request. */
   attachments: { id: string; url: string; s3Key: string; label: string | null; mediaType: string }[];
+  /** Evidence the cleaner uploaded on completion. */
+  proof?: {
+    id: string;
+    url: string;
+    s3Key: string;
+    label: string | null;
+    mediaType: string;
+    kind: string;
+  }[];
 };
 
 function statusWords(value: string) {

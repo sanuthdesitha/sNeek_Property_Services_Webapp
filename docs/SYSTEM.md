@@ -652,6 +652,20 @@ A client self-serve booking created a `Job` the moment they tapped submit. Nobod
 
 ---
 
+### B22. Cleaner task evidence reached nobody (2026-08-20)
+
+A cleaner finishing an admin- or client-requested task uploads photos and writes a note. Both were stored correctly and displayed nowhere.
+
+**Three filters, one symptom.** `updateJobTasksFromSubmission` writes proof as `JobTaskAttachment` rows with `kind: COMPLETION_PROOF` (or `FAILURE_PROOF`), and the note as a `TASK_COMPLETED` / `TASK_NOT_COMPLETED` event. Every reader then filtered attachments to `where: { kind: "REQUEST_REFERENCE" }` — the images supplied WITH the request — so the proof was written on every job and read on none. `GET /api/admin/jobs/[id]` and the job detail page carried the same filter, independently.
+
+**Admin-raised tasks were invisible as well.** The detail page scoped `jobTasks` to `source: CLIENT`, so an admin could attach a task to a job and never learn whether it was done. Now `CLIENT` and `ADMIN` both. `CARRY_FORWARD` stays out because those belong to the job they were carried TO and surface there on their own.
+
+**Reference images and proof stay separate** rather than merging into one attachment list. One is what was asked for, the other is what came back; merging them would make an unfinished task look evidenced.
+
+**No "add to PDF" toggle yet, deliberately.** The report generator builds its task photos from FORM SUBMISSION media matched by `proofFieldId` (`buildTasks` in lib/reports/report-view-model.ts), not from `JobTaskAttachment` — the same two-stores-one-fact split that caused this bug. A switch would have had nothing to switch. Making it real means teaching the report view-model to read both stores, which is its own change.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.
