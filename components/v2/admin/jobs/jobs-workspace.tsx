@@ -35,6 +35,9 @@ import {
   statusLabel,
 } from "./job-row";
 import { groupJobsBySydneyDay } from "@/lib/jobs/date-grouping";
+import { useRestorableState } from "@/hooks/use-restorable-state";
+import { clearRestorablePath } from "@/lib/client/restorable-state";
+import { usePathname } from "next/navigation";
 
 const TZ = "Australia/Sydney";
 const PAGE_SIZE = 50;
@@ -176,28 +179,33 @@ export function JobsWorkspace() {
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: PAGE_SIZE, totalCount: 0, totalPages: 0, hasMore: false });
   const [loading, setLoading] = useState(true);
 
-  const [dateScope, setDateScope] = useState<DateScope>("all");
+  // Back is a rewind: the whole filter set is restored when this page is
+  // returned to. Re-picking a date range, a status chip and a cleaner every
+  // time an admin opens a job and comes back was the single biggest tax on
+  // the screen they use most.
+  const pathname = usePathname() ?? "";
+  const [dateScope, setDateScope] = useRestorableState<DateScope>("dateScope", "all");
   // Defaults to every job, not just active ones. "active" sent
   // statusGroup=active, which excludes COMPLETED and INVOICED — i.e. almost
   // every job that has already happened — so the jobs page silently hid the
   // past and an admin had to know to click a chip to see it at all.
-  const [statusChip, setStatusChip] = useState("all");
-  const [sort, setSort] = useState<JobSort>("soonest");
-  const [search, setSearch] = useState("");
-  const [view, setView] = useState<"list" | "board">("list");
+  const [statusChip, setStatusChip] = useRestorableState("statusChip", "all");
+  const [sort, setSort] = useRestorableState<JobSort>("sort", "soonest");
+  const [search, setSearch] = useRestorableState("search", "");
+  const [view, setView] = useRestorableState<"list" | "board">("view", "list");
 
   // v1-parity server filters (jobType/client/property/explicit range) + the
   // client-side invoice-status refinement.
-  const [jobType, setJobType] = useState("all");
-  const [clientId, setClientId] = useState("all");
-  const [propertyId, setPropertyId] = useState("all");
+  const [jobType, setJobType] = useRestorableState("jobType", "all");
+  const [clientId, setClientId] = useRestorableState("clientId", "all");
+  const [propertyId, setPropertyId] = useRestorableState("propertyId", "all");
   // Who is on the job — the question an admin asks most, and the one filter
   // this screen never had. "unassigned" is a first-class answer rather than
   // the absence of one: finding the jobs nobody is on IS the daily task.
-  const [cleanerId, setCleanerId] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [invoiced, setInvoiced] = useState<InvoiceFilter>("all");
+  const [cleanerId, setCleanerId] = useRestorableState("cleanerId", "all");
+  const [dateFrom, setDateFrom] = useRestorableState("dateFrom", "");
+  const [dateTo, setDateTo] = useRestorableState("dateTo", "");
+  const [invoiced, setInvoiced] = useRestorableState<InvoiceFilter>("invoiced", "all");
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [properties, setProperties] = useState<{ id: string; name: string; suburb: string }[]>([]);
 
@@ -597,6 +605,9 @@ export function JobsWorkspace() {
     Boolean(dateTo);
 
   function resetFilters() {
+    // Clearing the state without clearing the store would bring the old
+    // filters back on the next visit, which reads as the reset having failed.
+    clearRestorablePath(pathname);
     setJobType("all");
     setClientId("all");
     setPropertyId("all");

@@ -736,6 +736,28 @@ A cleaner opening a job with an early check-in saw "Same-day check-in — guest 
 
 ---
 
+### B28. Back as rewind — the mechanism, and four screens (2026-08-21)
+
+Filters, tabs and search live in component state, so navigating away destroyed them. Coming back to the admin jobs list meant re-picking the date range, the status chip and the cleaner every time — the deeper the page, the more work the back button threw away.
+
+**`useRestorableState` is a drop-in for `useState`** that reads the page's last value on mount and writes every change back. Adopted on the admin jobs workspace (all twelve filters), the cases workspace (view + filters) and the cleaner calendar (view + selected day).
+
+**Restores on EVERY mount, not only on a back navigation.** "Where was I" has the same answer whether someone pressed back or clicked Jobs in the nav, and telling the two apart means fighting the App Router for ownership of `history.state` — fragile, and invisible when it breaks.
+
+**sessionStorage, not the URL.** Much of this state is not worth a shareable link (which row is expanded), some of it should not be in one, and the router owns the URL. Tab-scoped is the right lifetime for "where I was": it is a fact about this browsing session, not about the user.
+
+**Restore happens in an effect, not in the initial state.** Reading storage during the first render would not match the server's HTML, and React discards the mismatched tree — so the restored value would be thrown away by the very thing meant to apply it.
+
+**A reset control clears the store, not just the state.** Otherwise the old filters return on the next visit, which reads as the reset having silently failed.
+
+**`mergeRestorable` spreads the stored value over the initial one**, so a filter added in a later deploy gets its default rather than `undefined` — which would reach a `<select>` as an uncontrolled value.
+
+**The client jobs board already did this by hand** (`sneek_client_jobs_filter`, localStorage, deliberately outliving the tab so preferences survive). Left as it is rather than churned onto the hook, but its write was unguarded — localStorage throws in private-mode Safari, and an unwritable preference must not take the jobs list down with it.
+
+The remaining pages are not yet adopted; the sweep is deliberately staged.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.

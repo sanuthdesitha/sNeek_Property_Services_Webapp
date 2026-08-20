@@ -12,6 +12,7 @@ import { EBadge, EButton, ECard, ECardBody, EEmptyState } from "@/components/v2/
 import { EChip } from "@/components/v2/cleaner/fields";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { cn } from "@/lib/utils";
+import { useRestorableState } from "@/hooks/use-restorable-state";
 
 type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
 
@@ -35,9 +36,11 @@ function isoKey(d: Date) {
 
 export function EstateCalendar({ jobs }: { jobs: CalendarJob[] }) {
   const now = new Date();
-  const [view, setView] = React.useState<"month" | "agenda">("month");
+  // A cleaner who opens a job from the agenda and comes back should land on
+  // the agenda, on the day they were looking at.
+  const [view, setView] = useRestorableState<"month" | "agenda">("view", "month");
   const [cursor, setCursor] = React.useState(new Date(now.getFullYear(), now.getMonth(), 1));
-  const [selected, setSelected] = React.useState<string>(isoKey(now));
+  const [selected, setSelected] = useRestorableState<string>("selected", isoKey(now));
 
   const byDate = React.useMemo(() => {
     const map = new Map<string, CalendarJob[]>();
