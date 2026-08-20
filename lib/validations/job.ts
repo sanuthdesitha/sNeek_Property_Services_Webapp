@@ -112,6 +112,8 @@ const baseCreateJobSchema = z.object({
   attachments: z.array(attachmentSchema).optional(),
   specialRequestTasks: z.array(specialRequestTaskSchema).optional(),
   transportAllowances: z.record(z.string().min(1), z.number().nonnegative()).optional(),
+  /** Whether task proof photos appear in the generated report. */
+  includeTaskPhotosInReport: z.boolean().optional(),
   earlyCheckin: timeRuleSchema.optional(),
   lateCheckout: timeRuleSchema.optional(),
   reservationId: z.string().min(1).optional(),

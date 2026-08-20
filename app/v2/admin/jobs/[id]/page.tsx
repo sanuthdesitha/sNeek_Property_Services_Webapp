@@ -1211,7 +1211,11 @@ export default async function AdminJobDetailPage({
 
         {/* What the cleaner sent back for each requested task. Written to
             JobTaskAttachment on completion and, until now, read by nobody. */}
-        <TaskEvidence tasks={taskRows} />
+        <TaskEvidence
+          jobId={job.id}
+          tasks={taskRows}
+          includeInReport={jobMeta.includeTaskPhotosInReport !== false}
+        />
 
         {/* Submitted job form */}
         <ECard>

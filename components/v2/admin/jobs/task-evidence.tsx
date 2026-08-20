@@ -12,16 +12,17 @@
  * question it answers is "what did we get back from this clean", which is what
  * the whole Forms & report tab is for.
  *
- * There is deliberately no "add these to the PDF" switch yet. The report
- * generator builds its task photos from FORM SUBMISSION media matched by
- * proofFieldId, not from JobTaskAttachment — the same split that caused this
- * bug — so the toggle would have had nothing to switch. It needs the report
- * view-model to read both stores first.
+ * The report toggle writes JobMeta.includeTaskPhotosInReport and regenerates,
+ * rather than varying the PDF per download: the report is generated once and
+ * served to everyone, so a per-click variant would quietly change what the
+ * client sees too. It defaults ON — the photo was taken because someone
+ * asked for it.
  */
 
 import * as React from "react";
 import Image from "next/image";
-import { CheckCircle2, XCircle, FileText, ListChecks } from "lucide-react";
+import { CheckCircle2, XCircle, FileText, ListChecks, Loader2 } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 import {
   EBadge,
   ECard,
@@ -30,6 +31,7 @@ import {
   ECardTitle,
   EEmptyState,
 } from "@/components/v2/ui/primitives";
+import { ESwitch } from "@/components/v2/admin/estate-kit";
 import type { TaskRequestRow } from "@/components/v2/admin/jobs/job-detail-reviews";
 
 function isImage(mediaType: string): boolean {
@@ -37,12 +39,64 @@ function isImage(mediaType: string): boolean {
   return value === "PHOTO" || value === "IMAGE";
 }
 
-export function TaskEvidence({ tasks }: { tasks: TaskRequestRow[] }) {
+export function TaskEvidence({
+  jobId,
+  tasks,
+  includeInReport,
+}: {
+  jobId: string;
+  tasks: TaskRequestRow[];
+  includeInReport: boolean;
+}) {
+  const [included, setIncluded] = React.useState(includeInReport);
+  const [saving, setSaving] = React.useState(false);
+
+  async function setInclusion(next: boolean) {
+    const previous = included;
+    setIncluded(next);
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/jobs/${jobId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includeTaskPhotosInReport: next }),
+      });
+      if (!res.ok) throw new Error("Could not save that.");
+      // The report is stored, not rendered per download, so the setting
+      // means nothing until it is rebuilt.
+      await fetch(`/api/admin/reports/${jobId}/generate`, { method: "POST" }).catch(
+        () => {}
+      );
+      toast({
+        title: next
+          ? "Task photos will appear in the report"
+          : "Task photos removed from the report",
+        description: "The report has been rebuilt.",
+      });
+    } catch (err: any) {
+      // Put the switch back: leaving it on the new value would claim a
+      // change the report does not have.
+      setIncluded(previous);
+      toast({
+        title: "Could not update the report",
+        description: err?.message ?? "Try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   // A task with neither proof nor a note has nothing to show. Listing it would
   // pad the section with rows that say "no evidence", which is the same as
   // saying nothing but takes longer to read.
   const evidenced = tasks.filter(
     (task) => (task.proof?.length ?? 0) > 0 || Boolean(task.completionNote)
+  );
+
+  const photoCount = evidenced.reduce(
+    (sum, task) => sum + (task.proof?.filter((p) => isImage(p.mediaType)).length ?? 0),
+    0
   );
 
   return (
@@ -65,7 +119,24 @@ export function TaskEvidence({ tasks }: { tasks: TaskRequestRow[] }) {
             description="Photos and notes a cleaner adds when completing a requested task appear here."
           />
         ) : (
-          <ul className="space-y-4">
+          <>
+            {photoCount > 0 ? (
+              <label className="mb-4 flex items-start justify-between gap-3 rounded-[var(--e-radius-md)] border border-[hsl(var(--e-border))] px-3 py-2">
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2 text-[0.8125rem] font-medium text-[hsl(var(--e-text))]">
+                    Include in the downloaded report
+                    {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  </span>
+                  <span className="block text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                    {photoCount} task {photoCount === 1 ? "photo" : "photos"}. Turning this off
+                    rebuilds the report without them — for everyone who opens it, including
+                    the client.
+                  </span>
+                </span>
+                <ESwitch checked={included} disabled={saving} onCheckedChange={setInclusion} />
+              </label>
+            ) : null}
+            <ul className="space-y-4">
             {evidenced.map((task) => {
               const failed = task.proof?.some((p) => p.kind === "FAILURE_PROOF") ?? false;
               const done = task.executionStatus === "COMPLETED";
@@ -140,7 +211,8 @@ export function TaskEvidence({ tasks }: { tasks: TaskRequestRow[] }) {
                 </li>
               );
             })}
-          </ul>
+            </ul>
+          </>
         )}
       </ECardBody>
     </ECard>

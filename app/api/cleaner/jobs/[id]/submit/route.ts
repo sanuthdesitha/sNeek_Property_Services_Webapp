@@ -643,8 +643,25 @@ export async function POST(
           },
         });
 
-        if (Object.keys(uploads).length > 0) {
-          const mediaRows = Object.entries(uploads).flatMap(([fieldId, keys]) =>
+        // Task proof was computed into a proofFieldId and then never stored
+        // under it: submissionMedia rows are built from `uploads`, while the
+        // proof arrives as jobTasks[].proofKeys. So the report's task section
+        // looked for media nothing had ever written, and every photo a
+        // cleaner took for a requested task was missing from the PDF.
+        //
+        // Merged only for the media rows, never back into `uploads` — the
+        // required-photo validation above reads that, and a task photo must
+        // not satisfy a form field's requirement.
+        const mediaUploads: Record<string, string[]> = { ...uploads };
+        for (const task of unifiedTaskSnapshot) {
+          const keys = (task.proofKeys ?? []).filter(
+            (key: unknown): key is string => typeof key === "string" && key.trim().length > 0
+          );
+          if (keys.length > 0) mediaUploads[task.proofFieldId] = keys;
+        }
+
+        if (Object.keys(mediaUploads).length > 0) {
+          const mediaRows = Object.entries(mediaUploads).flatMap(([fieldId, keys]) =>
             keys.map((key) => ({
               submissionId: created.id,
               fieldId,
