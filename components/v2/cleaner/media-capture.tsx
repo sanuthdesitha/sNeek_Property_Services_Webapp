@@ -152,75 +152,137 @@ async function prepareCapturedFile(
 
 /**
  * A failure that could not possibly succeed on a retry — the server rejected
- * the file itself (too large, wrong type, not signed in). Retrying one of
- * these only makes the cleaner wait longer for the same answer.
+ * the file itself (too large, wrong type, not signed in).
  */
 class PermanentUploadError extends Error {}
 
-async function uploadOne(file: File, folder: string): Promise<CapturedMedia> {
-  const fd = new FormData();
-  fd.append("file", file);
-  fd.append("folder", folder);
-  const res = await fetch("/api/uploads/direct", { method: "POST", body: fd });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const message = err.error || `Upload failed (${res.status})`;
-    // 4xx is the server saying no. 5xx and network errors are worth one more go.
-    if (res.status >= 400 && res.status < 500) throw new PermanentUploadError(message);
-    throw new Error(message);
-  }
-  const data = (await res.json()) as { key: string; url: string };
-  return { key: data.key, url: data.url, kind: kindForFile(file), name: file.name };
+/** Above this, an automatic retry costs more than it saves on mobile data. */
+const AUTO_RETRY_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * One upload, over XHR rather than fetch.
+ *
+ * fetch cannot report UPLOAD progress — only download. A cleaner sending a
+ * 100MB clip therefore watched a spinner that never moved, decided the app had
+ * hung, and killed it partway through. XHR exposes upload.onprogress, so the
+ * bar reflects bytes actually leaving the phone.
+ */
+function uploadOne(
+  file: File,
+  folder: string,
+  onBytes?: (sent: number, total: number) => void
+): Promise<CapturedMedia> {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("folder", folder);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/uploads/direct");
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onBytes?.(event.loaded, event.total);
+    };
+
+    xhr.onload = () => {
+      let body: any = {};
+      try {
+        body = JSON.parse(xhr.responseText || "{}");
+      } catch {
+        body = {};
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && body?.key) {
+        resolve({
+          key: body.key,
+          url: body.url,
+          kind: kindForFile(file),
+          name: file.name,
+        });
+        return;
+      }
+      const message = body?.error || `Upload failed (${xhr.status})`;
+      // 4xx is the server saying no; retrying gets the same answer slower.
+      if (xhr.status >= 400 && xhr.status < 500) {
+        reject(new PermanentUploadError(message));
+      } else {
+        reject(new Error(message));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("Network dropped during upload"));
+    xhr.ontimeout = () => reject(new Error("Upload timed out"));
+    xhr.onabort = () => reject(new PermanentUploadError("Upload cancelled"));
+    xhr.send(fd);
+  });
 }
 
 /**
- * One upload with a single retry.
+ * One upload with a single retry, for files small enough that a retry is
+ * cheaper than asking a person to try again.
  *
- * Cleaners work on mobile data in stairwells and basements. A connection
- * dropped mid-POST is not an error worth showing a person — it is worth
- * trying once more.
+ * A big video is deliberately NOT auto-retried: re-sending 100MB over mobile
+ * data to fix a blip that may well repeat is worse than surfacing it and
+ * letting the cleaner decide. It lands in the failed list with a Retry button.
  */
-async function uploadWithRetry(file: File, folder: string): Promise<CapturedMedia> {
+async function uploadWithRetry(
+  file: File,
+  folder: string,
+  onBytes?: (sent: number, total: number) => void
+): Promise<CapturedMedia> {
   try {
-    return await uploadOne(file, folder);
+    return await uploadOne(file, folder, onBytes);
   } catch (err) {
     if (err instanceof PermanentUploadError) throw err;
+    if (file.size > AUTO_RETRY_MAX_BYTES) throw err;
     await new Promise((resolve) => setTimeout(resolve, 700));
-    return uploadOne(file, folder);
+    return uploadOne(file, folder, onBytes);
   }
 }
 
 /**
- * How many files are stamped, compressed and uploaded at once.
+ * How many uploads run at once.
  *
- * Was unbounded: a cleaner selecting thirty photos opened thirty simultaneous
- * multipart POSTs and thirty canvas compressions on a phone. Browsers only run
- * about six connections per host, so the rest queued at the socket layer where
- * a flaky mobile connection quietly killed them — the "random upload issues".
- * The compressions competed for memory at the same time, which is what took
- * whole tabs down on older handsets.
+ * Was unbounded: thirty photos opened thirty simultaneous POSTs and thirty
+ * canvas compressions on a phone. Browsers run about six connections per host,
+ * so the rest queued at the socket layer where a flaky mobile connection killed
+ * them silently.
  *
- * Three is not a throttle, it is faster: uploads that are not fighting each
- * other for bandwidth finish sooner, and the ones that finish stay finished.
+ * Videos get a lane of their own. Three 80MB uploads sharing one phone's uplink
+ * each take three times as long and all three stay exposed to the same dropout,
+ * so a video batch runs one at a time and finishes sooner in practice.
  */
-const UPLOAD_CONCURRENCY = 3;
+const PHOTO_CONCURRENCY = 4;
+const VIDEO_CONCURRENCY = 1;
+const VIDEO_BYTES_THRESHOLD = 8 * 1024 * 1024;
+
+function isHeavyUpload(file: File): boolean {
+  return file.type.toLowerCase().startsWith("video/") || file.size > VIDEO_BYTES_THRESHOLD;
+}
 
 export interface UploadFailure {
   name: string;
   reason: string;
+  /** Kept so the caller can retry exactly this file without re-picking it. */
+  file: File;
+}
+
+export interface UploadProgress {
+  name: string;
+  /** 0-100, or null before the first progress event. */
+  percent: number | null;
 }
 
 /**
- * Shared stamp → compress → upload pipeline for a batch of files. Reused by
- * both MediaCapture and the guided capture surface so evidence stamping is
- * never bypassed.
+ * Shared stamp → compress → upload pipeline. Reused by MediaCapture and the
+ * guided capture surface so evidence stamping is never bypassed.
  *
- * Runs a bounded pool but writes each result into its ORIGINAL index, so the
+ * Bounded pool, but each result is written to its ORIGINAL index, so the
  * gallery ends up in the order the cleaner picked the files rather than the
  * order the network happened to finish them.
  *
- * Never rejects: it reports which files failed and why, because "3 files
- * failed" leaves a cleaner re-picking all thirty to work out which.
+ * Never rejects: it reports which files failed, why, and hands back the File
+ * itself so a retry does not mean re-picking thirty photos to find the two
+ * that did not make it.
  */
 export async function prepareAndUploadFiles(
   files: File[],
@@ -228,38 +290,63 @@ export async function prepareAndUploadFiles(
     folder: string;
     stamp?: StampOptions | null;
     source: CaptureSource;
-    /** Called after each file settles, so the UI can count up rather than spin. */
+    /** Fires as each file settles. */
     onProgress?: (done: number, total: number) => void;
+    /** Fires as bytes move, so a big video shows movement rather than a spinner. */
+    onFileProgress?: (inFlight: UploadProgress[]) => void;
   }
 ): Promise<{ results: CapturedMedia[]; failed: UploadFailure[]; failedCount: number }> {
   const slots: Array<CapturedMedia | null> = new Array(files.length).fill(null);
   const failed: UploadFailure[] = [];
+  const inFlight = new Map<number, UploadProgress>();
   let done = 0;
-  let next = 0;
 
-  async function worker() {
-    // Each worker claims the next index, so the pool drains in pick order.
-    while (next < files.length) {
-      const index = next++;
-      const file = files[index];
-      try {
-        const prepared = await prepareCapturedFile(file, opts.source, opts.stamp);
-        slots[index] = await uploadWithRetry(prepared, opts.folder);
-      } catch (err: any) {
-        failed.push({
-          name: file.name || `File ${index + 1}`,
-          reason: err?.message || "Upload failed",
-        });
-      } finally {
-        done += 1;
-        opts.onProgress?.(done, files.length);
-      }
-    }
+  function publish() {
+    opts.onFileProgress?.(Array.from(inFlight.values()));
   }
 
-  await Promise.all(
-    Array.from({ length: Math.min(UPLOAD_CONCURRENCY, files.length) }, () => worker())
-  );
+  // Heavy files run in their own single-file lane; photos run several at a
+  // time. Splitting them means a 90MB video never starves a batch of photos,
+  // and the photos never fragment the video's bandwidth.
+  const heavy: number[] = [];
+  const light: number[] = [];
+  files.forEach((file, index) => (isHeavyUpload(file) ? heavy : light).push(index));
+
+  async function runLane(queue: number[], width: number) {
+    let next = 0;
+    async function worker() {
+      while (next < queue.length) {
+        const index = queue[next++];
+        const file = files[index];
+        inFlight.set(index, { name: file.name, percent: null });
+        publish();
+        try {
+          const prepared = await prepareCapturedFile(file, opts.source, opts.stamp);
+          slots[index] = await uploadWithRetry(prepared, opts.folder, (sent, total) => {
+            inFlight.set(index, {
+              name: file.name,
+              percent: total > 0 ? Math.round((sent / total) * 100) : null,
+            });
+            publish();
+          });
+        } catch (err: any) {
+          failed.push({
+            name: file.name || `File ${index + 1}`,
+            reason: err?.message || "Upload failed",
+            file,
+          });
+        } finally {
+          inFlight.delete(index);
+          done += 1;
+          opts.onProgress?.(done, files.length);
+          publish();
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(width, queue.length) }, () => worker()));
+  }
+
+  await Promise.all([runLane(light, PHOTO_CONCURRENCY), runLane(heavy, VIDEO_CONCURRENCY)]);
 
   return {
     results: slots.filter((m): m is CapturedMedia => m !== null),
@@ -440,15 +527,17 @@ export function MediaCapture({
   // indistinguishable from a hang, and cleaners kill the tab.
   const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
+  // Kept until the cleaner clears or retries them. A message that vanishes is
+  // no use to someone who looked away while thirty photos uploaded.
+  const [failures, setFailures] = React.useState<UploadFailure[]>([]);
+  const [inFlight, setInFlight] = React.useState<UploadProgress[]>([]);
   const [lightbox, setLightbox] = React.useState<number | null>(null);
 
-  const handleFiles = React.useCallback(
-    async (files: FileList | null, source: CaptureSource) => {
-      if (!files || files.length === 0) return;
+  const runUpload = React.useCallback(
+    async (list: File[], source: CaptureSource) => {
+      if (list.length === 0) return;
       setUploadError(null);
-      const list = Array.from(files);
       setBusy((n) => n + list.length);
-      let current = value;
       try {
         const { results, failed } = await prepareAndUploadFiles(list, {
           folder,
@@ -456,30 +545,43 @@ export function MediaCapture({
           source,
           onProgress: (uploadDone, total) =>
             setProgress(total > 1 ? { done: uploadDone, total } : null),
+          onFileProgress: setInFlight,
         });
-        if (failed.length > 0) {
-          // Naming them is the point: a cleaner who knows WHICH two failed
-          // re-picks two files, not thirty.
-          const names = failed.map((f) => f.name).join(', ');
-          setUploadError(
-            failed.length === 1
-              ? `${names} did not upload — ${failed[0].reason}`
-              : `${failed.length} files did not upload: ${names}`
-          );
-        }
+        // Replaced rather than appended: this list IS the files that just
+        // ran, so anything previously failed and now retried disappears.
+        setFailures(failed);
         if (results.length > 0) {
-          current = multiple ? [...current, ...results] : results.slice(-1);
-          onChange(current);
+          onChange(multiple ? [...value, ...results] : results.slice(-1));
         }
       } catch (e: any) {
         setUploadError(e?.message || "Upload failed");
       } finally {
         setBusy((n) => Math.max(0, n - list.length));
         setProgress(null);
+        setInFlight([]);
       }
     },
     [folder, multiple, onChange, value, stamp]
   );
+
+  const handleFiles = React.useCallback(
+    async (files: FileList | null, source: CaptureSource) => {
+      if (!files || files.length === 0) return;
+      await runUpload(Array.from(files), source);
+    },
+    [runUpload]
+  );
+
+  // Retry sends the ORIGINAL File objects. The cleaner does not re-pick, and
+  // on a phone they often cannot: the camera-roll entry for a photo taken a
+  // minute ago is not always easy to find again.
+  const retryFailed = React.useCallback(async () => {
+    const files = failures.map((f) => f.file);
+    if (files.length === 0) return;
+    // Re-stamping is idempotent, and "gallery" is right: the file is no
+    // longer coming straight off the camera.
+    await runUpload(files, "gallery");
+  }, [failures, runUpload]);
 
   function remove(key: string) {
     onChange(value.filter((m) => m.key !== key));
@@ -568,6 +670,69 @@ export function MediaCapture({
       ) : null}
 
       {uploadError ? <p className="text-[0.75rem] text-[hsl(var(--e-danger))]">{uploadError}</p> : null}
+
+      {/* Bytes actually leaving the phone. A big video used to show nothing
+          but a spinner, so cleaners assumed a hang and killed the app. */}
+      {inFlight.length > 0 ? (
+        <ul className="space-y-1">
+          {inFlight.map((item) => (
+            <li
+              key={item.name}
+              className="flex items-center gap-2 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]"
+            >
+              <span className="min-w-0 flex-1 truncate">{item.name}</span>
+              <span className="h-1 w-20 overflow-hidden rounded-[var(--e-radius-pill)] bg-[hsl(var(--e-muted))]">
+                <span
+                  className="block h-full bg-[hsl(var(--e-gold))] transition-[width]"
+                  style={{ width: `${item.percent ?? 0}%` }}
+                />
+              </span>
+              <span className="e-tnum w-9 text-right">
+                {item.percent === null ? "…" : `${item.percent}%`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {/* The failed list persists until retried or dismissed. Retry re-sends
+          the original File objects, so nobody has to hunt the camera roll for
+          the two photos out of thirty that did not make it. */}
+      {failures.length > 0 ? (
+        <div className="space-y-2 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger)/0.06)] p-2.5">
+          <p className="text-[0.75rem] font-medium text-[hsl(var(--e-danger))]">
+            {failures.length} {failures.length === 1 ? "file" : "files"} did not upload
+          </p>
+          <ul className="space-y-1">
+            {failures.map((f, i) => (
+              <li
+                key={`${f.name}-${i}`}
+                className="text-[0.6875rem] text-[hsl(var(--e-text-secondary))]"
+              >
+                <span className="font-medium">{f.name}</span>
+                <span className="text-[hsl(var(--e-text-faint))]"> — {f.reason}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={busy > 0}
+              onClick={() => void retryFailed()}
+              className="rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-danger))] px-2 py-1 text-[0.6875rem] font-medium text-[hsl(var(--e-danger))] disabled:opacity-50"
+            >
+              Retry {failures.length === 1 ? "it" : "them"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFailures([])}
+              className="text-[0.6875rem] text-[hsl(var(--e-text-faint))] underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {value.length > 0 ? (
         // Horizontally scrollable "recent shots" strip — reviews the whole batch
