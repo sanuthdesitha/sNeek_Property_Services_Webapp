@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
+import { requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { getClientPortalContext } from "@/lib/client/portal";
@@ -15,7 +15,11 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await requireRole([Role.CLIENT]);
+    // Choosing who cleans a property is ops work, not a money decision, so a
+    // VA granted "properties" may do it. getClientPortalContext is still used
+    // below for visibility, and it is VA-aware since B16b.
+    const portal0 = await requireClientPortal({ permission: "properties" });
+    const session = { user: { id: portal0.userId } };
     const settings = await getAppSettings();
     const portal = await getClientPortalContext(session.user.id, settings);
     if (!portal.clientId) {

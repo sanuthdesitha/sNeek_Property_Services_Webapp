@@ -4,15 +4,11 @@ import { z } from "zod";
 import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { createClientJobTaskRequest } from "@/lib/job-tasks/service";
+import { checkClientJobRequest } from "@/lib/jobs/client-request-rules";
 
 const schema = z.object({
   reason: z.string().trim().min(2).max(500),
 });
-
-const BLOCKED_STATUSES: JobStatus[] = [
-  JobStatus.COMPLETED,
-  JobStatus.INVOICED,
-];
 
 export async function POST(
   req: NextRequest,
@@ -35,8 +31,10 @@ export async function POST(
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
-    if (BLOCKED_STATUSES.includes(job.status)) {
-      return NextResponse.json({ error: "This job can no longer be cancelled from the client portal." }, { status: 400 });
+    // 409, not 400: the request was well formed, the job simply moved on.
+    const verdict = checkClientJobRequest("cancel", job);
+    if (!verdict.allowed) {
+      return NextResponse.json({ error: verdict.reason }, { status: 409 });
     }
 
     const task = await createClientJobTaskRequest({
