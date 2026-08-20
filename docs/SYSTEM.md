@@ -638,6 +638,20 @@ A client self-serve booking created a `Job` the moment they tapped submit. Nobod
 
 ---
 
+### B21. Admin jobs list — the row that had eight children in a seven-column grid (2026-08-20)
+
+**The dead gutter was a wrapped grid child.** `EJobRow` declared `md:grid-cols-[...]` with SEVEN tracks and rendered EIGHT children, so the actions block auto-placed onto a second grid row beneath the checkbox. At `lg` those buttons are `opacity-0` until hover, so the wrap was invisible while still claiming a full row of height — the empty band beside every job, and the reason rows stood roughly twice as tall as their content. Seven children now, and the actions column keeps a reserved `min-w-[9rem]` so the row does not reflow when they fade in.
+
+**Property names stopped being abbreviations.** The name is what an admin scans for, so it takes the flexible track and wraps (`overflow-wrap:anywhere`) instead of truncating — "Jackson-Pr…" is not an identifier. Client and cleaner still truncate because their columns are fixed, but both now carry a `title`, so the full value is one hover away rather than lost.
+
+**Money folded into the when-column** rather than holding a track of its own. That freed the width the property name needed, and date/time/amount read together as "what and how much" anyway.
+
+**Mobile carries what the desktop columns show.** The hidden md-only columns used to simply vanish below the breakpoint; the mobile stack now includes client and money alongside the date and cleaner it already had.
+
+**Filter by who is on the job.** `GET /api/jobs` gained `cleanerId`, with `"unassigned"` as a first-class value mapping to `{ none: { removedAt: null } }` — finding the jobs nobody is on is the daily task, not the absence of a filter. It is applied BEFORE the `Role.CLEANER` branch so that branch still wins: a cleaner may only ever see their own jobs, whatever they pass.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.

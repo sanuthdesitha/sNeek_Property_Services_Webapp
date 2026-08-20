@@ -191,6 +191,10 @@ export function JobsWorkspace() {
   const [jobType, setJobType] = useState("all");
   const [clientId, setClientId] = useState("all");
   const [propertyId, setPropertyId] = useState("all");
+  // Who is on the job — the question an admin asks most, and the one filter
+  // this screen never had. "unassigned" is a first-class answer rather than
+  // the absence of one: finding the jobs nobody is on IS the daily task.
+  const [cleanerId, setCleanerId] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [invoiced, setInvoiced] = useState<InvoiceFilter>("all");
@@ -235,6 +239,7 @@ export function JobsWorkspace() {
     if (jobType !== "all") params.set("jobType", jobType);
     if (clientId !== "all") params.set("clientId", clientId);
     if (propertyId !== "all") params.set("propertyId", propertyId);
+    if (cleanerId !== "all") params.set("cleanerId", cleanerId);
     // An explicit from/to range overrides the scope-tab range.
     if (dateFrom || dateTo) {
       if (dateFrom) params.set("dateFrom", dateFrom);
@@ -264,7 +269,7 @@ export function JobsWorkspace() {
   useEffect(() => {
     loadJobs(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateScope, statusChip, sort, jobType, clientId, propertyId, dateFrom, dateTo]);
+  }, [dateScope, statusChip, sort, jobType, clientId, propertyId, cleanerId, dateFrom, dateTo]);
 
   useEffect(() => {
     fetch("/api/admin/clients")
@@ -586,6 +591,7 @@ export function JobsWorkspace() {
     jobType !== "all" ||
     clientId !== "all" ||
     propertyId !== "all" ||
+    cleanerId !== "all" ||
     invoiced !== "all" ||
     Boolean(dateFrom) ||
     Boolean(dateTo);
@@ -594,6 +600,7 @@ export function JobsWorkspace() {
     setJobType("all");
     setClientId("all");
     setPropertyId("all");
+    setCleanerId("all");
     setInvoiced("all");
     setDateFrom("");
     setDateTo("");
@@ -770,6 +777,26 @@ export function JobsWorkspace() {
               <option key={property.id} value={property.id}>
                 {property.name || property.id}
                 {property.suburb ? ` · ${property.suburb}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">
+            Cleaner
+          </span>
+          <select
+            value={cleanerId}
+            onChange={(event) => setCleanerId(event.target.value)}
+            aria-label="Filter by assigned cleaner"
+            className={FIELD_CLS + " w-auto min-w-[160px] cursor-pointer"}
+          >
+            <option value="all">Any cleaner</option>
+            <option value="unassigned">Nobody assigned</option>
+            {cleaners.map((cleaner) => (
+              <option key={cleaner.id} value={cleaner.id}>
+                {cleaner.name || cleaner.email || cleaner.id}
               </option>
             ))}
           </select>

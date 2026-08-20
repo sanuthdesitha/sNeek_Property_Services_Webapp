@@ -15,6 +15,8 @@ function buildWhereClause(params: {
   jobType: JobType | null;
   propertyId: string | null;
   clientId: string | null;
+  /** A user id, or "unassigned" for jobs nobody is on. */
+  cleanerId: string | null;
   date: string | null;
   dateFrom: string | null;
   dateTo: string | null;
@@ -35,6 +37,15 @@ function buildWhereClause(params: {
   if (params.jobType) where.jobType = params.jobType;
   if (params.propertyId) where.propertyId = params.propertyId;
   if (params.clientId) where.property = { clientId: params.clientId };
+
+  // Set before the CLEANER branch below so that branch always wins: a
+  // cleaner may only ever see their own jobs, whatever they pass here.
+  if (params.cleanerId) {
+    where.assignments =
+      params.cleanerId === "unassigned"
+        ? { none: { removedAt: null } }
+        : { some: { userId: params.cleanerId, removedAt: null } };
+  }
 
   if (params.date) {
     const d = new Date(params.date);
@@ -181,6 +192,7 @@ export async function GET(req: NextRequest) {
     const jobType = searchParams.get("jobType") as JobType | null;
     const propertyId = searchParams.get("propertyId");
     const clientId = searchParams.get("clientId");
+    const cleanerId = searchParams.get("cleanerId");
     const date = searchParams.get("date");
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
@@ -210,6 +222,7 @@ export async function GET(req: NextRequest) {
       jobType,
       propertyId,
       clientId,
+      cleanerId,
       date,
       dateFrom,
       dateTo,
