@@ -712,6 +712,18 @@ B20 bounded the upload pool, which fixed the random photo failures. Videos kept 
 
 ---
 
+### B26. Early check-in — two notices, one of them wrong (2026-08-20)
+
+A cleaner opening a job with an early check-in saw "Same-day check-in — guest arrives 15:00" sitting directly above "Early check-in — finish before 12:00". Two banners for one event, giving two deadlines, one of which described a time nobody was arriving.
+
+**They are the same fact from two sources.** `Job.sameDayCheckinTime` comes off the iCal sync and carries the property's standard arrival; `JobMeta.earlyCheckin.time` is an admin saying THIS guest arrives sooner. `resolveArrivalNotice` (lib/jobs/arrival-notice.ts) collapses them into one notice and lets the early time win — it is the one somebody deliberately set and always the tighter of the two, and showing the looser one tells a cleaner they have hours they do not have. An early check-in also implies same-day even when the sync flag is missing, because a guest is arriving today either way.
+
+**Late checkout stays separate.** It is the other end of the day, a different instruction (do not START before), and it can be true at the same time as an arrival.
+
+**The duplicate render was a second bug.** `TimingRuleBanners` was rendered by `job-workspace.tsx` above every stage AND again by `stage-setup.tsx` — and the stage copy was never passed `sameDayCheckin`, so the second banner was missing the very arrival it existed to warn about. The workspace copy is the one that survives.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.
