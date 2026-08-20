@@ -724,6 +724,18 @@ A cleaner opening a job with an early check-in saw "Same-day check-in — guest 
 
 ---
 
+### B27. Cases — linkable, logged, and damage-first (2026-08-21)
+
+**A case could not be linked to a job or property by a person.** `IssueTicket` has carried `jobId` and `propertyId` since the beginning, and nothing could WRITE them after creation — only the automatic paths (a damage report opening a case) ever set them. A case raised from a phone call stayed detached forever, invisible from the job it concerned and from the property's history. Both are now on the PATCH, and linking a job fills the property from that job when the caller did not name one: a case about a clean is a case about the place it happened, and letting the two be set independently is how they end up disagreeing.
+
+**Only STATUS changes left a trace.** Re-assigning a case, raising its severity, making it client-visible, linking it to a job — all silent. On records that exist to settle disputes, "who marked this critical" and "who showed this to the client" had no answer. `describeCaseChanges` (lib/cases/changes.ts) turns a patch into one line per REAL change, written as an internal `CaseComment` — which already carries an author and already renders on the case timeline, so this is one place to look rather than two. A field set to the value it already held produces nothing: a timeline full of "severity: HIGH → HIGH" buries the entries that matter. Long free text is noted as edited rather than quoted, since a 6000-character diff would swamp the timeline it is meant to clarify.
+
+**Damage leads the list.** Ordering was `updatedAt` alone, so a lost umbrella somebody commented on five minutes ago outranked a damage claim opened this morning. `sortCasesByType` ranks DAMAGE first, then CLIENT_DISPUTE, SLA, LOST_FOUND, OPS, with recency deciding within each type — it reorders the groups without burying anything. Unknown or future types sort AFTER the known ones, never silently first. Applied in `listCases` rather than the query because the priority is a business ranking, not a column Prisma can order by.
+
+**Cleaner-side names stopped truncating too.** The schedule and the cleaner jobs list had the same bug the admin list had: the property name is how a cleaner identifies a job, and `truncate` turned it into an abbreviation that identifies nothing.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.

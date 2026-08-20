@@ -303,7 +303,11 @@ export default async function CleanerJobsPage({
             const body = (
               <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[0.875rem] font-[550]">{j.property.name}</p>
+                  {/* The property name is how a cleaner identifies the job.
+                      Truncating it produced "Jackson-Pr…", which is not a name. */}
+                  <p className="text-[0.875rem] font-[550] leading-snug [overflow-wrap:anywhere]">
+                    {j.property.name}
+                  </p>
                   <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                     <span className="font-medium text-[hsl(var(--e-foreground))] tabular-nums">
                       {format(toZonedTime(j.scheduledDate, TZ), "EEE dd MMM yyyy")}
