@@ -34,6 +34,8 @@ import {
 import { EInlineNotice, EInput, ELabel, ETextarea } from "@/components/v2/client/fields";
 import { JobSkipAction } from "@/components/v2/client/job-skip-action";
 import { JobChatSheet } from "@/components/v2/client/job-chat";
+import type { JobStatus } from "@prisma/client";
+import { isClientSchedulable } from "@/lib/jobs/client-request-rules";
 
 type LightType = "UPDATE" | "ETA" | "REPORT";
 
@@ -118,7 +120,12 @@ export function JobActionHub({
   initialAddonPending: number;
 }) {
   const router = useRouter();
-  const finished = status === "COMPLETED" || status === "INVOICED";
+  // A FOURTH copy of this rule used to live here as
+  // `status === "COMPLETED" || status === "INVOICED"`, so the portal happily
+  // offered Cancel and Reschedule while a cleaner was mid-clean. The server
+  // now refuses those, but offering a button that bounces is a bug of its own.
+  const schedulable = isClientSchedulable(status as JobStatus);
+  const finished = !schedulable;
 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

@@ -3,6 +3,7 @@ import { JobStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
+import { checkClientJobRequest } from "@/lib/jobs/client-request-rules";
 import { notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
 
 const requestSchema = z.object({
@@ -10,8 +11,6 @@ const requestSchema = z.object({
 });
 
 // Statuses where a skip request no longer makes sense (work is done / billed).
-const BLOCKED_STATUSES: JobStatus[] = [JobStatus.COMPLETED, JobStatus.INVOICED];
-
 /**
  * Client requests that an upcoming clean be SKIPPED ("don't clean this turnover").
  * Sets cleanSkipStatus = REQUESTED; admin approves/declines later.
@@ -29,11 +28,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
-    if (BLOCKED_STATUSES.includes(job.status)) {
-      return NextResponse.json(
-        { error: "This clean can no longer be skipped from the client portal." },
-        { status: 400 }
-      );
+    // 409, not 400: the request was well formed, the job simply moved on.
+    const verdict = checkClientJobRequest("skip", job);
+    if (!verdict.allowed) {
+      return NextResponse.json({ error: verdict.reason }, { status: 409 });
     }
     if (job.cleanSkipStatus === "SKIPPED") {
       return NextResponse.json({ error: "This clean is already marked as skipped." }, { status: 400 });

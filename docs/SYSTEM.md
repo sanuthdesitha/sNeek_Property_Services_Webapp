@@ -610,6 +610,20 @@ A client self-serve booking created a `Job` the moment they tapped submit. Nobod
 
 ---
 
+### B19. Client request rules, and the VA case dead end (2026-08-20)
+
+**A client could ask to cancel a clean a cleaner was standing in the middle of.** All three request routes — cancel, reschedule, skip — blocked only COMPLETED and INVOICED, so EN_ROUTE, IN_PROGRESS, PAUSED, SUBMITTED and QA_REVIEW all sailed through. The request was created, queued, and read by an admin hours after the work had finished: a decision about something that had already happened.
+
+**The rule was written out four times.** Three routes plus `job-action-hub.tsx`, which gated its buttons on its own `status === "COMPLETED" || status === "INVOICED"` — so the portal kept OFFERING cancel and reschedule mid-clean. `lib/jobs/client-request-rules.ts` is now the single copy, and `isClientSchedulable` is what the UI asks. The module imports `JobStatus` as a TYPE only: the cleaner-facing bundle shares this rule, and a value import would drag @prisma/client into the browser. String literals are still checked against the enum, so a typo or a removed status fails tsc. A test asserts the two exported helpers agree across every member of the enum, which is the drift this module exists to stop.
+
+**Refusals are 409, not 400**, because nothing about the request was malformed — the job moved on. The message says *"your cleaner is already on the way… please call us"* rather than a flat refusal, because a fact the client can act on is what stops them retrying.
+
+**A VA who raised a case could not open it.** `/api/client/cases/[id]` still used `requireRole([Role.CLIENT])` while the LIST route beside it had been migrated in B16b — the fourth list-migrated/detail-missed pair after jobs, properties and damage. It carried a second bug behind the first: the handler read `User.clientId`, which is null for a VA, so even past the role check it answered "Client profile missing". Both handlers now go through `requireClientPortal({ permission: "maintenance" })`, and the case comment's actor label is the ACTING person — an assistant's reply must not read as though the client wrote it.
+
+`/api/client/properties/[id]/preferred-cleaner` moved to the chokepoint under `properties`: choosing who cleans a property is ops work, not a money decision.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.

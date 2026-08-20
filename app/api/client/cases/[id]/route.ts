@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
+import { requireClientPortal } from "@/lib/auth/client-portal";
 import {
   addCaseAttachment,
   addCaseComment,
@@ -26,16 +24,13 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { clientId: true },
-    });
-    if (!user?.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+    // A VA raising a case could not then open it: requireRole([Role.CLIENT])
+    // threw FORBIDDEN for them, and User.clientId is null for a VA anyway, so
+    // even past the role check this answered "Client profile missing". The
+    // LIST route beside this one was migrated in B16b; this one was missed.
+    const portal = await requireClientPortal({ permission: "maintenance" });
     const row = await getCaseById(params.id);
-    if (!row || row.client?.id !== user.clientId || row.clientVisible !== true) {
+    if (!row || row.client?.id !== portal.clientId || row.clientVisible !== true) {
       return NextResponse.json({ error: "Case not found." }, { status: 404 });
     }
     return NextResponse.json(toClientCaseView(row));
@@ -52,16 +47,13 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await requireRole([Role.CLIENT]);
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { clientId: true },
-    });
-    if (!user?.clientId) {
-      return NextResponse.json({ error: "Client profile missing." }, { status: 400 });
-    }
+    // A VA raising a case could not then open it: requireRole([Role.CLIENT])
+    // threw FORBIDDEN for them, and User.clientId is null for a VA anyway, so
+    // even past the role check this answered "Client profile missing". The
+    // LIST route beside this one was migrated in B16b; this one was missed.
+    const portal = await requireClientPortal({ permission: "maintenance" });
     const current = await getCaseById(params.id);
-    if (!current || current.client?.id !== user.clientId || current.clientVisible !== true) {
+    if (!current || current.client?.id !== portal.clientId || current.clientVisible !== true) {
       return NextResponse.json({ error: "Case not found." }, { status: 404 });
     }
     if (current.clientCanReply === false) {
@@ -73,7 +65,7 @@ export async function PATCH(
     if (body.comment?.trim()) {
       const commentResult = await addCaseComment({
         caseId: params.id,
-        authorUserId: session.user.id,
+        authorUserId: portal.userId,
         body: body.comment,
         isInternal: false,
       });
@@ -82,7 +74,7 @@ export async function PATCH(
     if (body.s3Key?.trim()) {
       const attachmentResult = await addCaseAttachment({
         caseId: params.id,
-        uploadedByUserId: session.user.id,
+        uploadedByUserId: portal.userId,
         s3Key: body.s3Key,
         url: body.url,
         mimeType: body.mimeType,
@@ -97,7 +89,10 @@ export async function PATCH(
 
     await notifyCaseUpdated({
       caseItem: updated,
-      actorLabel: session.user.name || session.user.email || "Client",
+      // The ACTING person, not the account they act for — an assistant’s reply
+      // must not read as though the client wrote it.
+      actorLabel:
+        portal.userName || (portal.actor === "VA" ? "Assistant" : "Client"),
       updateNote: body.comment?.trim()
         ? "Client added a reply"
         : body.s3Key?.trim()

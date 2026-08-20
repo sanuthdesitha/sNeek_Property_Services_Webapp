@@ -3,17 +3,13 @@ import { JobStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
+import { checkClientJobRequest } from "@/lib/jobs/client-request-rules";
 import { createClientJobTaskRequest } from "@/lib/job-tasks/service";
 
 const schema = z.object({
   requestedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
 });
-
-const BLOCKED_STATUSES: JobStatus[] = [
-  JobStatus.COMPLETED,
-  JobStatus.INVOICED,
-];
 
 export async function POST(
   req: NextRequest,
@@ -36,8 +32,9 @@ export async function POST(
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
-    if (BLOCKED_STATUSES.includes(job.status)) {
-      return NextResponse.json({ error: "This job can no longer be rescheduled from the client portal." }, { status: 400 });
+    const verdict = checkClientJobRequest("reschedule", job);
+    if (!verdict.allowed) {
+      return NextResponse.json({ error: verdict.reason }, { status: 409 });
     }
 
     const task = await createClientJobTaskRequest({
