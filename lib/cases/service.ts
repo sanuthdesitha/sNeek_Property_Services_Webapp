@@ -10,6 +10,8 @@ import {
   syncMaintenanceFromCase,
 } from "@/lib/cases/damage-maintenance-sync";
 import type { CaseState } from "@/lib/cases/lifecycle-fsm";
+import { describeCaseChanges } from "@/lib/cases/changes";
+import { sortCasesByType } from "@/lib/cases/ordering";
 
 const LEGACY_MIGRATION_KEY = "cases_legacy_disputes_migration_v1";
 
@@ -345,7 +347,11 @@ export async function listCases(filters: CaseListFilters = {}) {
     take: 500,
   });
 
-  return rows.map(serializeCase);
+  // Damage leads. Ordering by updatedAt alone let a lost umbrella somebody
+  // commented on five minutes ago outrank a damage claim opened this morning.
+  // Done here rather than in the query because the priority is a business
+  // ranking, not a column Prisma can order by.
+  return sortCasesByType(rows).map(serializeCase);
 }
 
 export async function getCaseById(id: string) {
@@ -487,15 +493,50 @@ export async function updateCase(
     clientCanReply?: boolean;
     resolutionNote?: string | null;
     caseType?: string | null;
+    /**
+     * The job and property this case is about. The columns existed from the
+     * start but nothing could WRITE them after creation, so a case raised
+     * from a phone call stayed unattached forever — invisible from the job
+     * it concerned and from the property's history. null unlinks.
+     */
+    jobId?: string | null;
+    propertyId?: string | null;
     metadata?: Record<string, unknown>;
   },
   options?: { actorId?: string | null; statusChangeNote?: string | null }
 ) {
   const existing = await db.issueTicket.findUnique({
     where: { id },
-    select: { id: true, metadata: true, resolutionNote: true, description: true, status: true, state: true },
+    select: {
+      id: true,
+      metadata: true,
+      resolutionNote: true,
+      description: true,
+      status: true,
+      state: true,
+      title: true,
+      severity: true,
+      caseType: true,
+      assignedToUserId: true,
+      clientVisible: true,
+      clientCanReply: true,
+      jobId: true,
+      propertyId: true,
+    },
   });
   if (!existing) return null;
+
+  // Linking a job implies its property: a case about a clean is a case about
+  // the place it happened, and leaving the two to be set independently is how
+  // they end up disagreeing.
+  let nextPropertyId = patch.propertyId;
+  if (patch.jobId) {
+    const job = await db.job
+      .findUnique({ where: { id: patch.jobId }, select: { propertyId: true } })
+      .catch(() => null);
+    if (!job) throw new Error("JOB_NOT_FOUND");
+    if (nextPropertyId === undefined) nextPropertyId = job.propertyId;
+  }
   const nextMetadata = {
     ...(existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
       ? (existing.metadata as Record<string, unknown>)
@@ -525,6 +566,8 @@ export async function updateCase(
       resolutionNote:
         patch.resolutionNote !== undefined ? patch.resolutionNote?.trim() || null : undefined,
       caseType: patch.caseType ? normalizeCaseType(patch.caseType) : undefined,
+      jobId: patch.jobId !== undefined ? patch.jobId || null : undefined,
+      propertyId: nextPropertyId !== undefined ? nextPropertyId || null : undefined,
       metadata: nextMetadata as any,
     },
   });
@@ -534,6 +577,26 @@ export async function updateCase(
   // has no linked item, or when the new status says nothing about the repair.
   if (nextStatus && nextStatus !== existing.status) {
     await syncMaintenanceFromCase({ caseId: id, status: nextStatus });
+  }
+
+  // Until now only STATUS changes were recorded. Re-assigning a case,
+  // changing its severity, making it client-visible or linking it to a job
+  // all happened silently — so 'who marked this critical' had no answer.
+  // These ride on CaseComment because it already carries an author and is
+  // already rendered on the case timeline; a parallel audit table would
+  // just be a second place to look.
+  const changes = describeCaseChanges(existing, { ...patch, propertyId: nextPropertyId });
+  if (changes.length > 0 && options?.actorId) {
+    await db.caseComment
+      .create({
+        data: {
+          caseId: id,
+          authorUserId: options.actorId,
+          isInternal: true,
+          body: changes.join("\n"),
+        },
+      })
+      .catch(() => undefined);
   }
 
   if (stateChanged && nextState) {

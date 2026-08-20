@@ -177,7 +177,9 @@ function JobRow({ job }: { job: CalendarJob }) {
         <span className="text-[0.8125rem] font-semibold tabular-nums">{job.startTime || "—"}</span>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[0.875rem] font-[550]">{job.title}</p>
+        {/* Wraps rather than truncates: the schedule is scanned by property
+            name, and half a name identifies nothing. */}
+        <p className="text-[0.875rem] font-[550] leading-snug [overflow-wrap:anywhere]">{job.title}</p>
         <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{job.subtitle}</p>
       </div>
       <EBadge tone={job.tone} soft>

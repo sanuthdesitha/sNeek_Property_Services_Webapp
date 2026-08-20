@@ -19,6 +19,11 @@ const patchSchema = z.object({
   clientCanReply: z.boolean().optional(),
   resolutionNote: z.string().trim().max(4000).optional().nullable(),
   caseType: z.string().trim().optional(),
+  // Linking after the fact. The columns always existed; nothing could set
+  // them once the case was created, so a case raised over the phone stayed
+  // detached from the job it was about. Empty string unlinks.
+  jobId: z.string().trim().optional().nullable(),
+  propertyId: z.string().trim().optional().nullable(),
   metadata: z.record(z.unknown()).optional(),
 });
 
