@@ -758,6 +758,20 @@ The remaining pages are not yet adopted; the sweep is deliberately staged.
 
 ---
 
+### B29. The transparent acknowledgement dialog — a portal outside its own skin (2026-08-21)
+
+The final check-up acknowledgement dialog rendered see-through. It was not a missing background: it was a background that could not resolve.
+
+**Every `--e-*` token is defined under `[data-skin="estate"]`** (app/v2/estate.css line 8), and that attribute sits on a wrapper `<div>` inside each portal layout — not on `<html>` or `<body>`. `createPortal(..., document.body)` moves the element OUTSIDE that scope, so `hsl(var(--e-surface))` has nothing to resolve against. The panel came out transparent, and so did every border, text colour and gold accent inside it — the dialog was not partly broken, it was entirely unstyled.
+
+**Four components had it**, all in the cleaner portal and all portalled for the same reason (a full-screen overlay that must escape its parent's stacking context): the final check-up dialog, the start-briefing dialog, driving mode and guided capture.
+
+**`EstatePortal` re-declares the attributes on the portal container**, which fixes every token at once and keeps the fix in one place — the next dialog that needs a portal cannot quietly inherit the bug. The accent is read from the surrounding layout rather than passed in, so a dialog opened in the cleaner portal does not have to be told it is in the cleaner portal.
+
+**The wrapper is `display: contents`.** Its children are `fixed inset-0` and position against the viewport; a wrapper with its own box or transform would establish a containing block and break the very overlays it exists to serve.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.
