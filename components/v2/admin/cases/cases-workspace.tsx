@@ -57,6 +57,7 @@ import {
   CASE_STATUS_LABELS,
   type UnifiedCaseStatus,
 } from "@/lib/cases/status";
+import { useRestorableState } from "@/hooks/use-restorable-state";
 
 type CaseStatus = UnifiedCaseStatus;
 type CaseType = "DAMAGE" | "CLIENT_DISPUTE" | "LOST_FOUND" | "OPS" | "SLA" | "OTHER";
@@ -283,8 +284,9 @@ export function CasesWorkspace() {
   const [selected, setSelected] = React.useState<CaseItem | null>(null);
   const [selectedPersistedStatus, setSelectedPersistedStatus] = React.useState<CaseStatus | null>(null);
 
-  const [view, setView] = React.useState<CaseView>("open");
-  const [filters, setFilters] = React.useState({ q: "", status: "ALL", caseType: "ALL", assigneeUserId: "ALL", jobId: "" });
+  // Back returns the queue as it was — which tab, which filters, which search.
+  const [view, setView] = useRestorableState<CaseView>("view", "open");
+  const [filters, setFilters] = useRestorableState("filters", { q: "", status: "ALL", caseType: "ALL", assigneeUserId: "ALL", jobId: "" });
 
   const [createDraft, setCreateDraft] = React.useState({
     title: "",

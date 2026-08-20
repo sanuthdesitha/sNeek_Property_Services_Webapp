@@ -637,10 +637,17 @@ export function ClientJobsBoard({
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ filterMode, selectedDate, viewMode })
-    );
+    // Guarded like the read above it. localStorage throws in private-mode
+    // Safari and when the quota is full, and an unwritable preference must
+    // never take the jobs list down with it.
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ filterMode, selectedDate, viewMode })
+      );
+    } catch {
+      // The board keeps working; it just will not remember this choice.
+    }
   }, [filterMode, selectedDate, viewMode]);
 
   const statuses = useMemo(
