@@ -9,8 +9,12 @@ import { requireSession } from "@/lib/auth/session";
 import { publicUrl, s3 } from "@/lib/s3";
 import { compressVideoToMp4 } from "@/lib/media/video-compression";
 import { sanitizeUploadFolder, isAllowedUploadContentType } from "@/lib/uploads/validate";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
+// The request only carries bytes to S3 now; transcoding happens after the
+// response, so this no longer has to outlive an ffmpeg run.
+export const maxDuration = 300;
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20MB
 const MAX_VIDEO_BYTES = Number(process.env.VIDEO_MAX_UPLOAD_MB ?? 150) * 1024 * 1024;
@@ -20,6 +24,57 @@ function isVideoUpload(file: File): boolean {
   if (file.type.toLowerCase().startsWith("video/")) return true;
   const ext = extname(file.name ?? "").toLowerCase();
   return VIDEO_EXTENSIONS.has(ext);
+}
+
+/**
+ * Transcode a video that is ALREADY in S3, then replace it in place.
+ *
+ * Deliberately after the response. ffmpeg used to run inside the request while
+ * the cleaner's phone held the connection open: a 100MB clip at crf 34 takes
+ * minutes on a modest box, the proxy timed the request out long before that,
+ * and the cleaner saw a failure for a file that had uploaded perfectly. Worse,
+ * the client then retried — re-uploading AND re-transcoding the same video,
+ * which is how one clip could occupy the server for ten minutes and still be
+ * reported as failed.
+ *
+ * The key is reused so the URL already handed to the client stays valid and no
+ * database row needs revisiting. If this fails, or the process dies mid-run,
+ * the original stays where it is — a bigger file is a far better outcome than
+ * a missing one.
+ */
+async function compressInBackground(input: {
+  key: string;
+  tempFolder: string;
+  inputPath: string;
+  outputPath: string;
+}) {
+  try {
+    await compressVideoToMp4(input.inputPath, input.outputPath);
+    const [inStat, outStat] = await Promise.all([
+      fs.stat(input.inputPath),
+      fs.stat(input.outputPath),
+    ]);
+    // A transcode that came out bigger is not an improvement.
+    if (outStat.size > 0 && outStat.size < inStat.size) {
+      await s3
+        .putObject({
+          Bucket: process.env.S3_BUCKET_NAME!,
+          Key: input.key,
+          Body: createReadStream(input.outputPath),
+          ContentLength: outStat.size,
+          ContentType: "video/mp4",
+        })
+        .promise();
+      logger.info(
+        { key: input.key, from: inStat.size, to: outStat.size },
+        "Video compressed after upload"
+      );
+    }
+  } catch (err) {
+    logger.warn({ err, key: input.key }, "Background video compression failed; original kept");
+  } finally {
+    await fs.rm(input.tempFolder, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 async function writeUploadedFileToPath(file: File, targetPath: string) {
@@ -77,42 +132,44 @@ export async function POST(req: NextRequest) {
       const inputPath = join(tempFolder, `input${ext.toLowerCase()}`);
       const outputPath = join(tempFolder, "output.mp4");
 
-      let compressed = false;
+      let handedOff = false;
       try {
         await writeUploadedFileToPath(file, inputPath);
         const inStat = await fs.stat(inputPath);
 
-        try {
-          await compressVideoToMp4(inputPath, outputPath);
-          const outStat = await fs.stat(outputPath);
-          compressed = outStat.size > 0 && outStat.size < inStat.size;
-        } catch {
-          compressed = false;
-        }
-
-        const finalPath = compressed ? outputPath : inputPath;
-        const finalStat = await fs.stat(finalPath);
-        const key = `${folder}/${session.user.id}/${randomUUID()}.${compressed ? "mp4" : ext.replace(/^\./, "")}`;
-
+        // The ORIGINAL goes up first and the response goes out immediately.
+        // The cleaner's phone is off the hook the moment the bytes land,
+        // which is the whole fix: the connection no longer has to survive a
+        // transcode it has no stake in.
+        const key = `${folder}/${session.user.id}/${randomUUID()}.${ext.replace(/^\./, "")}`;
         await s3
           .putObject({
             Bucket: process.env.S3_BUCKET_NAME!,
             Key: key,
-            Body: createReadStream(finalPath),
-            ContentLength: finalStat.size,
-            ContentType: compressed ? "video/mp4" : file.type || "application/octet-stream",
+            Body: createReadStream(inputPath),
+            ContentLength: inStat.size,
+            ContentType: file.type || "video/mp4",
           })
           .promise();
+
+        handedOff = true;
+        void compressInBackground({ key, tempFolder, inputPath, outputPath });
 
         return NextResponse.json({
           key,
           url: publicUrl(key),
-          compressed,
+          // Compression is asynchronous now, so the client cannot be told
+          // whether it happened. It does not need to know: the URL is final.
+          compressing: true,
           originalBytes: file.size,
-          storedBytes: finalStat.size,
+          storedBytes: inStat.size,
         });
       } finally {
-        await fs.rm(tempFolder, { recursive: true, force: true }).catch(() => {});
+        // Only clean up on the failure path — on success the background job
+        // still needs the temp files and removes them itself.
+        if (!handedOff) {
+          await fs.rm(tempFolder, { recursive: true, force: true }).catch(() => {});
+        }
       }
     }
 

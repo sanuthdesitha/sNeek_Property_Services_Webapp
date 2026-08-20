@@ -694,6 +694,24 @@ Client scheduling requests are created as `JobTask` rows so they can ride the ex
 
 ---
 
+### B25. Video uploads — ffmpeg was running inside the request (2026-08-20)
+
+B20 bounded the upload pool, which fixed the random photo failures. Videos kept failing almost every time, for a different reason entirely.
+
+**The transcode ran inside the POST.** `/api/uploads/direct` spawned ffmpeg at crf 34 and awaited it before responding, so the cleaner's phone held the connection open for the whole encode. A 100MB clip takes minutes on a modest box; the proxy timed the request out long before that, and the cleaner saw a failure for a file that had uploaded perfectly. The client then retried — re-uploading AND re-transcoding the same video. One clip could occupy the server for ten minutes and still be reported as failed.
+
+**The original now goes to S3 first and the response goes out immediately**, with compression continuing in the background against the same key. The URL handed to the client is final either way, so no database row is revisited; if the transcode fails or the process dies, the original stays, and a bigger file is a far better outcome than a missing one. Temp files are cleaned by the background job on success and by the request on failure — deleting them in a plain `finally` would have pulled the rug from under the encoder.
+
+**Uploads moved from fetch to XHR.** fetch cannot report UPLOAD progress, only download, so a cleaner sending a large clip watched a spinner that never moved, concluded the app had hung, and killed it partway through. `xhr.upload.onprogress` drives a real per-file bar.
+
+**Videos get their own lane.** Three 80MB uploads sharing one phone's uplink each take three times as long and all three stay exposed to the same dropout, so heavy files run one at a time while photos keep flowing four at a time. Serialising the heavy lane makes a video batch finish sooner in practice, not later.
+
+**Large files are never auto-retried.** Re-sending 100MB over mobile data to paper over a blip that may well repeat is worse than surfacing it. Anything over 25MB goes straight to the failed list with a Retry button; small files still get one automatic second attempt.
+
+**The failed list persists and holds the File objects.** A message that disappears is no use to someone who looked away while thirty photos uploaded, and re-picking is often impossible on a phone — the camera-roll entry for a photo taken a minute ago is not easy to find again. Retry re-sends exactly the files that failed.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.
