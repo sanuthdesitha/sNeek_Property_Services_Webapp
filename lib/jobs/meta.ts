@@ -78,6 +78,14 @@ export interface JobMeta {
   specialRequestTasks: JobSpecialRequestTask[];
   earlyCheckin: JobTimingRule;
   lateCheckout: JobTimingRule;
+  /**
+   * Whether photos a cleaner uploaded for a requested task appear in the
+   * generated report. Defaults to true: the photo was taken because someone
+   * asked for it, and hiding it by default would lose the evidence a second
+   * time. An admin turns it off per job when the report is going to a client
+   * who does not need to see the request behind the clean.
+   */
+  includeTaskPhotosInReport: boolean;
   transportAllowances: Record<string, number>;
   // Per-cleaner custom payout (keyed by userId). When set for a cleaner, it
   // REPLACES that cleaner's computed hours×rate base pay for the job. Transport
@@ -136,6 +144,7 @@ export function defaultJobMeta(): JobMeta {
     specialRequestTasks: [],
     earlyCheckin: { ...DEFAULT_RULE },
     lateCheckout: { ...DEFAULT_RULE },
+    includeTaskPhotosInReport: true,
     transportAllowances: {},
     cleanerPayouts: {},
     serviceContext: undefined,
@@ -406,6 +415,12 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
       specialRequestTasks: normalizeSpecialRequestTasks(parsed.specialRequestTasks),
       earlyCheckin: normalizeRule(parsed.earlyCheckin),
       lateCheckout: normalizeRule(parsed.lateCheckout),
+      // Absent means true, so every job predating this flag keeps showing its
+      // task photos rather than silently losing them on the next regenerate.
+      includeTaskPhotosInReport:
+        typeof parsed.includeTaskPhotosInReport === "boolean"
+          ? parsed.includeTaskPhotosInReport
+          : true,
       transportAllowances: normalizeCleanerAmountMap(parsed.transportAllowances, false),
       cleanerPayouts: normalizeCleanerAmountMap(parsed.cleanerPayouts, true),
       serviceContext: normalizeServiceContext(parsed.serviceContext),
@@ -452,6 +467,11 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     meta.specialRequestTasks.length > 0 ||
     meta.earlyCheckin.enabled ||
     meta.lateCheckout.enabled ||
+    // Only FALSE counts as data worth storing — true is the default, so a job
+    // that never touched the setting still serialises as a plain note. Without
+    // this the flag round-trips back to true and the report keeps the photos
+    // an admin just turned off.
+    meta.includeTaskPhotosInReport === false ||
     Object.keys(meta.transportAllowances).length > 0 ||
     Object.keys(meta.cleanerPayouts).length > 0 ||
     Boolean(meta.serviceContext && Object.keys(meta.serviceContext).length > 0) ||
@@ -476,6 +496,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     specialRequestTasks: meta.specialRequestTasks,
     earlyCheckin: meta.earlyCheckin,
     lateCheckout: meta.lateCheckout,
+    includeTaskPhotosInReport: meta.includeTaskPhotosInReport,
     transportAllowances: meta.transportAllowances,
     cleanerPayouts: meta.cleanerPayouts,
     serviceContext: meta.serviceContext,

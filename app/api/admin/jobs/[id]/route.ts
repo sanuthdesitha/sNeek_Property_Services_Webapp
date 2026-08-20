@@ -227,12 +227,15 @@ export async function PATCH(
       body.earlyCheckin !== undefined ||
       body.lateCheckout !== undefined ||
       body.serviceContext !== undefined ||
-      body.reservationContext !== undefined;
+      body.reservationContext !== undefined ||
+      body.includeTaskPhotosInReport !== undefined;
     if (hasMetaFields) {
       data.internalNotes = serializeJobInternalNotes({
         ...currentMeta,
         internalNoteText: body.internalNotes ?? currentMeta.internalNoteText,
         isDraft: body.isDraft ?? currentMeta.isDraft,
+        includeTaskPhotosInReport:
+          body.includeTaskPhotosInReport ?? currentMeta.includeTaskPhotosInReport,
         tags: body.tags ?? currentMeta.tags,
         attachments: body.attachments ?? currentMeta.attachments,
         specialRequestTasks:

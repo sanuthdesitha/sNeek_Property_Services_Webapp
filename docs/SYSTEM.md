@@ -666,6 +666,22 @@ A cleaner finishing an admin- or client-requested task uploads photos and writes
 
 ---
 
+### B23. Task proof in the report — the field id that nothing wrote to (2026-08-20)
+
+B22 surfaced cleaner task evidence in the admin UI. It was still missing from the report PDF, and the reason sat upstream of the report entirely.
+
+**Nothing ever wrote media under `proofFieldId`.** The submit route computes `unifiedJobTaskProofFieldId(taskId)` for each task and stores it in the `__jobTasks` snapshot, and the report's task section looks up `submission.media` by that field id. But `SubmissionMedia` rows are built from `uploads`, while task proof arrives as `body.jobTasks[].proofKeys` — so the report searched for media nothing had ever stored. Writing those keys into the media rows under their proof field id makes the report's EXISTING task section work with no template change.
+
+**Merged for the media rows only, never back into `uploads`.** The required-photo validation reads `uploads`, and a task photo must not satisfy a form field's requirement.
+
+**The admin's choice is a job-level flag, not a download variant.** `JobMeta.includeTaskPhotosInReport` (no migration — it rides in `Job.internalNotes`) is read by `buildReportHtml` and honoured by `buildUnifiedJobTasksHtml`. A per-download query param was rejected: the report is generated once and served to everyone, so a per-click variant would quietly change what the client sees too. Toggling it PATCHes the job and calls the existing regenerate endpoint, because a stored report does not care about a setting until it is rebuilt.
+
+**Excluded photos are still marked `usedMediaIds`.** That set is what keeps media OUT of the general gallery lower down the report; skipping it when the flag is off would not hide the photos, it would relocate them somewhere with less explanation.
+
+**Absent means true.** Every job predating the flag keeps its task photos on the next regeneration. Two persistence bugs surfaced only because the round trip was tested: `hasStructuredData` did not count the flag (so a job whose only meta was this setting serialised back to a plain note and lost it), and the JSON writer omitted the key entirely. Both would have looked correct in the UI right up until a reload.
+
+---
+
 ### B17. Client invoice editor parity + the period-basis rule (2026-08-19)
 
 **Group by property is back, and it persists.** The v2 line editor (components/v2/admin/finance/estate-invoices.tsx) now clusters lines by property (job-backed lines through job.property, manual lines through a new ClientInvoiceLine.propertyId hint), saves the order via the existing PATCH { reorderLineIds }, and renders Building2 section headers. Persisted, not view-only: the stored sortOrder is what the PDF and the client's emailed copy render from, so a view-only grouping would look right to the admin and wrong to the client. Drag handles (dnd-kit, handle-only because the row is full of number inputs) replaced the up/down buttons.

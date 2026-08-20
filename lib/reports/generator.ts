@@ -1,3 +1,4 @@
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { s3 } from "@/lib/s3";
@@ -266,7 +267,10 @@ function buildAdminRequestedTasksHtml(submission: any): { html: string; usedMedi
   };
 }
 
-function buildUnifiedJobTasksHtml(submission: any): { html: string; usedMediaIds: Set<string> } {
+function buildUnifiedJobTasksHtml(
+  submission: any,
+  includePhotos: boolean
+): { html: string; usedMediaIds: Set<string> } {
   const usedMediaIds = new Set<string>();
   const answers = submission?.data && typeof submission.data === "object" ? submission.data : {};
   const tasks = Array.isArray(answers.__jobTasks)
@@ -285,6 +289,11 @@ function buildUnifiedJobTasksHtml(submission: any): { html: string; usedMediaIds
       mediaForTask.forEach((media: any) => {
         if (media?.id) usedMediaIds.add(String(media.id));
       });
+      // Marked used even when not rendered. usedMediaIds is what keeps media
+      // OUT of the general gallery further down, so skipping this when the
+      // flag is off would not hide the photos, it would move them somewhere
+      // less explained.
+      const renderedMedia = includePhotos ? mediaForTask : [];
       const note = typeof task.note === "string" ? task.note.trim() : "";
       const decision = String(task.decision ?? "OPEN");
       const decisionLabel =
@@ -320,7 +329,7 @@ function buildUnifiedJobTasksHtml(submission: any): { html: string; usedMediaIds
             }
           </td>
           <td style="padding:10px;border-bottom:1px solid #bfdbfe;vertical-align:top;">
-            ${renderFieldMediaHtml(mediaForTask)}
+            ${renderFieldMediaHtml(renderedMedia)}
           </td>
         </tr>
       `;
@@ -664,7 +673,10 @@ function buildReportHtml({ job, submission, qa, qaSubmission, localDate, setting
     ? buildAdminRequestedTasksHtml(submission)
     : { html: "", usedMediaIds: new Set<string>() };
   const unifiedJobTasks = submission
-    ? buildUnifiedJobTasksHtml(submission)
+    ? buildUnifiedJobTasksHtml(
+        submission,
+        parseJobInternalNotes(job?.internalNotes).includeTaskPhotosInReport !== false
+      )
     : { html: "", usedMediaIds: new Set<string>() };
   const checklistHtml = checklist.html;
   const remainingMedia = (submission?.media ?? []).filter(
