@@ -7,6 +7,7 @@ import { publicUrl } from "@/lib/s3";
 import { startOfDay } from "date-fns";
 import { getAppSettings } from "@/lib/settings";
 import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
+import { pickupNeedsReadinessAnswer } from "@/lib/laundry/pickup-readiness";
 
 const schema = z.object({
   status: z.enum([
@@ -20,6 +21,9 @@ const schema = z.object({
   ]),
   confirm: z.boolean().optional(),
   bagCount: z.number().int().min(1).max(50).optional(),
+  // What the driver found on the doorstep. Required only when the cleaner
+  // never confirmed — see lib/laundry/pickup-readiness.
+  pickupReadiness: z.enum(["READY", "NOT_READY"]).optional(),
   loadWeightKg: z.number().min(0).max(500).optional(),
   pickupPhotoKey: z.string().trim().optional(),
   pickupKeyPhotoKey: z.string().trim().optional(),
@@ -129,6 +133,7 @@ export async function POST(
       confirm,
       notes,
       bagCount,
+      pickupReadiness,
       loadWeightKg,
       pickupPhotoKey,
       pickupKeyPhotoKey,
@@ -381,6 +386,16 @@ export async function POST(
       if (!bagCount || bagCount < 1) {
         return NextResponse.json({ error: "Bag count is required for pickup." }, { status: 400 });
       }
+      // The cleaner never ticked "ready", so the driver is the only person who
+      // knows what was actually there. Without this the record cannot tell a
+      // forgotten tick apart from no linen at all — both looked identical on
+      // the cleaner's history.
+      if (pickupNeedsReadinessAnswer(existing.status) && !pickupReadiness) {
+        return NextResponse.json(
+          { error: "Tell us whether the linen was ready — the cleaner did not mark it." },
+          { status: 400 }
+        );
+      }
       data.pickedUpAt = new Date();
       data.pickupKeyPhotoUrl = pickupKeyPhotoKey?.trim() ? publicUrl(pickupKeyPhotoKey.trim()) : null;
     }
@@ -440,6 +455,7 @@ export async function POST(
         notes: JSON.stringify({
           event: nextStatus,
           bagCount: nextStatus === "PICKED_UP" ? bagCount : undefined,
+          pickupReadiness: nextStatus === "PICKED_UP" ? pickupReadiness : undefined,
           pickupPhotoKey: nextStatus === "PICKED_UP" ? pickupPhotoKey?.trim() : undefined,
           pickupKeyPhotoKey: nextStatus === "PICKED_UP" ? pickupKeyPhotoKey?.trim() : undefined,
           dropoffKeyPhotoKey: nextStatus === "DROPPED" ? dropoffKeyPhotoKey?.trim() : undefined,

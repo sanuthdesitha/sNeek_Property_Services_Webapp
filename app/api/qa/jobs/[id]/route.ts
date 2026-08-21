@@ -5,6 +5,10 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { buildDefaultQaTemplateSchema, scoreQaSubmission, QA_TEMPLATE_VERSION } from "@/lib/qa/templates";
 import { buildNoPhotoPenalties } from "@/lib/qa/no-photo-penalty";
+import {
+  buildLaundryQaPenalties,
+  resolvePickupReadinessFromConfirmations,
+} from "@/lib/laundry/pickup-readiness";
 import { generateJobReport } from "@/lib/reports/generator";
 import { createCase } from "@/lib/cases/service";
 import { createQaReworkTransfer } from "@/lib/qa/rework-transfers";
@@ -778,7 +782,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
     const noPhotoPenalties = buildNoPhotoPenalties(cleanerSubmission?.data);
 
-    const result = scoreQaSubmission(template.schema as any, body.data, noPhotoPenalties);
+    // LAUNDRY READINESS. When the driver had to report what they found at
+    // pickup — which only happens when the cleaner never marked the linen
+    // ready — that report scores against the cleaner here. Read at review
+    // time rather than stamped at pickup so a later correction to the pickup
+    // record is reflected instead of frozen.
+    const laundryTask = await db.laundryTask.findUnique({
+      where: { jobId: job.id },
+      select: {
+        confirmedAt: true,
+        confirmations: { select: { notes: true, createdAt: true } },
+      },
+    });
+    const laundryPenalties = buildLaundryQaPenalties({
+      cleanerConfirmed: Boolean(laundryTask?.confirmedAt),
+      driverAnswer: resolvePickupReadinessFromConfirmations(laundryTask?.confirmations),
+    });
+
+    const result = scoreQaSubmission(template.schema as any, body.data, [
+      ...noPhotoPenalties,
+      ...laundryPenalties,
+    ]);
     const tools = body.tools ?? null;
 
     // ACCOUNTABILITY ASSESSMENT (Phase 4a). When the QA submit carries a

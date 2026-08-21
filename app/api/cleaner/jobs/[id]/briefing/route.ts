@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { JobStatus, LaundryStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
+import {
+  describePickupReadiness,
+  resolvePickupReadinessFromConfirmations,
+} from "@/lib/laundry/pickup-readiness";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/security/encryption";
 import { pickLegacyAccessCode } from "@/lib/properties/access-info";
@@ -46,6 +50,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
             status: true,
             pickupDate: true,
             dropoffDate: true,
+            confirmedAt: true,
+            confirmations: { select: { notes: true, createdAt: true } },
           },
         },
       },
@@ -225,6 +231,14 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
             status: job.laundryTask.status,
             pickupDate: job.laundryTask.pickupDate,
             dropoffDate: job.laundryTask.dropoffDate,
+            // What the driver reported at pickup, as a sentence rather than a
+            // second enum for the cleaner to decode. Null on the normal path.
+            readinessNote: describePickupReadiness({
+              cleanerConfirmed: Boolean(job.laundryTask.confirmedAt),
+              driverAnswer: resolvePickupReadinessFromConfirmations(
+                job.laundryTask.confirmations
+              ),
+            }),
           }
         : null,
     });
