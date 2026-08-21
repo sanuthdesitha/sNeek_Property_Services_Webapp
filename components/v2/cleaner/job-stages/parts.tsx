@@ -394,6 +394,13 @@ export function BriefingCard({ briefing }: { briefing: any }) {
               <div>
                 <p className="text-[0.6875rem] uppercase tracking-[0.06em] text-[hsl(var(--e-text-faint))]">Laundry</p>
                 <p className="text-[0.8125rem]">{String(briefing.laundryInstructions.status ?? "").replace(/_/g, " ")}</p>
+                {/* What the driver found at pickup. Only present when the linen
+                    was never marked ready, so it never crowds the normal path. */}
+                {briefing.laundryInstructions.readinessNote ? (
+                  <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-warning))]">
+                    {briefing.laundryInstructions.readinessNote}
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </div>

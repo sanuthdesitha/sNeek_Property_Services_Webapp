@@ -30,6 +30,7 @@ import { EButton } from "@/components/v2/ui/primitives";
 import { ECheckbox, EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import { toast } from "@/hooks/use-toast";
+import { pickupNeedsReadinessAnswer } from "@/lib/laundry/pickup-readiness";
 
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 
@@ -197,8 +198,13 @@ export function LaundryActionModal({
   const completion = React.useMemo(() => getCompletionDetails(task), [task]);
   const isEdit = action === "EDIT_COMPLETED";
   const earlyReturn = action === "RETURNED" && isEarlyDropoffCandidate(task);
+  // The cleaner never confirmed, so the driver is the only witness.
+  const needsReadiness = pickupNeedsReadinessAnswer(task.status);
 
   const [bagCount, setBagCount] = React.useState(isEdit ? String(completion.bagCount) : "1");
+  // Deliberately starts blank rather than defaulting to "READY": a prefilled
+  // answer to a question about what someone saw is not an answer.
+  const [pickupReadiness, setPickupReadiness] = React.useState("");
   const [dropoffSelection, setDropoffSelection] = React.useState(() => {
     if (isEdit && completion.dropoffLocation) {
       return dropoffOptions.includes(completion.dropoffLocation) ? completion.dropoffLocation : "__custom";
@@ -354,6 +360,15 @@ export function LaundryActionModal({
       const n = Number(bagCount || 0);
       if (!Number.isFinite(n) || n < 1) return fail("Bag count required", "Enter how many bags were picked up.");
       payload.bagCount = Math.round(n);
+      if (needsReadiness) {
+        if (!pickupReadiness) {
+          return fail(
+            "Was the linen ready?",
+            "The cleaner did not mark this one ready, so tell us what you found.",
+          );
+        }
+        payload.pickupReadiness = pickupReadiness;
+      }
       if (pickupPhoto[0]?.key) payload.pickupPhotoKey = pickupPhoto[0].key;
       if (pickupKeyPhoto[0]?.key) payload.pickupKeyPhotoKey = pickupKeyPhoto[0].key;
     }
@@ -414,6 +429,26 @@ export function LaundryActionModal({
       <div className="space-y-4">
         {propertyLine ? (
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{propertyLine}</p>
+        ) : null}
+
+        {/* Readiness — only when the cleaner never confirmed. Asking on every
+            pickup would train drivers to tap through the one that matters. */}
+        {action === "PICKED_UP" && needsReadiness ? (
+          <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning)/0.1)] p-3">
+            <p className="mb-2 inline-flex items-center gap-1.5 text-[0.8125rem] font-[600]">
+              <AlertTriangle className="h-4 w-4" /> The cleaner did not mark this ready
+            </p>
+            <EField label="Was the linen ready when you arrived?">
+              <ESelect
+                value={pickupReadiness}
+                onChange={(ev) => setPickupReadiness(ev.target.value)}
+              >
+                <option value="">Select…</option>
+                <option value="READY">Yes — the linen was there</option>
+                <option value="NOT_READY">No — the linen was not ready</option>
+              </ESelect>
+            </EField>
+          </div>
         ) : null}
 
         {/* Pickup fields */}
