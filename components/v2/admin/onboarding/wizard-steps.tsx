@@ -14,7 +14,7 @@ import * as React from "react";
 import { CheckCircle2, Loader2, Plus, Trash2, Upload, XCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
-import { EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import { EAddressInput } from "./address-input";
 
 export interface StepProps {
@@ -408,9 +408,10 @@ export function StepAccess({ data, onChange }: StepProps) {
                 </option>
               ))}
             </ESelect>
-            <EButton variant="ghost" size="icon" aria-label="Remove access detail" onClick={() => removeDetail(i)}>
+            {/* Low tier: one unsaved row of the onboarding draft. */}
+            <EConfirmButton ariaLabel="Remove access detail" confirmLabel="Remove?" onConfirm={() => removeDetail(i)}>
               <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-            </EButton>
+            </EConfirmButton>
           </div>
 
           {detail.detailType === "ENTRY_PHOTO" ? (
@@ -606,9 +607,9 @@ export function StepAppliances({ data, onChange }: StepProps) {
               label="Clean"
             />
           </div>
-          <EButton variant="ghost" size="icon" aria-label="Remove appliance" onClick={() => removeAppliance(i)}>
+          <EConfirmButton ariaLabel="Remove appliance" confirmLabel="Remove?" onConfirm={() => removeAppliance(i)}>
             <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-          </EButton>
+          </EConfirmButton>
         </div>
       ))}
 
@@ -1074,9 +1075,9 @@ export function StepRequests({ data, onChange }: StepProps) {
               ))}
             </ESelect>
           </EField>
-          <EButton variant="ghost" size="icon" aria-label="Remove request" onClick={() => removeRequest(i)}>
+          <EConfirmButton ariaLabel="Remove request" confirmLabel="Remove?" onConfirm={() => removeRequest(i)}>
             <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-          </EButton>
+          </EConfirmButton>
         </div>
       ))}
 

@@ -19,7 +19,7 @@ import {
   EAlert,
   EBadge,
 } from "@/components/v2/ui/primitives";
-import { EField, EInput, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EField, EInput, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
 import { ConditionEditor } from "@/components/v2/admin/forms/builder/condition-editor";
 import {
   PROPERTY_SYSTEM_FIELDS,
@@ -267,9 +267,10 @@ export function PropertyFormEditor({ initialConfig }: { initialConfig: PropertyF
                   <EButton variant="ghost" size="icon" onClick={() => moveCustom(index, 1)} aria-label="Move down">
                     <ArrowDown className="h-4 w-4" />
                   </EButton>
-                  <EButton variant="ghost" size="icon" onClick={() => removeCustom(index)} aria-label="Delete field">
+                  {/* Low tier: an unsaved custom field row. */}
+                  <EConfirmButton ariaLabel="Delete field" confirmLabel="Delete?" onConfirm={() => removeCustom(index)}>
                     <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                  </EButton>
+                  </EConfirmButton>
                 </div>
               </div>
 

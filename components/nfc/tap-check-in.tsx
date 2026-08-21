@@ -102,11 +102,20 @@ export function TapCheckIn({ token }: { token: string }) {
 
         if (body.jobId) {
           setPhase("done");
-          // Straight to the job. The tap recorded arrival; the normal start
-          // flow — the read-first acknowledgement, the property code, the
-          // laundry bag — still runs there, because those gates are about the
-          // work rather than about where the cleaner is standing.
-          router.replace(`/v2/cleaner/jobs/${body.jobId}`);
+          // Straight to the job, flagged as arriving from a tag.
+          //
+          // `via=nfc` is what makes the workspace start the clock by itself
+          // instead of waiting for a button: the cleaner has already made the
+          // deliberate physical gesture, and asking them to confirm it a
+          // second time on screen is asking twice for the same thing.
+          //
+          // The gates that are about the WORK — the read-first
+          // acknowledgement, the property code, the laundry bag — still run
+          // there. Only the ones about where they are standing are satisfied.
+          router.replace(
+            `/v2/cleaner/jobs/${body.jobId}?via=nfc` +
+              (body.action ? `&action=${body.action}` : "")
+          );
           return;
         }
 

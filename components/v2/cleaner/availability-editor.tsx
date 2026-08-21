@@ -17,6 +17,7 @@ import {
   EEyebrow,
 } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ESwitch, ETextarea } from "@/components/v2/cleaner/fields";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import { toast } from "@/hooks/use-toast";
 
 type AvailabilityMode = "FIXED" | "FLEXIBLE";
@@ -64,9 +65,10 @@ function SlotRow({
         onChange={(e) => onChange({ ...slot, end: e.target.value })}
         aria-label="End time"
       />
-      <EButton type="button" variant="ghost" size="icon" onClick={onRemove} aria-label="Remove slot">
+      {/* Low tier: one unsaved time range. */}
+      <EConfirmButton ariaLabel="Remove slot" confirmLabel="Remove?" onConfirm={onRemove}>
         <Trash2 className="h-4 w-4" />
-      </EButton>
+      </EConfirmButton>
     </div>
   );
 }
@@ -347,14 +349,15 @@ export function AvailabilityEditor() {
                           >
                             <Plus className="h-3.5 w-3.5" /> Add range
                           </EButton>
-                          <EButton
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeOverride(dateKey)}
+                          {/* Low tier: an unsaved date override, re-added
+                              from the date picker above. */}
+                          <EConfirmButton
+                            ariaLabel="Remove date"
+                            confirmLabel="Remove it?"
+                            onConfirm={() => removeOverride(dateKey)}
                           >
                             <Trash2 className="h-3.5 w-3.5" /> Remove date
-                          </EButton>
+                          </EConfirmButton>
                         </div>
                       </div>
                       {slots.length === 0 ? (

@@ -9,7 +9,7 @@ import * as React from "react";
 import { ImagePlus, Link2, Loader2, Trash2, Video, Image as ImageIcon } from "lucide-react";
 import type { FormFieldReference, FormFieldReferenceKind } from "@/lib/forms/types";
 import { EButton } from "@/components/v2/ui/primitives";
-import { EInput, ESelect } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EInput, ESelect } from "@/components/v2/admin/estate-kit";
 
 function inferKindFromUrl(url: string): FormFieldReferenceKind {
   const clean = url.split("?")[0].toLowerCase();
@@ -159,14 +159,14 @@ export function ReferenceMediaEditor({
                     </span>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onChange(references.filter((_, i) => i !== index))}
-                  aria-label="Remove reference"
-                  className="shrink-0 rounded-[var(--e-radius-sm)] p-1.5 text-[hsl(var(--e-danger))] hover:bg-[hsl(var(--e-muted))]"
+                {/* Low tier: one reference row of an unsaved form draft. */}
+                <EConfirmButton
+                  ariaLabel="Remove reference"
+                  confirmLabel="Remove?"
+                  onConfirm={() => onChange(references.filter((_, i) => i !== index))}
                 >
-                  <Trash2 className="size-4" />
-                </button>
+                  <Trash2 className="size-4 text-[hsl(var(--e-danger))]" />
+                </EConfirmButton>
               </div>
             );
           })}

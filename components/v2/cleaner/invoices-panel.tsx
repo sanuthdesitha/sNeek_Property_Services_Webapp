@@ -26,6 +26,7 @@ import {
   ReceiptText,
   RefreshCw,
   RotateCcw,
+  Upload,
   X,
 } from "lucide-react";
 import {
@@ -45,6 +46,7 @@ import {
   PayAdjustmentList,
   type PayAdjustmentListItem,
 } from "@/components/v2/shared/pay-adjustment-list";
+import { EvidenceThumbs, type EvidenceThumbItem } from "@/components/v2/shared/evidence-thumbs";
 import { toast } from "@/hooks/use-toast";
 
 interface InvoiceRow {
@@ -132,6 +134,7 @@ interface Submission {
   /** Set once the payee said the money arrived; confirmed only by an admin. */
   paidClaimedAt?: string | null;
   paidClaimedNote?: string | null;
+  paidClaimedProofUrls?: EvidenceThumbItem[];
 }
 
 function money(value: number | null | undefined) {
@@ -157,6 +160,25 @@ function presetRange(kind: "thisMonth" | "lastMonth" | "last2Weeks"): { start: s
   const start = new Date(now);
   start.setDate(start.getDate() - 13);
   return { start: isoLocal(start), end: isoLocal(now) };
+}
+
+type ProofAttachment = { key: string; url: string; label: string };
+
+/**
+ * Same upload path the pay-request evidence uses (POST /api/uploads/direct,
+ * multipart `file` + `folder`, returns `{ key, url }`). The submissions GET
+ * turns those keys back into public urls, so a key from anywhere else — a
+ * presigned-only rail, say — would store fine and then render as a broken
+ * thumbnail on the payee's own screen and in the approval queue.
+ */
+async function uploadPaymentProofFile(file: File): Promise<ProofAttachment> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("folder", "invoice-payment-proof");
+  const res = await fetch("/api/uploads/direct", { method: "POST", body: form });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error ?? "Could not upload that file.");
+  return { key: String(body.key), url: String(body.url), label: file.name };
 }
 
 export type InvoicePayeeKind = "cleaner" | "inspector";
@@ -203,6 +225,9 @@ export function InvoicesPanel({
   const [excludedAdjustmentIds, setExcludedAdjustmentIds] = useState<string[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [claimTargetId, setClaimTargetId] = useState<string | null>(null);
+  const [claimProofs, setClaimProofs] = useState<ProofAttachment[]>([]);
+  const [uploadingProof, setUploadingProof] = useState(false);
   const [previewPdfUrl, setPreviewPdfUrl] = useState("");
   const [previewingPdf, setPreviewingPdf] = useState(false);
   const [emailReviewOpen, setEmailReviewOpen] = useState(false);
@@ -351,6 +376,26 @@ export function InvoicesPanel({
     void loadSubmissions();
   }, []);
 
+  async function handleProofSelection(files: FileList | null) {
+    if (!files?.length) return;
+    setUploadingProof(true);
+    try {
+      const uploaded: ProofAttachment[] = [];
+      for (const file of Array.from(files)) uploaded.push(await uploadPaymentProofFile(file));
+      // The endpoint caps a claim at 5 keys; trimming here means the extras are
+      // refused before the claim is sent rather than the whole claim 400ing.
+      setClaimProofs((prev) => [...prev, ...uploaded].slice(0, 5));
+    } catch (error: any) {
+      toast({
+        title: "Upload failed",
+        description: error?.message ?? "Could not upload that file.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingProof(false);
+    }
+  }
+
   /**
    * Tell the office the money arrived. This does NOT mark the invoice paid —
    * it raises a claim an admin confirms, because the record of money leaving
@@ -362,7 +407,10 @@ export function InvoicesPanel({
       const res = await fetch(`/api/cleaner/invoice/submissions/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "PAID_CLAIMED" }),
+        body: JSON.stringify({
+          status: "PAID_CLAIMED",
+          proofKeys: claimProofs.length ? claimProofs.map((item) => item.key) : undefined,
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -377,6 +425,8 @@ export function InvoicesPanel({
         title: "Thanks — the office has been told",
         description: "They'll confirm the payment against their records.",
       });
+      setClaimTargetId(null);
+      setClaimProofs([]);
       await loadSubmissions();
     } finally {
       setClaimingId(null);
@@ -999,36 +1049,137 @@ export function InvoicesPanel({
               // existing one would just be noise in the approval queue.
               const canClaimPaid = s.status === "SUBMITTED" || s.status === "XERO_PUSHED";
               return (
-                <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
-                  <div className="min-w-0">
-                    <p className="text-[0.875rem] font-[550]">
-                      {new Date(s.periodStart).toLocaleDateString("en-AU")} – {new Date(s.periodEnd).toLocaleDateString("en-AU")}
-                    </p>
-                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      {s.jobCount} job{s.jobCount === 1 ? "" : "s"} · {Number(s.hours ?? 0).toFixed(1)}h · submitted{" "}
-                      {new Date(s.createdAt).toLocaleDateString("en-AU")}
-                    </p>
+                <div key={s.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[0.875rem] font-[550]">
+                        {new Date(s.periodStart).toLocaleDateString("en-AU")} – {new Date(s.periodEnd).toLocaleDateString("en-AU")}
+                      </p>
+                      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                        {s.jobCount} job{s.jobCount === 1 ? "" : "s"} · {Number(s.hours ?? 0).toFixed(1)}h · submitted{" "}
+                        {new Date(s.createdAt).toLocaleDateString("en-AU")}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="e-numeral text-[0.9375rem]">{money(s.totalAmount)}</span>
+                      <EBadge tone={tone} soft>{label}</EBadge>
+                      {canClaimPaid ? (
+                        <EButton
+                          size="sm"
+                          variant="ghost"
+                          disabled={claimingId === s.id}
+                          onClick={() => {
+                            setClaimProofs([]);
+                            setClaimTargetId(s.id);
+                          }}
+                        >
+                          {claimingId === s.id ? "Sending…" : "I've been paid"}
+                        </EButton>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="e-numeral text-[0.9375rem]">{money(s.totalAmount)}</span>
-                    <EBadge tone={tone} soft>{label}</EBadge>
-                    {canClaimPaid ? (
-                      <EButton
-                        size="sm"
-                        variant="ghost"
-                        disabled={claimingId === s.id}
-                        onClick={() => claimPaid(s.id)}
-                      >
-                        {claimingId === s.id ? "Sending…" : "I've been paid"}
-                      </EButton>
-                    ) : null}
-                  </div>
+                  {/* What the payee sent with their claim, shown back to them so
+                      a claim waiting on the office still explains itself. */}
+                  {s.paidClaimedNote || (s.paidClaimedProofUrls?.length ?? 0) > 0 ? (
+                    <div className="mt-2.5 border-t border-[hsl(var(--e-border))] pt-2.5">
+                      {s.paidClaimedNote ? (
+                        <p className="mb-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                          Your note: “{s.paidClaimedNote}”
+                        </p>
+                      ) : null}
+                      <EvidenceThumbs
+                        items={s.paidClaimedProofUrls ?? []}
+                        alt="Payment proof you attached"
+                        docLabel="Open receipt"
+                      />
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
           </ECardBody>
         </ECard>
       ) : null}
+
+      {/* Payment claim modal — the claim is what the office reviews, so the
+          receipt has to travel with it. Sending is never blocked on an
+          attachment: a payee who was paid in cash has nothing to screenshot. */}
+      <EModal
+        open={claimTargetId !== null}
+        onClose={() => setClaimTargetId(null)}
+        title="Tell the office you've been paid"
+        eyebrow="Payment claim"
+      >
+        <div className="space-y-4">
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            This raises a claim for an admin to confirm against their records — it does not mark the
+            invoice paid.
+          </p>
+
+          <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-[0.875rem] font-[550]">Payment proof (optional)</p>
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  Bank receipt or transfer screenshot — up to 5.
+                </p>
+              </div>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] px-3 py-2 text-[0.75rem] font-[550] hover:bg-[hsl(var(--e-muted))]">
+                <Upload className="h-3.5 w-3.5" />
+                {uploadingProof ? "Uploading…" : "Attach proof"}
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    void handleProofSelection(e.target.files);
+                    e.currentTarget.value = "";
+                  }}
+                />
+              </label>
+            </div>
+            {claimProofs.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {claimProofs.map((proof, i) => (
+                  <div
+                    key={proof.key}
+                    className="relative h-16 w-16 overflow-hidden rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))]"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={proof.url} alt={proof.label} className="h-full w-full object-cover" />
+                    <button
+                      type="button"
+                      aria-label="Remove attachment"
+                      onClick={() => setClaimProofs((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="absolute right-0 top-0 flex h-5 w-5 items-center justify-center bg-[hsl(var(--e-danger))] text-[hsl(var(--e-danger-foreground))]"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Nothing attached yet.</p>
+            )}
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <EButton variant="outline" onClick={() => setClaimTargetId(null)}>
+              Cancel
+            </EButton>
+            <EButton
+              variant="gold"
+              disabled={uploadingProof || claimingId !== null}
+              onClick={() => {
+                if (claimTargetId) void claimPaid(claimTargetId);
+              }}
+            >
+              {claimingId ? "Sending…" : "Send claim"}
+            </EButton>
+          </div>
+        </div>
+      </EModal>
 
       {/* Email review modal */}
       <EModal open={emailReviewOpen} onClose={() => setEmailReviewOpen(false)} title="Review invoice PDF" eyebrow="Before you send" size="xl">

@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { ArrowUp, ArrowDown, Plus, Trash2, Save, Loader2, Copy, Check } from "lucide-react";
 import { EButton, ECard, ECardBody, EAlert, EBadge } from "@/components/v2/ui/primitives";
-import { EInput, ETextarea, ESelect, EField } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EConfirmModal, EInput, ETextarea, ESelect, EField } from "@/components/v2/admin/estate-kit";
 import { EModal } from "@/components/v2/admin/estate-kit";
 import { Q_TYPES, uid, type QuizQuestion, type PositionShape } from "./types";
 
@@ -28,6 +28,9 @@ export function QuizDesigner({
   const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const [quizModalOpen, setQuizModalOpen] = useState(false);
   const [quizName, setQuizName] = useState("");
+  // A question takes its options and its marked answer with it, so it gets the
+  // modal; one option is a single row and gets the arm-then-confirm button.
+  const [removeQAt, setRemoveQAt] = useState<number | null>(null);
 
   const setQ = (i: number, patch: Partial<QuizQuestion>) =>
     setQuestions((qs) => qs.map((q, idx) => (idx === i ? { ...q, ...patch } : q)));
@@ -199,7 +202,7 @@ export function QuizDesigner({
                 <EButton variant="ghost" size="icon" onClick={() => moveQ(qi, 1)} aria-label="Move down">
                   <ArrowDown className="h-4 w-4" />
                 </EButton>
-                <EButton variant="ghost" size="icon" onClick={() => removeQ(qi)} aria-label="Delete question">
+                <EButton variant="ghost" size="icon" onClick={() => setRemoveQAt(qi)} aria-label="Delete question">
                   <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
                 </EButton>
               </div>
@@ -253,9 +256,13 @@ export function QuizDesigner({
                         {isCorrect ? "correct" : "mark correct"}
                       </button>
                       <EInput value={o.label ?? ""} onChange={(e) => setOption(qi, oi, e.target.value)} />
-                      <EButton variant="ghost" size="icon" onClick={() => removeOption(qi, oi)} aria-label="Delete option">
+                      <EConfirmButton
+                        ariaLabel="Delete option"
+                        confirmLabel="Delete?"
+                        onConfirm={() => removeOption(qi, oi)}
+                      >
                         <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                      </EButton>
+                      </EConfirmButton>
                     </div>
                   );
                 })}
@@ -307,6 +314,24 @@ export function QuizDesigner({
           </div>
         </div>
       </EModal>
+
+      <EConfirmModal
+        open={removeQAt !== null}
+        onClose={() => setRemoveQAt(null)}
+        title="Delete this question"
+        description={
+          removeQAt !== null
+            ? `"${questions[removeQAt]?.prompt || "Untitled question"}" goes, along with its ${
+                (questions[removeQAt]?.options ?? []).length
+              } option(s) and the answer marked correct.`
+            : undefined
+        }
+        confirmLabel="Delete question"
+        onConfirm={() => {
+          if (removeQAt !== null) removeQ(removeQAt);
+          setRemoveQAt(null);
+        }}
+      />
     </div>
   );
 }

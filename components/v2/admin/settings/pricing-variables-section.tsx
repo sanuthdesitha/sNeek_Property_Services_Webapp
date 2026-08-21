@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { Plus, Pencil, Trash2, GripVertical } from "lucide-react";
 import { EButton, ECard, EBadge, EEmptyState } from "@/components/v2/ui/primitives";
-import { EModal } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EModal } from "@/components/v2/admin/estate-kit";
 import {
   EField,
   EInput,
@@ -219,14 +219,15 @@ export function PricingVariablesSection({
                     <EButton size="icon" variant="ghost" onClick={() => openEdit(variable)} aria-label="Edit">
                       <Pencil className="h-4 w-4" />
                     </EButton>
-                    <EButton
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => removeVariable(variable.id)}
-                      aria-label="Remove"
+                    {/* Low tier: both removals here edit an unsaved draft —
+                        nothing leaves the pricing settings until Save. */}
+                    <EConfirmButton
+                      ariaLabel="Remove"
+                      confirmLabel="Remove?"
+                      onConfirm={() => removeVariable(variable.id)}
                     >
                       <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                    </EButton>
+                    </EConfirmButton>
                   </div>
                 ) : null}
               </div>
@@ -428,14 +429,13 @@ function VariableEditorModal({
                         />
                         Default
                       </label>
-                      <EButton
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => removeOption(opt.id)}
-                        aria-label="Remove option"
+                      <EConfirmButton
+                        ariaLabel="Remove option"
+                        confirmLabel="Remove?"
+                        onConfirm={() => removeOption(opt.id)}
                       >
                         <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                      </EButton>
+                      </EConfirmButton>
                     </div>
                   </div>
                 </div>

@@ -12,12 +12,36 @@ import type { FieldCondition, FormField, FormFieldType, FormSchema } from "@/lib
 import { getFieldTypeDef } from "@/lib/forms/field-types";
 import { cn } from "@/lib/utils";
 import { EButton } from "@/components/v2/ui/primitives";
-import { EInput } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EInput } from "@/components/v2/admin/estate-kit";
 import { EBadge } from "@/components/v2/ui/primitives";
 import { isStandardSectionId } from "@/lib/forms/standard-sections";
 import { DIVIDER_LABEL } from "./blocks";
 import { ConditionEditor, type ConditionSourceField } from "./condition-editor";
 import { EFieldIcon } from "./field-icon";
+
+/** IconBtn's arm-then-confirm twin, so a stray click cannot delete a row. */
+function IconBtnConfirm({
+  onClick,
+  label,
+  children,
+}: {
+  onClick: () => void;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span onClick={(e) => e.stopPropagation()}>
+      <EConfirmButton
+        ariaLabel={label}
+        confirmLabel={<span className="px-0.5 text-[0.6875rem] font-[600]">Sure?</span>}
+        onConfirm={onClick}
+        className="rounded-[var(--e-radius-sm)] p-1.5 text-[hsl(var(--e-danger))] transition-colors hover:bg-[hsl(var(--e-muted))]"
+      >
+        {children}
+      </EConfirmButton>
+    </span>
+  );
+}
 
 function IconBtn({
   onClick,
@@ -120,9 +144,11 @@ function FieldRow({
         <IconBtn onClick={onDuplicate} label="Duplicate field">
           <Copy className="size-3.5" />
         </IconBtn>
-        <IconBtn onClick={onRemove} label="Delete field" danger>
+        {/* Low tier for both deletes in this canvas: the builder draft is only
+            written back when the form is saved. */}
+        <IconBtnConfirm onClick={onRemove} label="Delete field">
           <Trash2 className="size-3.5" />
-        </IconBtn>
+        </IconBtnConfirm>
       </div>
     </div>
   );
@@ -251,9 +277,9 @@ export function BuilderCanvas({
               <IconBtn onClick={() => onDuplicateSection(section.id)} label="Duplicate section">
                 <Copy className="size-4" />
               </IconBtn>
-              <IconBtn onClick={() => onRemoveSection(section.id)} label="Delete section" danger>
+              <IconBtnConfirm onClick={() => onRemoveSection(section.id)} label="Delete section">
                 <Trash2 className="size-4" />
-              </IconBtn>
+              </IconBtnConfirm>
             </div>
           </div>
 

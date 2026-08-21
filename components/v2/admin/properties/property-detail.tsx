@@ -50,6 +50,7 @@ import {
   EInput,
   ESwitch,
   ETextarea,
+  EConfirmButton,
   EConfirmModal,
   EModal,
 } from "@/components/v2/admin/estate-kit";
@@ -1130,14 +1131,16 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
                         ) : null}
                       </div>
                     </div>
-                    <EButton
-                      variant="ghost"
-                      size="sm"
+                    {/* Low tier: a pending task is one line the "Add task"
+                        button next to it puts straight back. */}
+                    <EConfirmButton
+                      ariaLabel="Cancel pending task"
+                      confirmLabel="Cancel it?"
                       disabled={cancellingTaskId === task.id}
-                      onClick={() => cancelTask(task.id)}
+                      onConfirm={() => void cancelTask(task.id)}
                     >
                       {cancellingTaskId === task.id ? "Cancelling…" : "Cancel"}
-                    </EButton>
+                    </EConfirmButton>
                   </li>
                 ))}
               </ul>

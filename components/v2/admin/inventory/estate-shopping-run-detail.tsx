@@ -15,7 +15,14 @@ import Link from "next/link";
 import { ArrowLeft, Download, FileText, Loader2, Receipt, ShoppingCart, Upload } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEyebrow, EStatCard } from "@/components/v2/ui/primitives";
-import { EField, EInput, ESelect, ETableShell } from "@/components/v2/admin/estate-kit";
+import {
+  EConfirmModal,
+  EField,
+  EInput,
+  ESelect,
+  ETableShell,
+  verifyAdminSecurity,
+} from "@/components/v2/admin/estate-kit";
 
 type Attachment = { key: string; url: string; name: string; mimeType?: string; sizeBytes?: number };
 type Payment = {
@@ -126,6 +133,10 @@ export function EstateShoppingRunDetail({
       setSaving(false);
     }
   }
+
+  // PIN tier: a receipt is the proof behind a reimbursement. Removing one
+  // saves immediately and leaves money paid out with nothing to show for it.
+  const [removeReceipt, setRemoveReceipt] = useState<{ key: string; name: string } | null>(null);
 
   function updatePayment(next: Partial<Payment>, msg: string) {
     const payment = { ...run.payment, ...next };
@@ -333,7 +344,7 @@ export function EstateShoppingRunDetail({
                   size="sm"
                   disabled={saving}
                   className="text-[hsl(var(--e-danger))]"
-                  onClick={() => updatePayment({ receipts: receipts.filter((x) => x.key !== r.key) }, "Receipt removed")}
+                  onClick={() => setRemoveReceipt({ key: r.key, name: r.name })}
                 >
                   Remove
                 </EButton>
@@ -431,6 +442,36 @@ export function EstateShoppingRunDetail({
           </div>
         )}
       </ECard>
+
+      <EConfirmModal
+        open={Boolean(removeReceipt)}
+        onClose={() => setRemoveReceipt(null)}
+        title="Remove this receipt"
+        description={
+          removeReceipt
+            ? `"${removeReceipt.name}" comes off the run's payment record straight away, and the reimbursement PDF is generated without it. Enter your PIN or password to continue.`
+            : undefined
+        }
+        confirmLabel="Remove receipt"
+        requireSecurity
+        loading={saving}
+        onConfirm={async (credentials) => {
+          const target = removeReceipt;
+          if (!target) return;
+          try {
+            // The shopping-run route takes no security payload of its own.
+            await verifyAdminSecurity(credentials);
+          } catch (err: any) {
+            toast({ title: "Not removed", description: err?.message, variant: "destructive" });
+            return;
+          }
+          setRemoveReceipt(null);
+          await updatePayment(
+            { receipts: receipts.filter((x) => x.key !== target.key) },
+            "Receipt removed"
+          );
+        }}
+      />
     </div>
   );
 }

@@ -253,6 +253,11 @@ export async function PATCH(
               urgency: notice.urgency === "IMPORTANT" ? ("IMPORTANT" as const) : ("INFO" as const),
               authorName: existing?.authorName ?? session.user.name ?? undefined,
               createdAt: existing?.createdAt ?? new Date().toISOString(),
+              // Absent means "the editor sent no image field", which for an
+              // older client is not the same as "the author removed the
+              // photos" — fall back to what is already stored rather than
+              // silently detaching evidence a cleaner may have relied on.
+              imageUrls: notice.imageUrls ?? existing?.imageUrls,
             };
           }) ?? currentMeta.notices,
         specialRequestTasks:

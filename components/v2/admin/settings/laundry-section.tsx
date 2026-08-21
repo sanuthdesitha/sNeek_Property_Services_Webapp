@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { EButton, ECard } from "@/components/v2/ui/primitives";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import {
   EField,
   EInput,
@@ -110,14 +111,15 @@ function LocationList({
             >
               {option}
               {!readOnly ? (
-                <button
-                  type="button"
-                  onClick={() => onRemove(option)}
-                  className="text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
-                  aria-label={`Remove ${option}`}
+                /* Low tier: an unsaved option chip, retyped in seconds. */
+                <EConfirmButton
+                  ariaLabel={`Remove ${option}`}
+                  confirmLabel={<X className="h-3 w-3 text-[hsl(var(--e-danger))]" />}
+                  onConfirm={() => onRemove(option)}
+                  className="text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-danger))]"
                 >
                   <X className="h-3 w-3" />
-                </button>
+                </EConfirmButton>
               ) : null}
             </span>
           ))

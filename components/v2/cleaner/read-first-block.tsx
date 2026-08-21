@@ -57,6 +57,7 @@ export function buildReadFirstItems(payload: {
   jobMeta?: any;
   jobTasks?: any[];
   carryForwardTasks?: any[];
+  maintenanceVisits?: any[];
 }): ReadFirstItem[] {
   const items: ReadFirstItem[] = [];
   const jobMeta = payload.jobMeta ?? {};
@@ -81,6 +82,17 @@ export function buildReadFirstItems(payload: {
     });
   }
 
+  // MAINTENANCE — somebody is coming to the property today. Sits with the
+  // notices because that is what it is to the cleaner: information that
+  // changes their day, not work assigned to them.
+  const visits = Array.isArray(payload.maintenanceVisits) ? payload.maintenanceVisits : [];
+  for (const visit of visits) {
+    const title = str(visit?.title);
+    if (!title) continue;
+    const lines = Array.isArray(visit?.lines) ? visit.lines.filter(Boolean) : [];
+    items.push({ source: "NOTICE", title, body: lines.join(String.fromCharCode(10)) || null });
+  }
+
   // NOTICE — one-off information for this clean. Ordered and worded by
   // lib/jobs/notices so this list and the start-of-clean gate cannot drift.
   for (const notice of renderJobNotices(jobMeta.notices)) {
@@ -90,6 +102,13 @@ export function buildReadFirstItems(payload: {
       body: notice.attribution
         ? `${notice.detail}\n\n${notice.attribution}`
         : notice.detail,
+      // Shown here as well as at the start-of-clean gate. A cleaner opens the
+      // job when they accept it — often days before they stand at the door —
+      // and a photo of the latch is worth most while they can still ask about
+      // it, not only in the dialog that stands between them and clocking in.
+      ...(notice.imageUrls.length > 0
+        ? { images: notice.imageUrls.map((url) => ({ url })) }
+        : {}),
     });
   }
 

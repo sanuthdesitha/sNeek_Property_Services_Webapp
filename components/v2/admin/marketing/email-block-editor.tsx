@@ -23,7 +23,7 @@ import {
 import { wrapEmailHtml } from "@/lib/email-templates";
 import { TEMPLATE_VARIABLE_TOKENS } from "@/lib/marketing/campaign-templates";
 import { EButton, ECard, ECardBody, ECardHeader, ECardTitle } from "@/components/v2/ui/primitives";
-import { EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 
 export type BrandChrome = { companyName: string; logoUrl: string };
 
@@ -215,9 +215,15 @@ export function EmailBlockEditor({
                 <button type="button" aria-label="Move down" disabled={index === design.blocks.length - 1} onClick={() => setBlocks(move(design.blocks, index, index + 1))} className="rounded p-1 text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))] disabled:opacity-30">
                   <ArrowDown className="h-4 w-4" />
                 </button>
-                <button type="button" aria-label="Remove block" onClick={() => setBlocks(design.blocks.filter((b) => b.id !== block.id))} className="rounded p-1 text-[hsl(var(--e-danger,0_70%_45%))] hover:opacity-80">
+                {/* Low tier: one block of an unsaved email design. */}
+                <EConfirmButton
+                  ariaLabel="Remove block"
+                  confirmLabel={<span className="px-0.5 text-[0.6875rem] font-[600]">Sure?</span>}
+                  onConfirm={() => setBlocks(design.blocks.filter((b) => b.id !== block.id))}
+                  className="rounded p-1 text-[hsl(var(--e-danger,0_70%_45%))] hover:opacity-80"
+                >
                   <Trash2 className="h-4 w-4" />
-                </button>
+                </EConfirmButton>
               </div>
               {open ? (
                 <div className="border-t border-[hsl(var(--e-border))] p-3">

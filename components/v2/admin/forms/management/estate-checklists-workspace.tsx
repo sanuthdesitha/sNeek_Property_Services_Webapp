@@ -23,6 +23,7 @@ import {
   EAlert,
 } from "@/components/v2/ui/primitives";
 import {
+  EConfirmButton,
   EField,
   EInput,
   ETextarea,
@@ -259,17 +260,17 @@ export function EstateChecklistsWorkspace() {
                     })
                   }
                 />
-                <EButton
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() =>
+                {/* Low tier: the checklist draft is only written back on
+                    save, so this costs a retype at worst. */}
+                <EConfirmButton
+                  ariaLabel="Remove section"
+                  confirmLabel="Remove?"
+                  onConfirm={() =>
                     patch((c) => ({ ...c, sections: c.sections.filter((_, i) => i !== sIdx) }))
                   }
-                  aria-label="Remove section"
                 >
                   <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                </EButton>
+                </EConfirmButton>
               </div>
               <ECardBody className="space-y-3 pt-0">
                 {section.items.map((item, iIdx) => {
@@ -432,14 +433,14 @@ export function TaskImageUpload({
             alt="Reference"
             className="h-10 w-10 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] object-cover"
           />
-          <button
-            type="button"
-            onClick={() => onChange(undefined)}
-            aria-label="Remove image"
+          <EConfirmButton
+            ariaLabel="Remove image"
+            confirmLabel={<span className="px-0.5 text-[0.5625rem] font-[700] leading-none">?</span>}
+            onConfirm={() => onChange(undefined)}
             className="absolute -right-1.5 -top-1.5 rounded-full bg-[hsl(var(--e-danger))] p-0.5 text-white"
           >
             <Trash2 className="h-3 w-3" />
-          </button>
+          </EConfirmButton>
         </span>
       ) : null}
       <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2.5 py-1.5 text-[0.75rem] text-[hsl(var(--e-foreground))] hover:bg-[hsl(var(--e-muted))]">

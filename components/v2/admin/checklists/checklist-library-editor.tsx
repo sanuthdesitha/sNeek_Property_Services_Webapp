@@ -39,6 +39,8 @@ import {
   EField,
   ESwitch,
   EModal,
+  EConfirmModal,
+  verifyAdminSecurity,
 } from "@/components/v2/admin/estate-kit";
 import { TaskImageUpload } from "@/components/v2/admin/forms/management/estate-checklists-workspace";
 
@@ -95,6 +97,12 @@ export function EstateChecklistLibrary() {
   const [busy, setBusy] = useState(false);
   const [newModuleTitle, setNewModuleTitle] = useState("");
   const [newModuleCategory, setNewModuleCategory] = useState("ROOM");
+  // A module is master content every property checklist is composed from, and it
+  // takes its items down with it — PIN tier. A single item is a modal, because
+  // its field type, rules and job types are not retyped from memory.
+  const [deleteModuleTarget, setDeleteModuleTarget] = useState<LibraryModule | null>(null);
+  const [deleteItemTarget, setDeleteItemTarget] = useState<LibraryItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -132,20 +140,26 @@ export function EstateChecklistLibrary() {
     return true;
   };
 
-  const deleteModule = async (module: LibraryModule) => {
-    if (
-      !window.confirm(
-        `Delete "${module.title}" and its ${module.items.length} item(s)? Properties keep their generated forms.`
-      )
-    )
-      return;
-    const res = await fetch(`/api/admin/checklist-library/${module.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setError(body.error ?? "Delete failed.");
-      return;
+  const deleteModule = async (credentials?: { pin?: string; password?: string }) => {
+    const module = deleteModuleTarget;
+    if (!module) return;
+    setDeleting(true);
+    try {
+      // The library route takes no security payload of its own.
+      await verifyAdminSecurity(credentials);
+      const res = await fetch(`/api/admin/checklist-library/${module.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error ?? "Delete failed.");
+        return;
+      }
+      setDeleteModuleTarget(null);
+      await load();
+    } catch (err: any) {
+      setError(err?.message ?? "Delete failed.");
+    } finally {
+      setDeleting(false);
     }
-    await load();
   };
 
   const createModule = async () => {
@@ -194,15 +208,22 @@ export function EstateChecklistLibrary() {
     }
   };
 
-  const deleteItem = async (item: LibraryItem) => {
-    if (!window.confirm(`Delete "${item.label}"?`)) return;
-    const res = await fetch(`/api/admin/checklist-library/items/${item.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setError(body.error ?? "Delete failed.");
-      return;
+  const deleteItem = async () => {
+    const item = deleteItemTarget;
+    if (!item) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/checklist-library/items/${item.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error ?? "Delete failed.");
+        return;
+      }
+      setDeleteItemTarget(null);
+      await load();
+    } finally {
+      setDeleting(false);
     }
-    await load();
   };
 
   const createItem = async (module: LibraryModule, payload: Record<string, unknown>) => {
@@ -309,7 +330,7 @@ export function EstateChecklistLibrary() {
                   size="icon"
                   variant="ghost"
                   className="h-8 w-8"
-                  onClick={() => void deleteModule(module)}
+                  onClick={() => setDeleteModuleTarget(module)}
                   aria-label="Delete module"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -342,7 +363,7 @@ export function EstateChecklistLibrary() {
                         size="icon"
                         variant="ghost"
                         className="h-7 w-7"
-                        onClick={() => void deleteItem(item)}
+                        onClick={() => setDeleteItemTarget(item)}
                         aria-label="Delete item"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -416,6 +437,35 @@ export function EstateChecklistLibrary() {
         busy={busy}
         onClose={() => setAddingItemTo(null)}
         onSave={(payload) => (addingItemTo ? createItem(addingItemTo, payload) : Promise.resolve())}
+      />
+
+      <EConfirmModal
+        open={Boolean(deleteModuleTarget)}
+        onClose={() => setDeleteModuleTarget(null)}
+        title="Delete library module"
+        description={
+          deleteModuleTarget
+            ? `"${deleteModuleTarget.title}" and its ${deleteModuleTarget.items.length} item(s) go for good, and every checklist generated from here on loses them. Properties keep the forms already generated. Enter your PIN or password to continue.`
+            : undefined
+        }
+        confirmLabel="Delete module"
+        requireSecurity
+        loading={deleting}
+        onConfirm={deleteModule}
+      />
+
+      <EConfirmModal
+        open={Boolean(deleteItemTarget)}
+        onClose={() => setDeleteItemTarget(null)}
+        title="Delete library item"
+        description={
+          deleteItemTarget
+            ? `"${deleteItemTarget.label}" is removed from the library along with its field type, rules and job types.`
+            : undefined
+        }
+        confirmLabel="Delete item"
+        loading={deleting}
+        onConfirm={deleteItem}
       />
     </div>
   );

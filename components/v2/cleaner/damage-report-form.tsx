@@ -25,6 +25,7 @@ import * as React from "react";
 import { AlertTriangle, Check, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { ImageAnnotator } from "@/components/shared/image-annotator";
 import { EAlert, EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 
@@ -391,14 +392,14 @@ export function DamageReportForm({
         >
           <div className="flex items-center justify-between gap-2">
             <EBadge tone="warning">Item {index + 1}</EBadge>
-            <EButton
-              variant="ghost"
-              size="sm"
-              onClick={() => setItems((prev) => prev.filter((i) => i.clientId !== item.clientId))}
-              aria-label={`Remove item ${index + 1}`}
+            {/* Low tier: one item of a report that has not been submitted. */}
+            <EConfirmButton
+              ariaLabel={`Remove item ${index + 1}`}
+              confirmLabel="Remove it?"
+              onConfirm={() => setItems((prev) => prev.filter((i) => i.clientId !== item.clientId))}
             >
               <Trash2 className="h-4 w-4" /> Remove
-            </EButton>
+            </EConfirmButton>
           </div>
 
           <EField label="Area / room">

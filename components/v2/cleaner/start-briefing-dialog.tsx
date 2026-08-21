@@ -79,11 +79,21 @@ export function StartBriefingDialog({
 
   return (
     <EstatePortal>
-    <div
-      className="fixed inset-0 z-[80] flex flex-col bg-[hsl(var(--e-surface))]"
-      role="dialog"
-      aria-modal="true"
-    >
+    {/* A CARD, not a takeover.
+
+        This filled the whole screen, which made a two-line note about a bin
+        day look like a system-wide alert and buried the job the cleaner was
+        trying to start. It is now a small centred card over a blurred
+        backdrop: the job stays visible behind it, so the reader keeps their
+        place, and the weight of the interruption matches the weight of what
+        it is interrupting for. */}
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-[hsl(var(--e-backdrop,220_20%_8%)/0.55)] backdrop-blur-sm" aria-hidden />
+      <div
+        className="relative flex max-h-[80dvh] w-full max-w-[26rem] flex-col overflow-hidden rounded-[var(--e-radius-lg,1rem)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] shadow-[var(--e-elevation-3,0_24px_48px_-12px_rgb(0_0_0/0.45))]"
+        role="dialog"
+        aria-modal="true"
+      >
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--e-border))] px-4 py-3.5">
         <p className="e-eyebrow flex items-center gap-1.5">
@@ -129,6 +139,21 @@ export function StartBriefingDialog({
             {item.detail}
           </p>
         ) : null}
+
+        {item.images && item.images.length > 0 ? (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {item.images.map((src, i) => (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                key={`${src}-${i}`}
+                src={src}
+                alt={`Reference ${i + 1} for ${item.title}`}
+                className="h-28 w-full rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] object-cover"
+                loading="lazy"
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {/* Actions */}
@@ -142,6 +167,7 @@ export function StartBriefingDialog({
           <CheckCircle2 className="h-4 w-4" />
           {isLast ? "I've read this — start the job" : "I've read this"}
         </EButton>
+        </div>
       </div>
     </div>
     </EstatePortal>

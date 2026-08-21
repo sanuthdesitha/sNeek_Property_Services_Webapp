@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { publicUrl } from "@/lib/s3";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,14 @@ export async function GET() {
           // CLEANER or QA_INSPECTOR — an inspections-only invoice has no cleans,
           // so the reviewer needs to know which kind of payee raised it.
           cleanerRole: u?.role ?? null,
+          // The payee's receipt/screenshot for their "I've been paid" claim.
+          // Resolved here because the reviewer confirming the claim has to be
+          // able to look at the proof, not just read that it exists.
+          paidClaimedProofUrls: Array.isArray(r.paidClaimedProofKeys)
+            ? r.paidClaimedProofKeys
+                .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+                .map((key) => ({ key, url: publicUrl(key) }))
+            : [],
         };
       }),
     );

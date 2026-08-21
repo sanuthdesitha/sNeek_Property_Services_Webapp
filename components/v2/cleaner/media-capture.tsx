@@ -33,6 +33,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Film,
+  Ban,
+  Check,
+  ListChecks,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { prepareUploadFile } from "@/lib/uploads/compress";
@@ -170,15 +174,30 @@ const AUTO_RETRY_MAX_BYTES = 25 * 1024 * 1024;
 function uploadOne(
   file: File,
   folder: string,
-  onBytes?: (sent: number, total: number) => void
+  onBytes?: (sent: number, total: number) => void,
+  signal?: AbortSignal
 ): Promise<CapturedMedia> {
   return new Promise((resolve, reject) => {
+    // Cancel has to reach the socket, not just the UI. Hiding the progress bar
+    // while the phone keeps pushing a 90MB clip spends exactly the mobile data
+    // the cancel button exists to save.
+    if (signal?.aborted) {
+      reject(new PermanentUploadError("Upload cancelled"));
+      return;
+    }
+
     const fd = new FormData();
     fd.append("file", file);
     fd.append("folder", folder);
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/uploads/direct");
+
+    const onAbortSignal = () => xhr.abort();
+    signal?.addEventListener("abort", onAbortSignal);
+    // Fires after load, error, abort and timeout alike — anything narrower
+    // leaks a listener per cancelled file onto a long-lived controller.
+    xhr.onloadend = () => signal?.removeEventListener("abort", onAbortSignal);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onBytes?.(event.loaded, event.total);
@@ -227,15 +246,18 @@ function uploadOne(
 async function uploadWithRetry(
   file: File,
   folder: string,
-  onBytes?: (sent: number, total: number) => void
+  onBytes?: (sent: number, total: number) => void,
+  signal?: AbortSignal
 ): Promise<CapturedMedia> {
   try {
-    return await uploadOne(file, folder, onBytes);
+    return await uploadOne(file, folder, onBytes, signal);
   } catch (err) {
+    // A cancelled upload surfaces as PermanentUploadError, so the retry below
+    // is skipped without needing its own abort check.
     if (err instanceof PermanentUploadError) throw err;
     if (file.size > AUTO_RETRY_MAX_BYTES) throw err;
     await new Promise((resolve) => setTimeout(resolve, 700));
-    return uploadOne(file, folder, onBytes);
+    return uploadOne(file, folder, onBytes, signal);
   }
 }
 
@@ -294,6 +316,12 @@ export async function prepareAndUploadFiles(
     onProgress?: (done: number, total: number) => void;
     /** Fires as bytes move, so a big video shows movement rather than a spinner. */
     onFileProgress?: (inFlight: UploadProgress[]) => void;
+    /**
+     * Abort the batch. Files already uploaded stay in `results` — a cancel that
+     * threw away thirty finished photos to stop the thirty-first would be worse
+     * than the wait it saved.
+     */
+    signal?: AbortSignal;
   }
 ): Promise<{ results: CapturedMedia[]; failed: UploadFailure[]; failedCount: number }> {
   const slots: Array<CapturedMedia | null> = new Array(files.length).fill(null);
@@ -315,26 +343,37 @@ export async function prepareAndUploadFiles(
   async function runLane(queue: number[], width: number) {
     let next = 0;
     async function worker() {
-      while (next < queue.length) {
+      // Queued files are dropped on cancel rather than started and killed:
+      // stamping a photo burns CPU on the phone before a single byte moves.
+      while (next < queue.length && !opts.signal?.aborted) {
         const index = queue[next++];
         const file = files[index];
         inFlight.set(index, { name: file.name, percent: null });
         publish();
         try {
           const prepared = await prepareCapturedFile(file, opts.source, opts.stamp);
-          slots[index] = await uploadWithRetry(prepared, opts.folder, (sent, total) => {
-            inFlight.set(index, {
-              name: file.name,
-              percent: total > 0 ? Math.round((sent / total) * 100) : null,
-            });
-            publish();
-          });
+          slots[index] = await uploadWithRetry(
+            prepared,
+            opts.folder,
+            (sent, total) => {
+              inFlight.set(index, {
+                name: file.name,
+                percent: total > 0 ? Math.round((sent / total) * 100) : null,
+              });
+              publish();
+            },
+            opts.signal
+          );
         } catch (err: any) {
-          failed.push({
-            name: file.name || `File ${index + 1}`,
-            reason: err?.message || "Upload failed",
-            file,
-          });
+          // A file the cleaner cancelled is not a file that failed. Putting it
+          // in the red retry box invites them to re-send what they just stopped.
+          if (!opts.signal?.aborted) {
+            failed.push({
+              name: file.name || `File ${index + 1}`,
+              reason: err?.message || "Upload failed",
+              file,
+            });
+          }
         } finally {
           inFlight.delete(index);
           done += 1;
@@ -532,17 +571,31 @@ export function MediaCapture({
   const [failures, setFailures] = React.useState<UploadFailure[]>([]);
   const [inFlight, setInFlight] = React.useState<UploadProgress[]>([]);
   const [lightbox, setLightbox] = React.useState<number | null>(null);
+  // Cancelling is not an error, so it must not land in the red error line —
+  // a cleaner who deliberately stopped an upload should not be told off.
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [selecting, setSelecting] = React.useState(false);
+  const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
+  const abortRef = React.useRef<AbortController | null>(null);
+
+  // Leaving the screen must stop the radio. Without this a cleaner who backs
+  // out mid-batch keeps a video uploading into a component nobody is watching.
+  React.useEffect(() => () => abortRef.current?.abort(), []);
 
   const runUpload = React.useCallback(
     async (list: File[], source: CaptureSource) => {
       if (list.length === 0) return;
       setUploadError(null);
+      setNotice(null);
       setBusy((n) => n + list.length);
+      const controller = new AbortController();
+      abortRef.current = controller;
       try {
         const { results, failed } = await prepareAndUploadFiles(list, {
           folder,
           stamp,
           source,
+          signal: controller.signal,
           onProgress: (uploadDone, total) =>
             setProgress(total > 1 ? { done: uploadDone, total } : null),
           onFileProgress: setInFlight,
@@ -553,9 +606,21 @@ export function MediaCapture({
         if (results.length > 0) {
           onChange(multiple ? [...value, ...results] : results.slice(-1));
         }
+        if (controller.signal.aborted) {
+          setNotice(
+            results.length > 0
+              ? `Upload cancelled — ${results.length} already finished and ${
+                  results.length === 1 ? "was" : "were"
+                } kept.`
+              : "Upload cancelled."
+          );
+        }
       } catch (e: any) {
         setUploadError(e?.message || "Upload failed");
       } finally {
+        // Only clear the ref if a later batch has not already claimed it,
+        // otherwise Cancel silently stops aborting the run that is live.
+        if (abortRef.current === controller) abortRef.current = null;
         setBusy((n) => Math.max(0, n - list.length));
         setProgress(null);
         setInFlight([]);
@@ -563,6 +628,10 @@ export function MediaCapture({
     },
     [folder, multiple, onChange, value, stamp]
   );
+
+  const cancelUpload = React.useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   const handleFiles = React.useCallback(
     async (files: FileList | null, source: CaptureSource) => {
@@ -583,15 +652,56 @@ export function MediaCapture({
     await runUpload(files, "gallery");
   }, [failures, runUpload]);
 
-  function remove(key: string) {
-    onChange(value.filter((m) => m.key !== key));
-  }
+  /**
+   * Removal is list-only. There is no cleaner-facing delete endpoint —
+   * `deleteObject` in lib/s3.ts is server-side and reached only when an admin
+   * deletes the whole submission — so the S3 object stays until then. That is
+   * deliberate: the alternative is handing every cleaner a way to erase
+   * evidence of a job from the bucket.
+   */
+  const removeKeys = React.useCallback(
+    (keys: Set<string>) => {
+      if (keys.size === 0) return;
+      onChange(value.filter((m) => !keys.has(m.key)));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        keys.forEach((key) => next.delete(key));
+        return next;
+      });
+      // The index the lightbox is holding refers to a list that no longer
+      // exists, so it would open on the wrong shot.
+      setLightbox(null);
+    },
+    [onChange, value]
+  );
+
+  const toggleSelected = React.useCallback((key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const exitSelecting = React.useCallback(() => {
+    setSelecting(false);
+    setSelected(new Set());
+  }, []);
+
+  // Selection mode with nothing left to select hides its own exit, so the next
+  // batch of photos would land straight into a mode the cleaner never chose.
+  React.useEffect(() => {
+    if (value.length === 0 && selecting) exitSelecting();
+  }, [value.length, selecting, exitSelecting]);
 
   const wantPhoto = mode === "photo" || mode === "both";
   const wantVideo = mode === "video" || mode === "both";
   const wantFile = mode === "file";
   const need = minPhotos ?? 0;
   const short = need > 0 && value.filter((m) => m.kind === "image").length < need;
+  const selectedCount = value.filter((m) => selected.has(m.key)).length;
+  const allSelected = value.length > 0 && selectedCount === value.length;
 
   const lightboxItems: LightboxItem[] = value.map((m) => ({
     url: m.url,
@@ -660,6 +770,16 @@ export function MediaCapture({
             {progress ? `Uploading ${progress.done} of ${progress.total}…` : `Uploading ${busy}…`}
           </span>
         ) : null}
+        {busy > 0 ? (
+          <button
+            type="button"
+            onClick={cancelUpload}
+            className="inline-flex h-9 items-center gap-1.5 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-danger))] px-3 text-[0.8125rem] font-[550] text-[hsl(var(--e-danger))] transition-colors duration-[160ms] hover:bg-[hsl(var(--e-danger)/0.08)]"
+          >
+            <Ban className="h-4 w-4" />
+            Cancel
+          </button>
+        ) : null}
       </div>
 
       {short ? (
@@ -670,6 +790,10 @@ export function MediaCapture({
       ) : null}
 
       {uploadError ? <p className="text-[0.75rem] text-[hsl(var(--e-danger))]">{uploadError}</p> : null}
+
+      {notice ? (
+        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{notice}</p>
+      ) : null}
 
       {/* Bytes actually leaving the phone. A big video used to show nothing
           but a spinner, so cleaners assumed a hang and killed the app. */}
@@ -734,6 +858,44 @@ export function MediaCapture({
         </div>
       ) : null}
 
+      {/* Bulk removal lives above the strip, not inside it. Deleting thirty
+          mis-shot photos one X at a time on a phone is the reason cleaners
+          submitted jobs with the wrong evidence attached. */}
+      {value.length > 0 && !disabled ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => (selecting ? exitSelecting() : setSelecting(true))}
+            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2.5 text-[0.75rem] font-[550] text-[hsl(var(--e-foreground))] transition-colors duration-[160ms] hover:bg-[hsl(var(--e-muted))]"
+          >
+            <ListChecks className="h-3.5 w-3.5" />
+            {selecting ? "Done" : "Select"}
+          </button>
+          {selecting ? (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  setSelected(allSelected ? new Set() : new Set(value.map((m) => m.key)))
+                }
+                className="text-[0.75rem] text-[hsl(var(--e-text-faint))] underline"
+              >
+                {allSelected ? "Clear all" : "Select all"}
+              </button>
+              <button
+                type="button"
+                disabled={selectedCount === 0}
+                onClick={() => removeKeys(new Set(selected))}
+                className="inline-flex h-8 items-center gap-1.5 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-danger))] px-2.5 text-[0.75rem] font-[550] text-[hsl(var(--e-danger))] transition-colors duration-[160ms] hover:bg-[hsl(var(--e-danger)/0.08)] disabled:opacity-40"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Remove {selectedCount > 0 ? `${selectedCount} ` : ""}selected
+              </button>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
       {value.length > 0 ? (
         // Horizontally scrollable "recent shots" strip — reviews the whole batch
         // (not a truncated few) so cleaners can scan what they captured.
@@ -746,13 +908,25 @@ export function MediaCapture({
           {value.map((m, i) => (
             <div
               key={m.key}
-              className="group relative h-24 w-24 shrink-0 snap-start overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))]"
+              className={cn(
+                "group relative h-24 w-24 shrink-0 snap-start overflow-hidden rounded-[var(--e-radius)] border bg-[hsl(var(--e-surface-sunken))]",
+                selecting && selected.has(m.key)
+                  ? "border-[hsl(var(--e-gold))] ring-2 ring-[hsl(var(--e-gold))]"
+                  : "border-[hsl(var(--e-border))]"
+              )}
             >
               <button
                 type="button"
-                onClick={() => setLightbox(i)}
+                onClick={() => (selecting ? toggleSelected(m.key) : setLightbox(i))}
                 className="block h-full w-full"
-                aria-label={m.kind === "video" ? "Play video" : "View photo"}
+                aria-pressed={selecting ? selected.has(m.key) : undefined}
+                aria-label={
+                  selecting
+                    ? `${selected.has(m.key) ? "Deselect" : "Select"} ${m.name || "item"}`
+                    : m.kind === "video"
+                      ? "Play video"
+                      : "View photo"
+                }
               >
                 {m.kind === "image" ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -777,12 +951,28 @@ export function MediaCapture({
                   </span>
                 )}
               </button>
-              {!disabled ? (
+              {selecting ? (
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "pointer-events-none absolute left-1 top-1 flex h-5 w-5 items-center justify-center rounded-[var(--e-radius-sm)] border",
+                    selected.has(m.key)
+                      ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold))] text-[hsl(var(--e-gold-foreground))]"
+                      : "border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-background)/0.85)]"
+                  )}
+                >
+                  {selected.has(m.key) ? <Check className="h-3.5 w-3.5" /> : null}
+                </span>
+              ) : null}
+              {/* Always visible, never hover-revealed: a phone has no hover, and
+                  this control being invisible on touch is why cleaners could
+                  not drop a bad shot without wiping the whole field. */}
+              {!disabled && !selecting ? (
                 <button
                   type="button"
-                  onClick={() => remove(m.key)}
-                  aria-label="Remove"
-                  className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--e-background)/0.85)] text-[hsl(var(--e-foreground))] opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                  onClick={() => removeKeys(new Set([m.key]))}
+                  aria-label={`Remove ${m.name || "item"}`}
+                  className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(var(--e-background)/0.85)] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>

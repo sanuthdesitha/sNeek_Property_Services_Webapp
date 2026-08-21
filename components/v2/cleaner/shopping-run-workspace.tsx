@@ -42,6 +42,7 @@ import {
   type ShoppingGroupMode,
 } from "@/lib/inventory/shopping-grouping";
 import { toast } from "@/hooks/use-toast";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 
 type RunStatus = "DRAFT" | "IN_PROGRESS" | "COMPLETED";
 type PaymentMethod =
@@ -766,13 +767,15 @@ export function ShoppingRunWorkspace({
                         {row.propertyName} · {row.category} · {row.unit}
                       </p>
                     </div>
-                    <EButton
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeCustomPurchase(row.itemId, row.propertyId)}
+                    {/* Low tier: an unsaved extra-purchase line, re-added
+                        from the same picker. */}
+                    <EConfirmButton
+                      ariaLabel={`Remove ${row.itemName}`}
+                      confirmLabel="Remove it?"
+                      onConfirm={() => removeCustomPurchase(row.itemId, row.propertyId)}
                     >
                       <Trash2 className="h-4 w-4" /> Remove
-                    </EButton>
+                    </EConfirmButton>
                   </div>
                   <div className="mt-3 grid gap-3 md:grid-cols-[120px_120px_1fr]">
                     <EInput

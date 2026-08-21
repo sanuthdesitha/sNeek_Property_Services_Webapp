@@ -54,6 +54,12 @@ const jobNoticeSchema = z.object({
   id: z.string().trim().min(1).max(80).optional(),
   body: z.string().trim().min(1).max(2000),
   urgency: z.enum(["INFO", "IMPORTANT"]).optional(),
+  // Already-uploaded reference photos (POST /api/uploads/direct returns the
+  // URL). Capped low on purpose: a notice is read on a phone at the door, and
+  // a wall of thumbnails is the same failure as a wall of text — nobody reads
+  // it. Kept as URLs rather than keys because both readers (job page and
+  // start-briefing dialog) render an <img> and never re-sign.
+  imageUrls: z.array(z.string().trim().min(1).max(2000)).max(6).optional(),
 });
 
 const serviceContextSchema = z.object({

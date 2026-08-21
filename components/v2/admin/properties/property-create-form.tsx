@@ -17,7 +17,7 @@ import {
   type InventoryLocation,
 } from "@/lib/inventory/locations";
 import { EButton, ECard, ECardBody, ECardHeader, ECardTitle, EEyebrow, EPageHeader } from "@/components/v2/ui/primitives";
-import { EField, EInput, ESelect, ESwitch, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EField, EInput, ESelect, ESwitch, ETextarea } from "@/components/v2/admin/estate-kit";
 import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
 import {
   PropertySetupGuideEditor,
@@ -777,15 +777,15 @@ export function PropertyCreateForm({
                           )
                         }
                       />
-                      <EButton
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Remove custom item"
-                        onClick={() => setCustomItems((prev) => prev.filter((_, i) => i !== index))}
+                      {/* Low tier: one row of a property that has not been
+                          created yet. */}
+                      <EConfirmButton
+                        ariaLabel="Remove custom item"
+                        confirmLabel="Remove?"
+                        onConfirm={() => setCustomItems((prev) => prev.filter((_, i) => i !== index))}
                       >
                         <Trash2 className="h-4 w-4" />
-                      </EButton>
+                      </EConfirmButton>
                     </div>
                   </div>
                 ))}

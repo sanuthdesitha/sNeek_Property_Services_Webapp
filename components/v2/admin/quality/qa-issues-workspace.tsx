@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
-import { ArrowRight, Filter, RefreshCw, ShieldAlert } from "lucide-react";
+import { ArrowRight, Filter, ImagePlus, RefreshCw, ShieldAlert, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEyebrow, EEmptyState } from "@/components/v2/ui/primitives";
 import { EModal, EField, EInput, ETextarea, ESelect } from "@/components/v2/admin/estate-kit";
@@ -80,6 +80,117 @@ function falseConfTone(status?: string): "danger" | "warning" | "success" | "neu
 }
 
 type Issue = any;
+
+/** Rectification evidence is stored as a flat key array (no annotation layer),
+ *  unlike qaPhotoKeys which carries {key, annotatedKey, flatKey} objects. */
+function keyList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((k): k is string => typeof k === "string" && k.length > 0);
+}
+
+type PickedPhoto = { key: string; name: string };
+
+/** The shared direct-upload path (POST /api/uploads/direct, multipart `file` +
+ *  `folder`, returns `{ key, url }`) — the same one every other Estate evidence
+ *  rail uses, so the stored key resolves through /api/uploads/access like the
+ *  QA photos beside it. */
+async function uploadRectificationPhoto(file: File): Promise<PickedPhoto> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("folder", "qa-rectification");
+  const res = await fetch("/api/uploads/direct", { method: "POST", body: form });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.key) throw new Error(body.error ?? "Could not upload that photo.");
+  return { key: String(body.key), name: file.name };
+}
+
+/** Names, not thumbnails: a freshly uploaded key is only viewable through the
+ *  presigned access rail, which this drawer resolves from the SAVED issue — so
+ *  a preview here would sit broken until the rectification is submitted. */
+function PhotoPicker({
+  label,
+  items,
+  uploading,
+  onFiles,
+  onRemove,
+}: {
+  label: string;
+  items: PickedPhoto[];
+  uploading: boolean;
+  onFiles: (files: FileList | null) => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[0.625rem] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">{label}</p>
+      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] px-2.5 py-1.5 text-[0.75rem] font-[550] hover:bg-[hsl(var(--e-muted))]">
+        <ImagePlus className="h-3.5 w-3.5" />
+        {uploading ? "Uploading…" : "Add photos"}
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            onFiles(e.target.files);
+            e.currentTarget.value = "";
+          }}
+        />
+      </label>
+      {items.length > 0 ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {items.map((item, index) => (
+            <li
+              key={item.key}
+              className="inline-flex max-w-[170px] items-center gap-1 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-2 py-1 text-[0.6875rem]"
+            >
+              <span className="truncate">{item.name}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${item.name}`}
+                onClick={() => onRemove(index)}
+                className="text-[hsl(var(--e-danger))]"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+/** Thumbnail strip over keys whose presigned urls arrive one at a time — the
+ *  placeholder holds the slot so the strip doesn't reflow as each url lands. */
+function EvidenceStrip({
+  keys,
+  urls,
+  alt,
+}: {
+  keys: string[];
+  urls: Record<string, string>;
+  alt: string;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {keys.map((key) =>
+        urls[key] ? (
+          <a key={key} href={urls[key]} target="_blank" rel="noreferrer">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={urls[key]}
+              alt={alt}
+              className="h-20 w-20 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] object-cover"
+            />
+          </a>
+        ) : (
+          <div key={key} className="h-20 w-20 animate-pulse rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-muted))]" />
+        )
+      )}
+    </div>
+  );
+}
 
 const FIELD_CLS =
   "h-9 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] px-2.5 " +
@@ -333,6 +444,9 @@ function IssueDrawer({
   // rectify
   const [rectStatus, setRectStatus] = useState(issue.rectificationStatus ?? "FIXED_BY_QA");
   const [rectMinutes, setRectMinutes] = useState("");
+  const [rectBefore, setRectBefore] = useState<PickedPhoto[]>([]);
+  const [rectAfter, setRectAfter] = useState<PickedPhoto[]>([]);
+  const [uploadingSide, setUploadingSide] = useState<null | "before" | "after">(null);
   // deduction
   const [dedAmount, setDedAmount] = useState("");
   const [dedNote, setDedNote] = useState("");
@@ -355,9 +469,18 @@ function IssueDrawer({
     );
   }, [issue]);
 
+  // Before/after proof of the fix. It shares the QA photos' url map because it
+  // is the same job-scoped media rail — one resolver, three strips.
+  const beforeKeys = useMemo(() => keyList(issue.rectificationBeforeKeys), [issue]);
+  const afterKeys = useMemo(() => keyList(issue.rectificationAfterKeys), [issue]);
+  const allKeys = useMemo(
+    () => [...photoKeys, ...beforeKeys, ...afterKeys],
+    [photoKeys, beforeKeys, afterKeys]
+  );
+
   useEffect(() => {
     let alive = true;
-    for (const key of photoKeys) {
+    for (const key of allKeys) {
       fetch(`/api/uploads/access?key=${encodeURIComponent(key)}&jobId=${encodeURIComponent(issue.jobId)}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((b) => {
@@ -368,7 +491,26 @@ function IssueDrawer({
     return () => {
       alive = false;
     };
-  }, [photoKeys, issue.jobId]);
+  }, [allKeys, issue.jobId]);
+
+  async function addRectificationPhotos(side: "before" | "after", files: FileList | null) {
+    if (!files?.length) return;
+    setUploadingSide(side);
+    try {
+      const uploaded: PickedPhoto[] = [];
+      for (const file of Array.from(files)) uploaded.push(await uploadRectificationPhoto(file));
+      const append = side === "before" ? setRectBefore : setRectAfter;
+      append((prev) => [...prev, ...uploaded]);
+    } catch (err: any) {
+      toast({
+        title: "Upload failed",
+        description: err?.message ?? "Could not upload that photo.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingSide(null);
+    }
+  }
 
   async function patch(body: object, successMsg: string) {
     setBusy(true);
@@ -459,22 +601,23 @@ function IssueDrawer({
         {photoKeys.length > 0 ? (
           <div>
             <EEyebrow className="mb-2">QA evidence ({photoKeys.length})</EEyebrow>
-            <div className="flex flex-wrap gap-2">
-              {photoKeys.map((key) =>
-                photoUrls[key] ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <a key={key} href={photoUrls[key]} target="_blank" rel="noreferrer">
-                    <img
-                      src={photoUrls[key]}
-                      alt="QA evidence"
-                      className="h-20 w-20 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] object-cover"
-                    />
-                  </a>
-                ) : (
-                  <div key={key} className="h-20 w-20 animate-pulse rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-muted))]" />
-                )
-              )}
-            </div>
+            <EvidenceStrip keys={photoKeys} urls={photoUrls} alt="QA evidence" />
+          </div>
+        ) : null}
+
+        {/* Rectification proof — what the fix actually changed. Each side is
+            its own section so a half-documented fix reads as half-documented
+            rather than as one undifferentiated pile of photos. */}
+        {beforeKeys.length > 0 ? (
+          <div>
+            <EEyebrow className="mb-2">Before rectification ({beforeKeys.length})</EEyebrow>
+            <EvidenceStrip keys={beforeKeys} urls={photoUrls} alt="Before rectification" />
+          </div>
+        ) : null}
+        {afterKeys.length > 0 ? (
+          <div>
+            <EEyebrow className="mb-2">After rectification ({afterKeys.length})</EEyebrow>
+            <EvidenceStrip keys={afterKeys} urls={photoUrls} alt="After rectification" />
           </div>
         ) : null}
 
@@ -540,16 +683,43 @@ function IssueDrawer({
                     <EInput type="number" min="0" className="w-28" value={rectMinutes} onChange={(e) => setRectMinutes(e.target.value)} />
                   </EField>
                 </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <PhotoPicker
+                    label="Before rectification"
+                    items={rectBefore}
+                    uploading={uploadingSide === "before"}
+                    onFiles={(files) => void addRectificationPhotos("before", files)}
+                    onRemove={(index) => setRectBefore((prev) => prev.filter((_, i) => i !== index))}
+                  />
+                  <PhotoPicker
+                    label="After rectification"
+                    items={rectAfter}
+                    uploading={uploadingSide === "after"}
+                    onFiles={(files) => void addRectificationPhotos("after", files)}
+                    onRemove={(index) => setRectAfter((prev) => prev.filter((_, i) => i !== index))}
+                  />
+                </div>
                 <EButton
                   size="sm"
                   variant="gold"
-                  disabled={busy}
+                  disabled={busy || uploadingSide !== null}
                   onClick={() =>
                     patch(
                       {
                         action: "rectify",
                         status: rectStatus,
                         minutes: rectMinutes ? Number(rectMinutes) : undefined,
+                        // The endpoint REPLACES each side's key array, so the
+                        // already-saved keys are resent alongside the new ones —
+                        // otherwise a second save to add an "after" photo would
+                        // silently drop the "before" evidence. A side with
+                        // nothing new stays undefined so it isn't written at all.
+                        beforeKeys: rectBefore.length
+                          ? [...beforeKeys, ...rectBefore.map((p) => p.key)]
+                          : undefined,
+                        afterKeys: rectAfter.length
+                          ? [...afterKeys, ...rectAfter.map((p) => p.key)]
+                          : undefined,
                       },
                       "Rectification updated"
                     )

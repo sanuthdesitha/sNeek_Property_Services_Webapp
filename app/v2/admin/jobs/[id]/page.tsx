@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { format } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import { notFound } from "next/navigation";
 import { JobStatus, JobTaskSource, QaAssignmentStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { resolveStartBriefingItems, startBriefingHash } from "@/lib/forms/start-briefing";
 import { jobDetailTabHref, resolveJobDetailTab } from "@/lib/jobs/detail-tabs";
 import { ClockRecordsEditor, GpsRecordEditor } from "@/components/v2/admin/jobs/job-clock-gps-editor";
 import { ClockLocationsMap } from "@/components/shared/clock-locations-map";
@@ -38,6 +40,7 @@ import {
   Shirt,
   ShieldCheck,
   Wallet,
+  BookOpenCheck,
 } from "lucide-react";
 import { QuickQaReview } from "@/components/v2/admin/jobs/quick-qa-review";
 import { JobAssignPanel } from "@/components/v2/admin/jobs/job-assign-panel";
@@ -96,6 +99,66 @@ function titleCase(value: string): string {
 
 function money(n: number): string {
   return "$" + Math.round(n).toLocaleString("en-AU");
+}
+
+const TZ = "Australia/Sydney";
+
+/**
+ * START-BRIEFING ACKNOWLEDGEMENTS — the record of what each cleaner confirmed
+ * they had read before they were allowed to clock in.
+ *
+ * This is evidence, so it is parsed defensively and never discarded: the meta
+ * blob is `Record<string, unknown>` and can hold entries written by an older
+ * build, or against notices and tasks that have since been edited or deleted.
+ * An entry that no longer resolves to a live briefing item is still a true
+ * statement about what happened, and dropping it would quietly shrink the very
+ * record someone is consulting because something went wrong.
+ */
+interface BriefingAckRecord {
+  userId: string;
+  /** Fingerprint of the item set as it stood when they read it. */
+  hash: string | null;
+  items: { itemId: string; at: string | null }[];
+}
+
+function readStartBriefingAcks(raw: Record<string, unknown>): BriefingAckRecord[] {
+  const records: BriefingAckRecord[] = [];
+  for (const [userId, value] of Object.entries(raw ?? {})) {
+    if (!userId || !value || typeof value !== "object") continue;
+    const entry = value as Record<string, unknown>;
+    const items = Array.isArray(entry.items) ? entry.items : [];
+    records.push({
+      userId,
+      hash: typeof entry.hash === "string" && entry.hash.trim() ? entry.hash.trim() : null,
+      items: items
+        .filter((i): i is Record<string, unknown> => !!i && typeof i === "object")
+        .map((i) => ({
+          itemId: typeof i.itemId === "string" ? i.itemId.trim() : "",
+          at: typeof i.at === "string" && i.at.trim() ? i.at.trim() : null,
+        }))
+        .filter((i) => i.itemId.length > 0),
+    });
+  }
+  return records;
+}
+
+/** Sydney-local stamp, or null when the entry predates the timestamp field. */
+function formatAckTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return format(toZonedTime(date, TZ), "d MMM yyyy · HH:mm");
+}
+
+/**
+ * Readable fallback for an item id whose briefing item no longer exists —
+ * "notice-abc123" reads as "Notice · abc123" rather than as raw machine text.
+ */
+function describeUnresolvedItemId(itemId: string): string {
+  if (itemId.startsWith("notice-")) return `Notice (since removed) · ${itemId.slice(7)}`;
+  if (itemId.startsWith("admin-task-")) return `Admin task (since removed) · ${itemId.slice(11)}`;
+  if (itemId.startsWith("client-task-")) return `Client task (since removed) · ${itemId.slice(12)}`;
+  return `${itemId} (since removed)`;
 }
 
 async function getJob(id: string) {
@@ -297,6 +360,11 @@ async function getJob(id: string) {
             source: true,
             approvalStatus: true,
             executionStatus: true,
+            // Needed to name the items in the start-briefing acknowledgement
+            // record below: resolveStartBriefingItems drops anything hidden
+            // from cleaners, and without this flag it would name items the
+            // cleaner was never shown.
+            visibleToCleaner: true,
             completedAt: true,
             requiresPhoto: true,
             requiresNote: true,
@@ -608,6 +676,67 @@ export default async function AdminJobDetailPage({
   // Per-cleaner pay: custom payout overrides the hours × rate estimate; transport
   // is added on top. Same inputs the payroll + v1 billing panel read from.
   const jobMeta = parseJobInternalNotes(job.internalNotes);
+
+  /* ── Start-briefing acknowledgements (proof of reading) ───────────────── */
+
+  const briefingAcks = readStartBriefingAcks(jobMeta.startBriefingAcks);
+
+  // Names are looked up rather than read off job.assignments: assignments are
+  // filtered to removedAt: null, so a cleaner who read the briefing and was
+  // later taken off the job would appear in the record as a bare user id —
+  // which is exactly the entry someone would be trying to identify.
+  const ackUsers =
+    briefingAcks.length > 0
+      ? await db.user.findMany({
+          where: { id: { in: briefingAcks.map((a) => a.userId) } },
+          select: { id: true, name: true, email: true },
+        })
+      : [];
+  const ackUserNames = new Map(
+    ackUsers.map((u) => [u.id, u.name ?? u.email ?? "Unknown user"] as const)
+  );
+
+  // Item ids are opaque ("notice-x", "admin-task-y"). resolveStartBriefingItems
+  // is the module that assigns those ids, so it is asked for the titles too —
+  // re-deriving labels here would drift from what the cleaner actually read.
+  const currentBriefingItems =
+    briefingAcks.length > 0
+      ? resolveStartBriefingItems({
+          meta: jobMeta,
+          jobTasks: job.jobTasks.map((t) => ({
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            source: String(t.source ?? ""),
+            approvalStatus: String(t.approvalStatus ?? ""),
+            visibleToCleaner: t.visibleToCleaner,
+            executionStatus: String(t.executionStatus ?? "OPEN"),
+          })),
+        })
+      : [];
+  const briefingItemTitles = new Map(
+    currentBriefingItems.map((item) => [item.id, item.title] as const)
+  );
+  // A signature covers the wording that was on screen at the time. If the
+  // briefing has been edited since, the acknowledgement is still a true record
+  // of what they read — but it no longer describes the job as it stands, and
+  // whoever is reading this as proof needs to be told so explicitly.
+  const currentBriefingHash = startBriefingHash(currentBriefingItems);
+
+  // Ordered newest-acknowledgement-first so the most recent reading leads.
+  const briefingAckRows = briefingAcks
+    .map((ack) => {
+      const stamps = ack.items
+        .map((i) => (i.at ? new Date(i.at).getTime() : NaN))
+        .filter((t) => !Number.isNaN(t));
+      return {
+        ...ack,
+        name: ackUserNames.get(ack.userId) ?? ack.userId,
+        // The last tap in the dialog — i.e. when the gate actually opened.
+        completedAt: stamps.length > 0 ? new Date(Math.max(...stamps)) : null,
+      };
+    })
+    .sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
 
   // The guest ARRIVING after this clean. Job.reservation is the booking whose
   // checkout triggered the job — i.e. the guest who just left — so it must not
@@ -1401,6 +1530,99 @@ export default async function AdminJobDetailPage({
           </ECardBody>
         </ECard>
       </div>
+      ) : null}
+
+      {/* Briefing acknowledgements. Rendered only when there is something to
+          attest — an empty "nobody has acknowledged anything" card on every
+          job without notices would train people to skip past this one. */}
+      {tab === "activity" && briefingAckRows.length > 0 ? (
+        <ECard>
+          <ECardHeader className="pb-2">
+            <ECardTitle className="flex items-center gap-2 text-[0.95rem]">
+              <BookOpenCheck className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Briefing
+              acknowledgements
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="space-y-3 pt-0">
+            <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+              What each cleaner confirmed they had read before clocking in. Recorded at the
+              moment of the tap and kept as proof — times are Australia/Sydney.
+            </p>
+
+            {briefingAckRows.map((row) => {
+              const stale = row.hash !== null && row.hash !== currentBriefingHash;
+              return (
+                <div
+                  key={row.userId}
+                  className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2.5"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-[0.8125rem] font-[550]">{row.name}</span>
+                      <EBadge tone="neutral" soft>
+                        {row.items.length} item{row.items.length === 1 ? "" : "s"}
+                      </EBadge>
+                      {stale ? (
+                        <EBadge tone="warning" soft>
+                          Briefing edited since
+                        </EBadge>
+                      ) : null}
+                    </span>
+                    <span className="text-[0.75rem] tabular-nums text-[hsl(var(--e-text-faint))]">
+                      {formatAckTime(row.completedAt?.toISOString() ?? null) ?? "Time not recorded"}
+                    </span>
+                  </div>
+
+                  <ul className="mt-2 divide-y divide-[hsl(var(--e-border))] border-t border-[hsl(var(--e-border))]">
+                    {row.items.map((item) => {
+                      const title = briefingItemTitles.get(item.itemId);
+                      return (
+                        <li
+                          key={item.itemId}
+                          className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-1.5 text-[0.8125rem]"
+                        >
+                          <span className="min-w-0">
+                            <span
+                              className={
+                                title
+                                  ? "text-[hsl(var(--e-foreground))]"
+                                  : "text-[hsl(var(--e-muted-foreground))] italic"
+                              }
+                            >
+                              {title ?? describeUnresolvedItemId(item.itemId)}
+                            </span>
+                            {/* The raw id is the join key back to the notice or
+                                task, and is what makes this reconcilable. */}
+                            <span className="block text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                              {item.itemId}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-[0.75rem] tabular-nums text-[hsl(var(--e-text-faint))]">
+                            {formatAckTime(item.at) ?? "—"}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+
+                  {row.hash ? (
+                    <p className="mt-2 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
+                      Signed against briefing fingerprint{" "}
+                      <span className="tabular-nums">{row.hash}</span>
+                      {stale ? (
+                        <>
+                          {" "}
+                          · job now reads{" "}
+                          <span className="tabular-nums">{currentBriefingHash}</span>
+                        </>
+                      ) : null}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </ECardBody>
+        </ECard>
       ) : null}
 
       {tab === "activity" && hasLinkedRefs ? (

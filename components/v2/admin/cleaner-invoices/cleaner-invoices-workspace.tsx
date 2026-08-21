@@ -19,6 +19,7 @@ import {
 import {
   ETableShell, EModal, EConfirmModal, EInput, ETextarea, EField, ESelect,
 } from "@/components/v2/admin/estate-kit";
+import { EvidenceThumbs, type EvidenceThumbItem } from "@/components/v2/shared/evidence-thumbs";
 
 const CLEANER_PAY_METHODS = [
   { value: "BANK_TRANSFER", label: "Bank transfer" },
@@ -43,7 +44,7 @@ type Submission = {
   hours: number;
   totalAmount: number;
   jobCount: number;
-  status: "SUBMITTED" | "XERO_PUSHED" | "PAID" | "VOID";
+  status: "SUBMITTED" | "XERO_PUSHED" | "PAID_CLAIMED" | "PAID" | "VOID";
   xeroBillId: string | null;
   xeroExportedAt: string | null;
   lineData: any;
@@ -54,6 +55,10 @@ type Submission = {
   paymentMethod: string | null;
   paidDate: string | null;
   paidAt: string | null;
+  /** The payee's own "I've been paid" claim, still waiting on the office. */
+  paidClaimedAt: string | null;
+  paidClaimedNote: string | null;
+  paidClaimedProofUrls?: EvidenceThumbItem[];
 };
 
 /** Best-effort read of the cleaner's bank account from the snapshotted lineData. */
@@ -73,12 +78,14 @@ function bankFromLineData(lineData: any): string {
 const STATUS_TONE: Record<Submission["status"], "info" | "success" | "gold" | "danger"> = {
   SUBMITTED: "info",
   XERO_PUSHED: "gold",
+  PAID_CLAIMED: "gold",
   PAID: "success",
   VOID: "danger",
 };
 const STATUS_LABEL: Record<Submission["status"], string> = {
   SUBMITTED: "Submitted",
   XERO_PUSHED: "In Xero",
+  PAID_CLAIMED: "Payment claimed",
   PAID: "Paid",
   VOID: "Reversed",
 };
@@ -257,6 +264,7 @@ export function CleanerInvoicesWorkspace() {
     { key: "all", label: "All" },
     { key: "SUBMITTED", label: "Submitted" },
     { key: "XERO_PUSHED", label: "In Xero" },
+    { key: "PAID_CLAIMED", label: "Payment claimed" },
     { key: "PAID", label: "Paid" },
     { key: "VOID", label: "Reversed" },
   ];
@@ -397,6 +405,32 @@ export function CleanerInvoicesWorkspace() {
                   {detail.paidAt ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Recorded:</span> {fmt(detail.paidAt)}</span> : null}
                 </div>
                 {detail.paidNote ? <p className="mt-1.5 text-[hsl(var(--e-muted-foreground))]"><span className="text-[hsl(var(--e-foreground))]">Comments:</span> {detail.paidNote}</p> : null}
+              </div>
+            ) : null}
+            {/* The payee's claim and the receipt behind it. Kept separate from
+                the block above because a claim is not a settlement — the
+                reviewer is looking at evidence, not at the business's record. */}
+            {detail.paidClaimedAt ? (
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 text-[0.8125rem]">
+                <p className="mb-1 font-medium">
+                  Payee claimed payment
+                  <span className="ml-2 font-normal text-[hsl(var(--e-muted-foreground))]">{fmt(detail.paidClaimedAt)}</span>
+                </p>
+                {detail.paidClaimedNote ? (
+                  <p className="mb-2 text-[hsl(var(--e-muted-foreground))]">“{detail.paidClaimedNote}”</p>
+                ) : null}
+                {(detail.paidClaimedProofUrls?.length ?? 0) > 0 ? (
+                  <>
+                    <p className="mb-1.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      Proof attached ({detail.paidClaimedProofUrls?.length})
+                    </p>
+                    <EvidenceThumbs
+                      items={detail.paidClaimedProofUrls ?? []}
+                      alt="Payment proof"
+                      docLabel="Open receipt"
+                    />
+                  </>
+                ) : null}
               </div>
             ) : null}
             <ETableShell headers={[{ label: "Description" }, { label: "Hours" }, { label: "Rate" }, { label: "Amount", align: "right" }]}>

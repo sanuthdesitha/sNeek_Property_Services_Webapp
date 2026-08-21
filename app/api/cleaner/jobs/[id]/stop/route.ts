@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { JobStatus, Role } from "@prisma/client";
+import { Role } from "@prisma/client";
+import { clockOutCleaner } from "@/lib/jobs/clock";
 
 export async function POST(
   _req: NextRequest,
@@ -20,39 +21,16 @@ export async function POST(
       return NextResponse.json({ error: "Not assigned to this job" }, { status: 403 });
     }
 
-    const openLog = await db.timeLog.findFirst({
-      where: { jobId: params.id, userId: session.user.id, stoppedAt: null },
-      orderBy: { startedAt: "desc" },
+    // Closing the log and moving the status are one operation — see
+    // lib/jobs/clock. A second tap on the property's NFC tag does exactly
+    // the same thing, and the two must not drift apart.
+    const { stopped, durationM } = await clockOutCleaner({
+      jobId: params.id,
+      userId: session.user.id,
     });
 
-    if (!openLog)
+    if (!stopped)
       return NextResponse.json({ error: "No active time log" }, { status: 400 });
-
-    const now = new Date();
-    const durationM = Math.round((now.getTime() - openLog.startedAt.getTime()) / 60_000);
-
-    await db.timeLog.update({
-      where: { id: openLog.id },
-      data: { stoppedAt: now, durationM },
-    });
-
-    // Only move an actively-running job to PAUSED — never drag a job that has
-    // advanced to SUBMITTED/QA_REVIEW/COMPLETED/INVOICED back (a stale open log
-    // or another cleaner's clock-out shouldn't reopen a finished job).
-    await db.job.updateMany({
-      where: {
-        id: params.id,
-        status: {
-          notIn: [
-            JobStatus.SUBMITTED,
-            JobStatus.QA_REVIEW,
-            JobStatus.COMPLETED,
-            JobStatus.INVOICED,
-          ],
-        },
-      },
-      data: { status: JobStatus.PAUSED },
-    });
 
     return NextResponse.json({ ok: true, durationM });
   } catch (err: any) {

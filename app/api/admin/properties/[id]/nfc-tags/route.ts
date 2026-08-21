@@ -43,13 +43,20 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-    const tags = await db.propertyNfcTag.findMany({
-      where: { propertyId: params.id },
-      orderBy: [{ isActive: "desc" }, { createdAt: "asc" }],
-    });
+    const [tags, property] = await Promise.all([
+      db.propertyNfcTag.findMany({
+        where: { propertyId: params.id },
+        orderBy: [{ isActive: "desc" }, { createdAt: "asc" }],
+      }),
+      db.property.findUnique({
+        where: { id: params.id },
+        select: { requireNfcCheckIn: true },
+      }),
+    ]);
 
     const baseUrl = resolveAppUrl("/", req);
     return NextResponse.json({
+      requireNfcCheckIn: property?.requireNfcCheckIn ?? false,
       tags: tags.map((tag) => ({
         id: tag.id,
         label: tag.label,
@@ -128,5 +135,46 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   } catch (err: any) {
     const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: "Could not create the tag." }, { status });
+  }
+}
+
+/**
+ * Turn tag-only clock-in on or off for this property.
+ *
+ * Deliberately refuses to switch ON when the property has no ACTIVE tag: the
+ * setting would lock every cleaner out of a door with nothing to tap, and the
+ * failure would land on the cleaner standing outside rather than on the admin
+ * who set it.
+ */
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const body = await req.json().catch(() => ({}));
+    const requireNfcCheckIn = body?.requireNfcCheckIn === true;
+
+    if (requireNfcCheckIn) {
+      const active = await db.propertyNfcTag.count({
+        where: { propertyId: params.id, isActive: true },
+      });
+      if (active === 0) {
+        return NextResponse.json(
+          {
+            error:
+              "Register and activate at least one tag before requiring tag-only check-in — otherwise nobody can start a job here.",
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    await db.property.update({
+      where: { id: params.id },
+      data: { requireNfcCheckIn },
+    });
+
+    return NextResponse.json({ requireNfcCheckIn });
+  } catch (err: any) {
+    const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 400;
+    return NextResponse.json({ error: "Could not update the setting." }, { status });
   }
 }

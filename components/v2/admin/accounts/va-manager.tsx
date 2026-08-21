@@ -3,10 +3,13 @@
 import * as React from "react";
 import { Loader2, Plus, Trash2, UserPlus } from "lucide-react";
 import {
+  EConfirmButton,
+  EConfirmModal,
   EInput,
   EField,
   ESelect,
   ESwitch,
+  verifyAdminSecurity,
 } from "@/components/v2/admin/estate-kit";
 import {
   EAlert,
@@ -445,15 +448,16 @@ export function EstateVaManager({
                     placeholder="name@example.com"
                     onChange={(e) => updateRow(row.key, { email: e.target.value })}
                   />
-                  <button
-                    type="button"
-                    aria-label="Remove row"
+                  {/* Low tier: an unsent invite row is two fields the admin
+                      can retype in seconds. */}
+                  <EConfirmButton
+                    ariaLabel="Remove row"
+                    confirmLabel="Remove?"
                     disabled={rows.length === 1}
-                    onClick={() => removeRow(row.key)}
-                    className="shrink-0 rounded-[var(--e-radius-sm)] p-2 text-[hsl(var(--e-text-faint))] transition-colors hover:text-[hsl(var(--e-danger))] disabled:opacity-30"
+                    onConfirm={() => removeRow(row.key)}
                   >
                     <Trash2 className="h-4 w-4" />
-                  </button>
+                  </EConfirmButton>
                 </div>
               ))}
               <EButton
@@ -583,6 +587,13 @@ function VaTeamEditor({
     () => team.permissions ?? {}
   );
   const [scope, setScope] = React.useState<string[]>(() => team.propertyIds ?? []);
+  // PIN tier for both deletes below: these destroy a working login. An assistant
+  // removed here loses access mid-task, and there is no undo — the client has to
+  // re-invite and the invitation has to be accepted again.
+  const [removeMemberTarget, setRemoveMemberTarget] = React.useState<
+    { id: string; label: string } | null
+  >(null);
+  const [deleteTeamOpen, setDeleteTeamOpen] = React.useState(false);
 
   // The server is the source of truth, so a refetch after anyone's edit wins
   // over whatever this card was holding.
@@ -613,16 +624,20 @@ function VaTeamEditor({
     }
   }
 
-  async function removeMember(userId: string, label: string) {
-    if (!window.confirm(`Remove ${label}? Their login stops working immediately.`)) return;
+  async function removeMember(credentials?: { pin?: string; password?: string }) {
+    const target = removeMemberTarget;
+    if (!target) return;
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/va-teams/${team.id}/members/${userId}`, {
+      // The members route takes no security payload of its own.
+      await verifyAdminSecurity(credentials);
+      const res = await fetch(`/api/admin/va-teams/${team.id}/members/${target.id}`, {
         method: "DELETE",
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error ?? "Could not remove the assistant.");
+      setRemoveMemberTarget(null);
       await onChanged();
     } catch (err: any) {
       setError(err?.message ?? "Could not remove the assistant.");
@@ -631,17 +646,16 @@ function VaTeamEditor({
     }
   }
 
-  async function deleteTeam() {
-    const ok = window.confirm(
-      `Delete ${team.name}? Every assistant on it loses access immediately. This cannot be undone.`
-    );
-    if (!ok) return;
+  async function deleteTeam(credentials?: { pin?: string; password?: string }) {
     setSaving(true);
     setError(null);
     try {
+      // The team route takes no security payload of its own.
+      await verifyAdminSecurity(credentials);
       const res = await fetch(`/api/admin/va-teams/${team.id}`, { method: "DELETE" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error ?? "Could not remove the team.");
+      setDeleteTeamOpen(false);
       await onChanged();
     } catch (err: any) {
       setError(err?.message ?? "Could not remove the team.");
@@ -697,7 +711,7 @@ function VaTeamEditor({
                     type="button"
                     aria-label={`Remove ${m.email}`}
                     disabled={saving}
-                    onClick={() => void removeMember(m.id, m.name || m.email)}
+                    onClick={() => setRemoveMemberTarget({ id: m.id, label: m.name || m.email })}
                     className="rounded-[var(--e-radius-sm)] p-1 text-[hsl(var(--e-text-faint))] transition-colors hover:text-[hsl(var(--e-danger))] disabled:opacity-40"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -782,7 +796,7 @@ function VaTeamEditor({
                 Save access
               </EButton>
               {canDelete ? (
-                <EButton variant="ghost" size="sm" disabled={saving} onClick={() => void deleteTeam()}>
+                <EButton variant="ghost" size="sm" disabled={saving} onClick={() => setDeleteTeamOpen(true)}>
                   <Trash2 className="mr-1 h-3.5 w-3.5" />
                   Delete team
                 </EButton>
@@ -791,6 +805,33 @@ function VaTeamEditor({
           </div>
         ) : null}
       </ECardBody>
+
+      <EConfirmModal
+        open={Boolean(removeMemberTarget)}
+        onClose={() => setRemoveMemberTarget(null)}
+        title="Remove assistant"
+        description={
+          removeMemberTarget
+            ? `${removeMemberTarget.label} loses their login immediately and would have to be invited and onboarded again. Enter your PIN or password to continue.`
+            : undefined
+        }
+        confirmLabel="Remove assistant"
+        requireSecurity
+        loading={saving}
+        onConfirm={removeMember}
+      />
+
+      <EConfirmModal
+        open={deleteTeamOpen}
+        onClose={() => setDeleteTeamOpen(false)}
+        title="Delete assistant team"
+        description={`Every assistant on ${team.name} loses access immediately, along with the team's permissions and property scope. This cannot be undone. Enter your PIN or password to continue.`}
+        confirmLabel="Delete team"
+        confirmPhrase="DELETE"
+        requireSecurity
+        loading={saving}
+        onConfirm={deleteTeam}
+      />
     </ECard>
   );
 }

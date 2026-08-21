@@ -58,6 +58,8 @@ import {
   EThread,
 } from "@/components/v2/ui/primitives";
 import {
+  EConfirmButton,
+  EConfirmModal,
   EField,
   EInput,
   ESelect,
@@ -1099,6 +1101,11 @@ export function QaInspectionWorkspace({
 
   const [data, setData] = useState<Record<string, any>>({});
   const [notes, setNotes] = useState("");
+  // Modal tier for the two entries that carry uploaded photos: the shots are
+  // the evidence for a damage claim or a rework demand, and deleting the entry
+  // orphans them. The next-clean note is plain text, so it stays low tier.
+  const [removeDamageId, setRemoveDamageId] = useState<string | null>(null);
+  const [removeAreaId, setRemoveAreaId] = useState<string | null>(null);
   const [tools, setTools] = useState<QaInspectionTools>(() => emptyInspectionTools());
   const [signatureDataUrl, setSignatureDataUrl] = useState("");
   const [attested, setAttested] = useState(false);
@@ -2704,7 +2711,7 @@ export function QaInspectionWorkspace({
                     onUploaded={(key, url) => addDamagePhoto(entry.id, key, url)}
                     onError={(msg) => pushToast({ title: "Upload failed", description: msg, tone: "danger" })}
                   />
-                  <EButton variant="ghost" size="sm" onClick={() => removeDamage(entry.id)}>
+                  <EButton variant="ghost" size="sm" onClick={() => setRemoveDamageId(entry.id)}>
                     <Trash2 className="h-4 w-4" /> Remove
                   </EButton>
                 </div>
@@ -2731,9 +2738,14 @@ export function QaInspectionWorkspace({
               <div key={r.id} className="space-y-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
                 <div className="flex items-center gap-2">
                   <EBadge tone="neutral" soft>{r.kind === "DEEP_CLEAN_AREA" ? "Deep clean area" : "Special request"}</EBadge>
-                  <EButton variant="ghost" size="sm" className="ml-auto" onClick={() => removeNextClean(r.id)}>
+                  <EConfirmButton
+                    ariaLabel="Remove next-clean note"
+                    confirmLabel="Remove?"
+                    className="ml-auto inline-flex h-8 items-center gap-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-2 text-[0.75rem] text-[hsl(var(--e-danger))]"
+                    onConfirm={() => removeNextClean(r.id)}
+                  >
                     <Trash2 className="h-4 w-4" />
-                  </EButton>
+                  </EConfirmButton>
                 </div>
                 {r.kind === "DEEP_CLEAN_AREA" ? (
                   <EInput value={r.area ?? ""} onChange={(e) => updateNextClean(r.id, { area: e.target.value })} placeholder="Which area? e.g. Oven, balcony" />
@@ -2894,7 +2906,7 @@ export function QaInspectionWorkspace({
                     <div key={area.id} className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
                       <div className="flex items-center gap-2">
                         <EInput value={area.label} onChange={(e) => updateFlaggedArea(area.id, { label: e.target.value })} placeholder="Area (e.g. Main bathroom)" />
-                        <EButton variant="ghost" size="icon" aria-label="Remove area" onClick={() => removeFlaggedArea(area.id)}>
+                        <EButton variant="ghost" size="icon" aria-label="Remove area" onClick={() => setRemoveAreaId(area.id)}>
                           <Trash2 className="h-4 w-4" />
                         </EButton>
                       </div>
@@ -3437,6 +3449,34 @@ export function QaInspectionWorkspace({
           onSave={({ blob, comment }) => saveAnnotation(blob, comment)}
         />
       ) : null}
+
+      <EConfirmModal
+        open={Boolean(removeDamageId)}
+        onClose={() => setRemoveDamageId(null)}
+        title="Remove this damage entry"
+        description={`The note and the ${
+          tools.damage.find((d) => d.id === removeDamageId)?.photoKeys.length ?? 0
+        } photo(s) attached to it come off this inspection. Photos already uploaded are not re-attached by adding a new entry.`}
+        confirmLabel="Remove entry"
+        onConfirm={() => {
+          if (removeDamageId) removeDamage(removeDamageId);
+          setRemoveDamageId(null);
+        }}
+      />
+
+      <EConfirmModal
+        open={Boolean(removeAreaId)}
+        onClose={() => setRemoveAreaId(null)}
+        title="Remove this flagged area"
+        description={`The cleaner is no longer asked to re-clean it, and the ${
+          rework.flaggedAreas.find((a) => a.id === removeAreaId)?.photoKeys.length ?? 0
+        } photo(s) showing what was wrong come off with it.`}
+        confirmLabel="Remove area"
+        onConfirm={() => {
+          if (removeAreaId) removeFlaggedArea(removeAreaId);
+          setRemoveAreaId(null);
+        }}
+      />
     </div>
   );
 }

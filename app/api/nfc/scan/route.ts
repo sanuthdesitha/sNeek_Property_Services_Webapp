@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { haversine } from "@/lib/gps/distance";
+import { clockOutCleaner } from "@/lib/jobs/clock";
 import { rateLimit, getClientIp } from "@/lib/security/rate-limit";
 import {
   resolveScanJob,
@@ -193,6 +194,16 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // A SECOND tap ends the shift on this job. The cleaner is holding their
+  // phone against the same tag on the way out, which is the clearest signal
+  // we will ever get that they have finished — and it saves them unlocking
+  // the app to press Stop with their hands full.
+  let clockedOut = false;
+  if (resolution.action === "CHECK_OUT") {
+    const result = await clockOutCleaner({ jobId: job.id, userId, now });
+    clockedOut = result.stopped;
+  }
+
   await db.propertyNfcTag
     .update({ where: { id: tag.id }, data: { lastUsedAt: now } })
     .catch(() => undefined);
@@ -204,7 +215,9 @@ export async function POST(req: NextRequest) {
     action: resolution.action,
     message:
       resolution.action === "CHECK_OUT"
-        ? "Opening the job so you can finish up."
+        ? clockedOut
+          ? "Clocked out. Opening the job so you can finish up."
+          : "Opening the job so you can finish up."
         : "You're checked in — opening the job.",
   });
 }

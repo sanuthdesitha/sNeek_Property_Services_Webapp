@@ -22,7 +22,7 @@ import {
 } from "@prisma/client";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState, EEyebrow } from "@/components/v2/ui/primitives";
 import { MediaGallery } from "@/components/shared/media-gallery";
-import { EInput, ESelect, ETextarea, EField, EModal } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EInput, ESelect, ETextarea, EField, EModal } from "@/components/v2/admin/estate-kit";
 import { ECheckTile, EInlineNotice } from "@/components/v2/client/fields";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -297,14 +297,16 @@ function ReportModal({
                     <span key={p.key} className="relative block h-16 w-16 overflow-hidden rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={p.url} alt="" className="h-full w-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => photos.remove(p.key)}
-                        className="absolute right-0 top-0 flex h-5 w-5 items-center justify-center bg-[hsl(160_18%_8%/0.6)] text-white"
-                        aria-label="Remove"
+                      {/* Low tier: the photo is still uploaded and can be
+                          picked again from the same control. */}
+                      <EConfirmButton
+                        ariaLabel="Remove photo"
+                        confirmLabel={<X className="h-3 w-3 text-[hsl(var(--e-danger))]" />}
+                        onConfirm={() => photos.remove(p.key)}
+                        className="absolute right-0 top-0 flex h-5 w-5 items-center justify-center bg-[hsl(160_18%_8%/0.75)] text-white"
                       >
                         <X className="h-3 w-3" />
-                      </button>
+                      </EConfirmButton>
                     </span>
                   ))}
                 </div>

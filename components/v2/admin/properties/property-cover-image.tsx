@@ -16,6 +16,7 @@ import { ImagePlus, Trash2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/uploads/compress";
 import { EButton } from "@/components/v2/ui/primitives";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 
 export function PropertyCoverImage({
   value,
@@ -77,9 +78,15 @@ export function PropertyCoverImage({
             <EButton variant="outline" size="sm" disabled={uploading} onClick={() => inputRef.current?.click()}>
               <ImagePlus className="mr-1 h-3.5 w-3.5" /> {uploading ? "Uploading…" : "Replace"}
             </EButton>
-            <EButton variant="ghost" size="sm" disabled={uploading} onClick={() => onChange("")}>
+            {/* Low tier: "Replace" sits next to it and the file is still stored. */}
+            <EConfirmButton
+              ariaLabel="Remove photo"
+              confirmLabel="Remove it?"
+              disabled={uploading}
+              onConfirm={() => onChange("")}
+            >
               <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove photo
-            </EButton>
+            </EConfirmButton>
           </div>
         </div>
       ) : (

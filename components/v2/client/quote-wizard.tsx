@@ -36,6 +36,7 @@ import {
   EEyebrow,
 } from "@/components/v2/ui/primitives";
 import { ECheckTile, EInlineNotice, EInput, ELabel, ESelect, ETextarea } from "@/components/v2/client/fields";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import { EAddressInput } from "@/components/v2/client/address-input";
 
 type QuoteResult = {
@@ -771,14 +772,16 @@ export function EstateQuoteWizard({
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={url} alt="Uploaded property photo" className="h-full w-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setPhotoUrls((prev) => prev.filter((u) => u !== url))}
+                      {/* Low tier: an uploaded photo on a quote request that
+                          has not been sent yet. */}
+                      <EConfirmButton
+                        ariaLabel="Remove photo"
+                        confirmLabel={<X className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />}
+                        onConfirm={() => setPhotoUrls((prev) => prev.filter((u) => u !== url))}
                         className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-                        aria-label="Remove photo"
                       >
                         <X className="h-3.5 w-3.5" />
-                      </button>
+                      </EConfirmButton>
                     </div>
                   ))}
                 </div>

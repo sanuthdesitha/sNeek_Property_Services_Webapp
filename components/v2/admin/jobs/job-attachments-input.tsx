@@ -12,6 +12,7 @@
 import { useRef, useState } from "react";
 import { X } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import { toast } from "@/hooks/use-toast";
 import type { JobReferenceAttachment } from "@/lib/jobs/meta";
 
@@ -125,14 +126,15 @@ export function JobAttachmentsInput({ value, onChange }: JobAttachmentsInputProp
                   {item.sizeBytes ? ` · ${(item.sizeBytes / 1024 / 1024).toFixed(2)} MB` : ""}
                 </p>
               </div>
-              <button
-                type="button"
-                aria-label={`Remove ${item.name}`}
-                onClick={() => removeAttachment(item.key)}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[hsl(var(--e-text-faint))] transition-colors hover:bg-[hsl(var(--e-muted))] hover:text-[hsl(var(--e-foreground))]"
+              {/* Low tier: the file stays uploaded; this only detaches it. */}
+              <EConfirmButton
+                ariaLabel={`Remove ${item.name}`}
+                confirmLabel={<X className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />}
+                onConfirm={() => removeAttachment(item.key)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[hsl(var(--e-text-faint))] transition-colors hover:bg-[hsl(var(--e-muted))]"
               >
                 <X className="h-3.5 w-3.5" />
-              </button>
+              </EConfirmButton>
             </div>
           ))}
         </div>

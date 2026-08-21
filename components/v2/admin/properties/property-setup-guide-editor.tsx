@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EButton, EEmptyState } from "@/components/v2/ui/primitives";
-import { EField, EInput, ETextarea, ESelect } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EField, EInput, ETextarea, ESelect } from "@/components/v2/admin/estate-kit";
 
 export type SetupKind = "SETUP" | "REFERENCE_POSITION" | "SOFA_BED" | "OTHER";
 
@@ -245,14 +245,16 @@ function SetupEntryCard({
                     <div className="relative">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={img.url} alt={img.caption ?? "Setup photo"} className="h-28 w-full object-cover" />
-                      <button
-                        type="button"
-                        aria-label="Remove photo"
-                        onClick={() => removeImage(idx)}
-                        className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(160_18%_8%/0.6)] text-white transition-colors hover:bg-[hsl(var(--e-danger))]"
+                      {/* Low tier: the photo is still in storage and can be
+                          re-picked from the upload button above. */}
+                      <EConfirmButton
+                        ariaLabel="Remove photo"
+                        confirmLabel={<X className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />}
+                        onConfirm={() => removeImage(idx)}
+                        className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(160_18%_8%/0.75)] text-white"
                       >
                         <X className="h-3.5 w-3.5" />
-                      </button>
+                      </EConfirmButton>
                     </div>
                     <input
                       value={img.caption ?? ""}
@@ -279,9 +281,11 @@ function SetupEntryCard({
           <EButton type="button" variant="ghost" size="icon" disabled={index === total - 1} onClick={() => onMove(1)} aria-label="Move down">
             <ArrowDown className="h-4 w-4" />
           </EButton>
-          <EButton type="button" variant="ghost" size="icon" onClick={onRemove} aria-label="Delete entry">
+          {/* Low tier: the whole entry, but only in the unsaved draft — the
+              guide is written back when the page is saved. */}
+          <EConfirmButton ariaLabel="Delete entry" confirmLabel="Delete it?" onConfirm={onRemove}>
             <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-          </EButton>
+          </EConfirmButton>
         </div>
       </div>
     </div>

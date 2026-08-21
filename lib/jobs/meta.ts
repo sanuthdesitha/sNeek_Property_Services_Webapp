@@ -83,6 +83,17 @@ export interface JobMeta {
    * from specialRequestTasks so a notice never counts as outstanding work.
    */
   notices: JobNotice[];
+  /**
+   * Who acknowledged the start briefing, and when.
+   *
+   * Keyed by cleaner id: `{ hash, items: [{ itemId, at }] }`. The start route
+   * has always WRITTEN this, but it was never listed in the serialiser below,
+   * so every write silently dropped it — the gate worked for the request that
+   * carried the acknowledgement and then forgot it had ever happened. It is
+   * the record of a cleaner confirming they read a safety instruction, which
+   * is exactly the kind of thing that has to survive.
+   */
+  startBriefingAcks: Record<string, unknown>;
   earlyCheckin: JobTimingRule;
   lateCheckout: JobTimingRule;
   /**
@@ -150,6 +161,7 @@ export function defaultJobMeta(): JobMeta {
     attachments: [],
     specialRequestTasks: [],
     notices: [],
+    startBriefingAcks: {},
     earlyCheckin: { ...DEFAULT_RULE },
     lateCheckout: { ...DEFAULT_RULE },
     includeTaskPhotosInReport: true,
@@ -379,12 +391,24 @@ function normalizeJobNotices(input: unknown): JobNotice[] {
       const rawId = typeof item.id === "string" ? item.id.trim() : "";
       const author = typeof item.authorName === "string" ? item.authorName.trim() : "";
       const createdAt = typeof item.createdAt === "string" ? item.createdAt.trim() : "";
+      // Rebuilt field-by-field (rather than spread) so hand-edited JSON cannot
+      // smuggle keys in, which means every new field must be listed HERE or it
+      // is silently dropped on both read and write.
+      const imageUrls = Array.isArray(item.imageUrls)
+        ? item.imageUrls
+            .filter((url): url is string => typeof url === "string")
+            .map((url) => url.trim())
+            .filter(Boolean)
+        : [];
       notices.push({
         id: rawId || `notice-${index + 1}`,
         body,
         urgency: item.urgency === "IMPORTANT" ? "IMPORTANT" : "INFO",
         authorName: author || undefined,
         createdAt: createdAt || undefined,
+        // Undefined rather than [] so a notice that never had photos does not
+        // grow an empty array into the stored JSON on every save.
+        imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
       });
     });
   return notices;
@@ -451,6 +475,10 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
         : [],
       specialRequestTasks: normalizeSpecialRequestTasks(parsed.specialRequestTasks),
       notices: normalizeJobNotices(parsed.notices),
+      startBriefingAcks:
+        parsed.startBriefingAcks && typeof parsed.startBriefingAcks === "object"
+          ? (parsed.startBriefingAcks as Record<string, unknown>)
+          : {},
       earlyCheckin: normalizeRule(parsed.earlyCheckin),
       lateCheckout: normalizeRule(parsed.lateCheckout),
       // Absent means true, so every job predating this flag keeps showing its
@@ -486,6 +514,10 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     attachments: Array.isArray(input.attachments) ? input.attachments : [],
     specialRequestTasks: normalizeSpecialRequestTasks(input.specialRequestTasks),
     notices: normalizeJobNotices(input.notices),
+    startBriefingAcks:
+      input.startBriefingAcks && typeof input.startBriefingAcks === "object"
+        ? input.startBriefingAcks
+        : {},
     earlyCheckin: normalizeRule(input.earlyCheckin),
     lateCheckout: normalizeRule(input.lateCheckout),
     transportAllowances: normalizeCleanerAmountMap(input.transportAllowances, false),
@@ -505,6 +537,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     meta.attachments.length > 0 ||
     meta.specialRequestTasks.length > 0 ||
     meta.notices.length > 0 ||
+    Object.keys(meta.startBriefingAcks).length > 0 ||
     meta.earlyCheckin.enabled ||
     meta.lateCheckout.enabled ||
     // Only FALSE counts as data worth storing — true is the default, so a job
@@ -535,6 +568,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     attachments: meta.attachments,
     specialRequestTasks: meta.specialRequestTasks,
     notices: meta.notices,
+    startBriefingAcks: meta.startBriefingAcks,
     earlyCheckin: meta.earlyCheckin,
     lateCheckout: meta.lateCheckout,
     includeTaskPhotosInReport: meta.includeTaskPhotosInReport,
