@@ -23,6 +23,7 @@ export default async function EstateFormEditPage({ params }: { params: { id: str
       isActive: true,
       archivedAt: true,
       version: true,
+      updatedAt: true,
     },
   });
 
@@ -77,6 +78,11 @@ export default async function EstateFormEditPage({ params }: { params: { id: str
       initialSchema={initialSchema}
       initialIsActive={template.isActive}
       initialArchived={Boolean(template.archivedAt)}
+      // The version this render is of. The builder sends it back on save so
+      // the server can refuse a write from an editor that has gone stale —
+      // which a back-navigation reliably produces, because Next serves the
+      // pre-edit RSC payload from the client Router Cache.
+      initialUpdatedAt={template.updatedAt.toISOString()}
     />
   );
 }

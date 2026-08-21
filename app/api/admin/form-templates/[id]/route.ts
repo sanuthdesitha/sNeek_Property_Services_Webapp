@@ -5,12 +5,18 @@ import { Role, JobType } from "@prisma/client";
 import { z } from "zod";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { formTemplateSchemaZ } from "@/lib/forms/template-schema";
+import { isStaleTemplateWrite } from "@/lib/forms/template-concurrency";
 
 const updateTemplateSchema = z.object({
   name: z.string().optional(),
   serviceType: z.nativeEnum(JobType).optional(),
   schema: formTemplateSchemaZ.optional(),
   isActive: z.boolean().optional(),
+  /**
+   * The `updatedAt` the editor loaded. Optional for older clients, but when
+   * present it is enforced — see the PATCH below.
+   */
+  expectedUpdatedAt: z.string().datetime().optional(),
 });
 
 export async function GET(
@@ -33,7 +39,35 @@ export async function PATCH(
 ) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const body = updateTemplateSchema.parse(await req.json());
+    const { expectedUpdatedAt, ...body } = updateTemplateSchema.parse(await req.json());
+
+    // OPTIMISTIC CONCURRENCY. `schema` is replaced wholesale, so a save from a
+    // stale editor silently destroys everything saved since that editor loaded.
+    // That is not hypothetical: the builder seeds its state once from the RSC
+    // payload, and a back-navigation re-mounts it from the PRE-EDIT payload, so
+    // the owner sees their work missing, re-does an edit, saves — and the good
+    // schema is gone from the database. Refusing the write is the only place
+    // this can be stopped for certain, because it is the only place that knows
+    // what is actually stored.
+    if (expectedUpdatedAt) {
+      const current = await db.formTemplate.findUnique({
+        where: { id: params.id },
+        select: { updatedAt: true },
+      });
+      if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      if (isStaleTemplateWrite(current.updatedAt, expectedUpdatedAt)) {
+        return NextResponse.json(
+          {
+            error:
+              "This template changed since you opened it. Reload to see the current version — saving now would overwrite that change.",
+            code: "STALE_TEMPLATE",
+            currentUpdatedAt: current.updatedAt.toISOString(),
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const template = await db.formTemplate.update({ where: { id: params.id }, data: body as any });
     return NextResponse.json(template);

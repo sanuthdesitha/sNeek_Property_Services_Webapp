@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { JobStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { TRACKED_STATUSES } from "@/lib/gps/tracked-statuses";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +14,10 @@ export const dynamic = "force-dynamic";
  * window — EN_ROUTE, IN_PROGRESS, PAUSED — and stop only once the job leaves it
  * (submitted / completed / cancelled).
  */
-const TRACKING_STATUSES: JobStatus[] = [
-  JobStatus.EN_ROUTE,
-  JobStatus.IN_PROGRESS,
-  JobStatus.PAUSED,
-];
+// The window itself lives in lib/gps/tracked-statuses — it used to be
+// written out here and in three other places, and one of those copies was
+// wrong, which is what stopped on-site cleaners reporting at all.
+const TRACKING_STATUSES = TRACKED_STATUSES;
 
 export async function GET() {
   try {

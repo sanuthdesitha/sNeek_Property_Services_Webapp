@@ -22,6 +22,7 @@ export default async function FormEditPage({
       isActive: true,
       archivedAt: true,
       version: true,
+      updatedAt: true,
     },
   });
 
@@ -89,6 +90,7 @@ export default async function FormEditPage({
       initialSchema={initialSchema}
       initialIsActive={template.isActive}
       initialArchived={Boolean(template.archivedAt)}
+      initialUpdatedAt={template.updatedAt.toISOString()}
     />
   );
 }

@@ -3,6 +3,7 @@ import { Role, JobStatus } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getEtaMinutes } from "@/lib/jobs/eta";
+import { TRACKED_STATUSES } from "@/lib/gps/tracked-statuses";
 
 const STALE_PING_MS = 10 * 60 * 1000;
 
@@ -14,8 +15,12 @@ export async function GET(_req: NextRequest) {
 
     const liveJobs = await db.job.findMany({
       where: {
-        status: { in: [JobStatus.EN_ROUTE, JobStatus.PAUSED, JobStatus.IN_PROGRESS] },
-        cleanerLocationPings: { some: { timestamp: { gte: since } } },
+        status: { in: TRACKED_STATUSES },
+        // Deliberately NOT filtered on a recent ping. Requiring one removed the
+        // cleaner from the map entirely once their fixes went quiet, so an ops
+        // manager saw an empty map and no indication anyone was missing — the
+        // worst possible reading of "I cannot see this person". They stay in
+        // the list; staleness is reported per row below and drawn as such.
       },
       select: {
         id: true,
@@ -107,6 +112,11 @@ export async function GET(_req: NextRequest) {
           heading: ping?.heading ?? null,
           speed: ping?.speed ?? null,
           lastPingAt: ping?.timestamp ?? null,
+          // Reported rather than filtered on. The row now always appears; the
+          // map draws a stale or fix-less cleaner differently instead of the
+          // query pretending they are not on shift.
+          hasFix: Boolean(ping),
+          stale: ping ? ping.timestamp.getTime() < since.getTime() : true,
           propertyName,
           propertyLat: propLat,
           propertyLng: propLng,

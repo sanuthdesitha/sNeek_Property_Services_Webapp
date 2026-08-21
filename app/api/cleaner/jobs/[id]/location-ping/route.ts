@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getEtaMinutes, geocodeAddress, type EtaMode } from "@/lib/jobs/eta";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
+import { TRACKED_STATUSES } from "@/lib/gps/tracked-statuses";
 
 const schema = z.object({
   lat: z.number().min(-90).max(90),
@@ -80,8 +81,17 @@ export async function POST(
     });
 
     if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
-    if (job.status !== ("EN_ROUTE" as JobStatus)) {
-      return NextResponse.json({ error: "Job is not actively en route." }, { status: 400 });
+    // Location is tracked for the WHOLE active-job window, not just the drive.
+    // This used to reject anything that was not EN_ROUTE, which meant a cleaner
+    // who checked in stopped reporting: the v1 page keeps its GPS watch running
+    // (and says so in a comment claiming this very bug was fixed) but clears its
+    // queue on a 400, so every fix taken on site was thrown away. The ops map
+    // then showed them frozen at the kerb, or dropped them entirely.
+    if (!TRACKED_STATUSES.includes(job.status)) {
+      return NextResponse.json(
+        { error: "Job is not active." },
+        { status: 400 }
+      );
     }
 
     const recentPing = await db.cleanerLocationPing.findFirst({
@@ -109,7 +119,10 @@ export async function POST(
       },
     });
 
-    if (job.arrivedAt) {
+    // Everything below is ETA/delay maths for a cleaner still driving. Once
+    // they have arrived — or the job has moved past EN_ROUTE — the ping has
+    // been recorded and there is no journey left to estimate.
+    if (job.arrivedAt || job.status !== ("EN_ROUTE" as JobStatus)) {
       return NextResponse.json({ ok: true, skipped: false, etaMinutes: job.enRouteEtaMinutes });
     }
 

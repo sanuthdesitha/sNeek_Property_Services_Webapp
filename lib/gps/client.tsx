@@ -10,6 +10,31 @@ const FLUSH_INTERVAL_MS = 30_000;
 // stale mid-job. The heartbeat keeps the server's "last seen" fresh.
 const HEARTBEAT_INTERVAL_MS = 45_000;
 
+// The server validates a batch of at most 50 (`/api/cleaner/location/ping`).
+// This MUST NOT drift from that number: a larger batch fails validation, the
+// flush never clears the queue, and the queue only grows — one backgrounded
+// tab was enough to wedge a cleaner's tracking for the rest of their shift.
+const MAX_BATCH = 50;
+
+// watchPosition fires on every movement — roughly once a second on a moving
+// phone — which is how the queue outran the batch limit in the first place.
+// A fix is only worth recording if enough time has passed or the phone has
+// actually moved; the v1 page has thresholded like this all along.
+const MIN_FIX_INTERVAL_MS = 20_000;
+const MIN_FIX_DISTANCE_M = 50;
+
+/** Metres between two coordinates. Small-angle equirectangular is plenty for
+ *  a 50 m threshold and avoids importing the server-side geo module. */
+function roughDistanceM(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number }
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const x = toRad(b.lng - a.lng) * Math.cos(toRad((a.lat + b.lat) / 2));
+  const y = toRad(b.lat - a.lat);
+  return Math.sqrt(x * x + y * y) * 6_371_000;
+}
+
 export type GpsPermission = "prompt" | "granted" | "denied";
 
 export interface GpsLastFix {
@@ -50,6 +75,15 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
     const recordFix = async (
       coords: { lat: number; lng: number; accuracy: number | null; heading?: number | null; speed?: number | null },
     ) => {
+      // Only watchPosition comes through here. The heartbeat below enqueues
+      // directly on purpose — it exists to re-emit a position that has NOT
+      // changed, which is exactly what this throttle is built to suppress.
+      const previous = lastCoordsRef.current;
+      if (previous) {
+        const sinceMs = Date.now() - lastEnqueueAtRef.current;
+        const movedM = roughDistanceM(previous, coords);
+        if (sinceMs < MIN_FIX_INTERVAL_MS && movedM < MIN_FIX_DISTANCE_M) return;
+      }
       lastCoordsRef.current = { lat: coords.lat, lng: coords.lng, accuracy: coords.accuracy };
       lastEnqueueAtRef.current = Date.now();
       try {
@@ -149,14 +183,35 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
       try {
         const pings = await drainQueue();
         if (pings.length === 0) return;
-        const res = await fetch("/api/cleaner/location/ping", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          // strip local id before sending
-          body: JSON.stringify(pings.map(({ id: _id, ...rest }) => rest)),
-        });
-        if (res.ok) {
-          await clearQueue(pings.map((p) => p.id));
+
+        // Send in server-sized batches. Draining the whole queue into one
+        // request is what broke this: past 50 the payload failed validation,
+        // `res.ok` stayed false, the queue was never cleared, and every later
+        // flush re-sent an ever-larger payload that could never succeed.
+        for (let i = 0; i < pings.length; i += MAX_BATCH) {
+          if (cancelled) return;
+          const batch = pings.slice(i, i + MAX_BATCH);
+          const res = await fetch("/api/cleaner/location/ping", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            // strip local id before sending
+            body: JSON.stringify(batch.map(({ id: _id, ...rest }) => rest)),
+          });
+
+          if (res.ok) {
+            await clearQueue(batch.map((p) => p.id));
+            continue;
+          }
+
+          // 4xx means this payload will NEVER be accepted — a malformed or
+          // stale ping. Keeping it would block every ping behind it forever,
+          // so drop it and carry on. 5xx and network errors are transient and
+          // stay queued for the next flush.
+          if (res.status >= 400 && res.status < 500) {
+            await clearQueue(batch.map((p) => p.id));
+            continue;
+          }
+          return;
         }
       } catch {
         // Network or DB error — pings stay queued.

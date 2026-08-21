@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { sydneyDayEndInclusive, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { haversine, DEFAULT_GEOFENCE_RADIUS_M } from "@/lib/gps/distance";
 import { deriveLiveStatus, LIVE_STALE_AFTER_MS } from "@/lib/ops/live-status";
+import { TRACKED_STATUSES } from "@/lib/gps/tracked-statuses";
 
 export const dynamic = "force-dynamic";
 
@@ -89,7 +90,7 @@ export async function GET() {
       // Active-status job, scheduled for today only — a stale EN_ROUTE /
       // IN_PROGRESS / PAUSED job from a past day is excluded.
       where: {
-        status: { in: [JobStatus.EN_ROUTE, JobStatus.IN_PROGRESS, JobStatus.PAUSED] },
+        status: { in: TRACKED_STATUSES },
         assignments: { some: { removedAt: null } },
         scheduledDate: { gte: todayStart, lte: todayEnd },
       },
