@@ -8,8 +8,24 @@
  */
 import * as React from "react";
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
+import { resolveRuleTime } from "@/lib/jobs/meta";
+import { renderJobNotices } from "@/lib/jobs/notices";
 
-export type ReadFirstSource = "ADMIN" | "CLIENT" | "TASK" | "CARRY_FORWARD";
+/**
+ * TIMING and NOTICE lead the list. A late-checkout rule and a one-off notice
+ * are the two things a cleaner cannot recover from by working harder — they
+ * have to be known BEFORE the first door opens, not found under "show all".
+ */
+export type ReadFirstSource =
+  | "TIMING"
+  | "NOTICE"
+  | "ADMIN"
+  | "CLIENT"
+  | "TASK"
+  | "CARRY_FORWARD";
+
+/** Sources that must never be collapsed behind the fold. */
+const ALWAYS_VISIBLE_SOURCES: ReadFirstSource[] = ["TIMING", "NOTICE"];
 
 export interface ReadFirstItem {
   source: ReadFirstSource;
@@ -19,6 +35,8 @@ export interface ReadFirstItem {
 }
 
 const SOURCE_LABEL: Record<ReadFirstSource, string> = {
+  TIMING: "Timing",
+  NOTICE: "Notice",
   ADMIN: "Admin note",
   CLIENT: "Client request",
   TASK: "Task",
@@ -42,6 +60,38 @@ export function buildReadFirstItems(payload: {
 }): ReadFirstItem[] {
   const items: ReadFirstItem[] = [];
   const jobMeta = payload.jobMeta ?? {};
+
+  // TIMING — the guests' hours. These were only ever drawn as separate
+  // banners further down the page, so a cleaner who scrolled straight to
+  // the checklist could miss that the property is occupied until 11am.
+  const lateCheckout = resolveRuleTime(jobMeta.lateCheckout);
+  if (lateCheckout) {
+    items.push({
+      source: "TIMING",
+      title: `Do not start before ${lateCheckout}`,
+      body: "Guests are still in the property until then. Do not enter or begin the clean.",
+    });
+  }
+  const earlyCheckin = resolveRuleTime(jobMeta.earlyCheckin);
+  if (earlyCheckin) {
+    items.push({
+      source: "TIMING",
+      title: `Property must be guest-ready by ${earlyCheckin}`,
+      body: "New guests check in early. Everything must be finished and reset before this time.",
+    });
+  }
+
+  // NOTICE — one-off information for this clean. Ordered and worded by
+  // lib/jobs/notices so this list and the start-of-clean gate cannot drift.
+  for (const notice of renderJobNotices(jobMeta.notices)) {
+    items.push({
+      source: "NOTICE",
+      title: notice.title,
+      body: notice.attribution
+        ? `${notice.detail}\n\n${notice.attribution}`
+        : notice.detail,
+    });
+  }
 
   // ADMIN — the free-form internal note.
   const adminNote = str(jobMeta.internalNoteText);
@@ -142,8 +192,15 @@ export function ReadFirstBlock({
   const [expanded, setExpanded] = React.useState(false);
   if (!items || items.length === 0) return null;
 
-  const showAll = expanded || items.length <= defaultVisible;
-  const visible = showAll ? items : items.slice(0, defaultVisible);
+  // The fold may never swallow a timing rule or a notice: those lead the
+  // list, so widening the window to cover them keeps "show all" useful for
+  // the tasks below without hiding anything time-critical.
+  const criticalCount = items.filter((item) =>
+    ALWAYS_VISIBLE_SOURCES.includes(item.source)
+  ).length;
+  const windowSize = Math.max(defaultVisible, criticalCount);
+  const showAll = expanded || items.length <= windowSize;
+  const visible = showAll ? items : items.slice(0, windowSize);
   const hidden = items.length - visible.length;
 
   return (

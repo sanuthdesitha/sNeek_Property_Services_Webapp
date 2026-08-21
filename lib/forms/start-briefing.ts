@@ -10,6 +10,7 @@
  *
  * Sources, in the order they are presented:
  *   TIMING_RULE   late checkout / early check-in — highest stakes, first.
+ *   NOTICE        one-off information for this clean.
  *   ADMIN_TASK    admin special-request tasks on this job.
  *   CLIENT_TASK   client-requested tasks (approved ones only).
  *   SPECIAL_NOTE  the free-form internal note.
@@ -18,8 +19,14 @@
  */
 
 import { resolveRuleTime, type JobMeta } from "@/lib/jobs/meta";
+import { renderJobNotices } from "@/lib/jobs/notices";
 
-export type StartBriefingSource = "TIMING_RULE" | "ADMIN_TASK" | "CLIENT_TASK" | "SPECIAL_NOTE";
+export type StartBriefingSource =
+  | "TIMING_RULE"
+  | "NOTICE"
+  | "ADMIN_TASK"
+  | "CLIENT_TASK"
+  | "SPECIAL_NOTE";
 
 export interface ResolvedStartBriefingItem {
   id: string;
@@ -70,7 +77,14 @@ export interface StartBriefingJobTask {
  * every single job is a dialog people learn to dismiss without reading.
  */
 export function resolveStartBriefingItems(input: {
-  meta: Pick<JobMeta, "earlyCheckin" | "lateCheckout" | "internalNoteText" | "specialRequestTasks">;
+  meta: Pick<
+    JobMeta,
+    | "earlyCheckin"
+    | "lateCheckout"
+    | "internalNoteText"
+    | "specialRequestTasks"
+    | "notices"
+  >;
   jobTasks?: StartBriefingJobTask[];
 }): ResolvedStartBriefingItem[] {
   const items: ResolvedStartBriefingItem[] = [];
@@ -93,6 +107,20 @@ export function resolveStartBriefingItems(input: {
       title: `Property must be guest-ready by ${early}`,
       detail: "New guests check in early. Everything must be finished and reset before this time.",
       source: "TIMING_RULE",
+    });
+  }
+
+  // NOTICES — read second, under the timing rules. They are re-shown here
+  // as a start-of-clean reminder: a cleaner reads the job page when they
+  // accept it, which can be days before they stand at the door.
+  for (const notice of renderJobNotices(input.meta.notices)) {
+    items.push({
+      id: notice.itemId,
+      title: notice.title,
+      detail: notice.attribution
+        ? `${notice.detail}\n\n${notice.attribution}`
+        : notice.detail,
+      source: "NOTICE",
     });
   }
 
