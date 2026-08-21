@@ -342,22 +342,23 @@ export async function applyReschedule(input: {
       scheduledDate: date,
       startTime: input.startTime !== undefined ? input.startTime || null : job.startTime,
       dueTime: input.dueTime !== undefined ? input.dueTime || null : job.dueTime,
-      // `internalNotes` is NOT free text — it carries the whole serialised
-      // JobMeta blob. Appending a line made it invalid JSON, so the next
-      // parseJobInternalNotes fell back to defaults and the next writer
-      // re-serialised those defaults as clean JSON, permanently destroying the
-      // job's timing rules, per-cleaner payouts, transport allowances,
-      // special-request tasks, attachments and quote extras. The reason now
-      // goes into the blob's own free-text field. Same approach as the QA route
-      // ("append to job internalNotes (preserving structured meta)").
-      internalNotes: input.reason
-        ? serializeJobInternalNotes({
-            ...meta,
-            internalNoteText: [meta.internalNoteText.trim(), `Reschedule reason: ${input.reason}`]
-              .filter(Boolean)
-              .join("\n"),
-          })
-        : job.internalNotes,
+      // The reschedule reason is NOT written here any more.
+      //
+      // `internalNoteText` is the note READ OUT TO THE CLEANER before every
+      // clean, so appending to it put a client/office matter — why the client
+      // moved the booking, and that an admin approved it — in front of the
+      // person cleaning the house. It also accumulated: reschedule twice and
+      // the cleaner reads two of them forever.
+      //
+      // The reason is already on the AuditLog entry below, which the admin job
+      // page renders in its Activity tab, so nothing is lost — it lives where
+      // the people it concerns can see it.
+      //
+      // Anything written here must still go through serializeJobInternalNotes:
+      // the column carries the whole serialised JobMeta blob, and a plain
+      // appended line once made it invalid JSON, silently destroying the job's
+      // timing rules, payouts, allowances, tasks and attachments.
+      internalNotes: job.internalNotes,
       manuallyRescheduledAt: new Date(),
       rescheduledBy: input.userId,
     },

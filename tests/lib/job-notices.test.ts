@@ -128,3 +128,82 @@ describe("notices in the start-of-clean briefing", () => {
     expect(resolveStartBriefingItems({ meta: { ...meta, notices: [] } })).toEqual([]);
   });
 });
+
+/**
+ * REPORTED: cleaners were being shown client/office correspondence before every
+ * clean — "client requested a reschedule", "client asked for an ETA", "client
+ * asked for the report", the reschedule reason, the approval. None of it is
+ * work, and none of it is the cleaner's business.
+ *
+ * Those rows are stored as JobTasks with visibleToCleaner: false. The briefing
+ * filtered on source and approval only, so an APPROVED reschedule request
+ * (approved = true, visible = false) walked straight through.
+ */
+describe("the briefing shows work, not correspondence", () => {
+  const meta = {
+    earlyCheckin: { enabled: false } as any,
+    lateCheckout: { enabled: false } as any,
+    internalNoteText: "",
+    specialRequestTasks: [],
+    notices: [],
+  };
+
+  it("hides an approved reschedule request from the cleaner", () => {
+    const items = resolveStartBriefingItems({
+      meta,
+      jobTasks: [
+        {
+          id: "resched",
+          title: "Reschedule requested",
+          source: "CLIENT",
+          approvalStatus: "APPROVED",
+          visibleToCleaner: false,
+        },
+      ],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it("hides an ETA or report chase", () => {
+    const items = resolveStartBriefingItems({
+      meta,
+      jobTasks: [
+        { id: "eta", title: "Client asked for an ETA", source: "CLIENT", approvalStatus: "APPROVED", visibleToCleaner: false },
+        { id: "rep", title: "Client asked for the report", source: "CLIENT", approvalStatus: "APPROVED", visibleToCleaner: false },
+      ],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it("still shows real work added to the job", () => {
+    // The thing the cleaner DOES need: a task someone added for this clean.
+    const items = resolveStartBriefingItems({
+      meta,
+      jobTasks: [
+        { id: "t1", title: "Descale the kettle", source: "ADMIN", approvalStatus: "APPROVED", visibleToCleaner: true },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toBe("Descale the kettle");
+  });
+
+  it("does not read out a task that is already done", () => {
+    const items = resolveStartBriefingItems({
+      meta,
+      jobTasks: [
+        { id: "t1", title: "Done already", source: "ADMIN", approvalStatus: "APPROVED", visibleToCleaner: true, executionStatus: "COMPLETED" },
+      ],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it("treats an unset visibility as visible, so older rows still work", () => {
+    // Only an EXPLICIT false hides a task — undefined must not silently blank
+    // out every task written before the field was populated.
+    const items = resolveStartBriefingItems({
+      meta,
+      jobTasks: [{ id: "t1", title: "Legacy task", source: "ADMIN", approvalStatus: "APPROVED" }],
+    });
+    expect(items).toHaveLength(1);
+  });
+});
