@@ -377,6 +377,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         reason: updated.title?.trim() || propertyName,
         jobId: updated.job?.id ?? null,
         adminNote: updated.adminNote,
+        // Decides whether the payee hears about this at all — a declined
+        // proposal they never made is not news they need.
+        source: existing.source,
       }).catch(console.error);
     }
 
@@ -384,17 +387,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // monthly-ranking bonus is approved or rejected, additionally notify the
     // cleaner through the accountability channel. Fire-and-forget; the generic
     // notification above still stands, this just adds the bonus-specific message.
+    // DECLINED is deliberately absent. These bonuses are proposed by the
+    // system, not asked for, so telling a cleaner one was declined is the
+    // first they hear of it — an email whose only content is that they
+    // nearly had something. An APPROVED one changes their pay, so it stays.
     if (
       isStatusChange &&
-      (updated.status === PayAdjustmentStatus.APPROVED ||
-        updated.status === PayAdjustmentStatus.REJECTED) &&
+      updated.status === PayAdjustmentStatus.APPROVED &&
       typeof existing.source === "string" &&
       (existing.source.startsWith("STREAK_") || existing.source.startsWith("MONTHLY_"))
     ) {
       void notifyBonusOutcomeToCleaner({
         cleanerId: updated.cleaner.id,
         title: updated.title ?? "Bonus proposal",
-        approved: updated.status === PayAdjustmentStatus.APPROVED,
+        approved: true,
         amount: updated.approvedAmount,
         jobId: updated.job?.id ?? null,
       }).catch(console.error);

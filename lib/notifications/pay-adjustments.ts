@@ -25,6 +25,7 @@ import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
 import { logger } from "@/lib/logger";
+import { shouldNotifyPayee } from "@/lib/finance/pay-adjustment-notify";
 
 type Recipient = {
   id: string;
@@ -74,6 +75,13 @@ export interface PayAdjustmentOutcomeInput {
   jobId?: string | null;
   /** Free-text admin note to pass through verbatim. */
   adminNote?: string | null;
+  /**
+   * `CleanerPayAdjustment.source` — non-null when the SYSTEM proposed this
+   * (a streak bonus, a monthly ranking) rather than a person asking for it.
+   * Decides whether the payee hears about the outcome at all; see
+   * lib/finance/pay-adjustment-notify.
+   */
+  source?: string | null;
 }
 
 /**
@@ -84,6 +92,18 @@ export async function notifyPayAdjustmentOutcome(
   input: PayAdjustmentOutcomeInput
 ): Promise<void> {
   try {
+    // The payee only hears about what they asked for, or about money that
+    // actually moved. Gated HERE rather than at the four call sites, because
+    // a rule split across call sites is how one of them ends up wrong.
+    const decision = shouldNotifyPayee({ source: input.source, kind: input.kind });
+    if (!decision.notify) {
+      logger.info(
+        { payeeUserId: input.payeeUserId, kind: input.kind, source: input.source },
+        `[pay-adjustments] notification suppressed — ${decision.reason}`
+      );
+      return;
+    }
+
     const recipient = await getRecipient(input.payeeUserId);
     if (!recipient) return;
     const settings = await getAppSettings();
