@@ -198,13 +198,19 @@ export async function POST(
       const briefingMeta = parseJobInternalNotes(job.internalNotes);
       const briefingTasks = await db.jobTask
         .findMany({
-          where: { jobId: params.id },
+          // The same visibility rule the cleaner's task list uses. This query
+          // asked for EVERY task on the job, so client/office correspondence
+          // — reschedule requests, ETA chases, report requests — was read out
+          // to the cleaner before every clean.
+          where: { jobId: params.id, visibleToCleaner: true, executionStatus: "OPEN" },
           select: {
             id: true,
             title: true,
             description: true,
             source: true,
             approvalStatus: true,
+            visibleToCleaner: true,
+            executionStatus: true,
           },
         })
         .catch(() => []);
@@ -216,6 +222,8 @@ export async function POST(
           description: t.description,
           source: String(t.source ?? ""),
           approvalStatus: String(t.approvalStatus ?? ""),
+          visibleToCleaner: t.visibleToCleaner,
+          executionStatus: String(t.executionStatus ?? "OPEN"),
         })),
       });
 

@@ -67,6 +67,20 @@ export interface StartBriefingJobTask {
   source?: string | null;
   /** Client requests only count once an admin has approved them. */
   approvalStatus?: string | null;
+  /**
+   * The single authority on whether a cleaner may see this row at all.
+   *
+   * Correspondence between a client and the office — a reschedule request, a
+   * chase for an ETA, a request for the report — is stored as a JobTask with
+   * this set to FALSE. It is not work, and it is none of the cleaner's
+   * business. The briefing used to be handed every task on the job and filter
+   * on source and approval alone, so an APPROVED reschedule request (approved
+   * = true, visible = false) walked straight through and was read out to the
+   * cleaner before every clean.
+   */
+  visibleToCleaner?: boolean | null;
+  /** A finished task is not something to read before starting. */
+  executionStatus?: string | null;
 }
 
 /**
@@ -142,6 +156,17 @@ export function resolveStartBriefingItems(input: {
   for (const task of input.jobTasks ?? []) {
     const title = text(task?.title);
     if (!title) continue;
+
+    // Enforced HERE, not only in the caller's query. This function is handed a
+    // list by whoever calls it, and the one caller that built its own query
+    // forgot the filter — which is how client/office correspondence ended up
+    // in front of cleaners. Anything explicitly hidden is skipped even if a
+    // caller passes it in.
+    if (task?.visibleToCleaner === false) continue;
+    // Already done, or dropped. Neither is something to read before starting.
+    const execution = String(task?.executionStatus ?? "OPEN");
+    if (execution !== "OPEN") continue;
+
     const source = String(task?.source ?? "");
     if (source === "ADMIN") {
       items.push({
