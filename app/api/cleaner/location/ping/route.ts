@@ -89,9 +89,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, received: 0, dropped: rawPings.length });
   }
 
+  // The jobId comes from the client and was previously written straight to
+  // the row. Anyone could therefore file location history against a job that
+  // was never theirs — which is both a privacy leak into another cleaner's
+  // movements and a way to forge arrival evidence. Keep only ids this user is
+  // actually assigned to.
+  const claimedJobIds = Array.from(new Set(pings.map((p) => p.jobId)));
+  const ownedJobs = await db.job.findMany({
+    where: {
+      id: { in: claimedJobIds },
+      assignments: { some: { userId, removedAt: null } },
+    },
+    select: { id: true },
+  });
+  const ownedJobIds = new Set(ownedJobs.map((job) => job.id));
+  const ownedPings = pings.filter((p) => ownedJobIds.has(p.jobId));
+
+  if (ownedPings.length === 0) {
+    // 200, not 403. The client clears its queue on a 4xx, which is the right
+    // outcome here — these rows are unusable — and an error would put the
+    // cleaner's app into a retry loop over data it can never get accepted.
+    return NextResponse.json({
+      ok: true,
+      received: 0,
+      dropped: rawPings.length,
+    });
+  }
+
   // Persist all pings
   await db.cleanerLocationPing.createMany({
-    data: pings.map((p) => ({
+    data: ownedPings.map((p) => ({
       jobId: p.jobId,
       userId,
       lat: p.lat,
@@ -112,13 +139,24 @@ export async function POST(req: NextRequest) {
 
   // Check geofence on the LATEST ping only — cheaper, sufficient for
   // arrival/departure detection at the cleaner's currently-active job.
-  const latest = pings[pings.length - 1];
-  const geofenceResult = await checkGeofenceForPing({
-    userId,
-    lat: latest.lat,
-    lng: latest.lng,
-    pingAt: latest.timestamp ? new Date(latest.timestamp) : now,
-  });
+  const latest = ownedPings[ownedPings.length - 1];
+  // Best-effort, like the departure work below it. This used to throw
+  // uncaught AFTER createMany had already committed, so the client saw a 500,
+  // never cleared its queue, and re-sent the same rows as duplicates on every
+  // later flush.
+  let geofenceResult: Awaited<ReturnType<typeof checkGeofenceForPing>> = {
+    departed: undefined,
+  };
+  try {
+    geofenceResult = await checkGeofenceForPing({
+      userId,
+      lat: latest.lat,
+      lng: latest.lng,
+      pingAt: latest.timestamp ? new Date(latest.timestamp) : now,
+    });
+  } catch {
+    // Swallow: the pings are persisted, which is this endpoint's job.
+  }
 
   // Departure work only runs when the latest ping is already outside the
   // fence, and is fully best-effort — ping ingestion must never fail on it.
@@ -137,7 +175,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    received: pings.length,
+    received: ownedPings.length,
     dropped: rawPings.length - pings.length,
     geofence: geofenceResult,
   });
