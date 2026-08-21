@@ -55,6 +55,7 @@ import {
 } from "@/components/v2/admin/estate-kit";
 import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
 import { PropertyCoverImage } from "./property-cover-image";
+import { NfcTagsCard } from "./nfc-tags-card";
 import {
   PropertyInventoryAdd,
   type AddItemDefaults,
@@ -1085,6 +1086,8 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
             live preview → approve generates this property's own form. */}
         <PropertyChecklistProfile propertyId={propertyId} />
         <PropertyFormOverrides propertyId={propertyId} />
+        <NfcTagsCard propertyId={propertyId} />
+
         <ECard>
           <ECardHeader className="flex-row items-center justify-between pb-2">
             <ECardTitle className="text-[0.95rem]">Next-job checklist</ECardTitle>
