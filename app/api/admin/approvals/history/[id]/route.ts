@@ -180,6 +180,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         reason: updated.title?.trim() || "Pay adjustment",
         jobId: updated.jobId,
         adminNote: updated.adminNote,
+        source: updated.source,
       }).catch(console.error);
 
       await recordApprovalDecision({
