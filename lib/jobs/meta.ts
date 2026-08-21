@@ -1,3 +1,5 @@
+import type { JobNotice } from "./notices";
+
 export type JobTimingPreset = "none" | "11:00" | "12:30" | "custom";
 
 export interface JobReferenceAttachment {
@@ -76,6 +78,11 @@ export interface JobMeta {
   tags: string[];
   attachments: JobReferenceAttachment[];
   specialRequestTasks: JobSpecialRequestTask[];
+  /**
+   * Information the cleaner must KNOW but is not asked to DO. Kept apart
+   * from specialRequestTasks so a notice never counts as outstanding work.
+   */
+  notices: JobNotice[];
   earlyCheckin: JobTimingRule;
   lateCheckout: JobTimingRule;
   /**
@@ -142,6 +149,7 @@ export function defaultJobMeta(): JobMeta {
     tags: [],
     attachments: [],
     specialRequestTasks: [],
+    notices: [],
     earlyCheckin: { ...DEFAULT_RULE },
     lateCheckout: { ...DEFAULT_RULE },
     includeTaskPhotosInReport: true,
@@ -353,6 +361,35 @@ function normalizeReservationContext(input: unknown): JobReservationContext | un
   return Object.keys(next).length > 0 ? next : undefined;
 }
 
+/**
+ * Notices survive a round-trip only if they carry text. An id is generated
+ * when missing so the start-briefing acknowledgement has something stable to
+ * record against — an ack keyed to a shifting index would silently re-arm the
+ * gate every time an earlier notice was deleted.
+ */
+function normalizeJobNotices(input: unknown): JobNotice[] {
+  if (!Array.isArray(input)) return [];
+
+  const notices: JobNotice[] = [];
+  input
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+    .forEach((item, index) => {
+      const body = typeof item.body === "string" ? item.body.trim() : "";
+      if (!body) return;
+      const rawId = typeof item.id === "string" ? item.id.trim() : "";
+      const author = typeof item.authorName === "string" ? item.authorName.trim() : "";
+      const createdAt = typeof item.createdAt === "string" ? item.createdAt.trim() : "";
+      notices.push({
+        id: rawId || `notice-${index + 1}`,
+        body,
+        urgency: item.urgency === "IMPORTANT" ? "IMPORTANT" : "INFO",
+        authorName: author || undefined,
+        createdAt: createdAt || undefined,
+      });
+    });
+  return notices;
+}
+
 function normalizeSpecialRequestTasks(input: unknown): JobSpecialRequestTask[] {
   if (!Array.isArray(input)) return [];
 
@@ -413,6 +450,7 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
             .filter((item) => item.key && item.url)
         : [],
       specialRequestTasks: normalizeSpecialRequestTasks(parsed.specialRequestTasks),
+      notices: normalizeJobNotices(parsed.notices),
       earlyCheckin: normalizeRule(parsed.earlyCheckin),
       lateCheckout: normalizeRule(parsed.lateCheckout),
       // Absent means true, so every job predating this flag keeps showing its
@@ -447,6 +485,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
       : [],
     attachments: Array.isArray(input.attachments) ? input.attachments : [],
     specialRequestTasks: normalizeSpecialRequestTasks(input.specialRequestTasks),
+    notices: normalizeJobNotices(input.notices),
     earlyCheckin: normalizeRule(input.earlyCheckin),
     lateCheckout: normalizeRule(input.lateCheckout),
     transportAllowances: normalizeCleanerAmountMap(input.transportAllowances, false),
@@ -465,6 +504,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     meta.tags.length > 0 ||
     meta.attachments.length > 0 ||
     meta.specialRequestTasks.length > 0 ||
+    meta.notices.length > 0 ||
     meta.earlyCheckin.enabled ||
     meta.lateCheckout.enabled ||
     // Only FALSE counts as data worth storing — true is the default, so a job
@@ -494,6 +534,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
     tags: meta.tags,
     attachments: meta.attachments,
     specialRequestTasks: meta.specialRequestTasks,
+    notices: meta.notices,
     earlyCheckin: meta.earlyCheckin,
     lateCheckout: meta.lateCheckout,
     includeTaskPhotosInReport: meta.includeTaskPhotosInReport,
@@ -510,8 +551,15 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
   });
 }
 
-export function resolveRuleTime(rule: JobTimingRule): string | undefined {
-  if (!rule.enabled) return undefined;
+/**
+ * Accepts a missing rule: this is called with meta parsed from stored JSON and
+ * with the cleaner form payload, neither of which is guaranteed to carry the
+ * field. Throwing on absence took out every caller that renders it.
+ */
+export function resolveRuleTime(
+  rule: JobTimingRule | null | undefined
+): string | undefined {
+  if (!rule?.enabled) return undefined;
   if (rule.preset === "11:00" || rule.preset === "12:30") return rule.preset;
   return normalizeTime(rule.time);
 }

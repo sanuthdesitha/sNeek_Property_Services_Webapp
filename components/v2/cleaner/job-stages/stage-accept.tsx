@@ -43,7 +43,16 @@ export function StageAccept({ api }: { api: WorkspaceApi }) {
     : null;
   const whenValue = [dateLabel, timeWindow].filter(Boolean).join(" · ");
   // First read-first item doubles as the "Notes preview" line the design shows.
-  const notePreview = readFirstItems[0]?.body?.trim() || readFirstItems[0]?.title?.trim() || null;
+  // Which half carries the fact depends on the source: an ADMIN item is titled
+  // "Admin note" with the content in the body, while a TIMING or NOTICE item
+  // puts the actionable part IN the title ("Do not start before 11:00"). Taking
+  // the body first would preview the generic warning and drop the time.
+  const previewItem = readFirstItems[0] ?? null;
+  const notePreview = previewItem
+    ? (previewItem.source === "ADMIN"
+        ? previewItem.body?.trim() || previewItem.title.trim()
+        : previewItem.title.trim() || previewItem.body?.trim()) || null
+    : null;
 
   return (
     <div className="space-y-5">
@@ -112,7 +121,10 @@ export function StageAccept({ api }: { api: WorkspaceApi }) {
       ) : null}
 
       {readFirstItems.length > 0 ? (
-        <ReadFirstBlock items={readFirstItems.slice(0, 3)} />
+        /* Pass the whole list and let the block fold it: its own fold refuses
+           to hide a timing rule or a notice, which the slice that used to be
+           here swallowed with no way to expand. */
+        <ReadFirstBlock items={readFirstItems} defaultVisible={3} />
       ) : null}
     </div>
   );

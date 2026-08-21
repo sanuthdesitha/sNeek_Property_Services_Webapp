@@ -222,6 +222,7 @@ export async function PATCH(
       body.tags !== undefined ||
       body.attachments !== undefined ||
       body.specialRequestTasks !== undefined ||
+      body.notices !== undefined ||
       body.transportAllowances !== undefined ||
       body.cleanerPayouts !== undefined ||
       body.earlyCheckin !== undefined ||
@@ -238,6 +239,22 @@ export async function PATCH(
           body.includeTaskPhotosInReport ?? currentMeta.includeTaskPhotosInReport,
         tags: body.tags ?? currentMeta.tags,
         attachments: body.attachments ?? currentMeta.attachments,
+        // Notices keep the authorship and timestamp they were first saved
+        // with. Re-stamping on every edit would rewrite history: an admin who
+        // fixes a typo in a two-day-old notice would make it read "added
+        // today", and a cleaner who already acknowledged it would be re-gated.
+        notices:
+          body.notices?.map((notice, index) => {
+            const id = notice.id?.trim() || `notice-${Date.now()}-${index}`;
+            const existing = currentMeta.notices.find((n) => n.id === id);
+            return {
+              id,
+              body: notice.body.trim(),
+              urgency: notice.urgency === "IMPORTANT" ? ("IMPORTANT" as const) : ("INFO" as const),
+              authorName: existing?.authorName ?? session.user.name ?? undefined,
+              createdAt: existing?.createdAt ?? new Date().toISOString(),
+            };
+          }) ?? currentMeta.notices,
         specialRequestTasks:
           body.specialRequestTasks?.map((task, index) => ({
             id: task.id?.trim() || `admin-task-${index + 1}`,
@@ -288,6 +305,7 @@ export async function PATCH(
     delete data.tags;
     delete data.attachments;
     delete data.specialRequestTasks;
+    delete data.notices;
     delete data.transportAllowances;
     delete data.cleanerPayouts;
     delete data.earlyCheckin;

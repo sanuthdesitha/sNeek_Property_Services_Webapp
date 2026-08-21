@@ -45,6 +45,17 @@ const specialRequestTaskSchema = z.object({
   requiresNote: z.boolean().optional(),
 });
 
+/**
+ * A notice is information, not work — so it has no requiresPhoto/requiresNote.
+ * authorName and createdAt are stamped server-side; accepting them from the
+ * client would let an admin post a notice under someone else's name.
+ */
+const jobNoticeSchema = z.object({
+  id: z.string().trim().min(1).max(80).optional(),
+  body: z.string().trim().min(1).max(2000),
+  urgency: z.enum(["INFO", "IMPORTANT"]).optional(),
+});
+
 const serviceContextSchema = z.object({
   scopeOfWork: z.string().max(4000).optional(),
   accessInstructions: z.string().max(4000).optional(),
@@ -111,6 +122,7 @@ const baseCreateJobSchema = z.object({
   tags: z.array(z.string().trim().min(1)).optional(),
   attachments: z.array(attachmentSchema).optional(),
   specialRequestTasks: z.array(specialRequestTaskSchema).optional(),
+  notices: z.array(jobNoticeSchema).max(20).optional(),
   transportAllowances: z.record(z.string().min(1), z.number().nonnegative()).optional(),
   /** Whether task proof photos appear in the generated report. */
   includeTaskPhotosInReport: z.boolean().optional(),

@@ -56,6 +56,7 @@ import {
   type JobSpecialRequestTask,
   type JobTimingPreset,
 } from "@/lib/jobs/meta";
+import type { JobNotice } from "@/lib/jobs/notices";
 import { statusLabel } from "./job-row";
 import { JobResetDialog } from "./job-reset-dialog";
 import { JobPayCard } from "@/components/v2/shared/job-pay-card";
@@ -159,6 +160,7 @@ export function JobManagePanel({
   const [tagsText, setTagsText] = useState("");
   const [isDraft, setIsDraft] = useState(false);
   const [specialTasks, setSpecialTasks] = useState<JobSpecialRequestTask[]>([]);
+  const [notices, setNotices] = useState<JobNotice[]>([]);
   const [keyPickupLocation, setKeyPickupLocation] = useState("");
   // Preserve the rest of serviceContext (access/parking/site-contact/etc.) so
   // saving key pickup doesn't wipe the other keys the PATCH route replaces.
@@ -242,6 +244,7 @@ export function JobManagePanel({
     setTagsText(meta.tags.join(", "));
     setIsDraft(meta.isDraft);
     setSpecialTasks(meta.specialRequestTasks.map((t) => ({ ...t })));
+    setNotices(meta.notices.map((n) => ({ ...n })));
     setServiceContext(meta.serviceContext);
     setKeyPickupLocation(meta.serviceContext?.keyPickupLocation ?? "");
     setTemplateName(job.jobType ? `${String(job.jobType).replace(/_/g, " ")} template` : "Job template");
@@ -379,6 +382,9 @@ export function JobManagePanel({
           ...(serviceContext ?? {}),
           keyPickupLocation: keyPickupLocation.trim() || undefined,
         },
+        notices: notices
+          .map((n) => ({ id: n.id, body: n.body.trim(), urgency: n.urgency }))
+          .filter((n) => n.body.length > 0),
         specialRequestTasks: specialTasks
           .map((t) => ({
             ...t,
@@ -726,6 +732,86 @@ export function JobManagePanel({
                     <ESwitch checked={isDraft} onCheckedChange={setIsDraft} label={isDraft ? "Draft" : "Live"} />
                   </div>
                 </EField>
+              </div>
+
+              {/* Notices — information, not work. Kept separate from the task
+                  editor below because a notice must never count as an
+                  outstanding task or drag a job's completion percentage down. */}
+              <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[0.8125rem] font-[550]">Notices for the cleaner</p>
+                  <EButton
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setNotices((prev) => [
+                        ...prev,
+                        { id: makeTaskId(), body: "", urgency: "INFO" },
+                      ])
+                    }
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add notice
+                  </EButton>
+                </div>
+                {notices.length === 0 ? (
+                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                    One-off information for this clean — a gate code change, a dog inside, a lift
+                    out of service. Shown when the cleaner opens the job and again at start.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {notices.map((notice, index) => (
+                      <div
+                        key={notice.id}
+                        className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2.5"
+                      >
+                        <div className="flex items-start gap-2">
+                          <ETextarea
+                            value={notice.body}
+                            onChange={(e) =>
+                              setNotices((prev) =>
+                                prev.map((n) =>
+                                  n.id === notice.id ? { ...n, body: e.target.value } : n
+                                )
+                              )
+                            }
+                            placeholder={`Notice ${index + 1}`}
+                            className="min-h-[3rem]"
+                          />
+                          <EButton
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setNotices((prev) => prev.filter((n) => n.id !== notice.id))}
+                            aria-label="Remove notice"
+                            className="shrink-0"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </EButton>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-4">
+                          <ESwitch
+                            checked={notice.urgency === "IMPORTANT"}
+                            onCheckedChange={(v) =>
+                              setNotices((prev) =>
+                                prev.map((n) =>
+                                  n.id === notice.id
+                                    ? { ...n, urgency: v ? "IMPORTANT" : "INFO" }
+                                    : n
+                                )
+                              )
+                            }
+                            label="Important"
+                          />
+                          {notice.authorName || notice.createdAt ? (
+                            <span className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+                              {notice.authorName ? `Added by ${notice.authorName}` : "Added"}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
