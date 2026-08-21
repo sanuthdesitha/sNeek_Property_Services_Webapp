@@ -27,6 +27,11 @@ import {
   type AssessmentResult,
   type AssessmentQuestion,
 } from "@/lib/workforce/assessment";
+import {
+  CREDENTIAL_WARNING_DAYS,
+  credentialsNeedingAttention,
+  describeCredential,
+} from "@/lib/workforce/credential-expiry";
 
 const STAFF_ROLES = [Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER, Role.LAUNDRY] as const;
 const FRONTLINE_ROLES: Role[] = [Role.CLEANER, Role.LAUNDRY];
@@ -1887,6 +1892,96 @@ export async function runDocumentExpiryCheck(now = new Date()) {
   }
 
   return { warned, expired };
+}
+
+/**
+ * CREDENTIALS THAT LAPSE — visa, driver licence, vehicle rego.
+ *
+ * These live as dates on the User row rather than as uploaded files, so
+ * `runDocumentExpiryCheck` above never saw them. `vehicleRegoExpiry` and
+ * `driverLicenseExpiry` have existed for a long time with NOTHING reading
+ * them — a licence could lapse in silence. `visaExpiry` is new and joins them
+ * here rather than getting a sweep of its own.
+ *
+ * Notifies the ADMIN side only. A cleaner knows when their own visa expires;
+ * what was missing is the business finding out before it rosters them onto
+ * work they are no longer permitted to do. The thresholds and wording are in
+ * lib/workforce/credential-expiry so they can be tested without a database.
+ */
+export async function runCredentialExpiryCheck(now = new Date()) {
+  // The widest warning window of the three decides the query; the pure rule
+  // narrows per credential from there.
+  const horizon = new Date(
+    now.getTime() + Math.max(...Object.values(CREDENTIAL_WARNING_DAYS)) * 24 * 60 * 60 * 1000
+  );
+
+  const people = await db.user.findMany({
+    where: {
+      isActive: true,
+      OR: [
+        { visaExpiry: { not: null, lte: horizon } },
+        { driverLicenseExpiry: { not: null, lte: horizon } },
+        { vehicleRegoExpiry: { not: null, lte: horizon } },
+      ],
+    },
+    select: {
+      id: true,
+      name: true,
+      visaExpiry: true,
+      driverLicenseExpiry: true,
+      vehicleRegoExpiry: true,
+    },
+    take: 500,
+  });
+
+  const findings = people.flatMap((person) =>
+    credentialsNeedingAttention(person, now).map((status) => ({
+      line: describeCredential(status, person.name ?? "A team member"),
+      expired: status.state === "EXPIRED",
+    }))
+  );
+
+  if (findings.length === 0) return { flagged: 0, expired: 0 };
+
+  const admins = await db.user.findMany({
+    where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
+    select: { id: true, email: true },
+  });
+
+  const expired = findings.filter((f) => f.expired).length;
+  // ONE digest, not one notification per person. A sweep that fires eleven
+  // separate pushes on a Monday morning is a sweep people mute.
+  const subject =
+    expired > 0
+      ? `${expired} expired credential${expired === 1 ? "" : "s"} in the team`
+      : `${findings.length} credential${findings.length === 1 ? "" : "s"} expiring soon`;
+  const body = findings.map((f) => f.line).join(String.fromCharCode(10));
+  if (admins.length > 0) {
+    await db.notification.createMany({
+      data: admins.map((admin) => ({
+        userId: admin.id,
+        channel: "PUSH" as const,
+        subject,
+        body,
+        status: "SENT" as const,
+        sentAt: new Date(),
+      })),
+    });
+
+    for (const admin of admins) {
+      if (!admin.email) continue;
+      await sendEmailDetailed({
+        kind: "workforce_update",
+        to: admin.email,
+        subject,
+        html: `<ul>${findings
+          .map((f) => `<li>${f.line.replace(/</g, "&lt;")}</li>`)
+          .join("")}</ul>`,
+      });
+    }
+  }
+
+  return { flagged: findings.length, expired };
 }
 
 export async function getRecognitionBoard() {

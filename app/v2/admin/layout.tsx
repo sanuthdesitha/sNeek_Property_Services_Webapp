@@ -22,6 +22,7 @@ import {
   Settings,
   PackageSearch,
   GraduationCap,
+  UsersRound,
 } from "lucide-react";
 
 const NAV: NavItem[] = [
@@ -31,6 +32,7 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/approvals", label: "Approvals", icon: Inbox },
   { href: "/v2/admin/properties", label: "Properties", icon: Building2 },
   { href: "/v2/admin/clients", label: "Clients", icon: Users },
+  { href: "/v2/admin/workforce", label: "Workforce", icon: UsersRound },
   { href: "/v2/admin/workforce/coaching", label: "Coaching", icon: GraduationCap },
   { href: "/v2/admin/quality", label: "Quality", icon: ShieldCheck },
   { href: "/v2/admin/quality/issues", label: "QA Issues", icon: ShieldAlert },
