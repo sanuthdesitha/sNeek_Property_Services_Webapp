@@ -1074,7 +1074,12 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       {tab === "jobs" ? <PropertyJobsHistory propertyId={propertyId} /> : null}
 
       {/* ACCESS GUIDE */}
-      {tab === "access" ? <PropertyAccessGuideEditor propertyId={propertyId} /> : null}
+      {tab === "access" ? (
+        <div className="space-y-4">
+          <PropertyAccessGuideEditor propertyId={propertyId} />
+          <NfcTagsCard propertyId={propertyId} />
+        </div>
+      ) : null}
 
       {/* BILLING RATES */}
       {tab === "billing" ? <PropertyBillingRates propertyId={propertyId} /> : null}
@@ -1086,7 +1091,6 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
             live preview → approve generates this property's own form. */}
         <PropertyChecklistProfile propertyId={propertyId} />
         <PropertyFormOverrides propertyId={propertyId} />
-        <NfcTagsCard propertyId={propertyId} />
 
         <ECard>
           <ECardHeader className="flex-row items-center justify-between pb-2">
