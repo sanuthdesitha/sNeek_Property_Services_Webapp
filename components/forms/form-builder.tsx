@@ -50,6 +50,9 @@ export interface FormBuilderProps {
    * predate it, in which case the field is left untouched server-side.
    */
   initialServiceType?: string;
+  /** ISO `updatedAt` of the row this render was built from — see the v2
+   *  builder and the PATCH route for why a save carries its base version. */
+  initialUpdatedAt?: string;
   initialVersion: number;
   initialSchema: FormSchema;
   initialIsActive: boolean;
@@ -212,6 +215,7 @@ export function FormBuilder({
   initialName,
   initialKind,
   initialServiceType,
+  initialUpdatedAt,
   initialVersion,
   initialSchema,
   initialIsActive,
@@ -224,6 +228,9 @@ export function FormBuilder({
   });
   const [saving, setSaving] = React.useState(false);
   const [savedAt, setSavedAt] = React.useState<Date | null>(null);
+  // Must ADVANCE on every save. Sending the mount-time value forever would
+  // make the second save in a session collide with the first one's own write.
+  const [baseUpdatedAt, setBaseUpdatedAt] = React.useState(initialUpdatedAt);
   const [error, setError] = React.useState<string | null>(null);
   const [isActive, setIsActive] = React.useState(initialIsActive);
   const [archived, setArchived] = React.useState(initialArchived);
@@ -269,14 +276,20 @@ export function FormBuilder({
           name: state.name,
           ...(initialServiceType ? { serviceType: initialServiceType } : {}),
           schema: state.schema,
+          ...(baseUpdatedAt ? { expectedUpdatedAt: baseUpdatedAt } : {}),
         }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `Save failed (${res.status})`);
       }
+      const saved = await res.json().catch(() => null);
+      if (saved?.updatedAt) setBaseUpdatedAt(new Date(saved.updatedAt).toISOString());
       setSavedAt(new Date());
       dispatch({ type: "MARK_CLEAN" });
+      // Drop the client Router Cache entry for this URL. Without it, a back
+      // navigation re-mounts this builder from the PRE-SAVE payload.
+      router.refresh();
     } catch (err: any) {
       setError(err?.message ?? "Save failed");
     } finally {
@@ -300,6 +313,9 @@ export function FormBuilder({
       const { template } = await res.json();
       setIsActive(Boolean(template?.isActive));
       setArchived(Boolean(template?.archivedAt));
+      // Publishing writes to the row; move the base version with it so the
+      // next save is not rejected by this editor's own publish.
+      if (template?.updatedAt) setBaseUpdatedAt(new Date(template.updatedAt).toISOString());
     } catch (err: any) {
       setError(err?.message ?? "Publish failed");
     }

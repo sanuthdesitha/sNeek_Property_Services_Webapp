@@ -104,6 +104,8 @@ export interface EstateFormBuilderProps {
   initialSchema: FormSchema;
   initialIsActive: boolean;
   initialArchived: boolean;
+  /** ISO `updatedAt` of the row this render was built from. */
+  initialUpdatedAt?: string;
 }
 
 export function EstateFormBuilder({
@@ -115,6 +117,7 @@ export function EstateFormBuilder({
   initialSchema,
   initialIsActive,
   initialArchived,
+  initialUpdatedAt,
 }: EstateFormBuilderProps) {
   const router = useRouter();
   const [name, setName] = React.useState(initialName);
@@ -127,6 +130,11 @@ export function EstateFormBuilder({
   const [publishNotice, setPublishNotice] = React.useState<string | null>(null);
   const [isActive, setIsActive] = React.useState(initialIsActive);
   const [archived, setArchived] = React.useState(initialArchived);
+  // The version currently on the server, as far as this editor knows. Sent
+  // with every save and advanced from the save response, so a long editing
+  // session does not start failing its own concurrency check.
+  const [baseUpdatedAt, setBaseUpdatedAt] = React.useState(initialUpdatedAt);
+  const [stale, setStale] = React.useState(false);
   const [selectedFieldId, setSelectedFieldId] = React.useState<string | null>(null);
   const [showPreview, setShowPreview] = React.useState(false);
   const [showTheme, setShowTheme] = React.useState(false);
@@ -315,6 +323,33 @@ export function EstateFormBuilder({
     }));
   }
 
+  // RE-SEED ON NEW PROPS. State is initialised from props exactly once, so a
+  // navigation that re-renders this page with fresher data used to leave the
+  // editor showing the older document — and saving from there wrote it back.
+  // Only while clean: a dirty editor holds unsaved work that belongs to the
+  // person typing, and throwing it away to show a newer version would trade
+  // one kind of data loss for another. A dirty editor that has gone stale is
+  // told so instead, and the server refuses the write regardless.
+  const seededRef = React.useRef(initialUpdatedAt);
+  React.useEffect(() => {
+    if (initialUpdatedAt === seededRef.current) return;
+    seededRef.current = initialUpdatedAt;
+    if (dirty) {
+      setStale(true);
+      return;
+    }
+    setName(initialName);
+    setServiceType(initialServiceType);
+    setSchema(initialSchema);
+    setIsActive(initialIsActive);
+    setArchived(initialArchived);
+    setBaseUpdatedAt(initialUpdatedAt);
+    setStale(false);
+    // `dirty` is read, not tracked: this must run when the SERVER version
+    // changes, not when the user types.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialUpdatedAt]);
+
   /* ── persistence ── */
   async function save() {
     setSaving(true);
@@ -323,15 +358,36 @@ export function EstateFormBuilder({
       const res = await fetch(`/api/admin/form-templates/${templateId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, serviceType, schema }),
+        body: JSON.stringify({
+          name,
+          serviceType,
+          schema,
+          ...(baseUpdatedAt ? { expectedUpdatedAt: baseUpdatedAt } : {}),
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        if (res.status === 409 && body?.code === "STALE_TEMPLATE") {
+          setStale(true);
+          // Deliberately NOT retried and NOT force-saved. The whole point is
+          // that this editor no longer knows what it would be overwriting.
+          throw new Error(body.error);
+        }
         throw new Error(body.error ?? `Save failed (${res.status})`);
       }
+      // Advance to the version we just wrote, so the next save in this
+      // session passes its own check.
+      const saved = await res.json().catch(() => null);
+      if (saved?.updatedAt) setBaseUpdatedAt(new Date(saved.updatedAt).toISOString());
       setSavedAt(new Date());
       setDirty(false);
+      setStale(false);
       setImpactKey((k) => k + 1);
+      // Invalidate the client Router Cache. Without this, Next keeps serving
+      // the pre-save RSC payload for this URL, so navigating back re-mounts
+      // the builder on the OLD document — which is exactly how a freshly
+      // duplicated template appeared to revert to the one it was copied from.
+      router.refresh();
     } catch (err: any) {
       setError(err?.message ?? "Save failed");
     } finally {
@@ -355,6 +411,11 @@ export function EstateFormBuilder({
       const { template, archivedPrevious } = await res.json();
       setIsActive(Boolean(template?.isActive));
       setArchived(Boolean(template?.archivedAt));
+      // Publishing writes to the row, so the base version this editor sends
+      // on its next save has to move with it — otherwise the concurrency
+      // guard fires on the editor's own publish and looks like a phantom
+      // conflict.
+      if (template?.updatedAt) setBaseUpdatedAt(new Date(template.updatedAt).toISOString());
       setImpactKey((k) => k + 1);
       if (action === "publish" && Number(archivedPrevious) > 0) {
         setPublishNotice(
@@ -478,6 +539,30 @@ export function EstateFormBuilder({
           ))}
         </ESelect>
       </div>
+
+      {/* A stale editor is the dangerous state, so it gets a louder banner
+          than an ordinary error and an explicit way out. Reloading is the
+          only safe resolution: this editor cannot know what it would be
+          overwriting, so there is deliberately no "save anyway". */}
+      {stale ? (
+        <div className="mt-2 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2">
+          <p className="text-[0.8125rem] font-[600] text-[hsl(var(--e-foreground))]">
+            This template changed since you opened it
+          </p>
+          <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+            Saving from here would overwrite that change. Reload to see the current
+            version — any edits you have made in this tab since opening it will be lost,
+            so copy anything you need first.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-2 text-[0.8125rem] font-[550] text-[hsl(var(--e-primary))] hover:underline"
+          >
+            Reload the current version
+          </button>
+        </div>
+      ) : null}
 
       {error ? (
         <p className="mt-2 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-foreground))]">

@@ -303,6 +303,16 @@ The rules are **stored once** — in the job's `internalNotes` meta as `earlyChe
 
 ### B4. Forms system
 
+#### The builder used to lose edits on Back (2026-08)
+
+Reported as "a template I duplicated reverts to the one I copied it from". A fresh duplicate is byte-identical to its source, so that symptom and "reverts to its own pre-edit state" are the same thing — the copy had simply gone back to how it started.
+
+**Why it reverted.** The builder seeds its React state from props exactly once (`React.useState(initialSchema)`), and nothing on the save path invalidated Next's **client Router Cache**. `export const dynamic = "force-dynamic"` on the edit page opts out of the *server* Full Route Cache only and has no effect on it, and back/forward navigation restores from that cache unconditionally with no staleness check. So Back re-mounted the builder on the payload captured when the page was first opened. A second, independent path produced the same result: `ReturnSync` bumps a `key` on the whole tree in `app/providers.tsx` when a bfcache restore fires, remounting every component and re-seeding state from the stale props *before* its own `router.refresh()` can land.
+
+**Why it became permanent.** `PATCH /api/admin/form-templates/[id]` replaced `schema` wholesale with no concurrency guard. Owner presses Back → sees the old document → reasonably redoes the edit → Save → the stale schema plus one tweak is written over the good row, and the good schema is gone from the database.
+
+**The fix is three parts, and the server one is the part that matters.** The save now sends `expectedUpdatedAt`, and the route refuses with **409 `STALE_TEMPLATE`** when the row has moved (`isStaleTemplateWrite` in `lib/forms/template-concurrency.ts` — compared as epoch milliseconds so a `+10:00` and a `Z` client agree; an absent expectation is not stale, so older clients keep working, but an unreadable one is). The builders call `router.refresh()` after saving so the cache entry can no longer serve a pre-save payload, and advance their base version from the save (and publish) response so an editor never collides with its own earlier write. The v2 builder additionally re-seeds from new props **only while clean** — a dirty editor holds unsaved work belonging to the person typing, and discarding it to show a newer version would trade one data loss for another; that editor gets a banner and no "save anyway", because it cannot know what it would overwrite.
+
 #### FormTemplate & schema shape
 
 `FormTemplate` stores the full template as JSON `schema` (sections → fields → one level of `children` → conditional logic), typed by `serviceType: JobType` and `kind: FormKind` (`AIRBNB_TURNOVER`, `END_OF_LEASE`, …, `CUSTOM`), with versioning through `version` + `parentTemplateId` lineage, and `publishedAt`/`archivedAt`/`isActive` lifecycle. Field types and their behaviours (checkbox, yesno, photo, video, longtext, select, rating, signature, divider, …) are defined in `lib/forms/field-types.ts`; conditional visibility (`{fieldId, operator, value}` or property-field conditions) is evaluated by `lib/forms/visibility.ts`, which also exposes the `collectRequiredUploadFields` / `collectRequiredAnswerFields` collectors the submit route enforces.
