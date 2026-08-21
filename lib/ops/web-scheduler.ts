@@ -18,7 +18,7 @@ import { runSlaEscalation } from "@/lib/ops/sla";
 import { sendDailyOpsBriefing } from "@/lib/ops/daily-briefing";
 import { dispatchScheduledEmailCampaigns } from "@/lib/marketing/email-campaigns";
 import { refreshGoogleReviewsCache } from "@/lib/public-site/google-reviews";
-import { dispatchScheduledWorkforcePosts, runDocumentExpiryCheck, runRecognitionCheck } from "@/lib/workforce/service";
+import { dispatchScheduledWorkforcePosts, runCredentialExpiryCheck, runDocumentExpiryCheck, runRecognitionCheck } from "@/lib/workforce/service";
 import { sweepStaleEnRouteJobs } from "@/lib/ops/stale-en-route";
 import { autoPauseStaleJobs } from "@/lib/ops/auto-pause";
 import { dispatchUnfinishedJobPushReminders } from "@/lib/ops/unfinished-reminders";
@@ -139,6 +139,10 @@ const JOBS: FallbackJob[] = [
     await buildLaundryPlanDraft(monday);
   } },
   { name: "document-expiry-check", minIntervalMs: 6 * DAY, hour: 8, dow: 1, run: async () => { await runDocumentExpiryCheck(new Date()); } },
+  // Visa / licence / rego dates, which live on the User row and so were never
+  // seen by the document sweep above. Same Monday-morning slot, an hour later,
+  // so the two digests do not arrive on top of each other.
+  { name: "credential-expiry-check", minIntervalMs: 6 * DAY, hour: 9, dow: 1, run: async () => { await runCredentialExpiryCheck(new Date()); } },
   { name: "recognition-check", minIntervalMs: 6 * DAY, hour: 9, dow: 0, run: async () => { await runRecognitionCheck(new Date()); } },
   // Accountability nightly — quality-streak + monthly-ranking bonus proposals.
   // Pinned to 20:00 Sydney (matches boss.ts 20:30 window); creates PENDING

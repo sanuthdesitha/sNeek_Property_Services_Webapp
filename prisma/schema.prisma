@@ -860,6 +860,11 @@ model User {
 
   // Identity (cleaner-specific)
   visaStatus          VisaStatus?
+  /// When their right to work ends. Separate from `visaStatus` because the
+  /// status says WHAT they hold and this says WHEN it lapses — and it is the
+  /// date, not the category, that has to be chased before someone is rostered
+  /// onto work they are no longer permitted to do.
+  visaExpiry          DateTime?
   // TODO: encrypt at rest if we ever store the actual TFN
   taxFileNumberOnFile Boolean     @default(false)
 

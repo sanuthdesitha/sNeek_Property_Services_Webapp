@@ -7,6 +7,7 @@ import {
   Clock,
   ExternalLink,
   FilePlus2,
+  FileText,
   FileWarning,
   ShieldAlert,
   ShieldCheck,
@@ -53,6 +54,69 @@ export type ComplianceRequest = {
 
 export type ComplianceStaff = { id: string; name: string; role: string };
 
+/**
+ * One document, as it appears in both the attention list and the library.
+ * Shared rather than copied: two renderings of the same row drift apart the
+ * first time either gains a field, and the one nobody is looking at is the
+ * one that goes stale.
+ */
+function ComplianceDocRow({
+  doc,
+  now,
+  onReview,
+}: {
+  doc: ComplianceDoc;
+  now: number;
+  onReview: (doc: ComplianceDoc) => void;
+}) {
+  const st = docExpiryStatus(doc.expiresAt, now);
+  return (
+    <div className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0">
+      <EAvatar name={doc.user.name} image={doc.user.image} size="sm" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[0.875rem] font-medium">
+          {doc.title}
+          <span className="ml-2 text-[0.75rem] font-normal text-[hsl(var(--e-muted-foreground))]">
+            {doc.user.name}
+          </span>
+        </p>
+        <p className="truncate text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+          {prettify(doc.category)}
+          {doc.expiresAt ? ` · expires ${new Date(doc.expiresAt).toLocaleDateString("en-AU")}` : ""}
+          {doc.fileName ? ` · ${doc.fileName}` : ""}
+        </p>
+      </div>
+      {st === "EXPIRED" ? (
+        <EBadge tone="danger" soft>
+          Expired
+        </EBadge>
+      ) : null}
+      {st === "EXPIRING_SOON" ? (
+        <EBadge tone="warning" soft>
+          Expiring
+        </EBadge>
+      ) : null}
+      <EBadge tone={docStatusTone(doc.status)} soft>
+        {prettify(doc.status)}
+      </EBadge>
+      <div className="flex items-center gap-1.5">
+        <a
+          href={doc.url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
+          aria-label={`Open ${doc.title}`}
+        >
+          <ExternalLink className="h-4 w-4" />
+        </a>
+        <EButton variant="outline" size="sm" onClick={() => onReview(doc)}>
+          Review
+        </EButton>
+      </div>
+    </div>
+  );
+}
+
 const CATEGORY_OPTIONS = [
   "POLICE_CHECK",
   "DRIVER_LICENCE",
@@ -98,6 +162,38 @@ export function ComplianceBoard({
   const expiring = documents.filter((d) => docExpiryStatus(d.expiresAt, now) === "EXPIRING_SOON");
   const pending = documents.filter((d) => d.status === "PENDING");
   const attention = [...expired, ...expiring, ...pending.filter((d) => !expired.includes(d) && !expiring.includes(d))];
+
+  // THE LIBRARY. Only `attention` was ever rendered, so a police check that
+  // was uploaded, verified and still current — exactly the document an owner
+  // opens this page to find — appeared nowhere at all. Everything needing
+  // action still leads; this is the rest of the filing cabinet under it.
+  const [query, setQuery] = React.useState("");
+  const [categoryFilter, setCategoryFilter] = React.useState("ALL");
+  const [statusFilter, setStatusFilter] = React.useState("ALL");
+
+  const library = React.useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return documents
+      .filter((d) => (categoryFilter === "ALL" ? true : d.category === categoryFilter))
+      .filter((d) => {
+        if (statusFilter === "ALL") return true;
+        if (statusFilter === "EXPIRED") return docExpiryStatus(d.expiresAt, now) === "EXPIRED";
+        if (statusFilter === "EXPIRING_SOON")
+          return docExpiryStatus(d.expiresAt, now) === "EXPIRING_SOON";
+        return d.status === statusFilter;
+      })
+      .filter((d) =>
+        needle
+          ? [d.title, d.user.name, d.category, d.fileName]
+              .join(" ")
+              .toLowerCase()
+              .includes(needle)
+          : true
+      )
+      // Newest first: the question is almost always "what came in recently".
+      .slice()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [documents, query, categoryFilter, statusFilter, now]);
 
   // Review form state
   const [reviewStatus, setReviewStatus] = React.useState("VERIFIED");
@@ -205,43 +301,69 @@ export function ComplianceBoard({
             <EEmptyState eyebrow="All clear" title="Every document is current" description="No expired, expiring or unreviewed uploads." />
           ) : (
             <div className="divide-y divide-[hsl(var(--e-border))]">
-              {attention.map((d) => {
-                const st = docExpiryStatus(d.expiresAt, now);
-                return (
-                  <div key={d.id} className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0">
-                    <EAvatar name={d.user.name} image={d.user.image} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[0.875rem] font-medium">
-                        {d.title}
-                        <span className="ml-2 text-[0.75rem] font-normal text-[hsl(var(--e-muted-foreground))]">
-                          {d.user.name}
-                        </span>
-                      </p>
-                      <p className="truncate text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
-                        {prettify(d.category)}
-                        {d.expiresAt ? ` · expires ${new Date(d.expiresAt).toLocaleDateString("en-AU")}` : ""}
-                      </p>
-                    </div>
-                    {st === "EXPIRED" ? <EBadge tone="danger" soft>Expired</EBadge> : null}
-                    {st === "EXPIRING_SOON" ? <EBadge tone="warning" soft>Expiring</EBadge> : null}
-                    <EBadge tone={docStatusTone(d.status)} soft>{prettify(d.status)}</EBadge>
-                    <div className="flex items-center gap-1.5">
-                      <a
-                        href={d.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
-                        aria-label="Open document"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                      <EButton variant="outline" size="sm" onClick={() => setReviewDoc(d)}>
-                        Review
-                      </EButton>
-                    </div>
-                  </div>
-                );
-              })}
+              {attention.map((d) => (
+                <ComplianceDocRow key={d.id} doc={d} now={now} onReview={setReviewDoc} />
+              ))}
+            </div>
+          )}
+        </ECardBody>
+      </ECard>
+
+      {/* Every document on file — see the note beside `library` above. */}
+      <ECard>
+        <ECardHeader>
+          <ECardTitle className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" />
+            All documents on file
+            <span className="text-[0.75rem] font-normal text-[hsl(var(--e-muted-foreground))]">
+              {library.length} of {documents.length}
+            </span>
+          </ECardTitle>
+        </ECardHeader>
+        <ECardBody className="space-y-3 pt-0">
+          <div className="flex flex-wrap gap-2">
+            <EInput
+              value={query}
+              onChange={(ev) => setQuery(ev.target.value)}
+              placeholder="Search person, title or file…"
+              className="min-w-[200px] flex-1"
+            />
+            <ESelect
+              value={categoryFilter}
+              onChange={(ev) => setCategoryFilter(ev.target.value)}
+              className="w-auto"
+            >
+              <option value="ALL">All categories</option>
+              {CATEGORY_OPTIONS.map((c) => (
+                <option key={c} value={c}>
+                  {prettify(c)}
+                </option>
+              ))}
+            </ESelect>
+            <ESelect
+              value={statusFilter}
+              onChange={(ev) => setStatusFilter(ev.target.value)}
+              className="w-auto"
+            >
+              <option value="ALL">Any status</option>
+              <option value="VERIFIED">Verified</option>
+              <option value="PENDING">Pending review</option>
+              <option value="REJECTED">Rejected</option>
+              <option value="EXPIRING_SOON">Expiring soon</option>
+              <option value="EXPIRED">Expired</option>
+            </ESelect>
+          </div>
+
+          {library.length === 0 ? (
+            <EEmptyState
+              title="Nothing matches"
+              description="No document on file matches those filters."
+            />
+          ) : (
+            <div className="divide-y divide-[hsl(var(--e-border))]">
+              {library.map((d) => (
+                <ComplianceDocRow key={d.id} doc={d} now={now} onReview={setReviewDoc} />
+              ))}
             </div>
           )}
         </ECardBody>

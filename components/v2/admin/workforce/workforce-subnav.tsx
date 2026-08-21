@@ -1,4 +1,4 @@
-import { Award, LayoutDashboard, ShieldCheck, Users } from "lucide-react";
+import { Award, GraduationCap, LayoutDashboard, ShieldCheck, Users } from "lucide-react";
 import { EChipTabs } from "@/components/v2/admin/estate-kit";
 
 /**
@@ -10,6 +10,7 @@ const TABS: Array<{ key: string; label: string; href: string; icon: typeof Users
   { key: "overview", label: "Overview", href: "/v2/admin/workforce", icon: LayoutDashboard },
   { key: "roster", label: "Roster", href: "/v2/admin/workforce/roster", icon: Users },
   { key: "compliance", label: "Compliance", href: "/v2/admin/workforce/compliance", icon: ShieldCheck },
+  { key: "coaching", label: "Coaching", href: "/v2/admin/workforce/coaching", icon: GraduationCap },
   { key: "recognition", label: "Recognition", href: "/v2/admin/workforce/recognition", icon: Award },
 ];
 

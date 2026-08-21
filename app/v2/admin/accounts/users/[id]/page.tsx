@@ -43,6 +43,7 @@ import { EAvatar } from "@/components/v2/admin/estate-kit";
 import { AccountNotes } from "@/components/v2/admin/accounts/account-notes";
 import { AccountActivity } from "@/components/v2/admin/accounts/account-activity";
 import { ExtendedProfileEditor } from "@/components/v2/admin/accounts/extended-profile-editor";
+import { resolveCredentialStatuses } from "@/lib/workforce/credential-expiry";
 
 export const metadata = { title: "Account · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -93,6 +94,12 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
       postcode: true,
       address: true,
       abn: true,
+      // The lapsing credentials. Nothing selected these before, which is
+      // exactly why no screen could show them.
+      visaStatus: true,
+      visaExpiry: true,
+      driverLicenseExpiry: true,
+      vehicleRegoExpiry: true,
       bankBsb: true,
       bankAccountNumber: true,
       bankAccountName: true,
@@ -109,11 +116,32 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
 
   const isFieldRole = user.role === Role.CLEANER || user.role === Role.QA_INSPECTOR;
 
-  const [summary, extended, perf] = await Promise.all([
+  const [summary, extended, perf, documents] = await Promise.all([
     getUserSummary(user.id, user.hourlyRate),
     getUserExtendedProfile(user.id),
     isFieldRole ? getPerformanceMetrics(user.id, 30) : Promise.resolve(null),
+    // The FILES, not a count of them. This card showed three numbers and no
+    // way to open anything, so a police check could be on file for a year
+    // with nobody able to look at it from the person's own profile.
+    db.staffDocument.findMany({
+      where: { userId: user.id },
+      orderBy: [{ expiresAt: "asc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        status: true,
+        fileName: true,
+        url: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    }),
   ]);
+
+  // Visa / licence / rego. Dates on the User row rather than uploaded files,
+  // which is why nothing used to show them anywhere.
+  const credentials = resolveCredentialStatuses(user, new Date());
 
   const birthday = user.dateOfBirth ? formatBirthday(new Date(user.dateOfBirth)) : null;
   const hireDate = user.hireDate ?? user.createdAt;
@@ -450,9 +478,11 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
             );
           })()}
 
-          {/* Documents */}
-          {summary.documentsTotal > 0 ? (
-            <ECard>
+          {/* Documents — always rendered, even at zero: "nothing on file" is
+              the answer an admin most needs to see, and hiding the card when
+              empty made a person with no compliance documents look identical
+              to one who was fully compliant. */}
+          <ECard>
               <ECardHeader className="pb-2">
                 <ECardTitle className="text-[0.95rem]">
                   <span className="inline-flex items-center gap-2">
@@ -460,13 +490,94 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
                   </span>
                 </ECardTitle>
               </ECardHeader>
-              <ECardBody className="space-y-2.5 pt-0 text-[0.8125rem]">
-                <Row label="Documents on file" value={summary.documentsTotal} />
-                <Row label="Current" value={summary.documentsCurrent} />
-                <Row label="Expired" value={summary.documentsExpired} warn={summary.documentsExpired > 0} />
+              <ECardBody className="space-y-3 pt-0 text-[0.8125rem]">
+                {credentials.length > 0 ? (
+                  <ul className="space-y-2 border-b border-[hsl(var(--e-border))] pb-3">
+                    {credentials.map((c) => (
+                      <li key={c.kind} className="flex flex-wrap items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate">{c.label}</span>
+                        <span className="text-[hsl(var(--e-muted-foreground))]">
+                          {c.expiresAt.toLocaleDateString("en-AU")}
+                        </span>
+                        {c.state === "EXPIRED" ? (
+                          <EBadge tone="danger" soft>
+                            Expired
+                          </EBadge>
+                        ) : c.state === "EXPIRING_SOON" ? (
+                          <EBadge tone="warning" soft>
+                            {c.daysRemaining === 0
+                              ? "Expires today"
+                              : `${c.daysRemaining}d left`}
+                          </EBadge>
+                        ) : (
+                          <EBadge tone="success" soft>
+                            Current
+                          </EBadge>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
+                <div className="space-y-2.5">
+                  <Row label="Documents on file" value={summary.documentsTotal} />
+                  <Row label="Current" value={summary.documentsCurrent} />
+                  <Row label="Expired" value={summary.documentsExpired} warn={summary.documentsExpired > 0} />
+                </div>
+
+                {documents.length === 0 ? (
+                  <p className="border-t border-[hsl(var(--e-border))] pt-3 text-[hsl(var(--e-muted-foreground))]">
+                    Nothing on file for this person yet.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-[hsl(var(--e-border))] border-t border-[hsl(var(--e-border))]">
+                    {documents.map((doc) => {
+                      const expiresAt = doc.expiresAt ? new Date(doc.expiresAt) : null;
+                      const expired = expiresAt ? expiresAt.getTime() < Date.now() : false;
+                      return (
+                        <li key={doc.id} className="flex flex-wrap items-center gap-2 py-2.5">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-[550]">{doc.title}</p>
+                            <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                              {doc.category.replace(/_/g, " ").toLowerCase()}
+                              {expiresAt
+                                ? ` · ${expired ? "expired" : "expires"} ${expiresAt.toLocaleDateString("en-AU")}`
+                                : " · no expiry"}
+                            </p>
+                          </div>
+                          {expired ? (
+                            <EBadge tone="danger" soft>
+                              Expired
+                            </EBadge>
+                          ) : null}
+                          <EBadge tone={doc.status === "VERIFIED" ? "success" : doc.status === "REJECTED" ? "danger" : "warning"} soft>
+                            {doc.status.replace(/_/g, " ").toLowerCase()}
+                          </EBadge>
+                          {/* Opens in a new tab rather than navigating away —
+                              an admin checking a licence is mid-task on this
+                              page and should come back to it. */}
+                          <a
+                            href={doc.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="shrink-0 font-[550] text-[hsl(var(--e-primary))] underline underline-offset-2"
+                          >
+                            Open
+                          </a>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                <Link
+                  href="/v2/admin/workforce/compliance"
+                  className="inline-block pt-1 text-[0.75rem] font-[550] text-[hsl(var(--e-primary))] hover:underline"
+                >
+                  Manage compliance →
+                </Link>
               </ECardBody>
-            </ECard>
-          ) : null}
+          </ECard>
 
           {/* Recognition */}
           {summary.recognitionCount > 0 ? (
