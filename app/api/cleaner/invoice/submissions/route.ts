@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { publicUrl } from "@/lib/s3";
 import {
   invoiceErrorMessage,
   invoiceErrorStatus,
@@ -29,11 +30,23 @@ export async function GET() {
         // awaiting confirmation rather than looking unchanged after they said so.
         paidClaimedAt: true,
         paidClaimedNote: true,
+        paidClaimedProofKeys: true,
       },
       orderBy: { createdAt: "desc" },
       take: 50,
     });
-    return NextResponse.json(rows);
+    return NextResponse.json(
+      rows.map((row) => ({
+        ...row,
+        // The payee sees the receipt they attached, so a claim they made weeks
+        // ago is still self-explanatory while it waits on the office.
+        paidClaimedProofUrls: Array.isArray(row.paidClaimedProofKeys)
+          ? row.paidClaimedProofKeys
+              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+              .map((key) => ({ key, url: publicUrl(key) }))
+          : [],
+      }))
+    );
   } catch (err: any) {
     return NextResponse.json(
       { error: invoiceErrorMessage(err?.message) },

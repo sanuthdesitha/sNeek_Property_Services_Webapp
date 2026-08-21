@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { EBadge, EButton, ECard, ECardBody, EAlert } from "@/components/v2/ui/primitives";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture } from "@/components/v2/cleaner/media-capture";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
@@ -416,15 +417,16 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                     }
                   />
                   {api.carryNotes.length > 1 ? (
-                    <button
-                      type="button"
+                    /* Low tier: one unsaved carry-over note line. */
+                    <EConfirmButton
                       disabled={locked}
-                      onClick={() => api.setCarryNotes((prev) => prev.filter((_, idx) => idx !== i))}
-                      className="mt-2 shrink-0 text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-danger))] disabled:opacity-50"
-                      aria-label="Remove note"
+                      ariaLabel="Remove note"
+                      confirmLabel={<span className="text-[0.6875rem] font-[600]">Sure?</span>}
+                      onConfirm={() => api.setCarryNotes((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="mt-2 shrink-0 text-[hsl(var(--e-danger))] disabled:opacity-50"
                     >
                       <Trash2 className="h-4 w-4" />
-                    </button>
+                    </EConfirmButton>
                   ) : null}
                 </div>
               ))}

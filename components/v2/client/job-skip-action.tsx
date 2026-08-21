@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { EButton } from "@/components/v2/ui/primitives";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 
 /**
  * Estate skip-clean control. Mirrors the exact payload the legacy client job
@@ -58,9 +59,15 @@ export function JobSkipAction({
   return (
     <div className="flex flex-col items-end gap-1.5">
       {skipStatus === "REQUESTED" ? (
-        <EButton variant="outline" size="sm" onClick={cancel} disabled={busy}>
+        /* Low tier: the request can be made again from this same control. */
+        <EConfirmButton
+          ariaLabel="Cancel skip request"
+          confirmLabel="Cancel it?"
+          disabled={busy}
+          onConfirm={() => void cancel()}
+        >
           {busy ? "Cancelling…" : "Cancel skip request"}
-        </EButton>
+        </EConfirmButton>
       ) : (
         <EButton variant="outline" size="sm" onClick={request} disabled={busy}>
           {busy ? "Sending…" : "Request to skip this clean"}

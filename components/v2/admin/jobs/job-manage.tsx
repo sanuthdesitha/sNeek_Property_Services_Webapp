@@ -43,6 +43,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import {
+  EConfirmButton,
   EConfirmModal,
   EField,
   EInput,
@@ -59,6 +60,7 @@ import {
 import type { JobNotice } from "@/lib/jobs/notices";
 import { statusLabel } from "./job-row";
 import { JobResetDialog } from "./job-reset-dialog";
+import { NoticeImagesInput } from "./notice-images-input";
 import { JobPayCard } from "@/components/v2/shared/job-pay-card";
 
 const TZ = "Australia/Sydney";
@@ -383,7 +385,12 @@ export function JobManagePanel({
           keyPickupLocation: keyPickupLocation.trim() || undefined,
         },
         notices: notices
-          .map((n) => ({ id: n.id, body: n.body.trim(), urgency: n.urgency }))
+          .map((n) => ({
+            id: n.id,
+            body: n.body.trim(),
+            urgency: n.urgency,
+            imageUrls: n.imageUrls ?? [],
+          }))
           .filter((n) => n.body.length > 0),
         specialRequestTasks: specialTasks
           .map((t) => ({
@@ -778,15 +785,16 @@ export function JobManagePanel({
                             placeholder={`Notice ${index + 1}`}
                             className="min-h-[3rem]"
                           />
-                          <EButton
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setNotices((prev) => prev.filter((n) => n.id !== notice.id))}
-                            aria-label="Remove notice"
-                            className="shrink-0"
+                          {/* Low tier: one draft row; nothing reaches the job
+                              until the panel is saved. */}
+                          <EConfirmButton
+                            ariaLabel="Remove notice"
+                            confirmLabel="Remove?"
+                            className="inline-flex h-8 shrink-0 items-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-2 text-[0.75rem] text-[hsl(var(--e-danger))]"
+                            onConfirm={() => setNotices((prev) => prev.filter((n) => n.id !== notice.id))}
                           >
                             <Trash2 className="h-4 w-4" />
-                          </EButton>
+                          </EConfirmButton>
                         </div>
                         <div className="flex flex-wrap items-center gap-4">
                           <ESwitch
@@ -808,6 +816,20 @@ export function JobManagePanel({
                             </span>
                           ) : null}
                         </div>
+                        {/* Photos belong to the notice, not to the job's
+                            reference attachments: they are shown inline with
+                            this text at the door, and deleting the notice must
+                            take them with it. */}
+                        <NoticeImagesInput
+                          value={notice.imageUrls ?? []}
+                          onChange={(next) =>
+                            setNotices((prev) =>
+                              prev.map((n) =>
+                                n.id === notice.id ? { ...n, imageUrls: next } : n
+                              )
+                            )
+                          }
+                        />
                       </div>
                     ))}
                   </div>
@@ -846,15 +868,14 @@ export function JobManagePanel({
                             }
                             placeholder={`Task ${index + 1} title`}
                           />
-                          <EButton
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setSpecialTasks((prev) => prev.filter((t) => t.id !== task.id))}
-                            aria-label="Remove task"
-                            className="shrink-0"
+                          <EConfirmButton
+                            ariaLabel="Remove task"
+                            confirmLabel="Remove?"
+                            className="inline-flex h-8 shrink-0 items-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-2 text-[0.75rem] text-[hsl(var(--e-danger))]"
+                            onConfirm={() => setSpecialTasks((prev) => prev.filter((t) => t.id !== task.id))}
                           >
                             <Trash2 className="h-4 w-4" />
-                          </EButton>
+                          </EConfirmButton>
                         </div>
                         <ETextarea
                           value={task.description ?? ""}

@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Download, Play, Plus, Receipt, Save, ShoppingBag, Trash2, Upload } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitives";
-import { EInput, ESelect, ETextarea, EField } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EInput, ESelect, ETextarea, EField } from "@/components/v2/admin/estate-kit";
 import { EInlineNotice } from "@/components/v2/client/fields";
 import {
   DEFAULT_SHOPPING_GROUP_MODE,
@@ -671,15 +671,15 @@ export function ShoppingRunWorkspaceEstate({
                       </p>
                     </div>
                     {!readOnly ? (
-                      <EButton
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeCustomPurchase(row.itemId, row.propertyId)}
+                      /* Low tier: an unsaved extra-purchase line. */
+                      <EConfirmButton
+                        ariaLabel={`Remove ${row.itemName}`}
+                        confirmLabel="Remove it?"
+                        onConfirm={() => removeCustomPurchase(row.itemId, row.propertyId)}
                       >
                         <Trash2 className="h-4 w-4" />
                         Remove
-                      </EButton>
+                      </EConfirmButton>
                     ) : null}
                   </div>
                   <div className="mt-3 grid gap-3 md:grid-cols-[120px_120px_1fr]">

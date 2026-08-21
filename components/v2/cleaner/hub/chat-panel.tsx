@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState } from "@/components/v2/ui/primitives";
 import { ETextarea } from "@/components/v2/cleaner/fields";
+import { EConfirmModal } from "@/components/v2/admin/estate-kit";
 
 interface ChannelSummary {
   id: string;
@@ -88,6 +89,10 @@ export function ChatPanel({
   const [sending, setSending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [editingId, setEditingId] = React.useState<string>("");
+  // Modal tier: a sent message is correspondence other people have already
+  // read and may be acting on. Deleting it takes it off their screens too,
+  // and there is no re-send that restores the original thread position.
+  const [deleteMessageId, setDeleteMessageId] = React.useState<string | null>(null);
   const [editDraft, setEditDraft] = React.useState("");
   const [directTarget, setDirectTarget] = React.useState("");
   const [openingDirect, setOpeningDirect] = React.useState(false);
@@ -377,7 +382,7 @@ export function ChatPanel({
                             </button>
                             <button
                               type="button"
-                              onClick={() => void patchMessage(m.id, { delete: true })}
+                              onClick={() => setDeleteMessageId(m.id)}
                               className="inline-flex items-center gap-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-danger))]"
                             >
                               <Trash2 className="h-3 w-3" /> Delete
@@ -415,6 +420,19 @@ export function ChatPanel({
           </div>
         </div>
       </ECard>
+
+      <EConfirmModal
+        open={Boolean(deleteMessageId)}
+        onClose={() => setDeleteMessageId(null)}
+        title="Delete this message"
+        description="It disappears from the channel for everyone who can see it. Sending it again puts it at the bottom of the thread, not back where it was."
+        confirmLabel="Delete message"
+        onConfirm={() => {
+          const id = deleteMessageId;
+          setDeleteMessageId(null);
+          if (id) void patchMessage(id, { delete: true });
+        }}
+      />
     </div>
   );
 }

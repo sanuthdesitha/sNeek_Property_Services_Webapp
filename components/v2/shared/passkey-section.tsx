@@ -22,6 +22,7 @@ import {
 } from "@simplewebauthn/browser";
 import { Fingerprint, Loader2, Trash2 } from "lucide-react";
 import { EButton, ECard, ECardBody, ECardHeader, ECardTitle } from "@/components/v2/ui/primitives";
+import { EConfirmModal } from "@/components/v2/admin/estate-kit";
 import { toast } from "@/hooks/use-toast";
 
 type BiometricDevice = {
@@ -39,6 +40,10 @@ export function EPasskeySection() {
   const [loading, setLoading] = React.useState(true);
   const [enrolling, setEnrolling] = React.useState(false);
   const [removingId, setRemovingId] = React.useState<string | null>(null);
+  // Modal tier: a passkey can only be re-created from the physical device it
+  // lives on. Remove the wrong one on a phone you no longer hold and biometric
+  // sign-in is gone for good. No PIN — this panel is shared with non-admins.
+  const [removeTarget, setRemoveTarget] = React.useState<BiometricDevice | null>(null);
 
   const loadDevices = React.useCallback(async () => {
     setLoading(true);
@@ -125,7 +130,10 @@ export function EPasskeySection() {
     }
   }
 
-  async function removeDevice(id: string) {
+  async function removeDevice() {
+    const id = removeTarget?.id;
+    if (!id) return;
+    setRemoveTarget(null);
     setRemovingId(id);
     try {
       const res = await fetch(`/api/auth/webauthn/credentials/${id}`, { method: "DELETE" });
@@ -181,7 +189,7 @@ export function EPasskeySection() {
                 size="sm"
                 className="text-[hsl(var(--e-danger))]"
                 disabled={removingId === device.id}
-                onClick={() => void removeDevice(device.id)}
+                onClick={() => setRemoveTarget(device)}
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 {removingId === device.id ? "Removing…" : "Remove"}
@@ -197,6 +205,20 @@ export function EPasskeySection() {
           </EButton>
         </div>
       </ECardBody>
+
+      <EConfirmModal
+        open={Boolean(removeTarget)}
+        onClose={() => setRemoveTarget(null)}
+        title="Remove this device"
+        description={
+          removeTarget
+            ? `${removeTarget.deviceName || "This device"} will no longer sign you in with Face ID, fingerprint or its passcode. Adding it back has to be done on the device itself.`
+            : undefined
+        }
+        confirmLabel="Remove device"
+        loading={Boolean(removingId)}
+        onConfirm={removeDevice}
+      />
     </ECard>
   );
 }

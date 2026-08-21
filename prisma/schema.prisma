@@ -490,6 +490,13 @@ model PropertyMaintenanceItem {
   assignedAt          DateTime?
   assignedByUserId    String?
   scheduledFor        DateTime?
+  /// The visit as the CLIENT or their assistant described it: the window, who
+  /// is coming, how they get in, and what it means for that day's clean. A
+  /// blob rather than a dozen columns for the same reason the job meta is one
+  /// — the set of questions worth asking will grow, and each new one would
+  /// otherwise be a migration against a live table. Validated both ways by
+  /// lib/maintenance/visit-plan. Deliberately carries NO cost field.
+  visitPlan           Json?
   shareAccess         Boolean             @default(false) // expose property access details to the worker
   contactPersonUserId String? // person-in-charge the worker can call/email/sms
   enRouteAt           DateTime?
@@ -949,6 +956,11 @@ model Property {
   /// complex or an underground carpark legitimately needs more slack than a
   /// street-front terrace.
   geofenceRadiusM            Int?
+  /// Require a tap on one of this property's NFC tags before a cleaner can
+  /// clock in. Off by default and set per property, because it only makes
+  /// sense where tags are actually deployed — switching it on globally would
+  /// lock every cleaner out of every property that has no tag on the wall.
+  requireNfcCheckIn          Boolean  @default(false)
   defaultCheckinTime         String   @default("14:00") // HH:mm
   defaultCheckoutTime        String   @default("10:00") // HH:mm
   // Where job start/due times come from: the property's configured default

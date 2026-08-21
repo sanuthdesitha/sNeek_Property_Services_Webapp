@@ -21,6 +21,7 @@
  */
 import * as React from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   MapPin,
@@ -489,6 +490,17 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   // tag fixed to the building — and it is what lets the clock-in stop
   // demanding a location the cleaner may be standing somewhere they cannot get.
   const nfcArrival = Boolean(payload?.nfcArrival);
+
+  // ARRIVED BY TAG. The landing page sets this after an accepted scan.
+  //
+  // Tapping a tag screwed to the door IS the deliberate act of starting work,
+  // so the clock starts by itself rather than asking the cleaner to confirm on
+  // screen what they just confirmed with their hands. Any gate that is about
+  // the WORK still fires — clockIn opens the read-first dialog exactly as it
+  // does for a button press.
+  const searchParams = useSearchParams();
+  const arrivedByTag = searchParams?.get("via") === "nfc";
+  const autoStartedRef = React.useRef(false);
   const propertyId: string | null = job?.propertyId ?? (property as any)?.id ?? null;
 
   // Accept gate: gate on THIS cleaner's own assignment response, not the job's
@@ -956,6 +968,25 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       setBusy(null);
     }
   }
+
+  // Start the clock for someone who arrived by tapping the tag.
+  //
+  // Guarded by a ref rather than by state: clockIn can re-render this
+  // component several times (busy flags, the briefing dialog opening), and a
+  // state-based guard would let a second run slip through between renders —
+  // which on a job already running would read as a clock-out.
+  React.useEffect(() => {
+    if (!arrivedByTag || autoStartedRef.current) return;
+    if (busy) return;
+    // Already on the clock: the tap that brought them here was a check-OUT,
+    // which the scan endpoint has already performed. Nothing to start.
+    if (ownStarted) return;
+    autoStartedRef.current = true;
+    void clockIn();
+    // clockIn is stable for the life of this component and intentionally not
+    // a dependency — listing it would re-run this on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrivedByTag, busy, ownStarted]);
 
   async function pauseClock() {
     setBusy("pause");

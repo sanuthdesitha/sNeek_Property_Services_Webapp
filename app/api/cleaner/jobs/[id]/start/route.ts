@@ -78,6 +78,7 @@ export async function POST(
             name: true,
             laundryEnabled: true,
             laundryBagLabel: true,
+            requireNfcCheckIn: true,
           },
         },
       },
@@ -143,6 +144,35 @@ export async function POST(
         },
         { status: 409 }
       );
+    }
+
+    // ── Tag-only clock-in (per property) ─────────────────────────────────────
+    // Some properties are set to require a tap on their NFC tag before work
+    // can start, which is how an owner enforces that the cleaner is physically
+    // on the premises. Checked FIRST: there is no point asking someone to
+    // confirm a property code for a job they cannot start at all.
+    //
+    // The scan itself is the evidence — an ACCEPTED NfcScanEvent for THIS
+    // cleaner on THIS job. A scan by somebody else, or on another job, proves
+    // nothing about who is standing at this door now.
+    if (job.property?.requireNfcCheckIn && isFirstStartForCleaner) {
+      const tapped = await db.nfcScanEvent
+        .findFirst({
+          where: { jobId: job.id, userId: session.user.id, outcome: "ACCEPTED" },
+          select: { id: true },
+        })
+        .catch(() => null);
+
+      if (!tapped) {
+        return NextResponse.json(
+          {
+            error: "NFC_TAG_REQUIRED",
+            message:
+              "This property is set to tag-only check-in. Tap the tag by the door to start.",
+          },
+          { status: 409 }
+        );
+      }
     }
 
     // ── Job-start accountability gate (Phase 2b) ──────────────────────────────

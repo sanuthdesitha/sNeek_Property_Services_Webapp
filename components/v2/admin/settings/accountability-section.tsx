@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { EButton, ECard } from "@/components/v2/ui/primitives";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import {
   EField,
   EInput,
@@ -313,9 +314,10 @@ export function AccountabilitySection({
                     onChange={(e) => updateBand(idx, { amount: num(e.target.value, band.amount) })} />
                 </EField>
                 {!readOnly ? (
-                  <EButton size="icon" variant="ghost" onClick={() => removeBand(idx)} aria-label="Remove band">
+                  /* Low tier: both removals here edit an unsaved draft. */
+                  <EConfirmButton ariaLabel="Remove band" confirmLabel="Remove?" onConfirm={() => removeBand(idx)}>
                     <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                  </EButton>
+                  </EConfirmButton>
                 ) : null}
               </div>
             ))
@@ -366,9 +368,9 @@ export function AccountabilitySection({
                   onChange={(e) => updateCategory(idx, { label: e.target.value })} />
               </EField>
               {!readOnly ? (
-                <EButton size="icon" variant="ghost" onClick={() => removeCategory(idx)} aria-label="Remove category">
+                <EConfirmButton ariaLabel="Remove category" confirmLabel="Remove?" onConfirm={() => removeCategory(idx)}>
                   <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                </EButton>
+                </EConfirmButton>
               ) : null}
             </div>
           ))}

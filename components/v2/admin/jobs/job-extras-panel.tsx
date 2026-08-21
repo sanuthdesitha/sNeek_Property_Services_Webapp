@@ -12,7 +12,14 @@ import { useRouter } from "next/navigation";
 import { Loader2, Mail, PackagePlus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
-import { EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
+import {
+  EConfirmModal,
+  EField,
+  EInput,
+  ESelect,
+  ETextarea,
+  verifyAdminSecurity,
+} from "@/components/v2/admin/estate-kit";
 import { EXTRAS_BY_CATEGORY, EXTRAS_BY_ID } from "@/lib/pricing/extras-catalog";
 
 interface ExtraRow {
@@ -53,6 +60,9 @@ export function JobExtrasPanel({
   });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // PIN tier: removing an extra rewrites the client's fixed price and emails
+  // them the new total, so a mis-click is a billing correction, not an undo.
+  const [removeTarget, setRemoveTarget] = useState<ExtraRow | null>(null);
 
   // Add form
   const [pick, setPick] = useState<string>("");
@@ -154,9 +164,14 @@ export function JobExtrasPanel({
     }
   }
 
-  async function removeExtra(row: ExtraRow) {
+  async function removeExtra(credentials?: { pin?: string; password?: string }) {
+    const row = removeTarget;
+    if (!row) return;
     setBusy(true);
     try {
+      // The quote-extras route takes no security payload of its own, so the
+      // PIN is checked against the verify endpoint before anything is removed.
+      await verifyAdminSecurity(credentials);
       const res = await fetch(`/api/admin/jobs/${jobId}/quote-extras`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
@@ -173,8 +188,15 @@ export function JobExtrasPanel({
           body.emailed ? "client emailed" : "client email not sent"
         }`,
       });
+      setRemoveTarget(null);
       await load();
       router.refresh();
+    } catch (err: any) {
+      toast({
+        title: "Couldn't remove the extra",
+        description: err?.message ?? "Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setBusy(false);
     }
@@ -212,7 +234,7 @@ export function JobExtrasPanel({
                   size="icon"
                   aria-label={`Remove ${row.label}`}
                   disabled={busy}
-                  onClick={() => void removeExtra(row)}
+                  onClick={() => setRemoveTarget(row)}
                 >
                   <Trash2 className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />
                 </EButton>
@@ -299,6 +321,21 @@ export function JobExtrasPanel({
           including the updated total.
         </p>
       </div>
+
+      <EConfirmModal
+        open={Boolean(removeTarget)}
+        onClose={() => setRemoveTarget(null)}
+        title="Remove this extra"
+        description={
+          removeTarget
+            ? `Removing "${removeTarget.label}" drops it off the cleaner's checklist, lowers the client's fixed price and emails them the new total. Enter your PIN or password to continue.`
+            : undefined
+        }
+        confirmLabel="Remove extra"
+        requireSecurity
+        loading={busy}
+        onConfirm={removeExtra}
+      />
     </div>
   );
 }

@@ -42,7 +42,7 @@ import {
   ECardTitle,
   EEyebrow,
 } from "@/components/v2/ui/primitives";
-import { EField, EInput, ETextarea, ESelect, EModal, ESwitch } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EField, EInput, ETextarea, ESelect, EModal, ESwitch } from "@/components/v2/admin/estate-kit";
 import { EAddressInput } from "@/components/v2/admin/onboarding/address-input";
 
 type LineItem = { label: string; unitPrice: number; qty: number; total: number };
@@ -1699,15 +1699,14 @@ export function QuoteBuilder({
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
                       <span className="e-tnum text-[hsl(var(--e-muted-foreground))]">{money(c.price)}</span>
-                      <EButton
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7"
-                        onClick={() => setCustomExtras((prev) => prev.filter((x) => x.id !== c.id))}
+                      <EConfirmButton
+                        ariaLabel="Remove custom extra"
+                        confirmLabel="Remove?"
+                        className="inline-flex h-7 shrink-0 items-center rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] px-1.5 text-[0.6875rem] text-[hsl(var(--e-danger))]"
+                        onConfirm={() => setCustomExtras((prev) => prev.filter((x) => x.id !== c.id))}
                       >
                         <Trash2 className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />
-                      </EButton>
+                      </EConfirmButton>
                     </span>
                   </div>
                 ))}
@@ -1763,15 +1762,14 @@ export function QuoteBuilder({
                       alt={img.label || `Reference ${idx + 1}`}
                       className="h-28 w-full rounded-[var(--e-radius)] object-cover"
                     />
-                    <EButton
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="absolute right-1 top-1 h-7 w-7 bg-[hsl(var(--e-surface)/0.9)]"
-                      onClick={() => setRefImages((prev) => prev.filter((r) => r.key !== img.key))}
+                    <EConfirmButton
+                      ariaLabel="Remove reference image"
+                      confirmLabel={<span className="text-[0.625rem] font-[600]">Sure?</span>}
+                      className="absolute right-1 top-1 inline-flex h-7 items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface)/0.9)] px-1.5 text-[hsl(var(--e-danger))]"
+                      onConfirm={() => setRefImages((prev) => prev.filter((r) => r.key !== img.key))}
                     >
                       <Trash2 className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />
-                    </EButton>
+                    </EConfirmButton>
                   </div>
                   <EInput
                     value={img.label ?? ""}
@@ -1876,15 +1874,16 @@ export function QuoteBuilder({
                             onChange={(e) => renameItem(section.id, it.id, e.target.value)}
                             className={it.covered ? "" : "line-through opacity-70"}
                           />
-                          <EButton
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 shrink-0"
-                            onClick={() => removeItem(section.id, it.id)}
+                          {/* Low tier: one line of the checklist draft, and
+                              the input below re-adds it. */}
+                          <EConfirmButton
+                            ariaLabel={`Remove ${it.label}`}
+                            confirmLabel="Remove?"
+                            className="inline-flex h-7 shrink-0 items-center rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] px-1.5 text-[0.6875rem] text-[hsl(var(--e-danger))]"
+                            onConfirm={() => removeItem(section.id, it.id)}
                           >
                             <Trash2 className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />
-                          </EButton>
+                          </EConfirmButton>
                         </div>
                       ))
                     )}
@@ -1919,15 +1918,14 @@ export function QuoteBuilder({
                       <div key={i} className="flex items-center gap-2">
                         <X className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-danger))]" />
                         <EInput value={line} onChange={(e) => updateExclusion(i, e.target.value)} />
-                        <EButton
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 shrink-0"
-                          onClick={() => removeExclusion(i)}
+                        <EConfirmButton
+                          ariaLabel="Remove exclusion"
+                          confirmLabel="Remove?"
+                          className="inline-flex h-7 shrink-0 items-center rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] px-1.5 text-[0.6875rem] text-[hsl(var(--e-danger))]"
+                          onConfirm={() => removeExclusion(i)}
                         >
                           <Trash2 className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />
-                        </EButton>
+                        </EConfirmButton>
                       </div>
                     ))}
                   </div>
@@ -2063,15 +2061,14 @@ export function QuoteBuilder({
                   onChange={(e) => updateItem(idx, { qty: Number(e.target.value) })}
                 />
                 <div className="col-span-1 text-right text-[0.875rem] e-tnum md:col-span-2">{money(li.total)}</div>
-                <EButton
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="col-span-1 h-8 w-8"
-                  onClick={() => setLineItems((p) => p.filter((_, i) => i !== idx))}
+                <EConfirmButton
+                  ariaLabel="Remove line item"
+                  confirmLabel="Remove?"
+                  className="col-span-1 inline-flex h-8 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] px-1.5 text-[0.6875rem] text-[hsl(var(--e-danger))]"
+                  onConfirm={() => setLineItems((p) => p.filter((_, i) => i !== idx))}
                 >
                   <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                </EButton>
+                </EConfirmButton>
               </div>
             ))
           )}

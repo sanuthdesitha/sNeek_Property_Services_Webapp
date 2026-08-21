@@ -13,6 +13,7 @@
 import * as React from "react";
 import { ArrowDown, ArrowUp, ImagePlus, Loader2, Plus, Trash2 } from "lucide-react";
 import { EButton, ECard } from "@/components/v2/ui/primitives";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import {
   EField,
   EInput,
@@ -274,14 +275,14 @@ export function FinalCheckupSettingsSection({
                     >
                       <ArrowDown className="h-4 w-4" />
                     </EButton>
-                    <EButton
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => removeItem(item.id)}
-                      aria-label="Remove item"
+                    {/* Low tier: one line of an unsaved checkup draft. */}
+                    <EConfirmButton
+                      ariaLabel="Remove item"
+                      confirmLabel="Remove?"
+                      onConfirm={() => removeItem(item.id)}
                     >
                       <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                    </EButton>
+                    </EConfirmButton>
                   </div>
                 ) : null}
               </div>
@@ -340,18 +341,18 @@ export function FinalCheckupSettingsSection({
                     <div key={key} className="relative">
                       <ReferenceThumb storageKey={key} />
                       {!readOnly ? (
-                        <button
-                          type="button"
-                          onClick={() =>
+                        <EConfirmButton
+                          ariaLabel="Remove reference image"
+                          confirmLabel={<span className="text-[0.5625rem] font-[700]">?</span>}
+                          onConfirm={() =>
                             patchItem(item.id, {
                               referenceImageKeys: item.referenceImageKeys.filter((k) => k !== key),
                             })
                           }
-                          aria-label="Remove reference image"
                           className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-danger))] shadow"
                         >
                           <Trash2 className="size-3" />
-                        </button>
+                        </EConfirmButton>
                       ) : null}
                     </div>
                   ))}

@@ -207,3 +207,85 @@ describe("the briefing shows work, not correspondence", () => {
     expect(items).toHaveLength(1);
   });
 });
+
+/**
+ * The acknowledgement record is the proof a cleaner confirmed they read a
+ * safety instruction. The start route always wrote it — but it was never
+ * listed in the serialiser, so every write silently dropped it: the gate
+ * worked for the request that carried the ack and then forgot it happened.
+ */
+describe("start-briefing acknowledgements survive a round-trip", () => {
+  const ack = {
+    "cleaner-1": { hash: "abc123", items: [{ itemId: "notice-1", at: "2026-08-22T01:00:00.000Z" }] },
+  };
+
+  it("stores an acknowledgement", () => {
+    const raw = serializeJobInternalNotes({ ...defaultJobMeta(), startBriefingAcks: ack });
+    expect(parseJobInternalNotes(raw).startBriefingAcks).toEqual(ack);
+  });
+
+  it("keeps it when it is the only structured data on the job", () => {
+    // The exact failure: with nothing else set, the meta collapsed back to a
+    // plain note string and the proof went with it.
+    const raw = serializeJobInternalNotes({
+      ...defaultJobMeta(),
+      internalNoteText: "",
+      startBriefingAcks: ack,
+    });
+    expect(parseJobInternalNotes(raw).startBriefingAcks).toEqual(ack);
+  });
+
+  it("does not invent acknowledgements", () => {
+    expect(parseJobInternalNotes(null).startBriefingAcks).toEqual({});
+    expect(parseJobInternalNotes("a plain legacy note").startBriefingAcks).toEqual({});
+    expect(
+      parseJobInternalNotes(JSON.stringify({ version: 1, startBriefingAcks: "nope" }))
+        .startBriefingAcks
+    ).toEqual({});
+  });
+});
+
+/**
+ * A notice's images have to survive the meta round-trip. `normalizeJobNotices`
+ * rebuilds each notice field-by-field on BOTH read and write — deliberately, so
+ * hand-edited JSON cannot smuggle keys in — which means any field not listed
+ * there is dropped silently in both directions. That is the same failure that
+ * lost every start-briefing acknowledgement.
+ */
+describe("notice images survive the round-trip", () => {
+  it("keeps the images attached to a notice", () => {
+    const raw = serializeJobInternalNotes({
+      ...defaultJobMeta(),
+      notices: [
+        {
+          id: "n1",
+          body: "Stain by the door — see photo",
+          urgency: "IMPORTANT",
+          imageUrls: ["https://example.test/a.jpg", "https://example.test/b.jpg"],
+        },
+      ],
+    });
+    const back = parseJobInternalNotes(raw);
+    expect(back.notices[0].imageUrls).toEqual([
+      "https://example.test/a.jpg",
+      "https://example.test/b.jpg",
+    ]);
+  });
+
+  it("renders those images to the cleaner", () => {
+    const [rendered] = renderJobNotices([
+      {
+        id: "n1",
+        body: "Stain by the door",
+        urgency: "INFO",
+        imageUrls: ["https://example.test/a.jpg"],
+      },
+    ]);
+    expect(rendered.imageUrls).toEqual(["https://example.test/a.jpg"]);
+  });
+
+  it("treats a notice with no images as having none, not undefined", () => {
+    const [rendered] = renderJobNotices([{ id: "n1", body: "text only", urgency: "INFO" }]);
+    expect(rendered.imageUrls).toEqual([]);
+  });
+});

@@ -29,6 +29,8 @@ import { isTeamStarted } from "@/lib/cleaner/team-state";
 import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { getPreviousCleanLaundryCycle } from "@/lib/laundry/previous-cycle";
 import { stripHtmlToText } from "@/lib/forms/sanitize";
+import { Prisma } from "@prisma/client";
+import { parseVisitPlan, visitIsOnDay, describeVisitForCleaner } from "@/lib/maintenance/visit-plan";
 import {
   buildReworkFormSchema,
   ensureReworkFormTemplate,
@@ -566,8 +568,39 @@ export async function GET(
         .catch(() => null)
     );
 
+    // Maintenance visits booked at this property for this job's day. The
+    // client schedules these; almost every consequence lands on the cleaner
+    // — whether they open the door, whether they clean before or after,
+    // which rooms will be unusable — so the plan has to reach them.
+    const maintenanceVisits = (
+      await db.propertyMaintenanceItem
+        .findMany({
+          where: {
+            propertyId: job.propertyId,
+            NOT: { visitPlan: { equals: Prisma.DbNull } },
+            scheduledFor: {
+              gte: new Date(job.scheduledDate.getTime() - 24 * 60 * 60 * 1000),
+              lte: new Date(job.scheduledDate.getTime() + 24 * 60 * 60 * 1000),
+            },
+          },
+          select: { id: true, title: true, visitPlan: true },
+          take: 10,
+        })
+        .catch(() => [])
+    )
+      .map((item) => {
+        const plan = parseVisitPlan(item.visitPlan);
+        // Same Sydney day only. The query window is deliberately wider so a
+        // late-evening visit either side is considered, but the decision is
+        // the calendar day the cleaner is actually working.
+        if (!plan || !visitIsOnDay(plan, job.scheduledDate)) return null;
+        return describeVisitForCleaner(plan, item.title);
+      })
+      .filter(Boolean);
+
     return NextResponse.json({
       job,
+      maintenanceVisits,
       /** This cleaner arrived by tapping the property's NFC tag. */
       nfcArrival,
       contact,

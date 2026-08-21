@@ -26,7 +26,7 @@ import {
   ECardBody,
   EEmptyState,
 } from "@/components/v2/ui/primitives";
-import { EModal } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EConfirmModal, EModal } from "@/components/v2/admin/estate-kit";
 import { EChip, EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import {
   PAY_ADJUSTMENT_CATEGORIES,
@@ -92,6 +92,10 @@ export function PayRequestsPanel({
   const [modalOpen, setModalOpen] = useState(initialJobValid);
   const [saving, setSaving] = useState(false);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
+  // Modal tier: the request carries a written case and uploaded evidence. It
+  // cannot be un-withdrawn, and rebuilding it means re-photographing the job.
+  // No PIN — a cleaner has no admin PIN to give.
+  const [withdrawTarget, setWithdrawTarget] = useState<string | null>(null);
 
   // Form state
   const [scope, setScope] = useState<"JOB" | "PROPERTY" | "STANDALONE">("JOB");
@@ -150,8 +154,10 @@ export function PayRequestsPanel({
     }
   }
 
-  async function withdrawPayRequest(id: string) {
-    if (!window.confirm("Withdraw this pending pay request? This cannot be undone.")) return;
+  async function withdrawPayRequest() {
+    const id = withdrawTarget;
+    if (!id) return;
+    setWithdrawTarget(null);
     setWithdrawingId(id);
     const res = await fetch(`/api/cleaner/pay-adjustments?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -351,7 +357,7 @@ export function PayRequestsPanel({
                         size="sm"
                         className="text-[hsl(var(--e-danger))]"
                         disabled={withdrawingId === row.id}
-                        onClick={() => void withdrawPayRequest(row.id)}
+                        onClick={() => setWithdrawTarget(row.id)}
                       >
                         {withdrawingId === row.id ? "Withdrawing…" : "Withdraw request"}
                       </EButton>
@@ -529,14 +535,16 @@ export function PayRequestsPanel({
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={a.url} alt={a.label} className="h-full w-full object-cover" />
-                    <button
-                      type="button"
-                      aria-label="Remove image"
-                      onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                      className="absolute right-0 top-0 flex h-5 w-5 items-center justify-center bg-[hsl(var(--e-danger))] text-[hsl(var(--e-danger-foreground))]"
+                    {/* Low tier: the request has not been submitted yet, and
+                        the image can be re-picked from Upload. */}
+                    <EConfirmButton
+                      ariaLabel="Remove image"
+                      confirmLabel={<X className="h-3 w-3 text-[hsl(var(--e-danger))]" />}
+                      onConfirm={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="absolute right-0 top-0 flex h-5 w-5 items-center justify-center bg-[hsl(160_18%_8%/0.75)] text-white"
                     >
                       <X className="h-3 w-3" />
-                    </button>
+                    </EConfirmButton>
                   </div>
                 ))}
               </div>
@@ -560,6 +568,16 @@ export function PayRequestsPanel({
           </div>
         </div>
       </EModal>
+
+      <EConfirmModal
+        open={Boolean(withdrawTarget)}
+        onClose={() => setWithdrawTarget(null)}
+        title="Withdraw this pay request"
+        description="The request and the evidence attached to it are taken off the admin queue for good. To ask again you would have to write it up and re-upload the photos."
+        confirmLabel="Withdraw request"
+        loading={Boolean(withdrawingId)}
+        onConfirm={withdrawPayRequest}
+      />
     </div>
   );
 }

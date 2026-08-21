@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Role, PayAdjustmentStatus, QaReworkTransferStatus, FalseConfirmationStatus } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { publicUrl } from "@/lib/s3";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
@@ -234,6 +235,7 @@ export async function GET() {
             jobCount: true,
             paidClaimedAt: true,
             paidClaimedNote: true,
+            paidClaimedProofKeys: true,
           },
           orderBy: { paidClaimedAt: "asc" },
           take: 50,
@@ -253,6 +255,13 @@ export async function GET() {
     const payClaimRows = payClaimRows0.map((row) => ({
       ...row,
       cleaner: payClaimPayeeMap.get(row.cleanerId) ?? null,
+      // The receipt the payee attached to the claim. Confirming "the money
+      // arrived" is a money decision — the proof has to travel with the row.
+      paidClaimedProofUrls: Array.isArray(row.paidClaimedProofKeys)
+        ? row.paidClaimedProofKeys
+            .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            .map((key) => ({ key, url: publicUrl(key) }))
+        : [],
     }));
 
     // Resolve the requesting client user for each pending skip request (no FK relation in schema).

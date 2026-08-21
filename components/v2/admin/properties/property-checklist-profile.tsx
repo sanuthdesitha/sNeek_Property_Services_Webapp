@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, ECardBody, ECardHeader, ECardTitle } from "@/components/v2/ui/primitives";
-import { EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import { TaskImageUpload } from "@/components/v2/admin/forms/management/estate-checklists-workspace";
 
 type JobTypeValue = string;
@@ -758,9 +758,11 @@ export function PropertyChecklistProfile({
                           </p>
                         </div>
                       </div>
-                      <EButton size="sm" variant="ghost" onClick={() => removeCustomItem(custom.id)} aria-label="Remove task">
+                      {/* Low tier: one custom task, re-addable from the
+                          "Add task" control on this same card. */}
+                      <EConfirmButton ariaLabel="Remove task" confirmLabel="Remove?" onConfirm={() => removeCustomItem(custom.id)}>
                         <Trash2 className="h-3.5 w-3.5" />
-                      </EButton>
+                      </EConfirmButton>
                     </div>
                   ))}
                 </div>

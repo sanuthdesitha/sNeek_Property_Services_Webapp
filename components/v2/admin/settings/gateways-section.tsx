@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelectNative, EToggle, ESaveStatus, ESectionHeading, useSaveStatus } from "./estate-form";
+import { EConfirmModal, verifyAdminSecurity } from "@/components/v2/admin/estate-kit";
 
 type Gateway = {
   id: string;
@@ -34,6 +35,10 @@ export function GatewaysSection() {
   const [newProvider, setNewProvider] = useState("STRIPE");
   const [newLabel, setNewLabel] = useState("");
   const [saving, setSaving] = useState(false);
+  // PIN tier: a gateway is how money reaches the business. Deleting one stops
+  // card payments arriving, and the keys behind it are not re-typeable from here.
+  const [removeTarget, setRemoveTarget] = useState<Gateway | null>(null);
+  const [removing, setRemoving] = useState(false);
   const { status, flash } = useSaveStatus();
 
   useEffect(() => {
@@ -101,18 +106,26 @@ export function GatewaysSection() {
     }
   }
 
-  async function remove(gw: Gateway) {
-    if (!window.confirm(`Delete ${gw.label}?`)) return;
+  async function remove(credentials?: { pin?: string; password?: string }) {
+    const gw = removeTarget;
+    if (!gw) return;
+    setRemoving(true);
     try {
+      // The gateway route takes no security payload of its own, so the PIN is
+      // checked against the verify endpoint before the row goes.
+      await verifyAdminSecurity(credentials);
       const res = await fetch(`/api/admin/payment-gateways/${gw.id}`, { method: "DELETE" });
       if (!res.ok) {
         flash("error", "Delete failed.");
         return;
       }
+      setRemoveTarget(null);
       flash("saved", "Gateway removed");
       await load();
-    } catch {
-      flash("error", "Delete failed.");
+    } catch (err: any) {
+      flash("error", err?.message ?? "Delete failed.");
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -204,7 +217,7 @@ export function GatewaysSection() {
                 >
                   {gw.status === "ACTIVE" ? "Disable" : "Enable"}
                 </EButton>
-                <EButton variant="ghost" size="sm" className="text-[hsl(var(--e-danger))]" onClick={() => remove(gw)}>
+                <EButton variant="ghost" size="sm" className="text-[hsl(var(--e-danger))]" onClick={() => setRemoveTarget(gw)}>
                   <Trash2 className="h-3.5 w-3.5" />
                 </EButton>
               </div>
@@ -212,6 +225,21 @@ export function GatewaysSection() {
           ))}
         </div>
       )}
+
+      <EConfirmModal
+        open={Boolean(removeTarget)}
+        onClose={() => setRemoveTarget(null)}
+        title="Delete payment gateway"
+        description={
+          removeTarget
+            ? `${removeTarget.label} stops accepting payments the moment it goes, and its credentials cannot be recovered from here. Enter your PIN or password to continue.`
+            : undefined
+        }
+        confirmLabel="Delete gateway"
+        requireSecurity
+        loading={removing}
+        onConfirm={remove}
+      />
     </div>
   );
 }

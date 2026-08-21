@@ -24,6 +24,7 @@ import { autoPauseStaleJobs } from "@/lib/ops/auto-pause";
 import { dispatchUnfinishedJobPushReminders } from "@/lib/ops/unfinished-reminders";
 import { runAccountabilityNightly } from "@/lib/accountability/streaks";
 import { dispatchLaundryDriverNudges } from "@/lib/laundry/reminders";
+import { runMissedClockInSweep } from "@/lib/ops/missed-clock-in-sweep";
 
 const TZ = "Australia/Sydney";
 const WEB_SCHEDULER_MIN_INTERVAL_MS = 5 * 60_000;
@@ -143,6 +144,11 @@ const JOBS: FallbackJob[] = [
   // seen by the document sweep above. Same Monday-morning slot, an hour later,
   // so the two digests do not arrive on top of each other.
   { name: "credential-expiry-check", minIntervalMs: 6 * DAY, hour: 9, dow: 1, run: async () => { await runCredentialExpiryCheck(new Date()); } },
+  // Cleaners on site with the clock not running. Frequent by necessity — a
+  // nudge is only useful during the clean it concerns — but it notifies each
+  // cleaner at most once per job, so the cadence costs nothing when there is
+  // nothing to say.
+  { name: "missed-clock-in-sweep", minIntervalMs: 10 * MIN, run: async () => { await runMissedClockInSweep(new Date()); } },
   { name: "recognition-check", minIntervalMs: 6 * DAY, hour: 9, dow: 0, run: async () => { await runRecognitionCheck(new Date()); } },
   // Accountability nightly — quality-streak + monthly-ranking bonus proposals.
   // Pinned to 20:00 Sydney (matches boss.ts 20:30 window); creates PENDING

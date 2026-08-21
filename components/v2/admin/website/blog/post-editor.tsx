@@ -12,7 +12,7 @@ import { useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { ImagePlus, Link2, Upload, X } from "lucide-react";
 import { EButton, EBadge } from "@/components/v2/ui/primitives";
-import { EField, EInput, ETextarea, ESwitch } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EField, EInput, ETextarea, ESwitch } from "@/components/v2/admin/estate-kit";
 import { toast } from "@/hooks/use-toast";
 
 export type BlogPostRecord = {
@@ -378,19 +378,20 @@ export function PostEditor({
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={url} alt={`Gallery ${index + 1}`} className="h-20 w-full object-cover" />
-                  <button
-                    type="button"
-                    aria-label={`Remove gallery image ${index + 1}`}
-                    onClick={() =>
+                  {/* Low tier: an unsaved gallery row; the image stays uploaded. */}
+                  <EConfirmButton
+                    ariaLabel={`Remove gallery image ${index + 1}`}
+                    confirmLabel={<X className="h-3 w-3 text-[hsl(var(--e-danger))]" />}
+                    onConfirm={() =>
                       setForm((c) => ({
                         ...c,
                         galleryImageUrls: c.galleryImageUrls.filter((_, i) => i !== index),
                       }))
                     }
-                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(160_18%_8%/0.6)] text-white transition-colors hover:bg-[hsl(160_18%_8%/0.85)]"
+                    className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[hsl(160_18%_8%/0.75)] text-white"
                   >
                     <X className="h-3 w-3" />
-                  </button>
+                  </EConfirmButton>
                 </div>
               ))}
             </div>

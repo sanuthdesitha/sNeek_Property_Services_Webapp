@@ -33,6 +33,10 @@ export interface ResolvedStartBriefingItem {
   title: string;
   detail?: string;
   source: StartBriefingSource;
+  /** Reference photos shown with the item. Never part of the ack hash — see
+   *  startBriefingHash: a re-uploaded image with the same meaning should not
+   *  re-arm a gate the cleaner has already satisfied. */
+  images?: string[];
 }
 
 export interface StartBriefingAckEntry {
@@ -135,6 +139,7 @@ export function resolveStartBriefingItems(input: {
         ? `${notice.detail}\n\n${notice.attribution}`
         : notice.detail,
       source: "NOTICE",
+      ...(notice.imageUrls.length > 0 ? { images: notice.imageUrls } : {}),
     });
   }
 

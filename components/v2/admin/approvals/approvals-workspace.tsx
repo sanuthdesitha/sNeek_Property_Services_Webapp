@@ -50,6 +50,7 @@ import {
   PayAdjustmentDisplay,
   toPayAdjustmentListItem,
 } from "@/components/v2/shared/pay-adjustment-list";
+import { EvidenceThumbs } from "@/components/v2/shared/evidence-thumbs";
 
 /* ── types ─────────────────────────────────────────────────────────────── */
 type AllApprovals = {
@@ -1744,7 +1745,21 @@ export function ApprovalsWorkspace() {
                     </EButton>
                   </>
                 }
-              />
+              >
+                {/* Confirming a payment claim is a money decision, so the
+                    receipt the payee attached sits on the card itself — the
+                    admin should never have to leave the queue to see it. */}
+                {(row.paidClaimedProofUrls?.length ?? 0) > 0 ? (
+                  <div className="mt-4 border-t border-[hsl(var(--e-border))] pt-4">
+                    <EEyebrow className="mb-2">Proof of payment</EEyebrow>
+                    <EvidenceThumbs
+                      items={row.paidClaimedProofUrls}
+                      alt="Payment proof"
+                      docLabel="Open receipt"
+                    />
+                  </div>
+                ) : null}
+              </QueueCard>
             ))}
 
           {/* ── QA outcomes (failed inspections parked in QA_REVIEW → COMPLETED) ── */}

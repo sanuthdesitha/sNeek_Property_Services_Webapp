@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { ArrowUp, ArrowDown, Plus, Trash2, Save, Loader2 } from "lucide-react";
 import { EButton, ECard, ECardBody, ECardHeader, EAlert } from "@/components/v2/ui/primitives";
-import { EInput, ESelect, ESwitch, EField } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EConfirmModal, EInput, ESelect, ESwitch, EField } from "@/components/v2/admin/estate-kit";
 import { FIELD_TYPES, uid, type AppStep, type AppField, type PositionShape } from "./types";
 
 export function ApplicationSchemaEditor({
@@ -18,6 +18,9 @@ export function ApplicationSchemaEditor({
   const [steps, setSteps] = useState<AppStep[]>(() => position?.applicationSchema?.steps ?? []);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
+  // A section takes every field inside it, so it gets the modal; a single field
+  // is one row and gets the arm-then-confirm button.
+  const [removeStepAt, setRemoveStepAt] = useState<number | null>(null);
 
   const setStep = (i: number, patch: Partial<AppStep>) =>
     setSteps((s) => s.map((st, idx) => (idx === i ? { ...st, ...patch } : st)));
@@ -120,7 +123,7 @@ export function ApplicationSchemaEditor({
               <EButton variant="ghost" size="icon" onClick={() => moveStep(si, 1)} aria-label="Move down">
                 <ArrowDown className="h-4 w-4" />
               </EButton>
-              <EButton variant="ghost" size="icon" onClick={() => removeStep(si)} aria-label="Delete section">
+              <EButton variant="ghost" size="icon" onClick={() => setRemoveStepAt(si)} aria-label="Delete section">
                 <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
               </EButton>
             </div>
@@ -157,9 +160,13 @@ export function ApplicationSchemaEditor({
                     <EButton variant="ghost" size="icon" onClick={() => moveField(si, fi, 1)} aria-label="Move field down">
                       <ArrowDown className="h-4 w-4" />
                     </EButton>
-                    <EButton variant="ghost" size="icon" onClick={() => removeField(si, fi)} aria-label="Delete field">
+                    <EConfirmButton
+                      ariaLabel="Delete field"
+                      confirmLabel="Delete?"
+                      onConfirm={() => removeField(si, fi)}
+                    >
                       <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                    </EButton>
+                    </EConfirmButton>
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-3">
@@ -205,6 +212,24 @@ export function ApplicationSchemaEditor({
         <Plus className="h-4 w-4" />
         Add section
       </EButton>
+
+      <EConfirmModal
+        open={removeStepAt !== null}
+        onClose={() => setRemoveStepAt(null)}
+        title="Delete this section"
+        description={
+          removeStepAt !== null
+            ? `"${steps[removeStepAt]?.title || "Untitled section"}" and the ${
+                (steps[removeStepAt]?.fields ?? []).length
+              } field(s) written inside it are removed from the application form.`
+            : undefined
+        }
+        confirmLabel="Delete section"
+        onConfirm={() => {
+          if (removeStepAt !== null) removeStep(removeStepAt);
+          setRemoveStepAt(null);
+        }}
+      />
     </div>
   );
 }

@@ -34,7 +34,7 @@ import {
   ECardTitle,
   EEmptyState,
 } from "@/components/v2/ui/primitives";
-import { EField, EInput, EModal } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EField, EInput, EModal, ESwitch } from "@/components/v2/admin/estate-kit";
 
 interface NfcTag {
   id: string;
@@ -62,13 +62,17 @@ export function NfcTagsCard({ propertyId }: { propertyId: string }) {
   const [qrTag, setQrTag] = React.useState<NfcTag | null>(null);
   const [qrDataUrl, setQrDataUrl] = React.useState<string | null>(null);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
+  const [requireTag, setRequireTag] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/admin/properties/${propertyId}/nfc-tags`);
       const body = await res.json();
-      if (res.ok) setTags(body.tags ?? []);
+      if (res.ok) {
+        setTags(body.tags ?? []);
+        setRequireTag(body.requireNfcCheckIn === true);
+      }
     } catch {
       // A failed list must not take the property page down with it.
     } finally {
@@ -218,6 +222,23 @@ export function NfcTagsCard({ propertyId }: { propertyId: string }) {
     }
   }
 
+  async function setEnforcement(next: boolean) {
+    // Optimistic, then corrected — the server refuses to switch this on for a
+    // property with no active tag, and that refusal is the whole point of the
+    // check, so it must be allowed to win.
+    setRequireTag(next);
+    const res = await fetch(`/api/admin/properties/${propertyId}/nfc-tags`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requireNfcCheckIn: next }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setRequireTag(!next);
+      toast({ title: "Could not change that", description: body?.error });
+    }
+  }
+
   async function copyUrl(tag: NfcTag) {
     try {
       await navigator.clipboard.writeText(tag.url);
@@ -279,19 +300,33 @@ export function NfcTagsCard({ propertyId }: { propertyId: string }) {
                   <EButton variant="ghost" size="sm" onClick={() => setActive(tag, !tag.isActive)}>
                     {tag.isActive ? "Retire" : "Restore"}
                   </EButton>
-                  <EButton
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Remove tag"
-                    onClick={() => removeTag(tag)}
+                  <EConfirmButton
+                    ariaLabel={`Remove ${tag.label}`}
+                    confirmLabel="Remove?"
+                    onConfirm={() => removeTag(tag)}
                   >
                     <Trash2 className="h-4 w-4" />
-                  </EButton>
+                  </EConfirmButton>
                 </div>
               </div>
             ))}
           </div>
         )}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+          <div className="min-w-0">
+            <p className="text-[0.8125rem] font-[550]">Require a tag to clock in</p>
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              Cleaners at this property can only start a job by tapping a tag. Turn this on
+              once the tags are physically up — with it on and no tag on the wall, nobody
+              can start.
+            </p>
+          </div>
+          <ESwitch
+            checked={requireTag}
+            onCheckedChange={(v) => void setEnforcement(v)}
+            label={requireTag ? "Tag only" : "Tag optional"}
+          />
+        </div>
       </ECardBody>
 
       <EModal open={adding} onClose={() => setAdding(false)} title="Add an NFC tag">

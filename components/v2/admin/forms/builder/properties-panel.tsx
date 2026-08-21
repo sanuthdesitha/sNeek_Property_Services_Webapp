@@ -18,7 +18,7 @@ import {
   getFieldTypeDef,
 } from "@/lib/forms/field-types";
 import { cn } from "@/lib/utils";
-import { EField, EInput, ETextarea, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EField, EInput, ETextarea, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
 import { EFieldIcon } from "./field-icon";
 import { ReferenceMediaEditor } from "./reference-media-editor";
 import { ConditionEditor, type ConditionSourceField } from "./condition-editor";
@@ -101,14 +101,15 @@ export function PropertiesPanel({
               <Copy className="size-4" />
             </button>
           )}
-          <button
-            type="button"
-            onClick={onRemove}
-            aria-label="Delete field"
+          {/* Low tier: an unsaved form-builder draft. */}
+          <EConfirmButton
+            ariaLabel="Delete field"
+            confirmLabel={<span className="px-0.5 text-[0.6875rem] font-[600]">Sure?</span>}
+            onConfirm={onRemove}
             className="rounded-[var(--e-radius-sm)] p-1.5 text-[hsl(var(--e-danger))] hover:bg-[hsl(var(--e-muted))]"
           >
             <Trash2 className="size-4" />
-          </button>
+          </EConfirmButton>
         </div>
       </div>
 
@@ -437,14 +438,14 @@ function SubFieldsEditor({
                 placeholder="Sub-field label"
                 className="flex-1"
               />
-              <button
-                type="button"
-                onClick={() => setChildren(children.filter((_, i) => i !== index))}
-                aria-label="Remove sub-field"
-                className="shrink-0 rounded-[var(--e-radius-sm)] p-1.5 text-[hsl(var(--e-danger))] hover:bg-[hsl(var(--e-muted))]"
+              {/* Low tier: one sub-field of an unsaved form draft. */}
+              <EConfirmButton
+                ariaLabel="Remove sub-field"
+                confirmLabel="Remove?"
+                onConfirm={() => setChildren(children.filter((_, i) => i !== index))}
               >
-                <Trash2 className="size-4" />
-              </button>
+                <Trash2 className="size-4 text-[hsl(var(--e-danger))]" />
+              </EConfirmButton>
             </div>
             <div className="grid grid-cols-2 items-center gap-2">
               <ESelect

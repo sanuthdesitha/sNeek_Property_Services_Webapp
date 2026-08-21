@@ -18,7 +18,14 @@ import { format, parseISO } from "date-fns";
 import { ArrowRight, Pencil, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
-import { EField, EInput, EModal, ETextarea } from "@/components/v2/admin/estate-kit";
+import {
+  EConfirmModal,
+  EField,
+  EInput,
+  EModal,
+  ETextarea,
+  verifyAdminSecurity,
+} from "@/components/v2/admin/estate-kit";
 
 type Capabilities = {
   canEdit: boolean;
@@ -116,6 +123,10 @@ export function ApprovalsHistory() {
 
   // Edit modal
   const [editRow, setEditRow] = useState<HistoryRow | null>(null);
+  // PIN tier: this is the money trail. The row records who approved what and
+  // for how much, and deleting it removes the evidence for a payment that may
+  // already have gone out.
+  const [deleteRow, setDeleteRow] = useState<HistoryRow | null>(null);
   const [editAmount, setEditAmount] = useState("");
   const [editNote, setEditNote] = useState("");
 
@@ -310,7 +321,7 @@ export function ApprovalsHistory() {
                       variant="danger"
                       disabled={busy || !row.capabilities.canDelete}
                       title={row.capabilities.reasons.delete}
-                      onClick={() => void act(row, "delete")}
+                      onClick={() => setDeleteRow(row)}
                     >
                       <Trash2 className="h-3.5 w-3.5" /> Delete
                     </EButton>
@@ -378,6 +389,30 @@ export function ApprovalsHistory() {
           </div>
         </div>
       </EModal>
+
+      <EConfirmModal
+        open={Boolean(deleteRow)}
+        onClose={() => setDeleteRow(null)}
+        title="Delete this approval record"
+        description="The decision, who made it and the amount attached to it are removed from the history for good. Enter your PIN or password to continue."
+        confirmLabel="Delete record"
+        confirmPhrase="DELETE"
+        requireSecurity
+        loading={Boolean(acting)}
+        onConfirm={async (credentials) => {
+          const row = deleteRow;
+          if (!row) return;
+          try {
+            // The approvals-history route takes no security payload of its own.
+            await verifyAdminSecurity(credentials);
+          } catch (err: any) {
+            toast({ title: "Not deleted", description: err?.message, variant: "destructive" });
+            return;
+          }
+          setDeleteRow(null);
+          await act(row, "delete");
+        }}
+      />
     </div>
   );
 }

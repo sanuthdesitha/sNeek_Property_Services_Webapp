@@ -38,6 +38,12 @@ export interface JobNotice {
   authorName?: string;
   /** ISO timestamp. Optional: notices written before this field existed. */
   createdAt?: string;
+  /**
+   * Public URLs of reference photos. A notice about a stain, a broken latch
+   * or where the spare key now lives is far clearer with the picture the
+   * person writing it was looking at.
+   */
+  imageUrls?: string[];
 }
 
 /** Stable id shared by the read-first list and the start-briefing ack. */
@@ -57,6 +63,7 @@ export interface RenderedNotice {
   urgency: JobNoticeUrgency;
   /** "Added by Sam · 14 Aug", or null when neither is recorded. */
   attribution: string | null;
+  imageUrls: string[];
 }
 
 /**
@@ -94,6 +101,9 @@ export function renderJobNotices(notices: readonly JobNotice[] | undefined): Ren
       detail: notice.body.trim(),
       urgency,
       attribution: buildAttribution(notice),
+      imageUrls: Array.isArray(notice.imageUrls)
+        ? notice.imageUrls.filter((url: unknown): url is string => typeof url === "string" && url.trim().length > 0)
+        : [],
     };
   });
 }

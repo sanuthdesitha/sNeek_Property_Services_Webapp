@@ -482,3 +482,103 @@ export function EClassicLink({ href, children }: { href: string; children?: Reac
     </Link>
   );
 }
+
+/**
+ * A delete button that asks once, on itself.
+ *
+ * The LOW tier of the three confirmation levels. The first click arms it and
+ * the label changes to ask; a second click within a few seconds does the thing.
+ * No modal, because a dialog for removing one row from a list is friction that
+ * teaches people to dismiss dialogs without reading — which is precisely what
+ * makes the modal tier (EConfirmModal) stop working when it matters.
+ *
+ * It disarms itself on a timer and when the pointer leaves. An armed button
+ * left sitting on screen is a trap for the next person who clicks where the
+ * harmless button used to be.
+ *
+ * Use EConfirmModal instead when the thing being deleted is not trivially
+ * recreatable, and EConfirmModal with requireSecurity for anything destroying
+ * records that other work depends on.
+ */
+export function EConfirmButton({
+  onConfirm,
+  children,
+  confirmLabel = "Sure?",
+  disabled = false,
+  className,
+  ariaLabel,
+  armedMs = 4000,
+}: {
+  onConfirm: () => void;
+  children: React.ReactNode;
+  confirmLabel?: React.ReactNode;
+  disabled?: boolean;
+  className?: string;
+  ariaLabel?: string;
+  armedMs?: number;
+}) {
+  const [armed, setArmed] = React.useState(false);
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const disarm = React.useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    setArmed(false);
+  }, []);
+
+  React.useEffect(() => disarm, [disarm]);
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-label={ariaLabel}
+      onMouseLeave={armed ? disarm : undefined}
+      onBlur={armed ? disarm : undefined}
+      onClick={() => {
+        if (!armed) {
+          setArmed(true);
+          timer.current = setTimeout(() => setArmed(false), armedMs);
+          return;
+        }
+        disarm();
+        onConfirm();
+      }}
+      className={
+        className ??
+        (armed
+          ? "inline-flex h-8 items-center gap-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger)/0.12)] px-2 text-[0.75rem] font-[600] text-[hsl(var(--e-danger))]"
+          : "inline-flex h-8 items-center gap-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]")
+      }
+    >
+      {armed ? confirmLabel : children}
+    </button>
+  );
+}
+
+/**
+ * Server-side check of the PIN/password an EConfirmModal collected.
+ *
+ * Most high-risk endpoints (clients, properties, jobs, users) already take a
+ * `security` payload and verify it themselves. Some do not, and for those a
+ * modal that merely *asks* for a PIN is theatre — anything typed satisfies it.
+ * This posts the credentials to the verify-only endpoint first, so the gate is
+ * real wherever the delete route has no security payload of its own.
+ *
+ * Throws on failure so the caller can abort before deleting anything.
+ */
+export async function verifyAdminSecurity(credentials?: { pin?: string; password?: string }) {
+  const res = await fetch("/api/admin/security/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pin: credentials?.pin, password: credentials?.password }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      body?.error === "INVALID_SECURITY_VERIFICATION"
+        ? "That PIN or password was not accepted."
+        : (body?.error ?? "Could not verify your PIN or password.")
+    );
+  }
+}

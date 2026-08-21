@@ -63,6 +63,7 @@ import {
   ESwitch,
   ETableShell,
   ETextarea,
+  verifyAdminSecurity,
 } from "@/components/v2/admin/estate-kit";
 
 type InvoiceStatus = "DRAFT" | "APPROVED" | "SENT" | "PART_PAID" | "PAID" | "VOID";
@@ -226,6 +227,7 @@ export function EstateInvoices() {
 
   // Delete confirm
   const [deleteFor, setDeleteFor] = useState<Invoice | null>(null);
+  const [removeLineId, setRemoveLineId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   // Record-payment modal
@@ -405,8 +407,17 @@ export function EstateInvoices() {
     }
   }
 
-  async function deleteInvoice() {
+  async function deleteInvoice(credentials?: { pin?: string; password?: string }) {
     if (!deleteFor) return;
+    // The invoice DELETE route takes no security payload of its own, so the
+    // PIN has to be verified here or the prompt is decoration — the modal only
+    // checks the field is non-empty, and "1" would sail through it.
+    try {
+      await verifyAdminSecurity(credentials);
+    } catch (err: any) {
+      toast({ title: "Invoice not deleted", description: err?.message, variant: "destructive" });
+      return;
+    }
     setDeleting(true);
     try {
       const res = await fetch(`/api/admin/invoices/${deleteFor.id}`, { method: "DELETE" });
@@ -597,7 +608,17 @@ export function EstateInvoices() {
     setNewLine({ description: "", quantity: "1", unitPrice: "0" });
   }
 
-  async function removeLine(id: string) {
+  async function removeLine(credentials?: { pin?: string; password?: string }) {
+    const id = removeLineId;
+    if (!id) return;
+    try {
+      // The invoice-lines route takes no security payload of its own.
+      await verifyAdminSecurity(credentials);
+    } catch (err: any) {
+      toast({ title: "Line not removed", description: err?.message, variant: "destructive" });
+      return;
+    }
+    setRemoveLineId(null);
     await patchInvoiceLines({ removeLineId: id }, "Line removed");
   }
 
@@ -1096,7 +1117,7 @@ export function EstateInvoices() {
                                 )}
                                 onField={(patch) => updateLineField(line.id, patch)}
                                 onSave={() => saveLine(line)}
-                                onRemove={() => removeLine(line.id)}
+                                onRemove={() => setRemoveLineId(line.id)}
                                 onProperty={(propertyId) => setLineProperty(line, propertyId)}
                               />
                             </Fragment>
@@ -1404,13 +1425,32 @@ export function EstateInvoices() {
         onConfirm={markAsPaid}
       />
 
-      {/* Delete invoice */}
+      {/* PIN tier: a line is what the client is billed. Removing one rewrites
+          the invoice total on a document that may already have been sent. */}
+      <EConfirmModal
+        open={Boolean(removeLineId)}
+        onClose={() => setRemoveLineId(null)}
+        title="Remove this invoice line"
+        description="The charge comes off the invoice and the total is rewritten. Enter your PIN or password to continue."
+        confirmLabel="Remove line"
+        requireSecurity
+        loading={editSaving}
+        onConfirm={removeLine}
+      />
+
+      {/* Delete invoice.
+
+          PIN-gated, like the line-removal above it. Removing ONE line already
+          demanded a PIN while deleting the entire invoice beside it did not,
+          which is indefensible in either direction — and this is the
+          destructive one: it takes the document and every line with it. */}
       <EConfirmModal
         open={Boolean(deleteFor)}
         onClose={() => setDeleteFor(null)}
         title={`Delete ${deleteFor?.invoiceNumber ?? "invoice"}?`}
-        description="This permanently removes the invoice and its line items."
+        description="This permanently removes the invoice and all of its line items. Enter your PIN or password to continue."
         confirmLabel="Delete invoice"
+        requireSecurity
         loading={deleting}
         onConfirm={deleteInvoice}
       />

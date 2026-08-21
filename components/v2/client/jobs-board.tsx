@@ -48,6 +48,7 @@ import {
   EThread,
 } from "@/components/v2/ui/primitives";
 import { ECheckTile, EInlineNotice, EInput, ELabel, ESelect, ETextarea } from "@/components/v2/client/fields";
+import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import { cn } from "@/lib/utils";
 
 const TZ = "Australia/Sydney";
@@ -335,16 +336,17 @@ function JobActionPanel({
                         <span className="max-w-[8rem] truncate text-[hsl(var(--e-text-secondary))]">
                           {item.label}
                         </span>
-                        <button
-                          type="button"
-                          aria-label={`Remove ${item.label}`}
-                          onClick={() =>
+                        {/* Low tier: an attachment on a message not yet sent. */}
+                        <EConfirmButton
+                          ariaLabel={`Remove ${item.label}`}
+                          confirmLabel={<X className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />}
+                          onConfirm={() =>
                             setAttachments((prev) => prev.filter((a) => a.key !== item.key))
                           }
                           className="text-[hsl(var(--e-text-faint))] hover:text-[hsl(var(--e-danger))]"
                         >
                           <X className="h-3.5 w-3.5" />
-                        </button>
+                        </EConfirmButton>
                       </span>
                     ))}
                   </div>
@@ -532,9 +534,16 @@ function JobCard({
             <span>
               <span className="font-semibold">Skip request pending</span> — awaiting review.
             </span>
-            <EButton variant="outline" size="sm" onClick={withdrawSkip} disabled={skipBusy}>
+            {/* Low tier: withdrawing a skip request costs nothing — the
+                "Request to skip" button next to it asks again. */}
+            <EConfirmButton
+              ariaLabel="Withdraw skip request"
+              confirmLabel="Withdraw it?"
+              disabled={skipBusy}
+              onConfirm={() => void withdrawSkip()}
+            >
               {skipBusy ? "Withdrawing…" : "Withdraw"}
-            </EButton>
+            </EConfirmButton>
           </div>
         ) : skipStatus === "DECLINED" ? (
           <p className="mt-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">

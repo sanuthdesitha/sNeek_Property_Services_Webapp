@@ -23,7 +23,7 @@ import * as React from "react";
 import { Loader2, Plus, Trash2, UserPlus, X } from "lucide-react";
 import { ECard, ECardBody, EEyebrow, EButton, EBadge, EEmptyState } from "@/components/v2/ui/primitives";
 import { ECheckTile, EInlineNotice, EInput, ELabel } from "@/components/v2/client/fields";
-import { ESwitch } from "@/components/v2/admin/estate-kit";
+import { EConfirmModal, ESwitch } from "@/components/v2/admin/estate-kit";
 import {
   VA_PERMISSION_KEYS,
   VA_PERMISSION_LABELS as PERMISSION_LABELS,
@@ -155,6 +155,10 @@ function TeamCard({
 
   const permissions = team.permissions ?? {};
   const scope = team.propertyIds ?? [];
+  // Modal tier, not PIN: deleting a team wipes its permissions, property scope
+  // and every invitation on it — not something to retype. The client portal has
+  // no admin PIN to demand, so the typed phrase carries the weight instead.
+  const [removeTeamOpen, setRemoveTeamOpen] = React.useState(false);
 
   /** PATCH the team, reverting the optimistic state if the server refuses. */
   async function patch(payload: Record<string, unknown>, optimistic: VaTeamView) {
@@ -233,7 +237,7 @@ function TeamCard({
               label="Active"
               onCheckedChange={(v) => patch({ isActive: v }, { ...team, isActive: v })}
             />
-            <EButton variant="outline" size="sm" onClick={removeTeam} disabled={busy}>
+            <EButton variant="outline" size="sm" onClick={() => setRemoveTeamOpen(true)} disabled={busy}>
               <Trash2 className="h-3.5 w-3.5" /> Remove
             </EButton>
           </div>
@@ -294,6 +298,17 @@ function TeamCard({
         {error ? <EInlineNotice tone="danger">{error}</EInlineNotice> : null}
         {notice && !error ? <EInlineNotice tone="success">{notice}</EInlineNotice> : null}
       </ECardBody>
+
+      <EConfirmModal
+        open={removeTeamOpen}
+        onClose={() => setRemoveTeamOpen(false)}
+        title="Remove this team"
+        description={`Everyone on ${team.name} loses access to your properties immediately, and the team's permissions and property list go with it.`}
+        confirmLabel="Remove team"
+        confirmPhrase="REMOVE"
+        loading={busy}
+        onConfirm={removeTeam}
+      />
     </ECard>
   );
 }
@@ -309,6 +324,11 @@ function MemberSection({
   onBusy: (v: boolean) => void;
   onError: (v: string | null) => void;
 }) {
+  // Modal tier: the person has to accept a fresh emailed invitation to come
+  // back, so a mis-click costs them their access until they do.
+  const [removeMemberTarget, setRemoveMemberTarget] = React.useState<
+    VaTeamView["members"][number] | null
+  >(null);
   const [email, setEmail] = React.useState("");
   const [name, setName] = React.useState("");
   const [inviting, setInviting] = React.useState(false);
@@ -358,7 +378,10 @@ function MemberSection({
     }
   }
 
-  async function removeMember(userId: string) {
+  async function removeMember() {
+    const userId = removeMemberTarget?.id;
+    if (!userId) return;
+    setRemoveMemberTarget(null);
     onBusy(true);
     onError(null);
     try {
@@ -410,7 +433,7 @@ function MemberSection({
                   variant="ghost"
                   size="icon"
                   aria-label={`Remove ${m.email}`}
-                  onClick={() => removeMember(m.id)}
+                  onClick={() => setRemoveMemberTarget(m)}
                 >
                   <X className="h-3.5 w-3.5" />
                 </EButton>
@@ -453,6 +476,19 @@ function MemberSection({
       {inviteNotice && !inviteError ? (
         <EInlineNotice tone="info">{inviteNotice}</EInlineNotice>
       ) : null}
+
+      <EConfirmModal
+        open={Boolean(removeMemberTarget)}
+        onClose={() => setRemoveMemberTarget(null)}
+        title="Remove assistant"
+        description={
+          removeMemberTarget
+            ? `${removeMemberTarget.name ?? removeMemberTarget.email} loses access straight away. To bring them back you would have to invite them again and they would have to accept it.`
+            : undefined
+        }
+        confirmLabel="Remove assistant"
+        onConfirm={removeMember}
+      />
     </section>
   );
 }

@@ -35,7 +35,7 @@ import {
   type EmailBlockAlign,
   type EmailDesign,
 } from "@/lib/templates/email-blocks";
-import { EField, EInput, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EField, EInput, ETextarea } from "@/components/v2/admin/estate-kit";
 
 const TYPE_ICON: Record<EmailBlock["type"], typeof Type> = {
   heading: Heading,
@@ -206,14 +206,15 @@ export function EstateEmailDesigner({
                   >
                     <ArrowDown className="h-3 w-3" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => removeBlock(b.id)}
+                  {/* Low tier: one block of an unsaved email design. */}
+                  <EConfirmButton
+                    ariaLabel="Delete block"
+                    confirmLabel={<Trash2 className="h-3 w-3 text-[hsl(var(--e-danger))]" />}
+                    onConfirm={() => removeBlock(b.id)}
                     className="text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-danger))]"
-                    aria-label="Delete block"
                   >
                     <Trash2 className="h-3 w-3" />
-                  </button>
+                  </EConfirmButton>
                 </div>
               );
             })}

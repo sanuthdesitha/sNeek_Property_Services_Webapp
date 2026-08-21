@@ -10,7 +10,7 @@ import * as React from "react";
 import { ImagePlus, Loader2, Trash2 } from "lucide-react";
 import type { FormTheme } from "@/lib/forms/types";
 import { EButton } from "@/components/v2/ui/primitives";
-import { EField, EInput, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EField, EInput, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
 
 const FONT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "", label: "Default (app font)" },
@@ -168,15 +168,15 @@ export function ThemeEditor({
               />
             </label>
             {(t.logoKey || t.logoUrl) && (
-              <EButton
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => patch({ logoKey: undefined, logoUrl: undefined })}
+              /* Low tier: the logo is re-uploadable from the control beside it. */
+              <EConfirmButton
+                ariaLabel="Remove logo"
+                confirmLabel="Remove it?"
+                onConfirm={() => patch({ logoKey: undefined, logoUrl: undefined })}
               >
                 <Trash2 className="size-4 text-[hsl(var(--e-danger))]" />
                 Remove
-              </EButton>
+              </EConfirmButton>
             )}
           </div>
         </div>

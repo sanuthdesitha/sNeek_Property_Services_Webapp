@@ -16,6 +16,7 @@ import { toast } from "@/hooks/use-toast";
 import { buildDefaultQaTemplateSchema, jobTypeLabel } from "@/lib/qa/templates";
 import { EBadge, EButton, ECard } from "@/components/v2/ui/primitives";
 import {
+  EConfirmButton,
   EConfirmModal,
   EField,
   EInput,
@@ -505,15 +506,19 @@ export function QaTemplatesManager() {
                           }
                         />
                       </EField>
-                      <EButton
-                        size="sm"
-                        variant="ghost"
-                        className="text-[hsl(var(--e-danger))]"
-                        onClick={() => removeSection(sectionIndex)}
-                        aria-label="Remove section"
+                      {/* Low tier for both removals in this editor: they only
+                          change the draft schema held in this dialog — nothing
+                          reaches the template until "Save template" — and a
+                          second dialog stacked on this one would be worse than
+                          the risk it guards. */}
+                      <EConfirmButton
+                        ariaLabel="Remove section"
+                        confirmLabel="Remove?"
+                        className="inline-flex h-8 items-center gap-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-2 text-[0.75rem] text-[hsl(var(--e-danger))]"
+                        onConfirm={() => removeSection(sectionIndex)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                      </EButton>
+                      </EConfirmButton>
                     </div>
 
                     <div className="space-y-2">
@@ -575,15 +580,13 @@ export function QaTemplatesManager() {
                               <div className="sm:col-span-2" />
                             )}
                             <div className="flex items-center justify-end pb-0.5">
-                              <EButton
-                                size="sm"
-                                variant="ghost"
-                                className="text-[hsl(var(--e-danger))]"
-                                onClick={() => removeField(sectionIndex, fieldIndex)}
-                                aria-label="Remove criterion"
+                              <EConfirmButton
+                                ariaLabel="Remove criterion"
+                                confirmLabel="Remove?"
+                                onConfirm={() => removeField(sectionIndex, fieldIndex)}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
-                              </EButton>
+                              </EConfirmButton>
                             </div>
                             {hasOptions ? (
                               <div className="sm:col-span-5">

@@ -10,7 +10,7 @@
 import * as React from "react";
 import { UploadCloud, ArrowUp, ArrowDown, Trash2, Plus } from "lucide-react";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
-import { EInput, ETextarea, EField } from "@/components/v2/admin/estate-kit";
+import { EConfirmButton, EInput, ETextarea, EField } from "@/components/v2/admin/estate-kit";
 
 /* ── Small util: clone + id ─────────────────────────────────────────────── */
 export function cloneContent<T>(value: T): T {
@@ -169,15 +169,15 @@ export function EListItem({
             >
               <ArrowDown className="h-3.5 w-3.5" />
             </EButton>
-            <EButton
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-[hsl(var(--e-danger))]"
-              onClick={onRemove}
-              aria-label="Remove"
+            {/* Low tier: one block of an unpublished page draft. */}
+            <EConfirmButton
+              ariaLabel="Remove"
+              confirmLabel={<span className="text-[0.625rem] font-[600]">Sure?</span>}
+              onConfirm={onRemove}
+              className="inline-flex h-7 items-center justify-center rounded-[var(--e-radius-sm)] px-1.5 text-[hsl(var(--e-danger))] hover:bg-[hsl(var(--e-muted))]"
             >
               <Trash2 className="h-3.5 w-3.5" />
-            </EButton>
+            </EConfirmButton>
           </div>
         ) : null}
       </div>
