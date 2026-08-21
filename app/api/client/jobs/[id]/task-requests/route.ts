@@ -36,7 +36,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-        const portal = await requireClientPortal({ permission: "bookings" });
+        const portal = await requireClientPortal({ permission: "tasksCreate" });
     if (!isClientModuleEnabled(portal.visibility, "jobs")) {
       return NextResponse.json({ error: "Jobs are hidden for this client." }, { status: 403 });
     }

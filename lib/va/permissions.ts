@@ -38,9 +38,28 @@ export const VA_PERMISSION_KEYS = [
   "messages",
   /** View and edit the property ops profile (V3). */
   "properties",
+
+  // ── Per-task sub-permissions ──────────────────────────────────────────
+  // "Can they touch tasks" is too coarse. An assistant who may RAISE a
+  // request is not automatically an assistant who may rewrite one after an
+  // admin has read it, and the client asked to draw that line themselves.
+  /** Raise a task request on a job. */
+  "tasksCreate",
+  /** Edit a request THEY raised, while it is still pending review. */
+  "tasksEditOwn",
+  /** Withdraw a request THEY raised, while it is still pending review. */
+  "tasksWithdrawOwn",
 ] as const;
 
+
 export type VaPermissionKey = (typeof VA_PERMISSION_KEYS)[number];
+
+/** The task sub-permissions, as a set — used for the back-compat rule below. */
+export const VA_TASK_PERMISSION_KEYS: readonly VaPermissionKey[] = [
+  "tasksCreate",
+  "tasksEditOwn",
+  "tasksWithdrawOwn",
+];
 
 /**
  * Actions no VA may perform, whatever the client has toggled.
@@ -54,6 +73,15 @@ export const VA_FORBIDDEN_ACTIONS = [
   "extra_approval",
   "cost_approval",
   "invoice_payment",
+
+  // Task edits that no toggle may ever permit. These are NOT the absence of
+  // tasksEditOwn/tasksWithdrawOwn — those two say "your own, while pending".
+  // Somebody else’s request, or one an admin has already approved, is out of
+  // reach at any grant level: the approval is a decision that was taken about
+  // a specific piece of text, and letting the text change afterwards would
+  // make the approval mean nothing.
+  "task_edit_foreign",
+  "task_edit_approved",
 ] as const;
 
 export type VaForbiddenAction = (typeof VA_FORBIDDEN_ACTIONS)[number];
@@ -81,6 +109,21 @@ export function parseVaPermissions(raw: unknown): VaPermissions {
     // access, which is exactly what a loose coercion would do.
     out[key] = row[key] === true;
   }
+
+  // BACK-COMPAT. Teams granted before the task sub-permissions existed carry
+  // none of those keys. Reading an absent key as `false` is right for a NEW
+  // capability but wrong for `tasksCreate`, which every VA with `bookings`
+  // already has today — a silent revocation on deploy, and the kind that
+  // surfaces as "the portal broke" rather than as an access error anyone can
+  // interpret. So an old blob inherits `bookings` for tasksCreate ONLY.
+  // tasksEditOwn / tasksWithdrawOwn stay off: nobody had them, so nobody
+  // loses them. The rule stops applying the moment a team is saved, because
+  // saving writes all three keys explicitly.
+  const carriesTaskKeys = VA_TASK_PERMISSION_KEYS.some((key) =>
+    Object.prototype.hasOwnProperty.call(row, key)
+  );
+  if (!carriesTaskKeys) out.tasksCreate = out.bookings;
+
   return out;
 }
 
@@ -147,4 +190,13 @@ export const VA_PERMISSION_LABELS: Record<VaPermissionKey, { title: string; hint
   invoicesView: { title: "See invoices", hint: "View only — never pay them" },
   messages: { title: "Messages", hint: "Read and post on job threads" },
   properties: { title: "Properties", hint: "View and edit property profiles" },
+  tasksCreate: { title: "Raise task requests", hint: "Ask for extra work on a job" },
+  tasksEditOwn: {
+    title: "Edit own requests",
+    hint: "Change a request they raised, before it is reviewed",
+  },
+  tasksWithdrawOwn: {
+    title: "Withdraw own requests",
+    hint: "Take back a request they raised, before it is reviewed",
+  },
 };

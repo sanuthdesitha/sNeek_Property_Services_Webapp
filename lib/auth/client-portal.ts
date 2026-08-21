@@ -36,6 +36,7 @@ import { getAppSettings, type AppSettings } from "@/lib/settings";
 import { mergeClientPortalVisibility, sanitizeClientVisibilityOverride } from "@/lib/client/portal";
 import { isClientModuleEnabled, type ClientModule } from "@/lib/portal-access";
 import {
+  VA_PERMISSION_KEYS,
   parseVaPermissions,
   parseVaPropertyScope,
   assertVaMayAct,
@@ -76,17 +77,18 @@ export interface ClientPortalContext {
   actorLabel: string;
 }
 
-/** A CLIENT is not permission-limited; every key is granted. */
+/**
+ * A CLIENT is not permission-limited; every key is granted.
+ *
+ * Derived from VA_PERMISSION_KEYS rather than hand-listed. The hand-listed
+ * version meant a new permission was granted to VAs and withheld from the
+ * client who owns the account until someone remembered to edit this too.
+ */
 function fullPermissions(): VaPermissions {
-  return {
-    bookings: true,
-    maintenance: true,
-    reports: true,
-    damage: true,
-    invoicesView: true,
-    messages: true,
-    properties: true,
-  };
+  return VA_PERMISSION_KEYS.reduce((acc, key) => {
+    acc[key] = true;
+    return acc;
+  }, {} as VaPermissions);
 }
 
 /**

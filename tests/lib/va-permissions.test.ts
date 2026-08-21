@@ -7,6 +7,7 @@ import {
   hasVaPermission,
   assertVaMayAct,
   parseVaPropertyScope,
+  VA_PERMISSION_LABELS,
 } from "@/lib/va/permissions";
 
 /**
@@ -137,5 +138,76 @@ describe("parseVaPropertyScope", () => {
     // caller decides. Junk-only input must not silently mean "all properties"
     // by accident — it means the scope was never validly set.
     expect(parseVaPropertyScope([" ", 1, null])).toBeNull();
+  });
+});
+
+/**
+ * PER-TASK SUB-PERMISSIONS (2026-08). "Can they touch tasks" was too coarse:
+ * an assistant who may raise a request is not automatically one who may rewrite
+ * it after an admin has read it.
+ */
+describe("task sub-permissions", () => {
+  it("grants nothing new to a team that was granted nothing", () => {
+    const permissions = parseVaPermissions({ bookings: false, tasksCreate: false });
+    expect(permissions.tasksCreate).toBe(false);
+    expect(permissions.tasksEditOwn).toBe(false);
+    expect(permissions.tasksWithdrawOwn).toBe(false);
+  });
+
+  it("does not revoke task creation from a team granted before the keys existed", () => {
+    // The regression this guards: reading an absent key as `false` is right for
+    // a NEW capability and wrong for tasksCreate, which every VA with bookings
+    // already has. It would have read as "the portal broke" on deploy.
+    const legacy = parseVaPermissions({ bookings: true, reports: true });
+    expect(legacy.tasksCreate).toBe(true);
+    // But the genuinely new capabilities stay off — nobody had them, so nobody
+    // loses them, and inheriting these would be a silent WIDENING.
+    expect(legacy.tasksEditOwn).toBe(false);
+    expect(legacy.tasksWithdrawOwn).toBe(false);
+  });
+
+  it("stops inheriting once the team has been saved with the keys", () => {
+    const saved = parseVaPermissions({ bookings: true, tasksCreate: false });
+    expect(saved.tasksCreate).toBe(false);
+  });
+
+  it("treats a legacy team without bookings as having no task creation", () => {
+    expect(parseVaPermissions({ reports: true }).tasksCreate).toBe(false);
+  });
+
+  it("never grants task creation from an unreadable blob", () => {
+    expect(parseVaPermissions(null).tasksCreate).toBe(false);
+    expect(parseVaPermissions("bookings").tasksCreate).toBe(false);
+    expect(parseVaPermissions([]).tasksCreate).toBe(false);
+  });
+
+  it("labels every grantable key, including the new ones", () => {
+    // A key with no label renders as a blank toggle the client cannot judge.
+    for (const key of VA_PERMISSION_KEYS) {
+      expect(VA_PERMISSION_LABELS[key]?.title, `${key} has no label`).toBeTruthy();
+      expect(VA_PERMISSION_LABELS[key]?.hint, `${key} has no hint`).toBeTruthy();
+    }
+  });
+});
+
+describe("task edits no grant can permit", () => {
+  it("refuses a VA editing someone else's request", () => {
+    expect(() => assertVaMayAct("VA", "task_edit_foreign")).toThrow("VA_ACTION_FORBIDDEN");
+  });
+
+  it("refuses a VA editing an already-approved request", () => {
+    // The approval was a decision taken about a specific piece of text.
+    // Letting the text change afterwards would make the approval mean nothing.
+    expect(() => assertVaMayAct("VA", "task_edit_approved")).toThrow("VA_ACTION_FORBIDDEN");
+  });
+
+  it("does not restrict the client themselves", () => {
+    expect(() => assertVaMayAct("CLIENT", "task_edit_approved")).not.toThrow();
+  });
+
+  it("keeps the money rule ungrantable alongside the new ones", () => {
+    for (const action of ["quote_approval", "extra_approval", "cost_approval", "invoice_payment"]) {
+      expect(() => assertVaMayAct("VA", action)).toThrow("VA_ACTION_FORBIDDEN");
+    }
   });
 });
