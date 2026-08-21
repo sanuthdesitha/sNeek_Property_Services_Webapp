@@ -553,8 +553,23 @@ export async function GET(
       }
     );
 
+    // Did THIS cleaner tap a tag on THIS job? The job-level check-in fields
+    // cannot answer that — one left behind by a previous assignee is not my
+    // arrival — and the difference decides whether the clock-in still has to
+    // demand a GPS fix.
+    const nfcArrival = Boolean(
+      await db.nfcScanEvent
+        .findFirst({
+          where: { jobId: job.id, userId: session.user.id, outcome: "ACCEPTED" },
+          select: { id: true },
+        })
+        .catch(() => null)
+    );
+
     return NextResponse.json({
       job,
+      /** This cleaner arrived by tapping the property's NFC tag. */
+      nfcArrival,
       contact,
       nextGuest,
       jobMeta,

@@ -484,6 +484,11 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const property = job?.property ?? {};
   const addressLine = [property.address, property.suburb, property.state, property.postcode].filter(Boolean).join(", ");
   const hasCheckin = Boolean(job?.gpsCheckInAt);
+  // A tap on the property's own NFC tag, by THIS cleaner, on THIS job. It is
+  // stronger arrival evidence than a GPS fix — the phone was held against a
+  // tag fixed to the building — and it is what lets the clock-in stop
+  // demanding a location the cleaner may be standing somewhere they cannot get.
+  const nfcArrival = Boolean(payload?.nfcArrival);
   const propertyId: string | null = job?.propertyId ?? (property as any)?.id ?? null;
 
   // Accept gate: gate on THIS cleaner's own assignment response, not the job's
@@ -858,7 +863,10 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     // "Resume" = MY clock has run before. A job-level check-in left behind by a
     // previous cleaner is not my arrival, so a fresh assignee still runs the
     // arrival capture (the server preserves the original check-in regardless).
-    const isResume = ownStarted || (hasCheckin && !startGateBlocks);
+    // `hasCheckin` is job-level and can belong to a previous assignee, which
+    // is why it is qualified. An NFC arrival is not: the server recorded it
+    // against this user on this job, so it stands on its own.
+    const isResume = ownStarted || nfcArrival || (hasCheckin && !startGateBlocks);
 
     // Client-side gate: block until the pre-start confirmations are ticked. The
     // server enforces this too — this just gives a clear message before the POST.

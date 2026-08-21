@@ -820,8 +820,9 @@ model User {
   createdEmailCampaigns        EmailCampaign[]             @relation("EmailCampaignCreatedBy")
   marketingAssets              MarketingAsset[]            @relation("MarketingAssetUploadedBy")
   socialPosts                  SocialPost[]                @relation("SocialPostCreatedBy")
-  cleanerLocationPings         CleanerLocationPing[]
   laundryRoutes                LaundryRoute[]
+  cleanerLocationPings         CleanerLocationPing[]
+  nfcScanEvents                NfcScanEvent[]
   submittedOnboardingSurveys   PropertyOnboardingSurvey[]  @relation("OnboardingSubmittedBy")
   reviewedOnboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingReviewedBy")
   uploadFailures               UploadFailure[]
@@ -1038,9 +1039,80 @@ model Property {
   qaIssues            QaIssue[]
   cleanerStats        CleanerPropertyStat[]
   invoiceLines        ClientInvoiceLine[]
+  nfcTags             PropertyNfcTag[]
 
   @@index([placeId])
   @@index([suburb])
+}
+
+/// A physical NFC tag stuck up at a property, used for check-in.
+///
+/// The tag itself holds a URL ending in `token`. That makes it readable by
+/// every modern phone WITHOUT an app — iOS opens the URL from the lock screen,
+/// Android Chrome can read it in-page via Web NFC — which is the only reason
+/// this works on iPhones at all.
+///
+/// `token` is therefore a PUBLIC identifier, not a secret. Anyone who taps the
+/// tag can read it, and a commodity NTAG21x can be cloned in seconds. Presence
+/// is proven by the token arriving alongside an authenticated cleaner session
+/// for a job at THIS property in its time window — never by the token alone.
+/// See lib/nfc/tags.ts.
+model PropertyNfcTag {
+  id          String   @id @default(cuid())
+  propertyId  String
+  /// Where it is stuck — "Front door", "Meter box". Shown to the cleaner.
+  label       String
+  /// The value written into the tag's URL. Unique across all properties.
+  token       String   @unique
+  /// Hardware serial, when the tag was registered by scanning rather than by
+  /// generating. Optional because most tags are registered before deployment.
+  tagUid      String?  @unique
+  isActive    Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  /// Last successful tap. Lets an admin spot a tag that has gone dead.
+  lastUsedAt  DateTime?
+
+  property Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  scans    NfcScanEvent[]
+
+  @@index([propertyId])
+}
+
+/// Every tap, accepted or not.
+///
+/// Written even when the scan is REJECTED. A rejected scan is the interesting
+/// one: a tag tapped at the wrong property, outside its window, or by someone
+/// with no job there is either a mistake worth explaining to that person or a
+/// pattern worth investigating, and neither is visible if only successes are
+/// recorded.
+model NfcScanEvent {
+  id        String   @id @default(cuid())
+  tagId     String?
+  /// The raw token as presented, kept even when no tag matched it.
+  token     String
+  userId    String?
+  jobId     String?
+  /// ACCEPTED | NO_TAG | NO_JOB | WRONG_PROPERTY | OUT_OF_WINDOW | DUPLICATE
+  outcome   String
+  /// Corroborating fix taken at the tap. Null when the phone refused it —
+  /// which is not a failure: the tap is the evidence, this is the cross-check.
+  lat       Float?
+  lng       Float?
+  accuracy  Float?
+  /// Metres from the property, when a fix was available.
+  distanceM Float?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  tag  PropertyNfcTag? @relation(fields: [tagId], references: [id], onDelete: SetNull)
+  user User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  job  Job?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([jobId])
+  @@index([outcome, createdAt])
 }
 
 // ─────────────────────────────────────────────
@@ -1414,6 +1486,7 @@ model Job {
   jobTasks               JobTask[]
   satisfactionRating     ClientSatisfactionRating?
   cleanerLocationPings   CleanerLocationPing[]
+  nfcScanEvents          NfcScanEvent[]
   feedback               JobFeedback?
   uploadFailures         UploadFailure[]
 
