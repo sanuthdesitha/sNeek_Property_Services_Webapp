@@ -545,6 +545,18 @@ A `Role.VA` acts on behalf of a client. `VaTeam` (many teams per client, many lo
 
 **Known gaps.** Seven client routes now go through the chokepoint (`properties`, `properties/[id]`, `jobs`, `laundry`, `available-slots`, `booking`, `attention-counts`); the remaining 28 still call `requireRole([Role.CLIENT])` and reject a VA outright — fail-closed, so the gap costs reach, never safety. The approvals trio resolves a *set* of client ids by email match, which the chokepoint preserves via `clientIds` for the CLIENT actor only. The v2 client pages still wrap their portal context in `.catch(() => null)` — a fail-open pattern that must not be carried into the rest of the migration.
 
+### B15b. Per-task sub-permissions (2026-08)
+
+"Can they touch tasks" was one toggle, and too coarse: an assistant who may RAISE a request is not automatically one who may rewrite it after an admin has read it. Three keys now split it — `tasksCreate`, `tasksEditOwn`, `tasksWithdrawOwn` — and `PATCH`/`DELETE /api/client/jobs/[id]/task-requests/[taskId]` are the routes behind the last two (neither action existed before; a mistyped request could only be fixed by asking an admin).
+
+**Two of the rules are NOT permissions.** `task_edit_foreign` and `task_edit_approved` joined `VA_FORBIDDEN_ACTIONS`, enforced by `assertVaMayAct` regardless of the Json — the same treatment the money rule gets. Editing somebody else's request is out because the request carries their name; editing an approved one is out because the approval was a decision taken about a specific piece of text, and letting the text change afterwards would make the approval mean nothing. Both are checked in `loadOwnPendingTaskRequest` (the service) rather than in the route, so a future second caller inherits them — a rule implemented at one call site and forgotten at the next is the recurring failure in this codebase.
+
+**Withdrawal sets `REJECTED`, it does not delete.** The cleaner may already have seen the task on the job, and a row that vanishes leaves them hunting for work nobody can account for.
+
+**The back-compat rule is the subtle part.** Teams granted before these keys existed carry none of them, and `parseVaPermissions` reads an absent key as `false` — correct for a new capability, wrong for `tasksCreate`, which every VA holding `bookings` already has today. Reading it as false would have silently revoked task creation on deploy and surfaced as "the portal broke" rather than as an access error anyone could interpret. So a blob carrying **none** of the three task keys inherits `bookings` for `tasksCreate` only; `tasksEditOwn`/`tasksWithdrawOwn` stay off, because nobody had them and inheriting them would be a silent *widening*. The rule stops applying the moment a team is saved, since saving writes all three keys explicitly.
+
+`fullPermissions()` in `lib/auth/client-portal.ts` is now derived from `VA_PERMISSION_KEYS` instead of hand-listed. The hand-listed version meant every new key was granted to VAs and withheld from the client who owns the account until someone remembered to edit that function too.
+
 ### B16. VA team management — the half that makes a VA possible (V2, 2026-08)
 
 B15 built the lock; nothing could cut a key. `VaTeam` was referenced only by `requireClientPortal` and `lib/va/permissions.ts`, and no code path in the product could create a team, attach a login to one, or set its grants — so `Role.VA` was unreachable in practice. `lib/va/teams.ts` plus four routes under `/api/client/va-teams` and the `/v2/client/team` page are that missing half.

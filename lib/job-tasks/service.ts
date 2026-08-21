@@ -14,6 +14,7 @@ import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { resolveAppUrl } from "@/lib/app-url";
 import { applyReschedule } from "@/lib/phase4/analytics";
+import { assertVaMayAct } from "@/lib/va/permissions";
 
 type RequestLike =
   | { url?: string; headers?: Headers | { get?: (name: string) => string | null } }
@@ -921,4 +922,131 @@ export async function applyCleanerJobTaskUpdates(input: {
   }
 
   return { carriedForwardCount };
+}
+
+/**
+ * A VA or client editing or withdrawing a task request they raised.
+ *
+ * Three conditions, and only one of them is a permission:
+ *
+ *   OWN       the request must have been raised by this user. Editing someone
+ *             else's is `task_edit_foreign` — forbidden at any grant level,
+ *             because a shared login is not the same thing as a shared voice.
+ *   PENDING   once an admin has approved it, the text is frozen. That is
+ *             `task_edit_approved`, also ungrantable: the approval was a
+ *             decision taken about a specific piece of text, and letting the
+ *             text change afterwards would make the approval mean nothing.
+ *   GRANTED   the team must hold tasksEditOwn / tasksWithdrawOwn.
+ *
+ * The first two are checked here rather than in the route so every future
+ * caller inherits them — the recurring failure in this codebase is a rule
+ * implemented at one call site and forgotten at the next.
+ */
+async function loadOwnPendingTaskRequest(input: {
+  taskId: string;
+  clientId: string;
+  actorUserId: string;
+  actor: "CLIENT" | "VA";
+}) {
+  const task = await db.jobTask.findUnique({
+    where: { id: input.taskId },
+    select: {
+      id: true,
+      jobId: true,
+      clientId: true,
+      title: true,
+      description: true,
+      requiresPhoto: true,
+      requiresNote: true,
+      approvalStatus: true,
+      requestedByUserId: true,
+      metadata: true,
+    },
+  });
+  if (!task || task.clientId !== input.clientId) throw new Error("TASK_NOT_FOUND");
+
+  if (task.requestedByUserId !== input.actorUserId) {
+    assertVaMayAct(input.actor, "task_edit_foreign");
+    // A CLIENT reaches here for a request one of their own assistants raised.
+    // Still refused: the request carries that person's name, and an edit under
+    // it would misattribute what they asked for.
+    throw new Error("TASK_NOT_OWN");
+  }
+
+  if (task.approvalStatus !== "PENDING_APPROVAL") {
+    assertVaMayAct(input.actor, "task_edit_approved");
+    throw new Error("TASK_ALREADY_REVIEWED");
+  }
+
+  return task;
+}
+
+export async function updateClientJobTaskRequest(input: {
+  taskId: string;
+  clientId: string;
+  actorUserId: string;
+  actor: "CLIENT" | "VA";
+  title?: string;
+  description?: string | null;
+  requiresPhoto?: boolean;
+  requiresNote?: boolean;
+}) {
+  const task = await loadOwnPendingTaskRequest(input);
+
+  const updated = await db.jobTask.update({
+    where: { id: task.id },
+    data: {
+      title: input.title?.trim() || task.title,
+      description:
+        input.description === undefined ? task.description : input.description?.trim() || null,
+      requiresPhoto: input.requiresPhoto ?? task.requiresPhoto,
+      requiresNote: input.requiresNote ?? task.requiresNote,
+    },
+  });
+
+  await db.jobTaskEvent.create({
+    data: {
+      taskId: task.id,
+      actorUserId: input.actorUserId,
+      action: "REQUEST_EDITED",
+      // The previous wording, so a reviewer can see what changed under them
+      // if they had already read it.
+      note: `Edited before review. Previously: ${task.title}`,
+    },
+  });
+
+  return updated;
+}
+
+export async function withdrawClientJobTaskRequest(input: {
+  taskId: string;
+  clientId: string;
+  actorUserId: string;
+  actor: "CLIENT" | "VA";
+  reason?: string | null;
+}) {
+  const task = await loadOwnPendingTaskRequest(input);
+
+  // REJECTED rather than deleted. The cleaner may already have seen it on the
+  // job, and a row that vanishes leaves them looking for work nobody can
+  // account for. A withdrawn request stays visible as withdrawn.
+  const updated = await db.jobTask.update({
+    where: { id: task.id },
+    data: {
+      approvalStatus: "REJECTED",
+      visibleToCleaner: false,
+      autoApproveAt: null,
+    },
+  });
+
+  await db.jobTaskEvent.create({
+    data: {
+      taskId: task.id,
+      actorUserId: input.actorUserId,
+      action: "REQUEST_WITHDRAWN",
+      note: input.reason?.trim() || "Withdrawn before review.",
+    },
+  });
+
+  return updated;
 }
