@@ -174,6 +174,22 @@ Fixed by adding an **All documents on file** section (search + category + status
 
 **It bends in exactly one place, deliberately:** anything that MOVES money is still sent. An approved deduction (`REWORK_DEDUCTION`, `RECTIFICATION_DEDUCTION`) is money leaving someone's pay, and taking it silently because "they did not ask for it" would be indefensible — the reason to suppress the decline is that *nothing happened*, not that the cleaner is uninvolved. So only `REJECTED` on a system-proposed row is suppressed; approvals, amount changes and reversals all still go. The separate Phase-8b bonus channel in `app/api/admin/pay-adjustments/[id]/route.ts` was doing the same thing a second time (it is the one that named the streak in the email) and now fires on APPROVED only.
 
+#### Barcode inventory — quick scan and printed labels (2026-08)
+
+**The mode is sticky, and that is the whole ergonomic idea.** Pick Add / Remove / Set / Check / Move once, then scan repeatedly. Asking "what should this one do?" after every read doubles the taps and nobody does it twice. Because it is sticky it must also be impossible to misread: the selected mode is large, coloured, and repeated over the camera, and the two destructive modes carry the danger colour — the failure that matters is a cleaner in Remove mode who believes they are in Add mode, quietly emptying a shelf.
+
+**Quick scan is NOT a count run.** `count-run.ts` reconciles the whole cupboard and zeroes anything unscanned; quick scan touches only what you point at. Mixing them would mean topping up one shelf silently emptied the room. Both exist because they answer different questions.
+
+**The mode lives in a ref as well as state.** The scanner's `onScan` callback is created once, so a plain closure would capture whichever mode was selected when the camera started and apply it for the rest of the session — silently, and only for people who changed mode mid-scan.
+
+**Undo works by SET, not by inverse.** Reversing an Add with a Remove is wrong the moment anything else touched that shelf in between; setting the recorded previous value puts it exactly where it was.
+
+**Printed labels** (`lib/inventory/label-codes.ts`, `label-sheet.tsx`): the barcode is rendered as **SVG, never canvas** — a canvas barcode prints at screen resolution and the bars blur together on paper, which is the commonest reason a printed barcode will not scan. Every label carries human-readable text including the code itself, because a barcode nobody can read without a scanner is useless the moment the scanner fails. `break-inside: avoid` on each label stops one being split across a page break, and the print stylesheet hides the app chrome so a shelf tag does not come out with a sidebar beside it. Two layouts: many-per-page for setting up a property, one-per-page for a replacement.
+
+**Generation skips items that already have a label for that scope**, and says so. Re-minting would orphan every tag already stuck to a shelf: the printed one stops resolving and nobody finds out until a cleaner scans it and gets nothing.
+
+**Discoverability:** labels and the consolidated shopping list are separate ROUTES, not `?tab=` views, so the inventory chip bar cannot reach them — they are linked from the inventory page header instead. Left out, they would have been invisible in exactly the way the compliance board was.
+
 #### Barcode inventory — stage 3: shopping (2026-08)
 
 **A duplicate was written and deleted before it shipped.** A `lib/inventory/shopping-needs.ts` was built to derive what needs buying — and `getShoppingListRows` (`lib/inventory/shopping-list-report.ts:25`) already did exactly that, with the same trigger (`onHand <= reorderThreshold`) and the same quantity (`parLevel - onHand`). Two copies of that arithmetic is precisely the failure mode this codebase keeps hitting, so the new file was removed and the work rebuilt as `consolidateShoppingListRows`, an ADAPTER over the existing rows. The printed sheet, the emailed list and the shopping screen now cannot disagree about what to buy.

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Role } from "@prisma/client";
 import {
   AlertTriangle,
@@ -5,6 +6,7 @@ import {
   Package,
   PackageCheck,
   ShoppingCart,
+  Tag,
   Truck,
 } from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
@@ -207,6 +209,22 @@ export default async function EstateInventoryPage({
         eyebrow="Commercial"
         title="Inventory & supplies"
         description="Items, per-property stock, counts, shopping runs, and suppliers — all in one place."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/v2/admin/inventory/shopping"
+              className="inline-flex items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-3 py-1.5 text-[0.8125rem] font-[550] hover:bg-[hsl(var(--e-surface-raised))]"
+            >
+              <ShoppingCart className="h-3.5 w-3.5" /> Shopping list
+            </Link>
+            <Link
+              href="/v2/admin/inventory/labels"
+              className="inline-flex items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-3 py-1.5 text-[0.8125rem] font-[550] hover:bg-[hsl(var(--e-surface-raised))]"
+            >
+              <Tag className="h-3.5 w-3.5" /> Shelf labels
+            </Link>
+          </div>
+        }
       />
 
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
