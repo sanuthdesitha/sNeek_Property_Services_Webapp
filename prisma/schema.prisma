@@ -486,6 +486,13 @@ model PropertyMaintenanceItem {
   resolutionNote     String?             @db.Text
 
   // ── Assignment + worker visit lifecycle ──
+  /// Repeatable, typed instruction blocks shown to whoever is assigned —
+  /// text, photos, a pickup location, anything the office needs to convey.
+  /// A Json array rather than columns because the business keeps discovering
+  /// new things worth saying, and each one would otherwise be a migration.
+  /// See lib/maintenance/instructions.ts.
+  assignmentInstructions Json?
+
   assignedWorkerId    String?
   assignedAt          DateTime?
   assignedByUserId    String?
@@ -577,6 +584,34 @@ model MaintenanceItemAssignment {
   /// Stamped when the "you've been assigned" email actually went out. Null
   /// means never notified, so a re-offer can email again without spamming.
   notifiedAt   DateTime?
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────
+  /// Assignment is an offer until accepted. Without this an admin cannot
+  /// tell 'they have seen it and are coming' from 'it is sitting unread'.
+  acceptedAt   DateTime?
+  declinedAt   DateTime?
+  declineReason String? @db.Text
+  completedAt  DateTime?
+  completionNote String? @db.Text
+  /// S3 keys for proof of the work. Same shape as the other photo columns.
+  completionPhotoKeys Json?
+
+  // ── Pay ────────────────────────────────────────────────────────────────
+  /// FIXED = payAmount is the whole fee. HOURLY = payAmount is the rate and
+  /// payHours the expected hours. Both are offered because a tap washer is a
+  /// price and a repaint is a day rate.
+  payType      String?
+  payAmount    Float?
+  payHours     Float?
+  /// Who is footing it. CLIENT means the amount also lands on the client's
+  /// invoice, because they agreed to cover it.
+  payPayer     String?
+  /// The assignee thinks the price is wrong. Approving replaces payAmount;
+  /// the request is kept either way so a pattern of low-balling is visible.
+  payChangeAmount Float?
+  payChangeReason String? @db.Text
+  payChangeStatus String?
+  payChangeAt  DateTime?
 
   item       PropertyMaintenanceItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   user       User                    @relation("MaintenanceItemAssignee", fields: [userId], references: [id], onDelete: Cascade)

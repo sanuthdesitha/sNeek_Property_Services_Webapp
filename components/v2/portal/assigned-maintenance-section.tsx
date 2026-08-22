@@ -25,6 +25,11 @@ import {
 } from "@/lib/maintenance/assignment-roles";
 import { listMaintenanceItemsForUser } from "@/lib/maintenance/assignments";
 import { PRIORITY_LABELS, STATUS_LABELS } from "@/lib/maintenance/labels";
+import { parseInstructions } from "@/lib/maintenance/instructions";
+import {
+  MaintenanceAssignmentActions,
+  type AssignmentActionState,
+} from "@/components/v2/portal/maintenance-assignment-actions";
 
 const TZ = "Australia/Sydney";
 
@@ -123,7 +128,7 @@ export async function AssignedMaintenanceSection({
             {history.map((entry, index) => (
               <div key={entry.item.id}>
                 {index > 0 ? <EThread className="my-1" /> : null}
-                <MaintenanceRow entry={entry} />
+                <MaintenanceRow entry={entry} readOnly />
               </div>
             ))}
           </ECardBody>
@@ -135,6 +140,7 @@ export async function AssignedMaintenanceSection({
 
 function MaintenanceRow({
   entry,
+  readOnly,
 }: {
   entry: {
     item: {
@@ -148,9 +154,13 @@ function MaintenanceRow({
       property: { id: string; name: string | null; suburb: string | null; address: string | null } | null;
     };
     roles: MaintenanceAssigneeRole[];
+    assignment?: AssignmentActionState;
   };
+  /** History rows are a record, not a to-do list — no actions on them. */
+  readOnly?: boolean;
 }) {
   const { item, roles } = entry;
+  const instructions = parseInstructions((item as { assignmentInstructions?: unknown }).assignmentInstructions);
   const place = [item.property?.name, item.property?.suburb].filter(Boolean).join(", ");
   const scheduled = fmt(item.scheduledFor);
 
@@ -194,6 +204,38 @@ function MaintenanceRow({
           </span>
         ) : null}
       </div>
+
+      {/* Everything the office wanted them to know before they set off:
+          gate codes, which meter, where the key is, who to ring. */}
+      {instructions.length > 0 ? (
+        <ul className="mt-2 space-y-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-2.5">
+          {instructions.map((block) => (
+            <li key={block.id} className="text-[0.8125rem]">
+              <span className="font-[600]">{block.title}</span>
+              {block.body ? (
+                <span className="text-[hsl(var(--e-text-secondary))]"> — {block.body}</span>
+              ) : null}
+              {block.address ? (
+                <span className="text-[hsl(var(--e-text-secondary))]"> — {block.address}</span>
+              ) : null}
+              {block.contactName || block.contactPhone ? (
+                <span className="text-[hsl(var(--e-text-secondary))]">
+                  {" "}— {[block.contactName, block.contactPhone].filter(Boolean).join(" · ")}
+                </span>
+              ) : null}
+              {block.photoKeys?.length ? (
+                <span className="text-[hsl(var(--e-muted-foreground))]">
+                  {" "}({block.photoKeys.length} photo{block.photoKeys.length === 1 ? "" : "s"})
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {!readOnly && entry.assignment ? (
+        <MaintenanceAssignmentActions assignment={entry.assignment} />
+      ) : null}
     </div>
   );
 }
