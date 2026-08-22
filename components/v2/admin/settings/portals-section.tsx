@@ -11,7 +11,9 @@ import { EToggle, ESaveStatus, ESectionHeading, useSaveStatus } from "./estate-f
  */
 export type PortalsSettings = {
   clientPortalVisibility: Record<string, boolean>;
-  cleanerPortalVisibility: Record<string, boolean>;
+  /** Mostly booleans, plus `stockUpdateMode`, which is an enum — hence the
+   *  widened value type and its own control below the toggle grid. */
+  cleanerPortalVisibility: Record<string, boolean | string>;
 };
 
 const CLIENT_FIELDS: Array<[string, string]> = [
@@ -91,7 +93,8 @@ export function PortalsSection({ initial, readOnly }: { initial: PortalsSettings
   function setClient(key: string, value: boolean) {
     setForm((p) => ({ ...p, clientPortalVisibility: { ...p.clientPortalVisibility, [key]: value } }));
   }
-  function setCleaner(key: string, value: boolean) {
+  // Widened for stockUpdateMode, which is an enum rather than a toggle.
+  function setCleaner(key: string, value: boolean | string) {
     setForm((p) => ({ ...p, cleanerPortalVisibility: { ...p.cleanerPortalVisibility, [key]: value } }));
   }
 
@@ -143,11 +146,30 @@ export function PortalsSection({ initial, readOnly }: { initial: PortalsSettings
         <p className="mb-4 text-[0.8125rem] font-medium text-[hsl(var(--e-foreground))]">Cleaner portal</p>
         <ToggleGrid
           fields={CLEANER_FIELDS}
-          values={form.cleanerPortalVisibility}
+          values={form.cleanerPortalVisibility as Record<string, boolean>}
           fallback={false}
           onChange={setCleaner}
           readOnly={readOnly}
         />
+
+        {/* Both stock controls stay functional; this only decides which one
+            the job form shows. CLASSIC suits a property with no printed
+            labels — there would be nothing to point a camera at. */}
+        <div className="mt-5 border-t border-[hsl(var(--e-border))] pt-4">
+          <p className="text-[0.8125rem] font-medium">Stock update in the job form</p>
+          <p className="mb-2 mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            Scanning needs printed shelf labels. Typing works anywhere.
+          </p>
+          <select
+            className="w-full max-w-xs rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3 py-2 text-[0.875rem]"
+            value={(form.cleanerPortalVisibility.stockUpdateMode as string) ?? "CLASSIC"}
+            onChange={(ev) => setCleaner("stockUpdateMode", ev.target.value)}
+            disabled={readOnly}
+          >
+            <option value="CLASSIC">Type quantities used (classic)</option>
+            <option value="SCAN">Scan barcodes (quick scan)</option>
+          </select>
+        </div>
       </ECard>
 
       <div className="flex items-center justify-end gap-3">

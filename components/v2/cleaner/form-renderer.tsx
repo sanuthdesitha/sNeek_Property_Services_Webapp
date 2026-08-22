@@ -55,6 +55,7 @@ import { GuidedCapture, type GuidedCaptureTarget } from "@/components/v2/cleaner
 import { ExtraPayRequest } from "@/components/v2/cleaner/job-actions";
 import { DamageReportForm } from "@/components/v2/cleaner/damage-report-form";
 import { ReportMaintenance } from "@/components/v2/cleaner/report-maintenance";
+import { QuickScanPanel } from "@/components/v2/inventory/quick-scan-panel";
 
 export type AnswerMap = Record<string, unknown>;
 export type UploadMap = Record<string, CapturedMedia[]>;
@@ -104,6 +105,8 @@ export function FormRenderer({
   onExtrasChanged,
   requiredChecklistTicksBlockSubmit = false,
   canUseNoPhoto = false,
+  stockUpdateMode,
+  propertyId,
 }: {
   schema: FormSchema;
   answers: AnswerMap;
@@ -111,6 +114,11 @@ export function FormRenderer({
   property: Record<string, unknown>;
   /** Property stock items (from GET /api/jobs/[id]/form). Self-fetched when omitted. */
   inventoryStock?: PropertyStockRow[];
+  /** Which stock control to render. CLASSIC records usage as answers and
+   *  deducts on submit; SCAN adjusts the shelf as each barcode is read. */
+  stockUpdateMode?: "CLASSIC" | "SCAN";
+  /** Needed by the scan control, which writes against a property directly. */
+  propertyId?: string;
   onAnswer: (fieldId: string, value: unknown) => void;
   onUpload: (fieldId: string, media: CapturedMedia[]) => void;
   disabled?: boolean;
@@ -314,6 +322,8 @@ export function FormRenderer({
           jobId={jobId}
           property={property}
           inventoryStock={inventoryStock}
+          stockUpdateMode={stockUpdateMode}
+          propertyId={propertyId}
           restockNeeds={restockNeeds}
           answers={answers}
           onAnswer={handleAnswer}
@@ -343,6 +353,8 @@ function ExtrasRegion({
   jobId,
   property,
   inventoryStock,
+  stockUpdateMode,
+  propertyId,
   restockNeeds,
   answers,
   onAnswer,
@@ -352,6 +364,8 @@ function ExtrasRegion({
   jobId?: string;
   property: Record<string, unknown>;
   inventoryStock?: PropertyStockRow[];
+  stockUpdateMode?: "CLASSIC" | "SCAN";
+  propertyId?: string;
   restockNeeds?: Array<{ name: string; needed: number; unit?: string | null }>;
   answers: AnswerMap;
   onAnswer: (fieldId: string, value: unknown) => void;
@@ -421,13 +435,23 @@ function ExtrasRegion({
       ) : null}
       {stockVisible && open.stock ? (
         <div className="mt-3">
-          <StockUsageSection
-            property={property}
-            inventoryStock={inventoryStock}
-            answers={answers}
-            onAnswer={onAnswer}
-            disabled={disabled}
-          />
+          {/* Two controls, one job. SCAN adjusts the shelf as each barcode is
+              read; CLASSIC records usage as answers and deducts on submit.
+              They compose safely because they write through different paths:
+              the scan control produces no `inventoryUsage` answers, so a
+              property switched mid-job still deducts whatever was already
+              typed, which is what the cleaner actually recorded. */}
+          {stockUpdateMode === "SCAN" && propertyId ? (
+            <QuickScanPanel propertyId={propertyId} />
+          ) : (
+            <StockUsageSection
+              property={property}
+              inventoryStock={inventoryStock}
+              answers={answers}
+              onAnswer={onAnswer}
+              disabled={disabled}
+            />
+          )}
         </div>
       ) : null}
     </section>

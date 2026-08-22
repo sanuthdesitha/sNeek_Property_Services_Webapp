@@ -76,6 +76,19 @@ export interface ClientPortalVisibility {
   allowCaseReplies: boolean;
 }
 
+/**
+ * How a cleaner records stock inside the job form.
+ *
+ * CLASSIC records USAGE as form answers and deducts on submit — one write, at
+ * the end, reversible by editing the form before it goes.
+ * SCAN adjusts the shelf immediately, one barcode at a time.
+ *
+ * Both are kept because they suit different properties: a site with printed
+ * labels is far faster to scan, while one without them would leave a cleaner
+ * with nothing to point a camera at.
+ */
+export type StockUpdateMode = "CLASSIC" | "SCAN";
+
 export interface CleanerPortalVisibility {
   showJobs: boolean;
   showCalendar: boolean;
@@ -84,6 +97,9 @@ export interface CleanerPortalVisibility {
   showInvoices: boolean;
   showPayRequests: boolean;
   showLostFound: boolean;
+  /** Which stock control the job form shows. Defaults to CLASSIC so nothing
+   *  changes for a business that has not printed any labels yet. */
+  stockUpdateMode: StockUpdateMode;
 }
 
 export interface LaundryPortalVisibility {
@@ -768,6 +784,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showInvoices: true,
     showPayRequests: true,
     showLostFound: true,
+    stockUpdateMode: "CLASSIC",
   },
   laundryPortalVisibility: {
     showCalendar: true,
@@ -1011,6 +1028,13 @@ function sanitizeCleanerPortalVisibility(
     showInvoices: typeof row.showInvoices === "boolean" ? row.showInvoices : fallback.showInvoices,
     showPayRequests: typeof row.showPayRequests === "boolean" ? row.showPayRequests : fallback.showPayRequests,
     showLostFound: typeof row.showLostFound === "boolean" ? row.showLostFound : fallback.showLostFound,
+    // Anything unrecognised falls back rather than defaulting to SCAN: a
+    // corrupt settings row must not silently switch every property onto a
+    // control that needs printed labels nobody has stuck up yet.
+    stockUpdateMode:
+      row.stockUpdateMode === "SCAN" || row.stockUpdateMode === "CLASSIC"
+        ? row.stockUpdateMode
+        : fallback.stockUpdateMode,
   };
 }
 
