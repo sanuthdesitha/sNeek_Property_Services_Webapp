@@ -176,3 +176,61 @@ export async function notifyStockRunSubmitted(input: {
     templateHtml: template.html,
   });
 }
+
+/**
+ * A scanned stock count finished — tell the office what to buy.
+ *
+ * The shopping list itself needs no generating: it is derived from stock, so it
+ * changed the instant the count was applied. What did not exist was the PUSH. A
+ * cleaner who counts a cupboard at 9am and an admin who discovers the shortage
+ * on Friday are looking at the same shortage, found four days late.
+ *
+ * Rendered through the SAME `buildShoppingListHtml` the manually emailed list
+ * uses. Two renderers for one list would drift, and the version nobody
+ * proofreads is the one that goes out automatically.
+ *
+ * SILENT WHEN THERE IS NOTHING TO BUY. A count that finds a full cupboard is
+ * good news and not news; mailing "nothing needed" after every count is how a
+ * useful alert becomes something people filter away.
+ */
+export async function notifyScanCountCompleted(input: {
+  propertyId: string;
+  propertyLabel: string;
+  countedByLabel: string;
+  changedCount: number;
+  zeroedCount: number;
+}): Promise<{ itemsNeeded: number }> {
+  const { getShoppingListRows, groupShoppingListRows, buildShoppingListHtml } = await import(
+    "@/lib/inventory/shopping-list-report"
+  );
+
+  const rows = await getShoppingListRows({ scope: input.propertyId });
+  if (rows.length === 0) return { itemsNeeded: 0 };
+
+  const settings = await getAppSettings();
+  const subject = `${input.propertyLabel}: ${rows.length} item${
+    rows.length === 1 ? "" : "s"
+  } to restock`;
+  const summary =
+    `${input.countedByLabel} counted the stock at ${input.propertyLabel}. ` +
+    `${input.changedCount} item${input.changedCount === 1 ? "" : "s"} changed` +
+    (input.zeroedCount > 0 ? `, ${input.zeroedCount} now empty` : "") +
+    ".";
+
+  const html = buildShoppingListHtml({
+    companyName: settings.companyName,
+    scopeLabel: input.propertyLabel,
+    grouped: groupShoppingListRows(rows),
+  });
+
+  await notifyAdmins({
+    category: "shopping",
+    webSubject: subject,
+    webBody: summary,
+    smsBody: `${subject}. ${summary}`,
+    templateSubject: `${settings.companyName}: ${subject}`,
+    templateHtml: `<p>${summary}</p>${html}`,
+  });
+
+  return { itemsNeeded: rows.length };
+}
