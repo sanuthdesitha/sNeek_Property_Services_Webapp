@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils";
 import { prepareUploadFile } from "@/lib/uploads/compress";
 import { isStampableImage, type StampGps, type StampOptions } from "@/lib/uploads/stamp";
 import { getAccuratePosition } from "@/lib/geo/get-position";
+import { uploadMultipart } from "@/lib/uploads/multipart-client";
 
 export interface CapturedMedia {
   key: string;
@@ -171,12 +172,66 @@ const AUTO_RETRY_MAX_BYTES = 25 * 1024 * 1024;
  * hung, and killed it partway through. XHR exposes upload.onprogress, so the
  * bar reflects bytes actually leaving the phone.
  */
+/**
+ * The large-file path: presigned multipart, straight to the bucket.
+ *
+ * Reuses lib/uploads/multipart-client, which v1 already relies on, rather
+ * than growing a second implementation — the two would drift, and the one
+ * used by the portal nobody tests on a 4G phone is the one that would rot.
+ */
+async function uploadLargeFile(
+  file: File,
+  folder: string,
+  onBytes?: (sent: number, total: number) => void,
+  signal?: AbortSignal
+): Promise<CapturedMedia> {
+  try {
+    const { url, key } = await uploadMultipart(
+      file,
+      file.name,
+      file.type || "application/octet-stream",
+      (progress) => onBytes?.(progress.bytesUploaded, progress.totalBytes),
+      signal,
+      folder
+    );
+    return { key, url, name: file.name, kind: kindForFile(file) };
+  } catch (err: any) {
+    // An aborted upload is a decision, not a failure — it must not be offered
+    // for automatic retry alongside genuine errors.
+    if (signal?.aborted) throw new PermanentUploadError("Upload cancelled");
+    throw new Error(err?.message || "Upload failed");
+  }
+}
+
+/**
+ * Above this, the file goes straight to the bucket in parts instead of
+ * through our own server.
+ *
+ * `/api/uploads/direct` parses the request with `req.formData()`, which
+ * buffers the WHOLE body into memory before the handler can stream it
+ * anywhere. The web container runs on a 512MB heap and the video limit is
+ * 300MB, so a long arrival walkthrough could not fit through that path at all
+ * — it died as an out-of-memory or a dead socket rather than as an error
+ * anyone could read.
+ *
+ * v1's upload-dropzone has switched to multipart above 10MB for a long time.
+ * This component was written against the direct endpoint alone, so the v2
+ * cleaner portal — the one cleaners actually use — silently lost the only
+ * path that could carry a big video.
+ */
+const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
+
 function uploadOne(
   file: File,
   folder: string,
   onBytes?: (sent: number, total: number) => void,
   signal?: AbortSignal
 ): Promise<CapturedMedia> {
+  // Big files bypass our server entirely: presigned parts, straight to S3.
+  // Progress and cancellation both survive, so the UI is unchanged.
+  if (file.size > MULTIPART_THRESHOLD_BYTES) {
+    return uploadLargeFile(file, folder, onBytes, signal);
+  }
   return new Promise((resolve, reject) => {
     // Cancel has to reach the socket, not just the UI. Hiding the progress bar
     // while the phone keeps pushing a 90MB clip spends exactly the mobile data
