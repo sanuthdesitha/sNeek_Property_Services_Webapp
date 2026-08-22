@@ -174,6 +174,22 @@ Fixed by adding an **All documents on file** section (search + category + status
 
 **It bends in exactly one place, deliberately:** anything that MOVES money is still sent. An approved deduction (`REWORK_DEDUCTION`, `RECTIFICATION_DEDUCTION`) is money leaving someone's pay, and taking it silently because "they did not ask for it" would be indefensible — the reason to suppress the decline is that *nothing happened*, not that the cleaner is uninvolved. So only `REJECTED` on a system-proposed row is suppressed; approvals, amount changes and reversals all still go. The separate Phase-8b bonus channel in `app/api/admin/pay-adjustments/[id]/route.ts` was doing the same thing a second time (it is the one that named the streak in the email) and now fires on APPROVED only.
 
+#### Barcode inventory — stage 2: the scanner (2026-08)
+
+**Why ZXing rather than the browser's own decoder.** `BarcodeDetector` is built into Chrome on Android and hands decoding to the OS — fast, and good in poor light. Safari does not implement it, and because Apple requires every iOS browser to use WebKit, **no iPhone has it, including Chrome for iOS**. `@zxing/browser` decodes in JavaScript and works everywhere, more slowly. `barcode-scanner.tsx` uses the native decoder when it exists and falls back silently, because a cleaner does not care which one ran. The owner chose this over an Android-only build or waiting for native Expo scanning; the native path stays open, and adopting it later touches only this component.
+
+**The per-code cooldown is what makes it usable.** A decode loop pointed at a label fires every frame, thirty times a second. Without `SCAN_COOLDOWN_MS` (1.5s per code), holding the phone steady on one bottle counts forty bottles — and a first count run producing obviously wrong numbers is one nobody trusts again. Repeat scans of the same PRODUCT still count; the cleaner has to move the phone away and back, which is the deliberate gesture that makes the count mean something. Manual entry bypasses the cooldown, because typing the same code twice is two deliberate acts.
+
+**Manual entry is a fixture, not a fallback.** Barcodes get scuffed, freezer labels ice over, and decanted or bulk items never had one. It is also opened automatically when the camera fails, so a blocked permission leaves a usable screen rather than a dead one.
+
+**Three phases, and the middle one is the point.** SCAN writes nothing; REVIEW shows what the scanner made of the cupboard with every number editable; APPLY replaces the stock. A scan run is a first draft, not evidence — a bottle behind the door goes unscanned, a carton gets read twice — and writing straight from the camera would make the cleaner's job "scan perfectly", which nobody can, instead of "check the numbers", which anyone can.
+
+**`/api/inventory/scan/apply` recomputes the count from the RAW SCANS** rather than trusting figures the client worked out, running the same pure functions as the review screen over the same input. Manual overrides are accepted — the person at the cupboard can see what the scanner missed — and are written into the `StockTx` note, so a figure that came from a human says so permanently. Only rows that actually move produce a ledger entry; recording "adjusted to the number it already held" would turn the stock history into noise.
+
+**Zeroing returns 409, not silence.** When a run would empty stocked items the first request comes back `ZERO_CONFIRMATION_REQUIRED` with the list; only a second request carrying `confirmZero` proceeds.
+
+`stock-count-run.tsx` is a **sibling** of `stock-run-workspace.tsx`, not a replacement — that one is the same job done by typing, which is still faster for a three-item top-up. They are separate because a form and a camera have almost nothing in common.
+
 #### Barcode inventory — stage 1 (2026-08)
 
 Foundations only: the data model, the three rules that carry the risk, and the two endpoints. The camera UI, the auto-generated shopping list and receipts are stage 2 onward.
