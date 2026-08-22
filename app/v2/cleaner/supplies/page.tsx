@@ -1,5 +1,5 @@
 import { Role } from "@prisma/client";
-import { Package, PackageSearch, ShoppingCart } from "lucide-react";
+import { Package, PackageSearch, ScanLine, ShoppingCart } from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
@@ -10,11 +10,12 @@ import { ShoppingLauncher } from "@/components/v2/cleaner/shopping-launcher";
 import { OnHandView } from "@/components/v2/cleaner/on-hand-view";
 import { RestockPanel } from "@/components/v2/cleaner/restock-panel";
 import { StockRunWorkspace } from "@/components/v2/cleaner/stock-run-workspace";
+import { QuickScanLauncher } from "@/components/v2/cleaner/quick-scan-launcher";
 
 export const metadata = { title: "Supplies · Estate cleaner" };
 export const dynamic = "force-dynamic";
 
-type SuppliesTab = "restock" | "shopping" | "stock-runs";
+type SuppliesTab = "quick-scan" | "restock" | "shopping" | "stock-runs";
 
 /**
  * Merged cleaner supplies hub — Restock + Shopping + Stock counts on one screen,
@@ -37,6 +38,7 @@ export default async function CleanerSuppliesPage({
 
   // Build the tab set from what's enabled — Restock is always present.
   const tabs: Array<{ key: SuppliesTab; label: string; icon: React.ReactNode }> = [
+    { key: "quick-scan", label: "Quick scan", icon: <ScanLine className="h-4 w-4" /> },
     { key: "restock", label: "Restock", icon: <Package className="h-4 w-4" /> },
   ];
   if (showShopping) tabs.push({ key: "shopping", label: "Shopping", icon: <ShoppingCart className="h-4 w-4" /> });
@@ -60,7 +62,9 @@ export default async function CleanerSuppliesPage({
       : [];
 
   const description =
-    active === "restock"
+    active === "quick-scan"
+      ? "Scan a shelf label to add, remove, set or move stock. Pick the action once, then keep scanning."
+      : active === "restock"
       ? "Topped up supplies at a property? Record what you added so on-hand counts stay accurate."
       : active === "shopping"
         ? "Choose what needs buying, start the run, then track receipts, payment, and time in the run workspace."
@@ -82,6 +86,7 @@ export default async function CleanerSuppliesPage({
         />
       ) : null}
 
+      {active === "quick-scan" ? <QuickScanLauncher properties={properties} /> : null}
       {active === "restock" ? <RestockPanel /> : null}
 
       {active === "shopping" ? (
