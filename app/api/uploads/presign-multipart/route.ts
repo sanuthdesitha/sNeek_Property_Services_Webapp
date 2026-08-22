@@ -3,6 +3,7 @@ import { requireSession } from "@/lib/auth/session";
 import { s3 } from "@/lib/s3";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { sanitizeUploadFolder, isAllowedUploadContentType } from "@/lib/uploads/validate";
 
 const schema = z.object({
   filename: z.string(),
@@ -16,8 +17,20 @@ export async function POST(req: NextRequest) {
     const session = await requireSession();
     const parsed = schema.parse(await req.json());
 
+    // The same two checks /api/uploads/direct and /api/uploads/presign have
+    // always applied. This route had neither, so the folder went straight
+    // into the S3 key unsanitised — an authenticated caller could write
+    // outside their prefix — and any content type was accepted.
+    const folder = sanitizeUploadFolder(parsed.folder);
+    if (folder === null) {
+      return NextResponse.json({ error: "Invalid upload folder." }, { status: 400 });
+    }
+    if (!isAllowedUploadContentType(parsed.contentType, parsed.filename)) {
+      return NextResponse.json({ error: "Unsupported file type." }, { status: 400 });
+    }
+
     const ext = parsed.filename.split(".").pop() ?? "bin";
-    const key = `${parsed.folder}/${session.user.id}/${randomUUID()}.${ext}`;
+    const key = `${folder}/${session.user.id}/${randomUUID()}.${ext}`;
     const Bucket = process.env.S3_BUCKET_NAME!;
 
     const created = await s3

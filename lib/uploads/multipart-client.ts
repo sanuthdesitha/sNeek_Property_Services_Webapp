@@ -18,7 +18,14 @@ export async function uploadMultipart(
   filename: string,
   contentType: string,
   onProgress?: (p: UploadProgress) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /**
+   * Where the file belongs. Was never sent, so every large upload landed in
+   * the default `uploads/` prefix while its small siblings went to the right
+   * folder — the same job's photos and its walkthrough video ended up in two
+   * different places.
+   */
+  folder?: string
 ): Promise<{ url: string; key: string }> {
   const parts = Math.ceil(blob.size / PART_SIZE);
 
@@ -26,7 +33,7 @@ export async function uploadMultipart(
   const initRes = await fetch("/api/uploads/presign-multipart", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ filename, contentType, partsCount: parts }),
+    body: JSON.stringify({ filename, contentType, partsCount: parts, ...(folder ? { folder } : {}) }),
     signal,
   });
   if (!initRes.ok) throw new Error(`presign-multipart failed: ${initRes.status}`);
