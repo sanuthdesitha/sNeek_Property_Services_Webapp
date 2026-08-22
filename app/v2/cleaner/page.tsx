@@ -219,65 +219,6 @@ export default async function CleanerTodayPage() {
         </p>
       </header>
 
-      {/* Cleaner daily briefing — concise plan-your-day panel with weather */}
-      <DailyBriefing />
-
-      {/* Coaching & feedback — self-hides when the cleaner has no records */}
-      <CleanerCoachingCard />
-
-      {/* QA feedback — recent inspection outcomes, self-hides when empty */}
-      <CleanerQaFeedbackCard />
-
-      <section className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-3">
-        <EStatCard label="Today" value={String(jobCount)} />
-        <EStatCard label="This week" value={String(jobs.length)} />
-        <EStatCard label="Next" value={nextJob?.startTime || "—"} />
-      </section>
-
-      {/* Immediate attention — same feed the v1 dashboard surfaces (overdue
-          submissions, unconfirmed jobs, safety check-ins, …), rerouted to v2 */}
-      {visibleUrgent.length > 0 ? (
-        <section className="space-y-3">
-          <span className="e-eyebrow flex items-center gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5" /> NEEDS ATTENTION
-          </span>
-          {visibleUrgent.map((item) => {
-            const href = item.href ? item.href.replace(/^\/cleaner(?=\/|$)/, "/v2/cleaner") : null;
-            const tone: Tone =
-              item.tone === "critical" ? "danger" : item.tone === "warning" ? "warning" : "info";
-            return (
-              <ECard
-                key={item.id}
-                className={
-                  item.tone === "critical"
-                    ? "border-l-[3px] border-l-[hsl(var(--e-danger))]"
-                    : "border-l-[3px] border-l-[hsl(var(--e-warning))]"
-                }
-              >
-                <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
-                  <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-2 text-[0.875rem] font-[550]">
-                      {item.title}
-                      <EBadge tone={tone} soft>
-                        {item.count}
-                      </EBadge>
-                    </p>
-                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{item.description}</p>
-                  </div>
-                  {href ? (
-                    <EButton asChild variant="outline" size="sm">
-                      <Link href={href}>
-                        {item.actionLabel || "Open"} <ChevronRight className="h-4 w-4" />
-                      </Link>
-                    </EButton>
-                  ) : null}
-                </ECardBody>
-              </ECard>
-            );
-          })}
-        </section>
-      ) : null}
-
       {/* My day — one vertical timeline of today's jobs + outstanding offers */}
       {myDay.length > 0 ? (
         <section className="space-y-3">
@@ -390,6 +331,65 @@ export default async function CleanerTodayPage() {
           description="You have no jobs booked for today or the days ahead."
         />
       )}
+
+      {/* Immediate attention — same feed the v1 dashboard surfaces (overdue
+          submissions, unconfirmed jobs, safety check-ins, …), rerouted to v2 */}
+      {visibleUrgent.length > 0 ? (
+        <section className="space-y-3">
+          <span className="e-eyebrow flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5" /> NEEDS ATTENTION
+          </span>
+          {visibleUrgent.map((item) => {
+            const href = item.href ? item.href.replace(/^\/cleaner(?=\/|$)/, "/v2/cleaner") : null;
+            const tone: Tone =
+              item.tone === "critical" ? "danger" : item.tone === "warning" ? "warning" : "info";
+            return (
+              <ECard
+                key={item.id}
+                className={
+                  item.tone === "critical"
+                    ? "border-l-[3px] border-l-[hsl(var(--e-danger))]"
+                    : "border-l-[3px] border-l-[hsl(var(--e-warning))]"
+                }
+              >
+                <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-2 text-[0.875rem] font-[550]">
+                      {item.title}
+                      <EBadge tone={tone} soft>
+                        {item.count}
+                      </EBadge>
+                    </p>
+                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{item.description}</p>
+                  </div>
+                  {href ? (
+                    <EButton asChild variant="outline" size="sm">
+                      <Link href={href}>
+                        {item.actionLabel || "Open"} <ChevronRight className="h-4 w-4" />
+                      </Link>
+                    </EButton>
+                  ) : null}
+                </ECardBody>
+              </ECard>
+            );
+          })}
+        </section>
+      ) : null}
+
+      {/* Cleaner daily briefing — concise plan-your-day panel with weather */}
+      <DailyBriefing />
+
+      <section className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-3">
+        <EStatCard label="Today" value={String(jobCount)} />
+        <EStatCard label="This week" value={String(jobs.length)} />
+        <EStatCard label="Next" value={nextJob?.startTime || "—"} />
+      </section>
+
+      {/* Coaching & feedback — self-hides when the cleaner has no records */}
+      <CleanerCoachingCard />
+
+      {/* QA feedback — recent inspection outcomes, self-hides when empty */}
+      <CleanerQaFeedbackCard />
 
       {/* End of day (signature moment) */}
       {jobCount > 0 ? (
