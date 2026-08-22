@@ -93,7 +93,8 @@ export async function GET() {
         "/v2/client/approvals": approvals,
         "/v2/client/cases": cases,
         "/v2/client/quotes": quotes,
-        "/v2/client/money": invoices,
+        // Matches the nav href. On /money the badge simply never appeared.
+        "/v2/client/finance": invoices,
       },
     });
   } catch (err: any) {

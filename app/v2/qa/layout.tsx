@@ -8,11 +8,14 @@ import {
 } from "@/components/v2/portal/use-attention-counts";
 import { useMaintenanceSection } from "@/components/v2/portal/use-maintenance-section";
 import {
+  AlertTriangle,
   CalendarCheck,
   ClipboardCheck,
-  AlertTriangle,
-  Wallet,
   MoreHorizontal,
+  Receipt,
+  TrendingUp,
+  User,
+  Wallet,
   Wrench,
 } from "lucide-react";
 
@@ -26,7 +29,11 @@ const NAV: NavItem[] = [
   // Inspections are paid work — the inspector gets the same first-class
   // earnings tab the cleaner portal has, not a link buried under "More".
   { href: "/v2/qa/pay", label: "Pay", icon: Wallet },
-  { href: "/v2/qa/more", label: "More", icon: MoreHorizontal },
+  { href: "/v2/qa/stats", label: "Stats", icon: TrendingUp },
+
+  { href: "/v2/qa/invoices", label: "Invoices", icon: Receipt, group: "Money" },
+
+  { href: "/v2/qa/profile", label: "Profile", icon: User, group: "You" },
 ];
 
 export default function V2QaLayout({ children }: { children: React.ReactNode }) {

@@ -16,6 +16,7 @@ import {
   CalendarRange,
   ClipboardCheck,
   ClipboardList,
+  FilePlus2,
   FileSpreadsheet,
   FileText,
   Gift,
@@ -66,6 +67,11 @@ const VA_NAV_GATE: Record<string, "always" | "client" | string> = {
   "/v2/client/cases": "maintenance",
   "/v2/client/maintenance": "maintenance",
   "/v2/client/messages": "messages",
+  // Keyed by href, so this MUST track the nav entry. It points at /finance
+  // now; leaving it on /money would silently un-gate the item for VAs.
+  "/v2/client/finance": "invoicesView",
+  // The old route is a redirect, but a VA who follows a bookmark must still
+  // be stopped at the door rather than bounced into the page.
   "/v2/client/money": "invoicesView",
   "/v2/client/approvals": "client",
   "/v2/client/quotes": "client",
@@ -118,8 +124,17 @@ function buildNav(canManageTeam: boolean): NavItem[] {
     { href: "/v2/client/maintenance", label: "Maintenance", icon: Wrench, group: "Support" },
     { href: "/v2/client/messages", label: "Messages", icon: MessageSquare, group: "Support" },
 
-    { href: "/v2/client/money", label: "Money", icon: Wallet, group: "Billing" },
-    { href: "/v2/client/quotes", label: "Quotes", icon: FileSpreadsheet, group: "Billing" },
+    // POINTS AT /finance, NOT /money. Both pages existed and both read
+    // getClientFinanceOverview — but the RICHER one (property service rates,
+    // recent billable work, invoice history) was the one hidden behind the
+    // More page, while the cut-down version held the nav slot. One name, the
+    // better page; /money redirects here for anyone who bookmarked it.
+    { href: "/v2/client/finance", label: "Money", icon: Wallet, group: "Billing" },
+    { href: "/v2/client/quotes", label: "My quotes", icon: FileSpreadsheet, group: "Billing" },
+    // Reachable only through More until now. Labelled so it cannot be
+    // confused with the list above — "Quote" and "Quotes" side by side taught
+    // nobody which was which.
+    { href: "/v2/client/quote", label: "Request a quote", icon: FilePlus2, group: "Billing" },
 
     { href: "/v2/client/referrals", label: "Referrals", icon: Gift, group: "Account" },
     { href: "/v2/client/profile", label: "Profile", icon: UserRound, group: "Account" },
