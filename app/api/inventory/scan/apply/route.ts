@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { tallyScans, unitsPerScan } from "@/lib/inventory/barcodes";
 import { reconcileCountRun, shoppingNeedsFromCount } from "@/lib/inventory/count-run";
+import { notifyScanCountCompleted } from "@/lib/inventory/notifications";
 
 export const runtime = "nodejs";
 
@@ -148,6 +149,27 @@ export async function POST(req: NextRequest) {
         });
       }
     });
+
+    // Tell the office. AFTER the transaction and deliberately not awaited
+    // into the response: the stock is already written, and a mail server
+    // having a bad afternoon must never be the reason a cleaner is told
+    // their count failed. Errors are swallowed inside the notifier.
+    const [property, counter] = await Promise.all([
+      db.property.findUnique({
+        where: { id: body.propertyId },
+        select: { name: true, suburb: true },
+      }),
+      db.user.findUnique({ where: { id: session.user.id }, select: { name: true } }),
+    ]);
+
+    void notifyScanCountCompleted({
+      propertyId: body.propertyId,
+      propertyLabel: [property?.name, property?.suburb].filter(Boolean).join(" · ") ||
+        "A property",
+      countedByLabel: counter?.name?.trim() || "A team member",
+      changedCount: changed.length,
+      zeroedCount: reconciliation.wouldZero.length,
+    }).catch(() => undefined);
 
     return NextResponse.json({
       applied: changed.length,

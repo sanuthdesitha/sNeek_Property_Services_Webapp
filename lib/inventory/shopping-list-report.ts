@@ -1,4 +1,9 @@
 import { db } from "@/lib/db";
+import {
+  consolidateShoppingNeeds,
+  basketsBySupplier,
+  type PropertyNeed,
+} from "@/lib/inventory/shopping-consolidation";
 
 export interface ShoppingListItemInfo {
   id: string;
@@ -40,6 +45,10 @@ export async function getShoppingListRows(input?: { scope?: string; propertyIds?
 
   const rows: ShoppingListRow[] = [];
   for (const stock of stocks) {
+    // Discontinued products would otherwise sit below threshold forever and
+    // appear on every list, and a list with permanent residents is one people
+    // stop reading to the bottom of.
+    if (!stock.item.isActive) continue;
     if (stock.onHand > stock.reorderThreshold) continue;
     rows.push({
       propertyId: stock.property.id,
@@ -220,4 +229,41 @@ export async function renderShoppingListPdf(html: string): Promise<Buffer> {
   return renderPdfFromHtml(html, "shopping list PDF generation", {
     margin: { top: "12mm", right: "10mm", bottom: "12mm", left: "10mm" },
   });
+}
+
+/**
+ * The same rows, added up across properties.
+ *
+ * `groupShoppingListRows` above buckets rows under a category/supplier
+ * heading without ever summing them — useful for a printed sheet you read
+ * property by property, useless to someone standing in an aisle deciding how
+ * many bottles to pick up. This answers that second question, and keeps the
+ * per-property split on the same row so the drop-off is still knowable.
+ *
+ * Deliberately an adapter rather than its own query: the trigger (`onHand <=
+ * reorderThreshold`) and the quantity (`parLevel - onHand`) must never be
+ * computed in two places, or the printed list and the shopping screen will
+ * eventually disagree about what to buy.
+ */
+export function consolidateShoppingListRows(rows: ShoppingListRow[]) {
+  const needs: PropertyNeed[] = rows
+    .filter((row) => row.needed > 0)
+    .map((row) => ({
+      propertyId: row.propertyId,
+      propertyName: [row.propertyName, row.suburb].filter(Boolean).join(" · "),
+      itemId: row.item.id,
+      itemName: row.item.name,
+      needed: row.needed,
+      supplier: row.item.supplier,
+      unit: row.item.unit,
+      category: row.item.category,
+    }));
+
+  const consolidated = consolidateShoppingNeeds(needs);
+  return {
+    needs,
+    consolidated,
+    baskets: basketsBySupplier(consolidated),
+    propertyCount: new Set(needs.map((n) => n.propertyId)).size,
+  };
 }
