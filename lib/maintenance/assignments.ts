@@ -202,8 +202,18 @@ export async function listMaintenanceItemsForUser(
     orderBy: [{ assignedAt: "desc" }],
     take: opts?.take ?? 100,
     select: {
+      id: true,
       role: true,
       assignedAt: true,
+      acceptedAt: true,
+      declinedAt: true,
+      completedAt: true,
+      payType: true,
+      payAmount: true,
+      payHours: true,
+      payPayer: true,
+      payChangeStatus: true,
+      payChangeAmount: true,
       item: {
         select: {
           id: true,
@@ -216,6 +226,7 @@ export async function listMaintenanceItemsForUser(
           scheduledFor: true,
           resolvedAt: true,
           property: { select: { id: true, name: true, suburb: true, address: true } },
+          assignmentInstructions: true,
         },
       },
     },
@@ -223,14 +234,30 @@ export async function listMaintenanceItemsForUser(
 
   // One person can hold two hats on the same item (rare, but legal). Collapse to
   // one card per item carrying every role, so the portal never shows a duplicate.
-  const byItem = new Map<string, { item: (typeof rows)[number]["item"]; roles: MaintenanceAssigneeRole[]; assignedAt: Date }>();
+  type Collapsed = {
+    item: (typeof rows)[number]["item"];
+    roles: MaintenanceAssigneeRole[];
+    assignedAt: Date;
+    /** The row the ACTIONS act on. When someone holds two hats on one item,
+     *  this is the first — accepting once is accepting the work, and asking
+     *  them to accept the same job twice because of an internal role split
+     *  would be an implementation detail leaking onto their phone. */
+    assignment: Omit<(typeof rows)[number], "item">;
+  };
+  const byItem = new Map<string, Collapsed>();
   for (const row of rows) {
     const found = byItem.get(row.item.id);
     if (found) {
       if (!found.roles.includes(row.role)) found.roles.push(row.role);
       continue;
     }
-    byItem.set(row.item.id, { item: row.item, roles: [row.role], assignedAt: row.assignedAt });
+    const { item, ...assignment } = row;
+    byItem.set(row.item.id, {
+      item,
+      roles: [row.role],
+      assignedAt: row.assignedAt,
+      assignment,
+    });
   }
   return Array.from(byItem.values()).map((entry) => ({
     ...entry,
