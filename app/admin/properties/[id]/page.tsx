@@ -132,6 +132,7 @@ export default function PropertyDetailPage() {
     longitude: null as number | null,
     placeId: null as string | null,
     cleaningDurationMinutes: "",
+    assignedCleaningHours: "",
     cleanerServiceRate: "",
     laundryBagLabel: "",
     laundryBagColor: "",
@@ -214,6 +215,8 @@ export default function PropertyDetailPage() {
       placeId: typeof data.placeId === "string" ? data.placeId : null,
       cleaningDurationMinutes:
         typeof data.cleaningDurationMinutes === "number" ? String(data.cleaningDurationMinutes) : "",
+      assignedCleaningHours:
+        typeof data.assignedCleaningHours === "number" ? String(data.assignedCleaningHours) : "",
       cleanerServiceRate:
         typeof data.cleanerServiceRate === "number" ? String(data.cleanerServiceRate) : "",
       laundryBagLabel: typeof data.laundryBagLabel === "string" ? data.laundryBagLabel : "",
@@ -444,6 +447,8 @@ export default function PropertyDetailPage() {
       showCleanerContactToClient: form.showCleanerContactToClient,
       cleaningDurationMinutes:
         form.cleaningDurationMinutes.trim() !== "" ? Number(form.cleaningDurationMinutes) : null,
+      assignedCleaningHours:
+        form.assignedCleaningHours.trim() !== "" ? Number(form.assignedCleaningHours) : null,
       cleanerServiceRate:
         form.cleanerServiceRate.trim() !== "" ? Number(form.cleanerServiceRate) : null,
       laundryBagLabel: form.laundryBagLabel.trim() || null,
@@ -1126,6 +1131,25 @@ export default function PropertyDetailPage() {
                   </p>
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
+                  {/* This field existed on the v2 property page and NOT here,
+                      so on this skin there was genuinely no way to set the
+                      hours that drive a job's pay. */}
+                  <div className="space-y-1.5">
+                    <Label>Assigned cleaning hours</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.25"
+                      value={form.assignedCleaningHours}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, assignedCleaningHours: e.target.value }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      New jobs prefill their estimated hours from this — and estimated hours is
+                      what cleaner pay is calculated from.
+                    </p>
+                  </div>
                   <div className="space-y-1.5">
                     <Label>Clean duration (min)</Label>
                     <Input

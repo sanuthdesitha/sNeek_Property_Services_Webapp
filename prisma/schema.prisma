@@ -814,6 +814,8 @@ model User {
   /// V1 — set only on Role.VA users: which VA team this login belongs to. The
   /// team carries the clientId, so a VA's scope is never stored on the user
   /// directly and cannot drift away from the team's.
+  scanTasksAssigned  ScanTask[] @relation("ScanTaskAssignee")
+  scanTasksRequested ScanTask[] @relation("ScanTaskRequestedBy")
   vaTeamId       String?
   vaTeam         VaTeam?  @relation("VaTeamMembers", fields: [vaTeamId], references: [id], onDelete: SetNull)
   createdVaTeams VaTeam[] @relation("VaTeamCreatedBy")
@@ -1093,6 +1095,7 @@ model Property {
   invoiceLines        ClientInvoiceLine[]
   nfcTags             PropertyNfcTag[]
   itemBarcodes        ItemBarcode[]
+  scanTasks           ScanTask[]
 
   @@index([placeId])
   @@index([suburb])
@@ -2344,6 +2347,46 @@ model InventoryItem {
 /// product, and storing them raw would file one bottle as two items — the
 /// single most common way a barcode inventory quietly goes wrong. See
 /// lib/inventory/barcodes.ts.
+/// Somebody has been asked to go and count a property.
+///
+/// Until now a stock count was something a cleaner had to decide to do: the
+/// screen existed but nothing ever pointed at it, so counts happened when
+/// somebody remembered. This is the ask — who, which property, by when, and
+/// why — so it can appear in their Needs Attention list and be chased.
+///
+/// Deliberately NOT a JobTask: a count is not work on a clean, it has no job,
+/// and putting it on one would make it inherit that job's lifecycle and
+/// disappear when the clean was submitted.
+model ScanTask {
+  id          String    @id @default(cuid())
+  propertyId  String
+  /// Who has to do it.
+  assigneeId  String
+  /// Admin or client. Clients may ask for a count of their own property.
+  requestedById String
+  /// Free text from whoever asked — what to pay attention to.
+  instructions String?  @db.Text
+  dueAt       DateTime?
+  /// Stamped when the assignment email went out, so a re-ask can email again
+  /// without spamming somebody who already has it.
+  notifiedAt  DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  /// Set when a count run actually followed, so 'done' is evidenced rather
+  /// than asserted — a task marked complete with no count behind it is the
+  /// thing this feature exists to stop.
+  completedByCountAt DateTime?
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  assignee    User     @relation("ScanTaskAssignee", fields: [assigneeId], references: [id], onDelete: Cascade)
+  requestedBy User     @relation("ScanTaskRequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+
+  @@index([assigneeId, completedAt])
+  @@index([propertyId])
+}
 model ItemBarcode {
   id     String @id @default(cuid())
   itemId String

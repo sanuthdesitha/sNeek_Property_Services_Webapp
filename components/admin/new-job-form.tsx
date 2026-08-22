@@ -47,7 +47,11 @@ type FormState = {
   isDraft: boolean; earlyCheckin: TimingRule; lateCheckout: TimingRule;
 };
 type PropertyOption = { id: string; name: string; suburb: string };
-type PropertyWithDefaults = PropertyOption & { defaultCleanDurationHours: number };
+type PropertyWithDefaults = PropertyOption & {
+  defaultCleanDurationHours: number;
+  /** The property page's own field. Takes precedence — see below. */
+  assignedCleaningHours: number | null;
+};
 type ClientOption = { id: string; name: string };
 type CleanerOption = { id: string; name: string | null; email: string | null; isActive?: boolean };
 type JobTemplateOption = {
@@ -165,7 +169,7 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
   const [form, setForm] = useState<FormState>(() => initialForm(initialPropertyId ?? ""));
 
   useEffect(() => {
-    fetch("/api/admin/properties", { cache: "no-store" }).then((r) => r.json()).then((data) => setProperties(Array.isArray(data) ? data.map((p: any) => ({ id: p.id, name: p.name, suburb: p.suburb, defaultCleanDurationHours: typeof p?.accessInfo?.defaultCleanDurationHours === "number" ? p.accessInfo.defaultCleanDurationHours : 3 })) : []));
+    fetch("/api/admin/properties", { cache: "no-store" }).then((r) => r.json()).then((data) => setProperties(Array.isArray(data) ? data.map((p: any) => ({ id: p.id, name: p.name, suburb: p.suburb, defaultCleanDurationHours: typeof p?.accessInfo?.defaultCleanDurationHours === "number" ? p.accessInfo.defaultCleanDurationHours : 3, assignedCleaningHours: typeof p?.assignedCleaningHours === "number" ? p.assignedCleaningHours : null })) : []));
     fetch("/api/admin/clients", { cache: "no-store" }).then((r) => r.json()).then((data) => setClients(Array.isArray(data) ? data.map((c: any) => ({ id: c.id, name: c.name })) : []));
     fetch(`/api/admin/users?role=CLEANER&includeInactive=1&t=${Date.now()}`, { cache: "no-store" }).then((r) => r.json()).then((data) => setCleaners(Array.isArray(data) ? data : []));
     fetch("/api/admin/job-templates", { cache: "no-store" }).then((r) => r.json()).then((data) => setJobTemplates(Array.isArray(data) ? data : []));
@@ -181,7 +185,16 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
     if (!property) return;
     setForm((prev) => ({
       ...prev,
-      estimatedHours: property.defaultCleanDurationHours > 0 ? String(property.defaultCleanDurationHours) : prev.estimatedHours,
+      // assignedCleaningHours FIRST — it is the field the property page
+      // edits, and preferring the legacy accessInfo value meant a property
+      // whose hours had been set still opened this form at the old number
+      // (3 by default), which then became the job's pay basis.
+      estimatedHours:
+        property.assignedCleaningHours && property.assignedCleaningHours > 0
+          ? String(property.assignedCleaningHours)
+          : property.defaultCleanDurationHours > 0
+            ? String(property.defaultCleanDurationHours)
+            : prev.estimatedHours,
       dueTime: !prev.dueTime || prev.dueTime === "14:00" ? "15:00" : prev.dueTime,
     }));
   }, [form.propertyId, properties]);
