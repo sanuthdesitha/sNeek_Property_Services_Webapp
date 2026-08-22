@@ -1057,6 +1057,7 @@ model Property {
   cleanerStats        CleanerPropertyStat[]
   invoiceLines        ClientInvoiceLine[]
   nfcTags             PropertyNfcTag[]
+  itemBarcodes        ItemBarcode[]
 
   @@index([placeId])
   @@index([suburb])
@@ -2311,6 +2312,17 @@ model InventoryItem {
 model ItemBarcode {
   id     String @id @default(cuid())
   itemId String
+  /// PRODUCT = the manufacturer's own barcode, scanned off the packaging.
+  /// LABEL   = one we generated and printed for a shelf or a cupboard.
+  ///
+  /// They behave differently and must not be confused: a PRODUCT code is the
+  /// same everywhere in the world, while a LABEL is ours and can be pinned to
+  /// one property. Deleting a label is routine housekeeping; deleting a
+  /// product code breaks every future scan of that packaging.
+  kind   String @default("PRODUCT")
+  /// Set only on a LABEL printed for one property. Null means the label works
+  /// anywhere — the general case for a product we stock everywhere.
+  propertyId String?
   /// Canonical GTIN-14 for numeric codes; the trimmed upper-cased value for
   /// symbologies that are not GTINs (CODE_128, QR).
   code   String @unique
@@ -2326,9 +2338,11 @@ model ItemBarcode {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  item InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item     InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  property Property?     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@index([itemId])
+  @@index([propertyId])
 }
 
 model PropertyStock {
