@@ -2293,6 +2293,42 @@ model InventoryItem {
   propertyStocks   PropertyStock[]
   shoppingRunLines ShoppingRunLine[]
   heldStocks       HeldStock[]
+  barcodes         ItemBarcode[]
+}
+
+/// A barcode that identifies an inventory item.
+///
+/// MANY per item, deliberately. The same product carries different barcodes
+/// across pack sizes, and manufacturers re-issue them on a rebrand — a single
+/// `sku` column cannot express "this bottle and that carton are both the same
+/// thing we count".
+///
+/// `code` is the CANONICAL form (GTIN-14, zero-padded) rather than whatever
+/// the scanner emitted. A UPC-A label and its EAN-13 equivalent are the same
+/// product, and storing them raw would file one bottle as two items — the
+/// single most common way a barcode inventory quietly goes wrong. See
+/// lib/inventory/barcodes.ts.
+model ItemBarcode {
+  id     String @id @default(cuid())
+  itemId String
+  /// Canonical GTIN-14 for numeric codes; the trimmed upper-cased value for
+  /// symbologies that are not GTINs (CODE_128, QR).
+  code   String @unique
+  /// What the scanner reported it as. Kept for diagnosing a bad read.
+  symbology String?
+  /// Human label — "500ml bottle", "carton of 12".
+  label     String?
+  /// How many stock UNITS one scan of this barcode represents. Scanning a
+  /// carton must add twelve, not one.
+  packSize  Float   @default(1)
+  isActive  Boolean @default(true)
+  createdById String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  item InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
 }
 
 model PropertyStock {
