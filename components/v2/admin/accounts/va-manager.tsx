@@ -26,6 +26,7 @@ import {
   VA_PERMISSION_LABELS,
   type VaPermissionKey,
 } from "@/lib/va/permissions";
+import { AccountActionsMenu } from "@/components/v2/admin/accounts/account-actions-menu";
 
 /**
  * Admin-side VA onboarding.
@@ -709,13 +710,24 @@ function VaTeamEditor({
                 {m.isActive ? (
                   <button
                     type="button"
-                    aria-label={`Remove ${m.email}`}
+                    aria-label={`Remove ${m.email} from this team`}
                     disabled={saving}
                     onClick={() => setRemoveMemberTarget({ id: m.id, label: m.name || m.email })}
                     className="rounded-[var(--e-radius-sm)] p-1 text-[hsl(var(--e-text-faint))] transition-colors hover:text-[hsl(var(--e-danger))] disabled:opacity-40"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
+                ) : null}
+                {/* Removing someone from a TEAM and managing their LOGIN are
+                    different things: a VA who has lost their authenticator
+                    still belongs on the team. Both are offered, deliberately
+                    side by side. */}
+                {canDelete ? (
+                  <AccountActionsMenu
+                    account={{ id: m.id, name: m.name ?? null, email: m.email }}
+                    disabled={saving}
+                    onChanged={onChanged}
+                  />
                 ) : null}
               </span>
             </li>

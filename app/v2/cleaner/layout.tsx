@@ -5,14 +5,20 @@ import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
 import { LocationTracker } from "@/components/v2/cleaner/location-tracker";
 import { useMaintenanceSection } from "@/components/v2/portal/use-maintenance-section";
 import {
-  Home,
+  CalendarClock,
   CalendarDays,
   CalendarRange,
+  CircleDollarSign,
+  FileText,
+  Home,
   LayoutGrid,
+  LineChart,
   Navigation,
   Package,
-  LineChart,
+  PackageSearch,
+  Settings,
   ShieldCheck,
+  UserRound,
   Users,
   Wrench,
 } from "lucide-react";
@@ -26,16 +32,30 @@ import {
 // earned a permanent thumb-reachable slot ahead of the schedule and the money.
 // Native Estate — no v1 UI.
 const NAV: NavItem[] = [
+  // The first five are the mobile bottom bar (portal-shell slices them), so
+  // they are the screens a cleaner opens with a thumb mid-shift.
   { href: "/v2/cleaner", label: "Today", icon: Home },
   { href: "/v2/cleaner/jobs", label: "Jobs", icon: CalendarDays },
   { href: "/v2/cleaner/calendar", label: "Schedule", icon: CalendarRange },
-  { href: "/v2/cleaner/pay", label: "Pay", icon: LineChart },
-  { href: "/v2/cleaner/more", label: "More", icon: LayoutGrid },
-  // After More → desktop rail + mobile drawer only (not the bottom bar).
   { href: "/v2/cleaner/route", label: "Route", icon: Navigation },
-  { href: "/v2/cleaner/supplies", label: "Supplies", icon: Package },
-  { href: "/v2/cleaner/quality", label: "QA feedback", icon: ShieldCheck },
-  { href: "/v2/cleaner/hub", label: "Team hub", icon: Users },
+  { href: "/v2/cleaner/pay", label: "Pay", icon: LineChart },
+
+  // Everything below is the rail and the drawer. It used to live behind a
+  // "More" page, which meant six of these appeared TWICE under two different
+  // names — once in the nav and once on that page — and the other six could
+  // only be reached through it. The shell has supported `group` all along;
+  // nothing had ever used it.
+  { href: "/v2/cleaner/supplies", label: "Supplies", icon: Package, group: "Work" },
+  { href: "/v2/cleaner/quality", label: "QA feedback", icon: ShieldCheck, group: "Work" },
+  { href: "/v2/cleaner/lost-found", label: "Lost & found", icon: PackageSearch, group: "Work" },
+
+  { href: "/v2/cleaner/invoices", label: "Invoices", icon: FileText, group: "Money" },
+  { href: "/v2/cleaner/pay-requests", label: "Pay requests", icon: CircleDollarSign, group: "Money" },
+
+  { href: "/v2/cleaner/availability", label: "Availability", icon: CalendarClock, group: "You" },
+  { href: "/v2/cleaner/hub", label: "Team hub", icon: Users, group: "You" },
+  { href: "/v2/cleaner/profile", label: "Profile", icon: UserRound, group: "You" },
+  { href: "/v2/cleaner/settings", label: "Settings", icon: Settings, group: "You" },
 ];
 
 export default function V2CleanerLayout({ children }: { children: React.ReactNode }) {
