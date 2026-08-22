@@ -6,14 +6,23 @@ import {
   useAttentionCounts,
   withAttentionBadges,
 } from "@/components/v2/portal/use-attention-counts";
-import { Home, Wrench, Package, ClipboardList, MoreHorizontal } from "lucide-react";
+import {
+  ClipboardList,
+  Home,
+  MoreHorizontal,
+  Package,
+  PackageSearch,
+  Settings,
+  Wrench,
+} from "lucide-react";
 
 const NAV: NavItem[] = [
   { href: "/v2/maintenance", label: "Today", icon: Home },
   { href: "/v2/maintenance/tickets", label: "Tickets", icon: Wrench },
-  { href: "/v2/maintenance/replacements", label: "Replacements", icon: Package },
+  { href: "/v2/maintenance/replacements", label: "Replacements", icon: PackageSearch },
   { href: "/v2/maintenance/log", label: "Log", icon: ClipboardList },
-  { href: "/v2/maintenance/more", label: "More", icon: MoreHorizontal },
+
+  { href: "/v2/maintenance/settings", label: "Settings", icon: Settings, group: "You" },
 ];
 
 export default function V2MaintenanceLayout({ children }: { children: React.ReactNode }) {

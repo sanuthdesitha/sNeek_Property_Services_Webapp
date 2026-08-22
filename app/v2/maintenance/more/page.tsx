@@ -1,40 +1,20 @@
-import Link from "next/link";
-import { ECard, ECardBody, EPageHeader } from "@/components/v2/ui/primitives";
-import { ChevronRight, ClipboardList, Settings, Wrench } from "lucide-react";
+import { redirect } from "next/navigation";
 
-export const metadata = { title: "More · Estate maintenance" };
-
-const ITEMS = [
-  { href: "/v2/maintenance/tickets", label: "All tickets", desc: "Every work order", icon: Wrench },
-  { href: "/v2/maintenance/log", label: "History", desc: "Completed record", icon: ClipboardList },
-  { href: "/v2/maintenance/settings", label: "Settings", desc: "Security & preferences", icon: Settings },
-];
-
-export default function MaintenanceMorePage() {
-  return (
-    <div className="space-y-6">
-      <EPageHeader eyebrow="Account" title="More" />
-      <ECard>
-        <ECardBody className="pt-6">
-          <div className="divide-y divide-[hsl(var(--e-border))]">
-            {ITEMS.map((it) => {
-              const Icon = it.icon;
-              return (
-                <Link key={it.label} href={it.href} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 hover:opacity-80">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
-                    <Icon className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[0.875rem] font-medium">{it.label}</p>
-                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{it.desc}</p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-[hsl(var(--e-text-faint))]" />
-                </Link>
-              );
-            })}
-          </div>
-        </ECardBody>
-      </ECard>
-    </div>
-  );
+/**
+ * The "More" page is gone.
+ *
+ * Two of its three links were already in the nav. The third, Settings, was
+ * reachable ONLY here — so it moved into the nav before this page went, or the
+ * only route to it would have vanished with the menu.
+ *
+ * Two lists of the same portal is how a page ends up with two names, and how
+ * somebody learns which is which by opening both. The portal shell has
+ * supported grouped section headings all along; nothing had used them.
+ *
+ * A redirect rather than a deletion: the URL is in browser history and, for
+ * some of these portals, on printed induction material. Landing somewhere
+ * useful costs nothing; a 404 costs a support message.
+ */
+export default function V2MaintenanceMoreRedirect() {
+  redirect("/v2/maintenance");
 }
