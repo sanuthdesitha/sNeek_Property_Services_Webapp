@@ -292,6 +292,8 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
             sectionProgress={sectionProgress}
             requiredChecklistTicksBlockSubmit={api.requiredChecklistTicksBlockSubmit}
             canUseNoPhoto={api.canUseNoPhoto}
+            stockUpdateMode={api.payload?.stockUpdateMode}
+            propertyId={api.payload?.job?.propertyId}
           />
         </div>
       ) : (

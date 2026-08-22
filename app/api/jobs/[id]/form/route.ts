@@ -600,6 +600,10 @@ export async function GET(
 
     return NextResponse.json({
       job,
+      /** CLASSIC records usage as answers and deducts on submit; SCAN adjusts
+       *  the shelf immediately. Both work — this only decides which control
+       *  the job form renders. */
+      stockUpdateMode: settings.cleanerPortalVisibility?.stockUpdateMode ?? "CLASSIC",
       maintenanceVisits,
       /** This cleaner arrived by tapping the property's NFC tag. */
       nfcArrival,
