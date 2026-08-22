@@ -13,6 +13,34 @@ vi.mock("@/lib/geo/get-position", () => ({
   getAccuratePosition: vi.fn(async () => null),
 }));
 
+/**
+ * Anything over 10MB now bypasses our server entirely: presigned parts,
+ * straight to S3. That is the whole point of the large-video fix, and it means
+ * the XHR stand-in below never sees a big file. Without this mock the video
+ * assertions would pass vacuously — zero uploads, zero failures, zero
+ * concurrency — which is exactly how they failed when the path changed.
+ *
+ * `multipartHooks` is filled in by installFakeXhr so BOTH transports record
+ * into the same concurrency counters.
+ */
+const multipartHooks: {
+  run?: (file: { name: string; size: number }, onProgress?: (p: any) => void) => Promise<any>;
+} = {};
+
+vi.mock("@/lib/uploads/multipart-client", () => ({
+  uploadMultipart: vi.fn(
+    async (
+      blob: Blob,
+      filename: string,
+      _contentType: string,
+      onProgress?: (p: any) => void
+    ) => {
+      if (!multipartHooks.run) throw new Error("multipart fake not installed");
+      return multipartHooks.run({ name: filename, size: blob.size }, onProgress);
+    }
+  ),
+}));
+
 import { prepareAndUploadFiles } from "@/components/v2/cleaner/media-capture";
 
 /**
@@ -88,6 +116,34 @@ function installFakeXhr(behaviour: (name: string) => Verdict, delayMs = 5) {
   }
 
   vi.stubGlobal("XMLHttpRequest", FakeXhr as any);
+
+  // The large-file transport, recording into the SAME counters so a video
+  // that moved to multipart still proves the one-at-a-time lane.
+  multipartHooks.run = (file, onProgress) =>
+    new Promise((resolve, reject) => {
+      state.calls.push(file.name);
+      state.inFlight += 1;
+      state.peak = Math.max(state.peak, state.inFlight);
+      if (file.name.startsWith("v")) {
+        state.heavyPeak = Math.max(state.heavyPeak, state.inFlight);
+      }
+      setTimeout(() => {
+        state.inFlight -= 1;
+        onProgress?.({
+          bytesUploaded: 50,
+          totalBytes: 100,
+          partsCompleted: 1,
+          partsTotal: 2,
+        });
+        const verdict = behaviour(file.name);
+        if (verdict === "ok") {
+          resolve({ key: `k-${file.name}`, url: `https://cdn.test/${file.name}` });
+          return;
+        }
+        reject(new Error(verdict === "network" ? "network" : `rejected ${file.name}`));
+      }, delayMs);
+    });
+
   return state;
 }
 
