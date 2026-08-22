@@ -9,7 +9,6 @@ import {
 import {
   ClipboardList,
   Home,
-  MoreHorizontal,
   Package,
   PackageSearch,
   Settings,

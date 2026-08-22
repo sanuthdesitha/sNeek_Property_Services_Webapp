@@ -606,6 +606,7 @@ async function syncTurnoverJobsForReservations(params: {
     defaultCheckinTime: string;
     defaultEstimatedHours: number | null;
     cleaningDurationMinutes: number | null;
+    assignedCleaningHours: number | null;
     maxGuestCount: number | null;
     jobTimeSource: string;
   };
@@ -652,14 +653,26 @@ async function syncTurnoverJobsForReservations(params: {
   // back to the property defaults when the feed omits a time.
   const useIcalTimes = params.property.jobTimeSource === "ICAL";
 
-  // Expected duration for turnover jobs. Prefer the property's explicit
-  // cleaningDurationMinutes (in hours) so accountability / clock rules that read
-  // job.estimatedHours get the configured duration; fall back to the legacy
-  // accessInfo defaultEstimatedHours when it isn't set.
+  // Expected duration for turnover jobs, and the value that DECIDES CLEANER
+  // PAY: computeCleanerPay reads Job.estimatedHours and nothing else.
+  //
+  // assignedCleaningHours comes FIRST. It is the field the property page
+  // actually edits, and it is documented in the schema as the first-class
+  // single source for a property's clean length — but this function never
+  // read it. Auto-created turnovers took cleaningDurationMinutes, else the
+  // legacy accessInfo value, which the property CREATE form defaults to 3.
+  //
+  // The result was a property permanently stuck at 3h: an admin edited
+  // "Assigned cleaning hours", it saved correctly, and the next sync built
+  // tomorrow's jobs at 3h again. Editing an individual job worked, but only
+  // for that job — which is exactly what "I can't change it permanently"
+  // describes.
   const defaultTurnoverHours =
-    params.property.cleaningDurationMinutes && params.property.cleaningDurationMinutes > 0
-      ? params.property.cleaningDurationMinutes / 60
-      : params.property.defaultEstimatedHours;
+    params.property.assignedCleaningHours && params.property.assignedCleaningHours > 0
+      ? params.property.assignedCleaningHours
+      : params.property.cleaningDurationMinutes && params.property.cleaningDurationMinutes > 0
+        ? params.property.cleaningDurationMinutes / 60
+        : params.property.defaultEstimatedHours;
 
   for (const reservation of params.reservations) {
     const turnoverDate = reservation.endDate;
@@ -1232,6 +1245,7 @@ export async function syncPropertyIcal(
         defaultCheckinTime: integration.property.defaultCheckinTime,
         defaultEstimatedHours: getPropertyDefaultEstimatedHours(integration.property.accessInfo),
         cleaningDurationMinutes: integration.property.cleaningDurationMinutes,
+        assignedCleaningHours: integration.property.assignedCleaningHours,
         maxGuestCount: getPropertyMaxGuestCount(integration.property.accessInfo),
         jobTimeSource: integration.property.jobTimeSource,
       },

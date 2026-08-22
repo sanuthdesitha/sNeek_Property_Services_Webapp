@@ -11,7 +11,6 @@ import {
   AlertTriangle,
   CalendarCheck,
   ClipboardCheck,
-  MoreHorizontal,
   Receipt,
   TrendingUp,
   User,
