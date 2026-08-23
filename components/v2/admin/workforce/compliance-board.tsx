@@ -11,6 +11,7 @@ import {
   FileWarning,
   ShieldAlert,
   ShieldCheck,
+  UploadCloud,
 } from "lucide-react";
 import {
   EAlert,
@@ -154,6 +155,7 @@ export function ComplianceBoard({
   const router = useRouter();
   const [reviewDoc, setReviewDoc] = React.useState<ComplianceDoc | null>(null);
   const [requestOpen, setRequestOpen] = React.useState(false);
+  const [uploadOpen, setUploadOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -216,6 +218,46 @@ export function ComplianceBoard({
   const [reqNotes, setReqNotes] = React.useState("");
   const [reqDue, setReqDue] = React.useState("");
 
+  // Filing a document the office was handed directly — a certificate brought in
+  // on paper, or emailed. v1 could do this and v2 could not, so the only way to
+  // get such a document on file was to ask the staff member to upload something
+  // they had already given you.
+  const [upUser, setUpUser] = React.useState("");
+  const [upCategory, setUpCategory] = React.useState("POLICE_CHECK");
+  const [upTitle, setUpTitle] = React.useState("");
+  const [upNotes, setUpNotes] = React.useState("");
+  const [upExpiry, setUpExpiry] = React.useState("");
+  const [upRequestId, setUpRequestId] = React.useState("");
+  const [upSignature, setUpSignature] = React.useState(false);
+  const [upFile, setUpFile] = React.useState<File | null>(null);
+
+  // Only the chosen person's outstanding asks. Offering the whole queue would
+  // let an admin close somebody else's request with this document.
+  const outstandingForUser = React.useMemo(
+    () => requests.filter((r) => r.user.id === upUser),
+    [requests, upUser]
+  );
+
+  React.useEffect(() => {
+    if (uploadOpen) {
+      setUpUser(staff[0]?.id ?? "");
+      setUpCategory("POLICE_CHECK");
+      setUpTitle("");
+      setUpNotes("");
+      setUpExpiry("");
+      setUpRequestId("");
+      setUpSignature(false);
+      setUpFile(null);
+      setError(null);
+    }
+  }, [uploadOpen, staff]);
+
+  // Changing who it is for invalidates a request picked for the previous
+  // person; without this the id survives the switch and closes their request.
+  React.useEffect(() => {
+    setUpRequestId("");
+  }, [upUser]);
+
   React.useEffect(() => {
     if (requestOpen) {
       setReqUser(staff[0]?.id ?? "");
@@ -246,6 +288,56 @@ export function ComplianceBoard({
     }
     setReviewDoc(null);
     router.refresh();
+  }
+
+  async function submitUpload() {
+    if (!upUser || !upFile || !upTitle.trim()) {
+      setError("Pick a team member, give it a title, and choose a file.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      // Upload FIRST. Creating the row before the file exists would put a
+      // document in the library whose link goes nowhere, and a broken link in a
+      // compliance list reads as a lost certificate rather than a failed upload.
+      const form = new FormData();
+      form.append("file", upFile);
+      form.append("folder", "staff-documents");
+      const uploadRes = await fetch("/api/uploads/direct", { method: "POST", body: form });
+      const uploaded = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok || !uploaded?.key) {
+        setError(uploaded?.error ?? "Could not upload that file.");
+        return;
+      }
+
+      const res = await postAction({
+        action: "UPLOAD_DOCUMENT",
+        userId: upUser,
+        category: upCategory,
+        title: upTitle.trim(),
+        notes: upNotes || null,
+        expiresAt: upExpiry || null,
+        // Linking closes the outstanding ask. Without it the request sits on
+        // the chase list forever, beside the document that answered it.
+        requestId: upRequestId || null,
+        requiresSignature: upSignature,
+        fileName: upFile.name,
+        s3Key: uploaded.key,
+        url: uploaded.url,
+        mimeType: uploaded.mimeType ?? upFile.type,
+      });
+      if (!res.ok) {
+        setError(res.error ?? "Could not save the document.");
+        return;
+      }
+      setUploadOpen(false);
+      router.refresh();
+    } catch (err: any) {
+      setError(err?.message ?? "Could not upload that file.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function submitRequest() {
@@ -281,7 +373,11 @@ export function ComplianceBoard({
         <EStatCard label="Outstanding requests" value={String(requests.length)} icon={<FilePlus2 className="h-4 w-4" />} />
       </section>
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <EButton variant="outline" size="sm" onClick={() => setUploadOpen(true)}>
+          <UploadCloud className="h-4 w-4" />
+          Upload for someone
+        </EButton>
         <EButton variant="gold" size="sm" onClick={() => setRequestOpen(true)}>
           <FilePlus2 className="h-4 w-4" />
           Request a document
@@ -483,6 +579,97 @@ export function ComplianceBoard({
             </EButton>
             <EButton variant="gold" size="sm" onClick={submitRequest} disabled={busy}>
               {busy ? "Sending…" : "Send request"}
+            </EButton>
+          </div>
+        </div>
+      </EModal>
+
+      {/* Upload-on-behalf modal */}
+      <EModal
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        title="Upload a document for someone"
+        eyebrow="Compliance"
+      >
+        <div className="space-y-4">
+          <EField label="Team member">
+            <ESelect value={upUser} onChange={(e) => setUpUser(e.target.value)}>
+              {staff.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} · {prettify(s.role)}
+                </option>
+              ))}
+            </ESelect>
+          </EField>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <EField label="Category">
+              <ESelect value={upCategory} onChange={(e) => setUpCategory(e.target.value)}>
+                {CATEGORY_OPTIONS.map((c) => (
+                  <option key={c} value={c}>
+                    {prettify(c)}
+                  </option>
+                ))}
+              </ESelect>
+            </EField>
+            <EField
+              label="Expiry date"
+              hint="Leave blank if it never expires — the expiry is what drives the reminders."
+            >
+              <EInput type="date" value={upExpiry} onChange={(e) => setUpExpiry(e.target.value)} />
+            </EField>
+          </div>
+          <EField label="Document title">
+            <EInput
+              value={upTitle}
+              onChange={(e) => setUpTitle(e.target.value)}
+              placeholder="e.g. Police check"
+            />
+          </EField>
+          {outstandingForUser.length > 0 ? (
+            <EField
+              label="Answers an outstanding request"
+              hint="Linking it closes that request instead of leaving it on the chase list."
+            >
+              <ESelect value={upRequestId} onChange={(e) => setUpRequestId(e.target.value)}>
+                <option value="">None</option>
+                {outstandingForUser.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.title}
+                  </option>
+                ))}
+              </ESelect>
+            </EField>
+          ) : null}
+          <EField label="Notes">
+            <ETextarea
+              value={upNotes}
+              onChange={(e) => setUpNotes(e.target.value)}
+              placeholder="Where it came from, anything worth recording"
+            />
+          </EField>
+          <label className="flex items-center gap-2 text-[0.8125rem]">
+            <input
+              type="checkbox"
+              checked={upSignature}
+              onChange={(e) => setUpSignature(e.target.checked)}
+              className="h-3.5 w-3.5 accent-[hsl(var(--e-primary))]"
+            />
+            They must sign it once it is verified
+          </label>
+          <EField label="File">
+            <input
+              type="file"
+              onChange={(e) => setUpFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-[0.8125rem] text-[hsl(var(--e-muted-foreground))] file:mr-3 file:rounded-[var(--e-radius-sm,0.5rem)] file:border-0 file:bg-[hsl(var(--e-surface-raised))] file:px-3 file:py-1.5 file:text-[0.8125rem] file:text-[hsl(var(--e-foreground))]"
+            />
+          </EField>
+          {error ? <EAlert tone="danger">{error}</EAlert> : null}
+          <div className="flex justify-end gap-2">
+            <EButton variant="outline" size="sm" onClick={() => setUploadOpen(false)} disabled={busy}>
+              Cancel
+            </EButton>
+            <EButton variant="gold" size="sm" onClick={submitUpload} disabled={busy}>
+              {busy ? "Uploading…" : "Upload document"}
             </EButton>
           </div>
         </div>
