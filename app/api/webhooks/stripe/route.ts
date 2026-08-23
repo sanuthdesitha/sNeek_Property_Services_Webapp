@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { ClientInvoiceStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 function getWebhookSecret() {
   return process.env.STRIPE_WEBHOOK_SECRET?.trim() || "";
@@ -49,6 +50,20 @@ export async function POST(req: NextRequest) {
       const object = payload.data?.object ?? {};
       const invoiceId = String(object?.metadata?.invoiceId ?? "").trim();
       if (invoiceId) {
+        const paidAt = new Date();
+        const paymentIntentId =
+          typeof object.payment_intent === "string" ? object.payment_intent : null;
+
+        // The invoice's own total, because this settles the whole balance. Read
+        // first so paidAmount can be written — it was being left null, and
+        // outstandingOf() derives from paidAmount, so a card-paid invoice still
+        // read as owing its full value everywhere that figure appears. It said
+        // PAID and behaved as unpaid.
+        const invoice = await db.clientInvoice.findUnique({
+          where: { id: invoiceId },
+          select: { totalAmount: true },
+        });
+
         await db.clientInvoice.updateMany({
           where: {
             id: invoiceId,
@@ -56,11 +71,34 @@ export async function POST(req: NextRequest) {
           },
           data: {
             status: ClientInvoiceStatus.PAID,
-            paidAt: new Date(),
-            stripePaymentIntentId:
-              typeof object.payment_intent === "string" ? object.payment_intent : null,
+            paidAt,
+            paidDate: paidAt,
+            ...(invoice ? { paidAmount: invoice.totalAmount } : {}),
+            paymentMethod: "STRIPE",
+            ...(paymentIntentId ? { paymentReference: paymentIntentId } : {}),
+            stripePaymentIntentId: paymentIntentId,
           },
         });
+
+        // Settle the attempt row the checkout created. It was written PENDING
+        // and then never touched by anything, so every card payment ever taken
+        // left a permanently-pending record behind — a payments table that
+        // disagreed with its own invoices, and a refund or dispute later with
+        // nothing to reconcile against.
+        //
+        // Best-effort and last: the invoice is already marked paid, and failing
+        // the webhook here would have Stripe retry a payment already applied.
+        await db.clientPayment
+          .updateMany({
+            where: { invoiceId, status: "PENDING" },
+            data: { status: "SUCCEEDED", paidAt },
+          })
+          .catch((err) =>
+            logger.error(
+              { err, invoiceId },
+              "[stripe-webhook] invoice marked paid but the payment row could not be settled"
+            )
+          );
       }
     }
 
