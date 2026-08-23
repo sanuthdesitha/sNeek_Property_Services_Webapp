@@ -5,6 +5,7 @@ import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { getAppSettings } from "@/lib/settings";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
+import { resolvePropertyCleanHours } from "@/lib/properties/clean-hours";
 
 const RECURRING_RULES_KEY = "recurring_job_rules_v1";
 
@@ -171,8 +172,17 @@ export async function generateRecurringJobs(input: {
   const properties = await db.property.findMany({
     where: { id: { in: propertyIds }, isActive: true },
     // cleanerServiceRate rides along on a query we already make, so a recurring
-    // job pays the same rate the admin assign route would have paid.
-    select: { id: true, name: true, isActive: true, cleanerServiceRate: true },
+    // job pays the same rate the admin assign route would have paid. The three
+    // hours fields ride along for the same reason — see the fallback below.
+    select: {
+      id: true,
+      name: true,
+      isActive: true,
+      cleanerServiceRate: true,
+      assignedCleaningHours: true,
+      cleaningDurationMinutes: true,
+      accessInfo: true,
+    },
   });
   const propertyMap = new Map(properties.map((property) => [property.id, property] as const));
 
@@ -238,7 +248,13 @@ export async function generateRecurringJobs(input: {
           scheduledDate: toUtcDateOnly(key),
           startTime: rule.startTime,
           dueTime: rule.dueTime,
-          estimatedHours: rule.estimatedHours,
+          // Job.estimatedHours is the ONLY input to cleaner pay, and a rule is
+          // allowed to carry none — which used to create a job worth nothing
+          // and no error anywhere. The rule still wins when it has a value.
+          estimatedHours:
+            rule.estimatedHours ??
+            resolvePropertyCleanHours(propertyMap.get(rule.propertyId) ?? {}) ??
+            undefined,
           notes: rule.notes,
           internalNotes: metaNotes,
         },

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { parseJobInternalNotes, getJobTimingHighlights } from "@/lib/jobs/meta";
 import { predictDurationHours, type CleanerPropertySample } from "@/lib/qa/prediction";
+import { resolveJobCleanHours } from "@/lib/properties/clean-hours";
 import {
   checklistProgress,
   cleanerPaceRatio,
@@ -105,23 +106,28 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       };
     });
 
-    // ── Expected hours baseline (optional column → its own query) ──
-    let assignedCleaningHours: number | null = null;
+    // ── Expected hours baseline (optional columns → their own query) ──
+    let optionalHours: { assignedCleaningHours: number | null; accessInfo: unknown } | null = null;
     try {
-      const property = await db.property.findUnique({
+      optionalHours = await db.property.findUnique({
         where: { id: job.propertyId },
-        select: { assignedCleaningHours: true },
+        select: { assignedCleaningHours: true, accessInfo: true },
       });
-      assignedCleaningHours = property?.assignedCleaningHours ?? null;
     } catch {
-      // Column not migrated on this database — fall through to the job estimate.
-      assignedCleaningHours = null;
+      // Columns not migrated on this database — fall through to the job estimate.
+      optionalHours = null;
     }
 
-    const expectedHours =
-      assignedCleaningHours ??
-      job.estimatedHours ??
-      (job.property?.cleaningDurationMinutes ? job.property.cleaningDurationMinutes / 60 : null);
+    // This USED to put the property's assigned hours ahead of the job's own
+    // estimate, while app/api/qa/jobs/[id]/route.ts did the opposite — so the
+    // two QA endpoints reported different expected hours for the SAME job, and
+    // expected-vs-actual is what a clean gets scored against. Both now defer to
+    // the shared rule: the job's own hours are a decision about that job.
+    const expectedHours = resolveJobCleanHours(job, {
+      assignedCleaningHours: optionalHours?.assignedCleaningHours,
+      cleaningDurationMinutes: job.property?.cleaningDurationMinutes,
+      accessInfo: optionalHours?.accessInfo,
+    });
 
     // ── cleaner × property stat (optional table → its own query) ──
     const primaryCleanerId = roster[0]?.id ?? null;

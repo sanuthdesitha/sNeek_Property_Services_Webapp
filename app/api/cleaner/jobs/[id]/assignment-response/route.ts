@@ -12,6 +12,7 @@ import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { resolveAppUrl } from "@/lib/app-url";
+import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 import { getJobReference } from "@/lib/jobs/job-number";
 import {
   derivePreStartJobStatus,
@@ -65,6 +66,8 @@ export async function POST(
             select: {
               name: true,
               suburb: true,
+              // The transfer branch stamps payRate from this.
+              cleanerServiceRate: true,
             },
           },
           assignments: {
@@ -207,6 +210,20 @@ export async function POST(
           },
         });
 
+        // A transfer is a seventh path that puts somebody on a job, and it was
+        // the only one creating an assignment with NO payRate at all.
+        // computeCleanerPay then falls through to the live per-cleaner rate and
+        // never sees Property.cleanerServiceRate — so handing ordinary work to
+        // a new person quietly paid the wrong rate for the place. Recomputed on
+        // BOTH branches: reactivating a previously-removed assignment is a
+        // fresh offer (PENDING, respondedAt cleared), so it should not inherit
+        // whatever rate was stamped the last time this person was on the job.
+        const transferPayRate =
+          resolveAssignmentPayRate({
+            perCleanerRate: settings.cleanerJobHourlyRates?.[targetCleanerId]?.[job.jobType],
+            propertyCleanerServiceRate: job.property?.cleanerServiceRate,
+          }) ?? undefined;
+
         await tx.jobAssignment.upsert({
           where: {
             jobId_userId: {
@@ -219,6 +236,7 @@ export async function POST(
             userId: targetCleanerId,
             isPrimary: assignment.isPrimary,
             offeredAt: changedAt,
+            payRate: transferPayRate,
             responseStatus: JobAssignmentResponseStatus.PENDING,
             assignedById: session.user.id,
             transferredFromUserId: session.user.id,
@@ -227,6 +245,7 @@ export async function POST(
             removedAt: null,
             isPrimary: assignment.isPrimary,
             offeredAt: changedAt,
+            payRate: transferPayRate,
             responseStatus: JobAssignmentResponseStatus.PENDING,
             respondedAt: null,
             responseNote: null,
