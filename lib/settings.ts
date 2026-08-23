@@ -277,6 +277,11 @@ export interface QaPaySettings {
   defaultHourlyRate: number;
   /** HOURLY-mode fallback hours when neither an allocation nor an on-site timer exists. */
   defaultHoursPerInspection: number;
+  /**
+   * Paid once per DAY an inspector worked, not per inspection — four properties
+   * on a Tuesday is one journey. 0 = not offered.
+   */
+  transportAllowancePerDay: number;
 }
 
 export interface AccountabilityScoringSettings {
@@ -647,6 +652,9 @@ export const DEFAULT_QA_PAY_SETTINGS: QaPaySettings = {
   defaultFixedAmount: 0,
   defaultHourlyRate: 32,
   defaultHoursPerInspection: 1,
+  // Zero by default: an allowance nobody configured must not start appearing on
+  // invoices the day this ships.
+  transportAllowancePerDay: 0,
 };
 
 export const DEFAULT_ACCOUNTABILITY_SETTINGS: AccountabilitySettings = {
@@ -1341,6 +1349,11 @@ export function sanitizeQaPaySettings(
       row.defaultHoursPerInspection,
       fallback.defaultHoursPerInspection,
       24
+    ),
+    transportAllowancePerDay: num(
+      row.transportAllowancePerDay,
+      fallback.transportAllowancePerDay,
+      1000
     ),
   };
 }

@@ -14,15 +14,17 @@ import { releaseCleanerInvoiceConsumables } from "@/lib/cleaner/invoice-release"
  * The transaction client is a stub: what is being pinned is WHICH tables are
  * cleared and by WHAT key, and that is entirely visible in the arguments.
  */
-function stubTx(counts = { adj: 2, qa: 1, shopping: 3 }) {
+function stubTx(counts = { adj: 2, qa: 1, shopping: 3, travel: 2 }) {
   const cleanerPayAdjustment = { updateMany: vi.fn(async () => ({ count: counts.adj })) };
   const qaAssignment = { updateMany: vi.fn(async () => ({ count: counts.qa })) };
   const shoppingSettlement = { updateMany: vi.fn(async () => ({ count: counts.shopping })) };
+  const qaDayAllowance = { updateMany: vi.fn(async () => ({ count: counts.travel })) };
   return {
-    tx: { cleanerPayAdjustment, qaAssignment, shoppingSettlement } as any,
+    tx: { cleanerPayAdjustment, qaAssignment, shoppingSettlement, qaDayAllowance } as any,
     cleanerPayAdjustment,
     qaAssignment,
     shoppingSettlement,
+    qaDayAllowance,
   };
 }
 
@@ -59,11 +61,23 @@ describe("releaseCleanerInvoiceConsumables", () => {
     });
   });
 
+  it("frees their claimed travel days", async () => {
+    // A voided invoice that kept its claim would leave the day permanently
+    // unpayable: the unique constraint means nothing else can claim it either.
+    const { tx, qaDayAllowance } = stubTx();
+    await releaseCleanerInvoiceConsumables(tx, "sub-1");
+
+    expect(qaDayAllowance.updateMany).toHaveBeenCalledWith({
+      where: { includedInCleanerInvoiceId: "sub-1" },
+      data: { includedInCleanerInvoiceId: null },
+    });
+  });
+
   it("scopes to this submission, never releasing another payee's items", async () => {
-    const { tx, cleanerPayAdjustment, qaAssignment, shoppingSettlement } = stubTx();
+    const { tx, cleanerPayAdjustment, qaAssignment, shoppingSettlement, qaDayAllowance } = stubTx();
     await releaseCleanerInvoiceConsumables(tx, "sub-2");
 
-    for (const model of [cleanerPayAdjustment, qaAssignment, shoppingSettlement]) {
+    for (const model of [cleanerPayAdjustment, qaAssignment, shoppingSettlement, qaDayAllowance]) {
       expect(model.updateMany.mock.calls[0][0].where).toEqual({
         includedInCleanerInvoiceId: "sub-2",
       });
@@ -71,30 +85,33 @@ describe("releaseCleanerInvoiceConsumables", () => {
   });
 
   it("reports what it freed, so the void can be logged honestly", async () => {
-    const { tx } = stubTx({ adj: 2, qa: 1, shopping: 3 });
+    const { tx } = stubTx({ adj: 2, qa: 1, shopping: 3, travel: 2 });
     await expect(releaseCleanerInvoiceConsumables(tx, "sub-1")).resolves.toEqual({
       adjustments: 2,
       qaInspections: 1,
       shoppingSettlements: 3,
+      travelDays: 2,
     });
   });
 
   it("is fine when the invoice carried nothing but jobs", async () => {
-    const { tx } = stubTx({ adj: 0, qa: 0, shopping: 0 });
+    const { tx } = stubTx({ adj: 0, qa: 0, shopping: 0, travel: 0 });
     await expect(releaseCleanerInvoiceConsumables(tx, "sub-1")).resolves.toEqual({
       adjustments: 0,
       qaInspections: 0,
       shoppingSettlements: 0,
+      travelDays: 0,
     });
   });
 
-  it("touches all three tables on every call", async () => {
-    // Releasing two of the three would be the same bug in a smaller shape:
-    // whichever table was missed stays permanently unbillable.
-    const { tx, cleanerPayAdjustment, qaAssignment, shoppingSettlement } = stubTx();
+  it("touches every settlement table on each call", async () => {
+    // Missing one table would be the same bug in a smaller shape: whatever was
+    // skipped stays permanently unbillable.
+    const { tx, cleanerPayAdjustment, qaAssignment, shoppingSettlement, qaDayAllowance } = stubTx();
     await releaseCleanerInvoiceConsumables(tx, "sub-1");
     expect(cleanerPayAdjustment.updateMany).toHaveBeenCalledTimes(1);
     expect(qaAssignment.updateMany).toHaveBeenCalledTimes(1);
     expect(shoppingSettlement.updateMany).toHaveBeenCalledTimes(1);
+    expect(qaDayAllowance.updateMany).toHaveBeenCalledTimes(1);
   });
 });
