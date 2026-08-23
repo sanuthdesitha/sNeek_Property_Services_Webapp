@@ -1,4 +1,5 @@
 import { JobType } from "@prisma/client";
+import { resolveJobCleanHours } from "@/lib/properties/clean-hours";
 
 /**
  * Display + accountability helpers for a job's start window and expected
@@ -18,6 +19,8 @@ type PropertyLike = {
   defaultCheckinTime?: string | null;
   cleaningDurationMinutes?: number | null;
   assignedCleaningHours?: number | null;
+  /** Optional: callers that select it get the legacy hours considered too. */
+  accessInfo?: unknown;
 };
 
 /**
@@ -40,14 +43,16 @@ export function formatStartWindow(job: JobLike, property: PropertyLike): string 
 }
 
 /**
- * The expected hours a job should take: the job's own estimatedHours when set,
- * otherwise the property's cleaningDurationMinutes converted to hours, otherwise
- * null. Read by accountability / clock rules that compare actual vs expected.
+ * The expected hours a job should take. Read by accountability / clock rules
+ * that compare actual against expected.
+ *
+ * Delegates to the shared property rule rather than carrying its own. The old
+ * version here never consulted `accessInfo.defaultCleanDurationHours`, so a
+ * property holding only that legacy value reported NO expected hours — and an
+ * accountability check with nothing to compare against silently stops checking.
+ * The doc comment was also stale, still describing a precedence the code had
+ * already stopped using.
  */
 export function resolveExpectedHours(job: JobLike, property: PropertyLike): number | null {
-  return (
-    job.estimatedHours ??
-    property.assignedCleaningHours ??
-    (property.cleaningDurationMinutes ? property.cleaningDurationMinutes / 60 : null)
-  );
+  return resolveJobCleanHours(job, property);
 }

@@ -58,9 +58,17 @@ describe("resolveExpectedHours", () => {
     ).toBeNull();
   });
 
-  it("uses estimatedHours of 0 rather than falling through (nullish precedence)", () => {
+  it("treats estimatedHours of 0 as an empty box and falls through", () => {
+    // CHANGED DELIBERATELY. This previously returned 0, because the old code
+    // used `??` and a nullish check lets a zero past. That was the mechanism
+    // showing through, not a decision: `lib/validations/job.ts` rejects a
+    // non-positive estimate, so no form can submit one, and 0 of 400 jobs
+    // carry a zero. Every other reader of "how long does this take" now treats
+    // a 0 as unset (see lib/properties/clean-hours.ts), and leaving one
+    // wrapper with the opposite rule would rebuild the split-brain this change
+    // exists to remove.
     expect(
       resolveExpectedHours({ jobType: "AIRBNB_TURNOVER", estimatedHours: 0 }, { cleaningDurationMinutes: 180 })
-    ).toBe(0);
+    ).toBe(3);
   });
 });
