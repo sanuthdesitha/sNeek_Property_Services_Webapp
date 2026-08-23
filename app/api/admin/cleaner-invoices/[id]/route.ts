@@ -3,6 +3,8 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
+import { releaseCleanerInvoiceConsumables } from "@/lib/cleaner/invoice-release";
 
 const patchSchema = z
   .object({
@@ -68,10 +70,33 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       paymentData = {} as typeof paymentData;
     }
 
-    const updated = await db.cleanerInvoiceSubmission.update({
-      where: { id: params.id },
-      data: { status: body.status, ...paymentData },
+    // VOIDING HANDS THE WORK BACK. Until now only the jobs were released, so a
+    // voided invoice permanently swallowed the payee's approved extra pay,
+    // their QA inspection fees and their out-of-pocket shopping — all still
+    // stamped against an invoice that would never be paid, and all excluded
+    // from every future invoice on exactly that stamp. Someone quietly stopped
+    // being able to bill money they were owed.
+    //
+    // In the same transaction as the status change: a release that landed
+    // against an invoice which then failed to void would let the same work be
+    // billed on two live submissions.
+    let released: Awaited<ReturnType<typeof releaseCleanerInvoiceConsumables>> | null = null;
+    const updated = await db.$transaction(async (tx) => {
+      if (body.status === "VOID") {
+        released = await releaseCleanerInvoiceConsumables(tx, params.id);
+      }
+      return tx.cleanerInvoiceSubmission.update({
+        where: { id: params.id },
+        data: { status: body.status, ...paymentData },
+      });
     });
+
+    if (released) {
+      logger.info(
+        { submissionId: params.id, ...(released as object) },
+        "[cleaner-invoice] voided; the payee's items are billable again"
+      );
+    }
 
     // Stamp / clear the covered jobs so they show as paid to the cleaner (and,
     // when reversed, become re-invoiceable). jobIds are snapshotted at send time.
@@ -124,11 +149,22 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     const delJobIds = Array.isArray((existing.lineData as any)?.jobIds)
       ? ((existing.lineData as any).jobIds as string[]).filter((x) => typeof x === "string")
       : [];
-    if (delJobIds.length) {
-      await db.job.updateMany({ where: { id: { in: delJobIds } }, data: { cleanerPaidAt: null } });
-    }
-
-    await db.cleanerInvoiceSubmission.delete({ where: { id: params.id } });
+    // Same release as a void, and for the same reason — a deleted submission
+    // must not take the payee's adjustments, inspection fees and shopping with
+    // it. Deleting is the more dangerous of the two: the row is gone, so there
+    // is nothing left to trace the stranded stamps back to.
+    const deleteReleased = await db.$transaction(async (tx) => {
+      const counts = await releaseCleanerInvoiceConsumables(tx, params.id);
+      if (delJobIds.length) {
+        await tx.job.updateMany({ where: { id: { in: delJobIds } }, data: { cleanerPaidAt: null } });
+      }
+      await tx.cleanerInvoiceSubmission.delete({ where: { id: params.id } });
+      return counts;
+    });
+    logger.info(
+      { submissionId: params.id, ...deleteReleased },
+      "[cleaner-invoice] deleted; the payee's items are billable again"
+    );
 
     await db.auditLog.create({
       data: {
