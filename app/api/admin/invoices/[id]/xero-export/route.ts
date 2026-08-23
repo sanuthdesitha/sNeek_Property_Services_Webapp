@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
+import { ClientInvoiceStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { buildClientInvoiceXeroCsv, getClientInvoice } from "@/lib/billing/client-invoices";
 import { db } from "@/lib/db";
@@ -13,6 +13,16 @@ export async function POST(
     const invoice = await getClientInvoice(params.id);
     if (!invoice) {
       return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
+    }
+    // A void invoice is cancelled. Exporting one hands the bookkeeping system a
+    // CSV that reads exactly like a live receivable, and once it is imported the
+    // only way back is a manual credit note in Xero — after which the accounts
+    // and this system disagree about what the client owes, and Xero wins.
+    if (invoice.status === ClientInvoiceStatus.VOID) {
+      return NextResponse.json(
+        { error: "This invoice is void. Export the replacement instead." },
+        { status: 409 }
+      );
     }
     const csv = await buildClientInvoiceXeroCsv(invoice);
     await db.clientInvoice.update({

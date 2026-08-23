@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
+import { ClientInvoiceStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { pushClientInvoiceToXero } from "@/lib/xero/client";
@@ -36,6 +36,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ]);
 
     if (!invoice) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
+
+    // A void invoice is cancelled, and this route CREATES a real invoice in
+    // Xero. Pushing one puts a live receivable in the accounts for money nobody
+    // owes, and the only way back is a manual credit note — after which the
+    // books and this system disagree about the client's balance, and the books
+    // win. Far cheaper to refuse than to unpick.
+    if (invoice.status === ClientInvoiceStatus.VOID) {
+      return NextResponse.json(
+        { error: "This invoice is void. Push the replacement instead." },
+        { status: 409 }
+      );
+    }
 
     // Idempotency: pushClientInvoiceToXero CREATES a new Xero invoice, so a
     // second push (double-click, retry) would duplicate it. Refuse to re-push an
