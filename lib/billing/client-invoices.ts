@@ -1,4 +1,4 @@
-import { ClientInvoiceStatus, JobStatus, JobType } from "@prisma/client";
+import { ClientInvoiceStatus, JobStatus, JobType, Prisma } from "@prisma/client";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
@@ -508,6 +508,45 @@ export async function generateClientInvoice(input: {
   });
 
   return invoice;
+}
+
+/**
+ * Hand back everything an invoice consumed, so it can be billed again.
+ *
+ * VOIDING AN INVOICE MUST NOT DESTROY THE WORK ON IT. The rule is that a void
+ * means "resubmit a new invoice, the items stay unpaid" — but the stamps that
+ * stop double-billing were never cleared, so a voided invoice took its shopping
+ * reimbursements and its client-paid repairs down with it. They stayed marked as
+ * billed, against an invoice nobody would ever pay, and no future run would pick
+ * them up. The charge simply disappeared, silently, and the only person who
+ * could notice was whoever eventually wondered why a repair never reached a bill.
+ *
+ * JOBS NEED NO RELEASE. Their guard is a live scan of ClientInvoiceLine.jobId
+ * across NON-VOID invoices, so voiding frees them by construction. The other two
+ * rails use a stored stamp, and a stored stamp has to be undone deliberately.
+ *
+ * Runs inside the caller's transaction so the release and the status change land
+ * together — releasing against an invoice that then failed to void would make
+ * the same work billable on two live invoices at once.
+ */
+export async function releaseInvoiceConsumables(
+  tx: Prisma.TransactionClient,
+  invoiceId: string
+): Promise<{ shoppingSettlements: number; maintenanceAssignments: number }> {
+  const [shopping, maintenance] = await Promise.all([
+    tx.shoppingSettlement.updateMany({
+      where: { includedInClientInvoiceId: invoiceId },
+      data: { includedInClientInvoiceId: null },
+    }),
+    tx.maintenanceItemAssignment.updateMany({
+      where: { includedInClientInvoiceId: invoiceId },
+      data: { includedInClientInvoiceId: null, includedInClientInvoiceAt: null },
+    }),
+  ]);
+  return {
+    shoppingSettlements: shopping.count,
+    maintenanceAssignments: maintenance.count,
+  };
 }
 
 export async function getClientInvoice(invoiceId: string) {

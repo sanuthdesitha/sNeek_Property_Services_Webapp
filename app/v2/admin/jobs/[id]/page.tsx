@@ -261,7 +261,19 @@ async function getJob(id: string) {
             description: true,
             lineTotal: true,
             category: true,
-            invoice: { select: { invoiceNumber: true, status: true, totalAmount: true } },
+            // paidDate is when the money actually arrived; paidAt is only the
+            // timestamp somebody recorded it. The first is what anyone asking
+            // "has this been paid" means, so it leads, with paidAt as the
+            // fallback for rows that predate the distinction.
+            invoice: {
+              select: {
+                invoiceNumber: true,
+                status: true,
+                totalAmount: true,
+                paidDate: true,
+                paidAt: true,
+              },
+            },
           },
         },
         qaReviews: {
@@ -1670,7 +1682,42 @@ export default async function AdminJobDetailPage({
                       </span>
                       <span className="flex shrink-0 items-center gap-1.5">
                         <span className="e-numeral tabular-nums">{money(line.lineTotal)}</span>
-                        {line.invoice?.status ? <EBadge tone="neutral" soft>{titleCase(String(line.invoice.status))}</EBadge> : null}
+                        {/* The date the money arrived, beside the status. "PAID"
+                            with no date leaves the next question — when? — to a
+                            second screen, which is where an unreconciled payment
+                            hides. */}
+                        {line.invoice?.paidDate || line.invoice?.paidAt ? (
+                          <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                            {new Date(
+                              (line.invoice.paidDate ?? line.invoice.paidAt) as Date
+                            ).toLocaleDateString("en-AU", {
+                              timeZone: "Australia/Sydney",
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })}
+                          </span>
+                        ) : null}
+                        {/* Toned by status. Every one rendered neutral before,
+                            so a PAID invoice and a VOID one looked identical at
+                            a glance — the two states that most need telling
+                            apart on a job nobody has been paid for. */}
+                        {line.invoice?.status ? (
+                          <EBadge
+                            tone={
+                              line.invoice.status === "PAID"
+                                ? "success"
+                                : line.invoice.status === "VOID"
+                                  ? "danger"
+                                  : line.invoice.status === "PART_PAID"
+                                    ? "warning"
+                                    : "neutral"
+                            }
+                            soft
+                          >
+                            {titleCase(String(line.invoice.status))}
+                          </EBadge>
+                        ) : null}
                       </span>
                     </li>
                   ))}
