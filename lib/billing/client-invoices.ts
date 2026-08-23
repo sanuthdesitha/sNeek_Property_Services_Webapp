@@ -10,6 +10,7 @@ import { calculateGstBreakdown } from "@/lib/pricing/gst";
 import { computeClientCharge } from "@/lib/finance/job-money";
 import { issueInvoiceNumber } from "@/lib/billing/invoice-sequence";
 import { buildMaintenanceInvoiceLines } from "@/lib/billing/maintenance-billing";
+import { groupInvoiceLines, shouldGroupInvoice } from "@/lib/billing/invoice-grouping";
 
 /**
  * Jobs eligible to be billed on a client invoice: any job that has actually
@@ -529,6 +530,10 @@ export async function getClientInvoice(invoiceId: string) {
               property: { select: { name: true, suburb: true } },
             },
           },
+          // Never fetched before, so the grouping an admin set on a manual line
+          // — and the property a maintenance charge belongs to — could not
+          // reach the document the client actually receives.
+          property: { select: { name: true, suburb: true } },
         },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
@@ -591,13 +596,23 @@ export function buildClientInvoiceHtml(
     defaultPaymentTermsDays?: number;
   }
 ) {
-  const linesHtml = invoice.lines
-    .map((line) => {
-      const meta =
-        line.job != null
-          ? `${escapeHtml(line.job.property.name)} · ${escapeHtml(line.job.jobNumber || line.job.id)} · ${format(new Date(line.job.scheduledDate), "dd MMM yyyy")}`
-          : "";
-      return `
+  function lineRowHtml(line: (typeof invoice.lines)[number], showProperty: boolean) {
+    // The property is dropped from the row when the SECTION already names it —
+    // repeating "Bondi Apartment" on every one of its eight lines is noise that
+    // makes the heading look decorative rather than structural.
+    const parts =
+      line.job != null
+        ? [
+            showProperty ? line.job.property.name : null,
+            line.job.jobNumber || line.job.id,
+            format(new Date(line.job.scheduledDate), "dd MMM yyyy"),
+          ]
+        : [showProperty ? (line.property?.name ?? null) : null];
+    const meta = parts
+      .filter((part): part is string => Boolean(part))
+      .map((part) => escapeHtml(part))
+      .join(" · ");
+    return `
         <tr>
           <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;">
             <div style="font-weight:600;">${escapeHtml(line.description)}</div>
@@ -609,8 +624,32 @@ export function buildClientInvoiceHtml(
           <td style="padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${money(line.lineTotal)}</td>
         </tr>
       `;
-    })
-    .join("");
+  }
+
+  const groups = groupInvoiceLines(invoice.lines);
+  // A single-property invoice with no extras gets no headings: wrapping four
+  // lines in a section named after the only property on the invoice adds a row
+  // of chrome and no information.
+  const grouped = shouldGroupInvoice(groups);
+
+  const linesHtml = grouped
+    ? groups
+        .map(
+          (group) => `
+        <tr>
+          <td colspan="4" style="padding:16px 8px 6px;border-bottom:2px solid #111827;">
+            <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">${escapeHtml(group.title)}</div>
+          </td>
+        </tr>
+        ${group.lines.map((line) => lineRowHtml(line, false)).join("")}
+        <tr>
+          <td colspan="3" style="padding:6px 8px 14px;text-align:right;font-size:12px;color:#6b7280;">Subtotal — ${escapeHtml(group.title)}</td>
+          <td style="padding:6px 8px 14px;text-align:right;font-size:12px;font-weight:700;">${money(group.subtotal)}</td>
+        </tr>
+      `
+        )
+        .join("")
+    : invoice.lines.map((line) => lineRowHtml(line, true)).join("");
 
   const gstSummaryHtml =
     Number(invoice.gstAmount ?? 0) > 0
