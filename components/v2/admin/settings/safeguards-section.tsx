@@ -58,6 +58,8 @@ export type SafeguardsSettings = {
     defaultFixedAmount: number;
     defaultHourlyRate: number;
     defaultHoursPerInspection: number;
+    /** Paid once per DAY worked, not per inspection. 0 = not offered. */
+    transportAllowancePerDay: number;
   };
   evidenceStamp: {
     dateFormat: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD" | "DD MMM YYYY";
@@ -456,6 +458,25 @@ export function SafeguardsSection({ initial, readOnly }: { initial: SafeguardsSe
                     setForm((p) => ({
                       ...p,
                       qaPay: { ...p.qaPay, defaultFixedAmount: Number(e.target.value || 0) },
+                    }))
+                  }
+                  disabled={readOnly}
+                />
+              </EField>
+              <EField
+                label="Travel allowance ($ per day)"
+                hint="Paid once for each day an inspector worked, not per inspection — four properties in a day is one journey. 0 = not offered."
+              >
+                <EInput
+                  type="number"
+                  min={0}
+                  max={1000}
+                  step="0.01"
+                  value={form.qaPay.transportAllowancePerDay}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      qaPay: { ...p.qaPay, transportAllowancePerDay: Number(e.target.value || 0) },
                     }))
                   }
                   disabled={readOnly}

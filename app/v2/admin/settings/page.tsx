@@ -275,6 +275,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
               defaultFixedAmount: appSettings.qaPay.defaultFixedAmount,
               defaultHourlyRate: appSettings.qaPay.defaultHourlyRate,
               defaultHoursPerInspection: appSettings.qaPay.defaultHoursPerInspection,
+              transportAllowancePerDay: appSettings.qaPay.transportAllowancePerDay,
             },
             evidenceStamp: {
               dateFormat: appSettings.evidenceStamp.dateFormat,

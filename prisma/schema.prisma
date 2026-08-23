@@ -799,6 +799,7 @@ model User {
   maintenanceItemAssignments     MaintenanceItemAssignment[] @relation("MaintenanceItemAssignee")
   /// Additional roles this person may act as, beyond their primary one.
   extraRoles                     UserRole[]                  @relation("UserRoleHolder")
+  qaDayAllowances                QaDayAllowance[]            @relation("QaDayAllowanceInspector")
   grantedUserRoles               UserRole[]                  @relation("UserRoleGrantedBy")
   maintenanceItemAssignmentsMade MaintenanceItemAssignment[] @relation("MaintenanceItemAssignedBy")
   mediaOverrideRequests        MediaOverrideRequest[]      @relation("MediaOverrideRequestedBy")
@@ -3279,6 +3280,45 @@ model InvoiceSequence {
 /// somebody no longer holds must stop granting access immediately and
 /// completely, and a soft-deleted row is one forgotten `where` clause away from
 /// still doing so. The audit log records the revocation.
+/// ONE DAY'S TRAVEL, PAID ONCE.
+///
+/// A QA inspector visiting four properties on a Tuesday made one journey, not
+/// four. The allowance therefore attaches to the DAY, not to the inspection —
+/// and this row is what makes that true across invoices.
+///
+/// WITHOUT IT the allowance would have to be derived from whichever inspections
+/// happen to be on the invoice being built, and a day split across two invoices
+/// (the payee excludes one inspection, sends the rest, bills the last one next
+/// fortnight) would pay Tuesday's travel twice. Deriving is not enough; the day
+/// has to be claimed.
+///
+/// `@@unique([inspectorId, day])` is the guard. `day` is a DATE, not a
+/// timestamp, because "the Tuesday they travelled" is a calendar fact in
+/// Australia/Sydney and storing an instant would split one day in two either
+/// side of midnight UTC.
+///
+/// The two settlement stamps mirror CleanerPayAdjustment: a row carrying either
+/// is spent, and both are cleared when an invoice is voided so the day becomes
+/// claimable again.
+model QaDayAllowance {
+  id          String   @id @default(cuid())
+  inspectorId String
+  /// The calendar day travelled, in Australia/Sydney. Date only.
+  day         DateTime @db.Date
+  /// Snapshotted at claim time. The settings rate may change afterwards, and a
+  /// payee's past invoice must not silently re-price.
+  amount      Float
+
+  includedInCleanerInvoiceId String?
+  includedInPayrollRunId     String?
+  createdAt                  DateTime @default(now())
+
+  inspector User @relation("QaDayAllowanceInspector", fields: [inspectorId], references: [id], onDelete: Cascade)
+
+  @@unique([inspectorId, day])
+  @@index([inspectorId, includedInCleanerInvoiceId])
+}
+
 model UserRole {
   id          String   @id @default(cuid())
   userId      String

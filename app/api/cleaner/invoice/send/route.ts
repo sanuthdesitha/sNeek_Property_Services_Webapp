@@ -177,6 +177,23 @@ export async function POST(req: NextRequest) {
         // payee's invoice 8 beside a client's invoice 7 with nothing in common.
         const invoiceNumber = await issueInvoiceNumber("CLEANER");
 
+        // CLAIM THE TRAVEL DAYS inside the same transaction that creates the
+        // invoice. The unique constraint on (inspectorId, day) is what makes a
+        // day payable once: if two sends race, or a day is split across two
+        // invoices, the second attempt collides and that day is simply not on
+        // the second invoice. createMany + skipDuplicates turns that collision
+        // into "already claimed" rather than a failed send.
+        if (Array.isArray(data.claimableAllowanceDays) && data.claimableAllowanceDays.length > 0) {
+          await tx.qaDayAllowance.createMany({
+            data: data.claimableAllowanceDays.map((day: string) => ({
+              inspectorId: session.user.id,
+              day: new Date(`${day}T00:00:00.000Z`),
+              amount: data.transportAllowanceRows.find((row) => row.day === day)?.amount ?? 0,
+            })),
+            skipDuplicates: true,
+          });
+        }
+
         const created = await tx.cleanerInvoiceSubmission.create({
           data: {
             cleanerId: session.user.id,
@@ -328,6 +345,24 @@ export async function POST(req: NextRequest) {
           },
         });
       }
+    }
+
+    // Bind the claimed travel days to THIS invoice. The rows were created above
+    // to win the race; stamping them here is what makes them spent — and what
+    // lets a void hand them back, since the release keys off this column.
+    //
+    // Scoped to days with no invoice yet: a day claimed by an earlier invoice
+    // must not be re-pointed at this one.
+    if (Array.isArray(data.claimableAllowanceDays) && data.claimableAllowanceDays.length > 0) {
+      await db.qaDayAllowance.updateMany({
+        where: {
+          inspectorId: session.user.id,
+          day: { in: data.claimableAllowanceDays.map((day: string) => new Date(`${day}T00:00:00.000Z`)) },
+          includedInCleanerInvoiceId: null,
+          includedInPayrollRunId: null,
+        },
+        data: { includedInCleanerInvoiceId: anchor.id },
+      });
     }
 
     // Email + invoiced-marking succeeded → flip the anchor to its terminal state.

@@ -26,6 +26,12 @@ import {
 } from "@/lib/finance/shopping-settlement";
 import { sydneyDayStart, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
 import { invoicePayeeKind } from "@/lib/invoicing/payee-kind";
+import {
+  sydneyDayKey,
+  transportAllowanceDescription,
+  transportAllowanceLines,
+  transportAllowanceTotal,
+} from "@/lib/finance/qa-transport";
 
 interface InvoiceOptions {
   userId: string;
@@ -244,6 +250,9 @@ export interface CleanerInvoiceData {
     amount: number;
   }>;
   qaInspectionTotal: number;
+  transportAllowanceRows: Array<{ day: string; description: string; amount: number }>;
+  transportAllowanceTotal: number;
+  claimableAllowanceDays: string[];
   /**
    * Ids of every QaAssignment this invoice settles. The send route stamps these
    * with includedInCleanerInvoiceId + freezes paySettledAmount so neither the
@@ -584,6 +593,45 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     .filter((row) => row.amount > 0);
   const qaInspectionTotal = sumQaPay(qaInspectionRows);
 
+  // TRAVEL, PAID ONCE PER DAY WORKED. Four properties on a Tuesday is one
+  // journey, so the allowance follows the DAY rather than the inspection.
+  //
+  // Days already claimed on an earlier invoice are excluded HERE rather than
+  // left to fail the unique constraint at send time — the invoice a payee
+  // previews has to be the invoice they are paid. The claim itself is written
+  // by the send route; this only proposes it.
+  const claimedAllowanceDays =
+    settings.qaPay.transportAllowancePerDay > 0 && qaInspectionRows.length > 0
+      ? (
+          await db.qaDayAllowance.findMany({
+            where: {
+              inspectorId: options.userId,
+              // A row belonging to THIS invoice is not "already claimed" — a
+              // payee reopening their own draft must still see their travel.
+              ...(options.includeInvoiceId
+                ? {
+                    NOT: { includedInCleanerInvoiceId: options.includeInvoiceId },
+                  }
+                : {}),
+            },
+            select: { day: true },
+          })
+        ).map((row) => sydneyDayKey(row.day))
+      : [];
+
+  const transportAllowanceRows = transportAllowanceLines({
+    inspectionInstants: qaAssignmentRows
+      .filter((row) => qaInspectionRows.some((kept) => kept.assignmentId === row.id))
+      .map((row) => row.completedAt),
+    amountPerDay: settings.qaPay.transportAllowancePerDay,
+    alreadyClaimedDays: claimedAllowanceDays,
+  }).map((line) => ({
+    day: line.day,
+    description: transportAllowanceDescription(line.day),
+    amount: line.amount,
+  }));
+  const transportAllowanceTotalAmount = transportAllowanceTotal(transportAllowanceRows);
+
   // Removed adjustments are dropped BEFORE the partition rather than filtered
   // out of its results. That single placement is what keeps three things in
   // agreement: the carry-over lines, `perJobTotals` (so an excluded job-linked
@@ -861,7 +909,8 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     extraLineTotal +
     expenseTotal +
     shoppingTimeTotal +
-    qaInspectionTotal;
+    qaInspectionTotal +
+    transportAllowanceTotalAmount;
   // Money back vs money earned. Shopping expense reimbursements are always the
   // former — the payee bought supplies with their own money — so they join the
   // non-taxable side alongside any adjustment flagged that way. Everything else
@@ -921,6 +970,10 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     nonTaxableTotal,
     qaInspectionRows,
     qaInspectionTotal,
+    transportAllowanceRows,
+    transportAllowanceTotal: transportAllowanceTotalAmount,
+    /** The days the send route must claim, so this travel cannot be paid twice. */
+    claimableAllowanceDays: transportAllowanceRows.map((row) => row.day),
     includedQaAssignmentIds: qaInspectionRows.map((row) => row.assignmentId),
     includedAdjustmentIds: adjustmentSplit.includedRows
       .map((row) => row.id)
@@ -1025,6 +1078,26 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData, issuedNumber?:
     data.qaInspectionTotal ?? qaInspectionRows.reduce((sum, row) => sum + row.amount, 0)
   );
   const qaIncludeNoteColumn = qaInspectionRows.some((row) => Boolean(row.note?.trim()));
+
+  // TRAVEL, ITS OWN SECTION. One line per day worked, each naming the day — a
+  // charge that appears only in the total is a charge the payee cannot check,
+  // and "why is this $75 more than my inspections add up to" is the message it
+  // otherwise produces.
+  const travelRows = data.transportAllowanceRows ?? [];
+  const travelTotal = Number(
+    data.transportAllowanceTotal ?? travelRows.reduce((sum, row) => sum + row.amount, 0)
+  );
+  const travelRowsHtml = travelRows
+    .map(
+      (row) => `
+        <tr>
+          <td class="cell">${escapeHtml(row.day)}</td>
+          <td class="cell">${escapeHtml(row.description)}</td>
+          <td class="cell right">${formatCurrency(row.amount)}</td>
+        </tr>
+      `
+    )
+    .join("");
   const qaInspectionRowsHtml = qaInspectionRows
     .map((row) => {
       const basis =
@@ -1350,6 +1423,29 @@ export function buildCleanerInvoiceHtml(data: CleanerInvoiceData, issuedNumber?:
                     <td class="cell" colspan="3"><strong>QA inspections subtotal</strong></td>
                     <td class="cell right"><strong>${formatCurrency(qaInspectionTotal)}</strong></td>
                     ${qaIncludeNoteColumn ? `<td class="cell"></td>` : ""}
+                  </tr>
+                </tfoot>
+              </table>
+            `
+            : ""
+        }
+        ${
+          travelRows.length > 0
+            ? `
+              <h2 style="margin-top:20px;font-size:16px;">Travel</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Day</th>
+                    <th>Detail</th>
+                    <th class="right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>${travelRowsHtml}</tbody>
+                <tfoot>
+                  <tr>
+                    <td class="cell" colspan="2"><strong>Travel subtotal</strong></td>
+                    <td class="cell right"><strong>${formatCurrency(travelTotal)}</strong></td>
                   </tr>
                 </tfoot>
               </table>

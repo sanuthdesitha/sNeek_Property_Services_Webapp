@@ -31,8 +31,13 @@ import type { Prisma } from "@prisma/client";
 export async function releaseCleanerInvoiceConsumables(
   tx: Prisma.TransactionClient,
   submissionId: string
-): Promise<{ adjustments: number; qaInspections: number; shoppingSettlements: number }> {
-  const [adjustments, qaInspections, shoppingSettlements] = await Promise.all([
+): Promise<{
+  adjustments: number;
+  qaInspections: number;
+  shoppingSettlements: number;
+  travelDays: number;
+}> {
+  const [adjustments, qaInspections, shoppingSettlements, travelDays] = await Promise.all([
     tx.cleanerPayAdjustment.updateMany({
       where: { includedInCleanerInvoiceId: submissionId },
       // Both columns, so a released adjustment does not read as having been
@@ -47,11 +52,20 @@ export async function releaseCleanerInvoiceConsumables(
       where: { includedInCleanerInvoiceId: submissionId },
       data: { includedInCleanerInvoiceId: null },
     }),
+    // Travel days go back in the pot too. A voided invoice that kept its claim
+    // would leave the inspector unable to bill a day they genuinely worked, and
+    // the unique constraint means nothing else can ever claim it either — the
+    // day would be permanently unpayable.
+    tx.qaDayAllowance.updateMany({
+      where: { includedInCleanerInvoiceId: submissionId },
+      data: { includedInCleanerInvoiceId: null },
+    }),
   ]);
 
   return {
     adjustments: adjustments.count,
     qaInspections: qaInspections.count,
     shoppingSettlements: shoppingSettlements.count,
+    travelDays: travelDays.count,
   };
 }
