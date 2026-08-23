@@ -5,10 +5,24 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { releaseCleanerInvoiceConsumables } from "@/lib/cleaner/invoice-release";
+import {
+  clearsChangesNote,
+  clearsPaymentRecord,
+  releasesPayeeWork,
+  requiresChangesNote,
+} from "@/lib/cleaner/invoice-status";
 
 const patchSchema = z
   .object({
-    status: z.enum(["SUBMITTED", "XERO_PUSHED", "PAID", "VOID"]),
+    status: z.enum(["SUBMITTED", "CHANGES_REQUESTED", "XERO_PUSHED", "PAID", "VOID"]),
+    /**
+     * CHANGES_REQUESTED only — what the payee is meant to fix.
+     *
+     * Required, deliberately. Sending an invoice back without saying why
+     * reliably produces the same invoice again, and the payee has no way to
+     * guess which of twenty lines the office disagreed with.
+     */
+    changesNote: z.string().trim().min(1).max(2000).optional(),
     // Payment settlement — supplied when status === "PAID".
     paidAmount: z.number().nonnegative().optional(),
     paidBankAccount: z.string().trim().max(200).optional(),
@@ -20,6 +34,10 @@ const patchSchema = z
   .refine((v) => v.status !== "PAID" || Boolean(v.paymentMethod), {
     message: "A payment method is required when marking an invoice paid.",
     path: ["paymentMethod"],
+  })
+  .refine((v) => !requiresChangesNote(v.status) || Boolean(v.changesNote), {
+    message: "Say what needs changing — the payee cannot guess which line is wrong.",
+    path: ["changesNote"],
   });
 
 /** Update a cleaner invoice submission's status (e.g. mark it paid). */
@@ -50,7 +68,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         paymentMethod: body.paymentMethod || null,
         paidDate: body.paidDate ? new Date(body.paidDate) : new Date(),
       };
-    } else if (body.status === "VOID" || body.status === "SUBMITTED") {
+    } else if (clearsPaymentRecord(body.status)) {
       // Only an explicit reversal clears the payment record. This branch used
       // to catch EVERY non-PAID status, so moving a paid invoice to any other
       // state — including ones with nothing to do with payment — silently
@@ -82,12 +100,27 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // billed on two live submissions.
     let released: Awaited<ReturnType<typeof releaseCleanerInvoiceConsumables>> | null = null;
     const updated = await db.$transaction(async (tx) => {
-      if (body.status === "VOID") {
+      // Both a void and a send-back hand the work back. The difference is
+      // intent, not mechanics: a void ends this invoice, a send-back asks for a
+      // better one — and neither is any use to the payee if the items stay
+      // stamped and cannot be re-billed.
+      if (releasesPayeeWork(body.status)) {
         released = await releaseCleanerInvoiceConsumables(tx, params.id);
       }
       return tx.cleanerInvoiceSubmission.update({
         where: { id: params.id },
-        data: { status: body.status, ...paymentData },
+        data: {
+          status: body.status,
+          ...paymentData,
+          ...(requiresChangesNote(body.status)
+            ? { changesRequestedAt: new Date(), changesRequestedNote: body.changesNote ?? null }
+            : {}),
+          // Cleared when the invoice moves on, so a resubmitted or paid invoice
+          // does not keep showing the note from the round before.
+          ...(clearsChangesNote(body.status)
+            ? { changesRequestedAt: null, changesRequestedNote: null }
+            : {}),
+        },
       });
     });
 
@@ -106,9 +139,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (jobIds.length) {
       if (body.status === "PAID") {
         await db.job.updateMany({ where: { id: { in: jobIds } }, data: { cleanerPaidAt: new Date() } });
-      } else if (body.status === "VOID") {
+      } else if (releasesPayeeWork(body.status)) {
         await db.job.updateMany({ where: { id: { in: jobIds } }, data: { cleanerPaidAt: null } });
       }
+    }
+
+    // TELL THE PAYEE. A send-back they never hear about is just an invoice that
+    // stopped moving — they believe it is with accounts, the office believes the
+    // ball is with them, and the first anyone notices is a missing payment.
+    //
+    // After the write and best-effort: the decision is already recorded, and
+    // failing the response over a mail error would tell the admin the send-back
+    // did not happen when it did.
+    if (requiresChangesNote(body.status)) {
+      await notifyPayeeOfChangeRequest(params.id, body.changesNote ?? "").catch((err) =>
+        logger.error(
+          { err, submissionId: params.id },
+          "[cleaner-invoice] changes requested but the payee could not be emailed"
+        )
+      );
     }
 
     await db.auditLog.create({
@@ -181,4 +230,65 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message ?? "Could not delete invoice." }, { status });
   }
+}
+
+/**
+ * Email the payee that their invoice needs work, with the reason.
+ *
+ * The reason is the whole point. An invoice returned with no explanation comes
+ * back unchanged, and the second round costs both people the same time as the
+ * first.
+ */
+async function notifyPayeeOfChangeRequest(submissionId: string, note: string): Promise<void> {
+  // Two queries because CleanerInvoiceSubmission carries a bare `cleanerId`
+  // with no relation to User — there is nothing to include.
+  const submission = await db.cleanerInvoiceSubmission.findUnique({
+    where: { id: submissionId },
+    select: { invoiceNumber: true, periodStart: true, periodEnd: true, cleanerId: true },
+  });
+  if (!submission) return;
+
+  const payee = await db.user.findUnique({
+    where: { id: submission.cleanerId },
+    select: { name: true, email: true, role: true },
+  });
+  if (!payee?.email) return;
+
+  const { sendEmailDetailed } = await import("@/lib/notifications/email");
+  const { getAppSettings } = await import("@/lib/settings");
+  const { resolveAppUrl } = await import("@/lib/app-url");
+  const settings = await getAppSettings();
+
+  const escape = (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const fmt = (date: Date) =>
+    new Intl.DateTimeFormat("en-AU", {
+      timeZone: "Australia/Sydney",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }).format(date);
+
+  // QA inspectors self-invoice on this same rail, so the link has to land in
+  // THEIR portal rather than always the cleaner one.
+  const href = payee.role === Role.QA_INSPECTOR ? "/v2/qa/invoices" : "/v2/cleaner/invoices";
+
+  await sendEmailDetailed({
+    kind: "job_assignment",
+    to: payee.email,
+    subject: `Your invoice needs a change${submission.invoiceNumber ? ` — ${submission.invoiceNumber}` : ""}`,
+    // A finance document the office explicitly sent back — a stale suppression
+    // must not silently eat it.
+    transactional: true,
+    html: [
+      `<p>Hi ${escape(payee.name ?? "there")},</p>`,
+      `<p>Your invoice for ${escape(fmt(submission.periodStart))} – ${escape(fmt(submission.periodEnd))}`,
+      submission.invoiceNumber ? ` (<strong>${escape(submission.invoiceNumber)}</strong>)` : "",
+      ` has been sent back for a change.</p>`,
+      `<p><strong>What needs fixing:</strong><br/>${escape(note).replace(/\n/g, "<br/>")}</p>`,
+      `<p>Everything on it is available to invoice again, so you can correct it and resend.</p>`,
+      `<p><a href="${resolveAppUrl(href)}">Open your invoices</a></p>`,
+      `<p>— ${escape(settings.companyName)}</p>`,
+    ].join(""),
+  });
 }

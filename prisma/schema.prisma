@@ -3306,10 +3306,19 @@ model CleanerInvoiceSubmission {
   totalAmount     Float     @default(0)
   jobCount        Int       @default(0)
   lineData        Json? // snapshot: cleaner contact + line rows for the Xero bill
-  status          String    @default("SUBMITTED") // SUBMITTED | XERO_PUSHED | PAID_CLAIMED | PAID | VOID
+  /// SUBMITTED | CHANGES_REQUESTED | XERO_PUSHED | PAID_CLAIMED | PAID | VOID
+  /// (plus a transient "SENDING" while the send route is mid-flight).
+  status          String    @default("SUBMITTED")
   // The cleaner's own claim that the money arrived. Admin still has to confirm
   // it (PAID_CLAIMED -> PAID) — a payee asserting payment is not the business
   // recording it, so these fields stay separate from the paid* block above.
+  /// The office sent this back for correction. A void ends an invoice; this
+  /// asks for a better one, so the work on it is released and the payee can
+  /// resubmit. The note is what they are meant to fix — sending an invoice back
+  /// without saying why just produces the same invoice again.
+  changesRequestedAt   DateTime?
+  changesRequestedNote String?   @db.Text
+
   paidClaimedAt        DateTime?
   paidClaimedNote      String?   @db.Text
   paidClaimedProofKeys Json? // S3 keys for a receipt/screenshot the cleaner attached

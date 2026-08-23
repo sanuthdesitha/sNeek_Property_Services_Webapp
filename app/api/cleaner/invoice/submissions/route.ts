@@ -35,6 +35,12 @@ export async function GET() {
         paidClaimedAt: true,
         paidClaimedNote: true,
         paidClaimedProofKeys: true,
+        // The office sending an invoice back is the one status the payee has to
+        // ACT on. Same narrow-select trap as invoiceNumber above: omit these and
+        // the panel renders a returned invoice with no reason and no date, which
+        // is indistinguishable from one still sitting with accounts.
+        changesRequestedAt: true,
+        changesRequestedNote: true,
       },
       orderBy: { createdAt: "desc" },
       take: 50,
