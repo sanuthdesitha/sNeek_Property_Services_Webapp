@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { haversineMeters } from "@/lib/jobs/gps";
 import { classifyCheckInLocation, resolveOnSiteRadius } from "@/lib/gps/distance";
 import { OFF_SITE_REASON_CODES, isValidOffSiteReason } from "@/lib/gps/off-site-reasons";
+import { assertNotSelfInspection } from "@/lib/qa/self-review";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -50,6 +51,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         { error: "GPS coordinates are required — or give a reason for reviewing remotely." },
         { status: 400 }
       );
+    }
+
+    // NOBODY INSPECTS THEIR OWN CLEAN. Guarded here as well as on pickup,
+    // because each of these paths can create or claim an assignment on its own
+    // and a rule enforced at only one entrance is not enforced.
+    try {
+      await assertNotSelfInspection(db, {
+        jobId: params.id,
+        candidateUserId: session.user.id,
+        isSelf: true,
+      });
+    } catch (guardErr: any) {
+      return NextResponse.json({ error: guardErr.message }, { status: 409 });
     }
 
     const job = await db.job.findUnique({

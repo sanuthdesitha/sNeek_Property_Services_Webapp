@@ -3,6 +3,7 @@ import { QaAssignmentStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
+import { assertNotSelfInspection } from "@/lib/qa/self-review";
 
 /**
  * PATCH /api/admin/qa/assignments/[id]
@@ -37,6 +38,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       where: { id: params.id },
       select: {
         id: true,
+        // Needed by the self-review guard below: without the job there is no
+        // way to know whose clean this inspection is of.
+        jobId: true,
         assignedToId: true,
         scheduledFor: true,
         sequence: true,
@@ -95,6 +99,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (body.dueAt !== undefined) data.dueAt = body.dueAt ? new Date(body.dueAt) : null;
     if (body.notes !== undefined) data.notes = body.notes || null;
     if (body.assignedToId !== undefined) {
+      // NOBODY INSPECTS THEIR OWN CLEAN — checked on REASSIGNMENT too. Guarding
+      // only the original assignment would leave the rule one edit away from
+      // being bypassed, and reassigning is exactly how an inspection changes
+      // hands after the roster moves.
+      if (body.assignedToId) {
+        try {
+          await assertNotSelfInspection(db, {
+            jobId: existing.jobId,
+            candidateUserId: body.assignedToId,
+          });
+        } catch (guardErr: any) {
+          return NextResponse.json({ error: guardErr.message }, { status: 409 });
+        }
+      }
       data.assignedToId = body.assignedToId;
       data.status = body.assignedToId ? QaAssignmentStatus.ASSIGNED : QaAssignmentStatus.OPEN;
     }
