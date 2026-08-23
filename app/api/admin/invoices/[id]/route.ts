@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { ClientInvoiceStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
-import { getClientInvoice } from "@/lib/billing/client-invoices";
+import { getClientInvoice, releaseInvoiceConsumables } from "@/lib/billing/client-invoices";
 import { canTransitionInvoice } from "@/lib/finance/invoice-transitions";
 import { calculateGstBreakdown } from "@/lib/pricing/gst";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 const lineUpdateSchema = z.object({
   id: z.string().cuid(),
@@ -315,7 +316,26 @@ export async function PATCH(
       : undefined;
 
     const effectiveStatus = paymentStatus ?? body.status;
-    const updated = await db.clientInvoice.update({
+
+    // VOIDING RELEASES WHAT THE INVOICE CONSUMED. The owner's rule is that a
+    // void means "resubmit a new invoice, the items stay unpaid" — and until
+    // now the double-bill stamps were never cleared, so a voided invoice took
+    // its shopping reimbursements and its client-paid repairs down with it.
+    // They stayed marked as billed against an invoice nobody would ever pay,
+    // and no future run would pick them up. The charge vanished silently.
+    //
+    // Jobs need no release: their guard is a live scan of non-VOID invoice
+    // lines, so voiding frees them by construction.
+    const voiding =
+      effectiveStatus === ClientInvoiceStatus.VOID &&
+      existing.status !== ClientInvoiceStatus.VOID;
+    let released: { shoppingSettlements: number; maintenanceAssignments: number } | null = null;
+
+    const updated = await db.$transaction(async (tx) => {
+      if (voiding) {
+        released = await releaseInvoiceConsumables(tx, params.id);
+      }
+      return tx.clientInvoice.update({
       where: { id: params.id },
       data: {
         ...(effectiveStatus ? { status: effectiveStatus } : {}),
@@ -327,7 +347,15 @@ export async function PATCH(
         gstAmount,
         totalAmount,
       },
+      });
     });
+
+    if (released) {
+      logger.info(
+        { invoiceId: params.id, ...(released as object) },
+        "[invoice] voided; consumed items released for re-invoicing"
+      );
+    }
 
     if (body.recordPayment) {
       // Flag settlements that never went through the client-facing send step
