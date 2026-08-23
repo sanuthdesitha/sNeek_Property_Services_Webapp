@@ -3,7 +3,11 @@ import { ClientInvoiceStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getClientInvoice, releaseInvoiceConsumables } from "@/lib/billing/client-invoices";
-import { canTransitionInvoice } from "@/lib/finance/invoice-transitions";
+import {
+  canReverseInvoice,
+  canTransitionInvoice,
+  reverseRefusalReason,
+} from "@/lib/finance/invoice-transitions";
 import { calculateGstBreakdown } from "@/lib/pricing/gst";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
@@ -30,6 +34,19 @@ const recordPaymentSchema = z.object({
 
 const patchSchema = z.object({
   status: z.nativeEnum(ClientInvoiceStatus).optional(),
+  /**
+   * REVERSE — bring this invoice back to editable, keeping its identity.
+   *
+   * Its own field rather than a status move, because it is not one: it clears
+   * the settled stamps, keeps the number, the lines and the payment history,
+   * and deliberately does NOT release the invoice's items the way a void does.
+   * Expressed as `status: "DRAFT"` it would need forceStatus and would be
+   * indistinguishable in the audit log from an admin dragging a paid invoice
+   * backwards by hand.
+   */
+  reverse: z
+    .object({ reason: z.string().trim().max(500).optional().nullable() })
+    .optional(),
   dueDate: z.string().optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
   gstEnabled: z.boolean().optional(),
@@ -315,7 +332,35 @@ export async function PATCH(
         }
       : undefined;
 
-    const effectiveStatus = paymentStatus ?? body.status;
+    // ── REVERSE ────────────────────────────────────────────────────────
+    // Refused BEFORE anything is written, so a reversal that cannot happen
+    // never half-applies alongside the line edits in the same request.
+    if (body.reverse && !canReverseInvoice(existing.status)) {
+      return NextResponse.json(
+        { error: reverseRefusalReason(existing.status) ?? "This invoice cannot be reversed." },
+        { status: 409 }
+      );
+    }
+    const reversing = Boolean(body.reverse) && canReverseInvoice(existing.status);
+    if (reversing) {
+      // Back to editable, with the settled stamps cleared: outstandingOf()
+      // derives from paidAmount, so leaving them would show a reopened invoice
+      // as still settled and hide every payment action on it.
+      //
+      // metadata.payments[] is deliberately KEPT. The money genuinely arrived;
+      // what is being undone is the invoice's content, not its history, and an
+      // admin reconciling a bank statement afterwards needs that ledger intact.
+      statusData.paidAt = null;
+      statusData.paidDate = null;
+      statusData.paidAmount = null;
+      statusData.paymentMethod = null;
+      statusData.paymentReference = null;
+      statusData.sentAt = null;
+    }
+
+    const effectiveStatus = reversing
+      ? ClientInvoiceStatus.DRAFT
+      : (paymentStatus ?? body.status);
 
     // VOIDING RELEASES WHAT THE INVOICE CONSUMED. The owner's rule is that a
     // void means "resubmit a new invoice, the items stay unpaid" — and until
@@ -339,7 +384,7 @@ export async function PATCH(
       where: { id: params.id },
       data: {
         ...(effectiveStatus ? { status: effectiveStatus } : {}),
-        ...(body.status ? statusData : {}),
+        ...(body.status || reversing ? statusData : {}),
         ...paymentUpdate,
         ...(mergedMetadata !== undefined ? { metadata: mergedMetadata as any } : {}),
         ...(body.gstEnabled !== undefined ? { gstEnabled } : {}),
@@ -355,6 +400,39 @@ export async function PATCH(
         { invoiceId: params.id, ...(released as object) },
         "[invoice] voided; consumed items released for re-invoicing"
       );
+    }
+
+    // Reopening a settled invoice is a money correction, so it leaves a trail
+    // naming who did it and what state it came from. Written AFTER the update,
+    // like the override row above: a reversal that failed to apply must not
+    // leave a log entry claiming it happened. Best-effort — the reversal is
+    // already committed and failing the response now would tell the admin it
+    // did not work when it did.
+    if (reversing) {
+      await db.auditLog
+        .create({
+          data: {
+            userId: session.user.id,
+            action: "CLIENT_INVOICE_REVERSED",
+            entity: "ClientInvoice",
+            entityId: params.id,
+            after: {
+              from: existing.status,
+              to: ClientInvoiceStatus.DRAFT,
+              invoiceNumber: existing.invoiceNumber,
+              reason: body.reverse?.reason ?? null,
+              // Named explicitly so the trail distinguishes this from a void:
+              // the items stayed on this invoice.
+              releasedItems: false,
+            } as object,
+          },
+        })
+        .catch((err) =>
+          logger.error(
+            { err, invoiceId: params.id },
+            "[invoice] reversed but the audit entry could not be written"
+          )
+        );
     }
 
     if (body.recordPayment) {
