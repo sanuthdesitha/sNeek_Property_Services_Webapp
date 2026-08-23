@@ -219,6 +219,12 @@ export default async function CleanerTodayPage() {
         </p>
       </header>
 
+      {/* Today's brief comes FIRST. It is the orientation — weather, what the
+          day looks like, anything the office wants said before work starts —
+          and reading it after the job list is reading it too late to change
+          how the day is planned. */}
+      <DailyBriefing />
+
       {/* My day — one vertical timeline of today's jobs + outstanding offers */}
       {myDay.length > 0 ? (
         <section className="space-y-3">
@@ -375,9 +381,6 @@ export default async function CleanerTodayPage() {
           })}
         </section>
       ) : null}
-
-      {/* Cleaner daily briefing — concise plan-your-day panel with weather */}
-      <DailyBriefing />
 
       <section className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-3">
         <EStatCard label="Today" value={String(jobCount)} />

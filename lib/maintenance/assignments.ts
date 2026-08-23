@@ -15,6 +15,7 @@ import {
   diffAssignees,
   userRoleForAssigneeRole,
 } from "@/lib/maintenance/assignment-roles";
+import { mayAssignQa } from "@/lib/maintenance/instructions";
 
 /** Statuses that still count as work in front of the assignee. */
 export const OPEN_MAINTENANCE_STATUSES: MaintenanceStatus[] = [
@@ -31,6 +32,24 @@ const ASSIGNEE_SELECT = {
   assignedAt: true,
   removedAt: true,
   notifiedAt: true,
+  // The lifecycle. Without these the admin panel can only ever say "assigned"
+  // and "emailed", which does not distinguish somebody who is on their way from
+  // somebody who has not opened the message — the difference that decides
+  // whether the office needs to find a second person today.
+  acceptedAt: true,
+  declinedAt: true,
+  declineReason: true,
+  completedAt: true,
+  completionNote: true,
+  // The money, and any open argument about it.
+  payType: true,
+  payAmount: true,
+  payHours: true,
+  payPayer: true,
+  payChangeAmount: true,
+  payChangeReason: true,
+  payChangeStatus: true,
+  payChangeAt: true,
   user: { select: { id: true, name: true, email: true, phone: true, role: true, isActive: true } },
 } as const;
 
@@ -93,6 +112,8 @@ export async function setItemAssignees(input: {
   }
   const nextUserIds = wanted.filter((id) => eligibleIds.has(id));
 
+  await assertNoSelfReview({ itemId, role, userIds: nextUserIds });
+
   const existing = await db.maintenanceItemAssignment.findMany({
     where: { itemId, role, removedAt: null },
     select: { userId: true },
@@ -133,6 +154,80 @@ export async function setItemAssignees(input: {
   });
 
   return diff;
+}
+
+/**
+ * NOBODY INSPECTS THEIR OWN WORK. The failsafe, enforced on the write path.
+ *
+ * `mayAssignQa` has expressed this rule for a while, and nothing called it — so
+ * the rule existed in the test suite and nowhere a save could reach. This is
+ * where it becomes real.
+ *
+ * Blocked in BOTH directions, because a one-way check is defeated by the order
+ * of the saves: assign someone QA first, then cleaner, and a QA-only guard
+ * waves it through. The pair is what is illegal, not the sequence.
+ *
+ * A cleaner on the JOB this item came from counts too. The person who cleaned
+ * the room is the person whose work the QA visit is judging, whether or not
+ * they were also filed against the repair.
+ *
+ * Throws rather than silently dropping the name: an admin who ticked a box and
+ * saw it quietly untick would tick it again, and the third time would assume
+ * the system was broken rather than that it was refusing.
+ */
+async function assertNoSelfReview(input: {
+  itemId: string;
+  role: MaintenanceAssigneeRole;
+  userIds: string[];
+}): Promise<void> {
+  if (input.userIds.length === 0) return;
+  if (input.role === MaintenanceAssigneeRole.MAINTENANCE) return;
+
+  const opposite =
+    input.role === MaintenanceAssigneeRole.QA
+      ? MaintenanceAssigneeRole.CLEANER
+      : MaintenanceAssigneeRole.QA;
+
+  const [item, held] = await Promise.all([
+    db.propertyMaintenanceItem.findUnique({
+      where: { id: input.itemId },
+      select: { jobId: true },
+    }),
+    db.maintenanceItemAssignment.findMany({
+      where: { itemId: input.itemId, role: opposite, removedAt: null },
+      select: { userId: true },
+    }),
+  ]);
+
+  const conflicting = new Set(held.map((row) => row.userId));
+
+  // Only the QA direction consults the job: being on the clean disqualifies you
+  // from inspecting it, but having inspected a repair does not disqualify you
+  // from cleaning the property later.
+  if (input.role === MaintenanceAssigneeRole.QA && item?.jobId) {
+    const cleaners = await db.jobAssignment.findMany({
+      where: { jobId: item.jobId, removedAt: null },
+      select: { userId: true },
+    });
+    for (const row of cleaners) conflicting.add(row.userId);
+  }
+
+  const jobCleanerUserIds = Array.from(conflicting);
+  const blocked = input.userIds.filter(
+    (candidateUserId) => !mayAssignQa({ candidateUserId, jobCleanerUserIds })
+  );
+  if (blocked.length === 0) return;
+
+  const names = await db.user.findMany({
+    where: { id: { in: blocked } },
+    select: { name: true, email: true },
+  });
+  const who = names.map((u) => u.name ?? u.email ?? "that person").join(", ");
+  throw new Error(
+    input.role === MaintenanceAssigneeRole.QA
+      ? `${who} cleaned this work, so they cannot inspect it. Pick someone else for QA.`
+      : `${who} is the QA inspector on this item, so they cannot also do the cleaning. Remove them from QA first.`
+  );
 }
 
 /** Stamp the rows whose "you've been assigned" email actually went out. */

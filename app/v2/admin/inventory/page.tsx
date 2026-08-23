@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Role } from "@prisma/client";
 import {
   AlertTriangle,
+  ClipboardCheck,
   ClipboardList,
   Package,
   PackageCheck,
@@ -22,6 +23,7 @@ import { EstateItems } from "@/components/v2/admin/inventory/estate-items";
 import { EstateSuppliers } from "@/components/v2/admin/inventory/estate-suppliers";
 import { EstateOnHand } from "@/components/v2/admin/inventory/estate-on-hand";
 import { EstateStockRuns } from "@/components/v2/admin/inventory/estate-stock-runs";
+import { EstateScanTasks } from "@/components/v2/admin/inventory/estate-scan-tasks";
 import { EstateShoppingRuns } from "@/components/v2/admin/inventory/estate-shopping-runs";
 import { EstatePropertyMatrix } from "@/components/v2/admin/inventory/estate-property-matrix";
 import {
@@ -42,6 +44,7 @@ const TAB_KEYS: InventoryTab[] = [
   "properties",
   "on-hand",
   "stock-counts",
+  "scan-tasks",
   "shopping-runs",
   "suppliers",
 ];
@@ -156,17 +159,25 @@ export default async function EstateInventoryPage({
   const filter = normalizePropertyInventoryFilter(searchParams?.filter);
 
   const { rows: propertyRows, totals: propertyTotals } = await getPropertyOverview();
-  const [itemCount, openShoppingRuns, activeStockCounts, suppliers, onHandAgg] = await Promise.all([
-    db.inventoryItem.count({ where: { isActive: true } }),
-    db.shoppingRun.count({ where: { status: { in: PENDING_SHOPPING_STATUSES as any } } }),
-    db.stockRun.count({ where: { status: { in: PENDING_STOCK_RUN_STATUSES as any } } }),
-    listSupplierCatalog(),
-    db.heldStock.aggregate({
-      where: { status: "HELD", quantity: { gt: 0 } },
-      _sum: { quantity: true },
-      _count: true,
-    }),
-  ]);
+  const [itemCount, openShoppingRuns, activeStockCounts, openScanTasks, suppliers, onHandAgg] =
+    await Promise.all([
+      db.inventoryItem.count({ where: { isActive: true } }),
+      db.shoppingRun.count({ where: { status: { in: PENDING_SHOPPING_STATUSES as any } } }),
+      db.stockRun.count({ where: { status: { in: PENDING_STOCK_RUN_STATUSES as any } } }),
+      // Somebody has been asked and has not counted yet. Cancelled tasks are
+      // excluded because a withdrawn ask is not work anyone still owes.
+      //
+      // Caught, like the cleaner dashboard's copy of this count: ScanTask is a
+      // new table, and an environment running ahead of its migration should
+      // lose one tile rather than take down the entire inventory page.
+      db.scanTask.count({ where: { completedAt: null, cancelledAt: null } }).catch(() => 0),
+      listSupplierCatalog(),
+      db.heldStock.aggregate({
+        where: { status: "HELD", quantity: { gt: 0 } },
+        _sum: { quantity: true },
+        _count: true,
+      }),
+    ]);
 
   const lowStockLines = propertyRows.reduce((sum, row) => sum + row.lowStockItems.length, 0);
   const onHandUnits = Math.round((onHandAgg._sum.quantity ?? 0) * 100) / 100;
@@ -227,7 +238,7 @@ export default async function EstateInventoryPage({
         }
       />
 
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-7">
         <EKpiLink
           label="Active items"
           value={itemCount}
@@ -263,6 +274,13 @@ export default async function EstateInventoryPage({
           href="/v2/admin/inventory?tab=stock-counts"
         />
         <EKpiLink
+          label="Outstanding stock counts"
+          value={openScanTasks}
+          icon={<ClipboardCheck />}
+          tone={openScanTasks > 0 ? "warning" : "neutral"}
+          href="/v2/admin/inventory?tab=scan-tasks"
+        />
+        <EKpiLink
           label="Suppliers"
           value={suppliers.length}
           icon={<Truck />}
@@ -280,6 +298,7 @@ export default async function EstateInventoryPage({
         ) : null}
         {tab === "on-hand" ? <EstateOnHand catalog={onHandCatalog} /> : null}
         {tab === "stock-counts" ? <EstateStockRuns /> : null}
+        {tab === "scan-tasks" ? <EstateScanTasks /> : null}
         {tab === "shopping-runs" ? <EstateShoppingRuns /> : null}
         {tab === "suppliers" ? <EstateSuppliers /> : null}
       </div>

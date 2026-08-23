@@ -161,7 +161,13 @@ async function notifyAssignee(input: {
     const place = [input.property.name, input.property.suburb].filter(Boolean).join(", ");
     // Straight into the scanner for that property. Telling somebody to "open
     // the app and find stock count" is how a task becomes next week's problem.
-    const url = resolveAppUrl(`/v2/cleaner/stock-count/${input.property.id}`, input.req);
+    // ?task= is what lets the destination know which ask it is answering — it
+    // is how the count that follows gets credited back to this task instead of
+    // leaving it outstanding forever.
+    const url = resolveAppUrl(
+      `/v2/cleaner/stock-count/${input.property.id}?task=${input.task.id}`,
+      input.req,
+    );
     const due = input.task.dueAt
       ? new Intl.DateTimeFormat("en-AU", {
           timeZone: "Australia/Sydney",
