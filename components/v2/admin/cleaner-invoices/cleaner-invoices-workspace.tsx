@@ -7,10 +7,12 @@
  * Same endpoints as v1: GET /api/admin/cleaner-invoices, PATCH/DELETE
  * /api/admin/cleaner-invoices/[id], POST .../[id]/xero-push.
  */
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import {
   Loader2, RefreshCw, Undo2, Trash2, CheckCircle2, Send, Eye, FileSpreadsheet,
+  MessageSquareWarning,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -47,7 +49,7 @@ type Submission = {
   hours: number;
   totalAmount: number;
   jobCount: number;
-  status: "SUBMITTED" | "XERO_PUSHED" | "PAID_CLAIMED" | "PAID" | "VOID";
+  status: "SUBMITTED" | "CHANGES_REQUESTED" | "XERO_PUSHED" | "PAID_CLAIMED" | "PAID" | "VOID";
   xeroBillId: string | null;
   xeroExportedAt: string | null;
   lineData: any;
@@ -62,6 +64,10 @@ type Submission = {
   paidClaimedAt: string | null;
   paidClaimedNote: string | null;
   paidClaimedProofUrls?: EvidenceThumbItem[];
+  /** Set while the invoice sits with the payee for a fix; cleared the moment it
+   *  moves to any other status, so a stale note never explains a live invoice. */
+  changesRequestedAt: string | null;
+  changesRequestedNote: string | null;
 };
 
 /** Best-effort read of the cleaner's bank account from the snapshotted lineData. */
@@ -78,8 +84,11 @@ function bankFromLineData(lineData: any): string {
   return parts.join(" · ");
 }
 
-const STATUS_TONE: Record<Submission["status"], "info" | "success" | "gold" | "danger"> = {
+const STATUS_TONE: Record<Submission["status"], "info" | "success" | "gold" | "danger" | "warning"> = {
   SUBMITTED: "info",
+  // Warning, not danger: nothing is wrong with the system, the ball is simply
+  // back with the payee — and it must not read like a settled/void invoice.
+  CHANGES_REQUESTED: "warning",
   XERO_PUSHED: "gold",
   PAID_CLAIMED: "gold",
   PAID: "success",
@@ -87,11 +96,28 @@ const STATUS_TONE: Record<Submission["status"], "info" | "success" | "gold" | "d
 };
 const STATUS_LABEL: Record<Submission["status"], string> = {
   SUBMITTED: "Submitted",
+  CHANGES_REQUESTED: "Changes requested",
   XERO_PUSHED: "In Xero",
   PAID_CLAIMED: "Payment claimed",
   PAID: "Paid",
   VOID: "Reversed",
 };
+
+/** Statuses a send-back is allowed from.
+ *
+ *  SUBMITTED is the obvious one. XERO_PUSHED is included because the office
+ *  routinely spots the mistake AFTER pushing the draft bill, and the invoice is
+ *  still unpaid at that point — refusing there would leave the only remedy as a
+ *  reverse or a delete, neither of which tells the payee what to fix. The modal
+ *  says the Xero bill must be voided over there, because nothing here can.
+ *
+ *  Deliberately excluded: PAID and VOID (both finished), and PAID_CLAIMED —
+ *  the payee has said the money landed, and a send-back releases their items to
+ *  be billed again, which on money that already moved is a double payment. */
+const CHANGE_REQUEST_STATUSES: ReadonlySet<Submission["status"]> = new Set<Submission["status"]>([
+  "SUBMITTED",
+  "XERO_PUSHED",
+]);
 
 function money(v: number | null | undefined) {
   return `$${Number(v ?? 0).toFixed(2)}`;
@@ -100,6 +126,17 @@ function fmt(d: string | null) {
   if (!d) return "—";
   try {
     return format(new Date(d), "d MMM yyyy");
+  } catch {
+    return d;
+  }
+}
+/** A moment in time, pinned to the business timezone. An admin in another
+ *  timezone reading "sent back 21 Aug" off their own clock would argue with the
+ *  payee about a day that never existed. */
+function fmtStamp(d: string | null) {
+  if (!d) return "—";
+  try {
+    return formatInTimeZone(new Date(d), "Australia/Sydney", "d MMM yyyy, h:mma");
   } catch {
     return d;
   }
@@ -120,6 +157,8 @@ export function CleanerInvoicesWorkspace() {
   const [payNote, setPayNote] = useState("");
   const [payMethod, setPayMethod] = useState("BANK_TRANSFER");
   const [payDate, setPayDate] = useState("");
+  const [changesFor, setChangesFor] = useState<Submission | null>(null);
+  const [changesNote, setChangesNote] = useState("");
 
   function openPay(row: Submission) {
     setPayAmount(String(Number(row.totalAmount ?? 0).toFixed(2)));
@@ -176,6 +215,56 @@ export function CleanerInvoicesWorkspace() {
       );
       toast({ title: "Marked paid", description: `${money(paidAmount)} · ${CLEANER_PAY_METHOD_LABEL[payMethod] ?? payMethod}${payBank.trim() ? ` → ${payBank.trim()}` : ""}` });
       setPayFor(null);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  /**
+   * Send the invoice back to the payee with a reason.
+   *
+   * The note is mandatory on the endpoint, so the button that calls this is
+   * disabled until there is one — firing a request the API is guaranteed to
+   * reject would show the admin a validation error for a rule the screen never
+   * mentioned.
+   */
+  async function submitChangeRequest() {
+    if (!changesFor) return;
+    const id = changesFor.id;
+    const note = changesNote.trim();
+    if (!note) return;
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/admin/cleaner-invoices/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "CHANGES_REQUESTED", changesNote: note }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Verbatim: the endpoint's refusals name the exact field it rejected,
+        // and paraphrasing them here leaves the admin guessing what to fix.
+        toast({
+          title: "Could not request changes",
+          description: body.error ?? `Request failed (${res.status}).`,
+          variant: "destructive",
+        });
+        return;
+      }
+      const requestedAt = new Date().toISOString();
+      setRows((rs) =>
+        rs.map((r) =>
+          r.id === id
+            ? { ...r, status: "CHANGES_REQUESTED", changesRequestedAt: requestedAt, changesRequestedNote: note }
+            : r
+        )
+      );
+      toast({
+        title: "Sent back to the payee",
+        description: `${changesFor.cleanerName} has been emailed, and everything on this invoice is billable again.`,
+      });
+      setChangesFor(null);
+      setChangesNote("");
     } finally {
       setBusyId(null);
     }
@@ -275,6 +364,7 @@ export function CleanerInvoicesWorkspace() {
   const FILTERS: { key: typeof filter; label: string }[] = [
     { key: "all", label: "All" },
     { key: "SUBMITTED", label: "Submitted" },
+    { key: "CHANGES_REQUESTED", label: "Changes requested" },
     { key: "XERO_PUSHED", label: "In Xero" },
     { key: "PAID_CLAIMED", label: "Payment claimed" },
     { key: "PAID", label: "Paid" },
@@ -364,7 +454,8 @@ export function CleanerInvoicesWorkspace() {
           {filtered.map((r) => {
             const busy = busyId === r.id;
             return (
-              <tr key={r.id} className="border-t border-[hsl(var(--e-border))] align-middle">
+              <Fragment key={r.id}>
+              <tr className="border-t border-[hsl(var(--e-border))] align-middle">
                 {/* Blank here would read as a column that failed to load. These
                     invoices really have no number: they were sent before the
                     sequence existed, and back-filling would print a reference
@@ -410,6 +501,20 @@ export function CleanerInvoicesWorkspace() {
                         <CheckCircle2 className="h-3.5 w-3.5" /> Paid
                       </EButton>
                     ) : null}
+                    {CHANGE_REQUEST_STATUSES.has(r.status) ? (
+                      <EButton
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => {
+                          setChangesNote("");
+                          setChangesFor(r);
+                        }}
+                        title="Send this invoice back to the payee with a reason"
+                      >
+                        <MessageSquareWarning className="h-3.5 w-3.5" /> Request changes
+                      </EButton>
+                    ) : null}
                     {r.status !== "VOID" ? (
                       <EButton variant="outline" size="sm" disabled={busy} onClick={() => setConfirm({ kind: "void", row: r })}>
                         <Undo2 className="h-3.5 w-3.5" /> Reverse
@@ -427,6 +532,27 @@ export function CleanerInvoicesWorkspace() {
                   </div>
                 </td>
               </tr>
+              {/* What was actually asked for, on the row itself. A bare
+                  "Changes requested" badge makes the admin open a modal (or ring
+                  the payee) to remember what they sent it back for. */}
+              {r.status === "CHANGES_REQUESTED" ? (
+                <tr className="align-top">
+                  <td
+                    colSpan={8}
+                    className="bg-[hsl(var(--e-warning)/0.07)] px-4 py-2.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]"
+                  >
+                    <span className="font-[600] text-[hsl(var(--e-warning))]">
+                      Sent back {fmtStamp(r.changesRequestedAt)}
+                    </span>
+                    {r.changesRequestedNote ? (
+                      <span className="ml-2">“{r.changesRequestedNote}”</span>
+                    ) : (
+                      <span className="ml-2 text-[hsl(var(--e-text-faint))]">No reason recorded.</span>
+                    )}
+                  </td>
+                </tr>
+              ) : null}
+              </Fragment>
             );
           })}
         </ETableShell>
@@ -443,6 +569,23 @@ export function CleanerInvoicesWorkspace() {
               <span><span className="text-[hsl(var(--e-muted-foreground))]">Submitted:</span> {fmt(detail.createdAt)}</span>
               {detail.xeroBillId ? <span className="flex items-center gap-1 text-[hsl(var(--e-gold-ink))]"><FileSpreadsheet className="h-3.5 w-3.5" /> Xero {detail.xeroBillId.slice(0, 8)}…</span> : null}
             </div>
+            {detail.status === "CHANGES_REQUESTED" ? (
+              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.45)] bg-[hsl(var(--e-warning)/0.08)] p-3 text-[0.8125rem]">
+                <p className="mb-1 font-medium text-[hsl(var(--e-warning))]">
+                  Sent back for changes
+                  <span className="ml-2 font-normal text-[hsl(var(--e-muted-foreground))]">
+                    {fmtStamp(detail.changesRequestedAt)}
+                  </span>
+                </p>
+                <p className="whitespace-pre-wrap text-[hsl(var(--e-text-secondary))]">
+                  {detail.changesRequestedNote || "No reason recorded."}
+                </p>
+                <p className="mt-1.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  Everything on it was released, so the payee can rebuild the invoice for this period
+                  and resend it as a new submission.
+                </p>
+              </div>
+            ) : null}
             {detail.status === "PAID" ? (
               <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-success)/0.35)] bg-[hsl(var(--e-success)/0.06)] p-3 text-[0.8125rem]">
                 <p className="mb-1 font-medium text-[hsl(var(--e-success))]">Payment recorded</p>
@@ -585,6 +728,66 @@ export function CleanerInvoicesWorkspace() {
               <EButton variant="gold" onClick={submitPayment} disabled={busyId === payFor.id}>
                 {busyId === payFor.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 Mark paid
+              </EButton>
+            </div>
+          </div>
+        </EModal>
+      ) : null}
+
+      {/* Request changes — the note IS the feature. Sent back without one, the
+          same invoice comes straight back and nobody is any wiser. */}
+      {changesFor ? (
+        <EModal
+          open
+          onClose={() => setChangesFor(null)}
+          size="md"
+          eyebrow={changesFor.cleanerName}
+          title="Send this invoice back"
+        >
+          <div className="space-y-4">
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+              {changesFor.invoiceNumber ? `${changesFor.invoiceNumber} · ` : ""}
+              {money(changesFor.totalAmount)} · {fmt(changesFor.periodStart)} – {fmt(changesFor.periodEnd)}
+            </p>
+            <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+              The payee is emailed your note, and every job, adjustment, inspection and expense on this
+              invoice is released so they can correct it and resend.
+            </p>
+            {/* Nothing on this screen can reach into Xero. Saying so here is the
+                difference between a stale draft bill being voided and it sitting
+                there until someone pays it twice. */}
+            {changesFor.xeroBillId ? (
+              <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.45)] bg-[hsl(var(--e-warning)/0.08)] p-3 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                This invoice is already in Xero. Void the bill there as well — sending it back here
+                does not touch Xero, and the corrected invoice will arrive as a new submission.
+              </p>
+            ) : null}
+            <EField
+              label="What needs changing"
+              hint="Required. Name the line or the amount — the payee cannot guess which of them is wrong."
+            >
+              <ETextarea
+                rows={4}
+                value={changesNote}
+                onChange={(e) => setChangesNote(e.target.value)}
+                placeholder="e.g. The 14 Aug clean at Bondi is billed at 4h — the job record shows 2.5h."
+              />
+            </EField>
+            <div className="flex justify-end gap-2 pt-1">
+              <EButton variant="ghost" onClick={() => setChangesFor(null)} disabled={busyId === changesFor.id}>
+                Cancel
+              </EButton>
+              <EButton
+                variant="gold"
+                onClick={submitChangeRequest}
+                disabled={busyId === changesFor.id || changesNote.trim().length === 0}
+              >
+                {busyId === changesFor.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <MessageSquareWarning className="h-4 w-4" />
+                )}
+                Request changes
               </EButton>
             </div>
           </div>

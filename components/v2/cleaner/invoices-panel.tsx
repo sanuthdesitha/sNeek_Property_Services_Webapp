@@ -137,10 +137,43 @@ interface Submission {
   paidClaimedAt?: string | null;
   paidClaimedNote?: string | null;
   paidClaimedProofUrls?: EvidenceThumbItem[];
+  /** The office sent this one back. Cleared server-side the moment the invoice
+   *  moves on, so a note here always describes the CURRENT state. */
+  changesRequestedAt?: string | null;
+  changesRequestedNote?: string | null;
 }
 
 function money(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
+}
+
+/**
+ * Business-timezone renderings. Both are pinned to Australia/Sydney rather than
+ * the device clock: a payee travelling (or on a phone with the wrong timezone)
+ * would otherwise be told the office sent their invoice back on a different day
+ * than the office recorded, and reload a period a day out at either end.
+ */
+function sydneyStamp(iso: string) {
+  return new Date(iso).toLocaleString("en-AU", {
+    timeZone: "Australia/Sydney",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+function sydneyDay(iso: string) {
+  return new Date(iso).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" });
+}
+/** yyyy-MM-dd for a <input type="date">, in Sydney. en-CA is ISO-ordered. */
+function sydneyDateInput(iso: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
 }
 
 function isoLocal(d: Date) {
@@ -547,8 +580,70 @@ export function InvoicesPanel({
   const shoppingTimeRows = invoicePreview?.shoppingTimeRows ?? [];
   const removedCount = excludedJobIds.length + excludedRunIds.length;
 
+  // Invoices the office handed back. Surfaced at the TOP of the page, not just
+  // in the list at the bottom: this is work the payee has to redo before they
+  // are paid, and the list is below several screens of period-builder they have
+  // no reason to scroll past.
+  const returnedInvoices = useMemo(
+    () => submissions.filter((s) => s.status === "CHANGES_REQUESTED"),
+    [submissions]
+  );
+
+  /** Reload the builder onto a returned invoice's period. Its jobs, adjustments
+   *  and expenses were released when it was sent back, so they reappear here. */
+  function loadPeriodFor(s: Submission) {
+    setStartDate(sydneyDateInput(s.periodStart));
+    setEndDate(sydneyDateInput(s.periodEnd));
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   return (
     <div className="space-y-6">
+      {returnedInvoices.length > 0 ? (
+        <EAlert
+          tone="danger"
+          title={
+            returnedInvoices.length === 1
+              ? "Your invoice was sent back — it needs a change before you're paid"
+              : `${returnedInvoices.length} of your invoices were sent back and need changes`
+          }
+        >
+          <div className="space-y-3">
+            {returnedInvoices.map((s) => (
+              <div
+                key={`returned-${s.id}`}
+                className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger)/0.35)] bg-[hsl(var(--e-surface))] p-3"
+              >
+                <p className="text-[0.8125rem] font-[600] text-[hsl(var(--e-foreground))]">
+                  {s.invoiceNumber ? <span className="e-numeral">{s.invoiceNumber}</span> : "Your invoice"}
+                  <span className="mx-1.5 text-[hsl(var(--e-text-faint))]">·</span>
+                  {sydneyDay(s.periodStart)} – {sydneyDay(s.periodEnd)}
+                  <span className="mx-1.5 text-[hsl(var(--e-text-faint))]">·</span>
+                  {money(s.totalAmount)}
+                </p>
+                {/* The note is the whole reason this invoice came back. Shown in
+                    full and pre-wrapped — truncating it would send the payee to
+                    ring the office to read out the rest. */}
+                <p className="mt-1.5 whitespace-pre-wrap text-[0.875rem] text-[hsl(var(--e-foreground))]">
+                  {s.changesRequestedNote || "No reason was recorded — ask the office what to change."}
+                </p>
+                <p className="mt-1.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  Sent back {s.changesRequestedAt ? sydneyStamp(s.changesRequestedAt) : "recently"}. Everything on
+                  it — jobs, adjustments, inspections and shopping — is available to invoice again, so fix it
+                  and email a new invoice for the same period.
+                </p>
+                <div className="mt-2.5">
+                  <EButton size="sm" variant="outline" onClick={() => loadPeriodFor(s)}>
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Rebuild this period
+                  </EButton>
+                </div>
+              </div>
+            ))}
+          </div>
+        </EAlert>
+      ) : null}
+
       {missingProfileFields.length > 0 ? (
         <EAlert tone="warning" title="Complete your profile before emailing an invoice">
           <p>
@@ -1036,22 +1131,39 @@ export function InvoicesPanel({
           </ECardHeader>
           <ECardBody className="space-y-2 pt-0">
             {submissions.map((s) => {
+              const needsChanges = s.status === "CHANGES_REQUESTED";
               const label =
                 s.status === "PAID"
                   ? "Paid"
-                  : s.status === "PAID_CLAIMED"
-                    ? "Awaiting confirmation"
-                    : s.status === "XERO_PUSHED"
-                      ? "Processing"
-                      : "Submitted";
-              const tone: "success" | "info" | "warning" =
-                s.status === "PAID" ? "success" : s.status === "XERO_PUSHED" ? "info" : "warning";
+                  : needsChanges
+                    ? "Needs changes"
+                    : s.status === "PAID_CLAIMED"
+                      ? "Awaiting confirmation"
+                      : s.status === "XERO_PUSHED"
+                        ? "Processing"
+                        : "Submitted";
+              // Danger, not warning: every other state here is the office working
+              // through it. This one is the only one that is waiting on the payee.
+              const tone: "success" | "info" | "warning" | "danger" = needsChanges
+                ? "danger"
+                : s.status === "PAID"
+                  ? "success"
+                  : s.status === "XERO_PUSHED"
+                    ? "info"
+                    : "warning";
               // Only the payee's own unconfirmed invoices can be claimed. PAID
               // is already settled by the office, and a second claim on an
               // existing one would just be noise in the approval queue.
               const canClaimPaid = s.status === "SUBMITTED" || s.status === "XERO_PUSHED";
               return (
-                <div key={s.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                <div
+                  key={s.id}
+                  className={
+                    needsChanges
+                      ? "rounded-[var(--e-radius)] border-2 border-[hsl(var(--e-danger)/0.55)] bg-[hsl(var(--e-danger)/0.06)] p-3"
+                      : "rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3"
+                  }
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="min-w-0">
                       {/* Older submissions genuinely have no number — numbering
@@ -1065,11 +1177,11 @@ export function InvoicesPanel({
                           <span className="font-normal text-[hsl(var(--e-text-faint))]">Not numbered</span>
                         )}
                         <span className="mx-1.5 text-[hsl(var(--e-text-faint))]">·</span>
-                        {new Date(s.periodStart).toLocaleDateString("en-AU")} – {new Date(s.periodEnd).toLocaleDateString("en-AU")}
+                        {sydneyDay(s.periodStart)} – {sydneyDay(s.periodEnd)}
                       </p>
                       <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                         {s.jobCount} job{s.jobCount === 1 ? "" : "s"} · {Number(s.hours ?? 0).toFixed(1)}h · submitted{" "}
-                        {new Date(s.createdAt).toLocaleDateString("en-AU")}
+                        {sydneyDay(s.createdAt)}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1090,6 +1202,29 @@ export function InvoicesPanel({
                       ) : null}
                     </div>
                   </div>
+                  {/* Repeated here, not only in the banner above: this list is
+                      what a payee scrolls back to weeks later, and a row that
+                      just says "Needs changes" tells them nothing about which. */}
+                  {needsChanges ? (
+                    <div className="mt-2.5 border-t border-[hsl(var(--e-danger)/0.3)] pt-2.5">
+                      <p className="text-[0.75rem] font-[600] uppercase tracking-[0.06em] text-[hsl(var(--e-danger))]">
+                        What the office asked you to change
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap text-[0.8125rem] text-[hsl(var(--e-foreground))]">
+                        {s.changesRequestedNote || "No reason was recorded — ask the office what to change."}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <EButton size="sm" variant="outline" onClick={() => loadPeriodFor(s)}>
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          Rebuild this period
+                        </EButton>
+                        <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                          {s.changesRequestedAt ? `Sent back ${sydneyStamp(s.changesRequestedAt)} · ` : ""}
+                          its work is billable again
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
                   {/* What the payee sent with their claim, shown back to them so
                       a claim waiting on the office still explains itself. */}
                   {s.paidClaimedNote || (s.paidClaimedProofUrls?.length ?? 0) > 0 ? (
