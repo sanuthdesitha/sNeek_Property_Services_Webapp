@@ -10,6 +10,7 @@ import {
   resolvePickupReadinessFromConfirmations,
 } from "@/lib/laundry/pickup-readiness";
 import { generateJobReport } from "@/lib/reports/generator";
+import { resolveJobCleanHours } from "@/lib/properties/clean-hours";
 import { createCase } from "@/lib/cases/service";
 import { createQaReworkTransfer } from "@/lib/qa/rework-transfers";
 import { createReworkJobFromFailure } from "@/lib/qa/rework-jobs";
@@ -306,6 +307,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
               sofaBedCount: true,
               hasBalcony: true,
               assignedCleaningHours: true,
+              cleaningDurationMinutes: true,
               latitude: true,
               longitude: true,
             },
@@ -582,12 +584,15 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
           jobType: String(job.jobType),
           status: String(job.status),
           formPendingAfterClockOut: Boolean((job as any).formPendingAfterClockOut),
-          expectedHours:
-            Number(job.estimatedHours ?? 0) > 0
-              ? Number(job.estimatedHours)
-              : Number(job.property?.assignedCleaningHours ?? 0) > 0
-                ? Number(job.property?.assignedCleaningHours)
-                : null,
+          // Was job-then-assigned and nothing else, so a property carrying only
+          // cleaningDurationMinutes or the legacy onboarding value reported NO
+          // expected hours at all — and the sibling progress endpoint ordered
+          // the same two fields the other way round. One shared rule now.
+          expectedHours: resolveJobCleanHours(job, {
+            assignedCleaningHours: job.property?.assignedCleaningHours,
+            cleaningDurationMinutes: job.property?.cleaningDurationMinutes,
+            accessInfo: job.property?.accessInfo,
+          }),
           actualHours: actualMinutes > 0 ? Math.round((actualMinutes / 60) * 100) / 100 : null,
           isRework: Boolean((job as any).isRework),
         },
