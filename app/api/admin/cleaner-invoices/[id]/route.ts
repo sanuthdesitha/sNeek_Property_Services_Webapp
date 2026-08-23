@@ -151,6 +151,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // After the write and best-effort: the decision is already recorded, and
     // failing the response over a mail error would tell the admin the send-back
     // did not happen when it did.
+    // REMITTANCE ADVICE. Marking a payee invoice paid sent nothing, so somebody
+    // did the work, invoiced for it, and money arrived in their account with no
+    // idea which invoice it settled or whether it was the full amount. That is
+    // the question they then ask by message, every fortnight.
+    if (body.status === "PAID") {
+      void sendPayeeRemittance(params.id).catch((err) =>
+        logger.error(
+          { err, submissionId: params.id },
+          "[cleaner-invoice] marked paid but the remittance advice could not be sent"
+        )
+      );
+    }
+
     if (requiresChangesNote(body.status)) {
       await notifyPayeeOfChangeRequest(params.id, body.changesNote ?? "").catch((err) =>
         logger.error(
@@ -290,5 +303,67 @@ async function notifyPayeeOfChangeRequest(submissionId: string, note: string): P
       `<p><a href="${resolveAppUrl(href)}">Open your invoices</a></p>`,
       `<p>— ${escape(settings.companyName)}</p>`,
     ].join(""),
+  });
+}
+
+
+/**
+ * Tell a payee that money has been sent, and what it covers.
+ *
+ * Read AFTER the write so the figures are the ones now stored rather than the
+ * ones the request proposed — an admin who adjusted the amount would otherwise
+ * have the original emailed out.
+ */
+async function sendPayeeRemittance(submissionId: string): Promise<void> {
+  const submission = await db.cleanerInvoiceSubmission.findUnique({
+    where: { id: submissionId },
+    select: {
+      invoiceNumber: true,
+      periodStart: true,
+      periodEnd: true,
+      totalAmount: true,
+      paidAmount: true,
+      paidBankAccount: true,
+      paidNote: true,
+      paymentMethod: true,
+      paidDate: true,
+      cleanerId: true,
+    },
+  });
+  if (!submission) return;
+
+  const payee = await db.user.findUnique({
+    where: { id: submission.cleanerId },
+    select: { name: true, email: true },
+  });
+  if (!payee?.email) return;
+
+  const { sendEmailDetailed } = await import("@/lib/notifications/email");
+  const { getAppSettings } = await import("@/lib/settings");
+  const { buildPayeeRemittanceAdvice } = await import("@/lib/finance/payment-notices");
+  const settings = await getAppSettings();
+
+  const email = buildPayeeRemittanceAdvice({
+    recipientName: payee.name,
+    invoiceNumber: submission.invoiceNumber,
+    // paidAmount is what actually went out; totalAmount is what was asked for,
+    // and the two differ whenever the office settled a different figure.
+    amount: Number(submission.paidAmount ?? submission.totalAmount ?? 0),
+    method: submission.paymentMethod ?? "OTHER",
+    paidDate: submission.paidDate ?? new Date(),
+    bankAccount: submission.paidBankAccount,
+    note: submission.paidNote,
+    periodStart: submission.periodStart,
+    periodEnd: submission.periodEnd,
+    companyName: settings.companyName,
+  });
+
+  await sendEmailDetailed({
+    kind: "auto_invoice",
+    to: payee.email,
+    subject: email.subject,
+    html: email.html,
+    // Money that has left the business. A stale suppression must not eat it.
+    transactional: true,
   });
 }
