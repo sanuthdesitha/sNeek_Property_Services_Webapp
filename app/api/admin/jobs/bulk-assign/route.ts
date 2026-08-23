@@ -16,6 +16,7 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getJobReference } from "@/lib/jobs/job-number";
+import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 
 const schema = z.object({
   jobIds: z.array(z.string().trim().min(1)).min(1),
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = schema.parse(await req.json().catch(() => ({})));
     const jobIds = Array.from(new Set(body.jobIds));
+
 
     const [settings, cleaner, jobs] = await Promise.all([
       getAppSettings(),
@@ -44,7 +46,11 @@ export async function POST(req: NextRequest) {
           scheduledDate: true,
           startTime: true,
           dueTime: true,
-          property: { select: { name: true, suburb: true } },
+          // cleanerServiceRate for the pay snapshot below — the same fallback
+          // the single-job assign route applies. Without it here, the same
+          // property would pay one rate when assigned individually and another
+          // when assigned in bulk.
+          property: { select: { name: true, suburb: true, cleanerServiceRate: true } },
           assignments: {
             where: { removedAt: null },
             select: { userId: true, responseStatus: true },
@@ -52,6 +58,20 @@ export async function POST(req: NextRequest) {
         },
       }),
     ]);
+
+    // Same precedence and the same dispatch-time snapshot as the single-job
+    // assign route: per-cleaner job-type rate first, then the property's own.
+    // A stored 0 counts as unset — the property form offers no way to say "this
+    // one pays nothing". Defined here rather than inline so both the create and
+    // the update branch below cannot drift apart.
+    const payRateFor = (job: (typeof jobs)[number]) => {
+      return (
+        resolveAssignmentPayRate({
+          perCleanerRate: settings.cleanerJobHourlyRates?.[cleaner?.id ?? ""]?.[job.jobType],
+          propertyCleanerServiceRate: job.property?.cleanerServiceRate,
+        }) ?? undefined
+      );
+    };
 
     if (!cleaner) {
       return NextResponse.json({ error: "Cleaner not found." }, { status: 404 });
@@ -71,7 +91,7 @@ export async function POST(req: NextRequest) {
             jobId: job.id,
             userId: cleaner.id,
             isPrimary: job.assignments.length === 0,
-            payRate: settings.cleanerJobHourlyRates?.[cleaner.id]?.[job.jobType] ?? undefined,
+            payRate: payRateFor(job),
             offeredAt: changedAt,
             responseStatus: JobAssignmentResponseStatus.PENDING,
             assignedById: session.user.id,
@@ -79,7 +99,7 @@ export async function POST(req: NextRequest) {
           update: {
             removedAt: null,
             isPrimary: job.assignments.length === 0 || alreadyAssigned,
-            payRate: settings.cleanerJobHourlyRates?.[cleaner.id]?.[job.jobType] ?? undefined,
+            payRate: payRateFor(job),
             ...(existingAssignment
               ? {}
               : {

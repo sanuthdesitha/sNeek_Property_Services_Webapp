@@ -7,6 +7,7 @@ import {
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { derivePreStartJobStatus } from "@/lib/jobs/assignment-workflow";
+import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 
 type PrismaLikeClient = Prisma.TransactionClient | typeof db;
 
@@ -21,7 +22,12 @@ export async function assignPreferredCleanerIfAvailable(input: {
     getAppSettings(),
     client.property.findUnique({
       where: { id: input.propertyId },
-      select: { preferredCleanerUserId: true },
+      // cleanerServiceRate rides along for the pay snapshot below. This path
+      // auto-assigns on job creation, so leaving it out would mean the property
+      // rate applied to hand-assigned jobs and silently not to iCal ones — the
+      // same property paying two different rates depending on how the job was
+      // created.
+      select: { preferredCleanerUserId: true, cleanerServiceRate: true },
     }),
     client.job.findUnique({
       where: { id: input.jobId },
@@ -46,7 +52,15 @@ export async function assignPreferredCleanerIfAvailable(input: {
     return { assigned: false, reason: "preferred_cleaner_inactive" as const };
   }
 
-  const configuredRate = settings.cleanerJobHourlyRates?.[cleaner.id]?.[input.jobType] ?? undefined;
+  // Same precedence and the same dispatch-time snapshot as the admin assign
+  // route: per-cleaner job-type rate first, then the property's own rate. A
+  // stored 0 counts as unset — the property form has no way to say "this one
+  // pays nothing".
+  const configuredRate =
+    resolveAssignmentPayRate({
+      perCleanerRate: settings.cleanerJobHourlyRates?.[cleaner.id]?.[input.jobType],
+      propertyCleanerServiceRate: property?.cleanerServiceRate,
+    }) ?? undefined;
   const changedAt = new Date();
   await client.jobAssignment.upsert({
     where: { jobId_userId: { jobId: input.jobId, userId: cleaner.id } },

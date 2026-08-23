@@ -24,6 +24,7 @@ import {
 } from "@/lib/jobs/assignment-workflow";
 import { attachPendingAdminTasksToJob } from "@/lib/job-tasks/service";
 import { previewLifecycleEmail, sendLifecycleEmail } from "@/lib/notifications/lifecycle";
+import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 
 export async function POST(
   req: NextRequest,
@@ -47,7 +48,13 @@ export async function POST(
         cleanSkipStatus: true,
         // clientId: the reassignment confirm dialog sends through the client
         // comms endpoint, which is keyed by client.
-        property: { select: { name: true, suburb: true, clientId: true } },
+        // cleanerServiceRate feeds the pay snapshot below. Added to the
+        // EXISTING select rather than a second `property` key: a narrow select
+        // that omits it leaves the rate silently undefined rather than
+        // erroring, which is how it came to be dead config in the first place.
+        property: {
+          select: { name: true, suburb: true, clientId: true, cleanerServiceRate: true },
+        },
         assignments: {
           select: {
             id: true,
@@ -107,7 +114,32 @@ export async function POST(
       });
 
       for (const userId of userIds) {
-        const configuredRate = settings.cleanerJobHourlyRates?.[userId]?.[job.jobType] ?? null;
+        // PROPERTY RATE, CAPTURED THE SAME WAY THE PER-CLEANER ONE IS.
+        //
+        // `Property.cleanerServiceRate` was write-only dead config for its
+        // entire life: on the property form, saved by the API, documented at
+        // SYSTEM.md as overriding the hourly maths, and read by nothing. An
+        // owner setting it saw no effect and no error — the same shape as the
+        // three-hour pay bug.
+        //
+        // It lands HERE rather than in computeCleanerPay because payRate is
+        // already the dispatch-time snapshot, and every one of the eight things
+        // that computes pay reads it. Threading a live property lookup through
+        // all eight instead would mean eight narrow selects that must each
+        // remember to fetch it — and the first one that forgot would make an
+        // invoice disagree with a payroll run about the same job.
+        //
+        // Below the per-cleaner job-type rate: a rate negotiated with one
+        // person for one job type is a deliberate arrangement and a property
+        // must not silently overwrite it. Above nothing else, because from here
+        // computeCleanerPay falls through to the person's own default.
+        //
+        // A stored 0 is treated as unset. The property form offers no way to
+        // say "this property pays nothing", so 0 means nobody filled it in.
+        const configuredRate = resolveAssignmentPayRate({
+          perCleanerRate: settings.cleanerJobHourlyRates?.[userId]?.[job.jobType],
+          propertyCleanerServiceRate: job.property?.cleanerServiceRate,
+        });
         const existing = existingAssignmentsByUserId.get(userId);
         const isReoffered = !existing || Boolean(existing.removedAt);
         await tx.jobAssignment.upsert({
