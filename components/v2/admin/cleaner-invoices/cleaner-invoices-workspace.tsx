@@ -110,6 +110,7 @@ export function CleanerInvoicesWorkspace() {
   const [rows, setRows] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | Submission["status"]>("all");
+  const [query, setQuery] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Submission | null>(null);
   const [confirm, setConfirm] = useState<{ kind: "void" | "delete"; row: Submission } | null>(null);
@@ -194,10 +195,18 @@ export function CleanerInvoicesWorkspace() {
     load();
   }, []);
 
-  const filtered = useMemo(
-    () => (filter === "all" ? rows : rows.filter((r) => r.status === filter)),
-    [rows, filter]
-  );
+  // LOOKING AN INVOICE UP BY ITS NUMBER IS THE POINT OF NUMBERING THEM. This
+  // screen had a status filter and nothing else, so a payee ringing about
+  // "PAY-0041" left the admin scrolling a list. The name is matched too, since
+  // half the time the question arrives as "what did Sam send last month".
+  const filtered = useMemo(() => {
+    const byStatus = filter === "all" ? rows : rows.filter((r) => r.status === filter);
+    const needle = query.trim().toLowerCase();
+    if (!needle) return byStatus;
+    return byStatus.filter((r) =>
+      [r.invoiceNumber, r.cleanerName].some((field) => (field ?? "").toLowerCase().includes(needle))
+    );
+  }, [rows, filter, query]);
 
   const totals = useMemo(() => {
     const open = rows.filter((r) => r.status === "SUBMITTED");
@@ -297,9 +306,19 @@ export function CleanerInvoicesWorkspace() {
             </button>
           ))}
         </div>
-        <EButton variant="outline" size="sm" onClick={load}>
-          <RefreshCw className="h-4 w-4" /> Refresh
-        </EButton>
+        <div className="flex items-center gap-2">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Invoice number or name…"
+            aria-label="Search invoices by number or name"
+            className="h-8 w-52 rounded-[var(--e-radius-sm,0.5rem)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-2.5 text-[0.8125rem] text-[hsl(var(--e-foreground))] placeholder:text-[hsl(var(--e-text-faint))]"
+          />
+          <EButton variant="outline" size="sm" onClick={load}>
+            <RefreshCw className="h-4 w-4" /> Refresh
+          </EButton>
+        </div>
       </div>
 
       {loading ? (
@@ -309,11 +328,26 @@ export function CleanerInvoicesWorkspace() {
           </ECardBody>
         </ECard>
       ) : filtered.length === 0 ? (
-        <EEmptyState
-          eyebrow="Cleaner invoices"
-          title="Nothing here yet"
-          description="When cleaners email an invoice from their portal, it appears here for review and Xero export."
-        />
+        // "Nothing here yet" is only true when there is genuinely nothing. Said
+        // over a search that simply missed, it reads as "no invoices exist" and
+        // sends the admin off to ask why a payee's invoice never arrived.
+        rows.length > 0 ? (
+          <EEmptyState
+            eyebrow="Cleaner invoices"
+            title="No invoices match"
+            description={
+              query.trim()
+                ? `Nothing matching “${query.trim()}”. Clear the search or pick a different status.`
+                : "No invoices in this status. Try another one."
+            }
+          />
+        ) : (
+          <EEmptyState
+            eyebrow="Cleaner invoices"
+            title="Nothing here yet"
+            description="When cleaners email an invoice from their portal, it appears here for review and Xero export."
+          />
+        )
       ) : (
         <ETableShell
           headers={[
