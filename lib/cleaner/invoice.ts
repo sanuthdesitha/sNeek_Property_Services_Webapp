@@ -25,6 +25,7 @@ import {
   sumShoppingPay,
 } from "@/lib/finance/shopping-settlement";
 import { sydneyDayStart, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
+import { invoicePayeeKind } from "@/lib/invoicing/payee-kind";
 
 interface InvoiceOptions {
   userId: string;
@@ -881,7 +882,15 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   return {
     cleanerName: user.name ?? user.email,
     cleanerEmail: user.email,
-    payeeRole: (user as { role?: string }).role ?? undefined,
+    // DERIVED FROM THE CONTENTS, not copied from the account. A person who
+    // both cleans and inspects produces one invoice holding both kinds of line,
+    // and a scalar copied from User.role would describe only half of it — then
+    // get frozen into the snapshot at send time and label every Xero line
+    // wrongly for good.
+    payeeRole: invoicePayeeKind({
+      cleaningLineCount: rows.length,
+      inspectionLineCount: qaInspectionRows.length,
+    }),
     cleanerPhone: user.phone ?? undefined,
     cleanerAddress: addressParts.length ? addressParts.join(", ") : undefined,
     cleanerAbn: user.abn ?? undefined,

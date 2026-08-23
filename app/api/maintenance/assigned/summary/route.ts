@@ -28,7 +28,11 @@ export async function GET() {
       return NextResponse.json({ assigned: false, count: 0, role: null, href: null });
     }
 
-    const count = await countActiveAssignmentsForUser(session.user.id);
+    // Scoped to the hat this response is about. session.user.role is the ACTIVE
+    // role now, so a person who cleans and inspects gets the section for
+    // whichever they are currently acting as — and a count that matches what
+    // that section will actually list.
+    const count = await countActiveAssignmentsForUser(session.user.id, { role });
     return NextResponse.json({
       assigned: count > 0,
       count,

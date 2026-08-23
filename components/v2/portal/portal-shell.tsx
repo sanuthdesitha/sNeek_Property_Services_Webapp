@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { LookSwitchLink } from "@/components/look-switch-link";
+import { RoleSwitcher } from "@/components/v2/portal/role-switcher";
 import { LogOut, Menu, X } from "lucide-react";
 
 export interface NavItem {
@@ -120,6 +121,11 @@ export function PortalShell({
         })}
       </nav>
       <div className="border-t border-[hsl(var(--e-sidebar-hairline))] px-4 py-3">
+        {/* Which of their jobs they are currently doing. Renders nothing at all
+            for the overwhelming majority of accounts, which hold one role — it
+            sits above the look switch because changing PORTAL is a bigger move
+            than changing skin, and next to the identity it belongs to. */}
+        <RoleSwitcher />
         {/* Personal escape hatch to the classic app, independent of the house
             default set in Settings → Default look. */}
         <div className="mb-2">

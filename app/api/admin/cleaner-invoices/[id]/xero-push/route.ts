@@ -3,6 +3,11 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { pushCleanerBillToXero } from "@/lib/xero/client";
+import {
+  payeeKindFromSnapshot,
+  payeeKindLabel,
+  xeroLineFallbackDescription,
+} from "@/lib/invoicing/payee-kind";
 
 function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -29,12 +34,18 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       select: { name: true, email: true, phone: true, role: true },
     });
 
-    // The rail carries two kinds of payee (CLEANER, QA_INSPECTOR). Label the
-    // Xero bill for what it actually is — a QA inspector's bill can contain no
-    // cleaning at all. lineData.payeeRole is the snapshot written at send time;
-    // fall back to the user's current role for invoices raised before it existed.
-    const payeeRole = (data.payeeRole as string | undefined) ?? cleaner?.role ?? null;
-    const payeeLabel = payeeRole === Role.QA_INSPECTOR ? "QA inspector" : "Cleaner";
+    // What this bill actually CONTAINS, read off the snapshot written at send
+    // time. Historical invoices stored a bare Role there and are interpreted
+    // rather than rewritten — the snapshot is the document that was sent.
+    //
+    // A person may now both clean and inspect, so one bill can hold both kinds
+    // of line. The invoice-level label names the payee; the LINE-level label
+    // below follows whichever stream produced each line, which is the part that
+    // was previously wrong.
+    const payeeKind = payeeKindFromSnapshot(
+      (data.payeeRole as string | undefined) ?? cleaner?.role ?? null
+    );
+    const payeeLabel = payeeKindLabel(payeeKind);
 
     const result = await pushCleanerBillToXero({
       cleanerName: contact.name || cleaner?.name || payeeLabel,
@@ -43,8 +54,22 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       cleanerAddress: contact.address || undefined,
       reference: `${payeeLabel} invoice ${isoDate(sub.periodStart)} – ${isoDate(sub.periodEnd)}`,
       lineItems: lines.map((l: any) => ({
+        // PER LINE, from the tag the send route stamped on it. Previously ONE
+        // label derived from the account's role was applied to every line, so a
+        // bill holding both cleans and inspections described all of it as one
+        // kind — the wrong description against real money, found at
+        // reconciliation rather than at send.
+        //
+        // Invoices sent before the tag existed have no `kind`; they fall back to
+        // the invoice-level kind, which for them is accurate because a person
+        // could only be one thing when they were raised.
         description: String(
-          l.description ?? (payeeRole === Role.QA_INSPECTOR ? "QA inspection services" : "Cleaning services")
+          l.description ??
+            xeroLineFallbackDescription(
+              l.kind === "INSPECTION" || (!l.kind && payeeKind === "INSPECTIONS")
+                ? "INSPECTION"
+                : "CLEANING"
+            )
         ),
         quantity: Number(l.quantity ?? 1),
         unitAmount: Number(l.unitAmount ?? 0),

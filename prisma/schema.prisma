@@ -744,6 +744,10 @@ model User {
   emailVerified DateTime?
   image         String?
   passwordHash  String?
+  /// The PRIMARY role. Deliberately unchanged by multi-role: it decides which
+  /// portal somebody lands in, it is what every historical row was written
+  /// against, and turning it into an array would have meant rewriting 848
+  /// authorisation call sites at once. Extra roles live in `extraRoles`.
   role          Role      @default(CLEANER)
   phone         String?
   hourlyRate    Float?
@@ -793,6 +797,9 @@ model User {
   maintenanceWorker            MaintenanceWorker?          @relation("MaintenanceWorkerUser")
   maintenanceWorkersCreated    MaintenanceWorker[]         @relation("MaintenanceWorkerCreatedBy")
   maintenanceItemAssignments     MaintenanceItemAssignment[] @relation("MaintenanceItemAssignee")
+  /// Additional roles this person may act as, beyond their primary one.
+  extraRoles                     UserRole[]                  @relation("UserRoleHolder")
+  grantedUserRoles               UserRole[]                  @relation("UserRoleGrantedBy")
   maintenanceItemAssignmentsMade MaintenanceItemAssignment[] @relation("MaintenanceItemAssignedBy")
   mediaOverrideRequests        MediaOverrideRequest[]      @relation("MediaOverrideRequestedBy")
   mediaOverrideDecisions       MediaOverrideRequest[]      @relation("MediaOverrideDecidedBy")
@@ -3251,6 +3258,40 @@ model InvoiceSequence {
   /// Zero-padding width, so text sorting matches numeric order.
   padding    Int      @default(4)
   updatedAt  DateTime @updatedAt
+}
+
+/// A ROLE SOMEBODY MAY ACT AS, BEYOND THEIR PRIMARY ONE.
+///
+/// One row is one person wearing one extra hat. A cleaner who also inspects
+/// holds Role.CLEANER as their primary and one row here for QA_INSPECTOR.
+///
+/// A JOIN TABLE RATHER THAN AN ARRAY COLUMN, for the same reason
+/// MaintenanceItemAssignment is one: each grant carries its own provenance —
+/// when it was given and by whom — and an array of enums cannot answer "who
+/// made this person an inspector, and when".
+///
+/// `User.role` STAYS THE PRIMARY and is not duplicated here. That is what
+/// decides which portal they land in, it is what every historical row was
+/// written against, and keeping it means a single-role account behaves exactly
+/// as it did before this table existed.
+///
+/// REVOKING IS DELETING. Unlike JobAssignment there is no `removedAt`: a role
+/// somebody no longer holds must stop granting access immediately and
+/// completely, and a soft-deleted row is one forgotten `where` clause away from
+/// still doing so. The audit log records the revocation.
+model UserRole {
+  id          String   @id @default(cuid())
+  userId      String
+  role        Role
+  grantedAt   DateTime @default(now())
+  grantedById String?
+
+  user      User  @relation("UserRoleHolder", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User? @relation("UserRoleGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  /// One row per person per role. Granting twice is not two grants.
+  @@unique([userId, role])
+  @@index([userId])
 }
 
 model ClientInvoice {

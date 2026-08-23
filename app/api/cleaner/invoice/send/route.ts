@@ -102,12 +102,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Accounts email is not configured." }, { status: 400 });
     }
     // Snapshot the invoice so admin can review it + push it to Xero as a bill.
+    // `kind` is stamped per line at build time, because this is the only place
+    // that still knows which stream produced it. Downstream — the Xero push in
+    // particular — otherwise has to infer it from the description text or fall
+    // back to one label for the whole bill, and under multi-role one bill can
+    // carry cleans AND inspections. A guessed label lands in the accounts.
     const billLines = [
-      ...data.rows.map((r) => ({ description: `${r.date} · ${r.property} · ${r.jobName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.extraLineRows.map((r) => ({ description: `Extra · ${r.date} · ${r.description}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.qaInspectionRows.map((r) => ({ description: `QA inspection · ${r.date} · ${r.property}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.expenseRows.map((r) => ({ description: `Shopping reimbursement · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
-      ...data.shoppingTimeRows.map((r) => ({ description: `Shopping time · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.rows.map((r) => ({ kind: "CLEANING" as const, description: `${r.date} · ${r.property} · ${r.jobName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.extraLineRows.map((r) => ({ kind: "CLEANING" as const, description: `Extra · ${r.date} · ${r.description}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.qaInspectionRows.map((r) => ({ kind: "INSPECTION" as const, description: `QA inspection · ${r.date} · ${r.property}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.expenseRows.map((r) => ({ kind: "CLEANING" as const, description: `Shopping reimbursement · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.shoppingTimeRows.map((r) => ({ kind: "CLEANING" as const, description: `Shopping time · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
     ].filter((l) => Number.isFinite(l.unitAmount));
     const lineData = {
       contact: {

@@ -78,6 +78,11 @@ export default withAuth(
     const lookOverride = parsePortalVersion(req.cookies.get(PORTAL_VERSION_COOKIE)?.value);
 
     let role = token?.role as Role | undefined;
+    // Every role this person may act as. `role` above stays the ACTIVE one and
+    // decides where they LAND; this list decides where they are ALLOWED. A
+    // cleaner who also inspects must be able to open /v2/qa without first
+    // flicking a switch they cannot reach from outside the portal.
+    let heldRoles: Role[] | undefined;
     let houseLook: PortalVersion | undefined;
     if (token) {
       const validation = await validateActiveSession(req);
@@ -85,6 +90,7 @@ export default withAuth(
         return applySecurityHeaders(NextResponse.redirect(new URL("/api/auth/local-signout", req.url)));
       }
       role = validation.role ?? role;
+      heldRoles = validation.heldRoles ?? (role ? [role] : undefined);
       houseLook = validation.defaultPortalVersion;
 
       const isForcePasswordPage = pathname === "/force-password-reset";
@@ -170,7 +176,10 @@ export default withAuth(
       if (pathname === "/v2/onboarding") {
         return applySecurityHeaders(NextResponse.next());
       }
-      const isAdminOps = role === Role.ADMIN || role === Role.OPS_MANAGER;
+      // Asked of every role they HOLD, not just the active one — the same
+      // "may I?" / "where am I?" split the session layer makes.
+      const has = (target: Role) => (heldRoles ?? (role ? [role] : [])).includes(target);
+      const isAdminOps = has(Role.ADMIN) || has(Role.OPS_MANAGER);
       if (!isAdminOps) {
         const ownsPortal =
           // V1 — a VA works inside the client portal on their client's behalf.
@@ -178,53 +187,58 @@ export default withAuth(
           // do once inside is requireClientPortal()'s job
           // (lib/auth/client-portal.ts), which is the only place that reads the
           // team's permissions and property scope.
-          (pathname.startsWith("/v2/client") && (role === Role.CLIENT || role === Role.VA)) ||
-          (pathname.startsWith("/v2/cleaner") && role === Role.CLEANER) ||
-          (pathname.startsWith("/v2/laundry") && role === Role.LAUNDRY) ||
-          (pathname.startsWith("/v2/qa") && role === Role.QA_INSPECTOR) ||
-          (pathname.startsWith("/v2/maintenance") && role === Role.MAINTENANCE);
+          (pathname.startsWith("/v2/client") && (has(Role.CLIENT) || has(Role.VA))) ||
+          (pathname.startsWith("/v2/cleaner") && has(Role.CLEANER)) ||
+          (pathname.startsWith("/v2/laundry") && has(Role.LAUNDRY)) ||
+          (pathname.startsWith("/v2/qa") && has(Role.QA_INSPECTOR)) ||
+          (pathname.startsWith("/v2/maintenance") && has(Role.MAINTENANCE));
         if (!ownsPortal) {
           return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
         }
       }
     }
 
+    // The v1 gates ask the same "may I?" question as the v2 block above. Kept
+    // as its own binding rather than reusing the one scoped inside that block,
+    // so a future edit to either cannot silently change the other.
+    const holds = (target: Role) => (heldRoles ?? (role ? [role] : [])).includes(target);
+
     // Admin routes
     if (pathname.startsWith("/admin")) {
-      if (role !== Role.ADMIN && role !== Role.OPS_MANAGER) {
+      if (!holds(Role.ADMIN) && !holds(Role.OPS_MANAGER)) {
         return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
       }
       // Certain admin-only sub-routes
       if (
         (pathname.startsWith("/admin/settings/pricebook") ||
           pathname.startsWith("/admin/settings/pay-rates")) &&
-        role !== Role.ADMIN
+        !holds(Role.ADMIN)
       ) {
         return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
       }
     }
 
     // Cleaner routes
-    if (pathname.startsWith("/cleaner") && role !== Role.CLEANER) {
+    if (pathname.startsWith("/cleaner") && !holds(Role.CLEANER)) {
       return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
     }
 
     // Client routes — a VA enters the same portal as the client they act for.
-    if (pathname.startsWith("/client") && role !== Role.CLIENT && role !== Role.VA) {
+    if (pathname.startsWith("/client") && !holds(Role.CLIENT) && !holds(Role.VA)) {
       return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
     }
 
     // Laundry routes
-    if (pathname.startsWith("/laundry") && role !== Role.LAUNDRY) {
+    if (pathname.startsWith("/laundry") && !holds(Role.LAUNDRY)) {
       return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
     }
 
     // Maintenance routes — workers, plus admin/ops for oversight
     if (
       pathname.startsWith("/maintenance") &&
-      role !== Role.MAINTENANCE &&
-      role !== Role.ADMIN &&
-      role !== Role.OPS_MANAGER
+      !holds(Role.MAINTENANCE) &&
+      !holds(Role.ADMIN) &&
+      !holds(Role.OPS_MANAGER)
     ) {
       return applySecurityHeaders(NextResponse.redirect(new URL("/unauthorized", req.url)));
     }
@@ -363,12 +377,13 @@ async function validateActiveSession(req: NextRequestWithAuth) {
     });
 
     if (!response.ok) {
-      return { valid: false as const, role: undefined };
+      return { valid: false as const, role: undefined, heldRoles: undefined };
     }
 
     const data = (await response.json()) as {
       valid: boolean;
       role?: Role;
+      heldRoles?: Role[];
       requiresPasswordReset?: boolean;
       requiresOnboarding?: boolean;
       defaultPortalVersion?: PortalVersion;
@@ -376,6 +391,7 @@ async function validateActiveSession(req: NextRequestWithAuth) {
     return {
       valid: data.valid === true,
       role: data.role as Role | undefined,
+      heldRoles: Array.isArray(data.heldRoles) ? (data.heldRoles as Role[]) : undefined,
       requiresPasswordReset: data.requiresPasswordReset === true,
       requiresOnboarding: data.requiresOnboarding === true,
       // The house look rides along on this call — middleware is edge and
@@ -386,6 +402,11 @@ async function validateActiveSession(req: NextRequestWithAuth) {
     return {
       valid: "indeterminate" as const,
       role: req.nextauth.token?.role as Role | undefined,
+      // No extra roles known on a failed call. Falling back to the token's
+      // single role is the safe direction: it can only ever grant LESS than the
+      // person actually holds, so a blip locks somebody out of a second portal
+      // for a moment rather than letting anyone into one they do not own.
+      heldRoles: undefined,
       requiresPasswordReset: false,
       requiresOnboarding: false,
       // Unknown → the caller falls back to the classic app rather than
