@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { ClientInvoiceStatus, JobStatus, JobType } from "@prisma/client";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
@@ -9,6 +8,8 @@ import { publicUrl } from "@/lib/s3";
 import { getAppSettings } from "@/lib/settings";
 import { calculateGstBreakdown } from "@/lib/pricing/gst";
 import { computeClientCharge } from "@/lib/finance/job-money";
+import { issueInvoiceNumber } from "@/lib/billing/invoice-sequence";
+import { buildMaintenanceInvoiceLines } from "@/lib/billing/maintenance-billing";
 
 /**
  * Jobs eligible to be billed on a client invoice: any job that has actually
@@ -109,9 +110,16 @@ export async function upsertPropertyClientRate(input: {
   });
 }
 
+/**
+ * The next number on the CLIENT sequence.
+ *
+ * Was `INV-<yyyyMMdd>-<6 random hex>`, which no accountant could look up and
+ * which could collide with itself against the UNIQUE column with no retry. The
+ * allocator falls back to that old format if the sequence table is unreachable,
+ * so an environment whose migration has not run still issues invoices.
+ */
 async function nextInvoiceNumber() {
-  const datePart = format(new Date(), "yyyyMMdd");
-  return `INV-${datePart}-${randomUUID().slice(0, 6).toUpperCase()}`;
+  return issueInvoiceNumber("CLIENT");
 }
 
 /**
@@ -360,9 +368,70 @@ export async function generateClientInvoice(input: {
       settlementId: string;
     }>;
 
-  const allLines = [...lines, ...shoppingLines.map(({ settlementId, ...line }) => line)];
+  // REPAIRS THE CLIENT AGREED TO COVER. `payPayer: "CLIENT"` has always meant
+  // "bill this on" and nothing has ever billed it, so an agreed repair was paid
+  // out and never charged. The query is deliberately narrow — this client's
+  // properties, completed work, never billed before — and the rule that decides
+  // what actually makes it onto a line is pure, in ./maintenance-billing.
+  const maintenanceAssignments = await db.maintenanceItemAssignment.findMany({
+    where: {
+      removedAt: null,
+      payPayer: "CLIENT",
+      completedAt: { not: null },
+      includedInClientInvoiceId: null,
+      item: {
+        propertyId: input.propertyId ? input.propertyId : undefined,
+        property: { clientId: client.id },
+      },
+    },
+    select: {
+      id: true,
+      payType: true,
+      payAmount: true,
+      payHours: true,
+      payPayer: true,
+      completedAt: true,
+      includedInClientInvoiceId: true,
+      item: {
+        select: {
+          title: true,
+          propertyId: true,
+          property: { select: { clientId: true } },
+        },
+      },
+    },
+    take: 500,
+  });
+
+  const maintenanceLines = buildMaintenanceInvoiceLines({
+    assignments: maintenanceAssignments,
+    clientId: client.id,
+    propertyId: input.propertyId ?? null,
+    periodStart: input.periodStart ?? null,
+    periodEnd: input.periodEnd ?? null,
+  });
+
+  const allLines = [
+    ...lines,
+    ...shoppingLines.map(({ settlementId, ...line }) => line),
+    // propertyId is carried through so the invoice can group the repair under
+    // the right property — a maintenance charge with no property on a
+    // multi-property invoice is a line the client cannot place.
+    ...maintenanceLines.map(({ assignmentId, ...line }) => ({
+      jobId: null,
+      shoppingRunId: null,
+      note: null,
+      ...line,
+    })),
+  ];
 
   if (allLines.length === 0) {
+    // WORDING IS LOAD-BEARING. lib/finance/auto-invoice.ts matches this string
+    // with /No billable completed jobs/i to tell "nothing to bill this period"
+    // apart from a real failure, and advance the cadence checkpoint quietly.
+    // Rewording it turns every empty period into a logged error and stalls the
+    // client's invoicing schedule. The sentence now covers shopping and
+    // maintenance too, but the first four words must not change.
     throw new Error("No billable completed jobs found for the selected client and period.");
   }
 
@@ -388,7 +457,11 @@ export async function generateClientInvoice(input: {
       gstAmount,
       totalAmount,
       gstEnabled: gstFlag,
-      metadata: { source: "job-rate-generator", shoppingRunCount: shoppingLines.length },
+      metadata: {
+        source: "job-rate-generator",
+        shoppingRunCount: shoppingLines.length,
+        maintenanceCount: maintenanceLines.length,
+      },
       lines: { create: allLines },
     },
     include: {
@@ -416,6 +489,17 @@ export async function generateClientInvoice(input: {
       await tx.shoppingSettlement.updateMany({
         where: { id: { in: shoppingLines.map((line) => line.settlementId) } },
         data: { includedInClientInvoiceId: created.id },
+      });
+    }
+
+    // Inside the SAME transaction as the invoice, for the same reason the
+    // shopping stamp is: a crash between the two would leave these repairs
+    // billable again, and the second invoice would look every bit as legitimate
+    // as the first. The only person who would notice is the client.
+    if (maintenanceLines.length > 0) {
+      await tx.maintenanceItemAssignment.updateMany({
+        where: { id: { in: maintenanceLines.map((line) => line.assignmentId) } },
+        data: { includedInClientInvoiceId: created.id, includedInClientInvoiceAt: new Date() },
       });
     }
 

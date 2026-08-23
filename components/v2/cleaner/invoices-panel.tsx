@@ -124,6 +124,8 @@ interface InvoicePreview {
 
 interface Submission {
   id: string;
+  /** Null on every invoice submitted before numbering existed — see the render. */
+  invoiceNumber?: string | null;
   periodStart: string;
   periodEnd: string;
   hours: number;
@@ -1052,7 +1054,17 @@ export function InvoicesPanel({
                 <div key={s.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="min-w-0">
+                      {/* Older submissions genuinely have no number — numbering
+                          started after they were sent, and inventing one would
+                          put a reference on a document that never carried it.
+                          Said out loud so it does not read as a broken field. */}
                       <p className="text-[0.875rem] font-[550]">
+                        {s.invoiceNumber ? (
+                          <span className="e-numeral">{s.invoiceNumber}</span>
+                        ) : (
+                          <span className="font-normal text-[hsl(var(--e-text-faint))]">Not numbered</span>
+                        )}
+                        <span className="mx-1.5 text-[hsl(var(--e-text-faint))]">·</span>
                         {new Date(s.periodStart).toLocaleDateString("en-AU")} – {new Date(s.periodEnd).toLocaleDateString("en-AU")}
                       </p>
                       <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">

@@ -927,12 +927,20 @@ function formatCurrency(value: number) {
   return `$${value.toFixed(2)}`;
 }
 
-export function buildCleanerInvoiceHtml(data: CleanerInvoiceData) {
-  // Stable, human-readable invoice reference derived from the billing period.
-  const invoiceNumber = `INV-${data.start.toISOString().slice(0, 10).replace(/-/g, "")}-${data.end
-    .toISOString()
-    .slice(0, 10)
-    .replace(/-/g, "")}`;
+export function buildCleanerInvoiceHtml(data: CleanerInvoiceData, issuedNumber?: string | null) {
+  // The real number off the CLEANER sequence, once one has been issued.
+  //
+  // The period-derived reference below is the fallback, and it is only adequate
+  // for a preview: it is built purely from the date range, so every payee
+  // billing the same fortnight produced the SAME "invoice number" on their PDF.
+  // Accounts receiving four documents all headed INV-20260801-20260815 cannot
+  // tell them apart, let alone quote one on a payment.
+  const invoiceNumber =
+    issuedNumber?.trim() ||
+    `INV-${data.start.toISOString().slice(0, 10).replace(/-/g, "")}-${data.end
+      .toISOString()
+      .slice(0, 10)
+      .replace(/-/g, "")}`;
   // When hours are hidden, EVERY hours-bearing column disappears — Paid Hours,
   // Hours Spent, and the Hours Changed override note (which prints hour values).
   // This is the amount cleaners send to accounts, so no hour may leak through.

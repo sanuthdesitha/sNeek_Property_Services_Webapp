@@ -19,6 +19,10 @@ export async function GET() {
       where: { cleanerId: session.user.id },
       select: {
         id: true,
+        // Selected explicitly: this list is a narrow `select`, so leaving it out
+        // does not error — the field simply arrives undefined and the payee's
+        // invoice number renders as a blank.
+        invoiceNumber: true,
         periodStart: true,
         periodEnd: true,
         hours: true,

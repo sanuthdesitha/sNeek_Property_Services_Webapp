@@ -35,6 +35,9 @@ const CLEANER_PAY_METHOD_LABEL: Record<string, string> = Object.fromEntries(
 type LineRow = { label?: string; description?: string; hours?: number; rate?: number; amount?: number; jobNumber?: string };
 type Submission = {
   id: string;
+  /** From the CLEANER sequence. Null on everything submitted before numbering
+   *  existed — those invoices went out without a number and never had one. */
+  invoiceNumber: string | null;
   cleanerId: string;
   cleanerName: string;
   /** CLEANER or QA_INSPECTOR — inspectors self-invoice on this same rail. */
@@ -314,6 +317,7 @@ export function CleanerInvoicesWorkspace() {
       ) : (
         <ETableShell
           headers={[
+            { label: "Invoice" },
             { label: "Cleaner" },
             { label: "Period" },
             { label: "Jobs" },
@@ -327,6 +331,17 @@ export function CleanerInvoicesWorkspace() {
             const busy = busyId === r.id;
             return (
               <tr key={r.id} className="border-t border-[hsl(var(--e-border))] align-middle">
+                {/* Blank here would read as a column that failed to load. These
+                    invoices really have no number: they were sent before the
+                    sequence existed, and back-filling would print a reference
+                    the payee never received. */}
+                <td className="px-4 py-3 text-[0.8125rem]">
+                  {r.invoiceNumber ? (
+                    <span className="e-numeral">{r.invoiceNumber}</span>
+                  ) : (
+                    <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Not numbered</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-[0.8125rem] font-medium">
                   {r.cleanerName}
                   {/* An inspections-only invoice shows 0 jobs / 0 hours — without
@@ -385,7 +400,7 @@ export function CleanerInvoicesWorkspace() {
 
       {/* Line detail */}
       {detail ? (
-        <EModal open onClose={() => setDetail(null)} size="wide" eyebrow={detail.cleanerName} title={`Invoice · ${fmt(detail.periodStart)} – ${fmt(detail.periodEnd)}`}>
+        <EModal open onClose={() => setDetail(null)} size="wide" eyebrow={detail.cleanerName} title={`${detail.invoiceNumber ?? "Invoice (not numbered)"} · ${fmt(detail.periodStart)} – ${fmt(detail.periodEnd)}`}>
           <div className="space-y-4">
             <div className="flex flex-wrap gap-4 text-[0.8125rem]">
               <span><span className="text-[hsl(var(--e-muted-foreground))]">Jobs:</span> {detail.jobCount}</span>

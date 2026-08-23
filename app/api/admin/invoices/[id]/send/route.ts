@@ -19,6 +19,34 @@ export async function POST(
       return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
     }
 
+    // PAID and VOID are terminal, and this route was ignoring that — it set
+    // SENT unconditionally. So sending a voided invoice moved it back to SENT,
+    // putting a cancelled document back into the client's outstanding balance
+    // and into the receivables figure. Emailing a PAID one does the same in
+    // reverse: the payment stamps survive on a row the rest of the system now
+    // reads as unpaid.
+    if (
+      invoice.status === ClientInvoiceStatus.VOID ||
+      invoice.status === ClientInvoiceStatus.PAID
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            invoice.status === ClientInvoiceStatus.VOID
+              ? "This invoice is void. Generate a replacement rather than sending it again."
+              : "This invoice is already paid. Sending it again would reopen it as unpaid.",
+        },
+        { status: 409 }
+      );
+    }
+
+    // Chasing a PARTLY PAID invoice by emailing it again is routine, so the
+    // send is allowed — but the status must NOT move. Writing SENT here would
+    // discard the fact that money has already come in against it, which is
+    // exactly what the graph refuses when it says PART_PAID cannot go back to
+    // SENT. Only `sentAt` is restamped.
+    const keepsStatus = invoice.status === ClientInvoiceStatus.PART_PAID;
+
     const body = await req.json().catch(() => ({}));
     const explicitTo = typeof body?.to === "string" ? body.to.trim() : "";
     const recipients = explicitTo
@@ -61,7 +89,10 @@ export async function POST(
 
     await db.clientInvoice.update({
       where: { id: invoice.id },
-      data: { status: ClientInvoiceStatus.SENT, sentAt: new Date() },
+      data: {
+        ...(keepsStatus ? {} : { status: ClientInvoiceStatus.SENT }),
+        sentAt: new Date(),
+      },
     });
 
     await db.notification.create({

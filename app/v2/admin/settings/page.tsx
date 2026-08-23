@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { CompanySection } from "@/components/v2/admin/settings/company-section";
 import { BankSection } from "@/components/v2/admin/settings/bank-section";
+import { InvoiceNumberingSection } from "@/components/v2/admin/settings/invoice-numbering-section";
 import { SafeguardsSection } from "@/components/v2/admin/settings/safeguards-section";
 import { NotificationsAutomationSection } from "@/components/v2/admin/settings/notifications-automation-section";
 import { RatesSection } from "@/components/v2/admin/settings/rates-section";
@@ -228,6 +229,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
           readOnly={!isAdmin}
         />
       ) : null}
+
+      {/* Sits under the bank details on purpose: what an invoice is CALLED is
+          part of the same invoice setup as the account it asks to be paid into,
+          and the payment note above already tells clients to quote that number. */}
+      {activeTab === "bank" && isAdmin ? <InvoiceNumberingSection /> : null}
 
       {activeTab === "safeguards" && isAdmin ? (
         <SafeguardsSection
