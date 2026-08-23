@@ -16,6 +16,7 @@
 /.next/
 /.next-prod/
 /.next-prod.__build/
+/.next-verify.__build/
 /out/
 
 # production
