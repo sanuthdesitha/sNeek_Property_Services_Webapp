@@ -36,9 +36,21 @@ import { dispatchScheduledEmailCampaigns } from "@/lib/marketing/email-campaigns
 import { refreshGoogleReviewsCache } from "@/lib/public-site/google-reviews";
 import { generateJobReport } from "@/lib/reports/generator";
 import { getAppSettings } from "@/lib/settings";
-import { dispatchScheduledWorkforcePosts, runDocumentExpiryCheck, runRecognitionCheck } from "@/lib/workforce/service";
+import { dispatchScheduledWorkforcePosts, runCredentialExpiryCheck, runDocumentExpiryCheck, runRecognitionCheck } from "@/lib/workforce/service";
 import { dispatchClientPostJobAutomationRule } from "@/lib/notifications/client-automation";
 import { runAccountabilityNightly } from "@/lib/accountability/streaks";
+// ── The eight that only ever ran on the fallback ───────────────────────────
+// Each of these was registered in lib/ops/web-scheduler.ts and NOWHERE ELSE.
+// That scheduler stands down the moment a dedicated worker is detected, so on
+// every deployment running this file — the preferred setup — none of them have
+// ever fired. See the block at the end of main().
+import { dispatchCleanerDayReminders } from "@/lib/ops/cleaner-day-reminders";
+import { sendPendingPayApprovalReminders } from "@/lib/ops/pending-pay-approval-reminders";
+import { sweepStaleEnRouteJobs } from "@/lib/ops/stale-en-route";
+import { autoPauseStaleJobs } from "@/lib/ops/auto-pause";
+import { dispatchUnfinishedJobPushReminders } from "@/lib/ops/unfinished-reminders";
+import { dispatchLaundryDriverNudges } from "@/lib/laundry/reminders";
+import { runMissedClockInSweep } from "@/lib/ops/missed-clock-in-sweep";
 
 const TZ = "Australia/Sydney";
 const DATABASE_URL = process.env.DATABASE_URL!;
@@ -448,6 +460,121 @@ async function main() {
       if (result.count > 0) {
         logger.info({ deleted: result.count }, "Old location pings cleaned up");
       }
+    }));
+  }
+
+  // ── THE EIGHT THAT NEVER RAN ─────────────────────────────────────────────
+  //
+  // Every job below was registered ONLY in lib/ops/web-scheduler.ts. That
+  // scheduler exists as a fallback for a web-only container and it stands
+  // itself down the moment `isDedicatedWorkerActive()` sees a pg-boss schedule
+  // — which is exactly what this file creates. So on any deployment running
+  // this worker, and that is the preferred deployment, none of these have
+  // fired since the day they were written.
+  //
+  // The failure was silent in the worst way: the code existed, it was tested,
+  // it was documented as shipped, and the only symptom was an absence — a
+  // reminder nobody got, a sweep nobody noticed not happening.
+  //
+  // Crons here match the Sydney hour each job is pinned to in the fallback.
+  // The pg-boss server runs on the same clock as the app; where a job is
+  // interval-based rather than hour-pinned, the cron approximates its cadence.
+
+  if (jobEnabled("cleaner-day-reminder")) {
+    await boss.schedule("cleaner-day-reminder", "*/30 * * * *", {});
+    await boss.work("cleaner-day-reminder", safeHandler("cleaner-day-reminder", async () => {
+      // The dispatcher gates on 6AM / within-2h and de-dupes internally, so
+      // running every half hour fires once per cleaner per job per day.
+      await dispatchCleanerDayReminders(new Date());
+    }));
+  }
+
+  if (jobEnabled("stale-en-route-sweep")) {
+    await boss.schedule("stale-en-route-sweep", "*/30 * * * *", {});
+    await boss.work("stale-en-route-sweep", safeHandler("stale-en-route-sweep", async () => {
+      await sweepStaleEnRouteJobs(new Date());
+    }));
+  }
+
+  if (jobEnabled("auto-pause-stale-jobs")) {
+    await boss.schedule("auto-pause-stale-jobs", "*/30 * * * *", {});
+    await boss.work("auto-pause-stale-jobs", safeHandler("auto-pause-stale-jobs", async () => {
+      await autoPauseStaleJobs(new Date());
+    }));
+  }
+
+  // THE CLOCK-IN FAILSAFE. Ten minutes, because its whole purpose is catching
+  // somebody who is already on site and has forgotten — an hourly sweep would
+  // find them halfway through the clean.
+  if (jobEnabled("missed-clock-in-sweep")) {
+    await boss.schedule("missed-clock-in-sweep", "*/10 * * * *", {});
+    await boss.work("missed-clock-in-sweep", safeHandler("missed-clock-in-sweep", async () => {
+      await runMissedClockInSweep(new Date());
+    }));
+  }
+
+  if (jobEnabled("pending-pay-approval-reminder")) {
+    await boss.schedule("pending-pay-approval-reminder", "0 9 * * *", {});
+    await boss.work("pending-pay-approval-reminder", safeHandler("pending-pay-approval-reminder", async () => {
+      await sendPendingPayApprovalReminders({ now: new Date() });
+    }));
+  }
+
+  if (jobEnabled("unfinished-job-push-reminder")) {
+    await boss.schedule("unfinished-job-push-reminder", "0 17 * * *", {});
+    await boss.work("unfinished-job-push-reminder", safeHandler("unfinished-job-push-reminder", async () => {
+      await dispatchUnfinishedJobPushReminders(new Date());
+    }));
+  }
+
+  if (jobEnabled("laundry-driver-nudge")) {
+    await boss.schedule("laundry-driver-nudge", "0 15 * * *", {});
+    await boss.work("laundry-driver-nudge", safeHandler("laundry-driver-nudge", async () => {
+      await dispatchLaundryDriverNudges(new Date());
+    }));
+  }
+
+  // VISA, DRIVER LICENCE AND VEHICLE REGO. Weekly, an hour after the document
+  // sweep so the two digests do not land together. This is the one the owner
+  // asked for — a cleaner knows their own visa expires; the business finding
+  // out before it rosters them onto work they may no longer do is the point.
+  if (jobEnabled("credential-expiry-check")) {
+    await boss.schedule("credential-expiry-check", "0 9 * * 1", {});
+    await boss.work("credential-expiry-check", safeHandler("credential-expiry-check", async () => {
+      const result = await runCredentialExpiryCheck(new Date());
+      if (result.flagged > 0 || result.expired > 0) {
+        logger.info({ ...result }, "Credential expiry check completed");
+      }
+    }));
+  }
+
+  // These three use dynamic imports, exactly as the fallback does, to keep the
+  // worker's startup cost where it already was.
+
+  if (jobEnabled("timing-rule-reconcile")) {
+    await boss.schedule("timing-rule-reconcile", "*/30 * * * *", {});
+    await boss.work("timing-rule-reconcile", safeHandler("timing-rule-reconcile", async () => {
+      const { runTimingRuleReconcileIfPending } = await import("@/lib/ops/timing-rule-reconcile");
+      await runTimingRuleReconcileIfPending(new Date());
+    }));
+  }
+
+  // Closes out submitted jobs nobody inspected. Without it a clean sits in
+  // QA_REVIEW indefinitely, which also holds up the cleaner being paid for it.
+  if (jobEnabled("qa-auto-score")) {
+    await boss.schedule("qa-auto-score", "0 * * * *", {});
+    await boss.work("qa-auto-score", safeHandler("qa-auto-score", async () => {
+      const { runQaAutoScoreSweep } = await import("@/lib/qa/auto-score");
+      await runQaAutoScoreSweep({ now: new Date() });
+    }));
+  }
+
+  if (jobEnabled("cleaner-property-stats")) {
+    await boss.schedule("cleaner-property-stats", "0 2 * * *", {});
+    await boss.work("cleaner-property-stats", safeHandler("cleaner-property-stats", async () => {
+      const { rebuildCleanerPropertyStats } = await import("@/lib/qa/cleaner-property-stats");
+      const result = await rebuildCleanerPropertyStats(new Date());
+      logger.info({ ...result }, "[boss] cleaner-property-stats rebuilt");
     }));
   }
 
