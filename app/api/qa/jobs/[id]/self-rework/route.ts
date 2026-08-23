@@ -7,6 +7,7 @@ import { buildReworkFormSchema, normalizeReworkAreas } from "@/lib/qa/rework-job
 import { createQaReworkTransfer } from "@/lib/qa/rework-transfers";
 import { assertSelfReworkMinutes, guardInvariant } from "@/lib/qa/rework-invariants";
 import { getPresignedDownloadUrl, publicUrl } from "@/lib/s3";
+import { assertNotSelfInspection } from "@/lib/qa/self-review";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -111,6 +112,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const session = await requireRole([...QA_ROLES]);
     const body = submitSchema.parse(await req.json());
+
+    // NOBODY INSPECTS THEIR OWN CLEAN — and this is where that chain would end
+    // in MONEY. loadContext accepts an assignment with `assignedToId: null`, so
+    // the caller need never have claimed the inspection to get here. Without
+    // this, somebody who cleaned a job could flag their own work and then claim
+    // time and pay for putting it right.
+    try {
+      await assertNotSelfInspection(db, {
+        jobId: params.id,
+        candidateUserId: session.user.id,
+        isSelf: true,
+      });
+    } catch (guardErr: any) {
+      return NextResponse.json({ error: guardErr.message }, { status: 409 });
+    }
+
     const { reworkJob, assignment } = await loadContext(params.id, session.user.id);
 
     const running =

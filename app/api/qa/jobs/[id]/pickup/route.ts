@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/session";
 import { decideInspectionStart } from "@/lib/qa/inspection-gate";
 import { sendWebPushToUser } from "@/lib/notifications/web-push";
 import { logger } from "@/lib/logger";
+import { assertNotSelfInspection } from "@/lib/qa/self-review";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -45,6 +46,20 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         { error: decision.message, code: "INSPECTION_REASON_REQUIRED", requiresReason: true },
         { status: 409 }
       );
+    }
+
+    // NOBODY INSPECTS THEIR OWN CLEAN. This is the path that matters most: it
+    // creates an assignment out of nothing, so guarding only the admin-assign
+    // routes would leave the rule bypassable by simply walking up and claiming
+    // the inspection instead of waiting to be given it.
+    try {
+      await assertNotSelfInspection(db, {
+        jobId: params.id,
+        candidateUserId: session.user.id,
+        isSelf: true,
+      });
+    } catch (guardErr: any) {
+      return NextResponse.json({ error: guardErr.message }, { status: 409 });
     }
 
     const existing = await db.qaAssignment.findFirst({

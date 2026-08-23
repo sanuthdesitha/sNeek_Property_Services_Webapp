@@ -3,6 +3,7 @@ import { QaAssignmentStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { assertNotSelfInspection } from "@/lib/qa/self-review";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -18,6 +19,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const session = await requireRole([...QA_ROLES]);
     const { action } = bodySchema.parse(await req.json());
+
+    // NOBODY INSPECTS THEIR OWN CLEAN. Guarded here as well as on pickup:
+    // starting the timer creates an assignment when none exists, so this is a
+    // second door into the same room.
+    try {
+      await assertNotSelfInspection(db, {
+        jobId: params.id,
+        candidateUserId: session.user.id,
+        isSelf: true,
+      });
+    } catch (guardErr: any) {
+      return NextResponse.json({ error: guardErr.message }, { status: 409 });
+    }
 
     let assignment = await db.qaAssignment.findFirst({
       where: {

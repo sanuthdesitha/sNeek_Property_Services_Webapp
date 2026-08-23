@@ -3,6 +3,7 @@ import { QaAssignmentStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
+import { assertNotSelfInspection } from "@/lib/qa/self-review";
 
 const bodySchema = z.object({
   jobIds: z.array(z.string().trim().min(1)).min(1).max(100),
@@ -22,6 +23,22 @@ export async function POST(req: NextRequest) {
       });
       if (!user?.isActive || (user.role !== Role.QA_INSPECTOR && user.role !== Role.OPS_MANAGER)) {
         return NextResponse.json({ error: "Assign QA to an active QA inspector or OPS manager." }, { status: 400 });
+      }
+    }
+
+    // NOBODY INSPECTS THEIR OWN CLEAN. Checked for EVERY job in the batch
+    // before any row is created, so a bulk assign either applies in full or
+    // refuses — half a batch leaves an admin with no idea which jobs took.
+    if (body.assignedToId) {
+      for (const jobId of body.jobIds) {
+        try {
+          await assertNotSelfInspection(db, {
+            jobId,
+            candidateUserId: body.assignedToId,
+          });
+        } catch (guardErr: any) {
+          return NextResponse.json({ error: guardErr.message }, { status: 409 });
+        }
       }
     }
 
