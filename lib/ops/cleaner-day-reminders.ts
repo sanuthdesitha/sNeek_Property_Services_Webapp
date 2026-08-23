@@ -7,6 +7,7 @@ import { getJobTimingHighlights, parseJobInternalNotes } from "@/lib/jobs/meta";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 /**
  * High-alert day-of reminder to the ASSIGNED cleaner(s) for each job scheduled
@@ -59,7 +60,7 @@ export async function dispatchCleanerDayReminders(now: Date = new Date()) {
       internalNotes: true,
       property: { select: { name: true, address: true } },
       assignments: {
-        where: { removedAt: null, user: { isActive: true, role: Role.CLEANER } },
+        where: { removedAt: null, user: { isActive: true, ...holdsRoleWhere(Role.CLEANER) } },
         select: { user: { select: { id: true, name: true, email: true, phone: true, role: true } } },
       },
     },

@@ -6,6 +6,7 @@ import { getAppSettings } from "@/lib/settings";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 import { resolvePropertyCleanHours } from "@/lib/properties/clean-hours";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 const RECURRING_RULES_KEY = "recurring_job_rules_v1";
 
@@ -208,7 +209,7 @@ export async function generateRecurringJobs(input: {
   const activeCleanerIds = new Set(
     (
       await db.user.findMany({
-        where: { role: Role.CLEANER, isActive: true },
+        where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) },
         select: { id: true },
       })
     ).map((user) => user.id)

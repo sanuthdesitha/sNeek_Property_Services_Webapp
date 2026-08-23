@@ -15,6 +15,7 @@ import { getJobReference } from "@/lib/jobs/job-number";
 import { resolveAppUrl } from "@/lib/app-url";
 import { applyReschedule } from "@/lib/phase4/analytics";
 import { assertVaMayAct } from "@/lib/va/permissions";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 type RequestLike =
   | { url?: string; headers?: Headers | { get?: (name: string) => string | null } }
@@ -72,7 +73,7 @@ async function getAssignedCleanerRecipients(jobId: string) {
   return db.user.findMany({
     where: {
       isActive: true,
-      role: "CLEANER",
+      ...holdsRoleWhere("CLEANER"),
       jobAssignments: {
         some: {
           jobId,

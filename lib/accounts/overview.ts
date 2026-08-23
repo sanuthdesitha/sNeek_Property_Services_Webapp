@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 /**
  * Cheap roll-up metrics for the Accounts hub KPI strip + the upcoming
@@ -64,7 +65,7 @@ export async function getAccountsOverview(windowDays = 30): Promise<AccountsOver
       }),
       [] as Array<{ id: string; name: string | null; role: Role; dateOfBirth: Date | null; isActive: boolean }>,
     ),
-    safe(db.user.count({ where: { role: Role.CLEANER, isActive: true } }), 0),
+    safe(db.user.count({ where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) } }), 0),
     safe(db.client.count({ where: { isActive: true } }), 0),
     safe(
       db.clientInvoice.findMany({

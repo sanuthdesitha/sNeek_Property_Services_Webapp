@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { notifyCoachingCreated } from "@/lib/notifications/accountability";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 /**
  * Admin coaching / accountability record register (Phase 7b).
@@ -113,7 +114,7 @@ export async function POST(req: NextRequest) {
     const body = createSchema.parse(await req.json().catch(() => ({})));
 
     const cleaner = await db.user.findFirst({
-      where: { id: body.cleanerId, role: Role.CLEANER },
+      where: { id: body.cleanerId, ...holdsRoleWhere(Role.CLEANER) },
       select: { id: true },
     });
     if (!cleaner) {

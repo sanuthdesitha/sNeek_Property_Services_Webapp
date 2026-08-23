@@ -10,6 +10,7 @@ import {
   qaAssignmentSettlementAmount,
 } from "@/lib/finance/qa-pay";
 import { qaAssignmentHasPayeeWhere, qaAssignmentPayeeId } from "@/lib/qa/ownership";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 export async function getPayrollSummary(input: {
   startDate: string;
@@ -26,7 +27,7 @@ export async function getPayrollSummary(input: {
 
   const [cleaners, jobs, adjustments, shoppingRuns, qaAssignments] = await Promise.all([
     db.user.findMany({
-      where: { role: Role.CLEANER, isActive: true },
+      where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) },
       select: { id: true, name: true, email: true, hourlyRate: true },
       orderBy: [{ name: "asc" }, { email: "asc" }],
     }),
@@ -196,12 +197,31 @@ export async function getPayrollSummary(input: {
   // The same applies to QA INSPECTORS who completed paid inspections: they hold
   // no cleaner assignments, so without this they would never appear on a run at
   // all and their inspection pay would be computed and then dropped.
+  // ── AND: anyone who was actually ASSIGNED TO A JOB in this period. ─────────
+  // This is the multi-role case, and it is the one that pays nobody at all.
+  // Since `UserRole` shipped, `User.role` is only the PRIMARY hat: a person
+  // whose primary role is QA_INSPECTOR but who also holds CLEANER can be put on
+  // cleans all fortnight. The query above filters on `role: CLEANER` so they are
+  // not a cleaner row, and the two sources above only find them if they happened
+  // to ALSO have an adjustment or a QA inspection — so somebody who only cleaned
+  // appeared on no payroll row whatsoever and was simply not paid.
+  //
+  // Deriving from the assignments themselves is deliberately ROLE-AGNOSTIC: the
+  // question payroll should ask is "who did the work", and an assignment is the
+  // record of that. It cannot drift out of step with a role table.
+  //
+  // It also picks up somebody DEACTIVATED after working — `cleaners` requires
+  // isActive, so a cleaner who left mid-period previously vanished from the run
+  // still owed for the days they did work. `extraPayees` has never filtered on
+  // isActive (approved adjustments already relied on that), so this is
+  // consistent rather than a new policy.
   const cleanerIdSet = new Set(cleaners.map((row) => row.id));
   const extraPayeeIds = Array.from(
     new Set(
       [
         ...adjustments.map((row) => row.cleanerId),
         ...qaAssignments.map((row) => qaAssignmentPayeeId(row)),
+        ...jobs.flatMap((job) => job.assignments.map((row) => row.userId)),
       ].filter((id): id is string => Boolean(id) && !cleanerIdSet.has(id as string))
     )
   );

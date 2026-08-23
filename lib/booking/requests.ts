@@ -25,6 +25,7 @@ import { JobStatus, LeadStatus, Prisma, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { sydneyDateKey, sydneyDayStart, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 /** Marks a QuoteLead as a pending client booking rather than a sales enquiry. */
 export const BOOKING_REQUEST_VIA = "client_booking";
@@ -100,7 +101,7 @@ export async function getTeamAvailability(dateKey: string): Promise<TeamAvailabi
   const end = sydneyDayEndInclusive(dateKey);
 
   const [activeCleaners, dayJobs] = await Promise.all([
-    db.user.count({ where: { role: Role.CLEANER, isActive: true } }),
+    db.user.count({ where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) } }),
     db.job.findMany({
       where: {
         scheduledDate: { gte: start, lte: end },

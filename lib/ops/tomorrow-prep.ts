@@ -14,6 +14,7 @@ import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { isPastLocalDispatchTime, localDateKey } from "@/lib/ops/scheduled-dispatch";
 import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 /**
  * These builders assemble MARKUP that renderEmailTemplate inserts raw (see
@@ -472,7 +473,7 @@ export async function dispatchTomorrowPrepSummaries(
 
   const cleanerBuckets = new Map<string, { recipient: Recipient; jobs: JobRow[] }>();
   const allCleaners = await db.user.findMany({
-    where: { role: Role.CLEANER, isActive: true },
+    where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) },
     select: { id: true, name: true, email: true, phone: true, role: true },
     orderBy: { name: "asc" },
   });
