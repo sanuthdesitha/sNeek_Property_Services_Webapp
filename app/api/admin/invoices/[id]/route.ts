@@ -30,6 +30,12 @@ const recordPaymentSchema = z.object({
   method: z.enum(["BANK_TRANSFER", "CARD", "CASH", "STRIPE", "MANUAL", "OTHER"]),
   paidDate: z.string().optional().nullable(),
   reference: z.string().trim().max(500).optional().nullable(),
+  /**
+   * S3 key for a remittance advice, bank screenshot or receipt the client sent.
+   * Stored on the ledger entry rather than the invoice: an invoice can be paid
+   * in several instalments and each one has its own proof.
+   */
+  receiptKey: z.string().trim().max(512).optional().nullable(),
 });
 
 const patchSchema = z.object({
@@ -307,6 +313,7 @@ export async function PATCH(
           recordedAt: new Date().toISOString(),
           recordedById: session.user.id,
           recordedByName: session.user.name || session.user.email || "Admin",
+          receiptKey: rp.receiptKey?.trim() || null,
         },
       ];
       paymentUpdate = {
@@ -395,6 +402,28 @@ export async function PATCH(
       });
     });
 
+    // RECEIPT TO THE CLIENT. Recording a payment sent nothing at all before, so
+    // a client who paid had no confirmation it had been applied and their next
+    // statement was the first chance to find out it had not.
+    //
+    // After the write, best-effort: the money is already recorded, and failing
+    // the response over a mail error would tell the admin the payment did not
+    // save when it did.
+    if (body.recordPayment) {
+      void sendClientPaymentReceipt({
+        invoiceId: params.id,
+        amount: body.recordPayment.amount,
+        method: body.recordPayment.method,
+        paidDate: body.recordPayment.paidDate ? new Date(body.recordPayment.paidDate) : new Date(),
+        reference: body.recordPayment.reference ?? null,
+      }).catch((err) =>
+        logger.error(
+          { err, invoiceId: params.id },
+          "[invoice] payment recorded but the client receipt could not be sent"
+        )
+      );
+    }
+
     if (released) {
       logger.info(
         { invoiceId: params.id, ...(released as object) },
@@ -477,4 +506,59 @@ export async function DELETE(
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Could not delete invoice." }, { status: 400 });
   }
+}
+
+
+/**
+ * Email the client that their payment landed.
+ *
+ * Reads the invoice AFTER the write so the outstanding figure on the receipt is
+ * the one that now stands — computing it from the request body would state a
+ * balance that was already out of date by the time it was sent.
+ */
+async function sendClientPaymentReceipt(input: {
+  invoiceId: string;
+  amount: number;
+  method: string;
+  paidDate: Date;
+  reference: string | null;
+}): Promise<void> {
+  const invoice = await db.clientInvoice.findUnique({
+    where: { id: input.invoiceId },
+    select: {
+      invoiceNumber: true,
+      totalAmount: true,
+      paidAmount: true,
+      client: { select: { name: true, email: true } },
+    },
+  });
+  if (!invoice?.client?.email) return;
+
+  const { sendEmailDetailed } = await import("@/lib/notifications/email");
+  const { getAppSettings } = await import("@/lib/settings");
+  const { buildClientPaymentReceipt } = await import("@/lib/finance/payment-notices");
+  const settings = await getAppSettings();
+
+  const email = buildClientPaymentReceipt({
+    recipientName: invoice.client.name,
+    invoiceNumber: invoice.invoiceNumber,
+    amount: input.amount,
+    method: input.method,
+    paidDate: input.paidDate,
+    reference: input.reference,
+    companyName: settings.companyName,
+    outstanding: Math.max(
+      0,
+      Number(invoice.totalAmount ?? 0) - Number(invoice.paidAmount ?? 0)
+    ),
+  });
+
+  await sendEmailDetailed({
+    kind: "auto_invoice",
+    to: invoice.client.email,
+    subject: email.subject,
+    html: email.html,
+    // A finance document. A stale suppression must not eat a payment receipt.
+    transactional: true,
+  });
 }
