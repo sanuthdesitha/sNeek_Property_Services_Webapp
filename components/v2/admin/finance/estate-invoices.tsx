@@ -50,6 +50,7 @@ import {
   Search,
   Send,
   Trash2,
+  Undo2,
   Wallet,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -690,6 +691,45 @@ export function EstateInvoices() {
     toast({ title: "Status set to " + STATUS_LABEL[next] });
     await load();
   }
+  /**
+   * REVERSE — bring a settled or sent invoice back to editable.
+   *
+   * Deliberately NOT `overrideStatus("DRAFT")`. That path needs forceStatus,
+   * records itself as an admin dragging a paid invoice backwards by hand, and
+   * says nothing about intent. A reverse is a named correction: same invoice,
+   * same number, same lines, payment history kept, and — unlike a void — the
+   * work on it is NOT released, because this invoice is still the one that will
+   * bill it.
+   */
+  async function reverseInvoice(inv: Invoice) {
+    setBusy(inv.id);
+    try {
+      const res = await fetch("/api/admin/invoices/" + inv.id, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reverse: {} }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          title: "Could not reverse this invoice",
+          description: body.error,
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({
+        title: "Invoice reversed",
+        description: "It is a draft again. Its number and lines are unchanged.",
+      });
+      await load();
+    } catch {
+      toast({ title: "Could not reach the server", variant: "destructive" });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   /** Set (or clear) a manual line grouping property. */
   async function setLineProperty(line: InvoiceLine, propertyId: string) {
     await patchInvoiceLines(
@@ -879,9 +919,29 @@ export function EstateInvoices() {
                         variant="ghost"
                         disabled={busy === inv.id}
                         onClick={() => patchStatus(inv, "VOID", "Invoice voided")}
-                        title="Void this invoice"
+                        title="Void this invoice — its work goes back in the pot for a new one"
                       >
                         Void
+                      </EButton>
+                    ) : null}
+                    {/* Reverse sits beside Void because they are the two
+                        corrections and the choice between them matters: void
+                        finishes with this invoice and frees its work for a new
+                        one; reverse keeps this invoice and reopens it. The
+                        titles say which, so the difference is readable at the
+                        moment of clicking rather than discovered afterwards. */}
+                    {inv.status === "APPROVED" ||
+                    inv.status === "SENT" ||
+                    inv.status === "PART_PAID" ||
+                    inv.status === "PAID" ? (
+                      <EButton
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy === inv.id}
+                        onClick={() => reverseInvoice(inv)}
+                        title="Reopen this invoice as a draft, keeping its number and lines"
+                      >
+                        <Undo2 className="h-3.5 w-3.5" /> Reverse
                       </EButton>
                     ) : null}
                     {inv.status === "DRAFT" || inv.status === "VOID" ? (

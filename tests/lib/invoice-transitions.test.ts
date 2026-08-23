@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 
-import { canTransitionInvoice } from "@/lib/finance/invoice-transitions";
+import {
+  REVERSAL_TARGET,
+  canReverseInvoice,
+  canTransitionInvoice,
+  reverseRefusalReason,
+} from "@/lib/finance/invoice-transitions";
 
 describe("canTransitionInvoice", () => {
   it("allows the happy-path lifecycle steps", () => {
@@ -56,5 +61,49 @@ describe("canTransitionInvoice", () => {
   it("rejects unknown statuses", () => {
     expect(canTransitionInvoice("BOGUS", "PAID")).toBe(false);
     expect(canTransitionInvoice("DRAFT", "BOGUS")).toBe(false);
+  });
+});
+
+describe("canReverseInvoice", () => {
+  it("reopens an invoice that has gone out or been settled", () => {
+    for (const from of ["APPROVED", "SENT", "PART_PAID", "PAID"]) {
+      expect(canReverseInvoice(from), from).toBe(true);
+    }
+  });
+
+  it("REFUSES a void invoice", () => {
+    // A void has already released its shopping and maintenance items. Pulling
+    // it back to DRAFT would let it re-bill work another invoice may have
+    // picked up since — the same charge alive on two invoices.
+    expect(canReverseInvoice("VOID")).toBe(false);
+    expect(reverseRefusalReason("VOID")).toMatch(/already been released/i);
+  });
+
+  it("refuses a draft, which is already editable", () => {
+    expect(canReverseInvoice("DRAFT")).toBe(false);
+    expect(reverseRefusalReason("DRAFT")).toMatch(/already a draft/i);
+  });
+
+  it("refuses an unknown status rather than defaulting to allowed", () => {
+    expect(canReverseInvoice("BOGUS")).toBe(false);
+    expect(reverseRefusalReason("BOGUS")).toBeTruthy();
+  });
+
+  it("gives no refusal reason when the reversal is allowed", () => {
+    expect(reverseRefusalReason("PAID")).toBeNull();
+  });
+
+  it("lands on DRAFT — the same invoice, editable again", () => {
+    // Not a new invoice: reverse keeps the number, the lines and the payment
+    // history. That is the whole distinction from a void.
+    expect(REVERSAL_TARGET).toBe("DRAFT");
+  });
+
+  it("is NOT the same rule as the transition graph", () => {
+    // The graph calls PAID terminal, which is correct for an ordinary status
+    // move. Reverse is the deliberate exception, and conflating the two would
+    // either block the correction or open PAID up to any caller.
+    expect(canTransitionInvoice("PAID", "DRAFT")).toBe(false);
+    expect(canReverseInvoice("PAID")).toBe(true);
   });
 });
