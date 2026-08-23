@@ -35,6 +35,7 @@ import { getAppSettings } from "@/lib/settings";
 import type { AccountabilityBonusSettings } from "@/lib/settings";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { resolveAppUrl } from "@/lib/app-url";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 const KIND_PRIORITY: Record<string, number> = { QA: 3, ADMIN: 2, AUTO: 1 };
 
@@ -247,7 +248,7 @@ export async function runAccountabilityNightly(
   const bonuses = settings.accountability.bonuses;
 
   const cleaners = await db.user.findMany({
-    where: { role: Role.CLEANER, isActive: true },
+    where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) },
     select: { id: true },
   });
 

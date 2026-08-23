@@ -50,6 +50,7 @@ import {
 import { canReopenInspection, reopenMoneyWarnings } from "@/lib/qa/reopen";
 import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
 import { collectReopenMoneyFacts } from "@/lib/qa/reopen-facts";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -395,7 +396,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     // The whole active cleaner roster — payee candidates for "Assign a
     // different cleaner", which must not be limited to who was on the job.
     const reworkPayeeCandidates = await db.user.findMany({
-      where: { role: Role.CLEANER, isActive: true },
+      where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) },
       select: { id: true, name: true, email: true, hourlyRate: true },
       orderBy: { name: "asc" },
     });

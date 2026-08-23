@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { derivePreStartJobStatus } from "@/lib/jobs/assignment-workflow";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 type PrismaLikeClient = Prisma.TransactionClient | typeof db;
 
@@ -43,8 +44,8 @@ export async function assignPreferredCleanerIfAvailable(input: {
   const cleaner = await client.user.findFirst({
     where: {
       id: cleanerId,
-      role: "CLEANER",
       isActive: true,
+      ...holdsRoleWhere("CLEANER"),
     },
     select: { id: true },
   });

@@ -17,6 +17,7 @@ import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 const schema = z.object({
   jobIds: z.array(z.string().trim().min(1)).min(1),
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
     const [settings, cleaner, jobs] = await Promise.all([
       getAppSettings(),
       db.user.findFirst({
-        where: { id: body.cleanerUserId, role: Role.CLEANER, isActive: true },
+        where: { id: body.cleanerUserId, isActive: true, ...holdsRoleWhere(Role.CLEANER) },
         select: { id: true, name: true, email: true, phone: true },
       }),
       db.job.findMany({

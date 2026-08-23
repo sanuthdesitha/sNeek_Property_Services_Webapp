@@ -12,6 +12,7 @@ import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { NotificationChannel, NotificationStatus } from "@prisma/client";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 const schema = z.object({
   cleanerIds: z.array(z.string().trim().min(1)).min(1),
@@ -53,7 +54,7 @@ export async function POST(
         },
       }),
       db.user.findMany({
-        where: { id: { in: body.cleanerIds }, role: Role.CLEANER, isActive: true },
+        where: { id: { in: body.cleanerIds }, isActive: true, ...holdsRoleWhere(Role.CLEANER) },
         select: { id: true, name: true, email: true, phone: true },
       }),
     ]);

@@ -36,6 +36,8 @@ import {
   ensureReworkFormTemplate,
   normalizeReworkAreas,
 } from "@/lib/qa/rework-jobs";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { canActAs } from "@/lib/auth/roles";
 
 export async function GET(
   _req: NextRequest,
@@ -483,12 +485,12 @@ export async function GET(
         ? job.assignments.find((assignment) => assignment.userId === session.user.id) ?? null
         : null;
     const transferCandidates =
-      session.user.role === Role.CLEANER
+      canActAs(session.user.heldRoles ?? [session.user.role as Role], [Role.CLEANER])
         ? await db.user.findMany({
             where: {
-              role: Role.CLEANER,
               isActive: true,
               id: { not: session.user.id },
+              ...holdsRoleWhere(Role.CLEANER),
             },
             select: {
               id: true,

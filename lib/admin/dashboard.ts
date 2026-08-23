@@ -3,6 +3,7 @@ import { JobStatus, Role, QaAssignmentStatus, ClientInvoiceStatus, JobType } fro
 import { addDays } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { computeClientCharge, type ClientChargeRates } from "@/lib/finance/job-money";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 const TZ = "Australia/Sydney";
 
@@ -53,7 +54,7 @@ export async function getDashboardMetrics() {
       })
       .catch(() => [] as RawJob[]),
     db.user
-      .count({ where: { role: Role.CLEANER, isActive: true } })
+      .count({ where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) } })
       .catch(() => 0),
     db.jobAssignment
       .findMany({

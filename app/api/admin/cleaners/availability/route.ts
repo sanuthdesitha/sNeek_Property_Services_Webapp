@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { listCleanerAvailabilities } from "@/lib/accounts/availability";
 import { db } from "@/lib/db";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
     }
 
     const cleaners = await db.user.findMany({
-      where: { role: Role.CLEANER },
+      where: { ...holdsRoleWhere(Role.CLEANER) },
       select: { id: true, name: true, email: true, isActive: true },
       orderBy: [{ isActive: "desc" }, { name: "asc" }],
     });

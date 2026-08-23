@@ -25,6 +25,7 @@ import {
 import { attachPendingAdminTasksToJob } from "@/lib/job-tasks/service";
 import { previewLifecycleEmail, sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 export async function POST(
   req: NextRequest,
@@ -83,7 +84,7 @@ export async function POST(
       job.assignments.map((assignment) => [assignment.userId, assignment])
     );
     const cleaners = await db.user.findMany({
-      where: { id: { in: userIds }, role: Role.CLEANER, isActive: true },
+      where: { id: { in: userIds }, isActive: true, ...holdsRoleWhere(Role.CLEANER) },
       select: { id: true, name: true, email: true, phone: true },
     });
     const cleanerIds = new Set(cleaners.map((u) => u.id));
@@ -201,7 +202,7 @@ export async function POST(
     const targetUsers = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner]));
     if (removedIds.length > 0) {
       const removedUsers = await db.user.findMany({
-        where: { id: { in: removedIds }, role: Role.CLEANER },
+        where: { id: { in: removedIds }, ...holdsRoleWhere(Role.CLEANER) },
         select: { id: true, name: true, email: true, phone: true },
       });
       for (const user of removedUsers) {

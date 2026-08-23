@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getAppSettings, type ClientPortalVisibility } from "@/lib/settings";
 import { resolvePortalScopeForUser } from "@/lib/auth/client-portal";
 import { resolveJobFormTemplate } from "@/lib/forms/resolve-job-template";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 const ACTIVE_JOB_STATUSES: JobStatus[] = [
   JobStatus.UNASSIGNED,
@@ -351,8 +352,8 @@ export async function getClientPropertyDetailForUser(
       : Promise.resolve([]),
     db.user.findMany({
       where: {
-        role: "CLEANER",
         isActive: true,
+        ...holdsRoleWhere("CLEANER"),
         jobAssignments: {
           some: {
             job: {

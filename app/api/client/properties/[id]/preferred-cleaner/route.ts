@@ -5,6 +5,7 @@ import { requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { getClientPortalContext } from "@/lib/client/portal";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 const schema = z.object({
   preferredCleanerUserId: z.string().cuid().nullable().optional(),
@@ -45,8 +46,8 @@ export async function PATCH(
       const eligible = await db.user.findFirst({
         where: {
           id: body.preferredCleanerUserId,
-          role: Role.CLEANER,
           isActive: true,
+          ...holdsRoleWhere(Role.CLEANER),
           jobAssignments: {
             some: {
               removedAt: null,

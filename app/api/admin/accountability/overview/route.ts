@@ -9,6 +9,7 @@ import {
   type LaundryConfirmationLite,
   type LaundryTaskLite,
 } from "@/lib/accountability/laundry-stats";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 export const dynamic = "force-dynamic";
 
@@ -99,7 +100,7 @@ export async function GET(req: Request) {
     const [cleaners, reviews, issues, coaching, bonuses] = await Promise.all([
       db.user
         .findMany({
-          where: { role: Role.CLEANER, isActive: true },
+          where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) },
           select: { id: true, name: true },
           orderBy: { name: "asc" },
         })

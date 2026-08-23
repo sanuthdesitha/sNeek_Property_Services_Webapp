@@ -20,6 +20,7 @@ import {
   formatJobStatusLabel,
   PRE_START_JOB_STATUSES,
 } from "@/lib/jobs/assignment-workflow";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 const schema = z.object({
   action: z.enum(["ACCEPT", "DECLINE", "TRANSFER"]),
@@ -171,8 +172,8 @@ export async function POST(
         transferredCleaner = await tx.user.findFirst({
           where: {
             id: targetCleanerId,
-            role: Role.CLEANER,
             isActive: true,
+            ...holdsRoleWhere(Role.CLEANER),
           },
           select: {
             id: true,

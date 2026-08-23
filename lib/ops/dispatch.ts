@@ -5,6 +5,7 @@ import { listCleanerAvailabilities } from "@/lib/accounts/availability";
 import { getAppSettings } from "@/lib/settings";
 import { derivePreStartJobStatus } from "@/lib/jobs/assignment-workflow";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
+import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 function dateKey(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -125,7 +126,7 @@ export async function suggestAutoAssignment(jobId: string) {
 
   const [cleaners, assignmentsToday, suburbHistoryRows, qaAverages, cleanerAvailabilities] = await Promise.all([
     db.user.findMany({
-      where: { role: Role.CLEANER, isActive: true },
+      where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) },
       select: { id: true, name: true, email: true },
       orderBy: [{ name: "asc" }, { email: "asc" }],
     }),
