@@ -100,14 +100,23 @@ export async function setItemAssignees(input: {
     wanted.length === 0
       ? []
       : await db.user.findMany({
-          where: { id: { in: wanted }, role: requiredRole, isActive: true },
+          where: {
+            id: { in: wanted },
+            isActive: true,
+            // Their PRIMARY role, or an extra one they have been granted. A
+            // scalar match here would reject somebody whose second job is
+            // exactly the hat being assigned — and tell them the opposite, via
+            // the error below, which names the role they actually hold.
+            OR: [{ role: requiredRole }, { extraRoles: { some: { role: requiredRole } } }],
+          },
           select: { id: true },
         });
   const eligibleIds = new Set(eligible.map((u) => u.id));
   const rejected = wanted.filter((id) => !eligibleIds.has(id));
   if (rejected.length > 0) {
     throw new Error(
-      `Only active ${requiredRole} accounts can hold the ${role} role. Rejected: ${rejected.join(", ")}`
+      `Only active ${requiredRole} accounts — by primary or granted role — can hold the ` +
+        `${role} hat. Rejected: ${rejected.join(", ")}`
     );
   }
   const nextUserIds = wanted.filter((id) => eligibleIds.has(id));
@@ -252,13 +261,18 @@ export async function markAssigneesNotified(input: {
  */
 export async function countActiveAssignmentsForUser(
   userId: string,
-  opts?: { openOnly?: boolean }
+  opts?: { openOnly?: boolean; role?: MaintenanceAssigneeRole }
 ): Promise<number> {
   const openOnly = opts?.openOnly ?? true;
   return db.maintenanceItemAssignment.count({
     where: {
       userId,
       removedAt: null,
+      // Optionally narrowed to ONE hat. The nav badge must count only the
+      // assignments its link actually leads to: a person who cleans and
+      // inspects has one maintenance section per role, and a role-blind count
+      // beside a role-specific href shows "2" on a page listing one.
+      ...(opts?.role ? { role: opts.role } : {}),
       ...(openOnly ? { item: { status: { in: OPEN_MAINTENANCE_STATUSES } } } : {}),
     },
   });
@@ -362,8 +376,14 @@ export async function listMaintenanceItemsForUser(
 
 /** Candidate people for one role's picker in the admin panel. */
 export async function listAssignableUsers(role: MaintenanceAssigneeRole) {
+  const required = userRoleForAssigneeRole(role);
   return db.user.findMany({
-    where: { role: userRoleForAssigneeRole(role), isActive: true },
+    // Same widening as the write path. If the picker only offered primary-role
+    // holders, an admin could never select the person the save would accept.
+    where: {
+      isActive: true,
+      OR: [{ role: required }, { extraRoles: { some: { role: required } } }],
+    },
     select: { id: true, name: true, email: true },
     orderBy: [{ name: "asc" }],
     take: 500,
@@ -377,9 +397,15 @@ export async function listAllAssignableUsers(): Promise<
   const users = await db.user.findMany({
     where: {
       isActive: true,
-      role: { in: [Role.MAINTENANCE, Role.CLEANER, Role.QA_INSPECTOR] },
+      OR: [
+        { role: { in: [Role.MAINTENANCE, Role.CLEANER, Role.QA_INSPECTOR] } },
+        { extraRoles: { some: { role: { in: [Role.MAINTENANCE, Role.CLEANER, Role.QA_INSPECTOR] } } } },
+      ],
     },
-    select: { id: true, name: true, email: true, role: true },
+    // extraRoles comes back too, because somebody is bucketed below by every
+    // hat they can wear, not just their primary one — a cleaner who also
+    // inspects belongs in BOTH the cleaner and the QA picker.
+    select: { id: true, name: true, email: true, role: true, extraRoles: { select: { role: true } } },
     orderBy: [{ name: "asc" }],
     take: 1500,
   });
@@ -389,13 +415,25 @@ export async function listAllAssignableUsers(): Promise<
     [MaintenanceAssigneeRole.QA]: [] as Array<{ id: string; name: string | null; email: string | null }>,
   };
   for (const user of users) {
-    const bucket =
-      user.role === Role.MAINTENANCE
-        ? MaintenanceAssigneeRole.MAINTENANCE
-        : user.role === Role.CLEANER
-          ? MaintenanceAssigneeRole.CLEANER
-          : MaintenanceAssigneeRole.QA;
-    out[bucket].push({ id: user.id, name: user.name, email: user.email });
+    // EVERY hat they can wear, not just their primary. A person who cleans and
+    // inspects must appear in both pickers — listing them only under their
+    // primary is how an admin concludes the qualified person is unavailable.
+    // Array.from rather than iterating the Set directly: the tsc target in this
+    // project predates downlevel iteration, and `for (const x of set)` fails to
+    // compile.
+    const held = Array.from(new Set<Role>([user.role, ...user.extraRoles.map((row) => row.role)]));
+    for (const role of held) {
+      const bucket =
+        role === Role.MAINTENANCE
+          ? MaintenanceAssigneeRole.MAINTENANCE
+          : role === Role.CLEANER
+            ? MaintenanceAssigneeRole.CLEANER
+            : role === Role.QA_INSPECTOR
+              ? MaintenanceAssigneeRole.QA
+              : null;
+      if (!bucket) continue;
+      out[bucket].push({ id: user.id, name: user.name, email: user.email });
+    }
   }
   return out;
 }

@@ -43,6 +43,8 @@ import { EAvatar } from "@/components/v2/admin/estate-kit";
 import { AccountNotes } from "@/components/v2/admin/accounts/account-notes";
 import { AccountActivity } from "@/components/v2/admin/accounts/account-activity";
 import { ExtendedProfileEditor } from "@/components/v2/admin/accounts/extended-profile-editor";
+import { ExtraRolesPanel } from "@/components/v2/admin/accounts/extra-roles-panel";
+import { ROLE_LABELS } from "@/lib/auth/roles";
 import { resolveCredentialStatuses } from "@/lib/workforce/credential-expiry";
 
 export const metadata = { title: "Account · Estate admin" };
@@ -72,7 +74,11 @@ function adjTone(status: string): StatusTone {
 }
 
 export default async function EstateAccountDetailPage({ params }: { params: { id: string } }) {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const viewer = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  // Granting a role is a permission change, so the controls belong to ADMIN even
+  // though the screen around them does not. Read from heldRoles, not `role`:
+  // an admin who has switched to another hat is still an admin.
+  const canManageRoles = (viewer.user.heldRoles ?? [viewer.user.role]).includes(Role.ADMIN);
 
   const user = await db.user.findUnique({
     where: { id: params.id },
@@ -116,7 +122,7 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
 
   const isFieldRole = user.role === Role.CLEANER || user.role === Role.QA_INSPECTOR;
 
-  const [summary, extended, perf, documents] = await Promise.all([
+  const [summary, extended, perf, documents, extraRoles] = await Promise.all([
     getUserSummary(user.id, user.hourlyRate),
     getUserExtendedProfile(user.id),
     isFieldRole ? getPerformanceMetrics(user.id, 30) : Promise.resolve(null),
@@ -135,6 +141,18 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
         url: true,
         expiresAt: true,
         createdAt: true,
+      },
+    }),
+    // The second hats. Fetched with the rest rather than by the panel itself so
+    // the card is right on first paint — an admin should never see "no extra
+    // roles" for a moment on an account that has one.
+    db.userRole.findMany({
+      where: { userId: params.id },
+      orderBy: { grantedAt: "asc" },
+      select: {
+        role: true,
+        grantedAt: true,
+        grantedBy: { select: { id: true, name: true, email: true } },
       },
     }),
   ]);
@@ -169,6 +187,14 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
             <EBadge tone="neutral" soft>
               {prettify(user.role)}
             </EBadge>
+            {/* The extra hats sit beside the primary one, in gold to keep the
+                two visually distinct: an admin scanning this header must be able
+                to tell somebody's actual job from a role they were also given. */}
+            {extraRoles.map((extra) => (
+              <EBadge key={extra.role} tone="gold" soft>
+                {ROLE_LABELS[extra.role]}
+              </EBadge>
+            ))}
             {isFieldRole ? (
               <EButton asChild variant="outline" size="sm">
                 <Link href={`/v2/admin/workforce/performance/${user.id}`}>
@@ -352,6 +378,20 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
         </div>
 
         <div className="space-y-4">
+          <ExtraRolesPanel
+            userId={user.id}
+            userName={user.name ?? user.email ?? "This person"}
+            primaryRole={user.role}
+            canManage={canManageRoles}
+            initialExtraRoles={extraRoles.map((extra) => ({
+              role: extra.role,
+              label: ROLE_LABELS[extra.role],
+              // ISO, because a Date cannot cross into a client component.
+              grantedAt: extra.grantedAt.toISOString(),
+              grantedBy: extra.grantedBy,
+            }))}
+          />
+
           {/* Pay & time */}
           <ECard>
             <ECardHeader className="pb-2">
