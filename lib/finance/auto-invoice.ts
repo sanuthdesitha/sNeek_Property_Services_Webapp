@@ -27,6 +27,7 @@ export async function generateInvoiceForUser(
       email: true,
       name: true,
       clientId: true,
+      invoicingCadence: true,
       lastInvoiceGeneratedAt: true,
     },
   });
@@ -67,6 +68,10 @@ export async function generateInvoiceForUser(
       clientId: client.id,
       periodStart: sinceDate,
       periodEnd: now,
+      // "On completion" means finished work only. Every other cadence bills a
+      // period, where an admin may legitimately want work still in progress on
+      // it; this one is the client saying "bill me when it is done".
+      completedOnly: user.invoicingCadence === "ON_COMPLETION",
     })) as any;
   } catch (err: any) {
     // generateClientInvoice throws on "no billable jobs" or "missing rates" —

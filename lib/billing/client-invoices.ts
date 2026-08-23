@@ -150,6 +150,16 @@ export async function generateClientInvoice(input: {
   periodEnd?: Date | null;
   gstEnabled?: boolean;
   periodBasis?: InvoicePeriodBasis;
+  /**
+   * Bill only work that is actually FINISHED.
+   *
+   * BILLABLE_JOB_STATUSES deliberately includes in-progress work, because an
+   * admin generating a period invoice by hand may well want it. A client on the
+   * ON_COMPLETION cadence chose the opposite: bill me as the work is done. An
+   * invoice arriving for a clean still in progress is the fastest way to have
+   * every other line on it questioned.
+   */
+  completedOnly?: boolean;
 }) {
   const [client, rates, existingInvoiced, settings, priceBook] = await Promise.all([
     db.client.findUnique({ where: { id: input.clientId }, select: { id: true, name: true, email: true } }),
@@ -192,7 +202,11 @@ export async function generateClientInvoice(input: {
         clientId: input.clientId,
         ...(input.propertyId ? { id: input.propertyId } : {}),
       },
-      status: { in: BILLABLE_JOB_STATUSES },
+      status: {
+        in: input.completedOnly
+          ? [JobStatus.COMPLETED, JobStatus.INVOICED]
+          : BILLABLE_JOB_STATUSES,
+      },
       // Skipped cleans ("don't clean this turnover") are never billed.
       cleanSkipStatus: { not: "SKIPPED" },
       ...(input.periodStart || input.periodEnd

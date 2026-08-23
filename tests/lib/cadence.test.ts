@@ -11,7 +11,13 @@ vi.mock("@/lib/db", () => ({
 import { isInvoiceDueToday } from "@/lib/finance/cadence";
 
 describe("isInvoiceDueToday", () => {
-  it("returns false for ON_COMPLETION cadence", () => {
+  // ON_COMPLETION is the SCHEMA DEFAULT and the option the profile UI labels
+  // "(default)". It used to return false here, on the strength of a comment
+  // claiming invoices were "generated job-by-job" — and no such generator has
+  // ever existed. Every client never explicitly moved onto a weekly, fortnightly
+  // or monthly cycle was therefore never auto-invoiced at all. This test
+  // previously asserted that behaviour was correct.
+  it("is due immediately for an ON_COMPLETION client who has never been invoiced", () => {
     expect(
       isInvoiceDueToday({
         userId: "u1",
@@ -20,9 +26,36 @@ describe("isInvoiceDueToday", () => {
         invoiceDayOfMonth: null,
         lastInvoiceGeneratedAt: null,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
+  it("bills an ON_COMPLETION client at most once a day", () => {
+    // Two scheduler ticks in one day must not produce two invoices for the same
+    // completed work.
+    const now = new Date("2026-08-23T08:00:00.000Z");
+    const base = {
+      userId: "u1",
+      cadence: "ON_COMPLETION" as const,
+      invoiceDayOfWeek: null,
+      invoiceDayOfMonth: null,
+    };
+    expect(
+      isInvoiceDueToday(
+        { ...base, lastInvoiceGeneratedAt: new Date("2026-08-23T02:00:00.000Z") },
+        now
+      )
+    ).toBe(false);
+    expect(
+      isInvoiceDueToday(
+        { ...base, lastInvoiceGeneratedAt: new Date("2026-08-22T02:00:00.000Z") },
+        now
+      )
+    ).toBe(true);
+  });
+
+  // CUSTOM stays false, and that IS correct: no custom schedule is stored
+  // anywhere on the user, so there is nothing to compute. It means the office
+  // raises these by hand.
   it("returns false for CUSTOM cadence", () => {
     expect(
       isInvoiceDueToday({
