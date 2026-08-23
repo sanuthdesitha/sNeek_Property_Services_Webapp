@@ -15,6 +15,7 @@ import { attachPendingAdminTasksToJob, attachPendingCarryForwardTasksToJob } fro
 import { notifyAutoSyncChanges } from "@/lib/ical/notifications";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 import { getAppSettings } from "@/lib/settings";
+import { resolvePropertyCleanHours } from "@/lib/properties/clean-hours";
 
 type SyncMode = "MANUAL" | "AUTO";
 
@@ -667,12 +668,15 @@ async function syncTurnoverJobsForReservations(params: {
   // tomorrow's jobs at 3h again. Editing an individual job worked, but only
   // for that job — which is exactly what "I can't change it permanently"
   // describes.
+  //
+  // The precedence now lives in lib/properties/clean-hours so this is not a
+  // fourth private copy of it. `defaultEstimatedHours` is the caller's
+  // already-resolved legacy value and stays as the final fallback.
   const defaultTurnoverHours =
-    params.property.assignedCleaningHours && params.property.assignedCleaningHours > 0
-      ? params.property.assignedCleaningHours
-      : params.property.cleaningDurationMinutes && params.property.cleaningDurationMinutes > 0
-        ? params.property.cleaningDurationMinutes / 60
-        : params.property.defaultEstimatedHours;
+    resolvePropertyCleanHours({
+      assignedCleaningHours: params.property.assignedCleaningHours,
+      cleaningDurationMinutes: params.property.cleaningDurationMinutes,
+    }) ?? params.property.defaultEstimatedHours;
 
   for (const reservation of params.reservations) {
     const turnoverDate = reservation.endDate;
