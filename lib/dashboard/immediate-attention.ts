@@ -298,53 +298,71 @@ export async function getAdminImmediateAttention(): Promise<ImmediateAttentionIt
 export async function getCleanerImmediateAttention(cleanerId: string): Promise<ImmediateAttentionItem[]> {
   const todayStart = startOfTodaySydney();
 
-  const [inProgressJobs, overdueAssignedJobs, pendingContinuationRequests, carryForwardTasks, rejectedPayRequests] =
-    await Promise.all([
-      db.job.count({
-        where: {
-          status: JobStatus.IN_PROGRESS,
+  const [
+    inProgressJobs,
+    overdueAssignedJobs,
+    pendingContinuationRequests,
+    carryForwardTasks,
+    rejectedPayRequests,
+    openScanTasks,
+  ] = await Promise.all([
+    db.job.count({
+      where: {
+        status: JobStatus.IN_PROGRESS,
+        assignments: { some: { userId: cleanerId, removedAt: null } },
+      },
+    }),
+    db.job.count({
+      where: {
+        status: {
+          in: [
+            JobStatus.ASSIGNED,
+            JobStatus.OFFERED,
+            JobStatus.IN_PROGRESS,
+            JobStatus.PAUSED,
+            JobStatus.WAITING_CONTINUATION_APPROVAL,
+            JobStatus.SUBMITTED,
+            JobStatus.QA_REVIEW,
+          ],
+        },
+        scheduledDate: { lt: todayStart },
+        assignments: { some: { userId: cleanerId, removedAt: null } },
+      },
+    }),
+    listContinuationRequests({ requestedByUserId: cleanerId, status: "PENDING" }).then((rows) => rows.length),
+    db.issueTicket.count({
+      where: {
+        status: "OPEN",
+        title: { startsWith: "Carry-forward task" },
+        job: {
+          status: { in: [JobStatus.OFFERED, JobStatus.ASSIGNED, JobStatus.IN_PROGRESS, JobStatus.PAUSED, JobStatus.WAITING_CONTINUATION_APPROVAL] },
           assignments: { some: { userId: cleanerId, removedAt: null } },
         },
-      }),
-      db.job.count({
+      },
+    }),
+    safeCount(
+      db.cleanerPayAdjustment.count({
         where: {
-          status: {
-            in: [
-              JobStatus.ASSIGNED,
-              JobStatus.OFFERED,
-              JobStatus.IN_PROGRESS,
-              JobStatus.PAUSED,
-              JobStatus.WAITING_CONTINUATION_APPROVAL,
-              JobStatus.SUBMITTED,
-              JobStatus.QA_REVIEW,
-            ],
-          },
-          scheduledDate: { lt: todayStart },
-          assignments: { some: { userId: cleanerId, removedAt: null } },
+          cleanerId,
+          status: PayAdjustmentStatus.REJECTED,
+          reviewedAt: { gte: startOfYesterdaySydney() },
         },
       }),
-      listContinuationRequests({ requestedByUserId: cleanerId, status: "PENDING" }).then((rows) => rows.length),
-      db.issueTicket.count({
-        where: {
-          status: "OPEN",
-          title: { startsWith: "Carry-forward task" },
-          job: {
-            status: { in: [JobStatus.OFFERED, JobStatus.ASSIGNED, JobStatus.IN_PROGRESS, JobStatus.PAUSED, JobStatus.WAITING_CONTINUATION_APPROVAL] },
-            assignments: { some: { userId: cleanerId, removedAt: null } },
-          },
-        },
+      0
+    ),
+    // A stock count somebody asked this cleaner for. Without it here, the
+    // ask lives only in an email that may never have been sent — the scan
+    // task had no surface in the app at all.
+    // safeCount because ScanTask is a recent table: an environment running
+    // ahead of its migration must lose one panel row, not the whole
+    // dashboard a cleaner starts their day on.
+    safeCount(
+      db.scanTask.count({
+        where: { assigneeId: cleanerId, completedAt: null, cancelledAt: null },
       }),
-      safeCount(
-        db.cleanerPayAdjustment.count({
-          where: {
-            cleanerId,
-            status: PayAdjustmentStatus.REJECTED,
-            reviewedAt: { gte: startOfYesterdaySydney() },
-          },
-        }),
-        0
-      ),
-    ]);
+      0
+    ),
+  ]);
 
   return nonZero([
     {
@@ -391,6 +409,18 @@ export async function getCleanerImmediateAttention(cleanerId: string): Promise<I
       href: "/cleaner/pay-requests",
       actionLabel: "Review requests",
       tone: "info",
+    },
+    {
+      id: "cleaner-scan-tasks",
+      title: "Stock counts you have been asked to do",
+      description: "The office asked you to count the supplies at a property.",
+      count: openScanTasks,
+      // Emitted already-v2: app/v2/cleaner/page.tsx rewrites only hrefs that
+      // START with /cleaner, so this one passes through untouched and the v1
+      // dashboard still resolves it.
+      href: "/v2/cleaner/supplies",
+      actionLabel: "Open supplies",
+      tone: "warning",
     },
   ]);
 }

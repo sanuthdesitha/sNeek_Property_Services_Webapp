@@ -29,6 +29,10 @@ import {
   MAINTENANCE_ASSIGNEE_ROLES,
   MAINTENANCE_ASSIGNEE_ROLE_LABELS,
 } from "@/lib/maintenance/assignment-roles";
+import {
+  AssignmentPayControls,
+  type AssignmentLifecycle,
+} from "@/components/v2/admin/maintenance/assignment-pay-controls";
 
 interface Candidate {
   id: string;
@@ -36,8 +40,7 @@ interface Candidate {
   email: string | null;
 }
 
-interface AssignmentRow {
-  id: string;
+interface AssignmentRow extends AssignmentLifecycle {
   role: MaintenanceAssigneeRole;
   userId: string;
   assignedAt: string;
@@ -223,37 +226,50 @@ export function MaintenanceRoleAssignmentsPanel({ itemId }: { itemId: string }) 
                     const existing = rowByUser.get(`${role}:${person.id}`);
                     const notifiedOn = fmtSydney(existing?.notifiedAt ?? null);
                     return (
-                      <label
+                      // A div, not a label wrapping everything: the pay editor
+                      // below carries buttons and inputs of its own, and inside
+                      // a label every one of those clicks would also toggle the
+                      // checkbox — setting someone's rate would un-assign them.
+                      <div
                         key={person.id}
-                        className="flex cursor-pointer items-center gap-2 rounded-[var(--e-radius-sm,0.5rem)] px-1.5 py-1 text-[0.875rem] hover:bg-[hsl(var(--e-surface))]"
+                        className="rounded-[var(--e-radius-sm,0.5rem)] px-1.5 py-1"
                       >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggle(role, person.id)}
-                          className="h-3.5 w-3.5 accent-[hsl(var(--e-primary))]"
-                        />
-                        <span className="min-w-0 flex-1 truncate text-[hsl(var(--e-foreground))]">
-                          {person.name ?? person.email ?? "Unnamed"}
-                        </span>
+                        <label className="flex cursor-pointer items-center gap-2 text-[0.875rem]">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggle(role, person.id)}
+                            className="h-3.5 w-3.5 accent-[hsl(var(--e-primary))]"
+                          />
+                          <span className="min-w-0 flex-1 truncate text-[hsl(var(--e-foreground))]">
+                            {person.name ?? person.email ?? "Unnamed"}
+                          </span>
+                          {existing ? (
+                            notifiedOn ? (
+                              <span
+                                className="flex items-center gap-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]"
+                                title={`Assignment email sent ${notifiedOn}`}
+                              >
+                                <MailCheck className="h-3 w-3" /> {notifiedOn}
+                              </span>
+                            ) : (
+                              <span
+                                className="flex items-center gap-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]"
+                                title="Assigned, but no email has gone out yet"
+                              >
+                                <Mail className="h-3 w-3" /> not emailed
+                              </span>
+                            )
+                          ) : null}
+                        </label>
+
+                        {/* Only for people actually ON the item. Offering to set
+                            a rate for somebody nobody has assigned would be an
+                            agreement with a person who has not been asked. */}
                         {existing ? (
-                          notifiedOn ? (
-                            <span
-                              className="flex items-center gap-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]"
-                              title={`Assignment email sent ${notifiedOn}`}
-                            >
-                              <MailCheck className="h-3 w-3" /> {notifiedOn}
-                            </span>
-                          ) : (
-                            <span
-                              className="flex items-center gap-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]"
-                              title="Assigned, but no email has gone out yet"
-                            >
-                              <Mail className="h-3 w-3" /> not emailed
-                            </span>
-                          )
+                          <AssignmentPayControls row={existing} onChanged={load} />
                         ) : null}
-                      </label>
+                      </div>
                     );
                   })}
                 </div>

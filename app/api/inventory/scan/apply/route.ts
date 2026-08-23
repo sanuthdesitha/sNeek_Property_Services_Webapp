@@ -34,6 +34,13 @@ const bodySchema = z.object({
   overrides: z.record(z.string(), z.number().min(0).max(100_000)).optional(),
   /** Set only after the operator has seen and accepted the zero list. */
   confirmZero: z.boolean().optional(),
+  /**
+   * The ScanTask this count answers, carried from the ?task= deep link.
+   * Closing it here rather than in the browser is deliberate: a tab shut
+   * between the stock write and a second "mark done" call would leave the
+   * person permanently owing a count they have already done.
+   */
+  taskId: z.string().trim().min(1).optional(),
   note: z.string().trim().max(500).optional(),
 });
 
@@ -146,6 +153,27 @@ export async function POST(req: NextRequest) {
               .filter(Boolean)
               .join(" · "),
           },
+        });
+      }
+
+      if (body.taskId) {
+        const now = new Date();
+        // updateMany, not update, because the WHERE is the authorisation: the
+        // task must belong to THIS caller and to THIS property. A guessed id
+        // from someone else's email otherwise closes their task off the back
+        // of a count they never did. No match simply stamps nothing.
+        //
+        // completedByCountAt goes on together with completedAt so "done" stays
+        // evidenced by a real count rather than merely asserted.
+        await tx.scanTask.updateMany({
+          where: {
+            id: body.taskId,
+            assigneeId: session.user.id,
+            propertyId: body.propertyId,
+            cancelledAt: null,
+            completedAt: null,
+          },
+          data: { completedAt: now, completedByCountAt: now },
         });
       }
     });

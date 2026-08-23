@@ -67,6 +67,8 @@ import {
 } from "@/components/v2/ui/primitives";
 import { EInput, EField, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
 import { MaintenanceRoleAssignmentsPanel } from "@/components/v2/admin/maintenance/role-assignments-panel";
+import { AssignmentInstructionsEditor } from "@/components/v2/admin/maintenance/assignment-instructions-editor";
+import { parseInstructions } from "@/lib/maintenance/instructions";
 
 // ─── Estate tone helpers ─────────────────────────────────────────────────────
 type ETone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
@@ -188,6 +190,10 @@ interface MaintenanceDetailItem {
   property: PropertyDetail;
   reportedBy?: { name: string | null; email: string | null; role: string } | null;
   createdAt?: string;
+  /// Raw Json off the row; normalised by parseInstructions at the point of use
+  /// so the editor and the assignee's portal cannot disagree about what a
+  /// valid block is.
+  assignmentInstructions?: unknown;
 }
 interface AppUser {
   id: string;
@@ -786,6 +792,18 @@ export function EstateMaintenanceDetail({ itemId }: { itemId: string }) {
 
         {/* ── Right column: assignment ── */}
         <div className="space-y-6">
+          {/* The multi-role roster. This panel and its three endpoints have
+              existed for a while and NOTHING RENDERED IT — it was imported into
+              this file and dropped, so assigning a cleaner or a QA inspector to
+              a maintenance item was unreachable from the admin UI and the
+              feature looked, from the office, like it had never been built. */}
+          <MaintenanceRoleAssignmentsPanel itemId={item.id} />
+
+          <AssignmentInstructionsEditor
+            itemId={item.id}
+            initial={parseInstructions(item.assignmentInstructions)}
+          />
+
           <ECard>
             <ECardHeader>
               <ECardTitle className="flex items-center gap-2 text-[1rem]">

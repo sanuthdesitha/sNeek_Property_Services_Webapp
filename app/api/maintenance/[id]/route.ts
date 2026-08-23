@@ -23,6 +23,8 @@ import {
   attachMaintenanceItemToJob,
 } from "@/lib/maintenance/workers";
 import { parseAssignTarget } from "@/lib/maintenance/assignment-routing";
+import { parseInstructions } from "@/lib/maintenance/instructions";
+import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/security/encryption";
 
 /** Decrypt the stored access codes so on-site staff see the real values. */
@@ -67,6 +69,11 @@ const patchSchema = z
     quotedCost: z.number().nonnegative().optional(),
     // Client (or admin/ops) approves/declines the quoted cost.
     costDecision: z.enum(["APPROVED", "DECLINED"]).optional(),
+    // The typed instruction blocks shown to whoever is assigned. Accepted as
+    // loose objects and normalised by parseInstructions before the write —
+    // that function is already the single definition of what a valid block is,
+    // and a second definition in zod here would be the copy that goes stale.
+    assignmentInstructions: z.array(z.record(z.unknown())).max(30).optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: "No changes supplied." });
 
@@ -175,6 +182,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (wantsEdit && !canManage) {
       return NextResponse.json({ error: "Only admins can edit maintenance item details." }, { status: 403 });
     }
+    // Instructions are what the office tells the person doing the work. A
+    // client editing them would be briefing a worker directly, outside anything
+    // the office has agreed or priced.
+    if (body.assignmentInstructions !== undefined && !canManage) {
+      return NextResponse.json(
+        { error: "Only admins can write the assignment instructions." },
+        { status: 403 }
+      );
+    }
     if (wantsQuote && !canManage) {
       return NextResponse.json({ error: "Only admins can set a quote for approval." }, { status: 403 });
     }
@@ -252,6 +268,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           clientVisible: body.clientVisible,
         },
         note: body.note ?? null,
+      });
+    }
+
+    if (body.assignmentInstructions !== undefined) {
+      // Round-tripped through the reader so what is stored is exactly what the
+      // portal will render. Blocks with a heading and no content are dropped
+      // here rather than saved and shown as an empty card, which reads on a
+      // phone as information that failed to load.
+      await db.propertyMaintenanceItem.update({
+        where: { id: params.id },
+        data: {
+          assignmentInstructions: parseInstructions(body.assignmentInstructions) as any,
+        },
       });
     }
 

@@ -69,9 +69,16 @@ type Phase = "scan" | "review" | "done";
 export function StockCountRun({
   propertyId,
   propertyName,
+  taskId = null,
 }: {
   propertyId: string;
   propertyName: string;
+  /**
+   * The ScanTask this run answers, if the cleaner arrived from an assignment
+   * link. Passed down from the page rather than read off the URL here so the
+   * ownership check that validated it stays server-side.
+   */
+  taskId?: string | null;
 }) {
   const router = useRouter();
   const [phase, setPhase] = React.useState<Phase>("scan");
@@ -113,7 +120,7 @@ export function StockCountRun({
       const res = await fetch("/api/inventory/scan/apply", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ propertyId, scans, overrides, confirmZero }),
+        body: JSON.stringify({ propertyId, scans, overrides, confirmZero, taskId: taskId ?? undefined }),
       });
       const body = await res.json();
 
