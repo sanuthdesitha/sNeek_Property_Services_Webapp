@@ -60,10 +60,21 @@ describe("resolveAssignmentPayRate", () => {
   });
 
   it("gives the same answer for every caller", () => {
-    // Three routes assign work — admin assign, bulk assign, and the automatic
-    // preferred-cleaner path on job creation. They share this function so the
-    // same property cannot pay one rate by hand and another via iCal.
+    // SIX routes assign work — admin assign, bulk assign, the preferred-cleaner
+    // path on job creation, ops auto-dispatch, recurring generation, and
+    // continuation handover. They share this function so the same property
+    // cannot pay one rate by hand and another via iCal or a recurring rule.
     const input = { perCleanerRate: null, propertyCleanerServiceRate: 55 };
     expect(resolveAssignmentPayRate(input)).toBe(resolveAssignmentPayRate({ ...input }));
+  });
+
+  it("still lets a rate carried forward from an existing assignment win", () => {
+    // The continuation path feeds the incoming cleaner's existing payRate in as
+    // the per-cleaner rate, because a rate already agreed for THIS job is a
+    // decision about this job. The property rate is the floor beneath it, not a
+    // replacement for it.
+    expect(resolveAssignmentPayRate({ perCleanerRate: 47, propertyCleanerServiceRate: 55 })).toBe(
+      47
+    );
   });
 });

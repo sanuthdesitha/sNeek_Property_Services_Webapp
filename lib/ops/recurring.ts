@@ -4,6 +4,7 @@ import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/met
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { getAppSettings } from "@/lib/settings";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
+import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 
 const RECURRING_RULES_KEY = "recurring_job_rules_v1";
 
@@ -169,7 +170,9 @@ export async function generateRecurringJobs(input: {
   const propertyIds = Array.from(new Set(rules.map((rule) => rule.propertyId)));
   const properties = await db.property.findMany({
     where: { id: { in: propertyIds }, isActive: true },
-    select: { id: true, name: true, isActive: true },
+    // cleanerServiceRate rides along on a query we already make, so a recurring
+    // job pays the same rate the admin assign route would have paid.
+    select: { id: true, name: true, isActive: true, cleanerServiceRate: true },
   });
   const propertyMap = new Map(properties.map((property) => [property.id, property] as const));
 
@@ -247,13 +250,18 @@ export async function generateRecurringJobs(input: {
         const changedAt = new Date();
         for (let index = 0; index < assigneeIds.length; index += 1) {
           const userId = assigneeIds[index];
+          const payRate =
+            resolveAssignmentPayRate({
+              perCleanerRate: settings.cleanerJobHourlyRates?.[userId]?.[createdJob.jobType],
+              propertyCleanerServiceRate: propertyMap.get(rule.propertyId)?.cleanerServiceRate,
+            }) ?? undefined;
           await db.jobAssignment.upsert({
             where: { jobId_userId: { jobId: createdJob.id, userId } },
             create: {
               jobId: createdJob.id,
               userId,
               isPrimary: index === 0,
-              payRate: settings.cleanerJobHourlyRates?.[userId]?.[createdJob.jobType] ?? undefined,
+              payRate,
               offeredAt: changedAt,
               responseStatus: JobAssignmentResponseStatus.PENDING,
               assignedById: input.actorUserId,
@@ -261,7 +269,7 @@ export async function generateRecurringJobs(input: {
             update: {
               removedAt: null,
               isPrimary: index === 0,
-              payRate: settings.cleanerJobHourlyRates?.[userId]?.[createdJob.jobType] ?? undefined,
+              payRate,
               offeredAt: changedAt,
               responseStatus: JobAssignmentResponseStatus.PENDING,
               respondedAt: null,

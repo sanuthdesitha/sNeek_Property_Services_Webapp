@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { listCleanerAvailabilities } from "@/lib/accounts/availability";
 import { getAppSettings } from "@/lib/settings";
 import { derivePreStartJobStatus } from "@/lib/jobs/assignment-workflow";
+import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 
 function dateKey(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -219,7 +220,13 @@ export async function applyAutoAssignment(jobId: string, cleanerIds: string[], a
     getAppSettings(),
     db.job.findUnique({
       where: { id: jobId },
-      select: { id: true, jobType: true, status: true },
+      select: {
+        id: true,
+        jobType: true,
+        status: true,
+        // Needed so ops dispatch pays the same rate as the admin assign route.
+        property: { select: { cleanerServiceRate: true } },
+      },
     }),
   ]);
   if (!job) throw new Error("Job not found.");
@@ -233,13 +240,18 @@ export async function applyAutoAssignment(jobId: string, cleanerIds: string[], a
     });
     for (let index = 0; index < uniqueCleanerIds.length; index += 1) {
       const userId = uniqueCleanerIds[index];
+      const payRate =
+        resolveAssignmentPayRate({
+          perCleanerRate: settings.cleanerJobHourlyRates?.[userId]?.[job.jobType],
+          propertyCleanerServiceRate: job.property?.cleanerServiceRate,
+        }) ?? undefined;
       await tx.jobAssignment.upsert({
         where: { jobId_userId: { jobId, userId } },
         create: {
           jobId,
           userId,
           isPrimary: index === 0,
-          payRate: settings.cleanerJobHourlyRates?.[userId]?.[job.jobType] ?? undefined,
+          payRate,
           offeredAt: changedAt,
           responseStatus: JobAssignmentResponseStatus.PENDING,
           assignedById: actorUserId,
@@ -247,7 +259,7 @@ export async function applyAutoAssignment(jobId: string, cleanerIds: string[], a
         update: {
           removedAt: null,
           isPrimary: index === 0,
-          payRate: settings.cleanerJobHourlyRates?.[userId]?.[job.jobType] ?? undefined,
+          payRate,
           offeredAt: changedAt,
           responseStatus: JobAssignmentResponseStatus.PENDING,
           respondedAt: null,

@@ -5,11 +5,24 @@
  * and read afterwards by every one of the eight things that compute pay. This is
  * the rule that decides what goes into it.
  *
- * PURE, AND SHARED, because there are three places that assign work — the admin
- * assign route, bulk assign, and the automatic preferred-cleaner path on job
- * creation — and a rule written out three times is a rule that gets updated
- * twice. The symptom would be quiet and specific: the same property paying one
- * rate when a job is assigned by hand and another when iCal created it.
+ * PURE, AND SHARED, because there are SIX places that assign work:
+ *
+ *   1. the admin assign route
+ *   2. bulk assign
+ *   3. the automatic preferred-cleaner path on job creation (iCal)
+ *   4. ops auto-dispatch          — lib/ops/dispatch.ts
+ *   5. recurring job generation   — lib/ops/recurring.ts
+ *   6. continuation handover      — lib/jobs/continuation-requests.ts
+ *
+ * A rule written out six times is a rule that gets updated five times. The
+ * symptom would be quiet and specific: the same property paying one rate when a
+ * job is assigned by hand and another when iCal created it.
+ *
+ * The first version of this module named only the first three, and 4–6 kept
+ * their own `settings.cleanerJobHourlyRates?.[id]?.[type] ?? undefined` — which
+ * is precisely the bug it was written to remove, still live in half the paths.
+ * If a seventh appears, it belongs here too; `grep cleanerJobHourlyRates` is
+ * how to check.
  *
  * PRECEDENCE:
  *   1. the per-cleaner, per-job-type rate — a deliberate arrangement with one

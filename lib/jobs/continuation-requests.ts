@@ -5,6 +5,7 @@ import { getRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
+import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 
 const CONTINUATION_KEY = "job_continuation_requests_v1";
 
@@ -411,6 +412,8 @@ export async function decideContinuationRequest(input: {
         where: { removedAt: null },
         select: { userId: true, payRate: true },
       },
+      // So a handover to somebody NEW still picks up the property's rate.
+      property: { select: { cleanerServiceRate: true } },
     },
   });
   if (!currentJob) throw new Error("Job not found.");
@@ -437,10 +440,18 @@ export async function decideContinuationRequest(input: {
     }
     assignedCleanerExists = true;
     if (cleanerPayRate == null) {
+      // The rate this cleaner already has ON THIS JOB still wins over the
+      // property's, because it was a decision somebody made about this job.
+      // But it only exists when the incoming cleaner was already assigned, and
+      // a handover is usually to somebody new - which is where the property
+      // rate was silently being skipped.
       cleanerPayRate =
-        settings.cleanerJobHourlyRates?.[nextCleanerId]?.[currentJob.jobType] ??
-        currentJob.assignments.find((a) => a.userId === nextCleanerId)?.payRate ??
-        null;
+        resolveAssignmentPayRate({
+          perCleanerRate:
+            settings.cleanerJobHourlyRates?.[nextCleanerId]?.[currentJob.jobType] ??
+            currentJob.assignments.find((a) => a.userId === nextCleanerId)?.payRate,
+          propertyCleanerServiceRate: currentJob.property?.cleanerServiceRate,
+        }) ?? null;
     }
   }
 
