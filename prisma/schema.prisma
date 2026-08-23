@@ -612,6 +612,13 @@ model MaintenanceItemAssignment {
   payChangeReason String? @db.Text
   payChangeStatus String?
   payChangeAt  DateTime?
+  /// Set when this assignment's fee has been billed to the client, so it can
+  /// never land on a second invoice. Only ever populated for payPayer=CLIENT
+  /// work — company-paid repairs are our cost and are never billed on.
+  /// Mirrors CleanerPayAdjustment.includedInCleanerInvoiceId and
+  /// ShoppingSettlement.includedInClientInvoiceId, which solve the same problem.
+  includedInClientInvoiceId String?
+  includedInClientInvoiceAt DateTime?
 
   item       PropertyMaintenanceItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   user       User                    @relation("MaintenanceItemAssignee", fields: [userId], references: [id], onDelete: Cascade)
@@ -3220,6 +3227,32 @@ model PropertyClientRate {
   @@unique([propertyId, jobType])
 }
 
+/// THE INVOICE COUNTERS.
+///
+/// A row per rail: CLIENT for money in, CLEANER for money out. They number
+/// separately because they are different documents sent to different people,
+/// and interleaving them would produce a client invoice 7 beside a cleaner
+/// invoice 8 with nothing in common.
+///
+/// `lastNumber` is the last number ISSUED, so the next one is lastNumber + 1.
+/// The owner sets it directly, because this business issued invoices before
+/// this software existed and the sequence has to continue from the last real
+/// one rather than restart at 1 and duplicate a number already sent.
+///
+/// Allocation is a single atomic `UPDATE ... RETURNING`, which is why this is a
+/// table and not a field in the settings JSON: two invoices generated in the
+/// same second must never be handed the same number, and a read-modify-write
+/// against a JSON blob cannot promise that.
+model InvoiceSequence {
+  /// "CLIENT" | "CLEANER"
+  key        String   @id
+  prefix     String   @default("INV-")
+  lastNumber Int      @default(0)
+  /// Zero-padding width, so text sorting matches numeric order.
+  padding    Int      @default(4)
+  updatedAt  DateTime @updatedAt
+}
+
 model ClientInvoice {
   id                    String              @id @default(cuid())
   clientId              String
@@ -3262,6 +3295,10 @@ model ClientInvoice {
 // it and push it to Xero as a bill (ACCPAY).
 model CleanerInvoiceSubmission {
   id              String    @id @default(cuid())
+  /// The payee's own invoice number, from the CLEANER sequence. Nullable
+  /// because every submission made before numbering existed has none, and
+  /// back-filling would invent numbers that were never on a sent document.
+  invoiceNumber   String?   @unique
   cleanerId       String
   periodStart     DateTime
   periodEnd       DateTime

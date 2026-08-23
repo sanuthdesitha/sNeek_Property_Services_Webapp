@@ -12,6 +12,10 @@ const { dbMock } = vi.hoisted(() => ({
     priceBook: { findMany: vi.fn() },
     job: { findMany: vi.fn() },
     shoppingRun: { findMany: vi.fn() },
+    // Client-paid repairs are a third line source now, so the generator queries
+    // this too. Without it here the whole function dies on an undefined model
+    // before it ever reaches the assertion.
+    maintenanceItemAssignment: { findMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -47,6 +51,7 @@ describe("generateClientInvoice — period basis decides the job window", () => 
     // which is exactly far enough: the query we assert on has been issued.
     dbMock.job.findMany.mockResolvedValue([]);
     dbMock.shoppingRun.findMany.mockResolvedValue([]);
+    dbMock.maintenanceItemAssignment.findMany.mockResolvedValue([]);
   });
 
   async function runAndCaptureJobWhere(periodBasis?: "SERVICE" | "SCHEDULED") {

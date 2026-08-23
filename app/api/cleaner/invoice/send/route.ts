@@ -24,6 +24,7 @@ import {
   invoiceFileStem,
   requireInvoicePayeeSession,
 } from "@/lib/invoicing/access";
+import { issueInvoiceNumber } from "@/lib/billing/invoice-sequence";
 
 const schema = z.object({
   startDate: z.string().date().optional(),
@@ -137,9 +138,9 @@ export async function POST(req: NextRequest) {
     // "SENDING" and only flips to the terminal "SUBMITTED" once the email + the
     // invoiced-marking both succeed; a failed send deletes the anchor so a
     // legitimate retry can proceed.
-    let anchorId: string;
+    let anchor: { id: string; invoiceNumber: string | null };
     try {
-      anchorId = await db.$transaction(async (tx) => {
+      anchor = await db.$transaction(async (tx) => {
         // Transaction-scoped advisory lock keyed on the cleaner: serializes
         // concurrent sends for THIS cleaner so the duplicate check + insert below
         // are atomic (two simultaneous requests can't both pass the check).
@@ -164,9 +165,17 @@ export async function POST(req: NextRequest) {
         if (recent) {
           throw new Error("__DUPLICATE_INVOICE_SEND__");
         }
+        // Taken INSIDE the duplicate guard but before the row exists, so a send
+        // that is about to be rejected as a duplicate never consumes a number.
+        // The sequence is separate from the client one: these are different
+        // documents going to different people, and interleaving them would put a
+        // payee's invoice 8 beside a client's invoice 7 with nothing in common.
+        const invoiceNumber = await issueInvoiceNumber("CLEANER");
+
         const created = await tx.cleanerInvoiceSubmission.create({
           data: {
             cleanerId: session.user.id,
+            invoiceNumber,
             periodStart: data.start,
             periodEnd: data.end,
             hours: data.hours,
@@ -175,9 +184,9 @@ export async function POST(req: NextRequest) {
             status: "SENDING",
             lineData,
           },
-          select: { id: true },
+          select: { id: true, invoiceNumber: true },
         });
-        return created.id;
+        return created;
       });
     } catch (guardErr: any) {
       if (guardErr?.message === "__DUPLICATE_INVOICE_SEND__") {
@@ -192,7 +201,7 @@ export async function POST(req: NextRequest) {
       throw guardErr;
     }
 
-    const html = buildCleanerInvoiceHtml(data);
+    const html = buildCleanerInvoiceHtml(data, anchor.invoiceNumber);
     const pdf = await renderCleanerInvoicePdf(html);
     const fileName = `${invoiceFileStem(session.user.role)}-${session.user.id}-${data.start
       .toISOString()
@@ -222,7 +231,7 @@ export async function POST(req: NextRequest) {
       // Send failed — release the anchor so the cleaner can legitimately retry
       // (and so the jobs aren't left marked-invoiced against a send that never
       // reached accounts).
-      await db.cleanerInvoiceSubmission.delete({ where: { id: anchorId } }).catch(() => {});
+      await db.cleanerInvoiceSubmission.delete({ where: { id: anchor.id } }).catch(() => {});
       return NextResponse.json({ error: emailResult.error ?? "Failed to send invoice email." }, { status: 502 });
     }
 
@@ -255,7 +264,7 @@ export async function POST(req: NextRequest) {
             // where the ownership check lives, so nothing here can stamp someone
             // else's money as paid to them.
             ownedRunIds,
-            invoiceId: anchorId,
+            invoiceId: anchor.id,
             // The amounts rendered on the PDF, frozen as-is — never a recomputation.
             expense: data.expenseRows.map((row) => ({ runId: row.runId, amount: row.amount })),
             time: data.shoppingTimeRows.map((row) => ({ runId: row.runId, amount: row.amount })),
@@ -280,7 +289,7 @@ export async function POST(req: NextRequest) {
           cleanerId: session.user.id,
           includedInCleanerInvoiceId: null,
         },
-        data: { includedInCleanerInvoiceId: anchorId, includedInCleanerInvoiceAt: new Date() },
+        data: { includedInCleanerInvoiceId: anchor.id, includedInCleanerInvoiceAt: new Date() },
       });
     }
 
@@ -308,7 +317,7 @@ export async function POST(req: NextRequest) {
             includedInPayrollRunId: null,
           },
           data: {
-            includedInCleanerInvoiceId: anchorId,
+            includedInCleanerInvoiceId: anchor.id,
             includedInCleanerInvoiceAt: settledAt,
             paySettledAmount: row.amount,
           },
@@ -318,7 +327,7 @@ export async function POST(req: NextRequest) {
 
     // Email + invoiced-marking succeeded → flip the anchor to its terminal state.
     await db.cleanerInvoiceSubmission.update({
-      where: { id: anchorId },
+      where: { id: anchor.id },
       data: { status: "SUBMITTED" },
     });
 
