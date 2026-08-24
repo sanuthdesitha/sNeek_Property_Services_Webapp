@@ -66,7 +66,9 @@ export async function POST(req: NextRequest) {
         await ensureServiceSiteProperty(db, {
           clientId,
           jobType: body.jobType,
-          estimatedHours: body.estimatedHours,
+          // On CREATE, null and undefined both mean "not set" — the schema
+          // accepts null so an UPDATE can clear the field.
+          estimatedHours: body.estimatedHours ?? undefined,
           serviceSite: serviceSite!,
           serviceContext,
         })

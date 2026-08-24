@@ -117,7 +117,15 @@ const baseCreateJobSchema = z.object({
   startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   dueTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
-  estimatedHours: z.number().positive().optional(),
+  // `.nullable()` so hours can be CLEARED, matching `fixedPrice` below. Without
+  // it, blank sent `undefined`, the PATCH route's `{ ...body }` spread omitted
+  // the key entirely, and an allocated time could be set but never removed.
+  // Clearing is a real mode, not data loss: `computeCleanerPay` falls back to
+  // the cleaner's CLOCKED timer hours when no allocated time is set, which is
+  // exactly what an admin means by "pay them for the time they actually spent".
+  // Still `.positive()` for an actual value — a 0 is an empty box everywhere
+  // else in this codebase, and null is how you say "empty" here.
+  estimatedHours: z.number().positive().nullable().optional(),
   notes: z.string().optional(),
   internalNotes: z.string().optional(),
   // Agreed fixed client price (overrides the rate table on the client invoice).

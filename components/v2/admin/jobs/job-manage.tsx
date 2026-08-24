@@ -356,7 +356,9 @@ export function JobManagePanel({
 
       await patchJob({
         status,
-        estimatedHours: estimatedHours.trim() === "" ? undefined : Number(estimatedHours),
+        // null, not undefined: undefined is dropped by the PATCH route's
+        // `{ ...body }` spread, so a cleared box silently kept the old hours.
+        estimatedHours: estimatedHours.trim() === "" ? null : Number(estimatedHours),
         transportAllowances: transport,
         cleanerPayouts: payouts,
         ...(needsResetConfirm ? { confirmCompletedReset: true } : {}),
@@ -426,7 +428,7 @@ export function JobManagePanel({
           startTime: startTime || undefined,
           dueTime: dueTime || undefined,
           endTime: endTime || undefined,
-          estimatedHours: estimatedHours ? Number(estimatedHours) : undefined,
+          estimatedHours: estimatedHours ? Number(estimatedHours) : null,
           notes: notes || undefined,
           internalNotes: internalNotes || undefined,
           isDraft,
