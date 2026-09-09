@@ -12,8 +12,7 @@
  * address/GPS, company logo, context tag) via `prepareUploadFile` from
  * `lib/uploads/compress`. GALLERY picks already carry their own timestamp, so
  * they are compressed only — never stamped (v1's no-double-stamp rule). Videos
- * and documents pass through untouched (never stamped) but ARE uploaded and
- * compressed server-side.
+ * are compressed on the device before multipart upload; documents are unchanged.
  *
  * On mobile the `capture` attribute opens the camera directly; on desktop it
  * falls back to the file picker. Multiple files upload in parallel; each shows a
@@ -43,6 +42,7 @@ import { prepareUploadFile } from "@/lib/uploads/compress";
 import { isStampableImage, type StampGps, type StampOptions } from "@/lib/uploads/stamp";
 import { getAccuratePosition } from "@/lib/geo/get-position";
 import { uploadMultipart } from "@/lib/uploads/multipart-client";
+import { compressVideo, isVideoFile } from "@/lib/uploads/compress-video";
 
 export interface CapturedMedia {
   key: string;
@@ -229,7 +229,7 @@ function uploadOne(
 ): Promise<CapturedMedia> {
   // Big files bypass our server entirely: presigned parts, straight to S3.
   // Progress and cancellation both survive, so the UI is unchanged.
-  if (file.size > MULTIPART_THRESHOLD_BYTES) {
+  if (isVideoFile(file) || file.size > MULTIPART_THRESHOLD_BYTES) {
     return uploadLargeFile(file, folder, onBytes, signal);
   }
   return new Promise((resolve, reject) => {
@@ -333,7 +333,7 @@ const VIDEO_CONCURRENCY = 1;
 const VIDEO_BYTES_THRESHOLD = 8 * 1024 * 1024;
 
 function isHeavyUpload(file: File): boolean {
-  return file.type.toLowerCase().startsWith("video/") || file.size > VIDEO_BYTES_THRESHOLD;
+  return isVideoFile(file) || file.size > VIDEO_BYTES_THRESHOLD;
 }
 
 export interface UploadFailure {
@@ -345,6 +345,7 @@ export interface UploadFailure {
 
 export interface UploadProgress {
   name: string;
+  phase?: "compressing" | "uploading";
   /** 0-100, or null before the first progress event. */
   percent: number | null;
 }
@@ -403,10 +404,26 @@ export async function prepareAndUploadFiles(
       while (next < queue.length && !opts.signal?.aborted) {
         const index = queue[next++];
         const file = files[index];
-        inFlight.set(index, { name: file.name, percent: null });
+        inFlight.set(index, { name: file.name, percent: null, phase: isVideoFile(file) ? "compressing" : "uploading" });
         publish();
+        let dispose: (() => Promise<void>) | undefined;
         try {
-          const prepared = await prepareCapturedFile(file, opts.source, opts.stamp);
+          let prepared: File;
+          if (isVideoFile(file)) {
+            const result = await compressVideo(file, {
+              signal: opts.signal,
+              onProgress: (percent) => {
+                inFlight.set(index, { name: file.name, phase: "compressing", percent });
+                publish();
+              },
+            });
+            prepared = result.file;
+            dispose = result.dispose;
+          } else {
+            prepared = await prepareCapturedFile(file, opts.source, opts.stamp);
+          }
+          inFlight.set(index, { name: file.name, phase: "uploading", percent: 0 });
+          publish();
           slots[index] = await uploadWithRetry(
             prepared,
             opts.folder,
@@ -414,6 +431,7 @@ export async function prepareAndUploadFiles(
               inFlight.set(index, {
                 name: file.name,
                 percent: total > 0 ? Math.round((sent / total) * 100) : null,
+                phase: "uploading",
               });
               publish();
             },
@@ -430,6 +448,7 @@ export async function prepareAndUploadFiles(
             });
           }
         } finally {
+          await dispose?.();
           inFlight.delete(index);
           done += 1;
           opts.onProgress?.(done, files.length);
@@ -859,7 +878,7 @@ export function MediaCapture({
               key={item.name}
               className="flex items-center gap-2 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]"
             >
-              <span className="min-w-0 flex-1 truncate">{item.name}</span>
+              <span className="min-w-0 flex-1 truncate">{item.phase === "compressing" ? "Compressing: " : "Uploading: "}{item.name}</span>
               <span className="h-1 w-20 overflow-hidden rounded-[var(--e-radius-pill)] bg-[hsl(var(--e-muted))]">
                 <span
                   className="block h-full bg-[hsl(var(--e-gold))] transition-[width]"

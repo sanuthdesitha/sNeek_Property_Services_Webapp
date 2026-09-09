@@ -59,6 +59,19 @@ export async function GET(req: NextRequest) {
           },
         },
         client: { select: { id: true, name: true } },
+        // Null for everyone except a VA. A VA login means nothing without its
+        // team — the team owns the client link, the grants and the property
+        // scope — so the directory needs it on the same row.
+        vaTeam: {
+          select: {
+            id: true,
+            name: true,
+            isActive: true,
+            permissions: true,
+            propertyIds: true,
+            client: { select: { id: true, name: true } },
+          },
+        },
       },
       orderBy: [{ isActive: "desc" }, { name: "asc" }],
     });

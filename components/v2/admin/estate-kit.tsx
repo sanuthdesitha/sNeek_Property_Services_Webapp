@@ -331,7 +331,8 @@ export function EConfirmModal({
             <EInput
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
-              placeholder={confirmPhrase}
+                placeholder={confirmPhrase}
+                aria-label={`Type ${confirmPhrase} to continue`}
               autoComplete="off"
             />
           </EField>

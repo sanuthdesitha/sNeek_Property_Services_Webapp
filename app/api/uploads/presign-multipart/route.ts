@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/session";
-import { s3 } from "@/lib/s3";
+import { resolveS3 } from "@/lib/s3";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { sanitizeUploadFolder, isAllowedUploadContentType } from "@/lib/uploads/validate";
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     const ext = parsed.filename.split(".").pop() ?? "bin";
     const key = `${folder}/${session.user.id}/${randomUUID()}.${ext}`;
-    const Bucket = process.env.S3_BUCKET_NAME!;
+    const { client: s3, bucket: Bucket } = await resolveS3();
 
     const created = await s3
       .createMultipartUpload({ Bucket, Key: key, ContentType: parsed.contentType })

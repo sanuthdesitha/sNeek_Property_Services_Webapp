@@ -23,7 +23,7 @@ type ResolvedS3 = { client: S3; bucket: string };
 let s3Cache: { value: ResolvedS3; at: number } | null = null;
 const S3_CACHE_TTL_MS = 60_000;
 
-async function resolveS3(): Promise<ResolvedS3> {
+export async function resolveS3(): Promise<ResolvedS3> {
   const now = Date.now();
   if (s3Cache && now - s3Cache.at < S3_CACHE_TTL_MS) return s3Cache.value;
 

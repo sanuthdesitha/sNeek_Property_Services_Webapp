@@ -45,6 +45,7 @@ import { AccountActivity } from "@/components/v2/admin/accounts/account-activity
 import { ExtendedProfileEditor } from "@/components/v2/admin/accounts/extended-profile-editor";
 import { ExtraRolesPanel } from "@/components/v2/admin/accounts/extra-roles-panel";
 import { ROLE_LABELS } from "@/lib/auth/roles";
+import { VA_PERMISSION_KEYS, VA_PERMISSION_LABELS } from "@/lib/va/permissions";
 import { resolveCredentialStatuses } from "@/lib/workforce/credential-expiry";
 
 export const metadata = { title: "Account · Estate admin" };
@@ -115,10 +116,35 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
       emergencyContactRelation: true,
       notes: true,
       clientId: true,
+      // A VA's access lives on their TEAM, not their user row — without this
+      // the profile page rendered a VA as a strangely empty cleaner.
+      vaTeam: {
+        select: {
+          id: true,
+          name: true,
+          isActive: true,
+          permissions: true,
+          propertyIds: true,
+          client: { select: { id: true, name: true } },
+        },
+      },
     },
   });
 
   if (!user || user.role === Role.CLIENT) notFound();
+
+  // Property NAMES for a scoped team — ids alone answer nothing on a profile.
+  const vaScopeIds = Array.isArray(user.vaTeam?.propertyIds)
+    ? (user.vaTeam!.propertyIds as unknown[]).filter((v): v is string => typeof v === "string")
+    : [];
+  const vaScopeProperties =
+    user.role === Role.VA && vaScopeIds.length > 0
+      ? await db.property.findMany({
+          where: { id: { in: vaScopeIds } },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+      : [];
 
   const isFieldRole = user.role === Role.CLEANER || user.role === Role.QA_INSPECTOR;
 
@@ -648,6 +674,56 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
           <AccountNotes userId={user.id} initialNotes={user.notes} />
         </div>
       </div>
+
+      {user.role === Role.VA ? (
+        <ECard>
+          <ECardHeader>
+            <ECardTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4" /> Delegated access
+            </ECardTitle>
+          </ECardHeader>
+          <ECardBody className="space-y-3 pt-0">
+            {user.vaTeam ? (
+              <>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-[hsl(var(--e-muted-foreground))]">Acts for</span>
+                  <span className="font-semibold">{user.vaTeam.client?.name ?? "Unknown client"}</span>
+                  <span className="text-[hsl(var(--e-muted-foreground))]">on team</span>
+                  <span className="font-semibold">{user.vaTeam.name}</span>
+                  {!user.vaTeam.isActive ? <EBadge tone="warning">Team disabled</EBadge> : null}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {VA_PERMISSION_KEYS.map((key) => {
+                    const granted =
+                      !!user.vaTeam?.permissions &&
+                      (user.vaTeam.permissions as Record<string, boolean>)[key] === true;
+                    return (
+                      <EBadge key={key} tone={granted ? "success" : "neutral"}>
+                        {VA_PERMISSION_LABELS[key].title}
+                      </EBadge>
+                    );
+                  })}
+                </div>
+                <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+                  {vaScopeProperties.length > 0
+                    ? `Scoped to ${vaScopeProperties.map((p) => p.name).join(", ")}.`
+                    : "Scoped to every property this client owns."}{" "}
+                  Grants are edited on the team —{" "}
+                  <Link className="underline" href="/v2/admin/accounts?tab=assistants">
+                    Accounts → Assistants
+                  </Link>
+                  .
+                </p>
+              </>
+            ) : (
+              <p className="text-sm" style={{ color: "hsl(var(--e-warning))" }}>
+                No team — this login can access nothing. Re-invite them from Accounts → Assistants, or
+                delete the account.
+              </p>
+            )}
+          </ECardBody>
+        </ECard>
+      ) : null}
 
       <AccountActivity userId={user.id} />
 

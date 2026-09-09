@@ -1,5 +1,6 @@
 import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
+import { requireSession } from "@/lib/auth/session";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { VaTeamManager, type VaTeamView } from "@/components/v2/client/va-team-manager";
@@ -15,7 +16,8 @@ export const dynamic = "force-dynamic";
  * bounced by the page as well as by every endpoint behind it.
  */
 export default async function ClientTeamPage() {
-  const session = await requireRole([Role.CLIENT]);
+  const session = await requireSession();
+  if (session.user.role !== Role.CLIENT) redirect("/v2/client");
 
   const user = await db.user
     .findUnique({ where: { id: session.user.id }, select: { clientId: true } })

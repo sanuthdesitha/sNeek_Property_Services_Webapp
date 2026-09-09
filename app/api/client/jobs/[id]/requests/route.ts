@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
+import { propertyScopeWhere, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 import { createClientLightRequest } from "@/lib/job-tasks/service";
@@ -118,6 +118,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       note: body.note ?? null,
       baseUrl: req,
     });
+
+    await auditClientPortalAction({ ctx: portal, action: `job.request.${String(body.type).toLowerCase()}`, entity: "Job", entityId: params.id, after: { taskId: created.id } });
 
     return NextResponse.json({ ok: true, taskId: created.id }, { status: 201 });
   } catch (err: any) {

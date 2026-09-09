@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { ensureCleanerModuleAccess } from "@/lib/portal-access";
 import { Role } from "@prisma/client";
+import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { EstateCalendar, type CalendarJob } from "@/components/v2/cleaner/estate-calendar";
 
@@ -57,6 +58,8 @@ export default async function V2CleanerCalendarPage() {
         jobType: true,
         scheduledDate: true,
         startTime: true,
+        internalNotes: true,
+        assignments: { where: { userId: session.user.id, removedAt: null }, select: { responseStatus: true } },
         property: { select: { name: true, suburb: true } },
       },
       orderBy: [{ scheduledDate: "asc" }],
@@ -72,6 +75,8 @@ export default async function V2CleanerCalendarPage() {
     startTime: job.startTime,
     status: titleCase(job.status),
     rawStatus: job.status,
+    pendingOffer: job.assignments.some((assignment) => assignment.responseStatus === "PENDING"),
+    timingBadges: resolveTimingBadges(job.internalNotes),
     tone: statusTone(job.status),
   }));
 

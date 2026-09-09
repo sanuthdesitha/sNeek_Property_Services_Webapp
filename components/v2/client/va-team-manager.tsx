@@ -152,6 +152,9 @@ function TeamCard({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
+  const saving = React.useRef(false);
+  const [editingName, setEditingName] = React.useState(false);
+  const [teamName, setTeamName] = React.useState(team.name);
 
   const permissions = team.permissions ?? {};
   const scope = team.propertyIds ?? [];
@@ -162,6 +165,8 @@ function TeamCard({
 
   /** PATCH the team, reverting the optimistic state if the server refuses. */
   async function patch(payload: Record<string, unknown>, optimistic: VaTeamView) {
+    if (saving.current) return;
+    saving.current = true;
     const previous = team;
     onChange(optimistic);
     setBusy(true);
@@ -177,10 +182,12 @@ function TeamCard({
       if (!res.ok) throw new Error(body.error ?? "Could not save.");
       onChange({ ...optimistic, ...body, members: optimistic.members });
       setNotice("Saved.");
+      setEditingName(false);
     } catch (err: any) {
       onChange(previous);
       setError(err.message);
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   }
@@ -192,6 +199,10 @@ function TeamCard({
 
   function toggleProperty(propertyId: string, next: boolean) {
     const nextScope = next ? [...scope, propertyId] : scope.filter((id) => id !== propertyId);
+    if (nextScope.length === 0) {
+      setError("Select at least one property, or explicitly enable All properties.");
+      return;
+    }
     void patch(
       { propertyIds: nextScope },
       { ...team, propertyIds: nextScope.length > 0 ? nextScope : null }
@@ -224,6 +235,16 @@ function TeamCard({
               {team.name}
               {team.isActive ? null : <EBadge tone="warning">Paused</EBadge>}
             </h2>
+            {editingName ? (
+              <form className="mt-2 flex flex-wrap gap-2" onSubmit={(event) => {
+                event.preventDefault();
+                if (teamName.trim()) void patch({ name: teamName.trim() }, { ...team, name: teamName.trim() });
+              }}>
+                <EInput aria-label="Team name" value={teamName} maxLength={80} disabled={busy} onChange={(event) => setTeamName(event.target.value)} />
+                <EButton type="submit" size="sm" disabled={busy || !teamName.trim()}>Save name</EButton>
+                <EButton type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setEditingName(false)}>Cancel</EButton>
+              </form>
+            ) : <EButton variant="ghost" size="sm" disabled={busy} onClick={() => { setTeamName(team.name); setEditingName(true); }}>Rename</EButton>}
             <p className="mt-1 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
               {scope.length === 0
                 ? "Access to every property you own."
@@ -250,6 +271,7 @@ function TeamCard({
               <ECheckTile
                 key={key}
                 checked={permissions[key] === true}
+                disabled={busy}
                 onChange={(next) => togglePermission(key, next)}
               >
                 <span>
@@ -269,6 +291,15 @@ function TeamCard({
 
         <section className="space-y-2">
           <ELabel>Which properties</ELabel>
+          <ESwitch
+            label="All properties, including future properties"
+            checked={scope.length === 0}
+            disabled={busy || properties.length === 0}
+            onCheckedChange={(all) => {
+              const propertyIds = all ? [] : properties.map((property) => property.id);
+              void patch({ propertyIds }, { ...team, propertyIds: all ? null : propertyIds });
+            }}
+          />
           {properties.length === 0 ? (
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
               You have no properties yet.
@@ -279,7 +310,8 @@ function TeamCard({
                 {properties.map((p) => (
                   <ECheckTile
                     key={p.id}
-                    checked={scope.includes(p.id)}
+                    checked={scope.length === 0 || scope.includes(p.id)}
+                    disabled={busy || scope.length === 0}
                     onChange={(next) => toggleProperty(p.id, next)}
                   >
                     {p.name}
@@ -287,13 +319,15 @@ function TeamCard({
                 ))}
               </div>
               <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                Select none to give the team every property, including ones you add later.
+                {scope.length === 0 ? "All current and future properties are included." : "Choose at least one property. New properties are excluded until selected."}
               </p>
             </>
           )}
         </section>
 
-        <MemberSection team={team} onChange={onChange} onBusy={setBusy} onError={setError} />
+        <fieldset disabled={busy} className="min-w-0">
+          <MemberSection team={team} onChange={onChange} onBusy={setBusy} onError={setError} />
+        </fieldset>
 
         {error ? <EInlineNotice tone="danger">{error}</EInlineNotice> : null}
         {notice && !error ? <EInlineNotice tone="success">{notice}</EInlineNotice> : null}
@@ -338,6 +372,7 @@ function MemberSection({
   async function invite() {
     if (!email.trim()) return;
     setInviting(true);
+    onBusy(true);
     setInviteError(null);
     setInviteNotice(null);
     try {
@@ -375,6 +410,7 @@ function MemberSection({
       setInviteError(err.message);
     } finally {
       setInviting(false);
+      onBusy(false);
     }
   }
 
@@ -424,8 +460,12 @@ function MemberSection({
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                {m.invitation?.acceptedAt ? (
+                {!m.isActive ? (
+                  <EBadge tone="neutral">Inactive</EBadge>
+                ) : !m.invitation || m.invitation.acceptedAt ? (
                   <EBadge tone="success">Active</EBadge>
+                ) : new Date(m.invitation.expiresAt).getTime() <= Date.now() ? (
+                  <EBadge tone="danger">Expired</EBadge>
                 ) : (
                   <EBadge tone="warning">Invited</EBadge>
                 )}

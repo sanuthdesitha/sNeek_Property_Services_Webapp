@@ -2,7 +2,7 @@ import Link from "next/link";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
-import { requireClientPortalPage } from "@/lib/auth/client-portal";
+import { requireClientPortalPage, propertyScopeWhere } from "@/lib/auth/client-portal";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { listClientJobsForUser, listClientReportsForUser } from "@/lib/client/portal-data";
 import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
@@ -57,7 +57,7 @@ function money(value: number | null | undefined) {
 }
 
 function titleCase(value: string) {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function parseConfirmationMeta(notes: string | null | undefined) {
@@ -81,7 +81,20 @@ export default async function ClientHomePage() {
   // and the VA-aware resolvers scope it to their team's client and properties.
   const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
   const portal = await getClientPortalContext(session.user.id).catch(() => null);
-  const visibility = portal?.visibility;
+  const visibility = { ...portalCtx.visibility };
+  if (portalCtx.actor === "VA") {
+    const grants = portalCtx.permissions;
+    visibility.showProperties &&= grants.properties;
+    visibility.showInventory &&= grants.properties;
+    visibility.showReports &&= grants.reports;
+    visibility.showFinanceDetails &&= grants.invoicesView;
+    visibility.showBooking &&= grants.bookings;
+    visibility.showCases &&= grants.maintenance;
+    visibility.showShopping = false;
+    visibility.showQuoteRequests = false;
+    visibility.showApprovals = false;
+  }
+  const propertyWhere = propertyScopeWhere(portalCtx);
   const firstName = session.user.name ? session.user.name.split(" ")[0] : null;
 
   const [jobs, reports] = await Promise.all([
@@ -93,7 +106,7 @@ export default async function ClientHomePage() {
 
   const finance =
     portal?.clientId && visibility?.showFinanceDetails
-      ? await getClientFinanceOverview(portal.clientId).catch(() => null)
+      ? await getClientFinanceOverview(portal.clientId, portalCtx.propertyIds).catch(() => null)
       : null;
 
   const clientId = portal?.clientId ?? null;
@@ -102,7 +115,7 @@ export default async function ClientHomePage() {
     clientId && visibility?.showProperties
       ? db.property
           .findMany({
-            where: { clientId, isActive: true },
+            where: { ...propertyWhere, isActive: true },
             select: { id: true, name: true, suburb: true, bedrooms: true, bathrooms: true, hasBalcony: true },
             orderBy: { name: "asc" },
           })
@@ -111,7 +124,7 @@ export default async function ClientHomePage() {
     clientId && visibility?.showInventory
       ? db.propertyStock
           .findMany({
-            where: { property: { clientId } },
+            where: { property: propertyWhere },
             include: {
               property: { select: { id: true, name: true } },
               item: { select: { name: true } },
@@ -124,7 +137,7 @@ export default async function ClientHomePage() {
     clientId && visibility?.showLaundryUpdates
       ? db.laundryTask
           .findMany({
-            where: { property: { clientId } },
+            where: { property: propertyWhere },
             select: {
               id: true,
               status: true,
@@ -144,7 +157,7 @@ export default async function ClientHomePage() {
           .catch(() => [])
       : Promise.resolve([]),
     visibility
-      ? getClientImmediateAttention({ clientId, visibility }).catch(() => [])
+      ? getClientImmediateAttention({ clientId, visibility, propertyIds: portalCtx.propertyIds }).catch(() => [])
       : Promise.resolve([]),
   ]);
 
@@ -200,12 +213,12 @@ export default async function ClientHomePage() {
     : "—";
   // What is actually blocking the client: the same items the attention strip
   // above lists, counted so the number and the list can never disagree.
-  const needsYouCount = urgentItems.length;
+  const actionableItems = urgentItems.filter((item) => item.tone !== "info");
+  const needsYouCount = actionableItems.reduce((sum, item) => sum + item.count, 0);
   const lowStockTotal = inventoryByProperty.reduce((sum, row) => sum + row.lowCount, 0);
 
-  const balanceDue = money(finance?.summary.pendingChargeTotal);
-  const openInvoices =
-    finance?.invoices.filter((inv) => inv.status === "SENT" || inv.status === "APPROVED").length ?? 0;
+  const unbilledTotal = money(finance?.summary.pendingChargeTotal);
+  const unbilledCount = finance?.summary.pendingChargeCount ?? 0;
 
   return (
     <div className="space-y-8">
@@ -252,16 +265,16 @@ export default async function ClientHomePage() {
                   <EBadge tone="gold" soft>{titleCase(nextJob.status)}</EBadge>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-3">
-                  <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton>
+                  {visibility.showBooking ? <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton> : null}
                   {visibility?.showQuoteRequests ? (
                     <EButton asChild variant="outline" size="sm"><Link href="/v2/client/quote">
                         <Plus className="h-3.5 w-3.5" /> Request quote
                       </Link></EButton>
                   ) : null}
                   <EButton asChild variant="outline" size="sm"><Link href="/v2/client/services">View services</Link></EButton>
-                  <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
+                  {portalCtx.permissions.messages ? <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
                       <MessageSquare className="h-3.5 w-3.5" /> Message ops
-                    </Link></EButton>
+                    </Link></EButton> : null}
                 </div>
               </>
             ) : (
@@ -270,7 +283,7 @@ export default async function ClientHomePage() {
                   No active services scheduled right now.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-3">
-                  <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton>
+                  {visibility.showBooking ? <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton> : null}
                   <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
                       <MessageSquare className="h-3.5 w-3.5" /> Message ops
                     </Link></EButton>
@@ -299,7 +312,7 @@ export default async function ClientHomePage() {
       </ECard>
 
       {/* Requires attention */}
-      {urgentItems.length > 0 ? (
+      {actionableItems.length > 0 ? (
         <ECard variant="ceremony">
           <ECardHeader>
             <ECardTitle>Requires attention</ECardTitle>
@@ -308,7 +321,7 @@ export default async function ClientHomePage() {
             </p>
           </ECardHeader>
           <ECardBody className="space-y-2 pt-0">
-            {urgentItems.map((item) => {
+            {actionableItems.map((item) => {
               const color = ATTENTION_TONE[item.tone ?? "info"] ?? ATTENTION_TONE.info;
               const href = item.href ? item.href.replace(/^\/client/, "/v2/client") : null;
               return (
@@ -364,16 +377,16 @@ export default async function ClientHomePage() {
         <EStatCard
           label="Needs you"
           value={String(needsYouCount)}
-          delta={needsYouCount === 0 ? "Nothing waiting" : "Approvals and requests"}
+          delta={needsYouCount === 0 ? "Nothing waiting" : "Items requiring attention"}
           deltaTone={needsYouCount > 0 ? "danger" : "neutral"}
           icon={<ClipboardCheck className="h-4 w-4" />}
         />
         {visibility?.showFinanceDetails ? (
           <EStatCard
-            label="Balance due"
-            value={balanceDue}
-            delta={`${openInvoices} invoice${openInvoices === 1 ? "" : "s"} open`}
-            deltaTone={openInvoices > 0 ? "danger" : "neutral"}
+            label="Unbilled work"
+            value={unbilledTotal}
+            delta={`${unbilledCount} service${unbilledCount === 1 ? "" : "s"} awaiting invoice`}
+            deltaTone="neutral"
             icon={<FileText className="h-4 w-4" />}
           />
         ) : (
@@ -644,9 +657,6 @@ export default async function ClientHomePage() {
         ) : null}
       </div>
 
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-        Estate preview · live data from your account.
-      </p>
     </div>
   );
 }

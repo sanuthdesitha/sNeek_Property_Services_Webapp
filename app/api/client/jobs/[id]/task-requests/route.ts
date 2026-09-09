@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
+import { propertyScopeWhere, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { createClientJobTaskRequest, listClientJobTasks } from "@/lib/job-tasks/service";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 
@@ -55,6 +55,8 @@ export async function POST(
       attachmentKeys: body.attachmentKeys ?? [],
       baseUrl: req,
     });
+    await auditClientPortalAction({ ctx: portal, action: "job.task_request.create", entity: "JobTask", entityId: created.id, after: { jobId: params.id, title: body.title } });
+
     return NextResponse.json(created, { status: 201 });
   } catch (err: any) {
     return NextResponse.json(

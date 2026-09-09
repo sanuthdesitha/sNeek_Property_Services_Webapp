@@ -29,13 +29,20 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     }
 
     const items = [
-      ...auditRows.map((row) => ({
-        id: `audit-${row.id}`,
-        type: "AUDIT",
-        title: row.action,
-        body: `${row.entity} · ${row.entityId}`,
-        createdAt: row.createdAt,
-      })),
+      ...auditRows.map((row) => {
+        // VA portal actions carry the delegation in `after` (actorLabel,
+        // onBehalfOfClientId — see auditClientPortalAction). Surfacing it makes
+        // the row read "did X for client Y" instead of a bare entity id.
+        const after = row.after as Record<string, unknown> | null;
+        const actorLabel = typeof after?.actorLabel === "string" ? after.actorLabel : null;
+        return {
+          id: `audit-${row.id}`,
+          type: "AUDIT",
+          title: row.action,
+          body: `${row.entity} · ${row.entityId}${actorLabel ? ` · ${actorLabel}` : ""}`,
+          createdAt: row.createdAt,
+        };
+      }),
       ...notifications.map((row) => ({
         id: `notification-${row.id}`,
         type: "NOTIFICATION",

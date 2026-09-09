@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, Role } from "@prisma/client";
 import { z } from "zod";
-import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
+import { propertyScopeWhere, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { checkClientJobRequest } from "@/lib/jobs/client-request-rules";
 import { notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
@@ -65,6 +65,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // ignore notification failures
     }
 
+    await auditClientPortalAction({ ctx: portal, action: "job.skip_request", entity: "Job", entityId: job.id, after: { reason: body.reason?.trim() || null } });
+
     return NextResponse.json({ ok: true, ...updated });
   } catch (error: any) {
     const status =
@@ -106,6 +108,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
       },
       select: { id: true, cleanSkipStatus: true },
     });
+
+    await auditClientPortalAction({ ctx: portal, action: "job.skip_request_cancel", entity: "Job", entityId: job.id });
 
     return NextResponse.json({ ok: true, ...updated });
   } catch (error: any) {

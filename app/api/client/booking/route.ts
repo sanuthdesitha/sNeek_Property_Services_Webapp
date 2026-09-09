@@ -5,7 +5,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { BOOKING_REQUEST_VIA } from "@/lib/booking/requests";
 import { getAppSettings } from "@/lib/settings";
-import { requireClientPortal } from "@/lib/auth/client-portal";
+import { requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 import { calculateQuote } from "@/lib/pricing/calculator";
 import { notifyAdminsByEmail, notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
@@ -154,6 +154,8 @@ export async function POST(req: NextRequest) {
     // Preferred-cleaner assignment waits for approval: there is no job to
     // assign anyone to, and holding a cleaner for work that may be declined is
     // exactly the double-booking this change exists to stop.
+
+    await auditClientPortalAction({ ctx: portal, action: "booking.request", entity: "QuoteLead", entityId: result.lead.id, after: { propertyId: property.id, jobType: String(body.jobType), scheduledDate: body.scheduledDate } });
 
     return NextResponse.json({
       ok: true,

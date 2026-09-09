@@ -428,9 +428,11 @@ export async function getCleanerImmediateAttention(cleanerId: string): Promise<I
 export async function getClientImmediateAttention(input: {
   clientId: string | null;
   visibility: ClientPortalVisibility;
+  propertyIds?: string[] | null;
 }): Promise<ImmediateAttentionItem[]> {
   if (!input.clientId) return [];
   const clientId = input.clientId;
+  const property = { clientId, ...(input.propertyIds ? { id: { in: input.propertyIds } } : {}) };
 
   const [pendingApprovals, ongoingToday, lowStockCount, highPriorityCases] = await Promise.all([
     input.visibility.showApprovals
@@ -438,7 +440,7 @@ export async function getClientImmediateAttention(input: {
       : Promise.resolve(0),
     db.job.count({
       where: {
-        property: { clientId },
+        property,
         status: { in: ACTIVE_JOB_STATUSES },
         scheduledDate: { lt: startOfTomorrowSydney() },
       },
@@ -446,7 +448,7 @@ export async function getClientImmediateAttention(input: {
     input.visibility.showInventory
       ? db.propertyStock.count({
           where: {
-            property: { clientId },
+            property,
             onHand: { lte: db.propertyStock.fields.reorderThreshold },
           },
         })
@@ -454,7 +456,7 @@ export async function getClientImmediateAttention(input: {
     input.visibility.showCases
       ? db.issueTicket.count({
           where: {
-            job: { property: { clientId } },
+            job: { property },
             status: { in: ["OPEN", "IN_PROGRESS"] },
             severity: { in: ["HIGH", "CRITICAL"] },
           },

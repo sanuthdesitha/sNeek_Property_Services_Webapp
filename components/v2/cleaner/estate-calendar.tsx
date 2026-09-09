@@ -13,6 +13,7 @@ import { EChip } from "@/components/v2/cleaner/fields";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { cn } from "@/lib/utils";
 import { useRestorableState } from "@/hooks/use-restorable-state";
+import { timingBadgeLabels, type JobTimingBadges } from "@/lib/jobs/timing-badges";
 
 type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
 
@@ -24,6 +25,8 @@ export interface CalendarJob {
   startTime: string | null;
   status: string;
   rawStatus?: string;
+  pendingOffer?: boolean;
+  timingBadges?: JobTimingBadges | null;
   tone: Tone;
 }
 
@@ -71,7 +74,7 @@ export function EstateCalendar({ jobs }: { jobs: CalendarJob[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex gap-2">
           <EChip active={view === "month"} onClick={() => setView("month")}>
             <span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5" /> Month</span>
@@ -173,7 +176,7 @@ export function EstateCalendar({ jobs }: { jobs: CalendarJob[] }) {
 }
 
 function JobRow({ job }: { job: CalendarJob }) {
-  const isOffered = job.rawStatus === "OFFERED";
+  const isOffered = job.pendingOffer ?? job.rawStatus === "OFFERED";
   const body = (
     <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
       <div className="flex h-11 w-14 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]">
@@ -188,6 +191,15 @@ function JobRow({ job }: { job: CalendarJob }) {
       <EBadge tone={job.tone} soft>
         {job.status}
       </EBadge>
+      {timingBadgeLabels(job.timingBadges).length > 0 ? (
+        <div className="flex w-full flex-wrap gap-2">
+          {timingBadgeLabels(job.timingBadges).map((badge) => (
+            <EBadge key={badge.key} tone={badge.tone} soft>
+              {badge.key === "early" ? "Early check-in" : "Late checkout"}: {badge.label}
+            </EBadge>
+          ))}
+        </div>
+      ) : null}
       {isOffered ? (
         <div className="flex w-full items-center justify-between gap-2">
           <Link

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { findJobInScope, propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
+import { findJobInScope, propertyScopeWhere, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { createCase, listCases, toClientCaseView } from "@/lib/cases/service";
 import { notifyCaseCreated } from "@/lib/cases/notifications";
@@ -114,6 +114,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (created) {
+      await auditClientPortalAction({ ctx: portal, action: "case.create", entity: "Case", entityId: created.id });
+    }
     return NextResponse.json(created ? toClientCaseView(created) : created, { status: 201 });
   } catch (err: any) {
     return NextResponse.json(

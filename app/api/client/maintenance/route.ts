@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MaintenanceSource, MaintenancePriority, Prisma } from "@prisma/client";
 import { z } from "zod";
-import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
+import { propertyScopeWhere, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { parseVisitPlan } from "@/lib/maintenance/visit-plan";
 
@@ -124,6 +124,8 @@ export async function POST(req: NextRequest) {
       },
       select: { id: true },
     });
+
+    await auditClientPortalAction({ ctx: portal, action: "maintenance.request", entity: "PropertyMaintenanceItem", entityId: item.id, after: { propertyId: property.id, title: body.title } });
 
     return NextResponse.json({ id: item.id }, { status: 201 });
   } catch (err: any) {

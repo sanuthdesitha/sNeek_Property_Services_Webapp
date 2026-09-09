@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, Role } from "@prisma/client";
 import { z } from "zod";
-import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
+import { propertyScopeWhere, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { checkClientJobRequest } from "@/lib/jobs/client-request-rules";
 import { createClientJobTaskRequest } from "@/lib/job-tasks/service";
@@ -50,6 +50,8 @@ export async function POST(
       },
       baseUrl: req,
     });
+
+    await auditClientPortalAction({ ctx: portal, action: "job.reschedule_request", entity: "Job", entityId: params.id, after: { taskId: task.id } });
 
     return NextResponse.json({ ok: true, taskId: task.id });
   } catch (error: any) {

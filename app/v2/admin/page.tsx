@@ -344,7 +344,7 @@ export default async function AdminCommandPage() {
       tone: "warning",
       label: "Stock",
       text: `${metrics.lowStockCount} item${metrics.lowStockCount === 1 ? "" : "s"} at or below reorder level`,
-      href: "/v2/admin/system",
+      href: "/v2/admin/inventory",
     });
   }
   const attentionTotal = attention?.attentionCount ?? attentionItems.length;

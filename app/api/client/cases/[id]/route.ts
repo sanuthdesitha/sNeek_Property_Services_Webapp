@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireClientPortal } from "@/lib/auth/client-portal";
+import { requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import {
   addCaseAttachment,
   addCaseComment,
@@ -86,6 +86,8 @@ export async function PATCH(
       const statusResult = await updateCase(params.id, { status: body.status });
       if (statusResult) updated = statusResult;
     }
+
+    await auditClientPortalAction({ ctx: portal, action: "case.update", entity: "Case", entityId: params.id, after: { commented: Boolean(body.comment?.trim()), attached: Boolean(body.s3Key?.trim()), status: body.status ?? null } });
 
     await notifyCaseUpdated({
       caseItem: updated,

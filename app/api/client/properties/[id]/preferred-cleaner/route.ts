@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireClientPortal } from "@/lib/auth/client-portal";
+import { requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { getClientPortalContext } from "@/lib/client/portal";
@@ -74,6 +74,8 @@ export async function PATCH(
         where: { id: property.id },
         data: { preferredCleanerUserId: eligible.id },
       });
+      await auditClientPortalAction({ ctx: portal0, action: "property.preferred_cleaner.set", entity: "Property", entityId: property.id, after: { cleanerId: eligible.id } });
+
       return NextResponse.json({
         ok: true,
         preferredCleanerUserId: eligible.id,
@@ -85,6 +87,8 @@ export async function PATCH(
       where: { id: property.id },
       data: { preferredCleanerUserId: null },
     });
+
+    await auditClientPortalAction({ ctx: portal0, action: "property.preferred_cleaner.clear", entity: "Property", entityId: property.id });
 
     return NextResponse.json({
       ok: true,

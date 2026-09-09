@@ -72,7 +72,7 @@ export default async function V2ClientFinancePage() {
   }
 
   const finance = portal.clientId
-    ? await getClientFinanceOverview(portal.clientId).catch(() => null)
+    ? await getClientFinanceOverview(portal.clientId, portalCtx.propertyIds).catch(() => null)
     : null;
 
   const summary = finance?.summary;

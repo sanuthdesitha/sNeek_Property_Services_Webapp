@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireClientPortal } from "@/lib/auth/client-portal";
+import { requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import {
   updateClientJobTaskRequest,
   withdrawClientJobTaskRequest,
@@ -75,6 +75,7 @@ export async function PATCH(
       actor: portal.actor,
       ...body,
     });
+    await auditClientPortalAction({ ctx: portal, action: "job.task_request.update", entity: "JobTask", entityId: params.taskId });
     return NextResponse.json(updated);
   } catch (err: any) {
     return NextResponse.json(
@@ -101,6 +102,7 @@ export async function DELETE(
       actor: portal.actor,
       reason: body.reason ?? null,
     });
+    await auditClientPortalAction({ ctx: portal, action: "job.task_request.withdraw", entity: "JobTask", entityId: params.taskId });
     return NextResponse.json(updated);
   } catch (err: any) {
     return NextResponse.json(

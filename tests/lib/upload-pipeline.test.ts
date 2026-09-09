@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/uploads/compress-video", () => ({
+  isVideoFile: (file: File) => file.type.startsWith("video/") || /\.(mp4|mov)$/i.test(file.name),
+  compressVideo: vi.fn(async (file: File) => ({ file, dispose: async () => {} })),
+}));
 
 // The canvas work is irrelevant to the pool; pass the file straight through.
 vi.mock("@/lib/uploads/compress", () => ({
@@ -42,6 +46,8 @@ vi.mock("@/lib/uploads/multipart-client", () => ({
 }));
 
 import { prepareAndUploadFiles } from "@/components/v2/cleaner/media-capture";
+import { compressVideo } from "@/lib/uploads/compress-video";
+import { uploadMultipart } from "@/lib/uploads/multipart-client";
 
 /**
  * Two bugs live here.
@@ -303,6 +309,27 @@ describe("failures", () => {
 });
 
 describe("progress", () => {
+  it("uploads the compressed video and releases temporary storage afterward", async () => {
+    installFakeXhr(() => "ok");
+    const original = fakeFile("walkthrough.mov", 600 * 1024 * 1024, "video/quicktime");
+    const compressed = fakeFile("walkthrough.mp4", 1024, "video/mp4");
+    const dispose = vi.fn(async () => {});
+    vi.mocked(compressVideo).mockResolvedValueOnce({ file: compressed, dispose });
+    const out = await prepareAndUploadFiles([original], OPTS);
+    expect(out.failed).toHaveLength(0);
+    expect(vi.mocked(uploadMultipart).mock.calls.at(-1)?.[0]).toBe(compressed);
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("retains the original for retry when compression fails without uploading it", async () => {
+    const state = installFakeXhr(() => "ok");
+    const original = fakeFile("walkthrough.mov", 600 * 1024 * 1024, "video/quicktime");
+    vi.mocked(compressVideo).mockRejectedValueOnce(new Error("Unsupported codec"));
+    const out = await prepareAndUploadFiles([original], OPTS);
+    expect(state.calls).toHaveLength(0);
+    expect(out.failed[0]).toMatchObject({ file: original, reason: "Unsupported codec" });
+  });
+
   it("reports every file as it settles, successes and failures alike", async () => {
     installFakeXhr((name) => (name === "p1.jpg" ? 400 : "ok"));
 

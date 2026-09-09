@@ -2,11 +2,12 @@ import { ClientInvoiceStatus, JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { computeClientCharge } from "@/lib/finance/job-money";
 
-export async function getClientFinanceOverview(clientId: string) {
+export async function getClientFinanceOverview(clientId: string, propertyIds?: string[] | null) {
+  const property = { clientId, ...(propertyIds ? { id: { in: propertyIds } } : {}) };
   const [rates, existingInvoiceLines, invoices, completedJobs, priceBook] = await Promise.all([
     db.propertyClientRate.findMany({
       where: {
-        property: { clientId },
+        property,
         isActive: true,
       },
       include: {
@@ -40,6 +41,7 @@ export async function getClientFinanceOverview(clientId: string) {
       where: {
         clientId,
         status: { notIn: [ClientInvoiceStatus.DRAFT, ClientInvoiceStatus.VOID] },
+        ...(propertyIds ? { lines: { some: {}, every: { job: { property } } } } : {}),
       },
       select: {
         id: true,
@@ -56,7 +58,7 @@ export async function getClientFinanceOverview(clientId: string) {
     }),
     db.job.findMany({
       where: {
-        property: { clientId },
+        property,
         status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] },
       },
       select: {

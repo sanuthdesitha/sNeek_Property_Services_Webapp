@@ -16,6 +16,7 @@ import {
   EstateVaManager,
   type EstateVaClientOption,
 } from "@/components/v2/admin/accounts/va-manager";
+import { EstateVaDirectory } from "@/components/v2/admin/accounts/va-directory";
 import { EPageHeader, EStatCard } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Accounts · Estate admin" };
@@ -136,7 +137,13 @@ export default async function EstateAccountsPage({
       <EstateAccountsTabNav active={tab} />
 
       {tab === "assistants" ? (
-        <EstateVaManager clients={vaClients} canManage={canManage} />
+        // Directory FIRST — "who already has access" is the everyday question;
+        // onboarding more people is the occasional one. The manager below stays
+        // client-scoped for invites and team surgery.
+        <div className="space-y-6">
+          <EstateVaDirectory canManage={canManage} />
+          <EstateVaManager clients={vaClients} canManage={canManage} />
+        </div>
       ) : tab === "team" ? (
         // Birthdays sit beside the internal team only — wishing the ops manager
         // a happy birthday is useful; the same card next to a list of laundry

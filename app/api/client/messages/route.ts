@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
+import { propertyScopeWhere, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { notifyAdminsByEmail, notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
 
@@ -123,6 +123,8 @@ export async function POST(req: NextRequest) {
         },
       },
     });
+
+    await auditClientPortalAction({ ctx: portal, action: "message.post", entity: "ClientMessage", entityId: message.id, after: { jobId: job?.id ?? null } });
 
     const jobLabel = job
       ? ` about job${job.jobNumber ? ` #${job.jobNumber}` : ""}${job.property?.name ? ` (${job.property.name})` : ""}`

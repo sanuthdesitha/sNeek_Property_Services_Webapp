@@ -52,16 +52,19 @@ export function ECheckTile({
   checked,
   onChange,
   children,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   children: React.ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
         "flex items-center gap-2.5 rounded-[var(--e-radius)] border px-3 py-2.5 text-left text-[0.8125rem] transition-colors duration-[160ms]",

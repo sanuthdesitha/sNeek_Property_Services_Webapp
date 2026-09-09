@@ -23,32 +23,59 @@ import {
   PackageSearch,
   GraduationCap,
   UsersRound,
+  Map, Wrench, Sparkles, ClipboardList, ReceiptText, FileText,
+  Tags, Truck, ListChecks, Eye, UserCircle,
 } from "lucide-react";
 
 const NAV: NavItem[] = [
-  { href: "/v2/admin", label: "Command", icon: LayoutDashboard },
-  { href: "/v2/admin/jobs", label: "Jobs", icon: Briefcase },
-  { href: "/v2/admin/calendar", label: "Calendar", icon: CalendarRange },
-  { href: "/v2/admin/approvals", label: "Approvals", icon: Inbox },
-  { href: "/v2/admin/properties", label: "Properties", icon: Building2 },
-  { href: "/v2/admin/clients", label: "Clients", icon: Users },
-  { href: "/v2/admin/workforce", label: "Workforce", icon: UsersRound },
-  { href: "/v2/admin/workforce/coaching", label: "Coaching", icon: GraduationCap },
-  { href: "/v2/admin/quality", label: "Quality", icon: ShieldCheck },
-  { href: "/v2/admin/quality/issues", label: "QA Issues", icon: ShieldAlert },
-  { href: "/v2/admin/quality/accountability", label: "Accountability", icon: Trophy },
-  { href: "/v2/admin/quality/qa-performance", label: "QA Performance", icon: Activity },
-  { href: "/v2/admin/cases", label: "Cases", icon: ClipboardCheck },
-  { href: "/v2/admin/lost-found", label: "Lost & found", icon: PackageSearch },
-  { href: "/v2/admin/laundry", label: "Laundry", icon: Shirt },
-  { href: "/v2/admin/inventory", label: "Inventory", icon: Boxes },
-  { href: "/v2/admin/finance", label: "Finance", icon: Wallet },
-  { href: "/v2/admin/growth", label: "Growth", icon: Megaphone },
-  { href: "/v2/admin/system", label: "System", icon: Settings },
+  { href: "/v2/admin", label: "Command", icon: LayoutDashboard, group: "Daily work" },
+  { href: "/v2/admin/jobs", label: "Jobs", icon: Briefcase, group: "Daily work" },
+  { href: "/v2/admin/calendar", label: "Calendar", icon: CalendarRange, group: "Daily work" },
+  { href: "/v2/admin/approvals", label: "Approvals", icon: Inbox, group: "Daily work" },
+  { href: "/v2/admin/properties", label: "Properties", icon: Building2, group: "Daily work" },
+
+  { href: "/v2/admin/ops", label: "Live ops", icon: Map, group: "Operations" },
+  { href: "/v2/admin/cases", label: "Cases", icon: ClipboardCheck, group: "Operations" },
+  { href: "/v2/admin/maintenance", label: "Maintenance", icon: Wrench, group: "Operations" },
+  { href: "/v2/admin/lost-found", label: "Lost & found", icon: PackageSearch, group: "Operations" },
+  { href: "/v2/admin/laundry", label: "Laundry", icon: Shirt, group: "Operations" },
+  { href: "/v2/admin/inventory", label: "Inventory", icon: Boxes, group: "Operations" },
+
+  { href: "/v2/admin/accounts", label: "Accounts", icon: Users, group: "People & property" },
+  { href: "/v2/admin/clients", label: "Clients", icon: Users, group: "People & property" },
+  { href: "/v2/admin/cleaners", label: "Cleaners", icon: Sparkles, group: "People & property" },
+  { href: "/v2/admin/workforce", label: "Workforce", icon: UsersRound, group: "People & property" },
+  { href: "/v2/admin/workforce/coaching", label: "Coaching", icon: GraduationCap, group: "People & property" },
+  { href: "/v2/admin/onboarding", label: "Property onboarding", icon: ClipboardList, group: "People & property" },
+  { href: "/v2/admin/hiring", label: "Hiring", icon: Briefcase, group: "People & property" },
+
+  { href: "/v2/admin/quality", label: "Quality", icon: ShieldCheck, group: "Quality" },
+  { href: "/v2/admin/quality/issues", label: "QA Issues", icon: ShieldAlert, group: "Quality" },
+  { href: "/v2/admin/quality/accountability", label: "Accountability", icon: Trophy, group: "Quality" },
+  { href: "/v2/admin/quality/qa-performance", label: "QA Performance", icon: Activity, group: "Quality" },
+  { href: "/v2/admin/reports", label: "Reports", icon: FileText, group: "Quality" },
+
+  { href: "/v2/admin/finance", label: "Finance", icon: Wallet, group: "Commercial" },
+  { href: "/v2/admin/payroll", label: "Payroll", icon: Wallet, group: "Commercial" },
+  { href: "/v2/admin/cleaner-invoices", label: "Cleaner invoices", icon: ReceiptText, group: "Commercial" },
+  { href: "/v2/admin/growth", label: "Growth", icon: Megaphone, group: "Commercial" },
+  { href: "/v2/admin/quotes", label: "Quotes & leads", icon: FileText, group: "Commercial" },
+  { href: "/v2/admin/pricing", label: "Pricing", icon: Tags, group: "Commercial" },
+  { href: "/v2/admin/delivery-profiles", label: "Delivery profiles", icon: Truck, group: "Commercial" },
+
+  { href: "/v2/admin/settings", label: "Settings", icon: Settings, group: "Configuration" },
+  { href: "/v2/admin/checklists", label: "Checklists library", icon: ListChecks, group: "Configuration" },
+  { href: "/v2/admin/qa-templates", label: "QA templates", icon: ClipboardCheck, group: "Configuration" },
+  { href: "/v2/admin/forms", label: "Forms & stats", icon: ClipboardList, group: "Configuration" },
+  { href: "/v2/admin/templates", label: "Templates", icon: FileText, group: "Configuration" },
+  { href: "/v2/admin/activity", label: "Activity log", icon: Activity, group: "Configuration" },
+  { href: "/v2/admin/system/test-as", label: "Test as", icon: Eye, group: "Configuration" },
+  { href: "/v2/admin/profile", label: "My profile", icon: UserCircle, group: "Configuration" },
+  { href: "/v2/admin/diagnostics", label: "Diagnostics", icon: ShieldCheck, group: "Configuration" },
 ];
 
 // Which attention count badges which nav item. Pages without an unambiguous
-// pending queue (Calendar, Properties, System, …) deliberately have no badge —
+// pending queue (Calendar, Properties, Settings, …) deliberately have no badge —
 // see lib/admin/attention-counts.ts for each count's definition.
 const COUNT_KEY_BY_HREF: Record<string, keyof AdminAttentionCounts> = {
   "/v2/admin/jobs": "jobs",

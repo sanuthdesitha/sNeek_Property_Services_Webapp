@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/session";
-import { s3, publicUrl } from "@/lib/s3";
+import { resolveS3, publicUrl } from "@/lib/s3";
 import { z } from "zod";
 
 const schema = z.object({
@@ -11,10 +11,12 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    await requireSession();
+    const session = await requireSession();
     const parsed = schema.parse(await req.json());
-
-    const Bucket = process.env.S3_BUCKET_NAME!;
+    if (parsed.key.split("/").at(-2) !== session.user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const { client: s3, bucket: Bucket } = await resolveS3();
     await s3
       .completeMultipartUpload({
         Bucket,
