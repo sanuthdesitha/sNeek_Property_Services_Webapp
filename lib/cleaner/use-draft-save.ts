@@ -1,0 +1,88 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { saveCleanerDraft } from "@/lib/cleaner/save-draft-client";
+
+export type DraftSaveState = {
+  phase: "idle" | "saving" | "saved" | "error";
+  message?: string;
+};
+
+const uncertainMessage = "Draft save could not be confirmed. Keep this page open and retry.";
+
+/**
+ * FIFO for one mounted workspace, with an acknowledgement for its latest edit.
+ * A failed request may still commit on the server: this queue cannot guarantee
+ * server ordering after network failure, durable delivery, or idempotent retries.
+ */
+export function useDraftSave(draftIdentity?: string) {
+  const [state, setState] = useState<DraftSaveState>({ phase: "idle" });
+  const mounted = useRef(true);
+  const revision = useRef(0);
+  const epoch = useRef(0);
+  const tail = useRef<Promise<void>>(Promise.resolve());
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      ++epoch.current;
+      ++revision.current;
+    };
+  }, [draftIdentity]);
+
+  // Call at edit time, before scheduling the caller's debounce.
+  const markDirty = useCallback(() => {
+    if (!mounted.current) return;
+    ++revision.current;
+    setState({ phase: "saving" });
+  }, []);
+
+  // Drop queued saves and ignore running acknowledgements. An already-sent
+  // request is not cancelled. The caller must also cancel its debounce timer.
+  const reset = useCallback(() => {
+    if (!mounted.current) return;
+    ++epoch.current;
+    ++revision.current;
+    setState({ phase: "idle" });
+  }, []);
+
+  const save = useCallback((
+    jobId: string,
+    editorSessionId: string,
+    draft: Record<string, unknown>,
+    keepalive = false
+  ): Promise<void> => {
+    if (!mounted.current) return Promise.resolve();
+    const savedRevision = ++revision.current;
+    const savedEpoch = epoch.current;
+    setState({ phase: "saving" });
+
+    // Copy using the same JSON representation as the client transport so later
+    // edits to the caller's objects cannot change a queued request's payload.
+    let snapshot: Record<string, unknown>;
+    try {
+      snapshot = JSON.parse(JSON.stringify(draft));
+    } catch {
+      setState({ phase: "error", message: uncertainMessage });
+      return Promise.resolve();
+    }
+
+    const run = async () => {
+      if (!mounted.current || savedEpoch !== epoch.current) return;
+      let result;
+      try {
+        result = await saveCleanerDraft(jobId, editorSessionId, snapshot, keepalive, draftIdentity);
+      } catch {
+        result = { ok: false as const, message: uncertainMessage };
+      }
+      if (!mounted.current || savedEpoch !== epoch.current || savedRevision !== revision.current) return;
+      setState(result.ok ? { phase: "saved" } : { phase: "error", message: result.message });
+    };
+    const completion = tail.current.then(run);
+    tail.current = completion;
+    return completion;
+  }, [draftIdentity]);
+
+  return { state, save, markDirty, reset };
+}

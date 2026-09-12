@@ -15,6 +15,7 @@ import { JobStatus, JobAssignmentResponseStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/security/encryption";
 import { pickLegacyAccessCode } from "@/lib/properties/access-info";
+import { accessAudienceMatches } from "@/lib/properties/access-guide";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
@@ -165,6 +166,7 @@ function buildAccessItems(p: LoadedJob["property"]): string[] {
   if (items.length === 0 && Array.isArray(p.accessGuide)) {
     for (const raw of p.accessGuide as unknown[]) {
       const g = asRecord(raw);
+      if (!g || !accessAudienceMatches(g.audience, "CLEANER")) continue;
       const label = nonEmpty(g?.label);
       const instructions = nonEmpty(g?.instructions);
       if (label && instructions) items.push(`${label}: ${instructions.length > 100 ? instructions.slice(0, 97) + "…" : instructions}`);
@@ -178,6 +180,7 @@ function accessGuideHasImages(accessGuide: unknown): boolean {
   if (!Array.isArray(accessGuide)) return false;
   return (accessGuide as unknown[]).some((raw) => {
     const g = asRecord(raw);
+    if (!g || !accessAudienceMatches(g.audience, "CLEANER")) return false;
     return Array.isArray(g?.images) && (g!.images as unknown[]).length > 0;
   });
 }

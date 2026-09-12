@@ -13,6 +13,8 @@ import { listConfirmedReworkForCleanerJob } from "@/lib/qa/rework-transfers";
 import { publicUrl } from "@/lib/s3";
 import { parseLaundryConfirmationMeta } from "@/lib/laundry/media";
 
+const privateHeaders = { "Cache-Control": "private, no-store", Vary: "Cookie" };
+
 function pickLegacyAccessNote(accessInfo: unknown) {
   if (!accessInfo || typeof accessInfo !== "object" || Array.isArray(accessInfo)) return null;
   const row = accessInfo as Record<string, unknown>;
@@ -58,13 +60,14 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     });
 
     if (!job) {
-      return NextResponse.json({ error: "Job not found." }, { status: 404 });
+      return NextResponse.json({ error: "Job not found." }, { status: 404, headers: privateHeaders });
     }
 
     const previousJobs = await db.job.findMany({
       where: {
         propertyId: job.propertyId,
         id: { not: job.id },
+        scheduledDate: { lt: job.scheduledDate },
         status: { in: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED] },
       },
       orderBy: [{ scheduledDate: "desc" }],
@@ -241,9 +244,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
             }),
           }
         : null,
-    });
-  } catch (error: any) {
-    const status = error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: error?.message ?? "Could not load briefing." }, { status });
+    }, { headers: privateHeaders });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "";
+    const status = message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 503;
+    return NextResponse.json({ error: status === 401 ? "Unauthorized" : status === 403 ? "Forbidden" : "Could not load briefing. Please retry." }, { status, headers: privateHeaders });
   }
 }

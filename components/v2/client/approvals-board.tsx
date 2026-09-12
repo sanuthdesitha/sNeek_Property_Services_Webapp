@@ -5,7 +5,9 @@
  *   GET  /api/client/approvals                       → ApprovalRow[]
  *   POST /api/client/approvals/[id]/respond          { decision: "APPROVE"|"DECLINE", responseNote? }
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
+import { z } from "zod";
 import { format } from "date-fns";
 import { Check, Loader2, RotateCw, Send, X } from "lucide-react";
 import {
@@ -21,6 +23,7 @@ import { EInlineNotice, EInput, ELabel, ETextarea } from "@/components/v2/client
 
 type ApprovalRow = {
   id: string;
+  version: string;
   title: string;
   description: string;
   amount: number;
@@ -55,8 +58,39 @@ function money(amount: number, currency: string) {
   return `${currency} ${Number(amount).toFixed(2)}`;
 }
 
+const validDate = z.string().min(1).refine((value) => Number.isFinite(new Date(value).getTime()));
+const approvalSchema = z.object({
+  version: z.string().regex(/^[a-f0-9]{64}$/),
+  id: z.string().min(1), title: z.string(), description: z.string(),
+  amount: z.number().finite().nonnegative(), currency: z.string().min(1),
+  status: z.enum(["PENDING", "APPROVED", "DECLINED", "CANCELLED", "EXPIRED", "COUNTERED"]),
+  requestedAt: validDate, expiresAt: validDate.nullable(), responseNote: z.string().nullable(),
+  counterAmount: z.number().finite().nonnegative().nullish(),
+  counterNote: z.string().nullish(), counterAt: validDate.nullish(),
+  property: z.object({ name: z.string(), suburb: z.string() }).nullable(),
+  job: z.object({ id: z.string(), jobType: z.string(), scheduledDate: validDate,
+    property: z.object({ name: z.string() }) }).nullable(),
+}).refine((row) => row.status !== "COUNTERED" || row.counterAmount != null);
+const approvalsSchema = z.array(approvalSchema).refine((rows) => new Set(rows.map((row) => row.id)).size === rows.length);
+
 export function ClientApprovalsBoard() {
+  const { data: session, status } = useSession();
+  if (status === "loading") return <p role="status">Loading approval requests...</p>;
+  if (status !== "authenticated" || !session?.user?.id || session.user.role !== "CLIENT") {
+    return <EInlineNotice tone="danger">Approvals unavailable for this account.</EInlineNotice>;
+  }
+  const identity = JSON.stringify([session.user.id, session.user.role, session.impersonation?.actorId,
+    session.impersonation?.mode, session.impersonation?.startedAt]);
+  return <SessionApprovalsBoard key={identity} />;
+}
+
+function SessionApprovalsBoard() {
   const [rows, setRows] = useState<ApprovalRow[]>([]);
+  const [hasSnapshot, setHasSnapshot] = useState(false);
+  const [stale, setStale] = useState(false);
+  const active = useRef(true);
+  const request = useRef<AbortController | null>(null);
+  const saving = useRef(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -65,44 +99,81 @@ export function ClientApprovalsBoard() {
   const [counterById, setCounterById] = useState<Record<string, string>>({});
   const [errorById, setErrorById] = useState<Record<string, string>>({});
 
-  const loadRows = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const res = await fetch("/api/client/approvals", { cache: "no-store" });
-      const body = await res.json().catch(() => []);
-      if (!res.ok) throw new Error((body as any)?.error ?? "Could not load approvals.");
-      setRows(Array.isArray(body) ? (body as ApprovalRow[]) : []);
-    } catch (err: any) {
-      setLoadError(err?.message ?? "Could not load approvals.");
-    } finally {
-      setLoading(false);
-    }
+  const clearDenied = useCallback(() => {
+    if (!active.current) return;
+    setRows([]);
+    setHasSnapshot(false);
+    setNoteById({});
+    setCounterById({});
+    setErrorById({});
+    setLoadError("Approvals unavailable. Please retry.");
   }, []);
 
+  const loadRows = useCallback(async () => {
+    if (!active.current) return;
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/client/approvals", { cache: "no-store", signal: controller.signal });
+      if ((res.status === 401 || res.status === 403) && !controller.signal.aborted && active.current) {
+        clearDenied();
+      }
+      if (!res.ok) throw new Error("Could not load approvals.");
+      const parsed = approvalsSchema.safeParse(await res.json());
+      if (!parsed.success) throw new Error("Invalid approvals response.");
+      if (controller.signal.aborted || !active.current) return;
+      setRows(parsed.data);
+      setStale(false);
+      setHasSnapshot(true);
+      setLoadError(null);
+    } catch {
+      if (!controller.signal.aborted && active.current) setLoadError("Approvals unavailable. Please retry.");
+    } finally {
+      if (!controller.signal.aborted && active.current) setLoading(false);
+    }
+  }, [clearDenied]);
+
   useEffect(() => {
-    loadRows();
+    active.current = true;
+    void loadRows();
+    return () => {
+      active.current = false;
+      request.current?.abort();
+    };
   }, [loadRows]);
 
   async function respond(id: string, decision: "APPROVE" | "DECLINE") {
+    const row = rows.find((row) => row.id === id);
+    if (!active.current || saving.current || loading || loadError || stale || row?.status !== "PENDING") return;
+    saving.current = true;
     setSavingId(id);
     setErrorById((prev) => ({ ...prev, [id]: "" }));
     try {
-      const res = await fetch(`/api/client/approvals/${id}/respond`, {
+      const res = await fetch(`/api/client/approvals/${encodeURIComponent(id)}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           decision,
+          expectedVersion: row.version,
           responseNote: noteById[id]?.trim() || undefined,
         }),
       });
+      if (res.status === 401 || res.status === 403) { clearDenied(); return; }
       const body = await res.json().catch(() => ({}));
+      if (res.status === 409 && body.code === "STALE_APPROVAL") {
+        if (active.current) setStale(true);
+        return;
+      }
       if (!res.ok) throw new Error(body.error ?? "Could not submit your response.");
+      if (!active.current) return;
       await loadRows();
     } catch (err: any) {
-      setErrorById((prev) => ({ ...prev, [id]: err?.message ?? "Could not submit your response." }));
+      if (active.current) setErrorById((prev) => ({ ...prev, [id]: err?.message ?? "Could not submit your response." }));
     } finally {
-      setSavingId(null);
+      saving.current = false;
+      if (active.current) setSavingId(null);
     }
   }
 
@@ -112,28 +183,38 @@ export function ClientApprovalsBoard() {
    * both numbers stay visible while admin decides.
    */
   async function counter(id: string) {
+    const row = rows.find((row) => row.id === id);
+    if (!active.current || saving.current || loading || loadError || stale || row?.status !== "PENDING") return;
     const raw = counterById[id]?.trim();
     const amount = Number(raw);
     if (!raw || !Number.isFinite(amount) || amount < 0) {
       setErrorById((prev) => ({ ...prev, [id]: "Enter the amount you want to propose." }));
       return;
     }
+    saving.current = true;
     setSavingId(id);
     setErrorById((prev) => ({ ...prev, [id]: "" }));
     try {
-      const res = await fetch(`/api/client/approvals/${id}/counter`, {
+      const res = await fetch(`/api/client/approvals/${encodeURIComponent(id)}/counter`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount, note: noteById[id]?.trim() || undefined }),
+        body: JSON.stringify({ amount, expectedVersion: row.version, note: noteById[id]?.trim() || undefined }),
       });
+      if (res.status === 401 || res.status === 403) { clearDenied(); return; }
       const body = await res.json().catch(() => ({}));
+      if (res.status === 409 && body.code === "STALE_APPROVAL") {
+        if (active.current) setStale(true);
+        return;
+      }
       if (!res.ok) throw new Error(body.error ?? "Could not send your counter-offer.");
+      if (!active.current) return;
       setCounterById((prev) => ({ ...prev, [id]: "" }));
       await loadRows();
     } catch (err: any) {
-      setErrorById((prev) => ({ ...prev, [id]: err?.message ?? "Could not send your counter-offer." }));
+      if (active.current) setErrorById((prev) => ({ ...prev, [id]: err?.message ?? "Could not send your counter-offer." }));
     } finally {
-      setSavingId(null);
+      saving.current = false;
+      if (active.current) setSavingId(null);
     }
   }
 
@@ -142,7 +223,9 @@ export function ClientApprovalsBoard() {
   const pending = rows.filter((row) => row.status === "PENDING" || row.status === "COUNTERED");
   const history = rows.filter((row) => row.status !== "PENDING" && row.status !== "COUNTERED");
 
-  if (loading) {
+  const actionsDisabled = savingId !== null || loading || !!loadError || stale;
+
+  if (loading && !hasSnapshot && !loadError) {
     return (
       <div className="flex items-center gap-2 py-10 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
         <Loader2 className="h-4 w-4 animate-spin" /> Loading approval requests…
@@ -152,31 +235,41 @@ export function ClientApprovalsBoard() {
 
   return (
     <div className="space-y-8">
-      {loadError ? (
-        <div className="flex items-center justify-between gap-3">
-          <EInlineNotice tone="danger">{loadError}</EInlineNotice>
-          <EButton variant="outline" size="sm" onClick={loadRows}>
-            <RotateCw className="h-3.5 w-3.5" /> Retry
+      {stale ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <EInlineNotice tone="danger">Approval terms have changed. Refresh and review the updated terms before submitting another decision. Your notes have been preserved.</EInlineNotice>
+          <EButton variant="outline" size="sm" disabled={loading || savingId !== null} onClick={loadRows}>
+            <RotateCw className="h-3.5 w-3.5" /> Refresh
           </EButton>
         </div>
       ) : null}
+      {loadError ? (
+        <div className="flex items-center justify-between gap-3">
+          <EInlineNotice tone="danger">{loadError}{hasSnapshot ? " Showing previously loaded approvals; this view may be incomplete or out of date." : ""}</EInlineNotice>
+          <EButton variant="outline" size="sm" disabled={loading || savingId !== null} onClick={loadRows}>
+            <RotateCw className="h-3.5 w-3.5" /> {loading ? "Retrying..." : "Retry"}
+          </EButton>
+        </div>
+      ) : null}
+      {loading && hasSnapshot && !loadError ? <p role="status">Refreshing approvals; showing previously loaded requests...</p> : null}
 
       {/* Pending */}
+      {hasSnapshot ? <>
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
           <EEyebrow>Awaiting your decision</EEyebrow>
           <span className="e-numeral text-[0.9375rem] text-[hsl(var(--e-muted-foreground))]">
-            {pending.length}
+            {loadError || loading ? "Unverified" : pending.length}
           </span>
         </div>
 
-        {pending.length === 0 ? (
+        {pending.length === 0 ? (loadError || loading ? null : (
           <EEmptyState
             eyebrow="All clear"
             title="Nothing awaiting approval"
             description="Optional extras appear here before any work is billed to your account."
           />
-        ) : (
+        )) : (
           pending.map((row) => (
             <ECard key={row.id} variant="ceremony">
               <ECardBody className="space-y-4 pt-5">
@@ -254,7 +347,7 @@ export function ClientApprovalsBoard() {
                     <EButton
                       variant="outline"
                       size="sm"
-                      disabled={savingId === row.id || !(counterById[row.id] ?? "").trim()}
+                      disabled={actionsDisabled || !(counterById[row.id] ?? "").trim()}
                       onClick={() => counter(row.id)}
                     >
                       <Send className="h-3.5 w-3.5" /> Send counter-offer
@@ -268,7 +361,7 @@ export function ClientApprovalsBoard() {
                     <EButton
                       variant="outline"
                       size="sm"
-                      disabled={savingId === row.id}
+                      disabled={actionsDisabled}
                       onClick={() => respond(row.id, "DECLINE")}
                     >
                       <X className="h-3.5 w-3.5" /> Decline
@@ -276,7 +369,7 @@ export function ClientApprovalsBoard() {
                     <EButton
                       variant="gold"
                       size="sm"
-                      disabled={savingId === row.id}
+                      disabled={actionsDisabled}
                       onClick={() => respond(row.id, "APPROVE")}
                     >
                       {savingId === row.id ? (
@@ -330,6 +423,7 @@ export function ClientApprovalsBoard() {
           </ECard>
         </section>
       ) : null}
+      </> : null}
     </div>
   );
 }

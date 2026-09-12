@@ -18,6 +18,7 @@
  *    evidence stamping is never bypassed.
  */
 import * as React from "react";
+import { useEvidenceScope } from "./evidence-context";
 import { EstatePortal } from "@/components/v2/ui/portal-root";
 import { Camera, ImagePlus, Check, X, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
 import type { StampOptions } from "@/lib/uploads/stamp";
@@ -80,10 +81,12 @@ export function GuidedCapture({
   }, []);
 
   const target = targets[index];
+  const evidenceScope = useEvidenceScope();
 
   const upload = React.useCallback(
     async (files: File[], source: "camera" | "gallery") => {
       if (!target || files.length === 0) return;
+      if (evidenceScope === null) { setError("The form's recovery context is unavailable. Reload before capturing evidence."); return; }
       const fieldId = target.fieldId;
       const max = target.maxFiles;
       let batch = files;
@@ -102,6 +105,7 @@ export function GuidedCapture({
           folder,
           stamp: stampFor(fieldId),
           source,
+          evidence: evidenceScope ? { ...evidenceScope, fieldId } : undefined,
         });
         if (failed.length > 0) {
           // Name them: re-picking two files beats re-picking the whole batch.
@@ -119,7 +123,7 @@ export function GuidedCapture({
         setPending((n) => Math.max(0, n - batch.length));
       }
     },
-    [target, counts, folder, stampFor, onCommit]
+    [target, counts, folder, stampFor, onCommit, evidenceScope]
   );
 
   if (!mounted || !target) return null;

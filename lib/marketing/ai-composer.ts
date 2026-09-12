@@ -1,10 +1,11 @@
 /**
  * AI post composer — generates social media captions via the Claude API.
  *
- * Requires ANTHROPIC_API_KEY in env. If missing, throws at call time so the
- * caller can return a 500 with a clear message.
+ * Requires ANTHROPIC_API_KEY in env. Provider output is validated before use.
  */
 import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import { getAiConfiguration } from "@/lib/ai/config";
 
 export type SocialPlatform = "FACEBOOK" | "INSTAGRAM" | "YOUTUBE" | "TIKTOK";
 
@@ -22,6 +23,12 @@ export interface ComposedPost {
   suggestedHook: string;
 }
 
+const composedPostSchema = z.object({
+  caption: z.string().trim().min(1).max(10000),
+  hashtags: z.array(z.string().trim().min(2).max(100).regex(new RegExp("^#[\\p{L}\\p{N}_]+$", "u"))).max(30),
+  suggestedHook: z.string().trim().max(1000),
+}).strict();
+
 const PLATFORM_GUIDANCE: Record<SocialPlatform, string> = {
   FACEBOOK:
     "Conversational, can include longer narrative (max 500 chars works best). Include 1-2 emojis. Avoid pure marketing copy.",
@@ -37,7 +44,8 @@ const DEFAULT_BRAND_VOICE =
   "sNeek Property Services is a trusted Australian cleaning service for Airbnb hosts and property owners. Clean, calm, professional voice.";
 
 export async function composeSocialPost(req: ComposeRequest): Promise<ComposedPost> {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const config = getAiConfiguration();
+  if (!config.configured) {
     throw new Error("ANTHROPIC_API_KEY not configured");
   }
 
@@ -60,37 +68,24 @@ Return JSON only, no preamble:
   "suggestedHook": "first sentence that grabs attention (used as opening line)"
 }`;
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY!.trim(),
+    timeout: 30000,
+    maxRetries: 0,
+  });
 
   const response = await anthropic.messages.create({
-    model: "claude-3-5-sonnet-20241022",
+    model: config.model,
     max_tokens: 1024,
     messages: [{ role: "user", content: prompt }],
   });
 
   const text = response.content
     .filter((c) => c.type === "text")
-    .map((c) => (c as any).text)
+    .map((c) => c.text)
     .join("");
 
   // Claude sometimes wraps JSON in ```json fences; strip them.
-  const cleaned = text.replace(/```json\s*|```/g, "").trim();
-
-  let parsed: any;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    // Fall back: best-effort extraction
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("AI returned unparseable response");
-    parsed = JSON.parse(match[0]);
-  }
-
-  return {
-    caption: typeof parsed.caption === "string" ? parsed.caption : "",
-    hashtags: Array.isArray(parsed.hashtags)
-      ? parsed.hashtags.filter((h: unknown): h is string => typeof h === "string")
-      : [],
-    suggestedHook: typeof parsed.suggestedHook === "string" ? parsed.suggestedHook : "",
-  };
+  const cleaned = text.trim().replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1").trim();
+  return composedPostSchema.parse(JSON.parse(cleaned));
 }

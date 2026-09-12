@@ -205,10 +205,15 @@ export function buildReworkFormSchema(
  * submission's `data.__templateSchema`; this row just anchors the relation and
  * never appears in the normal active-template lists (isActive = false).
  */
-export async function ensureReworkFormTemplate(jobType: JobType) {
-  const existing = await db.formTemplate.findFirst({
+export async function findReworkFormTemplate(jobType: JobType, database: Pick<typeof db, "formTemplate"> = db) {
+  return database.formTemplate.findFirst({
     where: { serviceType: jobType, isActive: false, name: "Rework checklist" },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
+}
+
+export async function ensureReworkFormTemplate(jobType: JobType) {
+  const existing = await findReworkFormTemplate(jobType);
   if (existing) return existing;
   return db.formTemplate.create({
     data: {

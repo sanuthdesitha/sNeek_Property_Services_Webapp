@@ -7,6 +7,7 @@
  * context, restock needs, and contact numbers. Pure props — no data fetching.
  */
 import * as React from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { Check, Copy, KeyRound, MapPin, PhoneCall, Shirt, Package, User, UserRound, X } from "lucide-react";
 import type { GuestSummary } from "@/lib/jobs/guest-summary";
 
@@ -301,16 +302,9 @@ export function PropertyInfoDrawer({
     setGuideTexts(texts);
   }, []);
 
-  React.useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  const opener = React.useRef<HTMLElement | null>(null);
+  const content = React.useRef<HTMLDivElement | null>(null);
 
-  if (!open) return null;
   const keyPickup = typeof keyPickupLocation === "string" ? keyPickupLocation.trim() : "";
   const title =
     (typeof property?.name === "string" && property.name.trim()) ||
@@ -318,19 +312,32 @@ export function PropertyInfoDrawer({
     "Property";
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
-      <div className="fixed inset-0 bg-[hsl(160_18%_8%/0.45)] backdrop-blur-[2px]" onClick={onClose} />
-      <div className="e-rise relative z-10 flex h-full w-full max-w-md flex-col border-l border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] shadow-[var(--e-elevation-3)]">
+    <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    {open ? <div className="fixed inset-0 z-50 flex justify-end">
+      <Dialog.Overlay className="fixed inset-0 bg-[hsl(160_18%_8%/0.45)] backdrop-blur-[2px]" />
+      <Dialog.Content ref={content} aria-modal="true" aria-describedby={undefined}
+        onEscapeKeyDown={(event) => {
+          // The inline access lightbox handles Escape itself; close it first.
+          if (content.current?.querySelector('[role="dialog"]')) event.preventDefault();
+        }}
+        onOpenAutoFocus={() => {
+          // The trigger is owned by the workspace, outside this dialog root.
+          opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (opener.current?.isConnected) opener.current.focus();
+        }}
+        className="e-rise relative z-10 flex h-full w-full max-w-md flex-col border-l border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] shadow-[var(--e-elevation-3)]">
         <div className="flex items-center justify-between gap-4 border-b border-[hsl(var(--e-border))] px-5 py-3.5">
-          <h2 className="min-w-0 truncate text-[0.9375rem] font-[600]">{title}</h2>
-          <button
+          <Dialog.Title asChild><h2 className="min-w-0 truncate text-[0.9375rem] font-[600]">{title}</h2></Dialog.Title>
+          <Dialog.Close
             type="button"
-            onClick={onClose}
             aria-label="Close"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] transition-colors hover:bg-[hsl(var(--e-muted))] hover:text-[hsl(var(--e-foreground))]"
           >
             <X className="h-4 w-4" />
-          </button>
+          </Dialog.Close>
         </div>
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
           <AddressBlock property={property} />
@@ -383,7 +390,8 @@ export function PropertyInfoDrawer({
             </div>
           ) : null}
         </div>
-      </div>
-    </div>
+      </Dialog.Content>
+    </div> : null}
+    </Dialog.Root>
   );
 }

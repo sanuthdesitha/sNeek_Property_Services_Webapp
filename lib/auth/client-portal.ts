@@ -28,7 +28,7 @@
  * to the client's full access.
  */
 
-import { Role } from "@prisma/client";
+import { Role, type Prisma } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireSession } from "@/lib/auth/session";
@@ -303,8 +303,8 @@ export async function auditClientPortalAction(input: {
   entity: string;
   entityId: string;
   after?: Record<string, unknown>;
-}) {
-  return db.auditLog.create({
+}, store: Pick<Prisma.TransactionClient, "auditLog"> = db) {
+  return store.auditLog.create({
     data: {
       userId: input.ctx.userId,
       action: input.action,

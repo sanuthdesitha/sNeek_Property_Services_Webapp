@@ -153,16 +153,22 @@ export default function V2ClientLayout({ children }: { children: React.ReactNode
   // Everything waiting on this client, not just approvals: a case asking them
   // a question, a quote to decide, an invoice to pay. Each count is "waiting
   // on YOU" rather than "exists" — see the route for each definition.
-  const { counts, gate } = useClientPortalCounts("/api/client/attention-counts");
   // Both CLIENT and VA render this portal; only the client manages assistants,
   // and a VA is only OFFERED destinations their grants can actually open.
   const { data: session } = useSession();
+  const identity = session?.user?.id ? JSON.stringify([
+    session.user.id, session.user.role, session.impersonation?.actorId,
+    session.impersonation?.mode, session.impersonation?.startedAt,
+  ]) : "";
+  const { counts, gate, status: gateStatus, refresh } = useClientPortalCounts("/api/client/attention-counts", identity);
   const isVa = session?.user?.role === "VA";
   const canManageTeam = session?.user?.role === "CLIENT";
+  const confirmedVaGate = isVa && gateStatus === "ready" && gate?.actor === "VA" ? gate : null;
   const nav = React.useMemo(() => {
+    if (!identity || gateStatus === "denied") return [];
     const base = buildNav(canManageTeam);
-    return withAttentionBadges(isVa ? filterNavForVa(base, gate) : base, counts);
-  }, [counts, canManageTeam, isVa, gate]);
+    return withAttentionBadges(isVa ? filterNavForVa(base, gate?.actor === "VA" ? gate : null) : base, counts);
+  }, [counts, canManageTeam, isVa, gate, identity, gateStatus]);
 
   // An assistant sees their OWN name in the rail (PortalShell reads the
   // session) with the client they act for underneath. Labelling them "Client"
@@ -170,8 +176,8 @@ export default function V2ClientLayout({ children }: { children: React.ReactNode
   // across several clients had nothing on screen telling them which account
   // they were about to change.
   const roleLabel = isVa
-    ? gate?.actingFor
-      ? "Assistant · " + gate.actingFor
+    ? confirmedVaGate?.actingFor
+      ? "Assistant · " + confirmedVaGate.actingFor
       : "Assistant"
     : "Client";
 
@@ -182,7 +188,14 @@ export default function V2ClientLayout({ children }: { children: React.ReactNode
       data-portal-actor={isVa ? "va" : "client"}
     >
       <PortalShell accent="client" wordmark="sNeek" nav={nav} roleLabel={roleLabel}>
-        {isVa ? <VaActingBanner name={session?.user?.name} gate={gate} /> : null}
+        {identity && (gateStatus === "unavailable" || gateStatus === "denied") ? (
+          <div role="alert" className="mb-4 border-l-4 border-amber-600 px-3 py-2 text-sm">
+            {gateStatus === "denied" ? "Your access could not be confirmed." : "Navigation updates are unavailable."}
+            {isVa ? " Delegated actions are hidden until access is confirmed." : ""}
+            <button type="button" onClick={refresh} className="ml-2 min-h-11 underline">Retry</button>
+          </div>
+        ) : null}
+        {isVa ? <VaActingBanner name={session?.user?.name} gate={confirmedVaGate} loading={gateStatus === "loading"} /> : null}
         {children}
       </PortalShell>
     </div>
@@ -201,22 +214,24 @@ export default function V2ClientLayout({ children }: { children: React.ReactNode
 function VaActingBanner({
   name,
   gate,
+  loading,
 }: {
   name?: string | null;
   gate: ClientPortalGate | null;
+  loading: boolean;
 }) {
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[var(--e-radius-md)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] px-3 py-2 text-[0.8125rem]">
-      <span className="font-medium text-[hsl(var(--e-foreground))]">{name || "Assistant"}</span>
-      <span className="text-[hsl(var(--e-muted-foreground))]">
+    <section aria-label="Assistant account context" className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 border-y border-[hsl(var(--e-border))] px-3 py-2 text-[0.8125rem] [overflow-wrap:anywhere]">
+      <span className="min-w-0 font-medium text-[hsl(var(--e-foreground))]">{name || "Assistant"}</span>
+      <span className="min-w-0 text-[hsl(var(--e-muted-foreground))]" role="status">
         {gate?.actingFor
           ? "is working in " + gate.actingFor + "’s account"
-          : "is working on behalf of a client"}
+          : loading ? "Confirming client account..." : "Client account not confirmed"}
         {gate?.teamName ? " · " + gate.teamName : ""}
       </span>
       <span className="ml-auto text-[0.75rem] text-[hsl(var(--e-text-faint))]">
         Approvals and payments stay with the client
       </span>
-    </div>
+    </section>
   );
 }

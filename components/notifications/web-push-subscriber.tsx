@@ -13,10 +13,10 @@ const DISMISS_KEY = "sneek-web-push-prompt-dismissed";
 // (which reads the server-side key / admin credential), falling back to the
 // build-time value when present.
 let cachedVapidKey: string | null = null;
-async function resolveVapidPublicKey(): Promise<string> {
+export async function resolveVapidPublicKey(): Promise<string> {
   const buildTime = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "").trim();
   if (buildTime) return buildTime;
-  if (cachedVapidKey !== null) return cachedVapidKey;
+  if (cachedVapidKey) return cachedVapidKey;
   try {
     const res = await fetch("/api/public/push-config", { cache: "force-cache" });
     const body = await res.json().catch(() => ({}));
@@ -28,7 +28,7 @@ async function resolveVapidPublicKey(): Promise<string> {
 }
 
 /** Convert a base64url VAPID public key into the ArrayBuffer push expects. */
-function urlBase64ToBuffer(base64String: string): ArrayBuffer {
+export function urlBase64ToBuffer(base64String: string): ArrayBuffer {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
   const rawData = window.atob(base64);
@@ -40,7 +40,7 @@ function urlBase64ToBuffer(base64String: string): ArrayBuffer {
   return buffer;
 }
 
-function pushSupported(): boolean {
+export function pushSupported(): boolean {
   return (
     typeof window !== "undefined" &&
     "serviceWorker" in navigator &&
@@ -68,26 +68,33 @@ function isIosSafari(): boolean {
 }
 
 export function WebPushSubscriber() {
-  const { status } = useSession();
+  const { status, data: session } = useSession();
+  if (status !== "authenticated" || !session?.user?.id || session.impersonation) return null;
+  return <SessionWebPushSubscriber key={JSON.stringify([session.user.id, session.user.role])} />;
+}
+
+function SessionWebPushSubscriber() {
+  const { status, data: session } = useSession();
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   // iOS only allows Web Push when installed to the home screen (iOS 16.4+).
   const [iosNeedsInstall, setIosNeedsInstall] = useState(false);
   const handledRef = useRef(false);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   const subscribe = useCallback(async () => {
-    const vapidKey = await resolveVapidPublicKey();
-    if (!vapidKey) {
-      toast({
-        title: "Notifications unavailable",
-        description: "Push is not configured on the server yet.",
-        variant: "destructive",
-      });
-      return;
-    }
+    if (session?.impersonation) return;
     setBusy(true);
     try {
-      const permission = await Notification.requestPermission();
+      const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+      if (!alive.current) return;
+      const vapidKey = await resolveVapidPublicKey();
+      if (!alive.current) return;
+      if (!vapidKey) {
+        toast({ title: "Notifications unavailable", description: "Push is not configured on the server yet.", variant: "destructive" });
+        return;
+      }
       if (permission !== "granted") {
         setVisible(false);
         window.localStorage.setItem(DISMISS_KEY, "1");
@@ -101,14 +108,19 @@ export function WebPushSubscriber() {
         return;
       }
 
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await navigator.serviceWorker.getRegistration();
+      if (!alive.current) return;
+      if (!registration?.active) throw new Error("Service worker unavailable");
       let subscription = await registration.pushManager.getSubscription();
+      if (!alive.current) return;
       if (!subscription) {
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToBuffer(vapidKey),
         });
       }
+
+      if (!alive.current) return;
 
       const res = await fetch("/api/push/subscribe", {
         method: "POST",
@@ -117,26 +129,28 @@ export function WebPushSubscriber() {
       });
 
       if (!res.ok) throw new Error("Failed to register subscription");
+      if (!alive.current) return;
 
       setVisible(false);
       window.localStorage.setItem(DISMISS_KEY, "1");
       toast({
-        title: "Notifications enabled",
-        description: "You'll now get push alerts on this device, even when the app is closed.",
+        title: "Device registered",
+        description: "Browser permission and registration are ready. Delivery still depends on your preferences and the push service.",
       });
     } catch (err) {
+      if (!alive.current) return;
       toast({
         title: "Could not enable notifications",
         description: "Please try again, or check your browser settings.",
         variant: "destructive",
       });
     } finally {
-      setBusy(false);
+      if (alive.current) setBusy(false);
     }
-  }, []);
+  }, [session?.impersonation]);
 
   useEffect(() => {
-    if (status !== "authenticated") return;
+    if (status !== "authenticated" || session?.impersonation) return;
     if (typeof window === "undefined") return;
     if (handledRef.current) return;
     handledRef.current = true;
@@ -161,23 +175,19 @@ export function WebPushSubscriber() {
 
     (async () => {
       try {
-        const registration = await navigator.serviceWorker.ready;
+        const registration = await navigator.serviceWorker.getRegistration();
+        if (!registration?.active) return;
         const existing = await registration.pushManager.getSubscription();
         if (cancelled) return;
 
         if (existing) {
-          // Make sure the server knows about it (idempotent), then stay quiet.
-          fetch("/api/push/subscribe", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(existing.toJSON()),
-          }).catch(() => undefined);
+          // Binding a shared device to another account requires an explicit action.
           return;
         }
 
         if (Notification.permission === "granted") {
-          // Permission already there but no subscription → resubscribe silently.
-          await subscribe();
+          setIosNeedsInstall(false);
+          setVisible(true);
           return;
         }
 
@@ -192,7 +202,7 @@ export function WebPushSubscriber() {
     return () => {
       cancelled = true;
     };
-  }, [status, subscribe]);
+  }, [status, subscribe, session?.impersonation]);
 
   function dismiss() {
     setVisible(false);
@@ -201,7 +211,7 @@ export function WebPushSubscriber() {
     }
   }
 
-  if (status !== "authenticated" || !visible) return null;
+  if (status !== "authenticated" || session?.impersonation || !visible) return null;
 
   return (
     <div className="fixed inset-x-3 bottom-20 z-50 mx-auto max-w-md rounded-2xl border border-primary/20 bg-white/95 p-4 shadow-xl backdrop-blur dark:bg-white/5 sm:bottom-6 sm:left-auto sm:right-6 sm:mx-0">
@@ -226,6 +236,7 @@ export function WebPushSubscriber() {
         </div>
         <Button
           type="button"
+          aria-label="Dismiss notification setup"
           size="icon"
           variant="ghost"
           className="h-7 w-7 shrink-0 rounded-full"

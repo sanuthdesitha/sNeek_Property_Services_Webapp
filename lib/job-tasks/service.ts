@@ -679,8 +679,8 @@ export async function autoApprovePendingClientJobTasks(now = new Date(), baseUrl
   return { approvedCount };
 }
 
-export async function listCleanerJobTasks(jobId: string) {
-  return db.jobTask.findMany({
+export async function listCleanerJobTasks(jobId: string, database: Pick<typeof db, "jobTask"> = db) {
+  return database.jobTask.findMany({
     where: {
       jobId,
       visibleToCleaner: true,

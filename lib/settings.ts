@@ -1877,6 +1877,12 @@ export async function getAppSettings(): Promise<AppSettings> {
   }
 }
 
+/** Contract reads inside a mutation must not hide database errors as defaults. */
+export async function getTransactionAppSettings(database: Pick<typeof db, "appSetting">): Promise<AppSettings> {
+  const row = await database.appSetting.findUnique({ where: { key: "app" } });
+  return row ? sanitizeSettings(row.value) : DEFAULT_SETTINGS;
+}
+
 export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppSettings> {
   const current = await getAppSettings();
   const merged = sanitizeSettings({

@@ -11,7 +11,8 @@
  */
 import * as React from "react";
 import { AlarmClock, LogIn, CalendarClock } from "lucide-react";
-import { resolveArrivalNotice } from "@/lib/jobs/arrival-notice";
+import { summarizeTiming } from "@/lib/jobs/timing-summary";
+import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
 
 export interface JobTimingRulesPayload {
   earlyCheckin?: { time: string } | null;
@@ -35,6 +36,8 @@ export function TimingRuleBanners({
   rules,
   sameDayCheckin,
   compact = false,
+  startTime,
+  dueTime,
 }: {
   rules: JobTimingRulesPayload | null | undefined;
   /**
@@ -45,20 +48,21 @@ export function TimingRuleBanners({
   sameDayCheckin?: SameDayCheckinPayload | null;
   /** Slimmer paddings for embedding inside a card. */
   compact?: boolean;
+  startTime?: string | null;
+  dueTime?: string | null;
 }) {
-  const late = rules?.lateCheckout?.time;
+  const timingInput = { startTime, dueTime, timingBadges: { late: rules?.lateCheckout?.time, early: rules?.earlyCheckin?.time }, sameDayCheckin: sameDayCheckin?.active, sameDayCheckinTime: sameDayCheckin?.time };
+  const timing = summarizeTiming(timingInput);
+  const late = timing.earliestAccess;
   // Same-day and early check-in are the SAME event described twice. They
   // used to render as two banners carrying two different times.
-  const arrival = resolveArrivalNotice({
-    earlyCheckinTime: rules?.earlyCheckin?.time ?? null,
-    sameDayActive: sameDayCheckin?.active === true,
-    sameDayTime: sameDayCheckin?.time ?? null,
-  });
-  if (!late && !arrival) return null;
+  const arrival = timing.arrival;
+  if (!late && !arrival && !startTime && !dueTime && !timing.warnings.length) return null;
 
   const pad = compact ? "p-2.5" : "p-3";
   return (
     <div className="space-y-2">
+      <CleanerTimingSummary {...timingInput} showConstraints={false} />
       {arrival ? (
         <div className={`rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] ${pad}`}>
           <p className="flex items-center gap-1.5 text-[0.8125rem] font-[600]">

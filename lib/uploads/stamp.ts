@@ -52,6 +52,8 @@ export interface StampFormat {
 }
 
 export interface StampOptions {
+  /** Device capture time retained when a queued original is prepared later. */
+  capturedAt?: number;
   /** Capturer's display name (cleaner / QA reviewer). */
   capturerName?: string;
   /**
@@ -487,7 +489,7 @@ export async function stampImage(file: File, opts: StampOptions = {}): Promise<F
   const lineGap = Math.round(dateSize * 0.32);
 
   // ---- Resolve content ----
-  const parts = zonedParts(new Date(), timezone);
+  const parts = zonedParts(new Date(Number.isFinite(opts.capturedAt) ? opts.capturedAt! : Date.now()), timezone);
   const timeText = formatTime(parts, opts.timeFormat ?? DEFAULT_TIME_FORMAT);
   const dateText = formatDate(parts, opts.dateFormat ?? DEFAULT_DATE_FORMAT);
   const showWeekday = opts.showWeekday !== false;

@@ -206,6 +206,8 @@ const draftPayRequestItemSchema = z.object({
 
 export const submitJobSchema = z.object({
   templateId: z.string().min(1),
+  formContractVersion: z.literal(1).optional(),
+  formRevision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   data: z.record(z.unknown()),
   jobTasks: z
     .array(

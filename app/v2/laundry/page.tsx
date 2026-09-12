@@ -1,4 +1,4 @@
-import { toZonedTime } from "date-fns-tz";
+import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { LaundryStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -23,8 +23,6 @@ import { ArrowRight, Navigation, PackageCheck, Route as RouteIcon, Timer, Truck,
 
 export const metadata = { title: "Today · Estate laundry" };
 export const dynamic = "force-dynamic";
-
-const TZ = "Australia/Sydney";
 
 type Tone = "neutral" | "primary" | "info" | "success" | "warning" | "danger";
 
@@ -67,9 +65,14 @@ function statusLabel(status: LaundryStatus): string {
 }
 
 async function getLaundry() {
-  const nowSyd = toZonedTime(new Date(), TZ);
-  const todayStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
-  const todayEnd = new Date(todayStart.getTime() + 86_400_000);
+  const today = sydneyTodayKey();
+  const tomorrow = addDaysToKey(today, 1);
+  // Scheduled dates are UTC date-only keys; delivery events are actual instants.
+  // Keep these ranges distinct, especially across Sydney's 23/25-hour DST days.
+  const scheduledStart = new Date(`${today}T00:00:00.000Z`);
+  const scheduledEnd = new Date(`${tomorrow}T00:00:00.000Z`);
+  const todayStart = sydneyDayStart(today);
+  const todayEnd = sydneyDayStart(tomorrow);
 
   // Mirrors app/v2/admin/laundry/page.tsx getLaundry().
   //
@@ -86,14 +89,13 @@ async function getLaundry() {
       where: {
         noPickupRequired: false,
         OR: [
-          { pickupDate: { gte: todayStart, lt: todayEnd } },
-          { dropoffDate: { gte: todayStart, lt: todayEnd } },
+          { pickupDate: { gte: scheduledStart, lt: scheduledEnd } },
+          { dropoffDate: { gte: scheduledStart, lt: scheduledEnd } },
           { droppedAt: { gte: todayStart, lt: todayEnd } },
           { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.CONFIRMED] } },
         ],
       },
       orderBy: [{ pickupDate: "asc" }],
-      take: 20,
       select: {
         id: true,
         status: true,
@@ -102,7 +104,9 @@ async function getLaundry() {
         property: { select: { name: true, suburb: true } },
       },
     })
-    .catch(() => [] as Array<{ id: string; status: LaundryStatus; droppedAt: Date | null; bagWeightKg: number | null; property: { name: string | null; suburb: string | null } | null }>);
+    .catch(() => null);
+
+  if (tasks === null) return { tasks: null, inQueue: null, inTransit: null, ready: null };
 
   const deliveredToday = (t: { status: LaundryStatus; droppedAt: Date | null }) =>
     t.status === LaundryStatus.DROPPED &&
@@ -124,8 +128,7 @@ async function getLaundry() {
 async function getRouteCard(userId: string) {
   const todayKey = sydneyDayKey(new Date());
   const routes = await db.laundryRoute
-    .findMany({ where: { userId, date: todayKey, status: { in: ["ACTIVE", "DRAFT"] } } })
-    .catch(() => []);
+    .findMany({ where: { userId, date: todayKey, status: { in: ["ACTIVE", "DRAFT"] } } });
   const route =
     routes.find((r) => r.status === "ACTIVE") ??
     routes.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0] ??
@@ -138,17 +141,20 @@ async function getRouteCard(userId: string) {
   const next = nextIncompleteStop(stops);
   const doneCount = stops.filter((s) => s.completedAt).length;
   let nextLabel: string | null = null;
+  let nextPropertyUnavailable = false;
   if (next) {
     const property = await db.property
       .findUnique({ where: { id: next.propertyId }, select: { name: true } })
-      .catch(() => null);
-    nextLabel = `${property?.name ?? "Unknown property"} ${next.kind === "PICKUP" ? "pickup" : "drop-off"}`;
+      .catch(() => undefined);
+    nextPropertyUnavailable = property === undefined;
+    nextLabel = `${nextPropertyUnavailable ? "Property unavailable" : property?.name ?? "Unknown property"} ${next.kind === "PICKUP" ? "pickup" : "drop-off"}`;
   }
   return {
     active: true as const,
     stopNumber: Math.min(doneCount + 1, stops.length),
     stopCount: stops.length,
     nextLabel,
+    nextPropertyUnavailable,
   };
 }
 
@@ -156,7 +162,7 @@ export default async function LaundryTodayPage() {
   const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
   const [{ tasks, inQueue, inTransit, ready }, routeCard] = await Promise.all([
     getLaundry(),
-    getRouteCard(session.user.id),
+    getRouteCard(session.user.id).catch(() => null),
   ]);
 
   return (
@@ -172,10 +178,12 @@ export default async function LaundryTodayPage() {
         <ECardBody className="flex flex-wrap items-center justify-between gap-3 pt-6">
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
-              {routeCard.active ? <Navigation className="h-4 w-4" /> : <RouteIcon className="h-4 w-4" />}
+              {routeCard?.active ? <Navigation className="h-4 w-4" /> : <RouteIcon className="h-4 w-4" />}
             </span>
             <div className="min-w-0">
-              {routeCard.active ? (
+              {routeCard === null ? (
+                <p role="alert">Today&apos;s route is unavailable.</p>
+              ) : routeCard.active ? (
                 <>
                   <p className="text-[0.9375rem] font-semibold tracking-[-0.01em]">
                     Route in progress — stop {routeCard.stopNumber} of {routeCard.stopCount}
@@ -183,6 +191,9 @@ export default async function LaundryTodayPage() {
                   <p className="truncate text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
                     {routeCard.nextLabel ? `Next: ${routeCard.nextLabel}` : "All stops complete — end the route."}
                   </p>
+                  {routeCard.nextPropertyUnavailable ? (
+                    <p role="alert">The next property&apos;s details could not be loaded. <a href="/v2/laundry" className="underline">Retry property details</a></p>
+                  ) : null}
                 </>
               ) : (
                 <>
@@ -197,10 +208,14 @@ export default async function LaundryTodayPage() {
             </div>
           </div>
           <EButton asChild>
-            <Link href="/v2/laundry/route">
-              {routeCard.active ? "Continue route" : routeCard.hasDraft ? "Resume draft" : "Build route"}
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+            {routeCard === null ? (
+              <a href="/v2/laundry">Retry route <ArrowRight className="h-4 w-4" /></a>
+            ) : (
+              <Link href="/v2/laundry/route">
+                {routeCard.active ? "Continue route" : routeCard.hasDraft ? "Resume draft" : "Build route"}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            )}
           </EButton>
         </ECardBody>
       </ECard>
@@ -209,10 +224,10 @@ export default async function LaundryTodayPage() {
       <PlanBrief />
 
       <section className="grid gap-4 sm:grid-cols-4">
-        <EStatCard label="In queue" value={String(inQueue)} delta="pending" deltaTone="neutral" icon={<Waves className="h-4 w-4" />} />
-        <EStatCard label="In transit" value={String(inTransit)} delta="picked up" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
-        <EStatCard label="Delivered" value={String(ready)} delta="today" icon={<PackageCheck className="h-4 w-4" />} />
-        <EStatCard label="Loads today" value={String(tasks.length)} delta="in the pipeline" deltaTone="neutral" icon={<Truck className="h-4 w-4" />} />
+        <EStatCard label="In queue" value={inQueue === null ? <span className="text-sm">Unavailable</span> : String(inQueue)} delta="pending" deltaTone="neutral" icon={<Waves className="h-4 w-4" />} />
+        <EStatCard label="In transit" value={inTransit === null ? <span className="text-sm">Unavailable</span> : String(inTransit)} delta="picked up" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
+        <EStatCard label="Delivered" value={ready === null ? <span className="text-sm">Unavailable</span> : String(ready)} delta="today" deltaTone={ready === null ? "neutral" : "success"} icon={<PackageCheck className="h-4 w-4" />} />
+        <EStatCard label="In pipeline" value={tasks === null ? <span className="text-sm">Unavailable</span> : String(tasks.length)} delta="today and open work" deltaTone="neutral" icon={<Truck className="h-4 w-4" />} />
       </section>
 
       {/* 3. Live queue — next 5 only; the full list lives on /v2/laundry/queue. */}
@@ -229,7 +244,12 @@ export default async function LaundryTodayPage() {
           </div>
         </ECardHeader>
         <ECardBody className="space-y-1">
-          {tasks.length === 0 ? (
+          {tasks === null ? (
+            <div role="alert">
+              <p>Laundry totals and live queue are unavailable.</p>
+              <a href="/v2/laundry" className="underline">Retry laundry</a>
+            </div>
+          ) : tasks.length === 0 ? (
             <EEmptyState eyebrow="Quiet" title="No laundry scheduled" description="Nothing in the laundry pipeline right now." />
           ) : (
             tasks.slice(0, 5).map((t, i) => {

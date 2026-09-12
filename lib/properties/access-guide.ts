@@ -146,14 +146,14 @@ export function entriesForAudience(
   reader: AccessReader,
   laundrySameAsCleaner = false
 ): AccessGuideEntry[] {
-  return entries.filter((entry) => {
-    const audience = entry.audience ?? "BOTH";
-    if (audience === "BOTH") return true;
-    if (reader === "CLEANER") return audience === "CLEANER";
-    // reader === "LAUNDRY"
-    if (audience === "LAUNDRY") return true;
-    return laundrySameAsCleaner && audience === "CLEANER";
-  });
+  return entries.filter((entry) => accessAudienceMatches(entry.audience, reader, laundrySameAsCleaner));
+}
+
+/** Apply audience visibility before projecting legacy JSON into display-only fields. */
+export function accessAudienceMatches(audience: unknown, reader: AccessReader, laundrySameAsCleaner = false): boolean {
+  if (audience == null || audience === "BOTH") return true;
+  if (reader === "CLEANER") return audience === "CLEANER";
+  return audience === "LAUNDRY" || (laundrySameAsCleaner && audience === "CLEANER");
 }
 
 /** True when this entry can be put on a map. */

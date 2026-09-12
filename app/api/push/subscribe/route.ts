@@ -18,6 +18,7 @@ const subscribeSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const session = await requireSession();
+    if (session.impersonation) return NextResponse.json({ error: "Device registration is unavailable while impersonating." }, { status: 403 });
     const parsed = subscribeSchema.parse(await req.json());
 
     const userAgent = req.headers.get("user-agent")?.slice(0, 255) || null;

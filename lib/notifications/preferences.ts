@@ -32,7 +32,7 @@ function sanitizePreferenceMap(input: unknown): NotificationPreferenceMap {
 }
 
 function channelToKey(channel: NotificationChannel | "WEB"): keyof NotificationChannelPreference {
-  if (channel === "WEB") return "web";
+  if (channel === "WEB" || channel === NotificationChannel.PUSH) return "web";
   if (channel === NotificationChannel.EMAIL) return "email";
   return "sms";
 }

@@ -22,36 +22,47 @@ import { db } from "@/lib/db";
  * Goes through requireClientPortal, so a VA sees their team's client and only
  * within their granted property scope.
  *
- * FAILURE IS SILENT BY DESIGN — each query degrades to 0, the route answers 200.
+ * Query failures return a retriable error so consumers retain their last counts.
  */
 export async function GET() {
   try {
     const portal = await requireClientPortal();
     const clientId = portal.clientId;
     const propertyFilter = portal.propertyIds ? { id: { in: portal.propertyIds } } : {};
+    const isClient = portal.actor === "CLIENT";
+    const canSeeCases = isClient || portal.permissions.maintenance === true;
+    const canSeeInvoices = isClient || portal.permissions.invoicesView === true;
 
     const [approvals, cases, quotes, invoices] = await Promise.all([
       // Extra work this client has been asked to approve.
-      db.jobTask
+      isClient ? db.jobTask
         .count({
           where: {
             source: "CLIENT",
             approvalStatus: "PENDING_APPROVAL",
             job: { property: { clientId, ...propertyFilter } },
           },
-        })
-        .catch(() => 0),
+        }) : undefined,
       // Only cases actually waiting on the client — not every open case.
-      db.issueTicket
-        .count({ where: { clientId, state: CaseState.AWAITING_CLIENT, clientVisible: true } })
-        .catch(() => 0),
+      canSeeCases ? db.issueTicket.count({
+        where: {
+          clientId,
+          state: CaseState.AWAITING_CLIENT,
+          clientVisible: true,
+          ...(portal.propertyIds ? { property: { clientId, ...propertyFilter } } : {}),
+        },
+      }) : undefined,
       // Issued and undecided. DRAFT has not been sent; ACCEPTED/DECLINED are done.
-      db.quote.count({ where: { clientId, status: QuoteStatus.SENT } }).catch(() => 0),
+      isClient ? db.quote.count({ where: { clientId, status: QuoteStatus.SENT } }) : undefined,
       // Payable, matching the portal's own definition of a payable invoice.
-      db.clientInvoice
+      canSeeInvoices ? db.clientInvoice
         .count({
           where: {
             clientId,
+            // Match client-portal-finance: exclude empty, manual and mixed-scope invoices.
+            ...(portal.propertyIds
+              ? { lines: { some: {}, every: { job: { property: { clientId, ...propertyFilter } } } } }
+              : {}),
             status: {
               in: [
                 ClientInvoiceStatus.SENT,
@@ -60,8 +71,7 @@ export async function GET() {
               ],
             },
           },
-        })
-        .catch(() => 0),
+        }) : undefined,
     ]);
 
     // Only for the assistant banner — a CLIENT already knows whose account
@@ -71,7 +81,6 @@ export async function GET() {
         ? (
             await db.client
               .findUnique({ where: { id: portal.clientId }, select: { name: true } })
-              .catch(() => null)
           )?.name ?? null
         : null;
 
@@ -90,15 +99,18 @@ export async function GET() {
         teamName: portal.team?.name ?? null,
       },
       counts: {
-        "/v2/client/approvals": approvals,
-        "/v2/client/cases": cases,
-        "/v2/client/quotes": quotes,
+        ...(isClient ? { "/v2/client/approvals": approvals, "/v2/client/quotes": quotes } : {}),
+        ...(canSeeCases ? { "/v2/client/cases": cases } : {}),
         // Matches the nav href. On /money the badge simply never appeared.
-        "/v2/client/finance": invoices,
+        ...(canSeeInvoices ? { "/v2/client/finance": invoices } : {}),
       },
     });
-  } catch (err: any) {
-    const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err?.message ?? "Could not load counts." }, { status });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "";
+    const status = message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 503;
+    return NextResponse.json(
+      { error: status === 503 ? "Could not load counts." : message },
+      { status }
+    );
   }
 }

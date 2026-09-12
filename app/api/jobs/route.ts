@@ -20,6 +20,8 @@ function buildWhereClause(params: {
   date: string | null;
   dateFrom: string | null;
   dateTo: string | null;
+  search: string;
+  invoiced: string | null;
   role: Role;
   userId: string;
 }) {
@@ -37,6 +39,25 @@ function buildWhereClause(params: {
   if (params.jobType) where.jobType = params.jobType;
   if (params.propertyId) where.propertyId = params.propertyId;
   if (params.clientId) where.property = { clientId: params.clientId };
+
+  if (params.search) {
+    // Prisma contains uses LIKE: treat user-entered wildcards literally.
+    const contains = params.search.replace(/[\\%_]/g, "\\$&");
+    const text = { contains, mode: "insensitive" };
+    where.OR = [
+      { jobNumber: text },
+      { property: { name: text } },
+      { property: { suburb: text } },
+      { property: { client: { name: text } } },
+      { assignments: { some: { removedAt: null, user: { name: text } } } },
+    ];
+  }
+  // Keep invoice alternatives separate from search and the explicit status.
+  if (params.invoiced === "yes") {
+    where.AND = [{ OR: [{ status: JobStatus.INVOICED }, { invoiceLines: { some: {} } }] }];
+  } else if (params.invoiced === "no") {
+    where.AND = [{ status: { not: JobStatus.INVOICED }, invoiceLines: { none: {} } }];
+  }
 
   // Set before the CLEANER branch below so that branch always wins: a
   // cleaner may only ever see their own jobs, whatever they pass here.
@@ -196,6 +217,8 @@ export async function GET(req: NextRequest) {
     const date = searchParams.get("date");
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
+    const search = (searchParams.get("search") ?? "").slice(0, 200).trim();
+    const invoiced = searchParams.get("invoiced");
     const rawSort = searchParams.get("sort");
     const sort: JobSort | null =
       rawSort === "soonest" ||
@@ -226,6 +249,8 @@ export async function GET(req: NextRequest) {
       date,
       dateFrom,
       dateTo,
+      search,
+      invoiced,
       role,
       userId: session.user.id,
     });

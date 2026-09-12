@@ -1,4 +1,5 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 
 const CLIENT_APPROVALS_KEY = "client_approvals_v1";
@@ -77,6 +78,7 @@ type UpdateInput = {
 };
 
 type RespondInput = {
+  expectedVersion: string;
   id: string;
   clientId: string;
   decision: "APPROVE" | "DECLINE";
@@ -164,8 +166,20 @@ function sanitizeRecord(value: unknown): ClientApprovalRecord | null {
   };
 }
 
-async function readStore(): Promise<StoredData> {
-  const row = await db.appSetting.findUnique({ where: { key: CLIENT_APPROVALS_KEY } });
+/** Hash the complete sanitized snapshot, including recipient metadata. */
+export function clientApprovalVersion(record: ClientApprovalRecord): string {
+  return createHash("sha256").update(JSON.stringify(sanitizeRecord(record))).digest("hex");
+}
+
+function assertApprovalVersion(record: ClientApprovalRecord, expectedVersion: string) {
+  if (typeof expectedVersion !== "string" || !/^[a-f0-9]{64}$/i.test(expectedVersion) ||
+      clientApprovalVersion(record) !== expectedVersion.toLowerCase()) {
+    throw new Error("STALE_APPROVAL");
+  }
+}
+
+async function readStore(client: Pick<Prisma.TransactionClient, "appSetting"> = db): Promise<StoredData> {
+  const row = await client.appSetting.findUnique({ where: { key: CLIENT_APPROVALS_KEY } });
   const value = row?.value;
   if (!value || typeof value !== "object" || Array.isArray(value)) return { approvals: [] };
   const approvals = Array.isArray((value as any).approvals)
@@ -176,12 +190,26 @@ async function readStore(): Promise<StoredData> {
   return { approvals };
 }
 
-async function writeStore(data: StoredData) {
-  await db.appSetting.upsert({
+async function writeStore(tx: Prisma.TransactionClient, data: StoredData) {
+  await tx.appSetting.upsert({
     where: { key: CLIENT_APPROVALS_KEY },
     create: { key: CLIENT_APPROVALS_KEY, value: { approvals: data.approvals } as any },
     update: { value: { approvals: data.approvals } as any },
   });
+}
+
+// Every writer shares this store-wide lock, including when the setting is absent.
+// Mutation callbacks only change the in-memory store; null/false means no write.
+async function mutateStore<T>(
+  mutate: (store: StoredData) => T,
+): Promise<T> {
+  return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${CLIENT_APPROVALS_KEY}))`;
+    const store = await readStore(tx);
+    const result = mutate(store);
+    if (result !== null && result !== false) await writeStore(tx, store);
+    return result;
+  }, { isolationLevel: "ReadCommitted", maxWait: 5_000, timeout: 15_000 });
 }
 
 function withDerivedStatus(record: ClientApprovalRecord): ClientApprovalRecord {
@@ -213,114 +241,112 @@ export async function getClientApprovalById(id: string) {
 }
 
 export async function createClientApproval(input: CreateInput) {
-  const store = await readStore();
-  const now = new Date().toISOString();
-  const created: ClientApprovalRecord = {
-    id: randomUUID(),
-    clientId: input.clientId.trim(),
-    propertyId: input.propertyId?.trim() || null,
-    jobId: input.jobId?.trim() || null,
-    quoteId: input.quoteId?.trim() || null,
-    title: input.title.trim().slice(0, 160) || "Client Approval",
-    description: input.description.trim().slice(0, 6000),
-    amount: Math.max(0, Number(input.amount || 0)),
-    currency: (input.currency?.trim().toUpperCase() || "AUD").slice(0, 8),
-    status: "PENDING",
-    requestedByUserId: input.requestedByUserId.trim(),
-    requestedAt: now,
-    expiresAt: sanitizeIsoDate(input.expiresAt ?? null),
-    respondedByUserId: null,
-    respondedAt: null,
-    responseNote: null,
-    counterAmount: null,
-    counterNote: null,
-    counterAt: null,
-    counterByUserId: null,
-    metadata: input.metadata && typeof input.metadata === "object" ? input.metadata : null,
-    createdAt: now,
-    updatedAt: now,
-  };
-  store.approvals.unshift(created);
-  if (store.approvals.length > 1000) {
-    store.approvals = store.approvals.slice(0, 1000);
-  }
-  await writeStore(store);
-  return created;
+  return mutateStore((store) => {
+    const now = new Date().toISOString();
+    const created: ClientApprovalRecord = {
+      id: randomUUID(),
+      clientId: input.clientId.trim(),
+      propertyId: input.propertyId?.trim() || null,
+      jobId: input.jobId?.trim() || null,
+      quoteId: input.quoteId?.trim() || null,
+      title: input.title.trim().slice(0, 160) || "Client Approval",
+      description: input.description.trim().slice(0, 6000),
+      amount: Math.max(0, Number(input.amount || 0)),
+      currency: (input.currency?.trim().toUpperCase() || "AUD").slice(0, 8),
+      status: "PENDING",
+      requestedByUserId: input.requestedByUserId.trim(),
+      requestedAt: now,
+      expiresAt: sanitizeIsoDate(input.expiresAt ?? null),
+      respondedByUserId: null,
+      respondedAt: null,
+      responseNote: null,
+      counterAmount: null,
+      counterNote: null,
+      counterAt: null,
+      counterByUserId: null,
+      metadata: input.metadata && typeof input.metadata === "object" ? input.metadata : null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.approvals.unshift(created);
+    return created;
+  });
 }
 
 export async function updateClientApprovalById(id: string, patch: UpdateInput) {
-  const store = await readStore();
-  const index = store.approvals.findIndex((approval) => approval.id === id);
-  if (index === -1) return null;
-  const existing = withDerivedStatus(store.approvals[index]);
-  const updated: ClientApprovalRecord = {
-    ...existing,
-    title:
-      patch.title !== undefined
-        ? patch.title.trim().slice(0, 160) || existing.title
-        : existing.title,
-    description:
-      patch.description !== undefined
-        ? patch.description.trim().slice(0, 6000)
-        : existing.description,
-    amount:
-      patch.amount !== undefined ? Math.max(0, Number(patch.amount || 0)) : existing.amount,
-    currency:
-      patch.currency !== undefined
-        ? (patch.currency.trim().toUpperCase().slice(0, 8) || existing.currency)
-        : existing.currency,
-    status: patch.status ?? existing.status,
-    propertyId: patch.propertyId !== undefined ? patch.propertyId?.trim() || null : existing.propertyId,
-    jobId: patch.jobId !== undefined ? patch.jobId?.trim() || null : existing.jobId,
-    quoteId: patch.quoteId !== undefined ? patch.quoteId?.trim() || null : existing.quoteId,
-    expiresAt:
-      patch.expiresAt !== undefined
-        ? sanitizeIsoDate(patch.expiresAt)
-        : existing.expiresAt,
-    responseNote:
-      patch.responseNote !== undefined
-        ? patch.responseNote?.trim().slice(0, 2000) || null
-        : existing.responseNote,
-    metadata:
-      patch.metadata !== undefined
-        ? patch.metadata && typeof patch.metadata === "object"
-          ? patch.metadata
-          : null
-        : existing.metadata,
-    // CP-3b — moving OFF a counter settles it, so the proposal must not linger.
-    // A stale counterAmount beside a new agreed amount is how the two sides end
-    // up arguing about different numbers. Cleared on every exit path (approve,
-    // decline, reopen) rather than only the one the UI happens to use.
-    ...(patch.status && patch.status !== "COUNTERED" && existing.status === "COUNTERED"
-      ? { counterAmount: null, counterNote: null, counterAt: null, counterByUserId: null }
-      : {}),
-    updatedAt: new Date().toISOString(),
-  };
-  store.approvals[index] = updated;
-  await writeStore(store);
-  return updated;
+  return mutateStore((store) => {
+    const index = store.approvals.findIndex((approval) => approval.id === id);
+    if (index === -1) return null;
+    const existing = withDerivedStatus(store.approvals[index]);
+    const updated: ClientApprovalRecord = {
+      ...existing,
+      title:
+        patch.title !== undefined
+          ? patch.title.trim().slice(0, 160) || existing.title
+          : existing.title,
+      description:
+        patch.description !== undefined
+          ? patch.description.trim().slice(0, 6000)
+          : existing.description,
+      amount:
+        patch.amount !== undefined ? Math.max(0, Number(patch.amount || 0)) : existing.amount,
+      currency:
+        patch.currency !== undefined
+          ? (patch.currency.trim().toUpperCase().slice(0, 8) || existing.currency)
+          : existing.currency,
+      status: patch.status ?? existing.status,
+      propertyId: patch.propertyId !== undefined ? patch.propertyId?.trim() || null : existing.propertyId,
+      jobId: patch.jobId !== undefined ? patch.jobId?.trim() || null : existing.jobId,
+      quoteId: patch.quoteId !== undefined ? patch.quoteId?.trim() || null : existing.quoteId,
+      expiresAt:
+        patch.expiresAt !== undefined
+          ? sanitizeIsoDate(patch.expiresAt)
+          : existing.expiresAt,
+      responseNote:
+        patch.responseNote !== undefined
+          ? patch.responseNote?.trim().slice(0, 2000) || null
+          : existing.responseNote,
+      metadata:
+        patch.metadata !== undefined
+          ? patch.metadata && typeof patch.metadata === "object"
+            ? patch.metadata
+            : null
+          : existing.metadata,
+      // CP-3b — moving OFF a counter settles it, so the proposal must not linger.
+      // A stale counterAmount beside a new agreed amount is how the two sides end
+      // up arguing about different numbers. Cleared on every exit path (approve,
+      // decline, reopen) rather than only the one the UI happens to use.
+      ...(patch.status && patch.status !== "COUNTERED" && existing.status === "COUNTERED"
+        ? { counterAmount: null, counterNote: null, counterAt: null, counterByUserId: null }
+        : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    store.approvals[index] = updated;
+    return updated;
+  });
 }
 
 export async function respondClientApproval(input: RespondInput) {
-  const store = await readStore();
-  const index = store.approvals.findIndex((approval) => approval.id === input.id);
-  if (index === -1) return null;
-  const existing = withDerivedStatus(store.approvals[index]);
-  if (existing.clientId !== input.clientId) throw new Error("FORBIDDEN");
-  if (existing.status !== "PENDING") throw new Error("INVALID_STATE");
+  return mutateStore((store) => {
+    const index = store.approvals.findIndex((approval) => approval.id === input.id);
+    if (index === -1) return null;
+    const existing = withDerivedStatus(store.approvals[index]);
+    if (existing.clientId !== input.clientId) throw new Error("FORBIDDEN");
+    assertApprovalVersion(existing, input.expectedVersion);
+    if (existing.status !== "PENDING") throw new Error("INVALID_STATE");
 
-  const now = new Date().toISOString();
-  const updated: ClientApprovalRecord = {
-    ...existing,
-    status: input.decision === "APPROVE" ? "APPROVED" : "DECLINED",
-    respondedByUserId: input.respondedByUserId.trim(),
-    respondedAt: now,
-    responseNote: input.responseNote?.trim().slice(0, 2000) || null,
-    updatedAt: now,
-  };
-  store.approvals[index] = updated;
-  await writeStore(store);
-  return updated;
+    const now = new Date().toISOString();
+    const updated: ClientApprovalRecord = {
+      ...existing,
+      status: input.decision === "APPROVE" ? "APPROVED" : "DECLINED",
+      respondedByUserId: input.respondedByUserId.trim(),
+      respondedAt: now,
+      responseNote: input.responseNote?.trim().slice(0, 2000) || null,
+      updatedAt: now,
+    };
+    store.approvals[index] = updated;
+    return updated;
+  });
 }
 
 /**
@@ -336,35 +362,37 @@ export async function respondClientApproval(input: RespondInput) {
  * counter twice in a row without admin coming back to them.
  */
 export async function counterClientApproval(input: {
+  expectedVersion: string;
   id: string;
   clientId: string;
   amount: number;
   note?: string | null;
   counteredByUserId: string;
 }) {
-  const store = await readStore();
-  const index = store.approvals.findIndex((approval) => approval.id === input.id);
-  if (index === -1) return null;
-  const existing = withDerivedStatus(store.approvals[index]);
-  if (existing.clientId !== input.clientId) throw new Error("FORBIDDEN");
-  if (existing.status !== "PENDING") throw new Error("INVALID_STATE");
+  return mutateStore((store) => {
+    const index = store.approvals.findIndex((approval) => approval.id === input.id);
+    if (index === -1) return null;
+    const existing = withDerivedStatus(store.approvals[index]);
+    if (existing.clientId !== input.clientId) throw new Error("FORBIDDEN");
+    assertApprovalVersion(existing, input.expectedVersion);
+    if (existing.status !== "PENDING") throw new Error("INVALID_STATE");
 
-  const amount = sanitizeAmount(input.amount);
-  if (amount === null) throw new Error("INVALID_AMOUNT");
+    const amount = sanitizeAmount(input.amount);
+    if (amount === null) throw new Error("INVALID_AMOUNT");
 
-  const now = new Date().toISOString();
-  const updated: ClientApprovalRecord = {
-    ...existing,
-    status: "COUNTERED",
-    counterAmount: amount,
-    counterNote: input.note?.trim().slice(0, 2000) || null,
-    counterAt: now,
-    counterByUserId: input.counteredByUserId.trim(),
-    updatedAt: now,
-  };
-  store.approvals[index] = updated;
-  await writeStore(store);
-  return updated;
+    const now = new Date().toISOString();
+    const updated: ClientApprovalRecord = {
+      ...existing,
+      status: "COUNTERED",
+      counterAmount: amount,
+      counterNote: input.note?.trim().slice(0, 2000) || null,
+      counterAt: now,
+      counterByUserId: input.counteredByUserId.trim(),
+      updatedAt: now,
+    };
+    store.approvals[index] = updated;
+    return updated;
+  });
 }
 
 /**
@@ -378,40 +406,40 @@ export async function reopenCounteredApproval(input: {
   amount?: number | null;
   description?: string | null;
 }) {
-  const store = await readStore();
-  const index = store.approvals.findIndex((approval) => approval.id === input.id);
-  if (index === -1) return null;
-  const existing = store.approvals[index];
-  if (existing.status !== "COUNTERED") throw new Error("INVALID_STATE");
+  return mutateStore((store) => {
+    const index = store.approvals.findIndex((approval) => approval.id === input.id);
+    if (index === -1) return null;
+    const existing = store.approvals[index];
+    if (existing.status !== "COUNTERED") throw new Error("INVALID_STATE");
 
-  const nextAmount = input.amount == null ? existing.amount : sanitizeAmount(input.amount);
-  if (nextAmount === null) throw new Error("INVALID_AMOUNT");
+    const nextAmount = input.amount == null ? existing.amount : sanitizeAmount(input.amount);
+    if (nextAmount === null) throw new Error("INVALID_AMOUNT");
 
-  const now = new Date().toISOString();
-  const updated: ClientApprovalRecord = {
-    ...existing,
-    status: "PENDING",
-    amount: nextAmount,
-    description:
-      input.description !== undefined && input.description !== null
-        ? input.description.trim().slice(0, 6000)
-        : existing.description,
-    counterAmount: null,
-    counterNote: null,
-    counterAt: null,
-    counterByUserId: null,
-    updatedAt: now,
-  };
-  store.approvals[index] = updated;
-  await writeStore(store);
-  return updated;
+    const now = new Date().toISOString();
+    const updated: ClientApprovalRecord = {
+      ...existing,
+      status: "PENDING",
+      amount: nextAmount,
+      description:
+        input.description !== undefined && input.description !== null
+          ? input.description.trim().slice(0, 6000)
+          : existing.description,
+      counterAmount: null,
+      counterNote: null,
+      counterAt: null,
+      counterByUserId: null,
+      updatedAt: now,
+    };
+    store.approvals[index] = updated;
+    return updated;
+  });
 }
 
 export async function deleteClientApprovalById(id: string) {
-  const store = await readStore();
-  const before = store.approvals.length;
-  store.approvals = store.approvals.filter((approval) => approval.id !== id);
-  if (store.approvals.length === before) return false;
-  await writeStore(store);
-  return true;
+  return mutateStore((store) => {
+    const before = store.approvals.length;
+    store.approvals = store.approvals.filter((approval) => approval.id !== id);
+    if (store.approvals.length === before) return false;
+    return true;
+  });
 }

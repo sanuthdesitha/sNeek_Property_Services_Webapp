@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { JobWorkspace } from "@/components/v2/cleaner/job-workspace";
+import { cleanerDraftIdentity } from "@/lib/cleaner/draft-identity";
 
 export const metadata = { title: "Job · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -25,5 +26,6 @@ export default async function CleanerJobWorkspacePage({ params }: { params: { id
     .catch(() => null);
   if (!owns) notFound();
 
-  return <JobWorkspace jobId={params.id} />;
+  const draftIdentity = cleanerDraftIdentity(session, params.id);
+  return <JobWorkspace key={draftIdentity} jobId={params.id} draftIdentity={draftIdentity} />;
 }

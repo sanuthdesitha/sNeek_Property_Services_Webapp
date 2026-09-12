@@ -1,11 +1,8 @@
 import { addDays, format } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { NextRequest, NextResponse } from "next/server";
-import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { getAppSettings } from "@/lib/settings";
 import { requireClientPortal } from "@/lib/auth/client-portal";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 
@@ -39,6 +36,7 @@ export async function GET(req: NextRequest) {
         id: query.propertyId,
         clientId: portal.clientId,
         isActive: true,
+        ...(portal.propertyIds ? { AND: [{ id: { in: portal.propertyIds } }] } : {}),
       },
       select: { id: true },
     });

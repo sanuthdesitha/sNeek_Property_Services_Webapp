@@ -8,6 +8,7 @@
  */
 import * as React from "react";
 import Link from "next/link";
+import { z } from "zod";
 import {
   AlertTriangle,
   ArrowDown,
@@ -15,7 +16,6 @@ import {
   Bike,
   Car,
   ChevronRight,
-  Clock,
   Copy,
   Check,
   ExternalLink,
@@ -38,6 +38,10 @@ import { EChip, EInput, ESelect } from "@/components/v2/cleaner/fields";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { haversine } from "@/lib/gps/distance";
 import { toast } from "@/hooks/use-toast";
+import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
+import { summarizeTiming, validTimingTime } from "@/lib/jobs/timing-summary";
+import type { JobTimingBadges } from "@/lib/jobs/timing-badges";
+import { sydneyTodayKey, addDaysToKey } from "@/lib/time/sydney-range";
 
 type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
 export type TravelMode = "DRIVING" | "TRANSIT" | "WALKING" | "BICYCLING";
@@ -97,6 +101,9 @@ export interface RouteStop {
   status: string;
   startTime: string | null;
   dueTime?: string | null;
+  timingBadges?: JobTimingBadges | null;
+  sameDayCheckin?: boolean;
+  sameDayCheckinTime?: string | null;
   /** Estimated on-site duration (hours). Absent from today-route → defaulted. */
   estimatedHours?: number | null;
   /** Planned travel minutes INTO this stop, if the route data carries one. */
@@ -117,6 +124,38 @@ export interface RouteStop {
   latitude: number | null;
   longitude: number | null;
 }
+
+const routeDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !value.startsWith("0000-") && Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+});
+
+// Validate the transport shape only; timing and scheduling rules stay in their helpers.
+const routeStopsSchema = z.array(z.object({
+  jobId: z.string().min(1),
+  jobNumber: z.union([z.number().finite(), z.string()]).nullable(),
+  status: z.string().min(1),
+  propertyName: z.string(),
+  address: z.string(),
+  suburb: z.string(),
+  latitude: z.number().finite().nullable(),
+  longitude: z.number().finite().nullable(),
+  startTime: z.string().nullable(),
+  jobType: z.string().optional(),
+  dueTime: z.string().nullable().optional(),
+  timingBadges: z.object({ early: z.string().optional(), late: z.string().optional() }).nullable().optional(),
+  sameDayCheckin: z.boolean().optional(),
+  sameDayCheckinTime: z.string().nullable().optional(),
+  estimatedHours: z.number().finite().nullable().optional(),
+  travelMinutes: z.number().finite().nullable().optional(),
+  enRouteStartedAt: z.string().nullable().optional(),
+  enRouteEtaMinutes: z.number().finite().nullable().optional(),
+  arrivedAt: z.string().nullable().optional(),
+  drivingPausedAt: z.string().nullable().optional(),
+  drivingPauseReason: z.string().nullable().optional(),
+  state: z.string().nullable().optional(),
+  postcode: z.string().nullable().optional(),
+})).refine((stops) => new Set(stops.map((stop) => stop.jobId)).size === stops.length);
 
 /* ── Editable order: persistence + timing guards ──────────────────────────────
    The cleaner can reorder today's stops (up/down). Order is persisted per
@@ -181,12 +220,9 @@ export function applyStoredOrder(stops: RouteStop[], jobIds: string[] | null): R
 
 /** Minutes-past-midnight from an "HH:mm" clock string, else null. */
 export function parseHHMM(value: string | null | undefined): number | null {
-  if (!value) return null;
-  const m = /^(\d{1,2}):(\d{2})/.exec(value.trim());
-  if (!m) return null;
-  const h = Number(m[1]);
-  const min = Number(m[2]);
-  if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+  const time = validTimingTime(value);
+  if (!time) return null;
+  const [h, min] = time.split(":").map(Number);
   return h * 60 + min;
 }
 
@@ -233,13 +269,18 @@ export interface StopEval {
  * now sits behind it finishes past its own `dueTime` → hard violation → blocked.
  */
 export function simulateRoute(order: RouteStop[]): StopEval[] {
+  const accessStart = (stop: RouteStop | undefined) => {
+    const timing = summarizeTiming(stop ?? {});
+    const values = [timing.plannedStart, timing.earliestAccess].map(parseHHMM).filter((n): n is number => n !== null);
+    return values.length ? Math.max(...values) : null;
+  };
   const starts = order
-    .map((s) => parseHHMM(s.startTime))
+    .map(accessStart)
     .filter((n): n is number => n != null);
   // Anchor on the first stop's own start time (spec), falling back to the
   // earliest allowed start, then to 08:00.
   const dayStart =
-    parseHHMM(order[0]?.startTime) ?? (starts.length > 0 ? Math.min(...starts) : 8 * 60);
+    accessStart(order[0]) ?? (starts.length > 0 ? Math.min(...starts) : 8 * 60);
 
   let cursor = dayStart;
   const evals: StopEval[] = [];
@@ -247,22 +288,28 @@ export function simulateRoute(order: RouteStop[]): StopEval[] {
     const stop = order[i];
     const prev = i > 0 ? order[i - 1] : null;
     const arrival = cursor + travelMinutes(prev, stop);
-    const allowedStart = parseHHMM(stop.startTime);
-    const due = parseHHMM(stop.dueTime);
+    const timing = summarizeTiming(stop);
+    const starts = [timing.plannedStart, timing.earliestAccess].filter((time): time is string => time !== null).sort();
+    const deadlines = [timing.plannedFinish, timing.guestDeadline].filter((time): time is string => time !== null).sort();
+    const effectiveStart = starts[starts.length - 1] ?? null;
+    const effectiveDeadline = deadlines[0] ?? null;
+    const allowedStart = parseHHMM(effectiveStart);
+    const due = parseHHMM(effectiveDeadline);
 
     // Arriving before the allowed start means you wait (feasible → soft).
     const softWait = allowedStart != null && arrival < allowedStart;
     const start = allowedStart != null ? Math.max(arrival, allowedStart) : arrival;
-    const durationMin = Math.round((stop.estimatedHours ?? DEFAULT_JOB_HOURS) * 60);
+    const hours = stop.estimatedHours;
+    const durationMin = Math.round((typeof hours === "number" && Number.isFinite(hours) && hours > 0 ? hours : DEFAULT_JOB_HOURS) * 60);
     const finish = start + durationMin;
 
     const hardDeadline = due != null && finish > due;
     const softDeadline = !hardDeadline && due != null && due - finish <= SOFT_SLACK_MIN;
 
     let message: string | null = null;
-    if (hardDeadline) message = `Won't finish by ${stop.dueTime} deadline`;
-    else if (softDeadline) message = `Tight — finishes ~${minutesToHHMM(finish)}, before ${stop.dueTime} deadline`;
-    else if (softWait) message = `Early — can't start before ${stop.startTime}, you'll wait`;
+    if (hardDeadline) message = `Won't finish by ${effectiveDeadline} deadline`;
+    else if (softDeadline) message = `Tight — finishes ~${minutesToHHMM(finish)}, before ${effectiveDeadline} deadline`;
+    else if (softWait) message = `Early — can't start before ${effectiveStart}, you'll wait`;
 
     evals.push({ jobId: stop.jobId, arrivalMin: arrival, startMin: start, finishMin: finish, hardDeadline, softWait, softDeadline, message });
     cursor = finish;
@@ -272,6 +319,11 @@ export function simulateRoute(order: RouteStop[]): StopEval[] {
 
 function hardCount(evals: StopEval[]): number {
   return evals.filter((e) => e.hardDeadline).length;
+}
+
+export function newDeadlineViolation(before: StopEval[], after: StopEval[]): StopEval | undefined {
+  const existing = new Set(before.filter(e => e.hardDeadline).map(e => e.jobId));
+  return after.find(e => e.hardDeadline && !existing.has(e.jobId));
 }
 
 /** ISO date (Australia-local wall clock is fine here — matches the route page). */
@@ -284,11 +336,7 @@ function fullAddress(s: RouteStop) {
 }
 
 function isoToday(offsetDays = 0) {
-  const d = new Date(Date.now() + offsetDays * 86_400_000);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return addDaysToKey(sydneyTodayKey(), offsetDays);
 }
 
 function buildFullRouteUrl(stops: RouteStop[], travelMode: TravelMode): string | null {
@@ -340,34 +388,50 @@ export function RouteTimeline({
    *  the selector is in-session only; persisting the change is the settings page. */
   preferredTransport?: TravelMode;
 }) {
-  const [stops, setStops] = React.useState<RouteStop[]>(initialStops);
+  const [routeStops, setStops] = React.useState<RouteStop[]>(initialStops);
   const [routeMode, setRouteMode] = React.useState<RouteMode>("today");
   const [selectedDate, setSelectedDate] = React.useState(initialDate);
   const [travelMode, setTravelMode] = React.useState<TravelMode>(preferredTransport);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
+  const scope = JSON.stringify([userId, routeMode, selectedDate]);
+  const [loadedScope, setLoadedScope] = React.useState(scope);
+  const stops = loadedScope === scope && !loading && !error ? routeStops : [];
+  const request = React.useRef<{ generation: number; controller?: AbortController }>({ generation: 0 });
 
   const fetchStops = React.useCallback(async () => {
+    request.current.controller?.abort();
+    const controller = new AbortController();
+    const generation = ++request.current.generation;
+    request.current.controller = controller;
+    const isCurrent = () => generation === request.current.generation && !controller.signal.aborted;
     setLoading(true);
     setError(null);
     try {
+      if (!routeDateSchema.safeParse(selectedDate).success) throw new Error("Invalid route date");
       const params = new URLSearchParams();
       if (routeMode === "tomorrow") params.set("relative", "tomorrow");
       else if (routeMode === "date") params.set("date", selectedDate);
       const url = `/api/cleaner/today-route${params.toString() ? `?${params.toString()}` : ""}`;
-      const res = await fetch(url, { cache: "no-store", headers: { "x-progress-toast": "off" } });
+      const res = await fetch(url, { signal: controller.signal, cache: "no-store", headers: { "x-progress-toast": "off" } });
       if (!res.ok) throw new Error("Could not load route");
       const data = await res.json();
-      const fetched: RouteStop[] = Array.isArray(data.stops) ? data.stops : [];
+      if (!isCurrent()) return;
+      const date = routeDateSchema.safeParse(data?.date);
+      if (!date.success) throw new Error("Invalid route date in response");
+      if (date.data !== selectedDate) throw new Error("Route date does not match the selected day");
+      const fetched = routeStopsSchema.safeParse(data?.stops);
+      if (!fetched.success) throw new Error("Invalid route stops in response");
       // Re-apply the cleaner's saved order for THIS day over the fresh data.
-      setStops(applyStoredOrder(fetched, userId ? loadStoredOrder(userId, selectedDate) : null));
-    } catch (err: any) {
-      setError(err?.message ?? "Could not load route");
+      setStops(applyStoredOrder(fetched.data, userId ? loadStoredOrder(userId, date.data) : null));
+      setLoadedScope(scope);
+    } catch (err: unknown) {
+      if (isCurrent()) setError(err instanceof Error ? err.message : "Could not load route");
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [routeMode, selectedDate, userId]);
+  }, [routeMode, selectedDate, userId, scope]);
 
   // Apply any saved order for the SSR-hydrated initial day (after mount, so the
   // server and first client paint agree — localStorage is client-only).
@@ -382,9 +446,13 @@ export function RouteTimeline({
   React.useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
-      return;
+    } else {
+      void fetchStops();
     }
-    void fetchStops();
+    return () => {
+      ++request.current.generation;
+      request.current.controller?.abort();
+    };
   }, [fetchStops]);
 
   // Per-stop timing evaluation for the current order.
@@ -404,9 +472,8 @@ export function RouteTimeline({
       // GUARD: refuse a move that introduces a new hard timing violation.
       const before = simulateRoute(stops);
       const after = simulateRoute(next);
-      if (hardCount(after) > hardCount(before)) {
-        const beforeBad = new Set(before.filter((e) => e.hardDeadline).map((e) => e.jobId));
-        const culprit = after.find((e) => e.hardDeadline && !beforeBad.has(e.jobId));
+      const culprit = newDeadlineViolation(before, after);
+      if (culprit) {
         const stop = culprit ? next.find((s) => s.jobId === culprit.jobId) : null;
         toast({
           title: "Can't make that move",
@@ -478,6 +545,7 @@ export function RouteTimeline({
             {routeMode === "date" ? (
               <EInput
                 type="date"
+                aria-label="Route date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
                 className="w-auto"
@@ -497,6 +565,7 @@ export function RouteTimeline({
             <div className="w-full max-w-[240px] space-y-1.5">
               <span className="e-eyebrow">TRAVEL MODE</span>
               <ESelect
+                aria-label="Travel mode"
                 value={travelMode}
                 onChange={(e) => setTravelMode(e.target.value as TravelMode)}
               >
@@ -553,7 +622,7 @@ export function RouteTimeline({
       ) : null}
 
       {/* Timeline */}
-      {stops.length === 0 && !loading ? (
+      {stops.length === 0 && !loading && !error && loadedScope === scope ? (
         <EEmptyState
           eyebrow="Clear roads"
           title="No stops scheduled"
@@ -636,14 +705,7 @@ export function RouteTimeline({
                     </p>
 
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-                      <span className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5" />
-                        <span className="tabular-nums">
-                          {s.startTime && s.dueTime
-                            ? `${s.startTime} – ${s.dueTime}`
-                            : s.startTime || s.dueTime || "No time set"}
-                        </span>
-                      </span>
+                      <CleanerTimingSummary {...s} />
                       {s.jobType ? <span>{titleCase(s.jobType)}</span> : null}
                       {s.enRouteEtaMinutes != null ? (
                         <span className="flex items-center gap-1.5 text-[hsl(var(--e-info))]">

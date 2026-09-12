@@ -7,10 +7,11 @@
  * entirely new Estate presentation: date-scope tabs, status chips, list ⇄
  * board toggle, serif rows, bulk bar, CSV export.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { JobType } from "@prisma/client";
+import { z } from "zod";
 import {
   BellRing,
   ChevronLeft,
@@ -18,6 +19,7 @@ import {
   Download,
   LayoutGrid,
   Rows3,
+  RotateCw,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -35,9 +37,13 @@ import {
   statusLabel,
 } from "./job-row";
 import { groupJobsBySydneyDay } from "@/lib/jobs/date-grouping";
-import { useRestorableState } from "@/hooks/use-restorable-state";
-import { clearRestorablePath } from "@/lib/client/restorable-state";
-import { usePathname } from "next/navigation";
+import { useJobsWorkspaceState } from "./use-jobs-workspace-state";
+import { useJobsScrollRestoration } from "./use-jobs-scroll-restoration";
+import { jobsScrollContentFingerprint } from "@/lib/jobs/scroll-restoration";
+import { SavedViewsControls } from "./saved-views-controls";
+import { JobsColumnsMenu } from "./jobs-columns-menu";
+import type { JobsDensity } from "@/lib/jobs/workspace-state";
+import { JobDialog as EModal } from "./job-dialog";
 
 const TZ = "Australia/Sydney";
 const PAGE_SIZE = 50;
@@ -99,7 +105,7 @@ const JOB_TYPE_OPTIONS: { id: string; label: string }[] = Object.values(JobType)
   label: titleCase(String(value)),
 }));
 
-/* ── Invoice status (client-side over the returned rows) ───────────────── */
+/* ── Invoice status ──────────────────────────────────────────────────── */
 type InvoiceFilter = "all" | "yes" | "no";
 const INVOICE_OPTIONS: { id: InvoiceFilter; label: string }[] = [
   { id: "all", label: "Any invoice status" },
@@ -131,81 +137,52 @@ const BULK_STATUSES = [
 type Cleaner = { id: string; name: string; email: string };
 type Pagination = { page: number; limit: number; totalCount: number; totalPages: number; hasMore: boolean };
 
+const jobsResponseSchema = z.object({
+  jobs: z.array(z.object({
+    id: z.string().min(1),
+    status: z.string().min(1),
+    scheduledDate: z.string().refine(value => Number.isFinite(Date.parse(value))).nullish(),
+    property: z.object({ name: z.string().nullish(), suburb: z.string().nullish() }).passthrough().nullish(),
+    assignments: z.array(z.object({
+      user: z.object({ name: z.string().nullish(), email: z.string().nullish() }).passthrough().nullish(),
+    }).passthrough()).optional(),
+  }).passthrough()),
+  pagination: z.object({
+    page: z.number().int().positive().safe(),
+    limit: z.number().int().positive().safe(),
+    totalCount: z.number().int().nonnegative().safe(),
+    totalPages: z.number().int().positive().safe(),
+    hasMore: z.boolean(),
+  }),
+});
+
 /* ── Estate-native form atoms (no components/ui imports) ───────────────── */
 const FIELD_CLS =
   "h-10 w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] px-3 " +
   "text-[0.875rem] text-[hsl(var(--e-foreground))] placeholder:text-[hsl(var(--e-text-faint))] " +
   "focus:outline-none focus:ring-2 focus:ring-[hsl(var(--e-ring))]";
 
-function EModal({
-  open,
-  title,
-  onClose,
-  children,
-}: {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-[hsl(var(--e-shadow-color)/0.45)]" onClick={onClose} />
-      <div className="e-rise relative w-full max-w-md rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border-gold)/0.4)] bg-[hsl(var(--e-surface))] p-6 shadow-[var(--e-elevation-3)]">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <EEyebrow className="mb-1">Jobs</EEyebrow>
-            <h3 className="e-display-sm">{title}</h3>
-          </div>
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="rounded-full p-1.5 text-[hsl(var(--e-text-faint))] transition-colors hover:bg-[hsl(var(--e-muted))] hover:text-[hsl(var(--e-foreground))]"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="mt-4">{children}</div>
-      </div>
-    </div>
-  );
-}
-
 /* ── Workspace ─────────────────────────────────────────────────────────── */
-export function JobsWorkspace() {
+export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefaultsEnabled = false }: { viewsContext?: string; viewsReadOnly?: boolean; teamDefaultsEnabled?: boolean }) {
   const [jobs, setJobs] = useState<any[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: PAGE_SIZE, totalCount: 0, totalPages: 0, hasMore: false });
-  const [loading, setLoading] = useState(true);
+  const [loadState, setLoadState] = useState<{ status: "loading" | "success" | "error"; query: string }>({ status: "loading", query: "" });
 
-  // Back is a rewind: the whole filter set is restored when this page is
-  // returned to. Re-picking a date range, a status chip and a cleaner every
-  // time an admin opens a job and comes back was the single biggest tax on
-  // the screen they use most.
-  const pathname = usePathname() ?? "";
-  const [dateScope, setDateScope] = useRestorableState<DateScope>("dateScope", "all");
-  // Defaults to every job, not just active ones. "active" sent
-  // statusGroup=active, which excludes COMPLETED and INVOICED — i.e. almost
-  // every job that has already happened — so the jobs page silently hid the
-  // past and an admin had to know to click a chip to see it at all.
-  const [statusChip, setStatusChip] = useRestorableState("statusChip", "all");
-  const [sort, setSort] = useRestorableState<JobSort>("sort", "soonest");
-  const [search, setSearch] = useRestorableState("search", "");
-  const [view, setView] = useRestorableState<"list" | "board">("view", "list");
-
-  // v1-parity server filters (jobType/client/property/explicit range) + the
-  // client-side invoice-status refinement.
-  const [jobType, setJobType] = useRestorableState("jobType", "all");
-  const [clientId, setClientId] = useRestorableState("clientId", "all");
-  const [propertyId, setPropertyId] = useRestorableState("propertyId", "all");
-  // Who is on the job — the question an admin asks most, and the one filter
-  // this screen never had. "unassigned" is a first-class answer rather than
-  // the absence of one: finding the jobs nobody is on IS the daily task.
-  const [cleanerId, setCleanerId] = useRestorableState("cleanerId", "all");
-  const [dateFrom, setDateFrom] = useRestorableState("dateFrom", "");
-  const [dateTo, setDateTo] = useRestorableState("dateTo", "");
-  const [invoiced, setInvoiced] = useRestorableState<InvoiceFilter>("invoiced", "all");
+  const { state, ready, update, applyDefault, columnsError } = useJobsWorkspaceState();
+  const { dateScope, statusChip, sort, search, view, jobType, clientId, propertyId,
+    cleanerId, dateFrom, dateTo, invoiced, page, density, columns } = state;
+  const setDateScope = (value: DateScope) => update({ dateScope: value });
+  const setStatusChip = (value: string) => update({ statusChip: value });
+  const setSort = (value: JobSort) => update({ sort: value });
+  const setSearch = (value: string) => update({ search: value });
+  const setView = (value: "list" | "board") => update({ view: value });
+  const setJobType = (value: string) => update({ jobType: value });
+  const setClientId = (value: string) => update({ clientId: value });
+  const setPropertyId = (value: string) => update({ propertyId: value });
+  const setCleanerId = (value: string) => update({ cleanerId: value });
+  const setDateFrom = (value: string) => update({ dateFrom: value });
+  const setDateTo = (value: string) => update({ dateTo: value });
+  const setInvoiced = (value: InvoiceFilter) => update({ invoiced: value });
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [properties, setProperties] = useState<{ id: string; name: string; suburb: string }[]>([]);
 
@@ -248,12 +225,14 @@ export function JobsWorkspace() {
     if (clientId !== "all") params.set("clientId", clientId);
     if (propertyId !== "all") params.set("propertyId", propertyId);
     if (cleanerId !== "all") params.set("cleanerId", cleanerId);
+    if (search.trim()) params.set("search", search.trim());
+    if (invoiced !== "all") params.set("invoiced", invoiced);
     // An explicit from/to range overrides the scope-tab range.
     if (dateFrom || dateTo) {
       if (dateFrom) params.set("dateFrom", dateFrom);
       if (dateTo) params.set("dateTo", dateTo);
     } else {
-      const range = scopeRange(dateScope);
+      const range = scopeRange(dateScope as DateScope);
       if (range.dateFrom) params.set("dateFrom", range.dateFrom);
       if (range.dateTo) params.set("dateTo", range.dateTo);
     }
@@ -261,23 +240,55 @@ export function JobsWorkspace() {
     return params;
   }
 
-  async function loadJobs(page = 1) {
-    setLoading(true);
+  const jobsQuery = buildQuery({ page: String(page), limit: String(PAGE_SIZE) }).toString();
+  const loadStatus = !ready || loadState.query !== jobsQuery ? "loading" : loadState.status;
+  const loading = loadStatus === "loading";
+  const scrollContent = useMemo(() => jobsScrollContentFingerprint(JSON.stringify([jobs, pagination.totalCount])), [jobs, pagination.totalCount]);
+  useJobsScrollRestoration({ context: viewsContext, viewKey: JSON.stringify([state, jobsQuery]), contentKey: scrollContent, ready: loadStatus === "success" });
+  const latestQuery = useRef(jobsQuery);
+  latestQuery.current = jobsQuery;
+  const requestId = useRef(0);
+  const requestedSearch = useRef<string | null>(null);
+
+  async function loadJobs() {
+    const query = latestQuery.current;
+    requestedSearch.current = new URLSearchParams(query).get("search") ?? "";
+    const id = ++requestId.current;
+    setLoadState({ status: "loading", query });
     try {
-      const params = buildQuery({ page: String(page), limit: String(PAGE_SIZE) });
-      const res = await fetch(`/api/jobs?${params.toString()}`, { cache: "no-store" });
-      const data = await res.json().catch(() => ({ jobs: [], pagination: null }));
-      setJobs(Array.isArray(data?.jobs) ? data.jobs : []);
-      if (data?.pagination) setPagination(data.pagination);
-    } finally {
-      setLoading(false);
+      const res = await fetch(`/api/jobs?${query}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Could not load jobs.");
+      const data = jobsResponseSchema.parse(await res.json());
+      const resultPage = data.pagination;
+      if (resultPage.page !== Number(new URLSearchParams(query).get("page")) ||
+          resultPage.limit !== PAGE_SIZE || data.jobs.length > PAGE_SIZE ||
+          resultPage.totalPages !== Math.max(1, Math.ceil(resultPage.totalCount / resultPage.limit)) ||
+          resultPage.hasMore !== (resultPage.page < resultPage.totalPages)) {
+        throw new Error("Invalid jobs pagination.");
+      }
+      if (id !== requestId.current || query !== latestQuery.current) return;
+      setJobs(data.jobs);
+      setPagination(resultPage);
+      setLoadState({ status: "success", query });
+    } catch {
+      if (id !== requestId.current || query !== latestQuery.current) return;
+      setLoadState({ status: "error", query });
     }
   }
 
   useEffect(() => {
-    loadJobs(1);
+    if (!ready) return;
+    const nextSearch = new URLSearchParams(jobsQuery).get("search") ?? "";
+    // Restored URLs load immediately; typing coalesces into one request.
+    const delay = requestedSearch.current !== null && requestedSearch.current !== nextSearch ? 300 : 0;
+    const timer = delay ? window.setTimeout(() => { void loadJobs(); }, delay) : undefined;
+    if (!delay) void loadJobs();
+    return () => {
+      window.clearTimeout(timer);
+      requestId.current += 1;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateScope, statusChip, sort, jobType, clientId, propertyId, cleanerId, dateFrom, dateTo]);
+  }, [ready, jobsQuery]);
 
   useEffect(() => {
     fetch("/api/admin/clients")
@@ -351,37 +362,7 @@ export function JobsWorkspace() {
       .catch(() => setCleaners([]));
   }, []);
 
-  /* Client-side refinement over the server page (search + invoice status),
-     same approach as v1. */
-  const filteredJobs = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return jobs.filter((job) => {
-      if (invoiced !== "all") {
-        const isInvoiced =
-          String(job?.status ?? "") === "INVOICED" ||
-          Boolean(job?.invoiceId) ||
-          Boolean(job?.invoice?.id) ||
-          Boolean(job?.clientInvoiceLineId) ||
-          Boolean(job?.clientInvoiceLine?.id);
-        if (invoiced === "yes" && !isInvoiced) return false;
-        if (invoiced === "no" && isInvoiced) return false;
-      }
-      if (!needle) return true;
-      const haystack = [
-        job.jobNumber,
-        job.property?.name,
-        job.property?.suburb,
-        job.property?.client?.name,
-        job.property?.client?.email,
-        job.client?.name,
-        ...assignmentNames(job),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(needle);
-    });
-  }, [jobs, search, invoiced]);
+  const filteredJobs = jobs;
 
   useEffect(() => {
     const allowed = new Set(filteredJobs.map((job) => job.id));
@@ -420,7 +401,7 @@ export function JobsWorkspace() {
       if (!res.ok) throw new Error(body.error ?? "Could not assign job.");
       toast({ title: "Assigned", description: `${assignSelected.length} cleaner(s) assigned.` });
       setAssignJob(null);
-      await loadJobs(pagination.page);
+      await loadJobs();
     } catch (err: any) {
       toast({ title: "Assign failed", description: err?.message ?? "Could not assign job.", variant: "destructive" });
     } finally {
@@ -445,7 +426,7 @@ export function JobsWorkspace() {
       toast({ title: "Bulk assignment complete", description: `${body.updated ?? selectedIds.length} jobs updated.` });
       setBulkAssignOpen(false);
       setSelectedIds([]);
-      await loadJobs(pagination.page);
+      await loadJobs();
     } catch (err: any) {
       toast({ title: "Bulk assign failed", description: err?.message ?? "Request failed.", variant: "destructive" });
     } finally {
@@ -470,7 +451,7 @@ export function JobsWorkspace() {
       toast({ title: "Bulk status update complete", description: `${body.updated ?? selectedIds.length} jobs updated.` });
       setBulkStatusOpen(false);
       setSelectedIds([]);
-      await loadJobs(pagination.page);
+      await loadJobs();
     } catch (err: any) {
       toast({ title: "Bulk status failed", description: err?.message ?? "Request failed.", variant: "destructive" });
     } finally {
@@ -605,16 +586,8 @@ export function JobsWorkspace() {
     Boolean(dateTo);
 
   function resetFilters() {
-    // Clearing the state without clearing the store would bring the old
-    // filters back on the next visit, which reads as the reset having failed.
-    clearRestorablePath(pathname);
-    setJobType("all");
-    setClientId("all");
-    setPropertyId("all");
-    setCleanerId("all");
-    setInvoiced("all");
-    setDateFrom("");
-    setDateTo("");
+    update({ jobType: "all", clientId: "all", propertyId: "all", cleanerId: "all",
+      invoiced: "all", dateFrom: "", dateTo: "" });
   }
 
   // List view: agenda-style Sydney-day groups (input order = server sort order).
@@ -631,6 +604,9 @@ export function JobsWorkspace() {
 
   return (
     <div className="space-y-5">
+      {viewsContext ? <SavedViewsControls key={viewsContext} context={viewsContext} readOnly={viewsReadOnly}
+        state={state} apply={update} applyDefault={applyDefault} snapshotInvalid={columnsError} teamDefaultsEnabled={teamDefaultsEnabled} /> : null}
+      {columnsError ? <p role="alert" className="text-sm text-red-700">Invalid columns in this link. Choose list columns or reset the view before saving.</p> : null}
       {/* ── Command bar: date scope · search · sort · view ── */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1 rounded-[var(--e-radius)] bg-[hsl(var(--e-muted))] p-1">
@@ -638,6 +614,7 @@ export function JobsWorkspace() {
             <button
               key={scope.id}
               type="button"
+              aria-pressed={dateScope === scope.id}
               onClick={() => setDateScope(scope.id)}
               className={
                 "rounded-[var(--e-radius-sm)] px-3.5 py-1.5 text-[0.8125rem] font-[550] transition-colors duration-[160ms] " +
@@ -654,7 +631,9 @@ export function JobsWorkspace() {
         <div className="relative min-w-[220px] flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
           <input
+            aria-label="Search jobs"
             value={search}
+            maxLength={200}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search property, client, cleaner, job number…"
             className={FIELD_CLS + " pl-9"}
@@ -674,10 +653,17 @@ export function JobsWorkspace() {
           ))}
         </select>
 
+        <select aria-label="Jobs density" value={density} onChange={event => update({ density: event.target.value })}
+          className={FIELD_CLS + " w-auto cursor-pointer"}>
+          <option value="compact">Compact</option><option value="default">Default density</option><option value="comfortable">Comfortable</option>
+        </select>
+        <JobsColumnsMenu columns={columns} onChange={value => update({ columns: value })} />
+
         <div className="flex items-center gap-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] p-0.5">
           <button
             type="button"
             aria-label="List view"
+            aria-pressed={view === "list"}
             onClick={() => setView("list")}
             className={
               "rounded-[var(--e-radius-sm)] p-2 transition-colors duration-[160ms] " +
@@ -691,6 +677,7 @@ export function JobsWorkspace() {
           <button
             type="button"
             aria-label="Board view"
+            aria-pressed={view === "board"}
             onClick={() => setView("board")}
             className={
               "rounded-[var(--e-radius-sm)] p-2 transition-colors duration-[160ms] " +
@@ -717,6 +704,7 @@ export function JobsWorkspace() {
             <button
               key={chip.id}
               type="button"
+              aria-pressed={active}
               onClick={() => setStatusChip(chip.id)}
               className={
                 "rounded-[var(--e-radius-pill)] border px-3.5 py-1.5 text-[0.75rem] font-[550] tracking-[0.02em] transition-colors duration-[160ms] " +
@@ -729,10 +717,10 @@ export function JobsWorkspace() {
             </button>
           );
         })}
-        <span className="ml-auto text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+        {loadStatus === "success" && <span className="ml-auto text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
           <span className="e-numeral text-[0.9375rem] text-[hsl(var(--e-foreground))]">{pagination.totalCount}</span>{" "}
           job{pagination.totalCount !== 1 ? "s" : ""}
-        </span>
+        </span>}
       </div>
 
       {/* ── Refined filters: type · client · property · explicit range · invoice ── */}
@@ -869,6 +857,14 @@ export function JobsWorkspace() {
         <ECard className="px-6 py-16 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
           Preparing the ledger…
         </ECard>
+      ) : loadStatus === "error" ? (
+        <ECard className="px-6 py-12 text-center">
+          <p role="alert" className="mb-4 text-[0.875rem]">Could not load jobs. Please try again.</p>
+          <EButton variant="outline" onClick={() => void loadJobs()}>
+            <RotateCw className="h-4 w-4" />
+            Retry
+          </EButton>
+        </ECard>
       ) : filteredJobs.length === 0 ? (
         <EEmptyState
           eyebrow="Operations"
@@ -900,6 +896,8 @@ export function JobsWorkspace() {
               <div className="divide-y divide-[hsl(var(--e-border))]">
                 {group.jobs.map((job) => (
                   <EJobRow
+                    columns={columns}
+                    density={density as JobsDensity}
                     key={job.id}
                     job={job}
                     selected={selectedIds.includes(job.id)}
@@ -923,6 +921,7 @@ export function JobsWorkspace() {
               <div className="space-y-2.5">
                 {lane.jobs.map((job) => (
                   <EBoardCard
+                    density={density as JobsDensity}
                     key={job.id}
                     job={job}
                     selected={selectedIds.includes(job.id)}
@@ -943,18 +942,18 @@ export function JobsWorkspace() {
       )}
 
       {/* ── Pagination ── */}
-      {pagination.totalPages > 1 ? (
+      {loadStatus === "success" && pagination.totalPages > 1 ? (
         <div className="flex items-center justify-between">
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
             Page <span className="e-numeral">{pagination.page}</span> of{" "}
             <span className="e-numeral">{pagination.totalPages}</span>
           </p>
           <div className="flex items-center gap-2">
-            <EButton variant="outline" size="sm" disabled={pagination.page <= 1 || loading} onClick={() => loadJobs(pagination.page - 1)}>
+            <EButton variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => update({ page: page - 1 })}>
               <ChevronLeft className="h-3.5 w-3.5" />
               Previous
             </EButton>
-            <EButton variant="outline" size="sm" disabled={!pagination.hasMore || loading} onClick={() => loadJobs(pagination.page + 1)}>
+            <EButton variant="outline" size="sm" disabled={!pagination.hasMore || loading} onClick={() => update({ page: page + 1 })}>
               Next
               <ChevronRight className="h-3.5 w-3.5" />
             </EButton>
@@ -963,7 +962,7 @@ export function JobsWorkspace() {
       ) : null}
 
       {/* ── Bulk action bar ── */}
-      {selectedIds.length > 0 ? (
+      {loadStatus === "success" && selectedIds.length > 0 ? (
         // Floats clear of the mobile tab bar (4.75rem) plus the home
         // indicator; `flex-wrap` made it grow into a tall block that covered
         // the rows it acts on, so the actions scroll sideways instead.
@@ -993,7 +992,7 @@ export function JobsWorkspace() {
       ) : null}
 
       {/* ── Quick assign ── */}
-      <EModal open={Boolean(assignJob)} title="Assign cleaners" onClose={() => setAssignJob(null)}>
+      <EModal open={Boolean(assignJob)} title="Assign cleaners" busy={assignSubmitting} onClose={() => setAssignJob(null)}>
         <div className="space-y-4">
           <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted)/0.5)] p-3">
             <p className="e-serif text-[0.9375rem] font-[520]">{assignJob?.property?.name ?? "Unassigned job"}</p>
@@ -1047,7 +1046,7 @@ export function JobsWorkspace() {
       </EModal>
 
       {/* ── Bulk assign ── */}
-      <EModal open={bulkAssignOpen} title="Bulk assign cleaner" onClose={() => setBulkAssignOpen(false)}>
+      <EModal open={bulkAssignOpen} title="Bulk assign cleaner" busy={bulkSubmitting} onClose={() => setBulkAssignOpen(false)}>
         <div className="space-y-4">
           <div>
             <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Cleaner</p>
@@ -1075,7 +1074,7 @@ export function JobsWorkspace() {
       </EModal>
 
       {/* ── Bulk reminders ── */}
-      <EModal open={bulkRemindOpen} title="Send reminders" onClose={() => setBulkRemindOpen(false)}>
+      <EModal open={bulkRemindOpen} title="Send reminders" busy={bulkSubmitting} onClose={() => setBulkRemindOpen(false)}>
         <div className="space-y-4">
           <div>
             <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Method</p>
@@ -1104,7 +1103,7 @@ export function JobsWorkspace() {
       </EModal>
 
       {/* ── Bulk QA assign ── */}
-      <EModal open={bulkQaOpen} title="Assign QA inspections" onClose={() => setBulkQaOpen(false)}>
+      <EModal open={bulkQaOpen} title="Assign QA inspections" busy={bulkSubmitting} onClose={() => setBulkQaOpen(false)}>
         <div className="space-y-4">
           <div>
             <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Inspector</p>
@@ -1137,7 +1136,7 @@ export function JobsWorkspace() {
       </EModal>
 
       {/* ── Bulk status ── */}
-      <EModal open={bulkStatusOpen} title="Bulk change status" onClose={() => setBulkStatusOpen(false)}>
+      <EModal open={bulkStatusOpen} title="Bulk change status" busy={bulkSubmitting} onClose={() => setBulkStatusOpen(false)}>
         <div className="space-y-4">
           <div>
             <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Status</p>

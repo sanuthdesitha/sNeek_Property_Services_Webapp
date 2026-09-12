@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { toZonedTime } from "date-fns-tz";
+import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { MaintenanceStatus, MaintenancePriority, MaintenanceAction, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -19,7 +19,6 @@ import { CheckCircle2, Package, Timer, Wrench } from "lucide-react";
 export const metadata = { title: "Today · Estate maintenance" };
 export const dynamic = "force-dynamic";
 
-const TZ = "Australia/Sydney";
 const OPEN_STATUSES = [
   MaintenanceStatus.OPEN,
   MaintenanceStatus.ACKNOWLEDGED,
@@ -59,12 +58,12 @@ type OpenItem = {
 };
 
 async function getMaintenance() {
-  const nowSyd = toZonedTime(new Date(), TZ);
-  const todayStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
-  const todayEnd = new Date(todayStart.getTime() + 86_400_000);
-  const weekStart = new Date(todayStart.getTime() - 6 * 86_400_000);
+  const today = sydneyTodayKey();
+  const todayStart = sydneyDayStart(today);
+  const todayEnd = sydneyDayStart(addDaysToKey(today, 1));
+  const weekStart = sydneyDayStart(addDaysToKey(today, -6));
 
-  const [openItems, dueToday, replacements, closedWeek] = await Promise.all([
+  const [openItems, openCount, dueToday, replacements, closedWeek] = await Promise.all([
     db.propertyMaintenanceItem
       .findMany({
         where: { status: { in: OPEN_STATUSES } },
@@ -78,10 +77,11 @@ async function getMaintenance() {
           property: { select: { name: true, suburb: true } },
         },
       })
-      .catch(() => [] as OpenItem[]),
+      .catch(() => null),
+    db.propertyMaintenanceItem.count({ where: { status: { in: OPEN_STATUSES } } }).catch(() => null),
     db.propertyMaintenanceItem
       .count({ where: { status: { in: OPEN_STATUSES }, scheduledFor: { gte: todayStart, lt: todayEnd } } })
-      .catch(() => 0),
+      .catch(() => null),
     db.propertyMaintenanceItem
       .count({
         where: {
@@ -89,18 +89,20 @@ async function getMaintenance() {
           recommendedAction: { in: [MaintenanceAction.REPLACE, MaintenanceAction.RESTOCK] },
         },
       })
-      .catch(() => 0),
+      .catch(() => null),
     db.propertyMaintenanceItem
       .count({ where: { status: MaintenanceStatus.RESOLVED, resolvedAt: { gte: weekStart } } })
-      .catch(() => 0),
+      .catch(() => null),
   ]);
 
-  return { openItems, dueToday, replacements, closedWeek };
+  return { openItems, openCount, dueToday, replacements, closedWeek };
 }
 
 export default async function MaintenanceTodayPage() {
   await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
-  const { openItems, dueToday, replacements, closedWeek } = await getMaintenance();
+  const { openItems, openCount, dueToday, replacements, closedWeek } = await getMaintenance();
+  const unavailable = [openItems, openCount, dueToday, replacements, closedWeek].some((value) => value === null);
+  const countLabel = (value: number | null) => value === null ? <span className="text-sm">Unavailable</span> : String(value);
 
   return (
     <div className="space-y-8">
@@ -110,17 +112,20 @@ export default async function MaintenanceTodayPage() {
         <div className="e-signature-rule mt-4" />
       </header>
 
+      {unavailable ? <div role="alert" className="border-l-4 border-red-600 px-4 py-3 text-sm">
+        Some maintenance data could not be loaded. <a href="/v2/maintenance" className="underline">Retry</a>
+      </div> : null}
       <section className="grid gap-4 sm:grid-cols-4">
-        <EStatCard label="Open tickets" value={String(openItems.length)} delta="active" deltaTone="neutral" icon={<Wrench className="h-4 w-4" />} />
-        <EStatCard label="Due today" value={String(dueToday)} delta="scheduled" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
-        <EStatCard label="Replacements" value={String(replacements)} delta="to order / restock" deltaTone="neutral" icon={<Package className="h-4 w-4" />} />
-        <EStatCard label="Closed · week" value={String(closedWeek)} delta="resolved" icon={<CheckCircle2 className="h-4 w-4" />} />
+        <EStatCard label="Open tickets" value={countLabel(openCount)} delta="active" deltaTone="neutral" icon={<Wrench className="h-4 w-4" />} />
+        <EStatCard label="Due today" value={countLabel(dueToday)} delta="scheduled" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
+        <EStatCard label="Replacements" value={countLabel(replacements)} delta="to order / restock" deltaTone="neutral" icon={<Package className="h-4 w-4" />} />
+        <EStatCard label="Closed · week" value={countLabel(closedWeek)} delta="resolved" icon={<CheckCircle2 className="h-4 w-4" />} />
       </section>
 
       <ECard>
         <ECardHeader><ECardTitle>Open tickets</ECardTitle></ECardHeader>
         <ECardBody className="space-y-1">
-          {openItems.length === 0 ? (
+          {openItems === null ? <p role="status">Open tickets are unavailable.</p> : openItems.length === 0 ? (
             <EEmptyState eyebrow="All clear" title="No open tickets" description="Nothing needs attention right now." />
           ) : (
             openItems.map((o, i) => {
@@ -144,6 +149,9 @@ export default async function MaintenanceTodayPage() {
             })
           )}
         </ECardBody>
+        {openItems && openCount !== null && openCount > openItems.length ? (
+          <p className="px-5 pb-4 text-sm">Showing {openItems.length} of {openCount}. <Link href="/v2/maintenance/tickets" className="underline">View all tickets</Link></p>
+        ) : null}
       </ECard>
     </div>
   );

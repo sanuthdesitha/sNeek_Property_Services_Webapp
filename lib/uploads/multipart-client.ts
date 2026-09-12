@@ -25,7 +25,9 @@ export async function uploadMultipart(
    * folder — the same job's photos and its walkthrough video ended up in two
    * different places.
    */
-  folder?: string
+  folder?: string,
+  /** Durable callers must commit this identity before the first byte is sent. */
+  onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>
 ): Promise<{ url: string; key: string }> {
   if (!blob.size) throw new Error("Cannot upload an empty file.");
   signal?.throwIfAborted();
@@ -44,6 +46,10 @@ export async function uploadMultipart(
     throw new Error(error.error || `Could not start upload (${initRes.status})`);
   }
   const init: MultipartUploadInit = await initRes.json();
+  if (typeof init.key !== "string" || !init.key.trim() || typeof init.uploadId !== "string" || !init.uploadId.trim() ||
+    !Array.isArray(init.partUrls) || init.partUrls.length !== parts || init.partUrls.some(url => typeof url !== "string" || !url.trim())) {
+    throw new Error("Storage returned an invalid upload allocation. No file bytes were sent.");
+  }
 
   // Upload parts (3 concurrent)
   const concurrency = 3;
@@ -102,6 +108,10 @@ export async function uploadMultipart(
   }
 
   try {
+    // A rejected durable write stops all transfer. The catch below aborts this
+    // empty multipart allocation using its own cleanup request.
+    await onAllocated?.({ key: init.key, uploadId: init.uploadId });
+    signal?.throwIfAborted();
     // Run in batches of `concurrency`.
     for (let i = 0; i < parts; i += concurrency) {
       const batch: Promise<void>[] = [];

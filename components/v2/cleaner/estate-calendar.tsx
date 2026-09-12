@@ -7,13 +7,17 @@
  */
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, CalendarDays, ListOrdered } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState } from "@/components/v2/ui/primitives";
 import { EChip } from "@/components/v2/cleaner/fields";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { cn } from "@/lib/utils";
 import { useRestorableState } from "@/hooks/use-restorable-state";
-import { timingBadgeLabels, type JobTimingBadges } from "@/lib/jobs/timing-badges";
+import { type JobTimingBadges } from "@/lib/jobs/timing-badges";
+import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
+import { summarizeTiming } from "@/lib/jobs/timing-summary";
+import { sydneyTodayKey } from "@/lib/time/sydney-range";
 
 type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
 
@@ -23,10 +27,13 @@ export interface CalendarJob {
   title: string;
   subtitle: string;
   startTime: string | null;
+  dueTime?: string | null;
   status: string;
   rawStatus?: string;
   pendingOffer?: boolean;
   timingBadges?: JobTimingBadges | null;
+  sameDayCheckin?: boolean;
+  sameDayCheckinTime?: string | null;
   tone: Tone;
 }
 
@@ -37,27 +44,38 @@ function isoKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export function EstateCalendar({ jobs }: { jobs: CalendarJob[] }) {
-  const now = new Date();
+export function EstateCalendar({ jobs, monthKey, todayKey = sydneyTodayKey() }: { jobs: CalendarJob[]; monthKey?: string; todayKey?: string }) {
+  const router = useRouter();
+  const [pending, startTransition] = React.useTransition();
+  const activeMonth = monthKey ?? todayKey.slice(0, 7);
   // A cleaner who opens a job from the agenda and comes back should land on
   // the agenda, on the day they were looking at.
-  const [view, setView] = useRestorableState<"month" | "agenda">("view", "month");
-  const [cursor, setCursor] = React.useState(new Date(now.getFullYear(), now.getMonth(), 1));
-  const [selected, setSelected] = useRestorableState<string>("selected", isoKey(now));
+  const [savedView, setView] = useRestorableState<"month" | "agenda">("view", "month");
+  const view = savedView === "agenda" ? "agenda" : "month";
+  const [savedSelected, setSelected] = useRestorableState<string>("selected", todayKey);
+  const [year, monthNumber] = activeMonth.split("-").map(Number);
+  const month = monthNumber - 1;
+  const selected = typeof savedSelected === "string" && savedSelected.startsWith(activeMonth + "-") &&
+    /^\d{4}-\d{2}-\d{2}$/.test(savedSelected) && Number(savedSelected.slice(-2)) >= 1 &&
+    Number(savedSelected.slice(-2)) <= new Date(year, month + 1, 0).getDate()
+    ? savedSelected : todayKey.startsWith(activeMonth) ? todayKey : `${activeMonth}-01`;
+  function navigateMonth(next: Date) {
+    const nextMonth = isoKey(next).slice(0, 7);
+    if (nextMonth === activeMonth) return;
+    startTransition(() => router.push(`/v2/cleaner/calendar?month=${nextMonth}`, { scroll: false }));
+  }
 
   const byDate = React.useMemo(() => {
     const map = new Map<string, CalendarJob[]>();
-    for (const j of jobs) {
+    for (const j of jobs.filter(job => job.dateKey.startsWith(activeMonth + "-"))) {
       const arr = map.get(j.dateKey) ?? [];
       arr.push(j);
       map.set(j.dateKey, arr);
     }
     for (const arr of Array.from(map.values())) arr.sort((a: CalendarJob, b: CalendarJob) => (a.startTime || "").localeCompare(b.startTime || ""));
     return map;
-  }, [jobs]);
+  }, [jobs, activeMonth]);
 
-  const year = cursor.getFullYear();
-  const month = cursor.getMonth();
   const firstDow = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cells: (Date | null)[] = [];
@@ -66,11 +84,7 @@ export function EstateCalendar({ jobs }: { jobs: CalendarJob[] }) {
 
   const selectedJobs = byDate.get(selected) ?? [];
 
-  // Agenda: upcoming jobs (today onward), grouped by date.
-  const todayKey = isoKey(now);
-  const agendaKeys = Array.from(byDate.keys())
-    .filter((k) => k >= todayKey)
-    .sort();
+  const agendaKeys = Array.from(byDate.keys()).sort();
 
   return (
     <div className="space-y-4">
@@ -83,22 +97,21 @@ export function EstateCalendar({ jobs }: { jobs: CalendarJob[] }) {
             <span className="inline-flex items-center gap-1.5"><ListOrdered className="h-3.5 w-3.5" /> Agenda</span>
           </EChip>
         </div>
-        {view === "month" ? (
           <div className="flex items-center gap-2">
-            <EButton variant="ghost" size="icon" aria-label="Previous month" onClick={() => setCursor(new Date(year, month - 1, 1))}>
+            <EButton variant="ghost" size="icon" aria-label="Previous month" disabled={pending || year <= 2000 && month === 0} onClick={() => navigateMonth(new Date(year, month - 1, 1))}>
               <ChevronLeft className="h-4 w-4" />
             </EButton>
             <span className="min-w-[9rem] text-center text-[0.9375rem] font-[550]">
               {MONTHS[month]} {year}
             </span>
-            <EButton variant="ghost" size="icon" aria-label="Next month" onClick={() => setCursor(new Date(year, month + 1, 1))}>
+            <EButton variant="ghost" size="icon" aria-label="Next month" disabled={pending || year >= 2100 && month === 11} onClick={() => navigateMonth(new Date(year, month + 1, 1))}>
               <ChevronRight className="h-4 w-4" />
             </EButton>
+            <EButton variant="ghost" size="sm" disabled={pending} onClick={() => { setSelected(todayKey); navigateMonth(new Date(`${todayKey.slice(0, 7)}-01T00:00:00`)); }}>Today</EButton>
           </div>
-        ) : null}
       </div>
 
-      {view === "month" ? (
+      {pending ? <p role="status">Loading schedule...</p> : view === "month" ? (
         <>
           <ECard>
             <ECardBody className="pt-6">
@@ -118,6 +131,9 @@ export function EstateCalendar({ jobs }: { jobs: CalendarJob[] }) {
                     <button
                       key={key}
                       type="button"
+                      aria-label={`${key}, ${dayJobs.length} ${dayJobs.length === 1 ? "job" : "jobs"}`}
+                      aria-pressed={isSel}
+                      aria-current={isToday ? "date" : undefined}
                       onClick={() => setSelected(key)}
                       className={cn(
                         "flex min-h-[3.25rem] flex-col items-center gap-1 rounded-[var(--e-radius)] border p-1 text-center transition-colors",
@@ -158,7 +174,7 @@ export function EstateCalendar({ jobs }: { jobs: CalendarJob[] }) {
           </div>
         </>
       ) : agendaKeys.length === 0 ? (
-        <EEmptyState eyebrow="Clear" title="No upcoming jobs" description="You have nothing scheduled ahead." />
+        <EEmptyState eyebrow="Schedule" title="No jobs this month" description="No assigned jobs were found for the selected month." />
       ) : (
         <div className="space-y-5">
           {agendaKeys.map((key) => (
@@ -176,11 +192,13 @@ export function EstateCalendar({ jobs }: { jobs: CalendarJob[] }) {
 }
 
 function JobRow({ job }: { job: CalendarJob }) {
+  const timing = summarizeTiming(job);
   const isOffered = job.pendingOffer ?? job.rawStatus === "OFFERED";
   const body = (
     <ECardBody className="flex flex-wrap items-center gap-3 pt-6">
-      <div className="flex h-11 w-14 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]">
-        <span className="text-[0.8125rem] font-semibold tabular-nums">{job.startTime || "—"}</span>
+      <div className="flex min-h-11 w-16 shrink-0 flex-col items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))]">
+        <span className="text-[0.625rem] text-[hsl(var(--e-muted-foreground))]">Planned start</span>
+        <span className="text-[0.8125rem] font-semibold tabular-nums">{timing.plannedStart || "Not set"}</span>
       </div>
       <div className="min-w-0 flex-1">
         {/* Wraps rather than truncates: the schedule is scanned by property
@@ -191,15 +209,8 @@ function JobRow({ job }: { job: CalendarJob }) {
       <EBadge tone={job.tone} soft>
         {job.status}
       </EBadge>
-      {timingBadgeLabels(job.timingBadges).length > 0 ? (
-        <div className="flex w-full flex-wrap gap-2">
-          {timingBadgeLabels(job.timingBadges).map((badge) => (
-            <EBadge key={badge.key} tone={badge.tone} soft>
-              {badge.key === "early" ? "Early check-in" : "Late checkout"}: {badge.label}
-            </EBadge>
-          ))}
-        </div>
-      ) : null}
+      {timing.plannedFinish ? <p className="w-full text-xs text-[hsl(var(--e-muted-foreground))]">Planned finish: {timing.plannedFinish}</p> : null}
+      <CleanerTimingSummary {...job} showPlanned={false} />
       {isOffered ? (
         <div className="flex w-full items-center justify-between gap-2">
           <Link

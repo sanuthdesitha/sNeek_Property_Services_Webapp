@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import { CheckCircle2, Clock3, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { toast } from "@/hooks/use-toast";
 
 type ApprovalRow = {
   id: string;
+  version: string;
   title: string;
   description: string;
   amount: number;
@@ -24,18 +25,37 @@ type ApprovalRow = {
   job: { id: string; jobType: string; scheduledDate: string; property: { name: string } } | null;
 };
 
+function validVersion(version: unknown): version is string {
+  return typeof version === "string" && /^[a-f0-9]{64}$/.test(version);
+}
+
 export function ClientApprovalsClient() {
   const [rows, setRows] = useState<ApprovalRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [noteById, setNoteById] = useState<Record<string, string>>({});
+  const saving = useRef(false);
+  const [stale, setStale] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   async function loadRows() {
     setLoading(true);
-    const res = await fetch("/api/client/approvals");
-    const body = await res.json().catch(() => []);
-    setRows(Array.isArray(body) ? (body as ApprovalRow[]) : []);
-    setLoading(false);
+    try {
+      const res = await fetch("/api/client/approvals", { cache: "no-store" });
+      if (!res.ok) throw new Error("Could not load approvals.");
+      const body = await res.json();
+      if (!Array.isArray(body) || body.some((row) => !row || typeof row !== "object")) {
+        throw new Error("Invalid approvals response.");
+      }
+      setRows(body as ApprovalRow[]);
+      setStale(false);
+      setLoadError(null);
+    } catch {
+      setLoadError("Approvals unavailable. Refresh to try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -43,29 +63,37 @@ export function ClientApprovalsClient() {
   }, []);
 
   async function respond(id: string, decision: "APPROVE" | "DECLINE") {
+    const row = rows.find((row) => row.id === id);
+    if (saving.current || loading || loadError || stale || row?.status !== "PENDING" || !validVersion(row.version)) return;
+    saving.current = true;
     setSavingId(id);
-    const res = await fetch(`/api/client/approvals/${id}/respond`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        decision,
-        responseNote: noteById[id]?.trim() || undefined,
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setSavingId(null);
-    if (!res.ok) {
-      toast({
-        title: "Response failed",
-        description: body.error ?? "Could not submit your response.",
-        variant: "destructive",
+    setSubmitError(null);
+    try {
+      const res = await fetch(`/api/client/approvals/${encodeURIComponent(id)}/respond`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          decision,
+          expectedVersion: row.version,
+          responseNote: noteById[id]?.trim() || undefined,
+        }),
       });
-      return;
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 409 && body?.code === "STALE_APPROVAL") {
+        setStale(true);
+        return;
+      }
+      if (!res.ok) throw new Error(body?.error ?? "Could not submit your response.");
+      toast({
+        title: decision === "APPROVE" ? "Approval accepted" : "Approval declined",
+      });
+      await loadRows();
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Could not submit your response.");
+    } finally {
+      saving.current = false;
+      setSavingId(null);
     }
-    toast({
-      title: decision === "APPROVE" ? "Approval accepted" : "Approval declined",
-    });
-    await loadRows();
   }
 
   return (
@@ -74,11 +102,15 @@ export function ClientApprovalsClient() {
         title="Approval Requests"
         description="Review and approve optional extras before work is billed."
         actions={
-          <Button variant="outline" onClick={loadRows}>
+          <Button variant="outline" disabled={loading || savingId !== null} onClick={loadRows}>
             Refresh
           </Button>
         }
       />
+
+      {stale ? <p role="alert">Approval terms have changed. Refresh and review the updated terms before submitting another decision. Your notes have been preserved.</p> : null}
+      {loadError ? <p role="alert">{loadError}</p> : null}
+      {submitError ? <p role="alert">{submitError}</p> : null}
 
       {loading ? (
         <Card>
@@ -86,13 +118,13 @@ export function ClientApprovalsClient() {
             Loading approval requests...
           </CardContent>
         </Card>
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 ? (loadError ? null : (
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
             No approval requests found.
           </CardContent>
         </Card>
-      ) : (
+      )) : (
         rows.map((row) => {
           const pending = row.status === "PENDING";
           return (
@@ -133,8 +165,10 @@ export function ClientApprovalsClient() {
 
                 {pending ? (
                   <div className="space-y-2 rounded-lg border p-3">
-                    <label className="text-xs font-medium">Optional note</label>
+                    {!validVersion(row.version) ? <p role="alert">Approval terms could not be verified. Refresh before making a decision.</p> : null}
+                    <label htmlFor={`approval-note-${row.id}`} className="text-xs font-medium">Optional note</label>
                     <Textarea
+                      id={`approval-note-${row.id}`}
                       value={noteById[row.id] ?? ""}
                       onChange={(event) =>
                         setNoteById((prev) => ({ ...prev, [row.id]: event.target.value }))
@@ -144,7 +178,7 @@ export function ClientApprovalsClient() {
                     />
                     <div className="flex flex-wrap gap-2">
                       <Button
-                        disabled={savingId === row.id}
+                        disabled={savingId !== null || loading || !!loadError || stale || !validVersion(row.version)}
                         onClick={() => respond(row.id, "APPROVE")}
                       >
                         <CheckCircle2 className="mr-2 h-4 w-4" />
@@ -152,7 +186,7 @@ export function ClientApprovalsClient() {
                       </Button>
                       <Button
                         variant="outline"
-                        disabled={savingId === row.id}
+                        disabled={savingId !== null || loading || !!loadError || stale || !validVersion(row.version)}
                         onClick={() => respond(row.id, "DECLINE")}
                       >
                         <XCircle className="mr-2 h-4 w-4" />

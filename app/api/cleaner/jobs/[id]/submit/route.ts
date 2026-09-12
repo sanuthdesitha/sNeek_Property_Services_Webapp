@@ -20,16 +20,17 @@ import {
 } from "@/lib/forms/final-checkup";
 import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogMinutes } from "@/lib/time/log-duration";
-import { clearSharedCleanerJobDraft } from "@/lib/cleaner/shared-job-draft";
+import { clearSharedCleanerJobDraft, getSharedCleanerJobDraft, withSharedCleanerJobDraftLock } from "@/lib/cleaner/shared-job-draft";
 import { collectRequiredAnswerFields, collectRequiredUploadFields } from "@/lib/forms/visibility";
 import { sanitizeNoPhotoReasons } from "@/lib/forms/no-photo-reasons";
-import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
+import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form";
+import { jobFormRevision } from "@/lib/forms/job-form-revision";
+import { jobFormProperty, UnsupportedFormPropertyConditionError } from "@/lib/forms/job-form-property";
 import { applyCleanerJobTaskUpdates, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { queueClientPostJobAutomations } from "@/lib/notifications/client-automation";
 import { tryEnsureQaAssignmentForCompletedJob } from "@/lib/qa/auto-assignment";
-import { buildReworkFormSchema, normalizeReworkAreas } from "@/lib/qa/rework-jobs";
 import { applyRotationCompletion, deriveRotationalCompletion } from "@/lib/accountability/rotation";
 import { SELF_INSPECTION_MODULE_KEY } from "@/lib/checklists/catalog";
 import { isTaxableCategory } from "@/lib/finance/pay-categories";
@@ -305,28 +306,22 @@ export async function POST(
       }
     }
 
-    const template = await db.formTemplate.findUnique({
-      where: { id: body.templateId },
-      select: { id: true, schema: true, isActive: true },
-    });
-    // Rework jobs use a hidden (isActive=false) template row; the real checklist
-    // is generated per-job from the QA-flagged areas, so accept it here.
-    if (!template || (!template.isActive && !job.isRework)) {
-      return NextResponse.json({ error: "Selected form template is not available." }, { status: 400 });
+    const appSettings = await getAppSettings();
+    const effectiveForm = await resolveEffectiveJobForm(job, appSettings);
+    if (!effectiveForm.persistedTemplateId || !effectiveForm.template || body.templateId !== effectiveForm.persistedTemplateId) {
+      return NextResponse.json({ code: "FORM_CHANGED", error: effectiveForm.submittable
+        ? "The job form changed. Reload the form before submitting."
+        : "No submittable form is available for this job. Contact the office." },
+      { status: 409, headers: { "Cache-Control": "private, no-store" } });
     }
-    const reworkAreas = job.isRework ? normalizeReworkAreas(job.reworkAreas) : [];
-    const effectiveSchema =
-      job.isRework && reworkAreas.length > 0
-        ? (buildReworkFormSchema(reworkAreas, {
-            categorized: parseJobInternalNotes(job.internalNotes).reworkCategorized,
-          }) as any)
-        : // Canonicalise + standard-sections via the SAME normalizer the form
-          // read route uses, so the required-field set the cleaner satisfied on
-          // screen is exactly what we enforce here (no read-vs-submit mismatch).
-          (normalizeFormSchema(template.schema) as any);
+    const template = effectiveForm.template;
+    const persistedTemplateId = effectiveForm.persistedTemplateId;
+    const jobMeta = parseJobInternalNotes(job.internalNotes);
+    const effectiveSchema = template.schema;
+    const usesRevisionContract = body.formContractVersion === 1 || body.formRevision !== undefined;
+    const formProperty = usesRevisionContract ? jobFormProperty(effectiveSchema, job.property) : job.property;
 
     const answers = (body.data ?? {}) as Record<string, unknown>;
-    const jobMeta = parseJobInternalNotes(job.internalNotes);
     const unifiedJobTasks = await listCleanerJobTasks(job.id);
     const hasUnifiedAdminTasks = unifiedJobTasks.some((task) => task.source === "ADMIN");
     const adminRequestedTasks = sanitizeAdminRequestedTasks(
@@ -356,8 +351,42 @@ export async function POST(
     // may waive an upload requirement, every waived field needs a valid coded
     // reason, and an actual upload always beats an excuse. The sanitized map is
     // the ONLY thing stored — an unearned or malformed entry never survives.
-    const appSettings = await getAppSettings();
     const canUseNoPhoto = appSettings.noPhotoExemptCleanerIds.includes(session.user.id);
+    // Final check-up gate (R7) — beside the self-inspection gate. Recompute the
+    // acknowledgement items server-side (same resolver + same admin-request
+    // source selection as the form read route) and require an ack for each.
+    // Disabled/empty config resolves to [] → no gate.
+    const finalCheckupAdminRequests = hasUnifiedAdminTasks
+      ? unifiedJobTasks
+          .filter((task) => task.source === "ADMIN")
+          .map((task) => ({ id: String(task.id), title: String(task.title ?? "") }))
+      : (jobMeta.specialRequestTasks ?? []).map((task) => ({
+          id: String(task.id),
+          title: String(task.title ?? ""),
+        }));
+    const finalCheckupItems = resolveFinalCheckupItems(
+      appSettings,
+      { jobType: job.jobType },
+      {
+        guestSummary: guestSummaryFromReservation(jobMeta.reservationContext),
+        adminRequests: finalCheckupAdminRequests,
+      }
+    );
+    let resolvedFormRevision: string | undefined;
+    try {
+      resolvedFormRevision = jobFormRevision({ template, job, settings: appSettings,
+        canUseNoPhoto, finalCheckupItems });
+    } catch (error) {
+      if (usesRevisionContract || !(error instanceof UnsupportedFormPropertyConditionError)) throw error;
+    }
+    // Legacy callers continue during rollout. v2 explicitly opts into the
+    // revision contract; any supplied revision is checked regardless of caller.
+    if (usesRevisionContract &&
+        body.formRevision !== resolvedFormRevision) {
+      return NextResponse.json({ code: "FORM_CHANGED",
+        error: "The job form changed. Your answers and evidence have been kept. Reload and review them before submitting." },
+      { status: 409, headers: { "Cache-Control": "private, no-store" } });
+    }
     const noPhotoReasons = canUseNoPhoto
       ? Object.fromEntries(
           Object.entries(
@@ -369,7 +398,7 @@ export async function POST(
     const missingRequiredUploads = collectRequiredUploadFields(
       effectiveSchema,
       answers,
-      (job.property ?? {}) as Record<string, unknown>,
+      formProperty,
       legacyReady
     ).filter(
       (field) =>
@@ -405,7 +434,7 @@ export async function POST(
     const missingRequiredAnswers = collectRequiredAnswerFields(
       effectiveSchema,
       answers,
-      (job.property ?? {}) as Record<string, unknown>,
+      formProperty,
       {
         laundryReady: legacyReady,
         requiredChecklistTicksBlockSubmit:
@@ -452,27 +481,6 @@ export async function POST(
       selfInspectionIncompleteKeys = untickedSelfInspection.map((f) => f.id);
     }
 
-    // Final check-up gate (R7) — beside the self-inspection gate. Recompute the
-    // acknowledgement items server-side (same resolver + same admin-request
-    // source selection as the form read route) and require an ack for each.
-    // Disabled/empty config resolves to [] → no gate.
-    const finalCheckupSettings = await getAppSettings();
-    const finalCheckupAdminRequests = hasUnifiedAdminTasks
-      ? unifiedJobTasks
-          .filter((task) => task.source === "ADMIN")
-          .map((task) => ({ id: String(task.id), title: String(task.title ?? "") }))
-      : (jobMeta.specialRequestTasks ?? []).map((task) => ({
-          id: String(task.id),
-          title: String(task.title ?? ""),
-        }));
-    const finalCheckupItems = resolveFinalCheckupItems(
-      finalCheckupSettings,
-      { jobType: job.jobType },
-      {
-        guestSummary: guestSummaryFromReservation(jobMeta.reservationContext),
-        adminRequests: finalCheckupAdminRequests,
-      }
-    );
     if (finalCheckupItems.length > 0) {
       const ackResult = validateFinalCheckupAck(finalCheckupItems, body.finalCheckupAck);
       if (!ackResult.ok) {
@@ -581,10 +589,25 @@ export async function POST(
     // one that actually flips the row (count === 1) continues; the loser gets a
     // 409 and does NO side effects (no duplicate submission, no double stock
     // deduction). If anything below throws, the outer catch reverts this claim.
-    const claim = await db.job.updateMany({
+    const claimInput = {
       where: { id: params.id, status: { notIn: lockedStatuses } },
       data: { status: JobStatus.SUBMITTED },
+    };
+    const claim = await withSharedCleanerJobDraftLock(params.id, async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${params.id} FOR UPDATE`;
+      const draft = await getSharedCleanerJobDraft(params.id, tx);
+      const staleEvidence = Object.values(draft?.evidenceReceipts ?? {}).some(receipt => {
+        const included = uploads[receipt.fieldId]?.includes(receipt.key) === true;
+        const misplaced = Object.entries(uploads).some(([field, keys]) => keys.includes(receipt.key) && (receipt.detached || field !== receipt.fieldId)) ||
+          submittedUnifiedTaskUpdates.some(task => task.proofKeys?.includes(receipt.key)) ||
+          Object.values(carryForward?.taskPhotoKeys ?? {}).some(keys => keys.includes(receipt.key));
+        return misplaced || (receipt.detached ? included : !included);
+      });
+      if (staleEvidence) return { count: -1 };
+      return tx.job.updateMany(claimInput);
     });
+    if (claim.count === -1) return NextResponse.json({ code: "EVIDENCE_CHANGED",
+      error: "Job evidence changed in another capture or tab. Reload and review attachments before submitting." }, { status: 409 });
     if (claim.count !== 1) {
       return NextResponse.json(
         { error: "This job was just submitted. Refresh to see the latest status." },
@@ -611,12 +634,13 @@ export async function POST(
         const created = await tx.formSubmission.create({
           data: {
             jobId: params.id,
-            templateId: body.templateId,
+            templateId: persistedTemplateId,
             submittedById: session.user.id,
             data: {
               ...(body.data as Record<string, unknown>),
               __templateSchema: effectiveSchema,
               __templateVersion: template.id,
+              __formRevision: resolvedFormRevision,
               __adminRequestedTasks: adminRequestedTasks,
               __jobTasks: unifiedTaskSnapshot,
               // Controlled system key: the server-sanctioned waivers only —
@@ -1012,7 +1036,6 @@ export async function POST(
     }
 
     if (openLog) {
-      const settings = await getAppSettings();
       const review = buildClockReview({
         job: {
           scheduledDate: job.scheduledDate,
@@ -1022,7 +1045,7 @@ export async function POST(
         },
         startedAt: openLog.startedAt,
         completedDurationMinutes,
-        settings,
+        settings: appSettings,
       });
       const stoppedAt = review.suggestedStoppedAt;
       const durationM = review.cappedRunningDurationMinutes;

@@ -138,8 +138,9 @@ async function sendViaChannel(
 
       case NotificationChannel.PUSH: {
         if (!content.pushTitle) return { ok: false, error: "Missing push title" };
-        console.log(`[push] ${content.pushTitle}: ${content.pushBody}`);
-        return { ok: true };
+        // This template dispatcher has no user/device recipient contract yet.
+        // Never log successful delivery when no transport was called.
+        return { ok: false, error: "Push delivery is not configured for the template dispatcher" };
       }
 
       case NotificationChannel.SMS: {

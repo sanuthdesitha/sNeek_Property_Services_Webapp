@@ -366,7 +366,7 @@ export async function sendLifecycleEmail(input: LifecycleSendInput): Promise<Lif
             jobId: ctx.jobId ?? undefined,
             channel: NotificationChannel.EMAIL,
             subject: `[${meta.label}] ${subject}`,
-            body: `Lifecycle email (${input.stage}) sent to ${r.email}`,
+            body: `Lifecycle email (${input.stage}) ${result.ok ? "accepted by provider for" : result.skipped ? "skipped for" : "failed for"} ${r.email}`,
             status: result.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
             sentAt: result.ok ? new Date() : undefined,
             errorMsg: result.ok ? undefined : result.error ?? "Email delivery failed.",
@@ -375,7 +375,7 @@ export async function sendLifecycleEmail(input: LifecycleSendInput): Promise<Lif
           },
         })
         .catch(() => {});
-      if (result.ok || result.skipped) sentTo.push(r.email);
+      if (result.ok) sentTo.push(r.email);
     }
 
     return { sent: sentTo.length > 0, recipients: sentTo };

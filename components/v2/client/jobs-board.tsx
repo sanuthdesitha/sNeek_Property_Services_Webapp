@@ -50,6 +50,7 @@ import {
 import { ECheckTile, EInlineNotice, EInput, ELabel, ESelect, ETextarea } from "@/components/v2/client/fields";
 import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import { cn } from "@/lib/utils";
+import { canRebookJob } from "@/lib/booking/rebook";
 
 const TZ = "Australia/Sydney";
 const STORAGE_KEY = "sneek_client_jobs_filter";
@@ -62,6 +63,7 @@ type JobRow = {
   jobNumber: string | null;
   jobType: string;
   status: string;
+  isRework?: boolean;
   scheduledDate: Date | string;
   startTime: string | null;
   dueTime: string | null;
@@ -425,12 +427,14 @@ function JobCard({
   showClientTaskRequests,
   showLaundryUpdates,
   isUpcoming,
+  canBook,
 }: {
   job: JobRow;
   showCleanerNames: boolean;
   showClientTaskRequests: boolean;
   showLaundryUpdates: boolean;
   isUpcoming: boolean;
+  canBook: boolean;
 }) {
   const router = useRouter();
   const [panel, setPanel] = useState<PanelMode>(null);
@@ -579,6 +583,9 @@ function JobCard({
               </>
             ) : null}
           </div>
+          {canBook && canRebookJob(job) ? <EButton asChild variant="outline" size="sm">
+            <Link href={`/v2/client/booking?rebook=${encodeURIComponent(job.id)}`}>Rebook</Link>
+          </EButton> : null}
           <EButton asChild variant="ghost" size="sm">
             <Link href={`/v2/client/jobs/${job.id}`}>
               Details <ArrowRight className="h-3.5 w-3.5" />
@@ -605,11 +612,13 @@ export function ClientJobsBoard({
   showCleanerNames,
   showClientTaskRequests,
   showLaundryUpdates,
+  canBook = false,
 }: {
   jobs: JobRow[];
   showCleanerNames: boolean;
   showClientTaskRequests: boolean;
   showLaundryUpdates: boolean;
+  canBook?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
@@ -1051,6 +1060,7 @@ export function ClientJobsBoard({
                 showClientTaskRequests={showClientTaskRequests}
                 showLaundryUpdates={showLaundryUpdates}
                 isUpcoming
+                canBook={canBook}
               />
             ))}
           </div>
@@ -1080,6 +1090,7 @@ export function ClientJobsBoard({
                   showClientTaskRequests={showClientTaskRequests}
                   showLaundryUpdates={showLaundryUpdates}
                   isUpcoming={false}
+                  canBook={canBook}
                 />
               ))}
             </div>

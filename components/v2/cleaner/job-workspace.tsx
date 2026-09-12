@@ -20,6 +20,10 @@
  * submit → clock-out.
  */
 import * as React from "react";
+import { EvidenceContext } from "./evidence-context";
+import { getVolatileEvidenceCount } from "@/lib/cleaner/evidence-volatile";
+import { EvidenceRecovery } from "./evidence-recovery";
+import { listEvidence } from "@/lib/cleaner/evidence-store";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -101,10 +105,11 @@ import {
   requiresStartConfirmations,
 } from "@/lib/cleaner/team-state";
 import { mergeDraftStates } from "@/lib/cleaner/draft-merge";
+import { useDraftSave } from "@/lib/cleaner/use-draft-save";
+import { readCleanerLocalDraft, writeCleanerLocalDraft, clearCleanerLocalDraft, hasLegacyCleanerLocalDraft } from "@/lib/cleaner/local-draft";
+import { DraftSaveStatus } from "@/components/v2/cleaner/draft-save-status";
 import { getAccuratePosition } from "@/lib/geo/get-position";
 
-/** Local mirror of the shared draft (v1 parity) — survives an instant reload. */
-const LOCAL_DRAFT_KEY = (jobId: string) => `cleaner-job-draft-v2:${jobId}`;
 import { ActionFab } from "@/components/v2/cleaner/job-stages/action-fab";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
@@ -161,10 +166,18 @@ type LaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
 /** Upload key the submit route reads for the laundry-ready photo. */
 const LAUNDRY_PHOTO_KEY = "laundry_photo";
 
-export function JobWorkspace({ jobId }: { jobId: string }) {
+export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIdentity: string }) {
+  const { state: draftSave, save: saveDraft, markDirty: markDraftDirty, reset: resetDraftSave } = useDraftSave(draftIdentity);
+  const draftSubmittedRef = React.useRef(false);
+  const [identityChanged, setIdentityChanged] = React.useState(false);
+  const [localRecoveryWarning, setLocalRecoveryWarning] = React.useState<string | null>(null);
+  const [legacyDraftPresent, setLegacyDraftPresent] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [payload, setPayload] = React.useState<any>(null);
+  const evidenceScope = React.useMemo(() => payload?.formRevision && payload?.template?.id ? {
+    draftIdentity, jobId, templateId: payload.template.id as string, formRevision: payload.formRevision as string,
+  } : null, [draftIdentity, jobId, payload?.formRevision, payload?.template?.id]);
   const [briefing, setBriefing] = React.useState<any>(null);
 
   const [answers, setAnswers] = React.useState<AnswerMap>({});
@@ -302,6 +315,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     `v2-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`
   );
   const draftHydratedRef = React.useRef(false);
+  const loadGenerationRef = React.useRef(0);
   /** True after the first successful load — later refreshes must not blank the UI. */
   const hasLoadedOnceRef = React.useRef(false);
   const draftTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -376,6 +390,24 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   }, []);
 
   const load = React.useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
+    const isCurrent = () => generation === loadGenerationRef.current;
+    const clearAccess = (message: string) => {
+      draftHydratedRef.current = false;
+      hasLoadedOnceRef.current = false;
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+      resetDraftSave();
+      setPayload(null);
+      setBriefing(null);
+      setError(message);
+    };
+    const revokeAccess = (status: number) => {
+      if (status !== 401 && status !== 403) return false;
+      clearAccess(status === 401 ? "Sign in again to access this job." : "You no longer have access to this job.");
+      return true;
+    };
+    const startedAfterSubmit = draftSubmittedRef.current;
     // Only the FIRST load may blank the screen. This function is also the
     // visibility/focus/interval refresher below, and on a phone the file
     // picker always hides the tab — so returning with a photo used to flip
@@ -387,8 +419,19 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     setError(null);
     try {
       const res = await fetch(`/api/jobs/${jobId}/form`, { cache: "no-store" });
+      if (!isCurrent() || revokeAccess(res.status)) return;
       const data = await res.json();
+      if (!isCurrent()) return;
       if (!res.ok) throw new Error(data.error || "Could not load job");
+      if (data.draftIdentity !== draftIdentity) {
+        setIdentityChanged(true);
+        clearAccess("The account context has changed. Reload this workspace before continuing.");
+        return;
+      }
+      setIdentityChanged(false);
+      // A fresh post-submit read owns the current status, including a job
+      // reopened by admin. Pre-submit requests cannot release this guard.
+      if (startedAfterSubmit) draftSubmittedRef.current = false;
       setPayload(data);
       // Seed task drafts.
       const tasks: JobTask[] = Array.isArray(data.jobTasks) ? data.jobTasks : [];
@@ -402,34 +445,49 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       // Pre-start briefing — prior QA warning, rework notes, linen drop, access vault.
       try {
         const bRes = await fetch(`/api/cleaner/jobs/${jobId}/briefing`, { cache: "no-store" });
+        if (!isCurrent() || revokeAccess(bRes.status)) return;
         const bBody = await bRes.json().catch(() => null);
+        if (!isCurrent()) return;
         setBriefing(bRes.ok ? bBody : null);
       } catch {
+        if (!isCurrent()) return;
         setBriefing(null);
       }
       // Restore the shared draft once (progress saved on this or another device).
       if (!draftHydratedRef.current) {
-        draftHydratedRef.current = true;
         try {
+          const dRes = await fetch(`/api/cleaner/jobs/${jobId}/draft`, {
+            cache: "no-store", headers: { "X-Cleaner-Draft-Identity": draftIdentity },
+          });
+          if (!isCurrent()) return;
+          if (revokeAccess(dRes.status)) return;
+          if (!dRes.ok) throw new Error("Draft read failed");
+          const dBody = await dRes.json();
+          if (!isCurrent()) return;
+          const envelope = dBody?.draft;
+          if (
+            !dBody || typeof dBody !== "object" || Array.isArray(dBody) ||
+            (envelope !== null && (
+              !envelope || typeof envelope !== "object" || Array.isArray(envelope) ||
+              typeof envelope.updatedAt !== "string" ||
+              typeof envelope.updatedByUserId !== "string" ||
+              typeof envelope.updatedByName !== "string" ||
+              typeof envelope.editorSessionId !== "string" ||
+              !envelope.state || typeof envelope.state !== "object" || Array.isArray(envelope.state)
+            ))
+          ) throw new Error("Invalid draft response");
+
           // Local mirror may hold work the server never received (backgrounded
           // before the flush landed). Merge both — uploads are unioned so a
           // photo recorded in either place can never be dropped.
-          let localState: Record<string, any> | null = null;
-          try {
-            const raw = window.localStorage.getItem(LOCAL_DRAFT_KEY(jobId));
-            if (raw) localState = JSON.parse(raw);
-          } catch {
-            /* ignore malformed mirror */
-          }
+          const local = readCleanerLocalDraft(draftIdentity);
+          const localState = local.status === "ready" ? local.state : null;
+          setLegacyDraftPresent(hasLegacyCleanerLocalDraft(jobId));
+          setLocalRecoveryWarning(local.status === "invalid" || local.status === "unavailable"
+            ? "Local recovery data could not be read. It has been kept unchanged; server saves remain separate."
+            : null);
 
-          const dRes = await fetch(`/api/cleaner/jobs/${jobId}/draft`, { cache: "no-store" });
-          let envelope: any = null;
-          if (dRes.ok) {
-            const dBody = await dRes.json().catch(() => ({}));
-            envelope = dBody?.draft ?? null;
-          }
-          const serverState =
-            envelope?.state && typeof envelope.state === "object" ? (envelope.state as Record<string, any>) : null;
+          const serverState = envelope?.state as Record<string, any> | undefined;
 
           const merged = serverState && localState ? mergeDraftStates(serverState, localState) : serverState ?? localState;
           if (merged) {
@@ -439,20 +497,29 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
               updatedByName: typeof envelope?.updatedByName === "string" ? envelope.updatedByName : null,
             });
           }
+          draftHydratedRef.current = true;
         } catch {
-          /* draft restore is best-effort */
+          if (!isCurrent()) return;
+          throw new Error("Could not restore saved progress. Try again before editing this job.");
         }
       }
-    } catch (e: any) {
-      setError(e?.message || "Could not load job");
-    } finally {
       hasLoadedOnceRef.current = true;
-      setLoading(false);
+    } catch (e: any) {
+      if (!isCurrent()) return;
+      if (draftHydratedRef.current) {
+        // A focus/file-picker refresh must not unmount active upload controls.
+        setNotice({ tone: "danger", text: "Could not refresh job. Try again shortly." });
+      } else {
+        setError(e?.message || "Could not load job");
+      }
+    } finally {
+      if (isCurrent()) setLoading(false);
     }
-  }, [jobId, restoreDraftState]);
+  }, [jobId, draftIdentity, restoreDraftState, resetDraftSave]);
 
   React.useEffect(() => {
     void load();
+    return () => { ++loadGenerationRef.current; };
   }, [load]);
 
   // The server can stop the clock without the cleaner touching anything: the
@@ -735,29 +802,20 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   const draftStateRef = React.useRef(buildDraftState);
   draftStateRef.current = buildDraftState;
 
-  /**
-   * Persist the draft NOW. `keepalive` lets the request survive the page being
-   * backgrounded/closed — the old debounce-only autosave cancelled its pending
-   * timer on unmount, so photos taken in the last 1.5s were silently lost.
-   * Also mirrors to localStorage synchronously (v1 parity) as a second net.
-   */
+  // Keep a synchronous local mirror; queued server delivery is separate.
+  const mirrorDraft = React.useCallback(() => {
+    const state = draftStateRef.current();
+    const saved = writeCleanerLocalDraft(draftIdentity, state);
+    setLocalRecoveryWarning(saved ? null : "Local recovery is unavailable. Keep this page open until the server save is confirmed.");
+    return state;
+  }, [draftIdentity]);
+
   const flushDraft = React.useCallback(
     (opts?: { keepalive?: boolean }) => {
-      if (!draftHydratedRef.current || locked) return;
-      const state = draftStateRef.current();
-      try {
-        window.localStorage.setItem(LOCAL_DRAFT_KEY(jobId), JSON.stringify(state));
-      } catch {
-        /* quota/private mode — server draft is the primary */
-      }
-      void fetch(`/api/cleaner/jobs/${jobId}/draft`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ editorSessionId: editorSessionIdRef.current, state }),
-        keepalive: opts?.keepalive === true,
-      }).catch(() => {});
+      if (!draftHydratedRef.current || locked || draftSubmittedRef.current) return;
+      void saveDraft(jobId, editorSessionIdRef.current, mirrorDraft(), opts?.keepalive === true);
     },
-    [jobId, locked],
+    [jobId, locked, mirrorDraft, saveDraft],
   );
 
   // Flush immediately when the tab is hidden or the PWA is closed/evicted.
@@ -776,9 +834,12 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
 
   // Debounced shared-draft autosave — mirrors v1's PATCH /draft envelope
   // ({ editorSessionId, state }) so a co-cleaner or another device can resume.
-  // On unmount we FLUSH (not cancel) any pending write.
+  // Mirror edits immediately; keep network writes debounced. Page-hide delivery
+  // is best effort and must not be represented as a confirmed server save.
   React.useEffect(() => {
-    if (!draftHydratedRef.current || loading || !job || locked) return;
+    if (!draftHydratedRef.current || loading || !job || locked || draftSubmittedRef.current) return;
+    mirrorDraft();
+    markDraftDirty();
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     draftTimerRef.current = setTimeout(() => {
       draftTimerRef.current = null;
@@ -788,7 +849,6 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       if (draftTimerRef.current) {
         clearTimeout(draftTimerRef.current);
         draftTimerRef.current = null;
-        flushDraft({ keepalive: true });
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -808,6 +868,9 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
     locked,
     loading,
     jobId,
+    flushDraft,
+    mirrorDraft,
+    markDraftDirty,
   ]);
 
   function flash(tone: "success" | "danger" | "info", text: string) {
@@ -1047,6 +1110,25 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   }
 
   async function submit(opts?: { finalCheckupAck?: FinalCheckupAckEntry[] }) {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      flash("danger", "Connect before submitting. Clock-out is not queued while offline.");
+      return;
+    }
+    if (getVolatileEvidenceCount(evidenceScope) > 0) {
+      flash("danger", "Some original files are only in memory. Save or retry the failed capture before submitting.");
+      return;
+    }
+    if (payload?.formContractError) {
+      flash("danger", payload.formContractError);
+      return;
+    }
+    if (evidenceScope) {
+      try {
+        const pending = (await listEvidence()).some(record => record.draftIdentity === draftIdentity && record.jobId === jobId &&
+          record.formRevision === evidenceScope.formRevision && !["attached", "detached"].includes(record.status));
+        if (pending) { flash("danger", "Attach the pending evidence from device recovery before submitting."); return; }
+      } catch { flash("danger", "Device evidence recovery could not be checked. Reload before submitting."); return; }
+    }
     // Client-side validation gate (mirrors the server's required-field rules):
     // reveal inline errors + scroll to the first, and block the submit so the
     // cleaner sees exactly what's missing instead of a bare server rejection.
@@ -1156,6 +1238,8 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
 
       const body: Record<string, unknown> = {
         templateId: template?.id,
+        formContractVersion: 1,
+        formRevision: payload?.formRevision,
         data: { ...answers, uploads: uploadKeys, carryForward: carryForwardPayload },
         jobTasks: jobTasksPayload,
       };
@@ -1186,10 +1270,16 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         }
       }
       const data = await post(`/api/cleaner/jobs/${jobId}/submit`, body);
+      draftSubmittedRef.current = true;
+      resetDraftSave();
       setFinalCheckupServerItems(null);
       // The job is done — clear the shared draft so no one resumes stale state.
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-      void fetch(`/api/cleaner/jobs/${jobId}/draft`, { method: "DELETE" }).catch(() => {});
+      draftTimerRef.current = null;
+      clearCleanerLocalDraft(draftIdentity);
+      void fetch(`/api/cleaner/jobs/${jobId}/draft`, {
+        method: "DELETE", headers: { "X-Cleaner-Draft-Identity": draftIdentity },
+      }).catch(() => {});
       // Best-effort clock-out GPS after a successful submit.
       try {
         const gps = await getGps();
@@ -1271,8 +1361,8 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         <EAlert tone="danger" title="Could not load job">
           {error || "This job is unavailable."}
         </EAlert>
-        <EButton variant="outline" onClick={() => void load()}>
-          Try again
+        <EButton variant="outline" onClick={() => identityChanged ? window.location.reload() : void load()}>
+          {identityChanged ? "Reload workspace" : "Try again"}
         </EButton>
       </div>
     );
@@ -1297,6 +1387,8 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   // (gates, autosave, validation, submit) still lives here — the stages are
   // presentation only.
   const api: WorkspaceApi = {
+    draftSaveState: draftSave,
+    retryDraftSave: () => { void flushDraft(); },
     payload,
     job,
     property,
@@ -1395,10 +1487,21 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
   };
 
   return (
+    <EvidenceContext.Provider value={evidenceScope}>
     <div className="space-y-5">
       <BackLink />
 
       <JobHeader api={api} />
+      {evidenceScope ? <EvidenceRecovery scope={evidenceScope} locked={locked} onRecovered={(fieldId, media) => {
+        setUploads(previous => ({ ...previous, [fieldId]: previous[fieldId]?.some(item => item.key === media.key)
+          ? previous[fieldId] : [...(previous[fieldId] ?? []), media] }));
+      }} /> : null}
+
+      {!locked ? <DraftSaveStatus state={draftSave} onRetry={() => flushDraft()} /> : null}
+      {!locked && localRecoveryWarning ? <EAlert tone="info" title="Local recovery">{localRecoveryWarning}</EAlert> : null}
+      {!locked && legacyDraftPresent ? <EAlert tone="info" title="Older local draft">
+        An older unscoped local draft was not loaded or changed. Its ownership cannot be confirmed.
+      </EAlert> : null}
 
       {/* Early-check-in / late-checkout rules (R6c) — visible on every stage.
           Same-day check-in rides along here: v1 job details surfaced it and v2
@@ -1408,6 +1511,8 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
       {!locked ? (
         <TimingRuleBanners
           rules={timingRules}
+          startTime={job?.startTime}
+          dueTime={job?.dueTime}
           sameDayCheckin={{ active: job?.sameDayCheckin === true, time: job?.sameDayCheckinTime ?? null }}
         />
       ) : null}
@@ -1629,6 +1734,7 @@ export function JobWorkspace({ jobId }: { jobId: string }) {
         restockNeeds={restockNeeds}
       />
     </div>
+    </EvidenceContext.Provider>
   );
 }
 

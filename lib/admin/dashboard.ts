@@ -1,11 +1,8 @@
 import { db } from "@/lib/db";
 import { JobStatus, Role, QaAssignmentStatus, ClientInvoiceStatus, JobType } from "@prisma/client";
-import { addDays } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
 import { computeClientCharge, type ClientChargeRates } from "@/lib/finance/job-money";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
-
-const TZ = "Australia/Sydney";
+import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 
 type RawJob = {
   id: string;
@@ -22,13 +19,17 @@ const COMPLETED_STATUSES: JobStatus[] = [
 
 export type DashboardMetrics = Awaited<ReturnType<typeof getDashboardMetrics>>;
 
-export async function getDashboardMetrics() {
-  const nowSyd = toZonedTime(new Date(), TZ);
-  const todayStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
+export async function getDashboardMetrics(options: { strict?: boolean } = {}) {
+  const fallback = <T,>(value: T): T => {
+    if (options.strict) throw new Error("Dashboard metrics unavailable");
+    return value;
+  };
+  const todayKey = sydneyTodayKey();
+  const todayStart = new Date(`${todayKey}T00:00:00.000Z`);
   const todayEnd = new Date(todayStart.getTime() + 86_400_000);
   const tomorrowStart = todayEnd;
   const tomorrowEnd = new Date(tomorrowStart.getTime() + 86_400_000);
-  const weekStart = addDays(todayStart, -6);
+  const weekStart = new Date(`${addDaysToKey(todayKey, -6)}T00:00:00.000Z`);
   const enRouteCutoff = new Date(Date.now() - 5 * 60_000);
 
   const [
@@ -52,10 +53,10 @@ export async function getDashboardMetrics() {
           fixedPrice: true,
         },
       })
-      .catch(() => [] as RawJob[]),
+      .catch(() => fallback([] as RawJob[])),
     db.user
       .count({ where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) } })
-      .catch(() => 0),
+      .catch(() => fallback(0)),
     db.jobAssignment
       .findMany({
         where: {
@@ -65,7 +66,7 @@ export async function getDashboardMetrics() {
         select: { userId: true },
         distinct: ["userId"],
       })
-      .catch(() => [] as { userId: string }[]),
+      .catch(() => fallback([] as { userId: string }[])),
     db.clientInvoice
       .aggregate({
         where: {
@@ -74,16 +75,16 @@ export async function getDashboardMetrics() {
         _sum: { totalAmount: true },
         _count: { _all: true },
       })
-      .catch(() => null),
+      .catch(() => fallback(null)),
     db.qaAssignment
       .count({
         where: { status: { in: [QaAssignmentStatus.OPEN, QaAssignmentStatus.ASSIGNED] } },
       })
-      .catch(() => 0),
+      .catch(() => fallback(0)),
     db.jobFeedback
       .findMany({
         where: {
-          submittedAt: { not: null, gte: addDays(todayStart, -7) },
+          submittedAt: { not: null, gte: sydneyDayStart(addDaysToKey(todayKey, -7)) },
           rating: { not: null },
         },
         orderBy: { submittedAt: "desc" },
@@ -97,22 +98,22 @@ export async function getDashboardMetrics() {
           client: { select: { name: true } },
         },
       })
-      .catch(() => [] as Array<{
+      .catch(() => fallback([] as Array<{
         id: string;
         jobId: string;
         rating: number | null;
         comment: string | null;
         submittedAt: Date | null;
         client: { name: string } | null;
-      }>),
+      }>)),
     db.cleanerLocationPing
       .findMany({
         where: { timestamp: { gte: enRouteCutoff } },
         select: { userId: true },
         distinct: ["userId"],
       })
-      .catch(() => [] as { userId: string }[]),
-    getTopCleanerThisWeek(weekStart, todayEnd),
+      .catch(() => fallback([] as { userId: string }[])),
+    getTopCleanerThisWeek(weekStart, todayEnd, sydneyDayStart(addDaysToKey(todayKey, -6)), sydneyDayStart(addDaysToKey(todayKey, 1))),
   ]);
 
   // Revenue today: completed/invoiced jobs only, using the REAL client-charge
@@ -130,10 +131,10 @@ export async function getDashboardMetrics() {
           where: { propertyId: { in: propertyIds }, isActive: true },
           select: { propertyId: true, jobType: true, baseCharge: true, defaultDescription: true },
         })
-        .catch(() => [] as ClientChargeRates["propertyRates"]),
+        .catch(() => fallback([] as ClientChargeRates["propertyRates"])),
       db.priceBook
         .findMany({ where: { isActive: true }, select: { jobType: true, baseRate: true } })
-        .catch(() => [] as ClientChargeRates["priceBook"]),
+        .catch(() => fallback([] as ClientChargeRates["priceBook"])),
     ]);
     const rates: ClientChargeRates = {
       propertyRates: propertyRateRows ?? [],
@@ -160,7 +161,7 @@ export async function getDashboardMetrics() {
   // (Prisma can't compare two columns directly, so we fetch & filter.)
   const stockRows = await db.propertyStock
     .findMany({ select: { onHand: true, reorderThreshold: true } })
-    .catch(() => [] as { onHand: number; reorderThreshold: number }[]);
+    .catch(() => fallback([] as { onHand: number; reorderThreshold: number }[]));
   const lowStockCount = stockRows.filter(
     (r) => r.onHand <= r.reorderThreshold,
   ).length;
@@ -190,7 +191,7 @@ export async function getDashboardMetrics() {
   };
 }
 
-async function getTopCleanerThisWeek(weekStart: Date, weekEnd: Date) {
+async function getTopCleanerThisWeek(weekStart: Date, weekEnd: Date, feedbackStart: Date, feedbackEnd: Date) {
   try {
     // Find cleaner with most completed jobs in window
     const grouped = await db.jobAssignment.groupBy({
@@ -218,7 +219,7 @@ async function getTopCleanerThisWeek(weekStart: Date, weekEnd: Date) {
     const ratings = await db.jobFeedback
       .findMany({
         where: {
-          submittedAt: { gte: weekStart, lt: weekEnd, not: null },
+          submittedAt: { gte: feedbackStart, lt: feedbackEnd, not: null },
           rating: { not: null },
           job: {
             assignments: { some: { userId: top.userId, removedAt: null } },

@@ -21,6 +21,8 @@
  */
 import * as React from "react";
 import { format } from "date-fns";
+import { NextStopExecution } from "./next-stop-execution";
+import type { LaundryPortalConfig } from "./laundry-action-modal";
 import { toZonedTime } from "date-fns-tz";
 import {
   CheckCircle2,
@@ -57,6 +59,8 @@ const DONE_COLOR = "#22c55e"; // green — completed stops
 
 /* ── Types (mirror the /api/laundry/week + /api/laundry/route payloads) ──── */
 type WeekProperty = {
+  accessInfo?: unknown;
+  accessGuide?: unknown;
   name?: string | null;
   address?: string | null;
   suburb?: string | null;
@@ -104,23 +108,22 @@ type RouteStop = {
 function stopIsLate(stop: RouteStop, now: Date): boolean {
   if (stop.done) return false;
   if (stop.status === "DROPPED" || stop.status === "SKIPPED_PICKUP") return false;
-  return new Date(stop.scheduledAt).getTime() < now.getTime();
+  return stop.scheduledAt.slice(0, 10) < format(toZonedTime(now, TZ), "yyyy-MM-dd");
 }
 
 /** Today's Sydney midnight, as an ISO string for the week feed's `start`. */
 function todaySydneyStartIso(): string {
   const nowSyd = toZonedTime(new Date(), TZ);
-  const start = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
+  const start = new Date(Date.UTC(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate()));
   return start.toISOString();
 }
 
 /** True when a Date falls on the same Sydney calendar day as `now`. */
 function isSydneyToday(value: Date, nowSyd: Date): boolean {
-  const d = toZonedTime(value, TZ);
   return (
-    d.getFullYear() === nowSyd.getFullYear() &&
-    d.getMonth() === nowSyd.getMonth() &&
-    d.getDate() === nowSyd.getDate()
+    value.getUTCFullYear() === nowSyd.getFullYear() &&
+    value.getUTCMonth() === nowSyd.getMonth() &&
+    value.getUTCDate() === nowSyd.getDate()
   );
 }
 
@@ -200,7 +203,7 @@ function deriveActiveRouteStops(route: ApiRoute, taskById: Map<string, WeekTask>
 }
 
 /* ── Next-stop progress card ────────────────────────────────────────────── */
-function NextStopCard({ stops, runner }: { stops: RouteStop[]; runner: boolean }) {
+function NextStopCard({ stops, runner, taskById, config, onAction }: { stops: RouteStop[]; runner: boolean; taskById: Map<string, WeekTask>; config?: LaundryPortalConfig; onAction: (taskId: string, action: LaundryAction) => void }) {
   const doneCount = stops.filter((s) => s.done).length;
   const next = stops.find((s) => !s.done);
   const pct = stops.length > 0 ? Math.round((doneCount / stops.length) * 100) : 0;
@@ -224,13 +227,13 @@ function NextStopCard({ stops, runner }: { stops: RouteStop[]; runner: boolean }
                 </p>
                 <p className="e-tnum text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                   Stop {doneCount + 1} of {stops.length} · scheduled{" "}
-                  {format(new Date(next.scheduledAt), "HH:mm")}
+                  {next.scheduledAt.slice(0, 10)}
                   {runner && next.arrived ? " · arrived" : ""}
                 </p>
               </div>
             ) : (
               <p className="text-[0.875rem] font-semibold text-[hsl(var(--e-success))]">
-                All {stops.length} stops done — route complete.
+                All {stops.length} stops done.{runner ? " Use End route to finish the run." : ""}
               </p>
             )}
           </div>
@@ -244,6 +247,7 @@ function NextStopCard({ stops, runner }: { stops: RouteStop[]; runner: boolean }
             style={{ width: `${pct}%` }}
           />
         </div>
+        {next ? <NextStopExecution task={taskById.get(next.taskId)} kind={next.kind} config={config} onAction={onAction} /> : null}
       </ECardBody>
     </ECard>
   );
@@ -616,7 +620,7 @@ function RunnerStopList({
                     <p className="e-tnum truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                       {stop.kind === "pickup" ? "Pickup" : "Drop-off"}
                       {stop.suburb ? ` · ${stop.suburb}` : ""} ·{" "}
-                      {format(new Date(stop.scheduledAt), "HH:mm")}
+                      {stop.scheduledAt.slice(0, 10)}
                       {stop.arrived && !stop.done ? " · arrived" : ""}
                     </p>
                   </div>
@@ -666,8 +670,10 @@ export function LaundryRouteMap() {
   const [routeTasks, setRouteTasks] = React.useState<WeekTask[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [errored, setErrored] = React.useState(false);
+  const requestSequence = React.useRef(0);
 
   const load = React.useCallback(async (opts?: { silent?: boolean }) => {
+    const sequence = ++requestSequence.current;
     if (!opts?.silent) setLoading(true);
     try {
       const start = todaySydneyStartIso();
@@ -675,18 +681,18 @@ export function LaundryRouteMap() {
         fetch(`/api/laundry/week?start=${start}&days=2`, { cache: "no-store" }),
         fetch(`/api/laundry/route`, { cache: "no-store" }),
       ]);
-      const weekData = await weekRes.json().catch(() => []);
-      setWeekTasks(Array.isArray(weekData) ? weekData : []);
-      if (routeRes.ok) {
-        const routeData = await routeRes.json().catch(() => null);
-        setRoute(routeData?.route ?? null);
-        setRouteTasks(Array.isArray(routeData?.tasks) ? routeData.tasks : []);
-      }
-      setErrored(!weekRes.ok);
+      if (!weekRes.ok || !routeRes.ok) throw new Error("Route unavailable");
+      const [weekData, routeData] = await Promise.all([weekRes.json(), routeRes.json()]);
+      if (!Array.isArray(weekData) || !routeData || !Array.isArray(routeData.tasks)) throw new Error("Invalid route response");
+      if (sequence !== requestSequence.current) return;
+      setWeekTasks(weekData);
+      setRoute(routeData.route ?? null);
+      setRouteTasks(routeData.tasks);
+      setErrored(false);
     } catch {
-      setErrored(true);
+      if (sequence === requestSequence.current) setErrored(true);
     } finally {
-      if (!opts?.silent) setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }, []);
 
@@ -696,7 +702,7 @@ export function LaundryRouteMap() {
     return () => clearInterval(id);
   }, [load]);
 
-  const { openAction, modal } = useLaundryActionModal(() => void load({ silent: true }));
+  const { openAction, modal, config, optionsLoaded } = useLaundryActionModal(() => void load({ silent: true }));
 
   const taskById = React.useMemo(() => {
     const map = new Map<string, WeekTask>();
@@ -719,16 +725,18 @@ export function LaundryRouteMap() {
 
   const openStopAction = React.useCallback(
     (taskId: string, action: LaundryAction) => {
+      if (errored) return;
       const task = taskById.get(taskId);
       if (task) openAction(task, action);
     },
-    [taskById, openAction],
+    [taskById, openAction, errored],
   );
 
   // Arrival auto-open: scroll to the stop and pop its action modal (manual
   // taps on any other stop keep working — this is just a shortcut).
   const handleArrived = React.useCallback(
     (arrived: { taskId: string; kind: RouteStopKind }) => {
+      if (errored) return;
       document
         .getElementById(`route-stop-${arrived.taskId}-${arrived.kind}`)
         ?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -741,7 +749,7 @@ export function LaundryRouteMap() {
       }
       void load({ silent: true });
     },
-    [taskById, openAction, load],
+    [taskById, openAction, load, errored],
   );
 
   const markStopDone = React.useCallback(
@@ -802,7 +810,7 @@ export function LaundryRouteMap() {
         </div>
       </div>
 
-      {errored && stops.length === 0 ? (
+      {errored ? (
         <EEmptyState
           eyebrow="Unavailable"
           title="Could not load today's route"
@@ -816,7 +824,7 @@ export function LaundryRouteMap() {
         />
       ) : (
         <>
-          <NextStopCard stops={stops} runner={runner} />
+          <NextStopCard stops={stops} runner={runner} taskById={taskById} config={optionsLoaded ? config : undefined} onAction={openStopAction} />
           {runner ? (
             <RunnerStopList stops={stops} onAction={openStopAction} onMarkDone={markStopDone} />
           ) : null}

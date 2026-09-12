@@ -18,6 +18,7 @@ export const laundryWeekTaskInclude = {
       longitude: true,
       linenBufferSets: true,
       accessInfo: true,
+      accessGuide: true,
       laundryEnabled: true,
       // Key-lost mode: boards badge these tasks (same-day pickup+drop).
       keyLostMode: true,

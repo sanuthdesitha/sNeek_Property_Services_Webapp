@@ -1,4 +1,4 @@
-import { toZonedTime } from "date-fns-tz";
+import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { QaAssignmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -12,8 +12,6 @@ import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
 export const metadata = { title: "Today · Estate QA" };
 export const dynamic = "force-dynamic";
 
-const TZ = "Australia/Sydney";
-
 /**
  * Today's tiles. These counted every assignment in the business, so an
  * inspector's "in progress" tile reported other inspectors' work — wrong on its
@@ -21,9 +19,9 @@ const TZ = "Australia/Sydney";
  * keep the whole-board numbers; an inspector sees their own.
  */
 async function getQuality(viewer: { id: string; role: Role }) {
-  const nowSyd = toZonedTime(new Date(), TZ);
-  const todayStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
-  const todayEnd = new Date(todayStart.getTime() + 86_400_000);
+  const today = sydneyTodayKey();
+  const todayStart = sydneyDayStart(today);
+  const todayEnd = sydneyDayStart(addDaysToKey(today, 1));
 
   const mine =
     viewer.role === Role.ADMIN || viewer.role === Role.OPS_MANAGER
@@ -33,14 +31,14 @@ async function getQuality(viewer: { id: string; role: Role }) {
   const [awaiting, inProgress, completedToday, reworkToday] = await Promise.all([
     db.qaAssignment
       .count({ where: { ...mine, status: { in: [QaAssignmentStatus.OPEN, QaAssignmentStatus.ASSIGNED] } } })
-      .catch(() => 0),
-    db.qaAssignment.count({ where: { ...mine, status: QaAssignmentStatus.IN_PROGRESS } }).catch(() => 0),
+      .catch(() => null),
+    db.qaAssignment.count({ where: { ...mine, status: QaAssignmentStatus.IN_PROGRESS } }).catch(() => null),
     db.qaAssignment
       .count({ where: { ...mine, status: QaAssignmentStatus.COMPLETED, completedAt: { gte: todayStart, lt: todayEnd } } })
-      .catch(() => 0),
+      .catch(() => null),
     // Rework transfers are a team-quality signal about CLEANERS, not this
     // inspector's workload, so they stay business-wide on purpose.
-    db.qaReworkTransfer.count({ where: { createdAt: { gte: todayStart, lt: todayEnd } } }).catch(() => 0),
+    db.qaReworkTransfer.count({ where: { createdAt: { gte: todayStart, lt: todayEnd } } }).catch(() => null),
   ]);
 
   return { awaiting, inProgress, completedToday, reworkToday };
@@ -52,6 +50,8 @@ export default async function QaTodayPage() {
     id: session.user.id,
     role: session.user.role as Role,
   });
+  const unavailable = [awaiting, inProgress, completedToday, reworkToday].some((value) => value === null);
+  const countLabel = (value: number | null) => value === null ? <span className="text-sm">Unavailable</span> : String(value);
   // QA-pay defaults drive the admin per-inspection pay editor preview.
   const settings = await getAppSettings();
 
@@ -76,11 +76,19 @@ export default async function QaTodayPage() {
         <div className="e-signature-rule mt-4" />
       </header>
 
+      {unavailable ? (
+        <div role="alert" className="border-l-4 border-red-600 px-4 py-3 text-sm">
+          Some QA metrics could not be loaded. <a href="/v2/qa" className="underline">Retry</a>
+        </div>
+      ) : null}
+      <p className="text-sm text-[hsl(var(--e-muted-foreground))]">
+        {canAssign ? "Team inspection totals." : "Your assigned or picked-up inspection totals."} Rework is team-wide.
+      </p>
       <section className="grid gap-4 sm:grid-cols-4">
-        <EStatCard label="Awaiting review" value={String(awaiting)} delta="unpicked" deltaTone="neutral" icon={<ClipboardCheck className="h-4 w-4" />} />
-        <EStatCard label="In progress" value={String(inProgress)} delta="being inspected" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
-        <EStatCard label="Reviewed today" value={String(completedToday)} delta="closed" icon={<Star className="h-4 w-4" />} />
-        <EStatCard label="Rework flagged" value={String(reworkToday)} delta="today" deltaTone="neutral" icon={<AlertTriangle className="h-4 w-4" />} />
+        <EStatCard label="Awaiting review" value={countLabel(awaiting)} delta="open or assigned" deltaTone="neutral" icon={<ClipboardCheck className="h-4 w-4" />} />
+        <EStatCard label="In progress" value={countLabel(inProgress)} delta="being inspected" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
+        <EStatCard label="Reviewed today" value={countLabel(completedToday)} delta="closed" deltaTone={completedToday === null ? "neutral" : "success"} icon={<Star className="h-4 w-4" />} />
+        <EStatCard label="Rework flagged" value={countLabel(reworkToday)} delta="today, team-wide" deltaTone="neutral" icon={<AlertTriangle className="h-4 w-4" />} />
       </section>
 
       {canAssign ? <QaDayPlanner inspectors={inspectors} /> : null}

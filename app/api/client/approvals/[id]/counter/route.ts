@@ -17,6 +17,7 @@ import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
  * "not at that price".
  */
 const counterSchema = z.object({
+  expectedVersion: z.string().regex(/^[a-f0-9]{64}$/i),
   amount: z.number().nonnegative().max(1_000_000),
   note: z.string().trim().max(2000).optional(),
 });
@@ -24,7 +25,11 @@ const counterSchema = z.object({
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.CLIENT]);
-    const body = counterSchema.parse(await req.json().catch(() => ({})));
+    const rawBody = await req.json().catch(() => ({}));
+    if (!z.string().regex(/^[a-f0-9]{64}$/i).safeParse(rawBody?.expectedVersion).success) {
+      throw new Error("STALE_APPROVAL");
+    }
+    const body = counterSchema.parse(rawBody);
     const user = await db.user.findUnique({
       where: { id: session.user.id },
       select: { clientId: true, name: true, email: true },
@@ -78,6 +83,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     const updated = await counterClientApproval({
+      expectedVersion: body.expectedVersion,
       id: params.id,
       clientId: approval.clientId,
       amount: body.amount,
@@ -147,6 +153,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     return NextResponse.json(updated);
   } catch (err: any) {
+    if (err.message === "STALE_APPROVAL") {
+      return NextResponse.json(
+        { code: "STALE_APPROVAL", error: "This approval has changed or its review version is missing. Refresh approvals and review the latest details before responding." },
+        { status: 409 }
+      );
+    }
     if (err.message === "INVALID_STATE") {
       return NextResponse.json(
         { error: "This approval can no longer be countered." },

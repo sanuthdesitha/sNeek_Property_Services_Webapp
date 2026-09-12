@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { JobStatus, Role } from "@prisma/client";
+import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { TRACKED_STATUSES } from "@/lib/gps/tracked-statuses";
 
 export const dynamic = "force-dynamic";
+const privateHeaders = { "Cache-Control": "private, no-store", Vary: "Cookie" };
 
 /**
  * Lightweight "does this cleaner have a live job right now?" probe. The
@@ -28,17 +29,17 @@ export async function GET() {
         status: { in: TRACKING_STATUSES },
         assignments: { some: { userId: session.user.id, removedAt: null } },
       },
-      orderBy: { updatedAt: "desc" },
-      select: { id: true, status: true },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select: { id: true, status: true, property: { select: { name: true } } },
     });
 
     return NextResponse.json({
-      job: job ? { id: job.id, status: job.status } : null,
-    });
+      job: job ? { id: job.id, status: job.status, property: job.property } : null,
+    }, { headers: privateHeaders });
   } catch (err: any) {
     const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 500;
     // Never surface an error the tracker would treat as "keep pinging" — just
     // report no active job so it stands down quietly.
-    return NextResponse.json({ job: null }, { status });
+    return NextResponse.json({ job: null }, { status, headers: privateHeaders });
   }
 }

@@ -1,4 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+const evidenceStore = vi.hoisted(() => ({ rows: new Map<string, any>(), writes: 0, failAt: 0 }));
+vi.mock("@/lib/cleaner/evidence-store", async original => ({
+  ...await original<typeof import("@/lib/cleaner/evidence-store")>(),
+  getEvidence: async (id: string) => evidenceStore.rows.get(id),
+  putEvidence: async (record: any) => { if (++evidenceStore.writes === evidenceStore.failAt) throw new Error("quota exceeded"); evidenceStore.rows.set(record.id, record); },
+}));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/uploads/compress-video", () => ({
@@ -37,10 +43,16 @@ vi.mock("@/lib/uploads/multipart-client", () => ({
       blob: Blob,
       filename: string,
       _contentType: string,
-      onProgress?: (p: any) => void
+      onProgress?: (p: any) => void,
+      _signal?: AbortSignal,
+      folder?: string,
+      onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>
     ) => {
       if (!multipartHooks.run) throw new Error("multipart fake not installed");
-      return multipartHooks.run({ name: filename, size: blob.size }, onProgress);
+      const allocation = { key: `${folder}/cleaner/${filename}`, uploadId: `upload-${filename}` };
+      await onAllocated?.(allocation);
+      const receipt = await multipartHooks.run({ name: filename, size: blob.size }, onProgress);
+      return onAllocated ? { ...receipt, key: allocation.key } : receipt;
     }
   ),
 }));
@@ -75,7 +87,7 @@ function fakeFile(name: string, sizeBytes = 1024, type = "image/jpeg"): File {
  * lets each file be given its own verdict.
  */
 function installFakeXhr(behaviour: (name: string) => Verdict, delayMs = 5) {
-  const state = { inFlight: 0, peak: 0, heavyPeak: 0, calls: [] as string[] };
+  const state = { inFlight: 0, peak: 0, heavyPeak: 0, calls: [] as string[], folders: [] as string[] };
 
   class FakeXhr {
     upload = { onprogress: null as null | ((e: any) => void) };
@@ -92,6 +104,7 @@ function installFakeXhr(behaviour: (name: string) => Verdict, delayMs = 5) {
       const file = fd.get("file") as File;
       const name = file?.name ?? "unknown";
       state.calls.push(name);
+      state.folders.push(String(fd.get("folder")));
       state.inFlight += 1;
       state.peak = Math.max(state.peak, state.inFlight);
       if (name.startsWith("v")) {
@@ -155,8 +168,90 @@ function installFakeXhr(behaviour: (name: string) => Verdict, delayMs = 5) {
 
 const OPTS = { folder: "jobs/1", stamp: null, source: "gallery" as const };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); evidenceStore.rows.clear(); evidenceStore.writes = 0; evidenceStore.failAt = 0; });
 afterEach(() => vi.unstubAllGlobals());
+
+describe("upload receipt and cleanup integrity", () => {
+  it.each([1, 2])("retains original Files when durable batch write %s fails", async failAt => {
+    evidenceStore.failAt = failAt;
+    Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_: string, run: () => Promise<unknown>) => run() } });
+    installFakeXhr(() => "ok");
+    vi.stubGlobal("fetch", vi.fn(async (_url, opts) => { const body = JSON.parse(opts.body); return new Response(JSON.stringify({ ok: true, captureId: body.captureId, key: body.key })); }));
+    const files = [fakeFile("first.jpg"), fakeFile("second.jpg")];
+    const result = await prepareAndUploadFiles(files, { ...OPTS,
+      evidence: { jobId: "job", draftIdentity: "identity", templateId: "template", formRevision: "revision", fieldId: "photo" } });
+    expect(result.failedCount).toBe(1); expect(result.failed[0].file).toBe(files[failAt - 1]);
+    expect(result.failed[0].captureId).toBeUndefined(); expect(result.failed[0].reason).toContain("Not saved on this device");
+    expect(result.results).toHaveLength(1);
+  });
+  it("persists the whole capture batch first, binds upload namespaces, and retries known receipt attachment without upload", async () => {
+    evidenceStore.rows.clear();
+    Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_: string, run: () => Promise<unknown>) => run() } });
+    const state = installFakeXhr(() => { expect(evidenceStore.rows.size).toBe(2); return "ok"; });
+    let first = true;
+    vi.stubGlobal("fetch", vi.fn(async (_url, opts) => {
+      const body = JSON.parse(opts.body);
+      const stored = evidenceStore.rows.get(body.captureId);
+      expect(stored.receipt.key).toBe(body.key); expect(stored.prepared).toBeDefined();
+      if (first) { first = false; throw new Error("lost attachment acknowledgement"); }
+      return new Response(JSON.stringify({ ok: true, captureId: body.captureId, key: body.key }));
+    }));
+    const scope = { jobId: "job", draftIdentity: "identity", templateId: "template", formRevision: "revision", fieldId: "photo" };
+    const files = [fakeFile("first.jpg"), fakeFile("second.jpg")];
+    const result = await prepareAndUploadFiles(files, { ...OPTS, evidence: scope });
+    expect(result.failedCount).toBe(1); expect(result.results).toHaveLength(1);
+    const rows = Array.from(evidenceStore.rows.values());
+    expect(vi.mocked(uploadMultipart).mock.calls.map(call => call[5])).toEqual(rows.map(row => `forms/job/${row.id}`));
+    const failed = rows.find(row => row.status === "uploaded");
+    const retry = await prepareAndUploadFiles([files[0]], { ...OPTS, evidence: scope, recoveryRecords: [failed] });
+    expect(retry.failedCount).toBe(0); expect(state.calls).toEqual(["first.jpg", "second.jpg"]);
+    expect(evidenceStore.rows.get(failed.id).status).toBe("attached");
+    expect(rows.every(row => row.blob)).toBe(true);
+  });
+  it("keeps successful videos and continues the lane when temporary cleanup rejects", async () => {
+    installFakeXhr(() => "ok");
+    vi.mocked(compressVideo).mockResolvedValueOnce({
+      file: fakeFile("v-cleanup.mp4", 1024, "video/mp4"),
+      dispose: async () => { throw new Error("Storage cleanup failed"); },
+    });
+    const result = await prepareAndUploadFiles([
+      fakeFile("v-cleanup.mp4", 1024, "video/mp4"),
+      fakeFile("v-next.mp4", 1024, "video/mp4"),
+    ], OPTS);
+    expect(result.results.map(item => item.name)).toEqual(["v-cleanup.mp4", "v-next.mp4"]);
+    expect(result.failedCount).toBe(0);
+  });
+  it("does not automatically resend a video below the photo retry size", async () => {
+    const state = installFakeXhr(() => "network");
+    const result = await prepareAndUploadFiles([fakeFile("v-small.mp4", 1024, "video/mp4")], OPTS);
+    expect(state.calls).toEqual(["v-small.mp4"]);
+    expect(result.failedCount).toBe(1);
+  });
+  it.each([{ key: "key" }, { key: 1, url: "https://cdn.test/file" }, { key: "key", url: " " }])("does not attach incomplete multipart receipt %j", async receipt => {
+    installFakeXhr(() => "ok");
+    vi.mocked(uploadMultipart).mockResolvedValueOnce(receipt as any);
+    const result = await prepareAndUploadFiles([fakeFile("v-receipt.mp4", 1024, "video/mp4")], OPTS);
+    expect(result.results).toEqual([]);
+    expect(result.failed[0].reason).toContain("not attached");
+    expect(uploadMultipart).toHaveBeenCalledTimes(1);
+  });
+  it("does not attach or auto-retry a successful direct response without a usable URL", async () => {
+    let sends = 0;
+    class IncompleteXhr {
+      upload = {};
+      status = 200;
+      responseText = '{"key":"uploaded-key"}';
+      onload?: () => void;
+      open() {}
+      send() { sends++; queueMicrotask(() => this.onload?.()); }
+    }
+    vi.stubGlobal("XMLHttpRequest", IncompleteXhr);
+    const result = await prepareAndUploadFiles([fakeFile("photo.jpg")], OPTS);
+    expect(sends).toBe(1);
+    expect(result.results).toEqual([]);
+    expect(result.failed[0].reason).toContain("not attached");
+  });
+});
 
 describe("concurrency", () => {
   it("never runs more than four photo uploads at once", async () => {

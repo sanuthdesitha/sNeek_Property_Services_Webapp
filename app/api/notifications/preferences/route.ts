@@ -19,6 +19,7 @@ const patchSchema = z.object({
   shopping: channelSchema.optional(),
   billing: channelSchema.optional(),
   approvals: channelSchema.optional(),
+  ical: channelSchema.optional(),
 });
 
 export async function GET() {

@@ -10,6 +10,8 @@ const STORE = "pings";
 
 export interface QueuedPing {
   id: string;
+  /** Local identity boundary; never sent to the server. Legacy rows lack it. */
+  scope?: string;
   jobId: string;
   lat: number;
   lng: number;

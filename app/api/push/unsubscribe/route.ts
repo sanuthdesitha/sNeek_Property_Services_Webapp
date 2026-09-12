@@ -12,6 +12,7 @@ const unsubscribeSchema = z.object({
 
 async function removeSubscription(req: NextRequest) {
   const session = await requireSession();
+  if (session.impersonation) return NextResponse.json({ error: "Device removal is unavailable while impersonating." }, { status: 403 });
   const parsed = unsubscribeSchema.parse(await req.json().catch(() => ({})));
 
   // Only remove a subscription owned by the current user.

@@ -13,9 +13,10 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { EInput } from "@/components/v2/cleaner/fields";
-import { ChevronRight, Clock, Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
-import { resolveTimingBadges, timingBadgeLabels } from "@/lib/jobs/timing-badges";
+import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
+import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
 import {
   sydneyTodayKey,
   sydneyDayStart,
@@ -109,6 +110,8 @@ async function getCleanerJobs(
         scheduledDate: true,
         startTime: true,
         dueTime: true,
+        sameDayCheckin: true,
+        sameDayCheckinTime: true,
         // Carries the early-checkin / late-checkout rules. A cleaner scanning
         // tomorrow's work needs to see "start after 12:30" here, not only once
         // they have opened the job.
@@ -313,25 +316,11 @@ export default async function CleanerJobsPage({
                       {format(toZonedTime(j.scheduledDate, TZ), "EEE dd MMM yyyy")}
                     </span>
                     <span>{titleCase(j.jobType)}</span>
-                    {j.startTime ? (
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" /> {j.startTime}
-                        {j.dueTime ? `–${j.dueTime}` : ""}
-                      </span>
-                    ) : null}
                   </p>
                   {/* Turnaround rules. "Start after 12:30" means guests are
                       still inside — that has to be visible before the cleaner
                       plans their day, not only inside the job. */}
-                  {timingBadgeLabels(resolveTimingBadges(j.internalNotes)).length > 0 ? (
-                    <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      {timingBadgeLabels(resolveTimingBadges(j.internalNotes)).map((badge) => (
-                        <EBadge key={badge.key} tone={badge.tone} soft>
-                          {badge.label}
-                        </EBadge>
-                      ))}
-                    </p>
-                  ) : null}
+                  <CleanerTimingSummary startTime={j.startTime} dueTime={j.dueTime} timingBadges={resolveTimingBadges(j.internalNotes)} sameDayCheckin={j.sameDayCheckin} sameDayCheckinTime={j.sameDayCheckinTime} />
                 </div>
                 <EBadge tone={statusTone(j.status)} soft>
                   {titleCase(j.status)}

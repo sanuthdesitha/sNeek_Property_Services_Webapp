@@ -79,6 +79,7 @@ export function useLaundryOptions() {
   const [dropoffOptions, setDropoffOptions] = React.useState<string[]>([]);
   const [suppliers, setSuppliers] = React.useState<Supplier[]>([]);
   const [config, setConfig] = React.useState<LaundryPortalConfig>(DEFAULT_CONFIG);
+  const [optionsLoaded, setOptionsLoaded] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -95,6 +96,7 @@ export function useLaundryOptions() {
             : []
         );
         const vis = data?.portalVisibility ?? {};
+        setOptionsLoaded(true);
         setConfig({
           showPickupPhoto: typeof vis.showPickupPhoto === "boolean" ? vis.showPickupPhoto : true,
           requireDropoffPhoto: typeof vis.requireDropoffPhoto === "boolean" ? vis.requireDropoffPhoto : true,
@@ -111,7 +113,7 @@ export function useLaundryOptions() {
     };
   }, []);
 
-  return { dropoffOptions, suppliers, config };
+  return { dropoffOptions, suppliers, config, optionsLoaded };
 }
 
 /* ── Completion metadata helpers (same JSON-notes event model as v1) ───────── */
@@ -649,7 +651,7 @@ export function LaundryActionModal({
 /* ── Convenience hook: one modal instance shared by a board ────────────────── */
 
 export function useLaundryActionModal(onDone: () => void) {
-  const { dropoffOptions, suppliers, config } = useLaundryOptions();
+  const { dropoffOptions, suppliers, config, optionsLoaded } = useLaundryOptions();
   const [state, setState] = React.useState<{ task: ActionTask; action: LaundryAction } | null>(null);
 
   const openAction = React.useCallback((task: ActionTask, action: LaundryAction) => {
@@ -671,5 +673,5 @@ export function useLaundryActionModal(onDone: () => void) {
     />
   ) : null;
 
-  return { openAction, modal, config };
+  return { openAction, modal, config, optionsLoaded };
 }

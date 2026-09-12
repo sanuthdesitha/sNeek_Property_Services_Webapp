@@ -1055,6 +1055,7 @@ function FieldControl({
     const maxFiles = Number.isFinite(Number(field.maxFiles)) ? Number(field.maxFiles) : undefined;
     return (
       <MediaCapture
+        evidenceFieldId={String(field.id)}
         value={uploads[field.id] ?? []}
         onChange={(m) => onUpload(field.id, maxFiles && maxFiles > 0 ? m.slice(0, maxFiles) : m)}
         mode={mode as any}

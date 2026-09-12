@@ -22,7 +22,8 @@ import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attentio
 import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
-import { resolveTimingBadges, timingBadgeLabels } from "@/lib/jobs/timing-badges";
+import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
+import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
 import { computeJobPayForCleaner } from "@/lib/finance/job-pay-for-cleaner";
 
 export const metadata = { title: "Today · Estate cleaner" };
@@ -109,6 +110,8 @@ async function getCleanerWeekJobs(userId: string, todayStart: Date, nextWeek: Da
         scheduledDate: true,
         startTime: true,
         dueTime: true,
+        sameDayCheckin: true,
+        sameDayCheckinTime: true,
         estimatedHours: true,
         isRework: true,
         reworkPayAmount: true,
@@ -280,13 +283,7 @@ export default async function CleanerTodayPage() {
                     <EBadge tone="neutral" soft>
                       {titleCase(j.jobType)}
                     </EBadge>
-                    {timingBadgeLabels(resolveTimingBadges((j as any).internalNotes ?? null)).map(
-                      (badge) => (
-                        <EBadge key={badge.key} tone={badge.tone} soft>
-                          {badge.label}
-                        </EBadge>
-                      )
-                    )}
+                    <CleanerTimingSummary startTime={j.startTime} dueTime={j.dueTime} timingBadges={resolveTimingBadges(j.internalNotes)} sameDayCheckin={j.sameDayCheckin} sameDayCheckinTime={j.sameDayCheckinTime} />
                     {duration ? (
                       <span className="flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                         <Timer className="h-3.5 w-3.5" /> {duration}

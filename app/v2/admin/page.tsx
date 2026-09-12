@@ -5,7 +5,7 @@ import { JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getDashboardMetrics } from "@/lib/admin/dashboard";
 import { getAdminAttentionSummary } from "@/lib/dashboard/immediate-attention";
-import { sydneyDayEndInclusive, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
+import { addDaysToKey, sydneyDayEndInclusive, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import {
   EBadge,
   EButton,
@@ -89,9 +89,10 @@ const ACTIVE_JOB_STATUSES: JobStatus[] = [
 ];
 
 function sydToday() {
-  const nowSyd = toZonedTime(new Date(), TZ);
-  const todayStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
-  const todayEnd = new Date(todayStart.getTime() + 86_400_000);
+  // scheduledDate is a UTC-midnight calendar key, not an event timestamp.
+  const key = sydneyTodayKey();
+  const todayStart = new Date(`${key}T00:00:00.000Z`);
+  const todayEnd = new Date(`${addDaysToKey(key, 1)}T00:00:00.000Z`);
   return { todayStart, todayEnd };
 }
 
@@ -111,7 +112,7 @@ async function getTodayDispatch() {
         assignments: { select: { user: { select: { name: true } } }, take: 1 },
       },
     })
-    .catch(() => []);
+    .catch(() => null);
 }
 
 /**
@@ -183,7 +184,7 @@ async function getLiveNow() {
       runningTimers: timers.filter((t) => fresh.has(t.userId)).length,
     };
   } catch {
-    return { enRouteJobs: 0, onSiteJobs: 0, runningTimers: 0 };
+    return null;
   }
 }
 
@@ -199,7 +200,7 @@ async function getTodayStatusCounts() {
     for (const row of grouped) map.set(row.status, row._count._all);
     return map;
   } catch {
-    return new Map<JobStatus, number>();
+    return null;
   }
 }
 
@@ -214,7 +215,7 @@ async function getLaundryDueToday() {
         ],
       },
     })
-    .catch(() => 0);
+    .catch(() => null);
 }
 
 async function getUpcomingJobs() {
@@ -237,12 +238,12 @@ async function getUpcomingJobs() {
         property: { select: { name: true, suburb: true } },
       },
     })
-    .catch(() => []);
+    .catch(() => null);
 }
 
 export default async function AdminCommandPage() {
   const [metrics, dispatch, attention, liveNow, statusCounts, laundryDue, upcoming] = await Promise.all([
-    getDashboardMetrics().catch(() => null),
+    getDashboardMetrics({ strict: true }).catch(() => null),
     getTodayDispatch(),
     getAdminAttentionSummary().catch(() => null),
     getLiveNow(),
@@ -251,12 +252,29 @@ export default async function AdminCommandPage() {
     getUpcomingJobs(),
   ]);
 
+  if (!metrics || !dispatch || !attention || !liveNow || !statusCounts || laundryDue === null || !upcoming) {
+    return (
+      <div className="space-y-4">
+        <h1 className="e-display-lg">Command</h1>
+        <div role="alert" className="rounded-[var(--e-radius)] border p-5">
+          <p>Command data could not be loaded. Current workload and totals are unavailable.</p>
+          <div className="mt-3 flex gap-4">
+            <a href="/v2/admin" className="underline">Retry</a>
+            <Link href="/v2/admin/jobs" className="underline">Open jobs</Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const nowSyd = toZonedTime(new Date(), TZ);
   const dateLine = format(nowSyd, "EEEE · d MMMM").toUpperCase();
 
   const jobsTotal = metrics?.today.total ?? 0;
-  const unassigned = dispatch.filter((j) => j.status === JobStatus.UNASSIGNED).length;
+  const unassigned = statusCounts.get(JobStatus.UNASSIGNED) ?? 0;
   const revenue = metrics?.today.revenueAud ?? 0;
+  const missingRates = metrics.today.revenueRateMissingCount ?? 0;
+  const revenueLabel = missingRates > 0 ? "Known charges today" : "Revenue today";
   const qaPending = metrics?.qaPending ?? 0;
   const invoicesOutstanding = metrics?.invoices.outstandingCount ?? 0;
   const cleanersLiveNow = liveNow.enRouteJobs + liveNow.onSiteJobs;
@@ -282,6 +300,24 @@ export default async function AdminCommandPage() {
       text: `${unassigned} job${unassigned === 1 ? "" : "s"} today ${unassigned === 1 ? "has" : "have"} no cleaner`,
       href: "/v2/admin/jobs",
     });
+  }
+  const otherUnassigned = Math.max(0, (attention.unassignedJobs ?? 0) - unassigned);
+  if (otherUnassigned > 0) attentionItems.push({ tone: "warning", label: "Other unassigned jobs",
+    text: `${otherUnassigned} unassigned job${otherUnassigned === 1 ? "" : "s"} outside today's schedule`, href: "/v2/admin/jobs" });
+  const otherOpenCases = Math.max(0, (attention.openCases ?? 0) - (attention.overdueCases ?? 0));
+  if (otherOpenCases > 0) attentionItems.push({ tone: "warning", label: "Open cases",
+    text: `${otherOpenCases} open case${otherOpenCases === 1 ? "" : "s"} without an overdue deadline to review`, href: "/v2/admin/cases" });
+  for (const queue of [
+    { count: attention.pendingTimeAdjustments, label: "Clock adjustments", detail: "clock adjustment requests" },
+    { count: attention.pendingClientTaskRequests, label: "Client tasks", detail: "client task requests" },
+    { count: attention.pendingTimingRequests, label: "Timing requests", detail: "timing requests" },
+    { count: attention.pendingQaReworkTransfers, label: "QA rework", detail: "QA rework transfers" },
+    { count: attention.pendingSkipRequests, label: "Skip requests", detail: "skip requests" },
+    { count: attention.pendingQaOutcomes, label: "QA outcomes", detail: "QA outcomes" },
+    { count: attention.pendingLaundryRescheduleDraft, label: "Laundry reschedules", detail: "laundry schedule changes", href: "/v2/admin/laundry" },
+  ]) {
+    if (queue.count > 0) attentionItems.push({ tone: "warning", label: queue.label,
+      text: `${queue.count} ${queue.detail} awaiting review`, href: queue.href ?? "/v2/admin/approvals" });
   }
   if (attention?.overdueCases) {
     attentionItems.push({
@@ -355,7 +391,7 @@ export default async function AdminCommandPage() {
       {/* Greeting header */}
       <header className="e-rise">
         <EEyebrow>{dateLine} · SYDNEY</EEyebrow>
-        <h1 className="e-display-lg mt-2">Good day, Sanuth.</h1>
+        <h1 className="e-display-lg mt-2">Operations command</h1>
         <p className="mt-1 text-[0.9375rem] text-[hsl(var(--e-muted-foreground))]">
           {jobsTotal === 0
             ? "No jobs scheduled today."
@@ -374,9 +410,9 @@ export default async function AdminCommandPage() {
           icon={<CalendarClock className="h-4 w-4" />}
         />
         <EStatCard
-          label="Revenue today"
+          label={revenueLabel}
           value={money(revenue)}
-          delta={`${metrics?.today.completed ?? 0} completed`}
+          delta={missingRates > 0 ? `Excludes ${missingRates} completed jobs with no rate` : `${metrics?.today.completed ?? 0} completed`}
           deltaTone="neutral"
           icon={<Wallet className="h-4 w-4" />}
         />
@@ -463,7 +499,8 @@ export default async function AdminCommandPage() {
             </ECardHeader>
             <ECardBody className="space-y-2">
               {attentionItems.length === 0 ? (
-                <EEmptyState eyebrow="All clear" title="Nothing needs you" description="Every queue is caught up." />
+                attentionTotal > 0 ? <div className="space-y-2 text-sm"><p>Pending work exists, but its category breakdown is unavailable here.</p><Link className="inline-flex min-h-11 items-center underline" href="/v2/admin/approvals">Review approval queues</Link></div>
+                  : <EEmptyState eyebrow="All clear" title="Nothing needs you" description="Every queue is caught up." />
               ) : (
                 attentionItems.map((item) => (
                   <Link
@@ -540,9 +577,10 @@ export default async function AdminCommandPage() {
           </ECardHeader>
           <ECardBody className="space-y-3 pt-0">
             <div className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
-              <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Revenue today</span>
+              <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{revenueLabel}</span>
               <span className="e-numeral text-[1.125rem]">{money(revenue)}</span>
             </div>
+            {missingRates > 0 ? <p className="text-sm text-[hsl(var(--e-muted-foreground))]">Incomplete total: {missingRates} completed job{missingRates === 1 ? " has" : "s have"} no charge rate. <Link href="/v2/admin/pricing" className="underline">Review pricing</Link></p> : null}
             <div className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
               <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Completed today</span>
               <span className="e-numeral text-[1.125rem]">{metrics?.today.completed ?? 0}</span>

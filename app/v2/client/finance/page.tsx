@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import Link from "next/link";
 import { toZonedTime } from "date-fns-tz";
 import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { getClientPortalContext } from "@/lib/client/portal";
@@ -34,6 +35,7 @@ function invoiceTone(status: string): Tone {
       return "success";
     case "SENT":
     case "APPROVED":
+    case "PART_PAID":
       return "warning";
     case "VOID":
       return "danger";
@@ -54,7 +56,13 @@ export default async function V2ClientFinancePage() {
   const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
   const portal = await getClientPortalContext(session.user.id).catch(() => null);
 
-  if (!portal?.visibility.showFinanceDetails) {
+  if (!portal) {
+    return <div role="alert" className="space-y-3"><h1 className="e-display-lg">Finance unavailable</h1>
+      <p>Account visibility could not be loaded. Try again to see your financial details.</p>
+      <a href="/v2/client/finance" className="underline">Retry</a></div>;
+  }
+
+  if (!portal.visibility.showFinanceDetails) {
     return (
       <div className="space-y-6">
         <EPageHeader
@@ -74,6 +82,12 @@ export default async function V2ClientFinancePage() {
   const finance = portal.clientId
     ? await getClientFinanceOverview(portal.clientId, portalCtx.propertyIds).catch(() => null)
     : null;
+
+  if (!finance) {
+    return <div role="alert" className="space-y-3"><h1 className="e-display-lg">Finance unavailable</h1>
+      <p>Financial records could not be loaded. Balances and invoice history are unavailable.</p>
+      <a href="/v2/client/finance" className="underline">Retry</a></div>;
+  }
 
   const summary = finance?.summary;
   const rates = finance?.rates ?? [];
@@ -97,27 +111,32 @@ export default async function V2ClientFinancePage() {
           icon={<Receipt className="h-4 w-4" />}
         />
         <EStatCard
-          label="Pending billable services"
+          label="Recent unbilled services"
           value={String(summary?.pendingChargeCount ?? 0)}
           delta={money(summary?.pendingChargeTotal)}
           deltaTone="neutral"
           icon={<Wallet className="h-4 w-4" />}
         />
         <EStatCard
-          label="Invoices issued"
+          label="Recent issued invoices"
           value={String(summary?.invoiceCount ?? 0)}
-          delta="on record"
+          delta="latest 20 invoices"
           deltaTone="neutral"
           icon={<FileText className="h-4 w-4" />}
         />
         <EStatCard
-          label="Total billed"
+          label="Recent invoice total"
           value={money(summary?.totalBilled)}
-          delta="all time"
+          delta="latest 20 invoices, including paid"
           deltaTone="neutral"
           icon={<CreditCard className="h-4 w-4" />}
         />
       </section>
+
+      <p className="text-sm text-[hsl(var(--e-muted-foreground))]">
+        Unbilled services are estimates from the latest 50 completed jobs and are not an invoice or a payment request.
+        Invoice totals include paid invoices and do not represent your outstanding balance.
+      </p>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
         {/* Property Service Rates */}
@@ -219,7 +238,7 @@ export default async function V2ClientFinancePage() {
             <ECardHeader>
               <ECardTitle>Invoice history</ECardTitle>
               <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                Recent invoice batches issued for your account.
+                Latest 20 issued invoices. Open an invoice to review its status and service period.
               </p>
             </ECardHeader>
             <ECardBody className="space-y-1 pt-0">
@@ -237,7 +256,7 @@ export default async function V2ClientFinancePage() {
                       {i > 0 ? <EThread className="my-1" /> : null}
                       <div className="flex flex-wrap items-start justify-between gap-3 py-2">
                         <div className="min-w-0">
-                          <p className="text-[0.875rem] font-semibold">{invoice.invoiceNumber}</p>
+                          <Link className="text-[0.875rem] font-semibold underline" href={`/v2/client/finance/invoices/${invoice.id}`}>{invoice.invoiceNumber}</Link>
                           <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                             Created {format(toZonedTime(invoice.createdAt, TZ), "d MMM yyyy")}
                             {invoice.periodStart || invoice.periodEnd
@@ -261,7 +280,7 @@ export default async function V2ClientFinancePage() {
                         <div className="flex flex-col items-end gap-1.5 text-right">
                           <p className="e-numeral text-[0.9375rem]">{money(invoice.totalAmount)}</p>
                           <EBadge tone={invoiceTone(invoice.status)} soft>
-                            {invoice.status.replace(/_/g, " ")}
+                            {invoice.status === "PART_PAID" ? "Part paid" : invoice.status === "PAID" ? "Payment recorded" : invoice.status.replace(/_/g, " ")}
                           </EBadge>
                           {payable ? portalCtx.actor === "CLIENT" ? <PayInvoiceButton invoiceId={invoice.id} /> : null : null}
                         </div>

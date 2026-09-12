@@ -13,7 +13,8 @@
  *
  * Estate token scope only — no components/ui/* or v1 imports.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import {
   AlarmSmoke,
   Boxes,
@@ -312,6 +313,7 @@ function Lightbox({
   const count = images.length;
   const safeIndex = Math.min(index, count - 1);
   const current = images[safeIndex];
+  const opener = useRef<HTMLElement | null>(null);
 
   const go = useCallback(
     (delta: number) => {
@@ -321,39 +323,45 @@ function Lightbox({
     [count, safeIndex, onIndex]
   );
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      else if (e.key === "ArrowRight") go(1);
-      else if (e.key === "ArrowLeft") go(-1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [go, onClose]);
-
   return (
-    <div
+    <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog.Portal>
+    <Dialog.Overlay className="fixed inset-0 z-[60]" />
+    <Dialog.Content
       className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-[hsl(160_18%_5%/0.85)] p-4 backdrop-blur-sm"
-      role="dialog"
       aria-modal="true"
-      onClick={onClose}
+      aria-describedby={undefined}
+      onOpenAutoFocus={() => {
+        opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      }}
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        if (opener.current?.isConnected) opener.current.focus();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+          event.preventDefault();
+          event.stopPropagation();
+          go(event.key === "ArrowRight" ? 1 : -1);
+        }
+      }}
+      onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
     >
       <div className="flex w-full max-w-3xl items-center justify-between gap-2 pb-2 text-white/90">
-        <span className="truncate text-[0.875rem] font-[550]">{current?.caption || label}</span>
+        <Dialog.Title asChild><span className="truncate text-[0.875rem] font-[550]">{current?.caption || label}</span></Dialog.Title>
         <div className="flex items-center gap-2">
           {count > 1 ? (
             <span className="text-[0.75rem] tabular-nums text-white/70">
               {safeIndex + 1} / {count}
             </span>
           ) : null}
-          <button
+          <Dialog.Close
             type="button"
-            onClick={onClose}
             aria-label="Close"
             className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
           >
             <X className="h-4 w-4" />
-          </button>
+          </Dialog.Close>
         </div>
       </div>
 
@@ -406,6 +414,8 @@ function Lightbox({
           ))}
         </div>
       ) : null}
-    </div>
+    </Dialog.Content>
+    </Dialog.Portal>
+    </Dialog.Root>
   );
 }

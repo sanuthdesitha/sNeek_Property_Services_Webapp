@@ -64,6 +64,7 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/delivery-profiles", label: "Delivery profiles", icon: Truck, group: "Commercial" },
 
   { href: "/v2/admin/settings", label: "Settings", icon: Settings, group: "Configuration" },
+  { href: "/v2/admin/ai", label: "AI configuration", icon: Sparkles, group: "Configuration" },
   { href: "/v2/admin/checklists", label: "Checklists library", icon: ListChecks, group: "Configuration" },
   { href: "/v2/admin/qa-templates", label: "QA templates", icon: ClipboardCheck, group: "Configuration" },
   { href: "/v2/admin/forms", label: "Forms & stats", icon: ClipboardList, group: "Configuration" },

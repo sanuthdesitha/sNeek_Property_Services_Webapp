@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { listClientApprovals } from "@/lib/commercial/client-approvals";
+import { clientApprovalVersion, listClientApprovals } from "@/lib/commercial/client-approvals";
 
 export async function GET() {
   try {
@@ -83,6 +83,7 @@ export async function GET() {
     return NextResponse.json(
       rows.map((row) => ({
         ...row,
+        version: clientApprovalVersion(row),
         property: row.propertyId ? propertyById.get(row.propertyId) ?? null : null,
         job: row.jobId ? jobById.get(row.jobId) ?? null : null,
       }))

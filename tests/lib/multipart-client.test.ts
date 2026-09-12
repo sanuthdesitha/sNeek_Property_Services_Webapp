@@ -14,6 +14,26 @@ function transport(part: () => Promise<Response>) {
 }
 
 describe("multipart upload recovery", () => {
+  it("commits the allocated key and upload id before dispatching any part", async () => {
+    let persisted = false;
+    const part = vi.fn(async () => { expect(persisted).toBe(true); return new Response(null, { headers: { etag: "receipt" } }); });
+    transport(part);
+    await uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async allocation => {
+      expect(allocation).toEqual({ key: "jobs/user/clip.mp4", uploadId: "upload" });
+      expect(part).not.toHaveBeenCalled(); persisted = true;
+    });
+    expect(part).toHaveBeenCalledOnce();
+  });
+  it("sends no bytes and aborts the empty allocation when durable identity persistence fails", async () => {
+    const part = vi.fn(async () => new Response(null, { headers: { etag: "receipt" } }));
+    const fetcher = transport(part);
+    await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {
+      throw new Error("device quota");
+    })).rejects.toThrow("device quota");
+    expect(part).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
+    expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/complete-multipart", expect.anything());
+  });
   it("streams via the application when browser-to-bucket requests are blocked", async () => {
     const fetcher = vi.fn(async (url: string) => {
       if (url.endsWith("presign-multipart")) return Response.json({ uploadId: "upload", key: "jobs/user/clip.mp4", partUrls: ["https://storage.test/part"] });

@@ -5,6 +5,7 @@ import { getClientPortalContext } from "@/lib/client/portal";
 import { listClientJobsForUser } from "@/lib/client/portal-data";
 import { ClientJobsBoard } from "@/components/v2/client/jobs-board";
 import { EButton, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
+import { isClientModuleEnabled } from "@/lib/portal-access";
 
 export const metadata = { title: "Jobs · Estate client" };
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ export default async function ClientJobsPage() {
   const jobs = await listClientJobsForUser(session.user.id).catch(() => []);
 
   const visibility = portal?.visibility;
+  const canBook = portalCtx.permissions.bookings && isClientModuleEnabled(portalCtx.visibility, "booking");
 
   return (
     <div className="space-y-8">
@@ -32,7 +34,7 @@ export default async function ClientJobsPage() {
         actions={
           <>
             <EButton asChild variant="outline" size="sm"><Link href="/v2/client/calendar">Calendar</Link></EButton>
-            <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton>
+            {canBook ? <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton> : null}
           </>
         }
       />
@@ -43,7 +45,7 @@ export default async function ClientJobsPage() {
           title="No jobs on record"
           description="Scheduled services across your properties will appear here."
           action={
-            <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton>
+            canBook ? <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton> : undefined
           }
         />
       ) : (
@@ -52,6 +54,7 @@ export default async function ClientJobsPage() {
           showCleanerNames={visibility?.showCleanerNames ?? false}
           showClientTaskRequests={visibility?.showClientTaskRequests ?? false}
           showLaundryUpdates={visibility?.showLaundryUpdates ?? false}
+          canBook={canBook}
         />
       )}
     </div>

@@ -22,22 +22,18 @@ import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogSeconds } from "@/lib/time/log-duration";
 import { attachPendingCarryForwardTasksToJob, listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { resolveTemplateReferenceUrls } from "@/lib/forms/resolve-references";
-import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
-import { resolveJobFormTemplate } from "@/lib/forms/resolve-job-template";
+import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form";
+import { jobFormRevision } from "@/lib/forms/job-form-revision";
+import { jobFormPropertySelect, UnsupportedFormPropertyConditionError } from "@/lib/forms/job-form-property";
 import { filterStockByConfig, normalizeInventoryConfig } from "@/lib/forms/inventory-config";
 import { isTeamStarted } from "@/lib/cleaner/team-state";
 import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { getPreviousCleanLaundryCycle } from "@/lib/laundry/previous-cycle";
-import { stripHtmlToText } from "@/lib/forms/sanitize";
 import { Prisma } from "@prisma/client";
 import { parseVisitPlan, visitIsOnDay, describeVisitForCleaner } from "@/lib/maintenance/visit-plan";
-import {
-  buildReworkFormSchema,
-  ensureReworkFormTemplate,
-  normalizeReworkAreas,
-} from "@/lib/qa/rework-jobs";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { canActAs } from "@/lib/auth/roles";
+import { cleanerDraftIdentity } from "@/lib/cleaner/draft-identity";
 
 export async function GET(
   _req: NextRequest,
@@ -59,32 +55,13 @@ export async function GET(
       include: {
         property: {
           select: {
-            name: true,
-            address: true,
-            suburb: true,
-            state: true,
-            postcode: true,
+            ...jobFormPropertySelect,
             ...(includeClientContact
               ? { client: { select: { name: true, phone: true } } }
               : {}),
-            latitude: true,
-            longitude: true,
-            placeId: true,
-            linenBufferSets: true,
-            accessInfo: true,
-            hasBalcony: true,
-            bedrooms: true,
-            bathrooms: true,
-            inventoryEnabled: true,
-            laundryEnabled: true,
             // Job-start gate context (accountability): expected duration, laundry
             // bag identity, sofa beds, and setup reference images. `name` (already
             // selected) carries the property short code (e.g. "J04").
-            cleaningDurationMinutes: true,
-            laundryBagLabel: true,
-            laundryBagColor: true,
-            sofaBedCount: true,
-            setupGuide: true,
           },
         },
         assignments: {
@@ -236,21 +213,8 @@ export async function GET(
     // Every consumer (this route, the progress estimator, the builder's impact
     // panel) uses that one function, so "the admin edited a different row than
     // the job renders" can be diagnosed instead of guessed at.
-    const activeTemplatesForType = await db.formTemplate.findMany({
-      where: { serviceType: job.jobType, isActive: true },
-    });
-    const resolution = resolveJobFormTemplate({
-      jobType: job.jobType,
-      propertyId: job.propertyId,
-      overrides: settings.propertyFormTemplateOverrides,
-      templates: activeTemplatesForType,
-      // A form minted for THIS job (quote → job conversion) — highest priority.
-      jobTemplateId: job.formTemplateId,
-    });
-    const configuredPropertyTemplateId = resolution.configuredPropertyTemplateId;
-    const templateSource: "job_pin" | "property_override" | "global_latest" =
-      resolution.source === "none" ? "global_latest" : resolution.source;
-    let template = resolution.template;
+    const effectiveForm = await resolveEffectiveJobForm(job, settings, { provisionReworkAnchor: true });
+    const { configuredPropertyTemplateId, templateSource } = effectiveForm;
 
     let inventoryStock: any[] = [];
     if (job.property.inventoryEnabled) {
@@ -419,67 +383,7 @@ export async function GET(
     // QA-flagged areas: one section per area showing QA's photo + note and a
     // required "after" photo upload. Reuses a hidden per-job-type template row so
     // the resulting FormSubmission still satisfies its template FK.
-    const reworkAreas = job.isRework ? normalizeReworkAreas(job.reworkAreas) : [];
-    if (job.isRework && reworkAreas.length > 0) {
-      const reworkTemplate = await ensureReworkFormTemplate(job.jobType);
-      template = {
-        ...reworkTemplate,
-        schema: buildReworkFormSchema(reworkAreas, { categorized: jobMeta.reworkCategorized }) as any,
-      } as typeof template;
-    }
-
-    const resolvedTemplate = await resolveTemplateReferenceUrls(template);
-
-    // Inject quote extras as an "Additionals" section so the cleaner sees the
-    // base checklist PLUS exactly the extras that were quoted, each with its
-    // how-to. Appended to whatever template applies (or stands alone if none).
-    let templateWithExtras: any = resolvedTemplate;
-    if (jobMeta.additionals.length > 0) {
-      const additionalsSection = {
-        id: "additionals",
-        title: "Additionals (client-requested)",
-        description: "Extra work added on the quote for this job.",
-        fields: jobMeta.additionals.map((extra) => ({
-          id: extra.id,
-          type: "checkbox",
-          label: stripHtmlToText(extra.label),
-          required: false,
-          instructions: extra.instructions ? stripHtmlToText(extra.instructions) : undefined,
-        })),
-      };
-      if (templateWithExtras) {
-        const schema = (templateWithExtras.schema as any) ?? {};
-        const sections = Array.isArray(schema.sections) ? schema.sections : [];
-        templateWithExtras = {
-          ...templateWithExtras,
-          schema: { ...schema, sections: [...sections, additionalsSection] },
-        };
-      } else {
-        templateWithExtras = {
-          id: "additionals-only",
-          name: "Job additionals",
-          serviceType: job.jobType,
-          schema: { sections: [additionalsSection] },
-        };
-      }
-    }
-
-    // Canonicalise + guarantee the standard sections via the SHARED normalizer,
-    // which the submit route also applies — so the schema the cleaner fills and
-    // validates against is byte-for-byte the required-set the server enforces.
-    // (Read-time only; the stored template rows are never mutated. Legacy shapes
-    // — label/equals/upload/textarea — are canonicalised here too.) Fall back to
-    // the raw schema if normalization ever throws so the form still loads.
-    if (templateWithExtras) {
-      try {
-        templateWithExtras = {
-          ...templateWithExtras,
-          schema: normalizeFormSchema(templateWithExtras.schema),
-        };
-      } catch {
-        /* keep templateWithExtras.schema as-is */
-      }
-    }
+    const templateWithExtras = await resolveTemplateReferenceUrls(effectiveForm.template);
     const currentAssignment =
       session.user.role === Role.CLEANER
         ? job.assignments.find((assignment) => assignment.userId === session.user.id) ?? null
@@ -600,8 +504,20 @@ export async function GET(
       })
       .filter(Boolean);
 
+    let resolvedFormRevision: string | null = null;
+    let formContractError: string | null = null;
+    try {
+      if (effectiveForm.template) resolvedFormRevision = jobFormRevision({ template: effectiveForm.template,
+        job, settings, canUseNoPhoto, finalCheckupItems });
+    } catch (error) {
+      // Preserve legacy rendering during rollout. v2 explicitly declines a
+      // contract it cannot evaluate without disclosing private property data.
+      if (!(error instanceof UnsupportedFormPropertyConditionError)) throw error;
+      formContractError = error.message;
+    }
     return NextResponse.json({
       job,
+      draftIdentity: cleanerDraftIdentity(session, params.id),
       /** CLASSIC records usage as answers and deducts on submit; SCAN adjusts
        *  the shelf immediately. Both work — this only decides which control
        *  the job form renders. */
@@ -634,6 +550,9 @@ export async function GET(
         evidenceStamp: settings.evidenceStamp,
       },
       template: templateWithExtras,
+      formRevision: resolvedFormRevision,
+      formContractError,
+      submittable: effectiveForm.submittable,
       templateSource,
       configuredPropertyTemplateId,
       // Template-level inventory selection (R8a): the stock list the cleaner
@@ -716,7 +635,7 @@ export async function GET(
       laundryBagLocationOptions: settings.laundryBagLocationOptions,
       /** Laundry cycle of the PREVIOUS clean at this property (feeds this clean). */
       previousLaundryCycle,
-    });
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (err: any) {
     const status =
       err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 400;

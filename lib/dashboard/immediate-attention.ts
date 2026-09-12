@@ -74,6 +74,9 @@ export interface AdminAttentionSummary {
   pendingContinuations: number;
   pendingClientApprovals: number;
   pendingQaOutcomes: number;
+  pendingTimingRequests: number;
+  pendingQaReworkTransfers: number;
+  pendingSkipRequests: number;
   openCases: number;
   overdueCases: number;
   attentionCount: number;
@@ -183,6 +186,9 @@ export async function getAdminAttentionSummary(): Promise<AdminAttentionSummary>
     pendingContinuations,
     pendingClientApprovals,
     pendingQaOutcomes,
+    pendingTimingRequests,
+    pendingQaReworkTransfers,
+    pendingSkipRequests,
     openCases: openCases.length,
     overdueCases,
     attentionCount,

@@ -215,6 +215,12 @@
 }
 
 /* ── Motion: gentle rise on entrance ── */
+@keyframes e-nav-enter { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+[data-skin="estate"].e-nav-drawer { background-color: hsl(var(--e-sidebar-bg)); }
+[data-skin="estate"].e-nav-drawer[data-state="open"] { animation: e-nav-enter 180ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  [data-skin="estate"].e-nav-drawer[data-state="open"] { animation: none; }
+}
 @keyframes e-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 [data-skin="estate"] .e-rise { animation: e-rise var(--e-dur-slow) var(--e-ease-entrance) both; }
 
@@ -321,4 +327,30 @@
     color: hsl(var(--e-foreground));
   }
   .e-loader__mark { animation: e-loader-soft-fade 2.4s ease-in-out infinite; }
+}
+/* Jobs respond to their panel width, including when a sidebar is open. */
+.e-job-dialog, .e-job-dialog-backdrop { animation: e-job-dialog-enter 150ms ease-out; }
+@keyframes e-job-dialog-enter { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .e-job-dialog, .e-job-dialog-backdrop { animation: none; }
+}
+
+.e-job-row-container { container-type: inline-size; }
+.e-job-row { grid-template-columns: 18px minmax(0, 1fr); }
+.e-job-row-property { grid-column: 2; grid-row: 1; }
+.e-job-row-detail { display: none; }
+.e-job-row-status { grid-column: 2; grid-row: 2; }
+.e-job-row-actions { grid-column: 2; grid-row: 3; }
+@container (min-width: 560px) {
+  .e-job-row-status { max-width: calc(100% - 17rem); align-self: center; }
+  .e-job-row-actions { grid-row: 2; justify-self: end; max-width: 16rem; }
+}
+@container (min-width: 1100px) {
+  .e-job-row {
+    grid-template-columns: var(--jobs-row-columns, 18px minmax(14rem, 1fr) minmax(6rem, .65fr) minmax(6rem, .65fr) 6rem minmax(5rem, 8rem) 10rem);
+    align-items: center;
+  }
+  .e-job-row-detail { display: block; }
+  .e-job-row-summary { display: none; }
+  .e-job-row-status, .e-job-row-actions { grid-column: auto; grid-row: auto; max-width: none; }
 }

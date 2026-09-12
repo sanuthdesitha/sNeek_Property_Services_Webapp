@@ -4,6 +4,7 @@ import * as React from "react";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
 import { LocationTracker } from "@/components/v2/cleaner/location-tracker";
 import { useMaintenanceSection } from "@/components/v2/portal/use-maintenance-section";
+import { useAttentionCounts } from "@/components/v2/portal/use-attention-counts";
 import {
   CalendarClock,
   CalendarDays,
@@ -23,8 +24,8 @@ import {
   Wrench,
 } from "lucide-react";
 
-// Cleaner nav. PortalShell renders nav.slice(0,5) as the mobile bottom tabs and
-// the FULL list as the desktop rail + mobile drawer.
+// Cleaner nav. PortalShell uses its independent mobile tab map and the full
+// supplied list for the desktop rail and mobile drawer.
 //
 // The bottom five are what a cleaner opens every day: Today, Jobs, Schedule,
 // Pay, More. Route and Supplies moved into More (2026-08) — Route is only
@@ -32,8 +33,7 @@ import {
 // earned a permanent thumb-reachable slot ahead of the schedule and the money.
 // Native Estate — no v1 UI.
 const NAV: NavItem[] = [
-  // The first five are the mobile bottom bar (portal-shell slices them), so
-  // they are the screens a cleaner opens with a thumb mid-shift.
+  // Daily destinations also appear in the independent mobile tab map.
   { href: "/v2/cleaner", label: "Today", icon: Home },
   { href: "/v2/cleaner/jobs", label: "Jobs", icon: CalendarDays },
   { href: "/v2/cleaner/calendar", label: "Schedule", icon: CalendarRange },
@@ -66,37 +66,15 @@ export default function V2CleanerLayout({ children }: { children: React.ReactNod
   // One fetch, refreshed on an interval and on focus. A failure leaves the
   // counts empty and therefore renders no pills — the nav must never break
   // because a count could not be computed.
-  const [counts, setCounts] = React.useState<Record<string, number>>({});
+  const counts = useAttentionCounts("/api/cleaner/attention-counts");
 
   // CP-6. A cleaner has no maintenance screen by default — the entry appears
   // only while they are actually assigned to a maintenance item, and goes away
   // again when they are taken off it.
   const maintenance = useMaintenanceSection();
 
-  React.useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      fetch("/api/cleaner/attention-counts", { cache: "no-store" })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((body) => {
-          if (!cancelled && body?.counts) setCounts(body.counts as Record<string, number>);
-        })
-        .catch(() => undefined);
-    };
-    load();
-    const timer = setInterval(load, 60_000);
-    window.addEventListener("focus", load);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      window.removeEventListener("focus", load);
-    };
-  }, []);
-
   const nav = React.useMemo(() => {
-    // Appended AFTER the base list on purpose: PortalShell renders
-    // nav.slice(0, 5) as the mobile bottom tabs, so a conditional entry must
-    // never push a daily tab off the thumb bar.
+    // Conditional sections do not change the independent daily mobile tabs.
     const items = maintenance.assigned
       ? [
           ...NAV,
@@ -116,10 +94,8 @@ export default function V2CleanerLayout({ children }: { children: React.ReactNod
 
   return (
     <div data-skin="estate" data-portal-accent="cleaner">
-      {/* Background live-location tracker — persists for the whole active-job
-          window regardless of which screen is open. Renders nothing. */}
-      <LocationTracker />
       <PortalShell accent="cleaner" wordmark="sNeek" nav={nav} roleLabel="Cleaner">
+        <LocationTracker />
         {children}
       </PortalShell>
     </div>

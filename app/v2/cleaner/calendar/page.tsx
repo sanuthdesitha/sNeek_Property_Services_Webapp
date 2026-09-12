@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { ensureCleanerModuleAccess } from "@/lib/portal-access";
 import { Role } from "@prisma/client";
 import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
+import { sydneyDateKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { EstateCalendar, type CalendarJob } from "@/components/v2/cleaner/estate-calendar";
 
@@ -40,39 +41,57 @@ function titleCase(v: string) {
 }
 
 /**
- * Native Estate cleaner calendar. Same module gate + query as the legacy
- * `app/cleaner/calendar` route (jobs assigned to the session cleaner, removedAt
- * null). The mounted EstateCalendar (month grid + agenda) deep-links each entry
+ * Native Estate cleaner calendar. The selected Sydney month includes all jobs
+ * actively assigned to the session cleaner. The mounted EstateCalendar
+ * (month grid + agenda) deep-links each entry
  * into the Estate job workspace. No v1 calendar / UI components are imported.
  */
-export default async function V2CleanerCalendarPage() {
+export default async function V2CleanerCalendarPage({
+  searchParams,
+}: { searchParams?: { month?: string | string[] } }) {
   await ensureCleanerModuleAccess("calendar");
   const session = await requireRole([Role.CLEANER]);
+  const todayKey = sydneyTodayKey();
+  const requestedMonth = searchParams?.month;
+  const monthKey = typeof requestedMonth === "string" &&
+    /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth) &&
+    Number(requestedMonth.slice(0, 4)) >= 2000 && Number(requestedMonth.slice(0, 4)) <= 2100
+    ? requestedMonth : todayKey.slice(0, 7);
+  const [year, month] = monthKey.split("-").map(Number);
+  const nextMonthKey = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, "0")}`;
 
   const jobs = await db.job
     .findMany({
-      where: { assignments: { some: { userId: session.user.id, removedAt: null } } },
+      where: {
+        assignments: { some: { userId: session.user.id, removedAt: null } },
+        scheduledDate: { gte: sydneyDayStart(`${monthKey}-01`), lt: sydneyDayStart(`${nextMonthKey}-01`) },
+      },
       select: {
         id: true,
         status: true,
         jobType: true,
         scheduledDate: true,
         startTime: true,
+        dueTime: true,
+        sameDayCheckin: true,
+        sameDayCheckinTime: true,
         internalNotes: true,
         assignments: { where: { userId: session.user.id, removedAt: null }, select: { responseStatus: true } },
         property: { select: { name: true, suburb: true } },
       },
       orderBy: [{ scheduledDate: "asc" }],
-      take: 400,
     })
-    .catch(() => []);
+    .catch(() => null);
 
-  const events: CalendarJob[] = jobs.map((job) => ({
+  const events: CalendarJob[] = (jobs ?? []).map((job) => ({
     id: job.id,
-    dateKey: job.scheduledDate.toISOString().slice(0, 10),
+    dateKey: sydneyDateKey(job.scheduledDate),
     title: job.property.name,
     subtitle: [job.property.suburb, titleCase(job.jobType)].filter(Boolean).join(" · "),
     startTime: job.startTime,
+    dueTime: job.dueTime,
+    sameDayCheckin: job.sameDayCheckin,
+    sameDayCheckinTime: job.sameDayCheckinTime,
     status: titleCase(job.status),
     rawStatus: job.status,
     pendingOffer: job.assignments.some((assignment) => assignment.responseStatus === "PENDING"),
@@ -85,9 +104,16 @@ export default async function V2CleanerCalendarPage() {
       <EPageHeader
         eyebrow="Schedule"
         title="Calendar"
-        description="Your assigned jobs by month, or as an upcoming agenda."
+        description="Your assigned jobs for the selected month."
       />
-      <EstateCalendar jobs={events} />
+      {jobs === null ? (
+        <div role="alert" className="space-y-2">
+          <p>Unable to load your calendar. Please try again.</p>
+          <a href={`/v2/cleaner/calendar?month=${monthKey}`} className="inline-block underline">Retry</a>
+        </div>
+      ) : (
+        <EstateCalendar jobs={events} monthKey={monthKey} todayKey={todayKey} />
+      )}
     </div>
   );
 }

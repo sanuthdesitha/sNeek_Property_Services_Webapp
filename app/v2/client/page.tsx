@@ -52,8 +52,12 @@ const ACTIVE_JOB_STATUSES = [
   "QA_REVIEW",
 ];
 
-function money(value: number | null | undefined) {
-  return `$${Number(value ?? 0).toFixed(2)}`;
+function money(value: number) {
+  return `$${value.toFixed(2)}`;
+}
+
+function Unavailable({ section }: { section: string }) {
+  return <p className="py-4 text-sm text-[hsl(var(--e-muted-foreground))]">{section} unavailable.</p>;
 }
 
 function titleCase(value: string) {
@@ -97,10 +101,10 @@ export default async function ClientHomePage() {
   const propertyWhere = propertyScopeWhere(portalCtx);
   const firstName = session.user.name ? session.user.name.split(" ")[0] : null;
 
-  const [jobs, reports] = await Promise.all([
-    listClientJobsForUser(session.user.id).catch(() => []),
+  const [jobsResult, reportsResult] = await Promise.all([
+    listClientJobsForUser(session.user.id).catch(() => null),
     visibility?.showReports
-      ? listClientReportsForUser(session.user.id).catch(() => [])
+      ? listClientReportsForUser(session.user.id).catch(() => null)
       : Promise.resolve([]),
   ]);
 
@@ -111,16 +115,16 @@ export default async function ClientHomePage() {
 
   const clientId = portal?.clientId ?? null;
 
-  const [properties, propertyStocks, laundryUpdates, urgentItems] = await Promise.all([
-    clientId && visibility?.showProperties
+  const [propertiesResult, stocksResult, laundryResult, attentionResult] = await Promise.all([
+    visibility.showProperties && clientId
       ? db.property
           .findMany({
             where: { ...propertyWhere, isActive: true },
             select: { id: true, name: true, suburb: true, bedrooms: true, bathrooms: true, hasBalcony: true },
             orderBy: { name: "asc" },
           })
-          .catch(() => [])
-      : Promise.resolve([]),
+          .catch(() => null)
+      : Promise.resolve(visibility.showProperties ? null : []),
     clientId && visibility?.showInventory
       ? db.propertyStock
           .findMany({
@@ -132,8 +136,8 @@ export default async function ClientHomePage() {
             orderBy: [{ property: { name: "asc" } }, { item: { name: "asc" } }],
             take: 2000,
           })
-          .catch(() => [])
-      : Promise.resolve([]),
+          .catch(() => null)
+      : Promise.resolve(visibility.showInventory ? null : []),
     clientId && visibility?.showLaundryUpdates
       ? db.laundryTask
           .findMany({
@@ -154,12 +158,31 @@ export default async function ClientHomePage() {
             orderBy: [{ pickupDate: "asc" }],
             take: 6,
           })
-          .catch(() => [])
-      : Promise.resolve([]),
-    visibility
-      ? getClientImmediateAttention({ clientId, visibility, propertyIds: portalCtx.propertyIds }).catch(() => [])
-      : Promise.resolve([]),
+          .catch(() => null)
+      : Promise.resolve(visibility.showLaundryUpdates ? null : []),
+    clientId
+      ? getClientImmediateAttention({ clientId, visibility, propertyIds: portalCtx.propertyIds }).catch(() => null)
+      : Promise.resolve(null),
   ]);
+
+  const jobs = jobsResult ?? [];
+  const reports = reportsResult ?? [];
+  const properties = propertiesResult ?? [];
+  const propertyStocks = stocksResult ?? [];
+  const laundryUpdates = laundryResult ?? [];
+  const urgentItems = attentionResult ?? [];
+  const financeUnavailable = visibility.showFinanceDetails && finance === null;
+  const failedSections = [
+    !clientId && "Account",
+    jobsResult === null && "Services",
+    reportsResult === null && "Reports",
+    propertiesResult === null && "Properties",
+    stocksResult === null && "Inventory",
+    laundryResult === null && "Laundry",
+    attentionResult === null && "Attention",
+    financeUnavailable && "Finance",
+  ].filter(Boolean);
+  const unavailableValue = <span className="text-sm">Unavailable</span>;
 
   const stockByProperty = new Map<string, (typeof propertyStocks)[number][]>();
   for (const stock of propertyStocks) {
@@ -217,8 +240,7 @@ export default async function ClientHomePage() {
   const needsYouCount = actionableItems.reduce((sum, item) => sum + item.count, 0);
   const lowStockTotal = inventoryByProperty.reduce((sum, row) => sum + row.lowCount, 0);
 
-  const unbilledTotal = money(finance?.summary.pendingChargeTotal);
-  const unbilledCount = finance?.summary.pendingChargeCount ?? 0;
+  const unbilledCount = finance?.summary.pendingChargeCount;
 
   return (
     <div className="space-y-8">
@@ -235,12 +257,19 @@ export default async function ClientHomePage() {
         <div className="e-signature-rule mt-4" />
       </header>
 
+      {failedSections.length > 0 ? (
+        <div role="alert" className="border-l-4 border-red-600 px-4 py-3 text-sm">
+          Some dashboard data could not be loaded: {failedSections.join(", ")}.{" "}
+          <a href="/v2/client" className="underline">Retry</a>
+        </div>
+      ) : null}
+
       {/* Next-service hero */}
       <ECard variant="ceremony" className="overflow-hidden">
         <div className="grid gap-0 md:grid-cols-[1.4fr_1fr]">
           <ECardBody className="space-y-3 pt-6">
             <EEyebrow>NEXT SERVICE</EEyebrow>
-            {nextJob ? (
+            {jobsResult === null ? <Unavailable section="Next service" /> : nextJob ? (
               <>
                 <p className="e-display-sm">
                   {format(toZonedTime(nextJob.scheduledDate, TZ), "EEE d MMM")}
@@ -284,9 +313,9 @@ export default async function ClientHomePage() {
                 </p>
                 <div className="flex flex-wrap gap-2 pt-3">
                   {visibility.showBooking ? <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton> : null}
-                  <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
+                  {portalCtx.permissions.messages ? <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
                       <MessageSquare className="h-3.5 w-3.5" /> Message ops
-                    </Link></EButton>
+                    </Link></EButton> : null}
                 </div>
               </>
             )}
@@ -358,9 +387,9 @@ export default async function ClientHomePage() {
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <EStatCard
           label="Today"
-          value={String(todayJobs.length)}
+          value={jobsResult === null ? unavailableValue : String(todayJobs.length)}
           delta={
-            todayJobs.length === 0
+            jobsResult === null ? "Services could not be loaded" : todayJobs.length === 0
               ? "Nothing scheduled"
               : todayJobs.map((job) => job.property?.name).filter(Boolean).join(", ") || "Scheduled"
           }
@@ -369,35 +398,35 @@ export default async function ClientHomePage() {
         />
         <EStatCard
           label="Next clean"
-          value={nextJobLabel}
-          delta={nextJob?.property?.name ?? "Nothing upcoming"}
+          value={jobsResult === null ? unavailableValue : nextJobLabel}
+          delta={jobsResult === null ? "Services could not be loaded" : nextJob?.property?.name ?? "Nothing upcoming"}
           deltaTone="neutral"
           icon={<CalendarClock className="h-4 w-4" />}
         />
         <EStatCard
           label="Needs you"
-          value={String(needsYouCount)}
-          delta={needsYouCount === 0 ? "Nothing waiting" : "Items requiring attention"}
+          value={attentionResult === null ? unavailableValue : String(needsYouCount)}
+          delta={attentionResult === null ? "Attention could not be loaded" : needsYouCount === 0 ? "Nothing waiting" : "Items requiring attention"}
           deltaTone={needsYouCount > 0 ? "danger" : "neutral"}
           icon={<ClipboardCheck className="h-4 w-4" />}
         />
         {visibility?.showFinanceDetails ? (
           <EStatCard
             label="Unbilled work"
-            value={unbilledTotal}
-            delta={`${unbilledCount} service${unbilledCount === 1 ? "" : "s"} awaiting invoice`}
+            value={finance ? money(finance.summary.pendingChargeTotal) : unavailableValue}
+            delta={finance ? `${unbilledCount} service${unbilledCount === 1 ? "" : "s"} awaiting invoice` : "Finance could not be loaded"}
             deltaTone="neutral"
             icon={<FileText className="h-4 w-4" />}
           />
-        ) : (
+        ) : visibility.showInventory ? (
           <EStatCard
             label="Low stock"
-            value={String(lowStockTotal)}
-            delta={lowStockTotal === 0 ? "All topped up" : "Items at or below threshold"}
+            value={stocksResult === null ? unavailableValue : String(lowStockTotal)}
+            delta={stocksResult === null ? "Inventory could not be loaded" : lowStockTotal === 0 ? "All topped up" : "Items at or below threshold"}
             deltaTone={lowStockTotal > 0 ? "danger" : "neutral"}
             icon={<Star className="h-4 w-4" />}
           />
-        )}
+        ) : null}
       </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -408,7 +437,7 @@ export default async function ClientHomePage() {
             <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/services">View all</Link></EButton>
           </ECardHeader>
           <ECardBody className="space-y-1">
-            {upcoming.length === 0 ? (
+            {jobsResult === null ? <Unavailable section="Upcoming services" /> : upcoming.length === 0 ? (
               <EEmptyState
                 eyebrow="All quiet"
                 title="No upcoming services"
@@ -439,13 +468,13 @@ export default async function ClientHomePage() {
         </ECard>
 
         {/* Recent reports */}
-        <ECard>
+        {visibility.showReports ? <ECard>
           <ECardHeader className="flex-row items-center justify-between">
             <ECardTitle>Recent reports</ECardTitle>
             <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/reports">View all</Link></EButton>
           </ECardHeader>
           <ECardBody className="space-y-1">
-            {reports.length === 0 ? (
+            {reportsResult === null ? <Unavailable section="Reports" /> : reports.length === 0 ? (
               <EEmptyState
                 eyebrow="Nothing yet"
                 title="No reports available"
@@ -477,7 +506,7 @@ export default async function ClientHomePage() {
               ))
             )}
           </ECardBody>
-        </ECard>
+        </ECard> : null}
       </div>
 
       {/* Your properties */}
@@ -488,7 +517,7 @@ export default async function ClientHomePage() {
             <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/properties">Manage</Link></EButton>
           </ECardHeader>
           <ECardBody className="grid gap-3 pt-0 sm:grid-cols-2 lg:grid-cols-3">
-            {properties.length === 0 ? (
+            {propertiesResult === null ? <Unavailable section="Properties" /> : properties.length === 0 ? (
               <p className="py-4 text-[0.875rem] text-[hsl(var(--e-muted-foreground))] sm:col-span-2 lg:col-span-3">
                 No properties found for this account.
               </p>
@@ -536,7 +565,7 @@ export default async function ClientHomePage() {
               </div>
             </ECardHeader>
             <ECardBody className="space-y-3 pt-0">
-              {inventoryByProperty.length === 0 ? (
+              {stocksResult === null ? <Unavailable section="Inventory" /> : inventoryByProperty.length === 0 ? (
                 <p className="py-4 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
                   No inventory tracked yet.
                 </p>
@@ -587,7 +616,7 @@ export default async function ClientHomePage() {
               <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/laundry">View all</Link></EButton>
             </ECardHeader>
             <ECardBody className="space-y-3 pt-0">
-              {laundryUpdates.length === 0 ? (
+              {laundryResult === null ? <Unavailable section="Laundry" /> : laundryUpdates.length === 0 ? (
                 <p className="py-4 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
                   No laundry updates.
                 </p>

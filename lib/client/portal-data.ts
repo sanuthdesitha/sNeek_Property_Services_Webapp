@@ -456,6 +456,7 @@ export async function listClientJobsForUser(userId: string) {
         id: true,
         jobNumber: true,
         jobType: true,
+        isRework: true,
         status: true,
         scheduledDate: true,
         startTime: true,

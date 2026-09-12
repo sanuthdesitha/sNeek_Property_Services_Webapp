@@ -32,6 +32,8 @@ import { EBadge, EButton, ECard, ECardBody, EAlert } from "@/components/v2/ui/pr
 import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture } from "@/components/v2/cleaner/media-capture";
+import { useSubmissionPreflight } from "@/components/v2/cleaner/use-submission-preflight";
+import { DraftSaveStatus } from "@/components/v2/cleaner/draft-save-status";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
 import { stripHtmlToText } from "@/lib/forms/sanitize";
 import { formatDuration } from "@/lib/time/format-duration";
@@ -65,6 +67,8 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
     busy,
     addressLine,
   } = api;
+  const syncBlockers = useSubmissionPreflight(!locked);
+  if (api.payload?.formContractError) syncBlockers.push(api.payload.formContractError);
 
   // Locked → the submitted review state is the whole stage (design "Job
   // submitted" screen: confirmation, quality-pending, time on site, back home).
@@ -482,11 +486,9 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
       {/* Submit */}
       <ECard variant="ceremony">
         <ECardBody className="space-y-3 pt-6">
-          {tasksPending ? (
-            <p className="flex items-center gap-1.5 text-[0.8125rem] text-[hsl(var(--e-warning))]">
-              <AlertTriangle className="h-4 w-4" /> Mark every checklist item done or not done before submitting.
-            </p>
-          ) : null}
+          <h2 className="font-semibold">Before you submit</h2>
+          {api.draftSaveState && api.retryDraftSave ? <DraftSaveStatus state={api.draftSaveState} onRetry={api.retryDraftSave} /> : null}
+          {busy ? <p role="status" className="text-sm">{busy === "submit" ? "Submitting; wait for confirmation before leaving." : "Another job action is in progress. Wait before submitting."}</p> : null}
           {api.timingRules?.earlyCheckin?.time ? (
             <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550] text-[hsl(var(--e-warning))]">
               <AlertTriangle className="h-4 w-4" /> Early check-in — the property must be guest-ready
@@ -504,7 +506,7 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
           <EButton
             variant="gold"
             className="w-full"
-            disabled={busy === "submit" || tasksPending}
+            disabled={Boolean(busy) || tasksPending || syncBlockers.length > 0}
             onClick={() => api.requestSubmit()}
           >
             {busy === "submit" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -512,14 +514,16 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
           </EButton>
 
           {/* Tappable validation rows */}
-          {formErrors.length > 0 || laundryErrors.length > 0 ? (
-            <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] p-3">
+          {formErrors.length > 0 || laundryErrors.length > 0 || tasksPending || syncBlockers.length > 0 ? (
+            <div aria-label="Submission checks" className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] p-3">
               <p className="flex items-center gap-1.5 text-[0.8125rem] font-[600]">
                 <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                {formErrors.length + laundryErrors.length} item
-                {formErrors.length + laundryErrors.length === 1 ? "" : "s"} to finish
+                {formErrors.length + laundryErrors.length + Number(tasksPending) + syncBlockers.length} check
+                {formErrors.length + laundryErrors.length + Number(tasksPending) + syncBlockers.length === 1 ? "" : "s"} to finish
               </p>
               <ul className="mt-2 space-y-1">
+                {syncBlockers.map(message => <li key={message} className="text-sm" role="status">{message}</li>)}
+                {tasksPending ? <li><button type="button" className="text-sm underline" onClick={() => api.setActiveStage(4)}>Mark every checklist item done or not done in Clean.</button></li> : null}
                 {formErrors.map((err) => (
                   <li key={err.fieldId}>
                     <button

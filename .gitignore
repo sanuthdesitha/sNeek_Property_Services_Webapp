@@ -17,6 +17,9 @@
 /.next-prod/
 /.next-prod.__build/
 /.next-verify.__build/
+/.next-v2-verification/
+/.next-v2-verification.__build/
+/.next-v2-verification.__previous/
 /out/
 
 # production
@@ -57,6 +60,7 @@ prisma/migrations/*.sql.bak
 # local backups and scratch output
 /backups/
 /.claude/
+/.codex/
 /.next-build/
 /.next-check/
 /.next-dev/

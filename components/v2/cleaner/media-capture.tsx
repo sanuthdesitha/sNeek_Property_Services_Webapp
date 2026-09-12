@@ -43,6 +43,10 @@ import { isStampableImage, type StampGps, type StampOptions } from "@/lib/upload
 import { getAccuratePosition } from "@/lib/geo/get-position";
 import { uploadMultipart } from "@/lib/uploads/multipart-client";
 import { compressVideo, isVideoFile } from "@/lib/uploads/compress-video";
+import { getEvidence, listEvidence, putEvidence, type EvidenceRecord, type EvidenceScope } from "@/lib/cleaner/evidence-store";
+import { processEvidence } from "@/lib/cleaner/evidence-client";
+import { useEvidenceScope } from "./evidence-context";
+import { getVolatileEvidence, retainVolatileEvidence, releaseVolatileEvidence } from "@/lib/cleaner/evidence-volatile";
 
 export interface CapturedMedia {
   key: string;
@@ -183,7 +187,8 @@ async function uploadLargeFile(
   file: File,
   folder: string,
   onBytes?: (sent: number, total: number) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>
 ): Promise<CapturedMedia> {
   try {
     const { url, key } = await uploadMultipart(
@@ -192,13 +197,18 @@ async function uploadLargeFile(
       file.type || "application/octet-stream",
       (progress) => onBytes?.(progress.bytesUploaded, progress.totalBytes),
       signal,
-      folder
+      folder,
+      onAllocated
     );
+    if (typeof key !== "string" || !key.trim() || typeof url !== "string" || !url.trim()) {
+      throw new PermanentUploadError("Upload response is incomplete. The file was not attached.");
+    }
     return { key, url, name: file.name, kind: kindForFile(file) };
   } catch (err: any) {
     // An aborted upload is a decision, not a failure — it must not be offered
     // for automatic retry alongside genuine errors.
     if (signal?.aborted) throw new PermanentUploadError("Upload cancelled");
+    if (err instanceof PermanentUploadError) throw err;
     throw new Error(err?.message || "Upload failed");
   }
 }
@@ -265,7 +275,11 @@ function uploadOne(
       } catch {
         body = {};
       }
-      if (xhr.status >= 200 && xhr.status < 300 && body?.key) {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        if (typeof body?.key !== "string" || !body.key.trim() || typeof body?.url !== "string" || !body.url.trim()) {
+          reject(new PermanentUploadError("Upload response is incomplete. The file was not attached."));
+          return;
+        }
         resolve({
           key: body.key,
           url: body.url,
@@ -310,7 +324,7 @@ async function uploadWithRetry(
     // A cancelled upload surfaces as PermanentUploadError, so the retry below
     // is skipped without needing its own abort check.
     if (err instanceof PermanentUploadError) throw err;
-    if (file.size > AUTO_RETRY_MAX_BYTES) throw err;
+    if (isVideoFile(file) || file.size > AUTO_RETRY_MAX_BYTES) throw err;
     await new Promise((resolve) => setTimeout(resolve, 700));
     return uploadOne(file, folder, onBytes, signal);
   }
@@ -337,6 +351,8 @@ function isHeavyUpload(file: File): boolean {
 }
 
 export interface UploadFailure {
+  captureId?: string;
+  volatileId?: string;
   name: string;
   reason: string;
   /** Kept so the caller can retry exactly this file without re-picking it. */
@@ -368,6 +384,14 @@ export async function prepareAndUploadFiles(
     folder: string;
     stamp?: StampOptions | null;
     source: CaptureSource;
+    evidence?: EvidenceScope & { fieldId: string };
+    recoveryRecords?: EvidenceRecord[];
+    /** Internal recovery hooks: persist prepared bytes before network. */
+    prepared?: File;
+    onPrepared?: (file: File) => Promise<void>;
+    beforeNetwork?: () => Promise<void>;
+    onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>;
+    noAutoRetry?: boolean;
     /** Fires as each file settles. */
     onProgress?: (done: number, total: number) => void;
     /** Fires as bytes move, so a big video shows movement rather than a spinner. */
@@ -380,6 +404,67 @@ export async function prepareAndUploadFiles(
     signal?: AbortSignal;
   }
 ): Promise<{ results: CapturedMedia[]; failed: UploadFailure[]; failedCount: number }> {
+  if (opts.evidence) {
+    const results: CapturedMedia[] = []; const failed: UploadFailure[] = [];
+    const records: EvidenceRecord[] = opts.recoveryRecords ?? files.map(file => getVolatileEvidence(opts.evidence!).find(record => record.blob === file && record.fieldId === opts.evidence!.fieldId) ?? ({
+      ...opts.evidence!, id: crypto.randomUUID(), fieldId: opts.evidence!.fieldId,
+      filename: file.name, mime: file.type, blob: file, createdAt: Date.now(),
+      folder: opts.folder, source: opts.source, stamp: opts.stamp, status: "captured",
+    }));
+    const durableIds = new Set<string>();
+    if (!opts.recoveryRecords) records.forEach(retainVolatileEvidence);
+    for (let index = 0; index < records.length; index++) {
+      try {
+        if (!opts.recoveryRecords) await putEvidence(records[index]);
+        releaseVolatileEvidence(records[index].id);
+        durableIds.add(records[index].id);
+      } catch (error) {
+        failed.push({ volatileId: records[index].id, name: files[index].name, file: files[index],
+          reason: `Not saved on this device. Keep this page open and save the original: ${error instanceof Error ? error.message : "storage unavailable"}` });
+      }
+    }
+    // Originals enter durable storage before compression, stamping or upload.
+    // Each receipt is acknowledged independently, even if later files fail.
+    for (let index = 0; index < files.length; index++) {
+      if (opts.signal?.aborted) break;
+      const file = files[index];
+      const record = records[index];
+      if (!durableIds.has(record.id)) continue;
+      try {
+        const receipt = await processEvidence(record, opts.evidence, async (current, beforeNetwork) => {
+          const prepared = current.prepared ? new File([current.prepared], current.preparedName ?? current.filename, { type: current.prepared.type }) : undefined;
+          const uploaded = await prepareAndUploadFiles([new File([current.blob], current.filename, { type: current.mime })], {
+            folder: `forms/${current.jobId}/${current.id}`, source: current.source, signal: opts.signal,
+            stamp: current.stamp === null ? null : { ...current.stamp, capturedAt: current.createdAt },
+            prepared, onFileProgress: opts.onFileProgress,
+            beforeNetwork, noAutoRetry: true,
+            onAllocated: async allocation => {
+              const parts = allocation.key.split("/");
+              if (parts.length !== 5 || parts[0] !== "forms" || parts[1] !== current.jobId || parts[2] !== current.id || !parts[3] || !parts[4]) {
+                throw new Error("Upload allocation belongs to another capture. No file bytes were sent.");
+              }
+              const latest = await getEvidence(current.id);
+              if (!latest) throw new Error("Device evidence recovery record disappeared.");
+              await putEvidence({ ...latest, allocation });
+            },
+            onPrepared: async bytes => {
+              const latest = await getEvidence(current.id);
+              if (!latest) throw new Error("Device evidence recovery record disappeared.");
+              await putEvidence({ ...latest, prepared: bytes, preparedName: bytes.name });
+            },
+          });
+          if (!uploaded.results[0]) throw new Error(uploaded.failed[0]?.reason || "Upload interrupted. Retry from device recovery.");
+          return uploaded.results[0];
+        });
+        results.push(receipt);
+      } catch (error) {
+        failed.push({ captureId: record.id, name: file.name, file,
+          reason: error instanceof Error ? error.message : "Evidence recovery failed." });
+      }
+      opts.onProgress?.(index + 1, files.length);
+    }
+    return { results, failed, failedCount: failed.length };
+  }
   const slots: Array<CapturedMedia | null> = new Array(files.length).fill(null);
   const failed: UploadFailure[] = [];
   const inFlight = new Map<number, UploadProgress>();
@@ -409,7 +494,9 @@ export async function prepareAndUploadFiles(
         let dispose: (() => Promise<void>) | undefined;
         try {
           let prepared: File;
-          if (isVideoFile(file)) {
+          if (opts.prepared) {
+            prepared = opts.prepared;
+          } else if (isVideoFile(file)) {
             const result = await compressVideo(file, {
               signal: opts.signal,
               onProgress: (percent) => {
@@ -424,19 +511,25 @@ export async function prepareAndUploadFiles(
           }
           inFlight.set(index, { name: file.name, phase: "uploading", percent: 0 });
           publish();
-          slots[index] = await uploadWithRetry(
-            prepared,
-            opts.folder,
-            (sent, total) => {
+          await opts.onPrepared?.(prepared);
+          opts.signal?.throwIfAborted();
+          if (!opts.noAutoRetry) await opts.beforeNetwork?.();
+          // Durable captures use the settings-aware multipart transport even
+          // for small files. Legacy direct uploads use environment-only storage.
+          const onBytes = (sent: number, total: number) => {
               inFlight.set(index, {
                 name: file.name,
                 percent: total > 0 ? Math.round((sent / total) * 100) : null,
                 phase: "uploading",
               });
               publish();
-            },
-            opts.signal
-          );
+            };
+          slots[index] = opts.noAutoRetry
+            ? await uploadLargeFile(prepared, opts.folder, onBytes, opts.signal, async allocation => {
+                await opts.onAllocated?.(allocation);
+                await opts.beforeNetwork?.();
+              })
+            : await uploadWithRetry(prepared, opts.folder, onBytes, opts.signal);
         } catch (err: any) {
           // A file the cleaner cancelled is not a file that failed. Putting it
           // in the red retry box invites them to re-send what they just stopped.
@@ -448,7 +541,8 @@ export async function prepareAndUploadFiles(
             });
           }
         } finally {
-          await dispose?.();
+          // Temporary-file cleanup must not discard upload receipts or stop the lane.
+          try { await dispose?.(); } catch { /* Browser storage cleanup is best effort. */ }
           inFlight.delete(index);
           done += 1;
           opts.onProgress?.(done, files.length);
@@ -608,6 +702,7 @@ export function MediaLightbox({
 }
 
 export function MediaCapture({
+  evidenceFieldId,
   value,
   onChange,
   mode = "photo",
@@ -618,6 +713,7 @@ export function MediaCapture({
   stamp,
   error = false,
 }: {
+  evidenceFieldId?: string;
   value: CapturedMedia[];
   onChange: (next: CapturedMedia[]) => void;
   /** photo → camera + gallery; video → recorder + library; both → all; file → any document. */
@@ -635,6 +731,7 @@ export function MediaCapture({
   /** Draw an error ring (required-field validation failed). */
   error?: boolean;
 }) {
+  const evidenceScope = useEvidenceScope();
   const [busy, setBusy] = React.useState(0);
   // Counting up beats a spinner: on a slow connection a lump spinner is
   // indistinguishable from a hang, and cleaners kill the tab.
@@ -657,8 +754,11 @@ export function MediaCapture({
   React.useEffect(() => () => abortRef.current?.abort(), []);
 
   const runUpload = React.useCallback(
-    async (list: File[], source: CaptureSource) => {
+    async (list: File[], source: CaptureSource, recoveryRecords?: EvidenceRecord[]) => {
       if (list.length === 0) return;
+      if (evidenceFieldId && evidenceScope === null) {
+        setUploadError("The form's recovery context is unavailable. Reload or contact the office before capturing evidence."); return;
+      }
       setUploadError(null);
       setNotice(null);
       setBusy((n) => n + list.length);
@@ -669,6 +769,8 @@ export function MediaCapture({
           folder,
           stamp,
           source,
+          evidence: evidenceScope && evidenceFieldId ? { ...evidenceScope, fieldId: evidenceFieldId } : undefined,
+          recoveryRecords,
           signal: controller.signal,
           onProgress: (uploadDone, total) =>
             setProgress(total > 1 ? { done: uploadDone, total } : null),
@@ -700,7 +802,7 @@ export function MediaCapture({
         setInFlight([]);
       }
     },
-    [folder, multiple, onChange, value, stamp]
+    [folder, multiple, onChange, value, stamp, evidenceScope, evidenceFieldId]
   );
 
   const cancelUpload = React.useCallback(() => {
@@ -719,12 +821,20 @@ export function MediaCapture({
   // on a phone they often cannot: the camera-roll entry for a photo taken a
   // minute ago is not always easy to find again.
   const retryFailed = React.useCallback(async () => {
+    if (evidenceScope && evidenceFieldId) {
+      const records = (await Promise.all(failures.map(f => f.captureId ? getEvidence(f.captureId) : undefined))).filter((r): r is EvidenceRecord => Boolean(r));
+      if (records.length) await runUpload(records.map(r => new File([r.blob], r.filename, { type: r.mime })), "gallery", records);
+      const retainedIds = new Set(getVolatileEvidence(evidenceScope).map(record => record.id));
+      const unsaved = failures.filter(f => !f.captureId && (!f.volatileId || retainedIds.has(f.volatileId))).map(f => f.file);
+      if (unsaved.length) await runUpload(unsaved, "gallery");
+      return;
+    }
     const files = failures.map((f) => f.file);
     if (files.length === 0) return;
     // Re-stamping is idempotent, and "gallery" is right: the file is no
     // longer coming straight off the camera.
     await runUpload(files, "gallery");
-  }, [failures, runUpload]);
+  }, [failures, runUpload, evidenceScope, evidenceFieldId]);
 
   /**
    * Removal is list-only. There is no cleaner-facing delete endpoint —
@@ -734,8 +844,34 @@ export function MediaCapture({
    * evidence of a job from the bucket.
    */
   const removeKeys = React.useCallback(
-    (keys: Set<string>) => {
+    async (keys: Set<string>) => {
       if (keys.size === 0) return;
+      if (evidenceScope && evidenceFieldId) {
+        try {
+          for (const key of Array.from(keys)) {
+            const records = (await listEvidence()).filter(record => record.draftIdentity === evidenceScope.draftIdentity && record.receipt?.key === key);
+            const detach = async () => {
+            const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(evidenceScope.jobId)}/evidence`, {
+              method: "DELETE", headers: { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": evidenceScope.draftIdentity },
+              body: JSON.stringify({ key, formRevision: evidenceScope.formRevision }),
+            });
+            const body = await response.json();
+            if (!response.ok || body?.ok !== true || body.key !== key) throw new Error(body?.error || "Evidence removal was not confirmed.");
+            for (const record of records) {
+              const latest = await getEvidence(record.id);
+              if (latest) await putEvidence({ ...latest, status: "detached" });
+            }
+            };
+            const lockedIds = records.map(record => record.id).sort();
+            const withLocks = async (index: number): Promise<void> => {
+              if (index === lockedIds.length) return detach();
+              if (!navigator.locks?.request) throw new Error("Evidence coordination is unavailable. Reload before removing evidence.");
+              return navigator.locks.request(`cleaner-evidence:${lockedIds[index]}`, () => withLocks(index + 1));
+            };
+            await withLocks(0);
+          }
+        } catch (error) { setUploadError(error instanceof Error ? error.message : "Evidence removal was not confirmed."); return; }
+      }
       onChange(value.filter((m) => !keys.has(m.key)));
       setSelected((prev) => {
         const next = new Set(prev);
@@ -746,7 +882,7 @@ export function MediaCapture({
       // exists, so it would open on the wrong shot.
       setLightbox(null);
     },
-    [onChange, value]
+    [onChange, value, evidenceScope, evidenceFieldId]
   );
 
   const toggleSelected = React.useCallback((key: string) => {
@@ -909,6 +1045,10 @@ export function MediaCapture({
               >
                 <span className="font-medium">{f.name}</span>
                 <span className="text-[hsl(var(--e-text-faint))]"> — {f.reason}</span>
+                <button type="button" onClick={() => {
+                  const url = URL.createObjectURL(f.file); const link = document.createElement("a");
+                  link.href = url; link.download = f.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+                }}>Save original</button>
               </li>
             ))}
           </ul>

@@ -4,13 +4,14 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import {
   ACCESS_GUIDE_KINDS,
-  entriesForAudience,
-  type AccessGuideEntry,
+  accessAudienceMatches,
   type AccessReader,
 } from "@/lib/properties/access-guide";
 import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 
 export const runtime = "nodejs";
+
+const privateHeaders = { "Cache-Control": "private, no-store", Vary: "Cookie" };
 
 // Kinds come from lib/properties/access-guide so this route cannot drift from
 // the admin route that writes the data (ACCESS-2 added BIN_CHUTE there).
@@ -95,7 +96,7 @@ export async function GET(_req: Request, { params }: { params: { propertyId: str
       select: { id: true, accessGuide: true, accessInfo: true, laundryEnabled: true },
     });
     if (!property) {
-      return NextResponse.json({ error: "Property not found." }, { status: 404 });
+      return NextResponse.json({ error: "Property not found." }, { status: 404, headers: privateHeaders });
     }
 
     // Each reader earns access a different way: a cleaner through a job
@@ -111,10 +112,10 @@ export async function GET(_req: Request, { params }: { params: { propertyId: str
         select: { id: true },
       });
       if (!assignment) {
-        return NextResponse.json({ error: "Not authorized for this property." }, { status: 403 });
+        return NextResponse.json({ error: "Not authorized for this property." }, { status: 403, headers: privateHeaders });
       }
     } else if (!propertyIsVisibleToLaundry(property, session.user.id)) {
-      return NextResponse.json({ error: "Not authorized for this property." }, { status: 403 });
+      return NextResponse.json({ error: "Not authorized for this property." }, { status: 403, headers: privateHeaders });
     }
 
     // "Same as cleaner": when set, the laundry driver reads the cleaner's
@@ -125,21 +126,21 @@ export async function GET(_req: Request, { params }: { params: { propertyId: str
         : {};
     const laundrySameAsCleaner = accessInfo.laundrySameAsCleaner === true;
 
-    const all = sanitizeForCleaner(property.accessGuide);
-    const visible = entriesForAudience(
-      all as unknown as AccessGuideEntry[],
-      reader,
-      laundrySameAsCleaner
-    );
+    const raw = Array.isArray(property.accessGuide) ? property.accessGuide : [];
+    const visible = sanitizeForCleaner(raw.filter(entry =>
+      entry && typeof entry === "object" && !Array.isArray(entry) &&
+      accessAudienceMatches(entry.audience, reader, laundrySameAsCleaner)
+    ));
 
     return NextResponse.json({
       propertyId: property.id,
       audience: reader,
       laundrySameAsCleaner,
       accessGuide: visible,
-    });
-  } catch (err: any) {
-    const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err?.message ?? "Could not load access guide." }, { status });
+    }, { headers: privateHeaders });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "";
+    const status = message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 503;
+    return NextResponse.json({ error: status === 401 ? "Unauthorized" : status === 403 ? "Forbidden" : "Could not load access guide. Please retry." }, { status, headers: privateHeaders });
   }
 }

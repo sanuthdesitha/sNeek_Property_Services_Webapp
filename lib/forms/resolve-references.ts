@@ -10,10 +10,8 @@ import { getPresignedDownloadUrl } from "@/lib/s3";
 // /api/uploads/access endpoint for arbitrary keys, so resolution happens here.
 
 async function resolveFieldReferences(field: any): Promise<any> {
-  if (!field || !Array.isArray(field.references) || field.references.length === 0) {
-    return field;
-  }
-  const references = await Promise.all(
+  if (!field || typeof field !== "object" || Array.isArray(field)) return field;
+  const references = Array.isArray(field.references) ? await Promise.all(
     field.references.map(async (ref: any) => {
       if (ref?.storageKey && !ref?.url) {
         try {
@@ -25,8 +23,16 @@ async function resolveFieldReferences(field: any): Promise<any> {
       }
       return ref;
     })
-  );
-  return { ...field, references };
+  ) : field.references;
+  // Children can own references even when their parent has none.
+  const children = Array.isArray(field.children)
+    ? await Promise.all(field.children.map(resolveFieldReferences))
+    : field.children;
+  return {
+    ...field,
+    ...(Array.isArray(field.references) ? { references } : {}),
+    ...(Array.isArray(field.children) ? { children } : {}),
+  };
 }
 
 // Resolves the optional `schema.theme.logoKey` (uploaded logo) into a viewable

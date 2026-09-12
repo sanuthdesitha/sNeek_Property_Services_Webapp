@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
+import { requireJobsViewsContext } from "@/lib/jobs/views-context";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 // Estate-native jobs workspace (components/v2/admin/jobs) — same /api/jobs
 // data plane as v1 (filters, sort, pagination, bulk ops, CSV export) with a
@@ -13,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminJobsPage() {
   // Same gate as the v1 admin layout (v2 layouts are client-side and do no auth).
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const identity = await requireJobsViewsContext();
 
   return (
     <div className="space-y-6">
@@ -30,7 +29,7 @@ export default async function AdminJobsPage() {
           </EButton>
         }
       />
-      <JobsWorkspace />
+      <JobsWorkspace key={identity.context} viewsContext={identity.context} viewsReadOnly={identity.readOnly} teamDefaultsEnabled />
     </div>
   );
 }

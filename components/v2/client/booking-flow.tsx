@@ -6,10 +6,10 @@
  *   GET  /api/client/available-slots?propertyId=&serviceType=   → { available: string[] }
  *   POST /api/client/booking  { propertyId, jobType, scheduledDate, notes }
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import { Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
-import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
+import { BOOKABLE_SERVICES, type RebookSeed } from "@/lib/booking/rebook";
 import type { MarketedJobTypeValue } from "@/lib/marketing/job-types";
 import {
   EAlert,
@@ -21,6 +21,8 @@ import {
 } from "@/components/v2/ui/primitives";
 import { EInlineNotice, EInput, ELabel } from "@/components/v2/client/fields";
 import { cn } from "@/lib/utils";
+import { loadBookingDraft, saveBookingDraft, removeBookingDraft, type BookingDraft } from "@/lib/booking/draft-session";
+import { BookingReviewDetails } from "@/components/v2/client/booking-review-details";
 
 type PropertyOption = {
   id: string;
@@ -29,12 +31,6 @@ type PropertyOption = {
   bedrooms: number;
   bathrooms: number;
 };
-
-const BOOKABLE_SERVICES = MARKETED_SERVICES.filter((service) =>
-  ["GENERAL_CLEAN", "DEEP_CLEAN", "END_OF_LEASE", "AIRBNB_TURNOVER", "SPRING_CLEANING"].includes(
-    service.jobType
-  )
-);
 
 const STEPS = [
   { n: 1, label: "Property & service" },
@@ -195,25 +191,81 @@ function formatSlot(date: string) {
   return Number.isNaN(parsed.getTime()) ? date : format(parsed, "EEE d MMM");
 }
 
-export function EstateBookingFlow({ properties }: { properties: PropertyOption[] }) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [propertyId, setPropertyId] = useState(properties[0]?.id ?? "");
+type BookingFlowProps = {
+  properties: PropertyOption[];
+  actorName: string;
+  actingFor: string;
+  draftScope?: string;
+  rebook?: RebookSeed;
+};
+
+export function EstateBookingFlow(props: BookingFlowProps) {
+  const [recovery, setRecovery] = useState<{ scope: string; result: ReturnType<typeof loadBookingDraft> } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (props.draftScope) setRecovery({ scope: props.draftScope, result: loadBookingDraft(props.draftScope) });
+  }, [props.draftScope, attempt]);
+  if (!props.draftScope) return <BookingFlowBody {...props} />;
+  if (!recovery || recovery.scope !== props.draftScope) return <p role="status">Checking saved booking...</p>;
+  const draft = recovery.result.draft;
+  const invalidOptions = draft && (!props.properties.some(property => property.id === draft.propertyId) ||
+    !BOOKABLE_SERVICES.some(service => service.jobType === draft.jobType));
+  if (invalidOptions || ["invalid", "unavailable"].includes(recovery.result.status)) return (
+    <EAlert tone="danger" title="Saved booking unavailable">
+      <p>The saved booking could not be verified. No request has been sent from this page. Check any earlier request with the team before starting again.</p>
+      <EButton variant="outline" onClick={() => setAttempt(value => value + 1)}>Retry recovery</EButton>
+    </EAlert>
+  );
+  return <BookingFlowBody key={props.draftScope} {...props} initialDraft={draft} />;
+}
+
+function BookingFlowBody({ properties, actorName, actingFor, draftScope, initialDraft, rebook }: BookingFlowProps & { initialDraft?: BookingDraft }) {
+  const [step, setStep] = useState<1 | 2 | 3>(initialDraft?.request ? 3 : initialDraft?.step ?? 1);
+  const [propertyId, setPropertyId] = useState(initialDraft?.propertyId ?? rebook?.propertyId ?? properties[0]?.id ?? "");
   const [jobType, setJobType] = useState<MarketedJobTypeValue>(
-    (BOOKABLE_SERVICES[0]?.jobType as MarketedJobTypeValue | undefined) ?? "GENERAL_CLEAN"
+    (initialDraft?.jobType as MarketedJobTypeValue | undefined) ?? (rebook?.jobType as MarketedJobTypeValue | undefined) ?? (BOOKABLE_SERVICES[0]?.jobType as MarketedJobTypeValue | undefined) ?? "GENERAL_CLEAN"
   );
   const [availableDates, setAvailableDates] = useState<string[]>([]);
-  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedDate, setSelectedDate] = useState(initialDraft?.scheduledDate ?? "");
+  const restoredDate = useRef(initialDraft?.scheduledDate);
   // The bookable window, so the calendar can tell "fully booked" apart from
   // "outside the 30 days we take bookings for" — both are simply absent from
   // `availableDates`.
   const [windowStart, setWindowStart] = useState("");
   const [windowEnd, setWindowEnd] = useState("");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(initialDraft?.notes ?? "");
+  const [saveFailed, setSaveFailed] = useState(false);
   const [loadingDates, setLoadingDates] = useState(false);
   const [datesError, setDatesError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(initialDraft?.request && !initialDraft.confirmedRequestId
+    ? "An earlier request has not been confirmed. Retry request to check or send that same booking." : null);
+  const [confirmation, setConfirmation] = useState<string | null>(initialDraft?.confirmedRequestId ? "The team will confirm your date once they have checked availability." : null);
+  const confirmedRequest = useRef(initialDraft?.confirmedRequestId);
+  const [submitBlocked, setSubmitBlocked] = useState(false);
+  const submitLock = useRef(false);
+  const submittedRequest = useRef<{ key: string; payload: string } | null>(initialDraft?.request ?? null);
+  const [retryAvailable, setRetryAvailable] = useState(!!initialDraft?.request && !initialDraft.confirmedRequestId);
+  const draftFrozen = submitting || submitBlocked || submittedRequest.current !== null;
+  const [availabilityVersion, setAvailabilityVersion] = useState(0);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const availabilityKey = JSON.stringify([propertyId, jobType, availabilityVersion]);
+  const datesReady = loadedFor === availabilityKey && !loadingDates && !datesError;
+  const canReview = datesReady && availableDates.includes(selectedDate) &&
+    properties.some((property) => property.id === propertyId);
+
+  function persistDraft() {
+    if (!draftScope) return true;
+    const saved = saveBookingDraft(draftScope, {
+      propertyId, jobType, scheduledDate: selectedDate, notes, step,
+      ...(submittedRequest.current ? { request: submittedRequest.current } : {}),
+      ...(confirmedRequest.current ? { confirmedRequestId: confirmedRequest.current } : {}),
+    });
+    setSaveFailed(!saved);
+    return saved;
+  }
+  useEffect(() => { persistDraft(); }, [draftScope, propertyId, jobType, selectedDate, notes, step, submitting, confirmation]);
 
   const selectedProperty = useMemo(
     () => properties.find((property) => property.id === propertyId) ?? null,
@@ -224,25 +276,52 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
     [jobType]
   );
 
-  // Same availability fetch as the legacy wizard.
   useEffect(() => {
-    if (!propertyId || !jobType) return;
+    if (!propertyId || !jobType || submittedRequest.current) return;
     let active = true;
+    const controller = new AbortController();
+    setLoadedFor(null);
+    setAvailableDates([]);
+    if (restoredDate.current === undefined) setSelectedDate("");
+    setWindowStart("");
+    setWindowEnd("");
     setLoadingDates(true);
     setDatesError(null);
+    setAccessDenied(false);
     fetch(
       `/api/client/available-slots?propertyId=${encodeURIComponent(propertyId)}&serviceType=${encodeURIComponent(jobType)}`,
-      { cache: "no-store" }
+      { cache: "no-store", signal: controller.signal }
     )
-      .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
-      .then(({ ok, body }) => {
+      .then(async (response) => ({
+        ok: response.ok, status: response.status, body: await response.json().catch(() => null),
+      }))
+      .then(({ ok, status, body }) => {
         if (!active) return;
-        if (!ok) throw new Error(body?.error ?? "Could not load booking dates.");
-        const nextDates = Array.isArray(body?.available) ? body.available : [];
+        if (status === 401 || status === 403) {
+          setAccessDenied(true);
+          throw new Error("Your booking access could not be verified. Reload the page to check your account.");
+        }
+        if (!ok) throw new Error(typeof body?.error === "string" ? body.error : "Could not load booking dates.");
+        const isDate = (value: unknown): value is string => {
+          if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+          const parsed = new Date(`${value}T00:00:00Z`);
+          return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+        };
+        if (!Array.isArray(body?.available) || !body.available.every(isDate) ||
+          !isDate(body.windowStart) || !isDate(body.windowEnd) || body.windowStart > body.windowEnd ||
+          body.available.some((date: string) => date < body.windowStart || date > body.windowEnd)) {
+          throw new Error("Could not load booking dates. Please try again.");
+        }
+        const nextDates = Array.from(new Set<string>(body.available)).sort();
         setAvailableDates(nextDates);
         setWindowStart(typeof body?.windowStart === "string" ? body.windowStart : "");
         setWindowEnd(typeof body?.windowEnd === "string" ? body.windowEnd : "");
-        setSelectedDate((current) => (nextDates.includes(current) ? current : nextDates[0] ?? ""));
+        const preferredDate = restoredDate.current;
+        restoredDate.current = undefined;
+        setSelectedDate((current) => preferredDate !== undefined
+          ? nextDates.includes(preferredDate) ? preferredDate : ""
+          : nextDates.includes(current) ? current : nextDates[0] ?? "");
+        setLoadedFor(availabilityKey);
       })
       .catch((error: any) => {
         if (!active) return;
@@ -255,39 +334,92 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
       });
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [jobType, propertyId]);
+  }, [jobType, propertyId, availabilityKey]);
 
-  async function submitBooking() {
-    if (!propertyId || !jobType || !selectedDate) return;
+  function refreshDates() {
+    setSelectedDate("");
+    setLoadedFor(null);
+    setSubmitError(null);
+    setAvailabilityVersion((version) => version + 1);
+  }
+
+  async function submitBooking(retry = false) {
+    if (submitLock.current || submitBlocked || confirmation) return;
+    if (retry ? !retryAvailable || !submittedRequest.current : submittedRequest.current || !canReview || !selectedService) return;
+    submitLock.current = true;
+    if (!submittedRequest.current) {
+      try {
+        submittedRequest.current = {
+          key: globalThis.crypto.randomUUID(),
+          payload: JSON.stringify({ propertyId, jobType, scheduledDate: selectedDate, notes }),
+        };
+      } catch {
+        setSubmitBlocked(true);
+        setSubmitError("No request was sent. Secure request identification is unavailable in this browser. Open this page over HTTPS in a supported browser, then reload booking.");
+        return;
+      }
+    }
+    if (!persistDraft()) {
+      submitLock.current = false;
+      setSubmitBlocked(true);
+      setSubmitError("No request was sent. This tab could not save its recovery key. Restore browser storage and reload booking.");
+      return;
+    }
     setSubmitting(true);
+    setRetryAvailable(false);
     setSubmitError(null);
     try {
       const response = await fetch("/api/client/booking", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ propertyId, jobType, scheduledDate: selectedDate, notes }),
+        headers: { "Content-Type": "application/json", "Idempotency-Key": submittedRequest.current.key },
+        body: submittedRequest.current.payload,
       });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? "Could not create booking.");
+      if ([401, 403, 404, 409].includes(response.status)) {
+        setAccessDenied(true);
+        setSubmitBlocked(true);
+        setSubmitError(response.status === 409
+          ? "This request conflicts with an existing booking request or account context. Reload the page before making a booking."
+          : "Your account or property access could not be verified. Reload the page before making a booking.");
+        return;
+      }
+      const body = await response.json().catch(() => null);
+      if (!body || (response.ok && (body.ok !== true || typeof body.requestId !== "string" || !body.requestId))) {
+        throw new Error("We could not verify whether your request was received. Check with the team before trying again.");
+      }
+      if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "Could not create booking.");
+      confirmedRequest.current = body.requestId;
+      persistDraft();
       // No job number to quote any more, and saying one existed would be a
       // lie: the booking is a request until the office approves it against
       // the team roster.
       setConfirmation(
         "The team will confirm your date once they have checked availability."
       );
-    } catch (error: any) {
-      setSubmitError(error?.message ?? "Could not create booking.");
+    } catch {
+      // Retain the exact wire payload and key: the request may already be committed.
+      setRetryAvailable(true);
+      setSubmitError("We could not verify whether your request was received. Retry request to check or send the same booking. Your draft is locked until this is resolved.");
     } finally {
+      submitLock.current = false;
       setSubmitting(false);
     }
   }
 
   function reset() {
+    if (draftScope && !removeBookingDraft(draftScope)) { setSaveFailed(true); return; }
+    submitLock.current = false;
+    submittedRequest.current = null;
+    confirmedRequest.current = undefined;
+    restoredDate.current = undefined;
+    setRetryAvailable(false);
+    setSubmitBlocked(false);
     setConfirmation(null);
     setNotes("");
     setSelectedDate("");
     setStep(1);
+    refreshDates();
   }
 
   if (confirmation) {
@@ -300,6 +432,7 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
           <EEyebrow>Request received</EEyebrow>
           <p className="e-display-sm">Your booking is with the team.</p>
           <p className="max-w-md text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">{confirmation}</p>
+          {saveFailed ? <EInlineNotice tone="danger">The recovery record could not be updated. Restore browser storage before starting another booking.</EInlineNotice> : null}
           <div className="mt-2">
             <EButton variant="outline" size="sm" onClick={reset}>
               Book another service
@@ -312,6 +445,7 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
 
   return (
     <div className="space-y-6">
+      {draftScope ? <p role="status" className="text-sm">{saveFailed ? "Booking recovery is not saved in this tab." : "Booking recovery saved in this tab."}</p> : null}
       {/* Stepper — numbered serif steps with a gold progress hairline */}
       <div>
         <ol className="flex items-center gap-0">
@@ -374,7 +508,9 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
                     <button
                       key={property.id}
                       type="button"
-                      onClick={() => setPropertyId(property.id)}
+                      onClick={() => {
+                        if (property.id !== propertyId) { setPropertyId(property.id); refreshDates(); }
+                      }}
                       className={cn(
                         "rounded-[var(--e-radius)] border p-4 text-left transition-colors duration-[160ms]",
                         active
@@ -403,7 +539,12 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
                     <button
                       key={service.jobType}
                       type="button"
-                      onClick={() => setJobType(service.jobType as MarketedJobTypeValue)}
+                      onClick={() => {
+                        if (service.jobType !== jobType) {
+                          setJobType(service.jobType as MarketedJobTypeValue);
+                          refreshDates();
+                        }
+                      }}
                       className={cn(
                         "rounded-[var(--e-radius)] border p-4 text-left transition-colors duration-[160ms]",
                         active
@@ -441,7 +582,9 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
               </p>
             </div>
 
-            {loadingDates ? (
+            {datesError ? (
+              <EInlineNotice tone="danger">{datesError}</EInlineNotice>
+            ) : !datesReady ? (
               <div className="flex items-center gap-2 py-6 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
                 <Loader2 className="h-4 w-4 animate-spin" /> Checking the calendar…
               </div>
@@ -459,13 +602,16 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
                 onSelect={setSelectedDate}
               />
             )}
-            {datesError ? <EInlineNotice tone="danger">{datesError}</EInlineNotice> : null}
+            {accessDenied ? <a href="/v2/client/booking" className="underline">Reload booking</a> : null}
+            {(!accessDenied && (datesError || (datesReady && availableDates.length === 0))) ? (
+              <EButton variant="outline" onClick={refreshDates}>Retry availability</EButton>
+            ) : null}
 
             <div className="flex justify-between">
               <EButton variant="outline" onClick={() => setStep(1)}>
                 Back
               </EButton>
-              <EButton variant="gold" onClick={() => setStep(3)} disabled={!selectedDate}>
+              <EButton variant="gold" onClick={() => { if (canReview) setStep(3); }} disabled={!canReview}>
                 Continue
               </EButton>
             </div>
@@ -481,9 +627,11 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
 
             <dl className="space-y-0">
               {[
+                { label: "Requested by", value: actorName },
+                { label: "Acting for", value: actingFor },
                 { label: "Property", value: selectedProperty?.name ?? "—" },
                 { label: "Service", value: selectedService?.label ?? jobType },
-                { label: "Date", value: selectedDate ? formatSlot(selectedDate) : "—", serif: true },
+                { label: "Date", value: selectedDate ? format(new Date(`${selectedDate}T00:00:00`), "EEE d MMM yyyy") : "—", serif: true },
               ].map((row, i) => (
                 <div key={row.label}>
                   {i > 0 ? <EThread className="my-2.5" /> : null}
@@ -504,24 +652,30 @@ export function EstateBookingFlow({ properties }: { properties: PropertyOption[]
               <EInput
                 id="booking-notes"
                 value={notes}
-                onChange={(event) => setNotes(event.target.value)}
+                maxLength={4000}
+                disabled={draftFrozen}
+                onChange={(event) => { if (!draftFrozen) setNotes(event.target.value); }}
                 placeholder="Access, guest timing, or anything the team should know"
               />
             </div>
 
-            <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-              The team reviews capacity and confirms the exact run sheet after your request is in.
-            </p>
-
+            {!submittedRequest.current ? <BookingReviewDetails propertyId={propertyId} serviceType={jobType} /> : (
+              <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+                The team reviews capacity and confirms the exact run sheet after your request is in.
+              </p>
+            )}
             {submitError ? <EInlineNotice tone="danger">{submitError}</EInlineNotice> : null}
+            {submitBlocked ? (
+              <a href="/v2/client/booking" className="underline">Reload booking</a>
+            ) : null}
 
             <div className="flex justify-between">
-              <EButton variant="outline" onClick={() => setStep(2)} disabled={submitting}>
+              <EButton variant="outline" onClick={() => setStep(2)} disabled={draftFrozen}>
                 Back
               </EButton>
-              <EButton variant="gold" onClick={submitBooking} disabled={submitting || !selectedDate}>
+              <EButton variant="gold" onClick={() => submitBooking(retryAvailable)} disabled={submitting || submitBlocked || (!retryAvailable && !canReview)}>
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {submitting ? "Sending…" : "Confirm booking"}
+                {submitting ? "Sending…" : retryAvailable ? "Retry request" : "Confirm booking"}
               </EButton>
             </div>
           </ECardBody>

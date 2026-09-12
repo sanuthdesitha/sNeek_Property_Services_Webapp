@@ -22,7 +22,7 @@
  */
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   ChevronRight,
@@ -39,6 +39,7 @@ import {
 import { EBadge, EButton, ECard, ECardBody, EEmptyState, EStatCard } from "@/components/v2/ui/primitives";
 import { EInput, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import { computeQaAssignmentPay, type QaPaySettingsInput } from "@/lib/finance/qa-pay";
+import { QA_QUEUE_STAGES, qaQueueReadiness as readinessOf, qaQueueStage, type QaQueueStage } from "@/lib/qa/queue-readiness";
 
 type Inspector = { id: string; name: string | null; email: string; role: string };
 type Toast = { id: string; title: string; description?: string; tone: "info" | "danger" };
@@ -67,18 +68,6 @@ function jobStateChip(job: any): { label: string; tone: "success" | "warning" | 
   if (status === "SUBMITTED" || status === "QA_REVIEW") return { label: "Submitted", tone: "success" };
   if (status === "COMPLETED") return { label: "Completed", tone: "success" };
   return { label: titleCase(status || "Scheduled"), tone: "neutral" };
-}
-
-/**
- * Fallback readiness for a row. The server ships `inspectionReadiness` on every
- * row; this only covers a stale/cached payload from before that field existed.
- */
-function readinessOf(job: any): "CLEANING" | "READY" | "REWORK_PENDING" {
-  if (job?.inspectionReadiness) return job.inspectionReadiness;
-  const status = String(job?.status ?? "").toUpperCase();
-  if ((job?.formSubmissions?.length ?? 0) > 0) return "READY";
-  if (["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(status)) return "READY";
-  return job?.isRework ? "REWORK_PENDING" : "CLEANING";
 }
 
 function hhmm(value: string | null | undefined): string | null {
@@ -342,6 +331,8 @@ export function QaQueueWorkspace({
   qaPaySettings?: QaPaySettingsInput;
 }) {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadSequence = useRef(0);
   const [data, setData] = useState<any>({ assignments: [], unassignedJobs: [] });
   const [scope, setScope] = useState<"active" | "completed">("active");
   // Day filter: today / tomorrow / a specific date / everything.
@@ -349,6 +340,7 @@ export function QaQueueWorkspace({
   const [customDate, setCustomDate] = useState<string>(() => todayIso());
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [readinessFilter, setReadinessFilter] = useState<"all" | QaQueueStage>("all");
   const [selectedInspector, setSelectedInspector] = useState("");
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -377,18 +369,26 @@ export function QaQueueWorkspace({
   }, [dateMode, customDate]);
 
   const load = useCallback(async () => {
+    const request = ++loadSequence.current;
     setLoading(true);
+    setLoadError(null);
     const qs = new URLSearchParams({ scope });
     if (dateParam) qs.set("date", dateParam);
-    const res = await fetch(`/api/qa/queue?${qs.toString()}`, { cache: "no-store" });
-    const body = await res.json().catch(() => ({}));
-    setLoading(false);
-    if (!res.ok) {
-      pushToast({ title: "Could not load QA queue", description: body.error ?? "Please retry.", tone: "danger" });
-      return;
+    try {
+      const res = await fetch(`/api/qa/queue?${qs.toString()}`, { cache: "no-store" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Could not load QA queue.");
+      if (!Array.isArray(body.assignments) || !Array.isArray(body.unassignedJobs)) throw new Error("The queue response was incomplete.");
+      if (request !== loadSequence.current) return;
+      setData(body);
+      setSelectedJobs([]);
+    } catch (error) {
+      if (request !== loadSequence.current) return;
+      setLoadError(error instanceof Error ? error.message : "Could not load QA queue.");
+    } finally {
+      if (request === loadSequence.current) setLoading(false);
     }
-    setData(body);
-  }, [scope, dateParam, pushToast]);
+  }, [scope, dateParam]);
 
   useEffect(() => {
     void load();
@@ -454,6 +454,7 @@ export function QaQueueWorkspace({
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
       const job = row.job ?? {};
+      if (readinessFilter !== "all" && qaQueueStage(row.job, row.assignment).stage !== readinessFilter) return false;
       if (typeFilter !== "all" && String(job.jobType) !== typeFilter) return false;
       if (q) {
         const hay = [job.property?.name, job.property?.address, job.property?.suburb, titleCase(String(job.jobType ?? ""))]
@@ -464,7 +465,7 @@ export function QaQueueWorkspace({
       }
       return true;
     });
-  }, [rows, search, typeFilter]);
+  }, [rows, search, typeFilter, readinessFilter]);
 
   const stats = useMemo(() => {
     const total = rows.length;
@@ -703,7 +704,7 @@ export function QaQueueWorkspace({
         </div>
       </div>
 
-      {!loading ? (
+      {!loading && !loadError ? (
         <section className="grid gap-4 sm:grid-cols-4">
           <EStatCard label="In queue" value={String(stats.total)} delta="total" deltaTone="neutral" icon={<Inbox className="h-4 w-4" />} />
           <EStatCard label="Unassigned" value={String(stats.unassigned)} delta="unpicked" deltaTone="neutral" icon={<ClipboardCheck className="h-4 w-4" />} />
@@ -721,7 +722,7 @@ export function QaQueueWorkspace({
                 <option key={i.id} value={i.id}>{(i.name || i.email) + ` (${titleCase(i.role)})`}</option>
               ))}
             </ESelect>
-            <EButton onClick={() => void bulkAssign()} disabled={!selectedInspector || selectedJobs.length === 0}>
+            <EButton onClick={() => void bulkAssign()} disabled={loading || Boolean(loadError) || !selectedInspector || selectedJobs.length === 0}>
               <UserPlus className="h-4 w-4" /> Assign {selectedJobs.length || ""}
             </EButton>
           </ECardBody>
@@ -730,7 +731,7 @@ export function QaQueueWorkspace({
 
       {/* filters */}
       <ECard>
-        <ECardBody className="grid gap-2 pt-6 sm:grid-cols-[1fr_200px]">
+        <ECardBody className="grid gap-2 pt-6 sm:grid-cols-[1fr_200px_240px]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
             <EInput className="pl-9" placeholder="Search property…" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -741,6 +742,10 @@ export function QaQueueWorkspace({
               <option key={t} value={t}>{titleCase(t)}</option>
             ))}
           </ESelect>
+          <ESelect aria-label="Inspection readiness" value={readinessFilter} onChange={(e) => setReadinessFilter(e.target.value as "all" | QaQueueStage)}>
+            <option value="all">All readiness stages</option>
+            {Object.entries(QA_QUEUE_STAGES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </ESelect>
         </ECardBody>
       </ECard>
 
@@ -750,8 +755,13 @@ export function QaQueueWorkspace({
           <div className="flex items-center justify-center gap-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-6 py-12 text-[hsl(var(--e-muted-foreground))]">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading queue…
           </div>
+        ) : loadError ? (
+          <div role="alert" className="rounded border border-red-600 p-4">
+            <p>QA queue unavailable. {loadError}</p>
+            <EButton variant="outline" size="sm" onClick={() => void load()}>Retry queue</EButton>
+          </div>
         ) : rows.length === 0 ? (
-          <EEmptyState eyebrow="All clear" title="No jobs waiting" description="Every submitted job has been reviewed." />
+          <EEmptyState eyebrow="No inspections" title="No jobs waiting" description="No inspections match the selected date and queue scope." />
         ) : filtered.length === 0 ? (
           <EEmptyState eyebrow="No match" title="Nothing matches these filters" />
         ) : (
@@ -761,6 +771,7 @@ export function QaQueueWorkspace({
             const jobDate = jobDateLabel(row.job);
             const seq = row.assignment?.sequence ?? null;
             const readiness = readinessOf(row.job);
+            const reviewStage = qaQueueStage(row.job, row.assignment);
             const progress = progressByJob[row.jobId] ?? null;
             const estFinish = hhmm(progress?.estFinishAt);
             const onSite = durationLabel(progress?.elapsedMinutes);
@@ -794,6 +805,7 @@ export function QaQueueWorkspace({
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-[0.9375rem] font-medium">{jobTitle(row.job)}</p>
                     <EBadge tone={state.tone} soft>{state.label}</EBadge>
+                    <EBadge tone={reviewStage.stage === "BLOCKED" ? "danger" : reviewStage.stage === "READY" ? "success" : "neutral"} soft>{QA_QUEUE_STAGES[reviewStage.stage]}</EBadge>
                     <EBadge tone={row.assigned ? "info" : "neutral"} soft>
                       {row.assigned ? titleCase(String(row.assignment.status)) : "Unassigned"}
                     </EBadge>
@@ -812,6 +824,7 @@ export function QaQueueWorkspace({
                       </EBadge>
                     ) : null}
                   </div>
+                  {reviewStage.explanation ? <p className="mt-1 text-sm text-[hsl(var(--e-muted-foreground))]">{reviewStage.explanation}</p> : null}
                   <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
                     {[row.job?.property?.address, row.job?.property?.suburb].filter(Boolean).join(", ")}
                   </p>
@@ -886,21 +899,21 @@ export function QaQueueWorkspace({
                   ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {!row.assignment?.pickedUpById && scope === "active" ? (
+                  {reviewStage.stage !== "BLOCKED" && reviewStage.stage !== "COMPLETED" && !row.assignment?.pickedUpById && scope === "active" ? (
                     <EButton variant="outline" size="sm" onClick={() => void pickup(row.jobId)}>
                       <ClipboardCheck className="h-4 w-4" /> Pick up
                     </EButton>
                   ) : null}
-                  <EButton asChild variant="gold" size="sm">
+                  {reviewStage.stage !== "BLOCKED" ? <EButton asChild variant="gold" size="sm">
                     <Link href={`/v2/qa/jobs/${row.jobId}`}>
-                      {readiness !== "READY"
+                      {reviewStage.stage === "COMPLETED" ? "View review" : readiness !== "READY"
                         ? "Monitor clean"
                         : row.assignment?.status === "IN_PROGRESS"
                           ? "Continue inspection"
                           : "Start inspection"}
                       <ChevronRight className="h-4 w-4" />
                     </Link>
-                  </EButton>
+                  </EButton> : null}
                 </div>
               </ECardBody>
             </ECard>

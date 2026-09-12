@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { ShieldAlert } from "lucide-react";
 import { EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitives";
 import { BiometricSignInButton } from "@/components/auth/biometric-sign-in-button";
+import { signInWithCredentials } from "@/lib/auth/credentials-sign-in";
 
 /** v2 counterpart of ADMIN_RECOVERY_LOGIN_URL — stays inside the Estate skin. */
 const V2_ADMIN_RECOVERY_LOGIN_URL = "/v2/login?admin=1";
@@ -20,49 +21,9 @@ const E_INPUT_CLASS =
 
 const E_LABEL_CLASS = "text-[0.8125rem] font-[550] tracking-[0.01em] text-[hsl(var(--e-text-secondary))]";
 
-async function signInWithCredentials(input: { email: string; password: string; callbackUrl: string }) {
-  const csrfRes = await fetch("/api/auth/csrf", { cache: "no-store" });
-  if (!csrfRes.ok) {
-    throw new Error("Could not initialize sign in.");
-  }
-
-  const csrfData = (await csrfRes.json()) as { csrfToken?: string };
-  if (!csrfData.csrfToken) {
-    throw new Error("Missing CSRF token.");
-  }
-
-  const body = new URLSearchParams({
-    email: input.email,
-    password: input.password,
-    csrfToken: csrfData.csrfToken,
-    callbackUrl: input.callbackUrl,
-    json: "true",
-  });
-
-  const res = await fetch("/api/auth/callback/credentials", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
-
-  let data: { url?: string } | null = null;
-  try {
-    data = (await res.json()) as { url?: string };
-  } catch {
-    data = null;
-  }
-
-  return {
-    ok: res.ok,
-    status: res.status,
-    url: typeof data?.url === "string" ? data.url : null,
-  };
-}
-
 export default function LoginPageV2() {
   const searchParams = useSearchParams();
+  const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [branding, setBranding] = useState({ companyName: "sNeek Property Services", logoUrl: "" });
@@ -84,6 +45,10 @@ export default function LoginPageV2() {
   const v2CallbackPath = requestedCallback && requestedCallback.startsWith("/v2") ? requestedCallback : "/v2";
   const maintenanceLoginLocked = siteStatus.maintenanceEnabled && !siteStatus.allowLogin;
   const signInBlocked = maintenanceLoginLocked && !adminRecoveryMode;
+
+  // SSR has no submit/change handlers yet. Keep native submission and typing
+  // disabled until React owns the form (also gives browser automation readiness).
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -407,6 +372,7 @@ export default function LoginPageV2() {
                       id="email"
                       type="email"
                       autoComplete="email"
+                      disabled={!mounted}
                       required
                       value={form.email}
                       onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -427,13 +393,14 @@ export default function LoginPageV2() {
                       id="password"
                       type="password"
                       autoComplete="current-password"
+                      disabled={!mounted}
                       required
                       value={form.password}
                       onChange={(e) => setForm({ ...form, password: e.target.value })}
                       className={E_INPUT_CLASS}
                     />
                   </div>
-                  <EButton type="submit" variant="gold" size="lg" className="w-full" disabled={loading || signInBlocked}>
+                  <EButton type="submit" variant="gold" size="lg" className="w-full" disabled={!mounted || loading || signInBlocked}>
                     {loading ? "Signing in..." : adminRecoveryMode ? "Admin sign in" : "Sign in"}
                   </EButton>
                 </form>
@@ -447,7 +414,7 @@ export default function LoginPageV2() {
                           ? `${typeof window !== "undefined" ? window.location.origin : ""}/v2/admin`
                           : v2CallbackPath
                       }
-                      disabled={loading}
+                      disabled={!mounted || loading}
                       onError={(message) => setError(message || null)}
                     />
                   </div>

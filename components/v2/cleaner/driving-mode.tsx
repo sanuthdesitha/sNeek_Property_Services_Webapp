@@ -1,5 +1,7 @@
 "use client";
 
+import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
+
 /**
  * Native Estate driving / en-route mode. Full-page driving surface for today's
  * ordered stops. Wires the SAME endpoints v1 uses:
@@ -572,6 +574,7 @@ export function DrivingMode({
         <div className="flex-1 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="space-y-4">
             {errorBanner}
+            <CleanerTimingSummary {...activeStop} />
             {heroBody}
           </div>
         </div>
@@ -614,6 +617,7 @@ export function DrivingMode({
               </p>
             </div>
 
+            <CleanerTimingSummary {...nextStop} />
             {heroBody}
           </ECardBody>
         </ECard>
@@ -631,8 +635,9 @@ export function DrivingMode({
             <div className="min-w-0 flex-1">
               <p className="truncate text-[0.875rem] font-[550]">{s.propertyName}</p>
               <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                {s.startTime || "—"} · {s.suburb}
+                {s.suburb}
               </p>
+              <CleanerTimingSummary {...s} />
             </div>
             {s.jobId === activeStop?.jobId ? <EBadge tone="info" soft>Active</EBadge> : null}
           </li>

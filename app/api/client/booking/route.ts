@@ -1,9 +1,9 @@
-import { LeadStatus, Role } from "@prisma/client";
+import { LeadStatus } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { BOOKING_REQUEST_VIA } from "@/lib/booking/requests";
+import { bookingIdentity, BookingKeyConflict, findBookingReplay } from "@/lib/booking/idempotency";
 import { getAppSettings } from "@/lib/settings";
 import { requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { isClientModuleEnabled } from "@/lib/portal-access";
@@ -29,20 +29,17 @@ export async function POST(req: NextRequest) {
     }
 
     const body = schema.parse(await req.json().catch(() => ({})));
-    const clientUser = await db.user.findUnique({
-      where: { id: portal.userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        clientId: true,
-        client: { select: { id: true, name: true, email: true, phone: true } },
-      },
+    const requestKey = req.headers.get("Idempotency-Key");
+    const identity = requestKey === null ? null : bookingIdentity(
+      portal.userId, portal.clientId, z.string().uuid().parse(requestKey), body
+    );
+    const client = await db.client.findUnique({
+      where: { id: portal.clientId },
+      select: { name: true, email: true, phone: true },
     });
-    // The signed-in user row must exist. Note this no longer requires
-    // user.clientId — a VA has none, and the client comes from portal.clientId.
-    if (!clientUser) {
+    // The client owns the request and its contact details; the actor is only
+    // attribution. A VA's own client relation must never supply either.
+    if (!client) {
       return NextResponse.json({ error: "Account not found." }, { status: 400 });
     }
 
@@ -79,13 +76,18 @@ export async function POST(req: NextRequest) {
 
 
     const result = await db.$transaction(async (tx) => {
+      if (identity) {
+        const replay = await findBookingReplay(tx, identity);
+        if (replay) return { lead: replay, replayed: true };
+      }
       const lead = await tx.quoteLead.create({
         data: {
-          clientId: clientUser.clientId,
+          ...(identity ? { id: identity.id } : {}),
+          clientId: portal.clientId,
           serviceType: body.jobType as any,
-          name: clientUser.client?.name || clientUser.name || "Client",
-          email: clientUser.client?.email || clientUser.email || "",
-          phone: clientUser.client?.phone || clientUser.phone || undefined,
+          name: client.name || "Client",
+          email: client.email || "",
+          phone: client.phone || undefined,
           address: property.address,
           suburb: property.suburb,
           bedrooms: property.bedrooms,
@@ -105,6 +107,7 @@ export async function POST(req: NextRequest) {
             jobType: body.jobType,
             scheduledDate: body.scheduledDate,
             requestedByUserId: portal.userId,
+            ...(identity ? { bookingFingerprint: identity.fingerprint } : {}),
           } as any,
         },
       });
@@ -127,22 +130,25 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      return { lead };
+      await auditClientPortalAction({ ctx: portal, action: "booking.request", entity: "QuoteLead", entityId: lead.id, after: { propertyId: property.id, jobType: String(body.jobType), scheduledDate: body.scheduledDate } }, tx);
+      return { lead, replayed: false };
     });
+
+    if (result.replayed) return NextResponse.json({ ok: true, requestId: result.lead.id, pendingApproval: true });
 
     const subject = `Booking request awaiting approval: ${property.name}`;
     const bookingLabel = `${String(body.jobType).replace(/_/g, " ")} on ${body.scheduledDate}`;
-    await Promise.all([
+    const delivery = await Promise.allSettled([
       notifyAdminsByPush({
         subject,
-        body: `${clientUser.client?.name || clientUser.name || "Client"} requested ${bookingLabel} for ${property.name}. Approve it to create the job.`,
+        body: `${client.name || "Client"} requested ${bookingLabel} for ${property.name}. Approve it to create the job.`,
       }),
       notifyAdminsByEmail({
         subject,
         html: `
           <p>A client requested a booking. It is <strong>not scheduled yet</strong> — approve it in Approvals to create the job.</p>
           <ul>
-            <li><strong>Client:</strong> ${clientUser.client?.name || clientUser.name || "Client"}</li>
+            <li><strong>Client:</strong> ${client.name || "Client"}</li>
             <li><strong>Property:</strong> ${property.name}</li>
             <li><strong>Service:</strong> ${String(body.jobType).replace(/_/g, " ")}</li>
             <li><strong>Date:</strong> ${body.scheduledDate}</li>
@@ -155,21 +161,21 @@ export async function POST(req: NextRequest) {
     // assign anyone to, and holding a cleaner for work that may be declined is
     // exactly the double-booking this change exists to stop.
 
-    await auditClientPortalAction({ ctx: portal, action: "booking.request", entity: "QuoteLead", entityId: result.lead.id, after: { propertyId: property.id, jobType: String(body.jobType), scheduledDate: body.scheduledDate } });
-
     return NextResponse.json({
       ok: true,
       requestId: result.lead.id,
       pendingApproval: true,
       warning:
-        settings.clientPortalVisibility.showBooking
+        delivery.some((entry) => entry.status === "rejected")
+          ? "Request received. Some staff notifications could not be confirmed."
+          : settings.clientPortalVisibility.showBooking
           ? undefined
           : "Booking access is currently hidden from the portal.",
     });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message ?? "Could not create booking." },
-      { status: error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400 }
+      { status: error instanceof BookingKeyConflict ? 409 : error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400 }
     );
   }
 }

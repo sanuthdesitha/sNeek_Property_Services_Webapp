@@ -49,6 +49,8 @@ export interface ImportantRequest {
 export type LaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
 
 export interface WorkspaceApi {
+  draftSaveState?: import("@/lib/cleaner/use-draft-save").DraftSaveState;
+  retryDraftSave?: () => void;
   /* ── Raw payload + derived job/property ──────────────────────────────── */
   payload: any;
   job: any;

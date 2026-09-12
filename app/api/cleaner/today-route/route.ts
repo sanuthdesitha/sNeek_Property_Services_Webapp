@@ -2,35 +2,48 @@ import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { toZonedTime } from "date-fns-tz";
-import { addDays } from "date-fns";
+import { addDaysToKey, sydneyTodayKey, sydneyDayStart, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
+import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
 
-const TZ = "Australia/Sydney";
+const privateHeaders = { "Cache-Control": "private, no-store", Vary: "Cookie" };
 
-function resolveDateBounds(inputDate: string | null) {
-  const zonedNow = toZonedTime(new Date(), TZ);
-  const todayIso = `${zonedNow.getFullYear()}-${String(zonedNow.getMonth() + 1).padStart(2, "0")}-${String(zonedNow.getDate()).padStart(2, "0")}`;
-  const target = inputDate && /^\d{4}-\d{2}-\d{2}$/.test(inputDate) ? inputDate : todayIso;
-  const [year, month, day] = target.split("-").map((value) => Number(value));
-  const dayStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
-  return {
-    date: target,
-    start: dayStart,
-    end: addDays(dayStart, 1),
-  };
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith("0000-")) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 export async function GET(req: Request) {
+  try {
+    return await loadRoute(req);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const status = message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 503;
+    return NextResponse.json(
+      { error: status === 401 ? "Unauthorized" : status === 403 ? "Forbidden" : "Route unavailable. Please retry." },
+      { status, headers: privateHeaders },
+    );
+  }
+}
+
+async function loadRoute(req: Request) {
   const session = await requireRole([Role.CLEANER, Role.ADMIN, Role.OPS_MANAGER]);
   const { searchParams } = new URL(req.url);
   const relative = (searchParams.get("relative") || "").toLowerCase();
   const explicitDate = searchParams.get("date");
 
-  const zonedNow = toZonedTime(new Date(), TZ);
-  const tomorrow = addDays(new Date(zonedNow.getFullYear(), zonedNow.getMonth(), zonedNow.getDate()), 1);
-  const tomorrowIso = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
-  const targetDate = relative === "tomorrow" ? tomorrowIso : explicitDate;
-  const bounds = resolveDateBounds(targetDate);
+  if (explicitDate !== null && !isCalendarDate(explicitDate)) {
+    return NextResponse.json({ error: "Invalid date. Use a valid YYYY-MM-DD calendar date." }, {
+      status: 400, headers: privateHeaders,
+    });
+  }
+  const today = sydneyTodayKey();
+  const targetDate = relative === "tomorrow" ? addDaysToKey(today, 1) : explicitDate ?? today;
+  const bounds = {
+    date: targetDate,
+    start: sydneyDayStart(targetDate),
+    end: new Date(sydneyDayEndInclusive(targetDate).getTime() + 1),
+  };
 
   const assignments = await db.jobAssignment.findMany({
     where: {
@@ -52,6 +65,10 @@ export async function GET(req: Request) {
           status: true,
           startTime: true,
           dueTime: true,
+          estimatedHours: true,
+          internalNotes: true,
+          sameDayCheckin: true,
+          sameDayCheckinTime: true,
           enRouteStartedAt: true,
           enRouteEtaMinutes: true,
           arrivedAt: true,
@@ -83,6 +100,10 @@ export async function GET(req: Request) {
     status: a.job.status,
     startTime: a.job.startTime,
     dueTime: a.job.dueTime,
+    estimatedHours: a.job.estimatedHours,
+    timingBadges: resolveTimingBadges(a.job.internalNotes),
+    sameDayCheckin: a.job.sameDayCheckin,
+    sameDayCheckinTime: a.job.sameDayCheckinTime,
     enRouteStartedAt: a.job.enRouteStartedAt,
     enRouteEtaMinutes: a.job.enRouteEtaMinutes,
     arrivedAt: a.job.arrivedAt,
@@ -97,5 +118,5 @@ export async function GET(req: Request) {
     longitude: a.job.property.longitude,
   }));
 
-  return NextResponse.json({ stops, date: bounds.date });
+  return NextResponse.json({ stops, date: bounds.date }, { headers: privateHeaders });
 }

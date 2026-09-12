@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import { enqueuePing, drainQueue, clearQueue } from "./queue";
 
 const FLUSH_INTERVAL_MS = 30_000;
@@ -57,10 +58,14 @@ interface UseGpsTrackerOpts {
  * pings remain in the queue until a flush succeeds.
  */
 export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
+  const { data: session, status } = useSession();
+  const scope = status === "authenticated" && session?.user?.id && session.user.role === "CLEANER"
+    ? JSON.stringify([session.user.id, session.user.role, session.impersonation?.actorId,
+      session.impersonation?.mode, session.impersonation?.startedAt]) : null;
+  const active = enabled && scope !== null && Boolean(jobId.trim());
+  const flushBusyRef = useRef(false);
   const [permission, setPermission] = useState<GpsPermission>("prompt");
   const [lastFix, setLastFix] = useState<GpsLastFix | null>(null);
-  const watchIdRef = useRef<number | null>(null);
-  const firstFixLoggedRef = useRef(false);
   // Last raw coordinates + when we last enqueued anything — shared with the
   // heartbeat so it can re-emit a stationary position and avoid double-emitting
   // right after a real fix.
@@ -68,13 +73,19 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
   const lastEnqueueAtRef = useRef(0);
 
   useEffect(() => {
-    if (!enabled || typeof navigator === "undefined" || !navigator.geolocation) {
+    lastCoordsRef.current = null;
+    lastEnqueueAtRef.current = 0;
+    setLastFix(null);
+    setPermission("prompt");
+    let cancelled = false;
+    if (!active || typeof navigator === "undefined" || !navigator.geolocation) {
       return;
     }
 
     const recordFix = async (
       coords: { lat: number; lng: number; accuracy: number | null; heading?: number | null; speed?: number | null },
     ) => {
+      if (cancelled) return;
       // Only watchPosition comes through here. The heartbeat below enqueues
       // directly on purpose — it exists to re-emit a position that has NOT
       // changed, which is exactly what this throttle is built to suppress.
@@ -90,6 +101,7 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
         await enqueuePing({
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           jobId,
+          scope: scope!,
           lat: coords.lat,
           lng: coords.lng,
           accuracy: coords.accuracy ?? undefined,
@@ -106,6 +118,7 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
     // without waiting for watchPosition's first movement-triggered callback.
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        if (cancelled) return;
         setPermission("granted");
         const fix: GpsLastFix = {
           lat: pos.coords.latitude,
@@ -128,6 +141,7 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
 
     const id = navigator.geolocation.watchPosition(
       async (pos) => {
+        if (cancelled) return;
         setPermission("granted");
         const fix: GpsLastFix = {
           lat: pos.coords.latitude,
@@ -136,15 +150,6 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
           timestamp: new Date().toISOString(),
         };
         setLastFix(fix);
-        // Sanity log on first fix — admins can pull this from device-console
-        // reports when investigating "wrong location" complaints. Accuracy is
-        // typically <50m on GPS, 100-1000m on WiFi-only, >1000m on cell tower.
-        if (!firstFixLoggedRef.current) {
-          firstFixLoggedRef.current = true;
-          console.info(
-            `[gps] first fix accuracy=${Math.round(fix.accuracy ?? -1)}m lat=${fix.lat.toFixed(5)} lng=${fix.lng.toFixed(5)}`,
-          );
-        }
         await recordFix({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
@@ -154,6 +159,7 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
         });
       },
       (err) => {
+        if (cancelled) return;
         if (err.code === err.PERMISSION_DENIED) setPermission("denied");
       },
       // High-accuracy positioning: tells the browser to use GPS hardware where
@@ -162,26 +168,28 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
       // time to acquire a satellite lock indoors.
       { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 },
     );
-    watchIdRef.current = id;
 
     return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
+      cancelled = true;
+      navigator.geolocation.clearWatch(id);
+      lastCoordsRef.current = null;
+      lastEnqueueAtRef.current = 0;
     };
-  }, [enabled, jobId]);
+  }, [active, enabled, jobId, scope]);
 
   // Periodic flush + flush-on-reconnect.
   useEffect(() => {
-    if (!enabled) return;
+    if (!active) return;
 
     let cancelled = false;
+    const controller = new AbortController();
     const flush = async () => {
-      if (cancelled) return;
+      if (cancelled || flushBusyRef.current) return;
       if (typeof navigator !== "undefined" && !navigator.onLine) return;
+      flushBusyRef.current = true;
       try {
-        const pings = await drainQueue();
+        const pings = (await drainQueue()).filter((ping) => ping.scope === scope);
+        if (cancelled) return;
         if (pings.length === 0) return;
 
         // Send in server-sized batches. Draining the whole queue into one
@@ -194,20 +202,20 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
           const res = await fetch("/api/cleaner/location/ping", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            // strip local id before sending
-            body: JSON.stringify(batch.map(({ id: _id, ...rest }) => rest)),
+            signal: controller.signal,
+            // Local queue identity and ownership are never part of the API payload.
+            body: JSON.stringify(batch.map(({ id: _id, scope: _scope, ...rest }) => rest)),
           });
+          if (cancelled) return;
 
           if (res.ok) {
             await clearQueue(batch.map((p) => p.id));
             continue;
           }
 
-          // 4xx means this payload will NEVER be accepted — a malformed or
-          // stale ping. Keeping it would block every ping behind it forever,
-          // so drop it and carry on. 5xx and network errors are transient and
-          // stay queued for the next flush.
-          if (res.status >= 400 && res.status < 500) {
+          // Only validation failures are permanent. Auth, rate limits and
+          // other failures must retain the batch and stop this flush.
+          if (res.status === 400 || res.status === 422) {
             await clearQueue(batch.map((p) => p.id));
             continue;
           }
@@ -215,6 +223,8 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
         }
       } catch {
         // Network or DB error — pings stay queued.
+      } finally {
+        flushBusyRef.current = false;
       }
     };
 
@@ -228,20 +238,23 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
 
     return () => {
       cancelled = true;
+      controller.abort();
       clearInterval(interval);
       if (typeof window !== "undefined") {
         window.removeEventListener("online", onOnline);
       }
     };
-  }, [enabled]);
+  }, [active, enabled, scope, jobId]);
 
   // Heartbeat: while enabled, re-emit the last known coordinates if the watch
   // hasn't produced anything recently (stationary cleaner). This keeps the
   // admin live map "fresh" for the whole active-job window even when the phone
   // isn't moving. It piggybacks on the same IndexedDB queue + flusher.
   useEffect(() => {
-    if (!enabled) return;
+    if (!active) return;
+    let cancelled = false;
     const beat = setInterval(async () => {
+      if (cancelled) return;
       const coords = lastCoordsRef.current;
       if (!coords) return;
       if (Date.now() - lastEnqueueAtRef.current < HEARTBEAT_INTERVAL_MS) return;
@@ -250,6 +263,7 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
         await enqueuePing({
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           jobId,
+          scope: scope!,
           lat: coords.lat,
           lng: coords.lng,
           accuracy: coords.accuracy ?? undefined,
@@ -259,8 +273,8 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
         // best-effort
       }
     }, HEARTBEAT_INTERVAL_MS);
-    return () => clearInterval(beat);
-  }, [enabled, jobId]);
+    return () => { cancelled = true; clearInterval(beat); };
+  }, [active, enabled, jobId, scope]);
 
   return { permission, lastFix };
 }
