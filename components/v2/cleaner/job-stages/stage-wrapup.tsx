@@ -68,6 +68,9 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
     addressLine,
   } = api;
   const syncBlockers = useSubmissionPreflight(!locked);
+  if (api.bulkPool.length) syncBlockers.push("Assign or explicitly remove unfiled bulk photos before submitting.");
+  if (api.laundryPhoto.length && (!laundryEnabled || api.laundryOutcome !== "READY_FOR_PICKUP")) syncBlockers.push("Laundry photos are unused by this outcome. Remove the attachment in device recovery; the original stays saved.");
+  if (api.carryPhotos.length && (!api.carryHasNew || !api.carryNotes.some(note => note.trim()))) syncBlockers.push("Next-clean photos need a flag note or explicit attachment removal in device recovery.");
   if (api.payload?.formContractError) syncBlockers.push(api.payload.formContractError);
 
   // Locked → the submitted review state is the whole stage (design "Job
@@ -303,6 +306,8 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                 </EField>
                 <EField label="Laundry photo (required)">
                   <MediaCapture
+                    evidenceDestination={{ type: "laundry" }}
+                    multiple={false}
                     value={api.laundryPhoto}
                     onChange={api.setLaundryPhoto}
                     mode="photo"
@@ -447,6 +452,7 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                   <Camera className="h-3.5 w-3.5" /> Photo (optional)
                 </p>
                 <MediaCapture
+                  evidenceDestination={{ type: "carryForwardNew" }}
                   value={api.carryPhotos}
                   onChange={api.setCarryPhotos}
                   mode="photo"

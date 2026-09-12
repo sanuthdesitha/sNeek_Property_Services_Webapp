@@ -116,6 +116,14 @@ beforeEach(() => {
 });
 
 describe("real cleaner submit form contract", () => {
+  it.each(["bulkPool", "laundry", "carryForwardNew", "jobTask"])("rejects unused or unavailable typed %s evidence before the status claim", async type => {
+    const destination = type === "jobTask" ? { type, taskId: "removed-task" } : { type };
+    mocks.draft.mockResolvedValue({ evidenceReceipts: { capture: { key: "durable.jpg", fieldId: "unused", destination } } });
+    const response = await submit({ note: "Done", uploads: { photo: ["other.jpg"], laundry_photo: ["durable.jpg"] },
+      carryForward: { hasNew: false, newTaskNotes: [], taskPhotoKeys: { __carryForwardNew: ["durable.jpg"] } } }, "template", { jobTasks: [{ id: "removed-task", decision: "COMPLETED", proofKeys: ["durable.jpg"] }] });
+    expect(response.status).toBe(409); expect(await response.json()).toMatchObject({ code: "EVIDENCE_CHANGED" });
+    expectNoWrites();
+  });
   it("enforces server receipt ownership for legacy callers and rejects detached keys under other fields", async () => {
     mocks.draft.mockResolvedValue({ evidenceReceipts: { capture: { key: "durable.jpg", fieldId: "photo", detached: true } } });
     const response = await submit({ note: "Done", uploads: { photo: ["other.jpg"], elsewhere: ["durable.jpg"] } });

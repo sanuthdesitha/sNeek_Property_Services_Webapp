@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { LaundryStatus, NotificationChannel, NotificationStatus, Role } from "@prisma/client";
+import { LaundryStatus, NotificationChannel, NotificationStatus, Role, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { publicUrl } from "@/lib/s3";
 import { ensureLaundryTaskForJob } from "@/lib/laundry/planner";
@@ -218,8 +218,14 @@ export async function applyCleanerLaundryStatusUpdate(params: {
   laundrySkipReasonNote?: string | null;
   source: CleanerLaundryUpdateSource;
   portalUrl: string;
-}) {
-  const job = await db.job.findUnique({
+}, execution?: { transaction: Prisma.TransactionClient; afterCommit: Array<() => Promise<void>> }) {
+  const database = execution?.transaction ?? db;
+  const transact = <T>(run: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> => execution ? run(execution.transaction) : db.$transaction(run);
+  const notify = async (run: () => Promise<void>) => { if (execution) execution.afterCommit.push(run); else await run(); };
+  // Driver actions lock LaundryTask directly; the enclosing Job lock alone
+  // cannot keep a pickup from committing between our read and update.
+  if (execution) await execution.transaction.$queryRaw`SELECT "id" FROM "LaundryTask" WHERE "jobId" = ${params.jobId} FOR UPDATE`;
+  const job = await database.job.findUnique({
     where: { id: params.jobId },
     include: {
       property: true,
@@ -244,9 +250,9 @@ export async function applyCleanerLaundryStatusUpdate(params: {
 
   let laundryTask = job.laundryTask;
   if (!laundryTask) {
-    const ensuredLaundryTask = await ensureLaundryTaskForJob(job.id);
+    const ensuredLaundryTask = await ensureLaundryTaskForJob(job.id, execution?.transaction);
     laundryTask = ensuredLaundryTask
-      ? await db.laundryTask.findUnique({
+      ? await database.laundryTask.findUnique({
           where: { id: ensuredLaundryTask.id },
           include: {
             confirmations: {
@@ -260,7 +266,7 @@ export async function applyCleanerLaundryStatusUpdate(params: {
   if (!laundryTask) {
     const pickupDate = new Date(job.scheduledDate.getTime() + 24 * 60 * 60 * 1000);
     const dropoffDate = new Date(job.scheduledDate.getTime() + 48 * 60 * 60 * 1000);
-    laundryTask = await db.laundryTask.create({
+    laundryTask = await database.laundryTask.create({
       data: {
         jobId: job.id,
         propertyId: job.propertyId,
@@ -308,7 +314,7 @@ export async function applyCleanerLaundryStatusUpdate(params: {
       return { ok: true, duplicated: true, laundryTask };
     }
 
-    const updatedTask = await db.$transaction(async (tx) => {
+    const updatedTask = await transact(async (tx) => {
       const nextTask = await tx.laundryTask.update({
         where: { id: laundryTask.id },
         include: {
@@ -348,7 +354,7 @@ export async function applyCleanerLaundryStatusUpdate(params: {
       return nextTask;
     });
 
-    await notifyLaundryPartners({
+    await notify(() => notifyLaundryPartners({
       propertyId: job.propertyId,
       propertyName: job.property.name,
       jobId: job.id,
@@ -359,12 +365,13 @@ export async function applyCleanerLaundryStatusUpdate(params: {
       bagLocation: params.bagLocation ?? "",
       laundryPhotoUrl,
       portalUrl: params.portalUrl,
-    });
+    }));
 
     return { ok: true, duplicated: false, laundryTask: updatedTask };
   }
 
-  const noPickupRequired = params.laundryOutcome === "NO_PICKUP_REQUIRED";
+  const skippedOutcome = params.laundryOutcome;
+  const noPickupRequired = skippedOutcome === "NO_PICKUP_REQUIRED";
   const nextStatus = noPickupRequired ? LaundryStatus.SKIPPED_PICKUP : LaundryStatus.FLAGGED;
 
   if (
@@ -379,12 +386,12 @@ export async function applyCleanerLaundryStatusUpdate(params: {
   // keep the task as the cleaner's explicit earlier update left it and put the
   // contradiction in front of admins instead of silently un-notifying partners.
   if (blocksLaundryFinalSubmissionDowngrade(laundryTask, params.source)) {
-    await alertAdminsLaundryContradiction({
+    await notify(() => alertAdminsLaundryContradiction({
       jobId: job.id,
       propertyName: job.property.name,
       jobNumber,
       submittedOutcome: params.laundryOutcome,
-    });
+    }));
     return { ok: true, duplicated: true, laundryTask };
   }
 
@@ -398,7 +405,7 @@ export async function applyCleanerLaundryStatusUpdate(params: {
     return { ok: true, duplicated: true, laundryTask };
   }
 
-  const updatedTask = await db.$transaction(async (tx) => {
+  const updatedTask = await transact(async (tx) => {
     const nextTask = await tx.laundryTask.update({
       where: { id: laundryTask.id },
       include: {
@@ -434,7 +441,7 @@ export async function applyCleanerLaundryStatusUpdate(params: {
     return nextTask;
   });
 
-  await Promise.all([
+  await notify(async () => { await Promise.all([
     alertAdminsLaundryNotReady(job.id, job.property.name, jobNumber),
     notifyLaundrySkipRequested({
       propertyId: job.propertyId,
@@ -442,12 +449,12 @@ export async function applyCleanerLaundryStatusUpdate(params: {
       propertyName: job.property.name,
       jobNumber,
       cleanDate: job.scheduledDate,
-      laundryOutcome: params.laundryOutcome,
+      laundryOutcome: skippedOutcome,
       reasonCode: params.laundrySkipReasonCode || "OTHER",
       reasonNote: params.laundrySkipReasonNote || "",
       portalUrl: params.portalUrl,
     }),
-  ]);
+  ]); });
 
   return { ok: true, duplicated: false, laundryTask: updatedTask };
 }

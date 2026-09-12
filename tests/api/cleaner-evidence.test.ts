@@ -39,6 +39,32 @@ beforeEach(() => {
   mocks.head.mockImplementation(async () => { events.push("head"); return { ContentLength: 123, ContentType: "image/jpeg" }; });
 });
 describe("evidence attachment acknowledgement", () => {
+  it.each(["bulkPool", "jobTask", "laundry", "carryForwardNew"])("attaches and detaches typed %s evidence without pretending it is a form field", async type => {
+    mocks.job.mockResolvedValue({ id: "job", propertyId: "property", jobType: "AIRBNB_TURNOVER", status: "IN_PROGRESS", property: {} });
+    mocks.tasks.mockResolvedValue([{ id: "task", source: "OTHER" }]);
+    const destination = type === "jobTask" ? { type, taskId: "task" } : { type };
+    expect((await POST(request({ destination }), context)).status).toBe(200);
+    expect(draft.evidenceReceipts[captureId].destination).toEqual(destination);
+    expect(draft.state.uploads?.photo).toBeUndefined();
+    expect((await DELETE(request({}, identity, "DELETE"), context)).status).toBe(200);
+    expect(draft.evidenceReceipts[captureId].detached).toBe(true);
+  });
+  it("rejects nonexistent task and ineligible laundry destinations", async () => {
+    expect((await POST(request({ destination: { type: "jobTask", taskId: "other" } }), context)).status).toBe(409);
+    expect((await POST(request({ destination: { type: "laundry" } }), context)).status).toBe(409);
+  });
+  it("acknowledges bulk moves once and rejects old destinations and stale move versions", async () => {
+    const pool = { type: "bulkPool" }; const field = { type: "formField", fieldId: "photo" };
+    expect((await POST(request({ destination: pool }), context)).status).toBe(200);
+    const move = { destination: field, move: { from: pool, version: 0 } };
+    expect((await POST(request(move), context)).status).toBe(200);
+    expect(draft.state.bulkPool).toEqual([]); expect(draft.state.uploads.photo).toHaveLength(1);
+    expect((await POST(request(move), context)).status).toBe(200); expect(mocks.save).toHaveBeenCalledTimes(2);
+    expect((await POST(request({ destination: pool }), context)).status).toBe(409);
+    expect((await POST(request({ destination: pool, move: { from: field, version: 0 } }), context)).status).toBe(409);
+    expect((await POST(request({ destination: pool, move: { from: field, version: 1 } }), context)).status).toBe(200);
+    expect(draft.state.uploads.photo).toEqual([]); expect(draft.state.bulkPool).toHaveLength(1);
+  });
   it("rejects a hidden destination and a video sent to a photo-only field", async () => {
     const form = await mocks.form();
     form.template.schema.sections[0].fields[0].conditional = { fieldId: "needed", value: true };

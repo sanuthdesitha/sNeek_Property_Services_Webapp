@@ -46,6 +46,7 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { EAccessInfo } from "@/components/v2/shared/access-info";
+import { LaundryHandoffReceipts } from "./handoff-receipts";
 import { EInput } from "@/components/v2/cleaner/fields";
 import { useLaundryActionModal } from "@/components/v2/laundry/laundry-action-modal";
 import {
@@ -70,6 +71,7 @@ export type LaundryStatus =
   | "SKIPPED_PICKUP";
 
 type Confirmation = {
+  confirmedByName?: string | null;
   id?: string;
   laundryReady?: boolean;
   notes?: string | null;
@@ -1420,6 +1422,7 @@ export function TrackingBoard({ canDelete = false }: BoardRoleProps) {
 
                   {/* Full activity timeline (same event log as the v1 planner) */}
                   <ActivityTimeline events={timeline} />
+                  <LaundryHandoffReceipts confirmations={t.confirmations ?? []} />
 
                   {/* Update actions */}
                   <div className="flex flex-wrap items-center gap-2 border-t border-[hsl(var(--e-border))] pt-3">

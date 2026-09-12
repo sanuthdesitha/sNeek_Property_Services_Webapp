@@ -234,6 +234,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
                             <Camera className="h-3.5 w-3.5" /> Proof photo{t.requiresPhoto ? " (required)" : ""}
                           </p>
                           <MediaCapture
+                            evidenceDestination={{ type: "jobTask", taskId: t.id }}
                             value={d.proof}
                             onChange={(m) => api.setTask(t.id, { proof: m })}
                             mode="photo"

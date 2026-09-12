@@ -1,3 +1,4 @@
+import { destinationOf, evidenceSubmissionChanged } from "@/lib/cleaner/evidence-destination";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -596,13 +597,20 @@ export async function POST(
     const claim = await withSharedCleanerJobDraftLock(params.id, async tx => {
       await tx.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${params.id} FOR UPDATE`;
       const draft = await getSharedCleanerJobDraft(params.id, tx);
-      const staleEvidence = Object.values(draft?.evidenceReceipts ?? {}).some(receipt => {
-        const included = uploads[receipt.fieldId]?.includes(receipt.key) === true;
-        const misplaced = Object.entries(uploads).some(([field, keys]) => keys.includes(receipt.key) && (receipt.detached || field !== receipt.fieldId)) ||
-          submittedUnifiedTaskUpdates.some(task => task.proofKeys?.includes(receipt.key)) ||
-          Object.values(carryForward?.taskPhotoKeys ?? {}).some(keys => keys.includes(receipt.key));
-        return misplaced || (receipt.detached ? included : !included);
+      const receipts = draft?.evidenceReceipts ?? {};
+      let currentTaskIds: Set<string> | null = null;
+      if (Object.values(receipts).some(receipt => !receipt.detached && destinationOf(receipt).type === "jobTask")) {
+        await tx.$queryRaw`SELECT "id" FROM "JobTask" WHERE "jobId" = ${params.id} ORDER BY "id" FOR SHARE`;
+        currentTaskIds = new Set((await listCleanerJobTasks(params.id, tx)).map(task => task.id));
+      }
+      const unusedEvidence = Object.values(receipts).some(receipt => {
+        if (receipt.detached) return false;
+        const destination = destinationOf(receipt);
+        return (destination.type === "laundry" && laundryOutcome !== "READY_FOR_PICKUP") ||
+          (destination.type === "carryForwardNew" && (!carryForward?.hasNew || !carryForward.newTaskNotes.length)) ||
+          (destination.type === "jobTask" && (!currentTaskIds?.has(destination.taskId) || !unifiedTaskSnapshot.some(task => task.id === destination.taskId && task.proofKeys.includes(receipt.key))));
       });
+      const staleEvidence = unusedEvidence || evidenceSubmissionChanged(receipts, uploads, submittedUnifiedTaskUpdates, carryForward?.taskPhotoKeys ?? {});
       if (staleEvidence) return { count: -1 };
       return tx.job.updateMany(claimInput);
     });

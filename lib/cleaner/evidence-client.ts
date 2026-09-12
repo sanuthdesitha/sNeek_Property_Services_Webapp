@@ -1,15 +1,54 @@
 import { getEvidence, putEvidence, sameEvidenceScope, type EvidenceRecord, type EvidenceScope, type EvidenceReceipt } from "./evidence-store";
+import { destinationOf, destinationKey, type EvidenceDestination } from "./evidence-destination";
 // Keep a known remote receipt available in this tab even if device storage
 // temporarily fails after upload. Across a restart, uploading/no receipt is
 // explicitly uncertain and must never automatically send the blob again.
 const receiptMemory = new Map<string, EvidenceRecord>();
+export async function removeEvidence(scope: EvidenceScope, key: string) {
+  if (!navigator.locks?.request) throw new Error("This browser cannot safely coordinate evidence recovery.");
+  const id = key.split("/")[2] ?? key;
+  await navigator.locks.request(`cleaner-evidence:${id}`, async () => {
+    const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/evidence`, { method: "DELETE", headers: { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": scope.draftIdentity }, body: JSON.stringify({ key, formRevision: scope.formRevision }) });
+    const body = await response.json();
+    if (!response.ok || body.ok !== true) throw new Error(body.error || "Removal was not confirmed.");
+    const record = await getEvidence(id);
+    if (record && sameEvidenceScope(record, scope)) await putEvidence({ ...record, status: "detached" });
+  });
+}
+
+export async function moveEvidence(scope: EvidenceScope, media: EvidenceReceipt, from: EvidenceDestination, to: EvidenceDestination) {
+  const headers = { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": scope.draftIdentity };
+  const read = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, { headers, cache: "no-store" });
+  const draft = await read.json();
+  if (!read.ok) throw new Error(draft.error || "Evidence could not be checked.");
+  const entry = Object.entries(draft.draft?.evidenceReceipts ?? {}).find(([, value]) => (value as any).key === media.key) as [string, any] | undefined;
+  if (!entry) return; // Existing legacy uploaded media remains list-managed.
+  const [id, receipt] = entry;
+  const alreadyMoved = destinationKey(destinationOf(receipt)) === destinationKey(to);
+  if (receipt.detached || receipt.draftIdentity !== scope.draftIdentity || receipt.formRevision !== scope.formRevision || (!alreadyMoved && destinationKey(destinationOf(receipt)) !== destinationKey(from))) throw new Error("Evidence changed or belongs to another cleaner. Reload before moving it.");
+  if (!navigator.locks?.request) throw new Error("This browser cannot safely coordinate evidence recovery.");
+  await navigator.locks.request(`cleaner-evidence:${id}`, async () => {
+    if (alreadyMoved) {
+      const current = await getEvidence(id);
+      if (current && sameEvidenceScope(current, scope)) await putEvidence({ ...current, destination: to, fieldId: to.type === "formField" ? to.fieldId : destinationKey(to), destinationVersion: receipt.version ?? 0 });
+      return;
+    }
+    const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/evidence`, { method: "POST", headers,
+      body: JSON.stringify({ captureId: id, fieldId: to.type === "formField" ? to.fieldId : destinationKey(to), destination: to,
+        templateId: scope.templateId, formRevision: scope.formRevision, key: media.key, name: media.name ?? "Evidence", move: { from, version: receipt.version ?? 0 } }) });
+    const body = await response.json();
+    if (!response.ok || !body.ok) throw new Error(body.error || "Evidence move was not confirmed. Retry after reloading.");
+    const record = await getEvidence(id);
+    if (record && sameEvidenceScope(record, scope)) await putEvidence({ ...record, destination: to, fieldId: to.type === "formField" ? to.fieldId : destinationKey(to), destinationVersion: body.version });
+  });
+}
 
 export async function attachEvidence(record: EvidenceRecord): Promise<EvidenceReceipt> {
   const expectedKey = record.receipt?.key ?? record.allocation?.key;
   if (!expectedKey) throw new Error("Upload receipt is missing.");
   const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(record.jobId)}/evidence`, {
     method: "POST", headers: { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": record.draftIdentity },
-    body: JSON.stringify({ captureId: record.id, fieldId: record.fieldId, templateId: record.templateId,
+    body: JSON.stringify({ captureId: record.id, fieldId: record.fieldId, destination: record.destination, templateId: record.templateId,
       formRevision: record.formRevision, key: expectedKey, name: record.filename }),
   });
   const body = await response.json().catch(() => null);
@@ -38,6 +77,7 @@ export async function processEvidence(record: EvidenceRecord, scope: EvidenceSco
   return navigator.locks.request(`cleaner-evidence:${record.id}`, async () => {
     let current = await getEvidence(record.id);
     if (!current || !sameEvidenceScope(current, scope)) throw new Error("Evidence recovery context changed. Reload this job.");
+    if (destinationKey(destinationOf(current)) !== destinationKey(destinationOf(record))) throw new Error("This evidence moved to another destination. Reload device recovery before retrying.");
     const retained = receiptMemory.get(record.id);
     if (retained && sameEvidenceScope(retained, scope) && retained.receipt && current.status !== "detached") current = retained;
     if (current.status === "detached") throw new Error("This evidence was explicitly removed. Keep the original for review.");

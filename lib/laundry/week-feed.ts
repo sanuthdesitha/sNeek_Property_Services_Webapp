@@ -36,6 +36,17 @@ export type LaundryWeekTask = Prisma.LaundryTaskGetPayload<{
   include: typeof laundryWeekTaskInclude;
 }>;
 
+/** Resolve names only after task visibility has been established; never expose user profiles. */
+export async function withHandoffActorNames<T extends { confirmations: Array<{ confirmedById: string }> }>(tasks: T[]) {
+  const ids = Array.from(new Set(tasks.flatMap(task => task.confirmations.map(row => row.confirmedById))));
+  const names = new Map<string, string | null>();
+  for (let offset = 0; offset < ids.length; offset += 200) {
+    const users = await db.user.findMany({ where: { id: { in: ids.slice(offset, offset + 200) } }, select: { id: true, name: true } });
+    for (const user of users) names.set(user.id, user.name);
+  }
+  return tasks.map(task => ({ ...task, confirmations: task.confirmations.map(row => ({ ...row, confirmedByName: names.get(row.confirmedById) ?? null })) }));
+}
+
 /** Apply LAUNDRY-role team scoping; ADMIN/OPS see everything. */
 export function filterTasksVisibleToUser<T extends { property: { accessInfo: unknown; laundryEnabled: boolean | null } | null }>(
   tasks: T[],
@@ -66,7 +77,7 @@ export async function fetchLaundryWeekTasks(
     include: laundryWeekTaskInclude,
     orderBy: { pickupDate: "asc" },
   });
-  return filterTasksVisibleToUser(tasks, viewer.role, viewer.userId);
+  return withHandoffActorNames(filterTasksVisibleToUser(tasks, viewer.role, viewer.userId));
 }
 
 /**

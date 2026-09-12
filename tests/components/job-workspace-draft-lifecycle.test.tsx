@@ -35,6 +35,10 @@ function FixtureStage({ api }: { api: WorkspaceApi }) {
     <label>Fixture answer<input value={String(api.answers.note ?? "")} disabled={api.locked}
       onChange={(event) => api.onAnswer("note", event.target.value)} /></label>
     <button disabled={api.locked || Boolean(api.busy)} onClick={api.requestSubmit}>Submit fixture</button>
+    <button onClick={() => api.setLaundryOutcome("NOT_READY")}>Prepare laundry fixture</button>
+    <button onClick={() => void api.sendLaundryEarlyUpdate()}>Send laundry fixture</button>
+    {api.laundryEarlyNotice ? <span data-testid="laundry-notice">{api.laundryEarlyNotice.text}</span> : null}
+    {api.laundryEarlySentAt ? <span data-testid="laundry-saved">Saved</span> : null}
   </>;
 }
 
@@ -73,12 +77,14 @@ let fetchMock: ReturnType<typeof vi.fn>;
 let unexpected: string[];
 let currentStatus: string;
 let readDraft: () => Promise<Response>;
+let laundryResponse: Record<string, unknown>;
 
 beforeEach(() => {
   vi.useFakeTimers();
   localStorage.clear();
   patches = []; formResponses = []; unexpected = []; currentStatus = "IN_PROGRESS";
   readDraft = () => Promise.resolve(json({ draft: null }));
+  laundryResponse = { ok: true };
   submitResponse = deferred<Response>(); gpsResponse = deferred();
   device.gps.mockReset().mockReturnValue(gpsResponse.promise);
   // The client has no independent auth fetch: authenticated form/briefing/draft
@@ -98,6 +104,7 @@ beforeEach(() => {
       }
     }
     if (url === "/api/cleaner/jobs/job/submit" && method === "POST") return submitResponse.promise;
+    if (url === "/api/cleaner/jobs/job/laundry-status" && method === "POST") return Promise.resolve(json(laundryResponse));
     if (url === "/api/cleaner/jobs/job/gps-checkout" && method === "POST") return Promise.resolve(json({ ok: true }));
     unexpected.push(`${method} ${url}`);
     return Promise.reject(new Error(`Unexpected fixture request: ${method} ${url}`));
@@ -132,6 +139,20 @@ async function submit() {
 }
 
 describe("real JobWorkspace draft lifecycle", () => {
+  it.each([false, true])("keeps acknowledged early laundry saved without claiming delivery (duplicate=%s)", async duplicated => {
+    const warning = "Laundry update saved, but notification delivery could not be confirmed. Contact the office if urgent.";
+    laundryResponse = duplicated ? { ok: true, duplicated: true } : { ok: true, duplicated: false, deliveryWarning: warning };
+    await mount();
+    fireEvent.click(screen.getByRole("button", { name: "Prepare laundry fixture" }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send laundry fixture" })); });
+    expect(screen.getByTestId("laundry-saved")).toHaveTextContent("Saved");
+    expect(screen.getByTestId("laundry-notice")).toHaveTextContent(duplicated ? "Laundry update already saved." : warning);
+    expect(screen.queryByText("Sent to the laundry team and admin.")).toBeNull();
+    const call = calls("/laundry-status", "POST")[0];
+    expect(call[1].headers).toMatchObject({ "X-Cleaner-Draft-Identity": identity });
+    expect(JSON.parse(String(call[1].body)).formRevision).toBe("b".repeat(64));
+    expect(calls("/laundry-status", "POST")).toHaveLength(1);
+  });
   it("keeps answers and the local evidence draft when the server rejects a changed form", async () => {
     await mount(); edit("keep my work"); await advance();
     fireEvent.click(screen.getByRole("button", { name: "Submit fixture" }));

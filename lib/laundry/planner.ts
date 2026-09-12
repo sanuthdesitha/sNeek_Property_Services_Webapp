@@ -3,7 +3,7 @@ import { logger } from "@/lib/logger";
 import { addDays, differenceInCalendarDays, startOfDay } from "date-fns";
 import { LaundryFlag, LaundryStatus, Prisma } from "@prisma/client";
 import { toZonedTime } from "date-fns-tz";
-import { getAppSettings, type LaundryOperationsSettings } from "@/lib/settings";
+import { getAppSettings, getTransactionAppSettings, type LaundryOperationsSettings } from "@/lib/settings";
 import {
   replacePendingLaundrySyncDraftForProperty,
   type LaundrySyncDraftItem,
@@ -64,8 +64,8 @@ function capDropoffDate(pickupDate: Date, requestedDropoffDate: Date, maxOutdoor
   return requestedDropoffDate > maxAllowed ? maxAllowed : requestedDropoffDate;
 }
 
-async function getNextTurnoverCleanDate(job: PlannerJob) {
-  const nextJob = await db.job.findFirst({
+async function getNextTurnoverCleanDate(job: PlannerJob, database: Prisma.TransactionClient = db) {
+  const nextJob = await database.job.findFirst({
     where: {
       propertyId: job.propertyId,
       jobType: "AIRBNB_TURNOVER",
@@ -106,7 +106,8 @@ export function canPlannerOverrideStatus(task: { status: LaundryStatus }) {
 // Exported for tests (tests/lib/key-lost.test.ts pins both branches).
 export async function computeDraftItem(
   job: PlannerJob,
-  operations: LaundryOperationsSettings
+  operations: LaundryOperationsSettings,
+  database: Prisma.TransactionClient = db,
 ): Promise<LaundryPlanDraftItem> {
   // Key-lost mode: the spare key is gone, so the driver can only enter while
   // the cleaner is inside — pickup AND drop-off happen on the clean day, after
@@ -117,7 +118,7 @@ export async function computeDraftItem(
   }
 
   const cleanDate = normalizeDate(job.scheduledDate);
-  const nextCleanDate = await getNextTurnoverCleanDate(job);
+  const nextCleanDate = await getNextTurnoverCleanDate(job, database);
   const fallbackQuickReturnDays = Math.max(1, operations.fastReturnDaysWhenNoNextClean);
 
   let pickupDate = addDays(cleanDate, 1);
@@ -414,15 +415,16 @@ export async function generateWeeklyLaundryPlan(weekStart?: Date): Promise<void>
 }
 
 /** Ensure a laundry task exists for one turnover job. */
-export async function ensureLaundryTaskForJob(jobId: string) {
-  const existing = await db.laundryTask.findUnique({
+export async function ensureLaundryTaskForJob(jobId: string, transaction?: Prisma.TransactionClient) {
+  const database = transaction ?? db;
+  const existing = await database.laundryTask.findUnique({
     where: { jobId },
   });
   if (existing) {
     return existing;
   }
 
-  const job = await db.job.findUnique({
+  const job = await database.job.findUnique({
     where: { id: jobId },
     include: {
       property: true,
@@ -436,8 +438,12 @@ export async function ensureLaundryTaskForJob(jobId: string) {
   if (job.isRework) return null;
   if (!job.property.laundryEnabled) return null;
 
-  const settings = await getAppSettings();
-  const draftItem = await computeDraftItem(job, settings.laundryOperations);
+  const settings = transaction ? await getTransactionAppSettings(transaction) : await getAppSettings();
+  const draftItem = await computeDraftItem(job, settings.laundryOperations, database);
+  if (transaction) return database.laundryTask.create({ data: {
+    jobId, propertyId: draftItem.propertyId, pickupDate: new Date(draftItem.pickupDate), dropoffDate: new Date(draftItem.dropoffDate),
+    status: draftItem.status, flagReason: draftItem.flagReason, flagNotes: draftItem.flagNotes, notifyLaundry: false,
+  } });
   await applyLaundryPlanDraft([draftItem]);
   return db.laundryTask.findUnique({ where: { jobId } });
 }

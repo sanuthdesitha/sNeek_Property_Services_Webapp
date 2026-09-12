@@ -17,6 +17,23 @@ beforeEach(() => {
 });
 
 describe("Jobs server refinements", () => {
+  it.each(["America/Los_Angeles", "Australia/Sydney", "UTC"])("keeps date-only export bounds fixed in server timezone %s", async timezone => {
+    const previous = process.env.TZ; process.env.TZ = timezone;
+    try {
+      await request("paginated=1&limit=5000&dateFrom=2026-09-09&dateTo=2026-09-09");
+      const bounds = mocks.find.mock.calls[0][0].where.scheduledDate;
+      expect(bounds).toEqual({ gte: new Date("2026-09-09T00:00:00.000Z"), lt: new Date("2026-09-10T00:00:00.000Z") });
+      expect(new Date("2026-09-09T00:00:00Z") >= bounds.gte).toBe(true);
+      expect(new Date("2026-09-10T00:00:00Z") < bounds.lt).toBe(false);
+      expect(mocks.count.mock.calls[0][0].where.scheduledDate).toEqual(bounds);
+    } finally { if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous; }
+  });
+  it("uses the following UTC day across daylight-saving and year boundaries", async () => {
+    await request("paginated=1&dateFrom=2026-10-03&dateTo=2026-10-04");
+    expect(mocks.find.mock.calls[0][0].where.scheduledDate).toEqual({ gte: new Date("2026-10-03T00:00:00Z"), lt: new Date("2026-10-05T00:00:00Z") });
+    await request("paginated=1&dateTo=2026-12-31");
+    expect(mocks.find.mock.calls[1][0].where.scheduledDate).toEqual({ lt: new Date("2027-01-01T00:00:00Z") });
+  });
   it.each([Role.ADMIN, Role.OPS_MANAGER])("uses identical full-dataset filters for %s count, page and export", async role => {
     mocks.session.mockResolvedValue({ user: { id: "owner", role } });
     const query = "search=Harbour&invoiced=yes&status=COMPLETED&clientId=client-1&propertyId=property-1&cleanerId=cleaner-1&paginated=1";

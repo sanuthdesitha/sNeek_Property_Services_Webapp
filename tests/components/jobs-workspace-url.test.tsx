@@ -210,7 +210,7 @@ describe("Jobs workspace URL integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Export" }));
     const list = new URL(pending[0].url, window.location.origin).searchParams;
     const exported = new URL(pending[1].url, window.location.origin).searchParams;
-    list.delete("page");
+    list.set("page", "1");
     list.set("limit", "5000");
     expect(Object.fromEntries(exported)).toEqual(Object.fromEntries(list));
     await act(async () => pending[1].resolve({ ok: true, json: async () => ({ jobs: [] }) }));

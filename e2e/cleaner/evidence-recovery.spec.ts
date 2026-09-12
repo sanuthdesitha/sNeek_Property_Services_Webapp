@@ -130,3 +130,15 @@ test("failed original storage keeps the volatile File and dispatches no bytes", 
   expect(await page.evaluate(() => (window as any).__evidenceFixture.volatileCount())).toBe(0);
   expect(transport.counts).toMatchObject({ allocate: 0, part: 0, complete: 0, attach: 0 });
 });
+
+for (const destination of [{ type: "bulkPool" }, { type: "jobTask", taskId: "task" }, { type: "laundry" }, { type: "carryForwardNew" }]) {
+  test(`reload preserves ${destination.type} destination through exact-key recovery`, async ({ context, page }) => {
+    const transport = await mockTransport(context, page, { loseCompletion: true });
+    const fixture = new EvidenceFixturePage(page); await fixture.open();
+    await page.evaluate(destination => (window as any).__evidenceFixture.capture(destination), destination);
+    const before = (await fixture.snapshot())[0]; expect(before.destination).toEqual(destination);
+    await fixture.open(); expect((await fixture.recover(before.id)).failures).toEqual([]);
+    expect((await fixture.snapshot())[0]).toMatchObject({ destination, status: "attached" });
+    expect(transport.counts).toMatchObject({ allocate: 1, part: 1, complete: 1, attach: 1 });
+  });
+}

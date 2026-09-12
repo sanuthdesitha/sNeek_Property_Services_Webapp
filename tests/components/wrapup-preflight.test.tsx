@@ -10,10 +10,17 @@ vi.mock("@/components/v2/cleaner/media-capture", () => ({ MediaCapture: () => nu
 afterEach(() => { cleanup(); checks.blockers = []; });
 function api(patch: Partial<WorkspaceApi> = {}): WorkspaceApi {
   return { locked: false, status: "IN_PROGRESS", laundryEnabled: false, schema: null, answers: {}, uploads: {}, property: {}, jobTasks: [], taskDrafts: {}, allTasksDecided: true,
-    busy: null, addressLine: "Test property", jobId: "job", carryHasNew: false, finalCheckupItems: [],
+    busy: null, addressLine: "Test property", jobId: "job", carryHasNew: false, finalCheckupItems: [], bulkPool: [], laundryPhoto: [], carryPhotos: [], carryNotes: [],
     requestSubmit: vi.fn(), setActiveStage: vi.fn(), ...patch } as unknown as WorkspaceApi;
 }
 describe("wrap-up preflight panel", () => {
+  it("keeps unassigned and unused evidence explicit until acknowledged removal", () => {
+    const media = { key: "key", url: "/key", kind: "image" as const };
+    render(<StageWrapup api={api({ bulkPool: [media], laundryPhoto: [media], carryPhotos: [media] })} />);
+    expect(screen.getByText("Assign or explicitly remove unfiled bulk photos before submitting.")).toBeInTheDocument();
+    expect(screen.getByText(/Laundry photos are unused/)).toBeInTheDocument();
+    expect(screen.getByText(/Next-clean photos need a flag note/)).toBeInTheDocument();
+  });
   it("combines mandatory checklist and synchronization blockers with actionable text", () => {
     checks.blockers = ["2 evidence files still need attachment."];
     const model = api({ jobTasks: [{ id: "task" }] as any, allTasksDecided: false });

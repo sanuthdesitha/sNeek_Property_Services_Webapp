@@ -1,7 +1,9 @@
+import type { EvidenceDestination } from "./evidence-destination";
 export type EvidenceScope = { draftIdentity: string; jobId: string; templateId: string; formRevision: string };
 export type EvidenceReceipt = { key: string; url: string; kind: "image" | "video" | "file"; name?: string };
 export type EvidenceRecord = EvidenceScope & {
   id: string; fieldId: string; filename: string; mime: string; blob: Blob;
+  destination?: EvidenceDestination; destinationVersion?: number;
   createdAt: number; folder: string; source: "camera" | "gallery";
   status: "captured" | "preparing" | "uploading" | "uploaded" | "attached" | "detached";
   prepared?: Blob; preparedName?: string; stamp?: import("@/lib/uploads/stamp").StampOptions | null;

@@ -16,7 +16,6 @@ import {
   BellRing,
   ChevronLeft,
   ChevronRight,
-  Download,
   LayoutGrid,
   Rows3,
   RotateCw,
@@ -32,7 +31,6 @@ import {
   EBoardCard,
   ECheck,
   EJobRow,
-  assignmentNames,
   scheduledLabel,
   statusLabel,
 } from "./job-row";
@@ -42,6 +40,8 @@ import { useJobsScrollRestoration } from "./use-jobs-scroll-restoration";
 import { jobsScrollContentFingerprint } from "@/lib/jobs/scroll-restoration";
 import { SavedViewsControls } from "./saved-views-controls";
 import { JobsColumnsMenu } from "./jobs-columns-menu";
+import { BulkStatusPreviewControls } from "./bulk-status-preview";
+import { JobsExportPreview } from "./export-preview";
 import type { JobsDensity } from "@/lib/jobs/workspace-state";
 import { JobDialog as EModal } from "./job-dialog";
 
@@ -214,7 +214,6 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
   const [bulkQaOpen, setBulkQaOpen] = useState(false);
   const [bulkQaInspectorId, setBulkQaInspectorId] = useState("");
   const [inspectors, setInspectors] = useState<Cleaner[]>([]);
-  const [exporting, setExporting] = useState(false);
 
   function buildQuery(overrides?: Record<string, string>): URLSearchParams {
     const params = new URLSearchParams({ paginated: "1" });
@@ -434,31 +433,6 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
     }
   }
 
-  async function submitBulkStatus() {
-    if (selectedIds.length === 0 || !bulkStatus) {
-      toast({ title: "Select jobs and a status first.", variant: "destructive" });
-      return;
-    }
-    setBulkSubmitting(true);
-    try {
-      const res = await fetch("/api/admin/jobs/bulk-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobIds: selectedIds, status: bulkStatus }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error ?? "Could not bulk update job statuses.");
-      toast({ title: "Bulk status update complete", description: `${body.updated ?? selectedIds.length} jobs updated.` });
-      setBulkStatusOpen(false);
-      setSelectedIds([]);
-      await loadJobs();
-    } catch (err: any) {
-      toast({ title: "Bulk status failed", description: err?.message ?? "Request failed.", variant: "destructive" });
-    } finally {
-      setBulkSubmitting(false);
-    }
-  }
-
   async function submitBulkReminders() {
     if (selectedIds.length === 0) return;
     setBulkSubmitting(true);
@@ -531,48 +505,6 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
       toast({ title: "Assign QA failed", description: err?.message ?? "Request failed.", variant: "destructive" });
     } finally {
       setBulkSubmitting(false);
-    }
-  }
-
-  async function exportCsv() {
-    setExporting(true);
-    try {
-      const params = buildQuery({ limit: "5000" });
-      const res = await fetch(`/api/jobs?${params.toString()}`, { cache: "no-store" });
-      const data = await res.json().catch(() => ({ jobs: [] }));
-      const rows = (Array.isArray(data?.jobs) ? data.jobs : []).map((j: any) => ({
-        JobNumber: j.jobNumber ?? "",
-        Property: j.property?.name ?? "",
-        Suburb: j.property?.suburb ?? "",
-        Client: j.property?.client?.name ?? j.client?.name ?? "",
-        Type: String(j.jobType ?? "").replace(/_/g, " "),
-        Status: statusLabel(String(j.status ?? "")),
-        ScheduledDate: j.scheduledDate ? new Date(j.scheduledDate).toLocaleDateString("en-AU") : "",
-        StartTime: j.startTime ?? "",
-        DueTime: j.dueTime ?? "",
-        AssignedTo: assignmentNames(j).join(", "),
-      }));
-      if (rows.length === 0) {
-        toast({ title: "No jobs to export", variant: "destructive" });
-        return;
-      }
-      const headers = Object.keys(rows[0]);
-      const csv = [
-        headers.join(","),
-        ...rows.map((r: Record<string, string>) => headers.map((h) => `"${String(r[h]).replace(/"/g, '""')}"`).join(",")),
-      ].join("\n");
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `jobs_export_${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast({ title: "Export complete", description: `${rows.length} jobs exported.` });
-    } catch {
-      toast({ title: "Export failed", variant: "destructive" });
-    } finally {
-      setExporting(false);
     }
   }
 
@@ -690,10 +622,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
           </button>
         </div>
 
-        <EButton variant="outline" size="md" onClick={exportCsv} disabled={exporting}>
-          <Download className="h-4 w-4" />
-          {exporting ? "Exporting…" : "Export"}
-        </EButton>
+        <JobsExportPreview query={buildQuery({ page: "1", limit: "5000" }).toString()} context={viewsContext} disabled={!ready} />
       </div>
 
       {/* ── Status chips ── */}
@@ -1140,7 +1069,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
         <div className="space-y-4">
           <div>
             <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Status</p>
-            <select value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value)} className={FIELD_CLS + " cursor-pointer"}>
+            <select aria-label="Bulk status" disabled={bulkSubmitting} value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value)} className={FIELD_CLS + " cursor-pointer"}>
               {BULK_STATUSES.map((status) => (
                 <option key={status} value={status}>
                   {statusLabel(status)}
@@ -1151,12 +1080,13 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
             Applies this status to the {selectedIds.length} selected jobs.
           </p>
+          {viewsContext && !viewsReadOnly ? <BulkStatusPreviewControls jobIds={selectedIds} status={bulkStatus} context={viewsContext} onBusy={setBulkSubmitting} onApplied={() => {
+            toast({ title: "Bulk status update complete", description: `${selectedIds.length} jobs updated.` });
+            setBulkStatusOpen(false); setSelectedIds([]); void loadJobs();
+          }} /> : <p role="alert">Reload Jobs outside read-only mode to review and apply changes.</p>}
           <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
             <EButton variant="outline" onClick={() => setBulkStatusOpen(false)} disabled={bulkSubmitting}>
               Cancel
-            </EButton>
-            <EButton variant="gold" onClick={submitBulkStatus} disabled={bulkSubmitting}>
-              {bulkSubmitting ? "Applying…" : "Update status"}
             </EButton>
           </div>
         </div>

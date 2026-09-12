@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Prisma, PrismaClient } from "@prisma/client";
+import { destinationMedia, setDestinationMedia, reconcileEvidenceState, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
 import {
   clearSharedCleanerJobDraft,
   getSharedCleanerJobDraft,
@@ -126,6 +127,26 @@ describe.skipIf(!databaseUrl)("cleaner draft locks (explicit local PostgreSQL on
     })).rejects.toBe(failure);
     await rollback(async tx => {
       expect(await getSharedCleanerJobDraft(jobId, tx)).toBeNull();
+    });
+  });
+
+  it("preserves typed destination receipts through real JSON storage, stale autosave and clear", async () => {
+    const jobId = fixture();
+    await rollback(async tx => {
+      const destinations: EvidenceDestination[] = [{ type: "bulkPool" }, { type: "jobTask", taskId: "task" }, { type: "laundry" }, { type: "carryForwardNew" }];
+      let initial = draft({ answers: { stale: false } });
+      for (const [index, destination] of destinations.entries()) {
+        const media = { key: `forms/${jobId}/${index}/actor/photo.jpg`, url: `/fixture/${index}` };
+        initial = { ...initial, state: setDestinationMedia(initial.state, destination, [media]), evidenceReceipts: { ...initial.evidenceReceipts, [index]: { key: media.key, fieldId: "unused", destination, version: 0, formRevision: "fixture", draftIdentity: "actor" } } };
+      }
+      await saveSharedCleanerJobDraft(jobId, initial, tx);
+      const stored = (await getSharedCleanerJobDraft(jobId, tx))!;
+      expect(stored.evidenceReceipts).toEqual(initial.evidenceReceipts);
+      await saveSharedCleanerJobDraft(jobId, { ...stored, state: reconcileEvidenceState({ answers: { stale: true } }, stored.state, stored.evidenceReceipts!) }, tx);
+      await clearSharedCleanerJobDraft(jobId, tx);
+      const cleared = (await getSharedCleanerJobDraft(jobId, tx))!;
+      for (const destination of destinations) expect(destinationMedia(cleared.state, destination)).toEqual(destinationMedia(initial.state, destination));
+      expect(cleared.state.answers).toBeUndefined();
     });
   });
 

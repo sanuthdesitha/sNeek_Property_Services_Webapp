@@ -6,6 +6,16 @@ Scope: all 106 items in `2026-09-09-ui-ux-improvement-proposal.md`. No item is c
 
 ## Current slice
 
+### Wave 26: Typed evidence, reviewed bulk changes and property portfolio
+
+- Wave 25 was committed as `ec604a5e`. The push attempt was stopped after Git Credential Manager waited without completed authentication; remote publication is not claimed. User authorization to push persists.
+- Main cleaner evidence now includes typed template, bulk-pool, task proof, laundry and new carry-forward destinations. Acknowledged destination moves/removals preserve receipt versions; unassigned or no-longer-used evidence blocks submission until explicitly assigned/removed. Recovery uses the current acknowledged destination, and bulk updates preserve concurrent captures. Agent verification: 196 focused tests, five preflight checks, six actual PostgreSQL draft/ledger checks and 20 desktop/mobile real-IndexedDB recovery cases passed. Transport is synthetic; standalone damage/maintenance/lost-found flows remain separate.
+- Early laundry sends validate receipt destination, active photo use, form revision, assignment and actor context under the existing job/draft transaction. The service and missing-task planner reuse that transaction; notification effects run after commit. Thirty-three tests passed, including four real PostgreSQL checks covering valid/duplicate sends, competing receipt changes and same-transaction planner creation. A subsequent independent review added a LaundryTask row lock to preserve competing driver pickups, and truthful saved receipts with delivery warnings after post-commit effects fail. Eighteen targeted checks, including six actual PostgreSQL cases, passed; 30 workspace tests cover saved/duplicate/warning wording without automatic resend. No provider was invoked.
+- Bulk status review presents each job number/date and exact status, completion-timestamp and assignment consequences. Apply revalidates the reviewed snapshot under row locks, rolls back the whole batch on conflict, and distinguishes unknown outcomes. Thirty-eight new tests, 26 existing Jobs tests, six desktop/mobile browser cases and real PostgreSQL invoicing-race/rollback checks passed. Export previews freeze the exact reviewed CSV, disclose the 5,000-row cap and all-filtered scope, and reject failed or malformed loads. Six export browser cases and 66 final focused tests passed. Date filters now use UTC day-key bounds. Bulk assignment, message drafts and rescheduling remain.
+- Client home now leads with authorized property cards and a compact view, personal persisted pins, per-property next service, last completed service/shared report link and pending approvals. Main job summaries honor the Jobs module and progress/report visibility. Preference mutations use owner/scope context, advisory locks and revisions; uncertain saves require reload, and a changed account requires full page reload. Hidden pins remain explicitly clearable. Strict approval summary reads report corrupted records as unavailable. Independent review found and corrected module leakage, stale-account preference rebinding, hidden-pin capacity recovery and false-empty approval summaries. Forty focused property tests plus strict-approval/dashboard regressions passed; both desktop/mobile persistence and real competing preference writes passed. Authoritative guest-readiness and detailed last-result summaries remain beyond this slice.
+- Laundry handoff receipts display recorded actor/time, quantities/location/photos, cleaner reason codes/notes and before/after corrections. Names resolve only after authorized task filtering. Eleven final focused receipt tests and both desktop/mobile receipt scenarios passed. Existing confirmation actions record handoffs; the display does not claim unrecorded recipient acceptance. Item 072 meets its stated scope; expected-versus-actual identity tracking belongs to 068/069.
+- Combined serial fork-pool regression passed in 525.32 seconds: 339 files passed, one legacy file/test skipped, 4,210 tests passed, including all 21 actual PostgreSQL checks. Three additional portfolio rendering cases and two early-send workspace cases were added after those files ran; their final focused suites passed 15 and 30 tests respectively. Production compilation, type validation and page generation passed in 398 seconds (exit 0) using two page workers; the isolated dev preview was stopped during type validation to release memory. Browser evidence remains the isolated development checks; no production preview was launched. New property coverage before those extra cases was 98.76% lines, 87.75% branches and 91.3% functions; the preferences API/schema each reached 100%, and remaining client branches are documented rather than claimed covered. No whole-programme completion is claimed.
+
 ### Wave 25: Verified recovery and workflow checkpoint
 
 - Owner requested completion using agents and authorized pushing after verification on September 13. Existing September work was recovered as uncommitted changes on `redesign`; the 106-item proposal remains the full scope. The wider programme remains open; this wave is a verified checkpoint for the authorized push.
@@ -329,7 +339,7 @@ No new external provider calls, messages, payments or AI transmissions. Existing
 | 011 | P1 / L: Exception-led Command. | Partial | Wave 25 exposes existing attention categories, prevents false all-clear, fixes preview-capped unassigned counts and labels incomplete revenue. Parent/agent reliability tests pass. Per-record deadline/impact/owner ordering and full workflow verification remain. |
 | 012 | P1 / L: Unified dispatch workspace. | Planned | Pending |
 | 013 | P1 / M: Assignment conflict preview. | Planned | Pending |
-| 014 | P1 / M: Batch operations with preview. | Planned | Pending |
+| 014 | P1 / M: Batch operations with preview. | Partial | Wave 26 verified status-change and exact CSV export previews with conflicts, unknown outcomes, limits and date-only scope. Bulk assignment, message drafts and rescheduling remain. |
 | 015 | P1 / M: Approval workspace extension. | Planned | Pending |
 | 016 | P1 / L: Capability matrix. | Planned | Pending |
 | 017 | P2 / M: Temporary controlled delegation. | Planned | Pending |
@@ -338,7 +348,7 @@ No new external provider calls, messages, payments or AI transmissions. Existing
 | 020 | P2 / M: Operational health panel. | Planned | Pending |
 | 021 | P2 / L: Capacity planning. | Planned | Pending |
 | 022 | P2 / M: Financial explanation panels. | Planned | Pending |
-| 023 | P1 / M: Property-first home. | Planned | Pending |
+| 023 | P1 / M: Property-first home. | Partial | Wave 26 personal pins, compact portfolio, next service, last completed service/shared reports and strict pending approval summaries pass unit and desktop/mobile persistence/concurrency checks. Authoritative guest readiness and detailed last result remain. |
 | 024 | P1 / M: Approval inbox extension. | Partial | Failure/retry, draft retention, duplicate-submit guard, displayed-version rejection and transactional store tested. Full decision-workspace extension remains. |
 | 025 | P1 / M: Rebook from a prior clean. | Implemented | Reuses authorized current property/service only, revalidates source and access, then fresh availability/review/price. Helper/page/link and booking regressions plus desktop/mobile browser checks passed. |
 | 026 | P1 / M: Clear booking review. | Partial | Waves 12-15: identity, date, scoped retry/recovery, estimate visibility and guest-timing/access-record context. Contractual inclusions, reservation-specific constraints and fuller access prerequisites remain. |
@@ -355,10 +365,10 @@ No new external provider calls, messages, payments or AI transmissions. Existing
 | 037 | P1 / M: Pre-arrival brief. | Planned | Pending |
 | 038 | P1 / M: Timing hierarchy. | Partial | Waves 16-17 share validated planned/guest timing and contradiction warnings; 128 focused tests and Today/Jobs/Calendar mobile checks pass. Route/detail/fullscreen and desktop timing visual verification remain; live browser activation discrepancy is unresolved. |
 | 039 | P1 / L: Adaptive form navigation. | Planned | Pending |
-| 040 | P0 / L: Durable evidence queue. | Partial | Wave 25 binds revisions and persists field/guided originals, prepared media and receipts with serialized attachment/tombstone guards. Allocated-key reconciliation and IndexedDB browser tests active; bulk/task/laundry integration and actual device/provider recovery remain. |
+| 040 | P0 / L: Durable evidence queue. | Partial | Wave 26 extends durable originals/receipts, typed moves and recovery to main form/guided/bulk/task/laundry/new carry-forward destinations. Focused, PostgreSQL and 20 IndexedDB browser cases pass. Standalone damage/maintenance/lost-found capture paths remain separate. |
 | 041 | P1 / M: Device-aware capture. | Planned | Pending |
 | 042 | P0 / L: Offline contracts. | Planned | Pending |
-| 043 | P1 / M: Submission preflight. | Partial | Wave 25 combines form, laundry, checklist, form-contract and device/offline blockers with draft retry. Eleven panel/hook and 28 workspace lifecycle tests pass. Full browser submission and additional capture paths remain. |
+| 043 | P1 / M: Submission preflight. | Implemented | Unified missing-form/task/laundry evidence and synchronization blockers, explicit unused/unassigned evidence handling, and rejection retains the form. Panel/workspace/contract tests pass; main evidence destinations and early-send integration verified in Wave 26. |
 | 044 | P1 / M: Recoverable job transitions. | Planned | Pending |
 | 045 | P1 / M: Structured issue escalation. | Planned | Pending |
 | 046 | P1 / M: Explainable pay timeline. | Planned | Pending |
@@ -387,7 +397,7 @@ No new external provider calls, messages, payments or AI transmissions. Existing
 | 069 | P1 / M: Quantity discrepancy workflow. | Planned | Pending |
 | 070 | P2 / L: Readiness-linked ETA. | Planned | Pending |
 | 071 | P1 / M: Access-failure handling. | Planned | Pending |
-| 072 | P1 / M: Cross-role handoff receipt. | Planned | Pending |
+| 072 | P1 / M: Cross-role handoff receipt. | Implemented | Wave 26 recorded cleaner/driver handoffs expose actor/time, photo/quantity/location, reasons and correction differences. Eleven final focused tests and desktop/mobile receipt checks pass. No unrecorded dual-party acceptance is implied. |
 | 073 | P2 / M: Capacity/load planner. | Planned | Pending |
 | 074 | P1 / M: Daily reconciliation. | Planned | Pending |
 | 075 | P0 / M: Accurate scoped totals. | Partial | See finding-level progress |

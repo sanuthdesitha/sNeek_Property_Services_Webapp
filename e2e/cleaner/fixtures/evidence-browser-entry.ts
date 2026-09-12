@@ -4,6 +4,7 @@ import * as React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EvidenceRecovery } from "../../../components/v2/cleaner/evidence-recovery";
 import { getVolatileEvidenceCount } from "../../../lib/cleaner/evidence-volatile";
+import type { EvidenceDestination } from "../../../lib/cleaner/evidence-destination";
 
 // Bundled only by the Playwright synthetic page; never an application route.
 const scope = { jobId: "synthetic-job", draftIdentity: "a".repeat(64), templateId: "synthetic-template", formRevision: "b".repeat(64), fieldId: "proof" };
@@ -12,6 +13,7 @@ let recoveryRoot: Root | undefined;
 let retainedBeforeStorage = 0;
 const snapshot = async () => Promise.all((await listEvidence()).map(async record => ({
   id: record.id, status: record.status, allocation: record.allocation, receipt: record.receipt,
+  destination: record.destination,
   original: await record.blob.text(), prepared: record.prepared ? await record.prepared.text() : null,
   error: record.error,
 })));
@@ -28,9 +30,9 @@ const summarize = () => ({ results: lastResult?.results, failures: lastResult?.f
   unmountRecovery() { recoveryRoot?.unmount(); lastResult = undefined; },
   volatileCount() { return getVolatileEvidenceCount(scope); },
   retainedBeforeStorage() { return retainedBeforeStorage; },
-  async capture() {
+  async capture(destination?: EvidenceDestination) {
     const pending = prepareAndUploadFiles([new File(["%PDF-1.4\nsynthetic original evidence"], "proof.pdf", { type: "application/pdf" })], {
-      folder: "forms", source: "gallery", stamp: null, evidence: scope,
+      folder: "forms", source: "gallery", stamp: null, evidence: { ...scope, destination },
     });
     retainedBeforeStorage = getVolatileEvidenceCount(scope);
     lastResult = await pending;

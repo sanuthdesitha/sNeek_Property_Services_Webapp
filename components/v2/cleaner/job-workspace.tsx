@@ -24,6 +24,7 @@ import { EvidenceContext } from "./evidence-context";
 import { getVolatileEvidenceCount } from "@/lib/cleaner/evidence-volatile";
 import { EvidenceRecovery } from "./evidence-recovery";
 import { listEvidence } from "@/lib/cleaner/evidence-store";
+import { removeEvidence } from "@/lib/cleaner/evidence-client";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -220,8 +221,9 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     try {
       const res = await fetch(`/api/cleaner/jobs/${jobId}/laundry-status`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(evidenceScope ? { "X-Cleaner-Draft-Identity": evidenceScope.draftIdentity } : {}) },
         body: JSON.stringify({
+          formRevision: evidenceScope?.formRevision,
           laundryOutcome,
           bagLocation: laundryBagLocation.trim() || undefined,
           laundryPhotoKey: laundryPhoto[0]?.key,
@@ -229,8 +231,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
           laundrySkipReasonNote: laundrySkipNote.trim() || undefined,
         }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
+      const body = await res.json().catch(() => null);
+      if (!res.ok || body?.ok !== true) {
         throw new Error(body?.error || "Could not send the laundry update.");
       }
       setLaundryEarlySentAt(
@@ -249,7 +251,9 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         }),
       );
       setLaundryEditingAfterSend(false);
-      setLaundryEarlyNotice({ tone: "success", text: "Sent to the laundry team and admin." });
+      const deliveryWarning = typeof body.deliveryWarning === "string" ? body.deliveryWarning.trim() : "";
+      setLaundryEarlyNotice(deliveryWarning ? { tone: "danger", text: deliveryWarning }
+        : { tone: "success", text: body.duplicated ? "Laundry update already saved." : "Laundry update saved." });
     } catch (e: any) {
       setLaundryEarlyNotice({ tone: "danger", text: e?.message ?? "Could not send the update." });
     } finally {
@@ -1110,6 +1114,9 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   }
 
   async function submit(opts?: { finalCheckupAck?: FinalCheckupAckEntry[] }) {
+    if (bulkPool.length || (laundryPhoto.length && (!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP")) || (carryPhotos.length && (!carryHasNew || !carryNotes.some(note => note.trim())))) {
+      flash("danger", "Assign unfiled photos and explicitly remove unused laundry or next-clean photos before submitting. Originals stay in device recovery."); return;
+    }
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       flash("danger", "Connect before submitting. Clock-out is not queued while offline.");
       return;
@@ -1492,7 +1499,27 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       <BackLink />
 
       <JobHeader api={api} />
-      {evidenceScope ? <EvidenceRecovery scope={evidenceScope} locked={locked} onRecovered={(fieldId, media) => {
+      {!locked && ((laundryPhoto.length > 0 && (!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP")) || (carryPhotos.length > 0 && (!carryHasNew || !carryNotes.some(note => note.trim())))) ? <EAlert tone="info" title="Unused attachments">
+        These photos need an active laundry outcome or next-clean flag. Remove unused attachments explicitly; saved originals remain in device recovery.
+        {[...((!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP") ? laundryPhoto : []), ...((!carryHasNew || !carryNotes.some(note => note.trim())) ? carryPhotos : [])].map(media => <button type="button" key={media.key} className="block underline" onClick={() => {
+          if (!evidenceScope) { flash("danger", "Reload the form before removing evidence."); return; }
+          void removeEvidence(evidenceScope, media.key).then(() => {
+            setLaundryPhoto(previous => previous.filter(item => item.key !== media.key));
+            setCarryPhotos(previous => previous.filter(item => item.key !== media.key));
+          }).catch(error => flash("danger", error instanceof Error ? error.message : "Removal failed."));
+        }}>Remove {media.name || "photo"}; keep original</button>)}
+      </EAlert> : null}
+      {evidenceScope ? <EvidenceRecovery scope={evidenceScope} locked={locked} onRemoved={key => {
+        const remove = (media: CapturedMedia[]) => media.filter(item => item.key !== key);
+        setBulkPool(remove); setLaundryPhoto(remove); setCarryPhotos(remove);
+        setUploads(previous => Object.fromEntries(Object.entries(previous).map(([field, media]) => [field, remove(media)])));
+        setTaskDrafts(previous => Object.fromEntries(Object.entries(previous).map(([id, task]) => [id, { ...task, proof: remove(task.proof) }])));
+      }} onRecovered={(fieldId, media, destination) => {
+        const append = (previous: CapturedMedia[]) => previous.some(item => item.key === media.key) ? previous : [...previous, media];
+        if (destination?.type === "bulkPool") { setBulkPool(append); return; }
+        if (destination?.type === "laundry") { setLaundryPhoto(append); return; }
+        if (destination?.type === "carryForwardNew") { setCarryPhotos(append); return; }
+        if (destination?.type === "jobTask") { setTaskDrafts(previous => ({ ...previous, [destination.taskId]: { ...(previous[destination.taskId] ?? { decision: "OPEN", note: "" }), proof: append(previous[destination.taskId]?.proof ?? []) } })); return; }
         setUploads(previous => ({ ...previous, [fieldId]: previous[fieldId]?.some(item => item.key === media.key)
           ? previous[fieldId] : [...(previous[fieldId] ?? []), media] }));
       }} /> : null}

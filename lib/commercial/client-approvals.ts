@@ -178,9 +178,22 @@ function assertApprovalVersion(record: ClientApprovalRecord, expectedVersion: st
   }
 }
 
-async function readStore(client: Pick<Prisma.TransactionClient, "appSetting"> = db): Promise<StoredData> {
+async function readStore(client: Pick<Prisma.TransactionClient, "appSetting"> = db, strict = false): Promise<StoredData> {
   const row = await client.appSetting.findUnique({ where: { key: CLIENT_APPROVALS_KEY } });
   const value = row?.value;
+  if (strict && row) {
+    const records = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>).approvals : null;
+    if (!Array.isArray(records) || records.some(record => {
+      if (!record || typeof record !== "object" || Array.isArray(record)) return true;
+      const item = record as Record<string, unknown>;
+      return ["id", "clientId", "requestedByUserId"].some(key => typeof item[key] !== "string" || !(item[key] as string).trim() || (item[key] as string).length > 100) ||
+        !["PENDING", "APPROVED", "DECLINED", "CANCELLED", "EXPIRED", "COUNTERED"].includes(String(item.status)) ||
+        (item.propertyId != null && (typeof item.propertyId !== "string" || !item.propertyId.trim() || item.propertyId.length > 100)) ||
+        (item.expiresAt != null && !sanitizeIsoDate(item.expiresAt));
+    }) || new Set(records.map(record => (record as Record<string, unknown>).id)).size !== records.length) {
+      throw new Error("Approval records are unavailable.");
+    }
+  }
   if (!value || typeof value !== "object" || Array.isArray(value)) return { approvals: [] };
   const approvals = Array.isArray((value as any).approvals)
     ? ((value as any).approvals as unknown[])
@@ -223,8 +236,10 @@ function withDerivedStatus(record: ClientApprovalRecord): ClientApprovalRecord {
 export async function listClientApprovals(input?: {
   clientId?: string;
   status?: ClientApprovalStatus;
+  /** Summary surfaces must not turn malformed persisted records into zero pending decisions. */
+  strict?: boolean;
 }) {
-  const store = await readStore();
+  const store = await readStore(db, input?.strict);
   return store.approvals
     .map(withDerivedStatus)
     .filter((approval) => {

@@ -77,12 +77,13 @@ function buildWhereClause(params: {
   } else if (params.dateFrom || params.dateTo) {
     const dateRange: Record<string, Date> = {};
     if (params.dateFrom) {
-      const from = new Date(`${params.dateFrom}T00:00:00`);
+      const from = new Date(`${params.dateFrom}T00:00:00.000Z`);
       if (!Number.isNaN(from.getTime())) dateRange.gte = from;
     }
     if (params.dateTo) {
-      const to = new Date(`${params.dateTo}T23:59:59`);
-      if (!Number.isNaN(to.getTime())) dateRange.lte = to;
+      // scheduledDate is a UTC date-only key, independent of the server timezone.
+      const to = new Date(`${params.dateTo}T00:00:00.000Z`);
+      if (!Number.isNaN(to.getTime())) dateRange.lt = new Date(to.getTime() + 86400000);
     }
     if (Object.keys(dateRange).length > 0) where.scheduledDate = dateRange;
   }

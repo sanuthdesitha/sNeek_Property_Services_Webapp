@@ -39,6 +39,9 @@ import {
   type CapturedMedia,
 } from "@/components/v2/cleaner/media-capture";
 import type { UploadMap } from "@/components/v2/cleaner/form-renderer";
+import { useEvidenceScope } from "./evidence-context";
+import { moveEvidence, removeEvidence } from "@/lib/cleaner/evidence-client";
+import { type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
 import {
   addToPool,
   assignToField,
@@ -84,6 +87,8 @@ export function BulkPhotoAssign({
   /** Evidence-stamp context (address/reference) — same shape MediaCapture takes. */
   stamp?: StampOptions | null;
 }) {
+  const evidenceScope = useEvidenceScope();
+  const [moving, setMoving] = React.useState(false);
   const [selected, setSelected] = React.useState<string[]>([]);
   const [activeFieldId, setActiveFieldId] = React.useState<string | null>(null);
   const [hideAssigned, setHideAssigned] = React.useState(false);
@@ -154,6 +159,15 @@ export function BulkPhotoAssign({
 
   const runUpload = React.useCallback(
     async (items: PendingUpload[]) => {
+      if (evidenceScope === null) { setUploadNote("Reload the current form before capturing evidence."); return; }
+      if (evidenceScope) {
+        const result = await prepareAndUploadFiles(items.map(item => item.file), { folder, stamp, source: items[0]?.source ?? "gallery",
+          evidence: { ...evidenceScope, fieldId: "bulkPool", destination: { type: "bulkPool" } } });
+        setPool(addToPool({ pool: poolRef.current, uploads: uploadsRef.current }, result.results).pool);
+        setPending([]);
+        if (result.failedCount) setUploadNote("Some originals need recovery. Use Device evidence recovery on the job.");
+        return;
+      }
       for (const item of items) {
         // One request per file so each tile reports its own success/failure and
         // can be retried without re-uploading the whole batch.
@@ -172,7 +186,7 @@ export function BulkPhotoAssign({
         setPending((prev) => prev.filter((p) => p.id !== item.id));
       }
     },
-    [folder, stamp, setPool]
+    [folder, stamp, setPool, evidenceScope]
   );
 
   function queueFiles(files: FileList | null, source: CaptureSource) {
@@ -196,20 +210,43 @@ export function BulkPhotoAssign({
 
   /* ── Assignment ───────────────────────────────────────────────────────── */
 
-  function assign(fieldId: string) {
+  async function acknowledgeMoves(to: EvidenceDestination) {
+    if (evidenceScope === null) throw new Error("Reload the current form before moving evidence.");
+    if (!evidenceScope) return;
+    for (const key of selected) {
+      const item = gallery.find(item => item.media.key === key);
+      if (!item) continue;
+      await moveEvidence(evidenceScope, item.media, item.fieldId ? { type: "formField", fieldId: item.fieldId } : { type: "bulkPool" }, to);
+      const next = to.type === "formField" ? assignToField({ pool: poolRef.current, uploads: uploadsRef.current }, [key], to.fieldId) : unassignKeys({ pool: poolRef.current, uploads: uploadsRef.current }, [key]);
+      poolRef.current = next.pool; uploadsRef.current = next.uploads; commit(next);
+    }
+  }
+  async function assign(fieldId: string) {
+    if (moving) return;
     if (selected.length === 0 || !fieldId) return;
-    const next = assignToField(state, selected, fieldId);
+    setMoving(true);
+    try {
+    await acknowledgeMoves({ type: "formField", fieldId });
+    const next = assignToField({ pool: poolRef.current, uploads: uploadsRef.current }, selected, fieldId);
     commit(next);
     setSelected([]);
     setPickerOpen(false);
     // Assign-next loop: jump the highlight to the next field still short.
     setActiveFieldId(nextUnmetField(fields, next.uploads, fieldId)?.id ?? fieldId);
+    } catch (error) { setUploadNote(error instanceof Error ? error.message : "Move failed. Reload evidence."); }
+    finally { setMoving(false); }
   }
 
-  function returnToPool() {
+  async function returnToPool() {
+    if (moving) return;
     if (selected.length === 0) return;
-    commit(unassignKeys(state, selected));
+    setMoving(true);
+    try {
+    await acknowledgeMoves({ type: "bulkPool" });
+    commit(unassignKeys({ pool: poolRef.current, uploads: uploadsRef.current }, selected));
     setSelected([]);
+    } catch (error) { setUploadNote(error instanceof Error ? error.message : "Move failed. Reload evidence."); }
+    finally { setMoving(false); }
   }
 
   function toggle(key: string) {
@@ -217,6 +254,19 @@ export function BulkPhotoAssign({
   }
 
   const selectedAssignedCount = selected.filter((k) => assignedBy[k]).length;
+  async function removeSelected() {
+    if (!evidenceScope || moving) return;
+    setMoving(true);
+    try {
+      for (const key of selected) {
+        await removeEvidence(evidenceScope, key);
+        const next = { pool: poolRef.current.filter(media => media.key !== key), uploads: Object.fromEntries(Object.entries(uploadsRef.current).map(([field, media]) => [field, media.filter(item => item.key !== key)])) };
+        poolRef.current = next.pool; uploadsRef.current = next.uploads; commit(next);
+      }
+      setSelected([]);
+    } catch (error) { setUploadNote(error instanceof Error ? error.message : "Removal failed."); }
+    finally { setMoving(false); }
+  }
   const sections = React.useMemo(() => {
     const order: string[] = [];
     const map = new Map<string, BulkAssignField[]>();
@@ -442,6 +492,7 @@ export function BulkPhotoAssign({
           <EButton variant="outline" size="sm" onClick={onClose}>
             Done
           </EButton>
+          {evidenceScope ? <EButton variant="ghost" size="sm" disabled={moving || !selected.length} onClick={() => void removeSelected()}>Remove selected; keep originals</EButton> : null}
         </div>
       </div>
 

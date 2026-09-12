@@ -1,11 +1,14 @@
 "use client";
 import * as React from "react";
-import { clearAttachedEvidence, listEvidence, putEvidence, sameEvidenceScope, type EvidenceRecord, type EvidenceScope } from "@/lib/cleaner/evidence-store";
+import { clearAttachedEvidence, getEvidence, listEvidence, putEvidence, sameEvidenceScope, type EvidenceRecord, type EvidenceScope } from "@/lib/cleaner/evidence-store";
 import { getVolatileEvidence, getVolatileEvidenceRevision, subscribeVolatileEvidence, releaseVolatileEvidence } from "@/lib/cleaner/evidence-volatile";
+import { destinationOf, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
+import { removeEvidence } from "@/lib/cleaner/evidence-client";
 import { prepareAndUploadFiles, type CapturedMedia } from "./media-capture";
 
-export function EvidenceRecovery({ scope, locked, onRecovered }: {
-  scope: EvidenceScope; locked: boolean; onRecovered: (fieldId: string, media: CapturedMedia) => void;
+export function EvidenceRecovery({ scope, locked, onRecovered, onRemoved }: {
+  scope: EvidenceScope; locked: boolean; onRecovered: (fieldId: string, media: CapturedMedia, destination?: EvidenceDestination) => void;
+  onRemoved?: (key: string) => void;
 }) {
   const [records, setRecords] = React.useState<EvidenceRecord[]>([]);
   const [error, setError] = React.useState("");
@@ -29,11 +32,16 @@ export function EvidenceRecovery({ scope, locked, onRecovered }: {
   async function retry(record: EvidenceRecord) {
     setBusy(record.id); setError("");
     try {
+      record = await getEvidence(record.id) ?? record;
       const result = await prepareAndUploadFiles([new File([record.blob], record.filename, { type: record.mime })], {
         folder: record.folder, source: record.source, stamp: record.stamp,
-        evidence: { ...scope, fieldId: record.fieldId }, recoveryRecords: [record],
+        evidence: { ...scope, fieldId: record.fieldId, destination: record.destination }, recoveryRecords: [record],
       });
-      if (result.results[0]) onRecovered(record.fieldId, result.results[0]);
+      if (result.results[0]) {
+        const latest = await getEvidence(record.id);
+        if (!latest || latest.status !== "attached" || !sameEvidenceScope(latest, scope)) throw new Error("Evidence changed during recovery. Reload this job.");
+        onRecovered(latest.fieldId, result.results[0], destinationOf(latest));
+      }
       else setError(result.failed[0]?.reason ?? "Evidence could not be recovered.");
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Evidence could not be recovered."); }
     finally { setBusy(null); }
@@ -60,9 +68,14 @@ export function EvidenceRecovery({ scope, locked, onRecovered }: {
       {exported.includes(record.id) ? <button type="button" onClick={() => releaseVolatileEvidence(record.id)}>I saved the original; remove from this page</button> : null}
     </div>)}
     {records.map(record => <div key={record.id} className="flex flex-wrap gap-2 items-center text-sm">
-      <span>{record.filename} — {record.status === "detached" ? "Removed from job" : record.status === "attached" ? "Attached to job" : !sameEvidenceScope(record, scope) ? "Older form — keep for review" : record.receipt ? "Uploaded; attachment pending" : record.status === "uploading" ? "Upload started; outcome not yet confirmed" : "Saved on device; upload pending"}</span>
+      <span>{record.filename} — {record.status === "detached" ? "Removed from job" : record.status === "attached" ? "Attached to job" : !sameEvidenceScope(record, scope) ? "Older form — keep for review" : record.receipt ? "Verifying attachment" : record.status === "preparing" ? "Preparing file; original saved" : record.status === "uploading" ? "Upload started; verification pending" : "Queued on this device"}</span>
       <button type="button" onClick={() => download(record)}>Save original</button>
       {!["attached", "detached"].includes(record.status) && sameEvidenceScope(record, scope) && !locked ? <button type="button" disabled={Boolean(busy)} onClick={() => void retry(record)}>{busy === record.id ? "Recovering…" : "Retry attachment"}</button> : null}
+      {record.status === "attached" && record.receipt && sameEvidenceScope(record, scope) && !locked ? <button type="button" disabled={Boolean(busy)} onClick={() => {
+        setBusy(record.id);
+        void removeEvidence(scope, record.receipt!.key).then(() => onRemoved?.(record.receipt!.key))
+          .catch(error => setError(error instanceof Error ? error.message : "Removal failed.")).finally(() => setBusy(null));
+      }}>Remove attachment; keep original</button> : null}
       {["attached", "detached"].includes(record.status) ? <button type="button" disabled={Boolean(busy)} onClick={() => void clearAttachedEvidence(record).catch(() => setError("Could not clear the device copy."))}>Clear device copy</button> : null}
     </div>)}
   </section>;

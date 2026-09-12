@@ -47,6 +47,7 @@ import { getEvidence, listEvidence, putEvidence, type EvidenceRecord, type Evide
 import { processEvidence } from "@/lib/cleaner/evidence-client";
 import { useEvidenceScope } from "./evidence-context";
 import { getVolatileEvidence, retainVolatileEvidence, releaseVolatileEvidence } from "@/lib/cleaner/evidence-volatile";
+import { destinationKey, destinationOf, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
 
 export interface CapturedMedia {
   key: string;
@@ -384,7 +385,7 @@ export async function prepareAndUploadFiles(
     folder: string;
     stamp?: StampOptions | null;
     source: CaptureSource;
-    evidence?: EvidenceScope & { fieldId: string };
+    evidence?: EvidenceScope & { fieldId: string; destination?: EvidenceDestination };
     recoveryRecords?: EvidenceRecord[];
     /** Internal recovery hooks: persist prepared bytes before network. */
     prepared?: File;
@@ -406,7 +407,7 @@ export async function prepareAndUploadFiles(
 ): Promise<{ results: CapturedMedia[]; failed: UploadFailure[]; failedCount: number }> {
   if (opts.evidence) {
     const results: CapturedMedia[] = []; const failed: UploadFailure[] = [];
-    const records: EvidenceRecord[] = opts.recoveryRecords ?? files.map(file => getVolatileEvidence(opts.evidence!).find(record => record.blob === file && record.fieldId === opts.evidence!.fieldId) ?? ({
+    const records: EvidenceRecord[] = opts.recoveryRecords ?? files.map(file => getVolatileEvidence(opts.evidence!).find(record => record.blob === file && destinationKey(destinationOf(record)) === destinationKey(destinationOf(opts.evidence!))) ?? ({
       ...opts.evidence!, id: crypto.randomUUID(), fieldId: opts.evidence!.fieldId,
       filename: file.name, mime: file.type, blob: file, createdAt: Date.now(),
       folder: opts.folder, source: opts.source, stamp: opts.stamp, status: "captured",
@@ -702,7 +703,8 @@ export function MediaLightbox({
 }
 
 export function MediaCapture({
-  evidenceFieldId,
+  evidenceFieldId: suppliedFieldId,
+  evidenceDestination,
   value,
   onChange,
   mode = "photo",
@@ -714,6 +716,7 @@ export function MediaCapture({
   error = false,
 }: {
   evidenceFieldId?: string;
+  evidenceDestination?: EvidenceDestination;
   value: CapturedMedia[];
   onChange: (next: CapturedMedia[]) => void;
   /** photo → camera + gallery; video → recorder + library; both → all; file → any document. */
@@ -732,6 +735,7 @@ export function MediaCapture({
   error?: boolean;
 }) {
   const evidenceScope = useEvidenceScope();
+  const evidenceFieldId = suppliedFieldId ?? (evidenceDestination ? destinationKey(evidenceDestination) : undefined);
   const [busy, setBusy] = React.useState(0);
   // Counting up beats a spinner: on a slow connection a lump spinner is
   // indistinguishable from a hang, and cleaners kill the tab.
@@ -769,7 +773,7 @@ export function MediaCapture({
           folder,
           stamp,
           source,
-          evidence: evidenceScope && evidenceFieldId ? { ...evidenceScope, fieldId: evidenceFieldId } : undefined,
+          evidence: evidenceScope && evidenceFieldId ? { ...evidenceScope, fieldId: evidenceFieldId, destination: evidenceDestination } : undefined,
           recoveryRecords,
           signal: controller.signal,
           onProgress: (uploadDone, total) =>
@@ -802,7 +806,7 @@ export function MediaCapture({
         setInFlight([]);
       }
     },
-    [folder, multiple, onChange, value, stamp, evidenceScope, evidenceFieldId]
+    [folder, multiple, onChange, value, stamp, evidenceScope, evidenceFieldId, evidenceDestination]
   );
 
   const cancelUpload = React.useCallback(() => {

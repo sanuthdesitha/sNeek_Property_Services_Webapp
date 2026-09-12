@@ -4,7 +4,7 @@ const store = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn() }));
 vi.mock("@/lib/cleaner/evidence-store", async original => ({
   ...await original<typeof import("@/lib/cleaner/evidence-store")>(), getEvidence: store.get, putEvidence: store.put,
 }));
-import { processEvidence } from "@/lib/cleaner/evidence-client";
+import { processEvidence, moveEvidence } from "@/lib/cleaner/evidence-client";
 const scope = { jobId: "job", draftIdentity: "actor", templateId: "template", formRevision: "revision" };
 const receipt = { key: "forms/cleaner/file.jpg", url: "https://media.invalid/file.jpg", kind: "image" as const };
 let record: EvidenceRecord; let saved: EvidenceRecord; let fetcher: ReturnType<typeof vi.fn>;
@@ -21,6 +21,25 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetcher);
 });
 describe("durable evidence receipt recovery", () => {
+  it("does not route a moved attached capture back into a stale field", async () => {
+    saved = { ...record, destination: { type: "bulkPool" }, status: "attached", receipt };
+    await expect(processEvidence(record, scope, vi.fn())).rejects.toThrow("moved to another destination");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("persists a versioned acknowledged move without uploading", async () => {
+    record = { ...record, status: "attached", destination: { type: "bulkPool" }, receipt }; saved = record;
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ draft: { evidenceReceipts: { capture: { ...record, key: receipt.key, version: 0 } } } })));
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, version: 1 })));
+    await moveEvidence(scope, receipt, { type: "bulkPool" }, { type: "formField", fieldId: "proof" });
+    expect(saved.destination).toEqual({ type: "formField", fieldId: "proof" }); expect(saved.destinationVersion).toBe(1);
+    expect(JSON.parse(fetcher.mock.calls[1][1].body).move).toEqual({ from: { type: "bulkPool" }, version: 0 });
+  });
+  it("reconciles an already committed move after lost acknowledgement from the server ledger", async () => {
+    saved = { ...record, destination: { type: "bulkPool" }, receipt, status: "attached" };
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ draft: { evidenceReceipts: { capture: { ...record, key: receipt.key, destination: { type: "formField", fieldId: "proof" }, version: 1 } } } })));
+    await moveEvidence(scope, receipt, { type: "bulkPool" }, { type: "formField", fieldId: "proof" });
+    expect(saved.destinationVersion).toBe(1); expect(fetcher).toHaveBeenCalledOnce();
+  });
   it("recovers exact allocated key after reload without allocating or transferring another blob", async () => {
     record = { ...record, status: "uploading", allocation: { key: receipt.key, uploadId: "allocated-upload" } }; saved = record;
     const upload = vi.fn();

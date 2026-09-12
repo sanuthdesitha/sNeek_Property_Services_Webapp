@@ -1,11 +1,12 @@
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { reconcileEvidenceState, type EvidenceDestination } from "./evidence-destination";
 
 const CLEANER_SHARED_DRAFT_PREFIX = "cleaner_job_shared_draft_v1:";
 
 export type SharedCleanerJobDraftRecord = {
   /** Server-owned idempotent attachment receipts; generic autosave cannot write these. */
-  evidenceReceipts?: Record<string, { key: string; fieldId: string; formRevision: string; draftIdentity: string; detached?: boolean }>;
+  evidenceReceipts?: Record<string, { key: string; fieldId: string; destination?: EvidenceDestination; version?: number; formRevision: string; draftIdentity: string; detached?: boolean }>;
   updatedAt: string;
   updatedByUserId: string;
   updatedByName: string;
@@ -83,16 +84,11 @@ export async function clearSharedCleanerJobDraft(jobId: string, tx?: Prisma.Tran
     if (existing?.evidenceReceipts && Object.keys(existing.evidenceReceipts).length > 0) {
       // Clearing answers is not an explicit detach. Keep immutable receipt
       // history and acknowledged media; only the evidence endpoint changes it.
-      const previous = (existing.state.uploads ?? {}) as Record<string, any[]>;
-      const uploads: Record<string, unknown[]> = {};
-      for (const receipt of Object.values(existing.evidenceReceipts)) {
-        if (!receipt.detached) uploads[receipt.fieldId] = (previous[receipt.fieldId] ?? [])
-          .filter(media => Object.values(existing.evidenceReceipts!).some(value => !value.detached && value.fieldId === receipt.fieldId && value.key === media?.key));
-      }
+      const state = reconcileEvidenceState({}, existing.state, existing.evidenceReceipts);
       const updatedAt = new Date().toISOString();
       await client.appSetting.upsert({ where: { key: sharedCleanerDraftKey(jobId) },
-        create: { key: sharedCleanerDraftKey(jobId), value: { ...existing, updatedAt, state: { updatedAt, uploads } } as any },
-        update: { value: { ...existing, updatedAt, state: { updatedAt, uploads } } as any } });
+        create: { key: sharedCleanerDraftKey(jobId), value: { ...existing, updatedAt, state: { ...state, updatedAt } } as any },
+        update: { value: { ...existing, updatedAt, state: { ...state, updatedAt } } as any } });
       return;
     }
     await client.appSetting.deleteMany({

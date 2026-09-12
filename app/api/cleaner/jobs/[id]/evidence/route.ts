@@ -17,8 +17,12 @@ import { unionMedia } from "@/lib/cleaner/draft-merge";
 import { isTemplateNodeVisible } from "@/lib/forms/visibility";
 import { jobFormProperty } from "@/lib/forms/job-form-property";
 import { isAllowedUploadContentType } from "@/lib/uploads/validate";
+import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
+import { evidenceDestinationSchema, destinationOf, destinationKey, destinationMedia, setDestinationMedia, removeEvidenceKeys } from "@/lib/cleaner/evidence-destination";
 
 const schema = z.object({ captureId: z.string().uuid(), fieldId: z.string().min(1).max(200),
+  destination: evidenceDestinationSchema.optional(),
+  move: z.object({ from: evidenceDestinationSchema, version: z.number().int().nonnegative() }).optional(),
   templateId: z.string().min(1), formRevision: z.string().regex(/^[a-f0-9]{64}$/),
   key: z.string().min(1).max(1000), name: z.string().max(300) });
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status,
@@ -78,6 +82,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (revision !== body.formRevision) return json({ error: "The form changed. Keep the evidence for review." }, 409);
       const existing = await getSharedCleanerJobDraft(params.id, tx);
       const state = existing?.state ?? {};
+      const target = destinationOf(body);
       const answers = (state.answers ?? {}) as Record<string, unknown>;
       const property = jobFormProperty(effective.template.schema, job.property);
       const laundryReady = (state.laundry as any)?.outcome === "READY_FOR_PICKUP";
@@ -86,10 +91,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       function visit(node: any, parentVisible = true) {
         if (!node || typeof node !== "object") return;
         const visible = parentVisible && isTemplateNodeVisible(node, answers, property, laundryReady);
-        if (node.id === body.fieldId && isUploadFieldType(node.type)) { destination = node; destinationVisible = visible; }
+        if (target.type === "formField" && node.id === target.fieldId && isUploadFieldType(node.type)) { destination = node; destinationVisible = visible; }
         for (const key of ["sections", "fields", "children"]) if (Array.isArray(node[key])) node[key].forEach((child: any) => visit(child, visible));
       }
       visit(effective.template.schema);
+      if (target.type === "bulkPool") { destination = { type: "photo" }; destinationVisible = true; }
+      if (target.type === "jobTask" && tasks.some(task => task.id === target.taskId)) { destination = { type: "photo" }; destinationVisible = true; }
+      if (target.type === "laundry" && isLaundryUpdateEligible(job, job.property)) { destination = { type: "photo", maxFiles: 1 }; destinationVisible = true; }
+      if (target.type === "carryForwardNew") { destination = { type: "photo" }; destinationVisible = true; }
       if (!destination) return json({ error: "This evidence field no longer exists. Keep the file for review." }, 409);
       const receipts = existing?.evidenceReceipts ?? {};
       const kind = object.ContentType?.startsWith("video/") ? "video" : object.ContentType?.startsWith("image/") ? "image" : "file";
@@ -99,21 +108,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const known = receipts[body.captureId];
       if (known) {
         if (known.detached) return json({ error: "This attachment was explicitly removed. Keep the original for review." }, 409);
-        if (known.key !== body.key || known.fieldId !== body.fieldId || known.formRevision !== revision || known.draftIdentity !== identity) return json({ error: "Evidence receipt conflict. Keep the file for review." }, 409);
-        return json({ ok: true, captureId: body.captureId, key: body.key, media: verifiedMedia });
+        if (known.key !== body.key || known.formRevision !== revision || known.draftIdentity !== identity) return json({ error: "Evidence receipt conflict. Keep the file for review." }, 409);
+        const same = destinationKey(destinationOf(known)) === destinationKey(target);
+        if (!body.move && !same) return json({ error: "Evidence moved in another tab. Reload its current destination." }, 409);
+        if (!body.move || (same && (known.version ?? 0) === body.move.version + 1)) return json({ ok: true, captureId: body.captureId, key: body.key, media: verifiedMedia, destination: target, version: known.version ?? 0 });
+        if ((known.version ?? 0) !== body.move.version || destinationKey(destinationOf(known)) !== destinationKey(body.move.from)) return json({ error: "Evidence changed in another tab. Reload before moving it." }, 409);
+        if (![destinationOf(known).type, target.type].every(type => type === "bulkPool" || type === "formField")) return json({ error: "Evidence cannot move between these destinations." }, 409);
       }
+      else if (body.move) return json({ error: "Attachment must be acknowledged before moving it." }, 409);
       if (!destinationVisible) return json({ error: "This field is not active in the saved job answers. Save the current answers, then retry attachment." }, 409);
-      const uploads = state.uploads && typeof state.uploads === "object" && !Array.isArray(state.uploads) ? state.uploads as Record<string, unknown> : {};
-      const media = unionMedia(uploads[body.fieldId], [verifiedMedia]);
+      const movedState = removeEvidenceKeys(state, new Set([body.key]));
+      const media = unionMedia(destinationMedia(movedState, target), [verifiedMedia]);
       if (Number(destination.maxFiles) > 0 && media.length > Number(destination.maxFiles)) return json({ error: "This field already has its maximum files. Keep this file for review." }, 409);
       const updatedAt = new Date().toISOString();
       await saveSharedCleanerJobDraft(params.id, {
         updatedAt, updatedByUserId: session.user.id, updatedByName: session.user.name ?? "Cleaner",
         editorSessionId: existing?.editorSessionId ?? `evidence:${body.captureId}`,
-        evidenceReceipts: { ...receipts, [body.captureId]: { key: body.key, fieldId: body.fieldId, formRevision: revision, draftIdentity: identity } },
-        state: { ...state, updatedAt, uploads: { ...uploads, [body.fieldId]: media } },
+        evidenceReceipts: { ...receipts, [body.captureId]: { key: body.key, fieldId: body.fieldId, destination: target, version: known ? (known.version ?? 0) + 1 : 0, formRevision: revision, draftIdentity: identity } },
+        state: { ...setDestinationMedia(movedState, target, media), updatedAt },
       }, tx);
-      return json({ ok: true, captureId: body.captureId, key: body.key, media: verifiedMedia });
+      return json({ ok: true, captureId: body.captureId, key: body.key, media: verifiedMedia, destination: target, version: known ? (known.version ?? 0) + 1 : 0 });
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
@@ -141,13 +155,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       if (!entries.length || !existing) return json({ ok: true, key: body.key }); // Legacy list-only removal.
       if (entries.some(([, receipt]) => receipt.draftIdentity !== identity || receipt.formRevision !== body.formRevision)) return json({ error: "This evidence belongs to another capture context. Ask the office to review it." }, 409);
       const receipts = { ...existing.evidenceReceipts };
-      const uploads = { ...((existing.state.uploads ?? {}) as Record<string, any[]>) };
       for (const [id, receipt] of entries) {
         receipts[id] = { ...receipt, detached: true };
-        uploads[receipt.fieldId] = (uploads[receipt.fieldId] ?? []).filter(media => media?.key !== body.key);
       }
       await saveSharedCleanerJobDraft(params.id, { ...existing, evidenceReceipts: receipts,
-        updatedAt: new Date().toISOString(), state: { ...existing.state, uploads } }, tx);
+        updatedAt: new Date().toISOString(), state: removeEvidenceKeys(existing.state, new Set([body.key])) }, tx);
       return json({ ok: true, key: body.key });
     });
   } catch (error) {

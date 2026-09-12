@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/auth/client-portal", () => ({
   requireClientPortalPage: mocks.auth, propertyScopeWhere: mocks.scope,
 }));
+vi.mock("@/lib/client/property-home", () => ({ loadPropertyHomeRows: mocks.properties }));
+vi.mock("@/components/v2/client/property-portfolio", () => ({ PropertyPortfolio: () => <div>Property portfolio</div> }));
 vi.mock("@/lib/client/portal", () => ({ getClientPortalContext: mocks.portal }));
 vi.mock("@/lib/client/portal-data", () => ({
   listClientJobsForUser: mocks.jobs, listClientReportsForUser: mocks.reports,
@@ -203,7 +205,7 @@ describe("client dashboard reliability", () => {
     expect(mocks.jobs).toHaveBeenCalledWith("va-1");
     expect(mocks.reports).toHaveBeenCalledWith("va-1");
     expect(mocks.finance).toHaveBeenCalledWith("client-1", ["property-1"]);
-    expect(mocks.properties).toHaveBeenCalledWith(expect.objectContaining({ where: { ...propertyWhere, isActive: true } }));
+    expect(mocks.properties).toHaveBeenCalledWith(ctx);
     for (const query of [mocks.stocks, mocks.laundry]) {
       expect(query).toHaveBeenCalledWith(expect.objectContaining({ where: { property: propertyWhere } }));
     }

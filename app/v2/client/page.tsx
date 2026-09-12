@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { requirePropertyFavoritesContext } from "@/lib/client/property-favorites-store";
+import { loadPropertyHomeRows } from "@/lib/client/property-home";
+import { PropertyPortfolio } from "@/components/v2/client/property-portfolio";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
@@ -21,7 +24,6 @@ import {
 } from "@/components/v2/ui/primitives";
 import { EstateReportDownloadButton } from "@/components/v2/client/report-download-button";
 import {
-  Building2,
   CalendarClock,
   FileText,
   MapPin,
@@ -117,13 +119,7 @@ export default async function ClientHomePage() {
 
   const [propertiesResult, stocksResult, laundryResult, attentionResult] = await Promise.all([
     visibility.showProperties && clientId
-      ? db.property
-          .findMany({
-            where: { ...propertyWhere, isActive: true },
-            select: { id: true, name: true, suburb: true, bedrooms: true, bathrooms: true, hasBalcony: true },
-            orderBy: { name: "asc" },
-          })
-          .catch(() => null)
+      ? loadPropertyHomeRows(portalCtx).catch(() => null)
       : Promise.resolve(visibility.showProperties ? null : []),
     clientId && visibility?.showInventory
       ? db.propertyStock
@@ -240,6 +236,9 @@ export default async function ClientHomePage() {
   const needsYouCount = actionableItems.reduce((sum, item) => sum + item.count, 0);
   const lowStockTotal = inventoryByProperty.reduce((sum, row) => sum + row.lowCount, 0);
 
+  const favoritesContext = visibility.showProperties && properties.length > 0
+    ? await requirePropertyFavoritesContext().then(value => value.context).catch(() => null) : null;
+
   const unbilledCount = finance?.summary.pendingChargeCount;
 
   return (
@@ -263,6 +262,18 @@ export default async function ClientHomePage() {
           <a href="/v2/client" className="underline">Retry</a>
         </div>
       ) : null}
+
+      {/* Property-first portfolio */}
+      {visibility.showProperties ? <ECard>
+        <ECardHeader className="flex-row items-center justify-between">
+          <ECardTitle>Your properties</ECardTitle>
+          <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/properties">Manage</Link></EButton>
+        </ECardHeader>
+        <ECardBody className="pt-0">
+          {propertiesResult === null ? <Unavailable section="Properties" /> : properties.length === 0 ? <p className="py-4 text-sm">No properties found for this account.</p> :
+            <PropertyPortfolio rows={properties} expectedContext={favoritesContext} scope={JSON.stringify([portalCtx.userId, portalCtx.clientId, portalCtx.actor, portalCtx.team?.id, portalCtx.propertyIds, visibility])} />}
+        </ECardBody>
+      </ECard> : null}
 
       {/* Next-service hero */}
       <ECard variant="ceremony" className="overflow-hidden">
@@ -508,46 +519,6 @@ export default async function ClientHomePage() {
           </ECardBody>
         </ECard> : null}
       </div>
-
-      {/* Your properties */}
-      {visibility?.showProperties ? (
-        <ECard>
-          <ECardHeader className="flex-row items-center justify-between">
-            <ECardTitle>Your properties</ECardTitle>
-            <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/properties">Manage</Link></EButton>
-          </ECardHeader>
-          <ECardBody className="grid gap-3 pt-0 sm:grid-cols-2 lg:grid-cols-3">
-            {propertiesResult === null ? <Unavailable section="Properties" /> : properties.length === 0 ? (
-              <p className="py-4 text-[0.875rem] text-[hsl(var(--e-muted-foreground))] sm:col-span-2 lg:col-span-3">
-                No properties found for this account.
-              </p>
-            ) : (
-              properties.map((prop) => (
-                <Link
-                  key={prop.id}
-                  href={`/v2/client/properties/${prop.id}`}
-                  className="group flex items-start gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-4 transition-colors duration-[160ms] hover:border-[hsl(var(--e-gold))]"
-                >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]">
-                    <Building2 className="h-4 w-4" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[0.875rem] font-semibold group-hover:text-[hsl(var(--e-gold-ink))]">
-                      {prop.name}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      {prop.suburb}
-                    </span>
-                    <span className="mt-1 block text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      {prop.bedrooms}bd · {prop.bathrooms}ba{prop.hasBalcony ? " · Balcony" : ""}
-                    </span>
-                  </span>
-                </Link>
-              ))
-            )}
-          </ECardBody>
-        </ECard>
-      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Inventory snapshot */}

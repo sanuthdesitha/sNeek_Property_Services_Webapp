@@ -541,6 +541,9 @@ Additionally, `autoPauseStaleJobs` (`lib/ops/auto-pause.ts`, **2026-07**) sweeps
 
 ### B6. Drafts & reliability
 
+**Typed evidence and early laundry handoffs (2026-09-13).** Main-job capture uses versioned form-field, bulk-pool, task, laundry and carry-forward destinations. Moves/removals require acknowledged receipt versions; unused/unassigned photos remain explicit preflight blockers. Early laundry updates revalidate context, revision and active photo destinations within the shared job/draft transaction. Planner/service writes reuse that transaction and defer notification effects until commit. Standalone incident pipelines retain their existing behavior.
+
+
 **Scoped evidence recovery and preflight (2026-09).** Template-field and guided captures persist original/prepared files and attachment receipts in actor/job/form-revision-scoped IndexedDB. Server attachment validation checks the active assignment, editable status, resolved revision, destination, media type and exact owned object key before acknowledging it. A draft receipt ledger and removal tombstones prevent stale generic saves, clears or submissions from silently dropping acknowledged media or restoring removed keys. These checks apply when a ledger exists even if a caller omits the v2 opt-in. Upload allocation is persisted before transfer; uncertain completion reconciles the exact owned key through the attachment endpoint without resending bytes. Originals that cannot enter IndexedDB remain in workspace recovery memory across capture/stage unmounts, with retry/export and explicit removal after export. Device originals require explicit clearing after attachment/removal. Bulk/task/laundry capture integration and actual-device recovery remain tracked separately. Wrap-up combines required fields, laundry/checklist decisions, form-contract errors and pending/unavailable device evidence; offline and unsaved volatile originals block submission. Failed draft saves expose Retry and form rejection retains current work.
 
 **Route control accessibility (2026-09).** Timeline's custom date and travel-mode controls have explicit accessible names. A visible in-app browser verified mode/date/keyboard selection and empty-state navigation; earlier hidden-tab nonactivation is not established as an application defect. Populated routes, GPS and providers remain separate verification gates.
@@ -586,6 +589,9 @@ Persistence is a debounced autosave plus **flush-on-hidden**: edits mirror local
 **QA handoff**: submission immediately opens a `QaAssignment` via `tryEnsureQaAssignmentForCompletedJob` (`lib/qa/auto-assignment.ts`) so an inspector can claim it from the queue; the QA review/issue/rework machinery itself (QAReview, QaIssue, rework transfer, rectification pay) is covered in the QA section of this reference — from this section's perspective, a failing review produces the rework job described in B1 and the job returns through the same submit pipeline.
 
 ### B8. Admin job surfaces
+
+**Reviewed batch operations (2026-09-13).** V2 status review freezes job/date/status/completion/assignment consequences; apply locks current jobs, compares the reviewed snapshot and rolls back all rows on conflict. Unknown outcomes require refresh. CSV review freezes exact values/columns, labels all-filtered rather than checkbox scope and discloses the 5,000-row limit. Date filters compare UTC schedule-day keys, independent of host timezone.
+
 
 **Team Jobs fallback and return position (2026-09).** ADMIN actors outside impersonation can publish or remove one shared Jobs default for admin/ops. The versioned AppSetting uses revision comparison, advisory transaction locking and an atomic audit record. Personal defaults, explicit links and changes made before loading take precedence. Publication controls remain disabled until server capability is confirmed. List scroll is stored per actor, canonical filter/page/layout, result fingerprint and viewport with bounded retention. Restoration rejects mismatched/stale records and stops correcting after user interaction; stable toolbar/status layout prevents delayed mobile jumps.
 
@@ -1041,6 +1047,9 @@ The driver-facing verbs live in `app/api/laundry/[taskId]/status/route.ts` (POST
 
 ### C3. Driver portal
 
+**Recorded handoff receipts (2026-09-13).** Laundry receipt panels project stored cleaner/driver confirmations, actor/time, quantities, locations, photos, reason codes/notes and correction differences. Actor names are resolved only for already-authorized tasks. These are recorded one-sided actions; no recipient acceptance or immutable original quantity is invented.
+
+
 **Next-stop execution (2026-09).** The selected next route stop shows recorded bag quantities/location, the established laundry-audience access guide and the configured proof requirement or an explicit unknown state. Its primary action opens the existing pickup/drop-off modal only when the task and prerequisites are available. Schedule date keys are not rendered as fabricated appointment times. Route refresh failure replaces stale actions with retry; this view does not estimate travel time or introduce a bag-tracking policy.
 
 **Scoped home totals (2026-09).** Driver home totals are calculated over the full authorized query rather than the first 20 rows. Scheduled pickup/drop-off dates use UTC calendar keys; actual drop-off event instants use the selected Sydney day, including daylight-saving boundaries. Read failures remain unavailable rather than becoming zero work.
@@ -1350,6 +1359,8 @@ Admin builds a run at `app/v2/admin/payroll` from a date range. `getPayrollSumma
 
 ### D6. Client portal
 
+**Property portfolio (2026-09-13).** V2 home leads with scoped active properties, personal pins and a persisted compact/card layout. Per-property queries avoid the global job-history cap; Jobs/report/progress visibility controls service IDs, links and phases. Missing history/approval reads are unavailable, never zero; summary approval reads opt into strict persisted-record validation. Preferences use actor/client/team/scope context plus advisory-lock revision writes. A different account context requires full page reload; unknown saves require reread, and explicit clear includes hidden favorites. This displays service progress, not an authoritative guest-ready certification.
+
 **Rebooking (2026-09).** Rebook links from completed/invoiced non-rework jobs reauthorize the source job, client/VA property grant, active property and supported service. Only property and service are selected for the new request. Dates, access notes, historical prices and instructions are not carried forward. The existing current availability, review, pricing visibility and booking validation run again, and recovery is isolated by actor/client/source context.
 
 **Services page (2026-07)** — day-grouped agenda (shared `groupJobsBySydneyDay`) with sticky day headers, plus date-scope / property / service / status filters; history is no longer truncated to 20 rows, and cleaner names now honour the `showCleanerNames` visibility setting (they were previously rendered unconditionally here while the jobs page gated them). **Nav (2026-07)** — primary tabs are Home, Services, Approvals, Messages, More, with Reports/Properties/Money on the rail; Approvals carries a live pending count (the mobile bar renders only five items, so "More" was previously clipped off entirely on phones). 
@@ -1427,6 +1438,8 @@ Bounces and complaints feed the **suppression list** (`lib/email/suppression.ts`
 ---
 
 ## Change Log
+
+- **2026-09-13 ? Wave 26:** Added typed main-job evidence destinations and serialized early laundry handoffs; reviewed bulk status/CSV changes with UTC date filters; scoped personal property portfolios; recorded laundry receipt reasons and corrections. Verification and remaining scope are in tracker Wave 26.
 
 - **2026-09-13** ? Recovered v2 programme continuation: form-revision/receipt integrity, device evidence recovery and preflight, recipient-owned notification read/device controls, Jobs team fallback and scroll restoration, honest Command/Finance reads, rebooking, QA readiness and scoped laundry/maintenance queues. Exact verification and outstanding scope are recorded in execution tracker Wave 25.
 

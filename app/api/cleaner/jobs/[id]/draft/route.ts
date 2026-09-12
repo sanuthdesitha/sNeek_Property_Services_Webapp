@@ -1,3 +1,4 @@
+import { reconcileEvidenceState } from "@/lib/cleaner/evidence-destination";
 import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, Prisma, Role } from "@prisma/client";
 import { z } from "zod";
@@ -105,37 +106,13 @@ export async function PATCH(
       // intentional removals from that editor still take effect.
       const existing = await getSharedCleanerJobDraft(params.id, tx);
       const incoming = body.state as Record<string, unknown>;
-      const mergedState =
+      let mergedState =
         existing?.state && existing.editorSessionId !== body.editorSessionId
           ? mergeDraftStates(existing.state, incoming)
           : incoming;
       // Generic autosave is not an explicit evidence detach operation. Preserve
       // acknowledged attachments when a stale same-editor snapshot arrives.
-      if (existing?.evidenceReceipts) {
-        const previous = (existing.state.uploads ?? {}) as Record<string, unknown>;
-        const next = { ...((mergedState.uploads ?? {}) as Record<string, unknown>) };
-        const boundKeys = new Set(Object.values(existing.evidenceReceipts).map(receipt => receipt.key));
-        const stripBound = (media: unknown) => Array.isArray(media) ? media.filter(item => !boundKeys.has(item?.key)) : [];
-        mergedState.bulkPool = stripBound(mergedState.bulkPool);
-        if (mergedState.taskDrafts && typeof mergedState.taskDrafts === "object") mergedState.taskDrafts = Object.fromEntries(
-          Object.entries(mergedState.taskDrafts).map(([id, task]) => [id, { ...(task as object), proof: stripBound((task as any)?.proof) }]));
-        for (const [group, key] of [["laundry", "photo"], ["carryForward", "photos"]]) {
-          if (mergedState[group] && typeof mergedState[group] === "object") mergedState[group] = { ...(mergedState[group] as object), [key]: stripBound((mergedState[group] as any)[key]) };
-        }
-        for (const receipt of Object.values(existing.evidenceReceipts)) {
-          for (const [fieldId, media] of Object.entries(next)) {
-            if ((receipt.detached || fieldId !== receipt.fieldId) && Array.isArray(media)) next[fieldId] = media.filter(item => item?.key !== receipt.key);
-          }
-          if (receipt.detached) {
-            if (Array.isArray(next[receipt.fieldId])) next[receipt.fieldId] = (next[receipt.fieldId] as any[]).filter(media => media?.key !== receipt.key);
-            continue;
-          }
-          const retained = Array.isArray(previous[receipt.fieldId])
-            ? (previous[receipt.fieldId] as any[]).filter(media => media?.key === receipt.key) : [];
-          next[receipt.fieldId] = unionMedia(next[receipt.fieldId], retained);
-        }
-        mergedState.uploads = next;
-      }
+      if (existing?.evidenceReceipts) mergedState = reconcileEvidenceState(mergedState, existing.state, existing.evidenceReceipts);
 
       await saveSharedCleanerJobDraft(params.id, {
         ...(existing?.evidenceReceipts ? { evidenceReceipts: existing.evidenceReceipts } : {}),
