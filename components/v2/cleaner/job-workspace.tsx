@@ -1,4 +1,5 @@
 "use client";
+import { parseLaundryBagCountInput } from "@/lib/laundry/bag-count";
 
 /**
  * Native Estate cleaner job workspace — the execution surface.
@@ -62,6 +63,7 @@ import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fiel
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
+import { useOnlineAction } from "@/hooks/use-online-action";
 import { JobActions } from "@/components/v2/cleaner/job-actions";
 import PropertyAccessGuide from "@/components/v2/cleaner/property-access-guide";
 import {
@@ -168,6 +170,7 @@ type LaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
 const LAUNDRY_PHOTO_KEY = "laundry_photo";
 
 export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIdentity: string }) {
+  const onlineAction = useOnlineAction(draftIdentity);
   const { state: draftSave, save: saveDraft, markDirty: markDraftDirty, reset: resetDraftSave } = useDraftSave(draftIdentity);
   const draftSubmittedRef = React.useRef(false);
   const [identityChanged, setIdentityChanged] = React.useState(false);
@@ -195,6 +198,13 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   // standalone early-update card in JobActions sends.
   const [laundryOutcome, setLaundryOutcome] = React.useState<LaundryOutcome | "">("");
   const [laundryBagLocation, setLaundryBagLocation] = React.useState("");
+  const [laundryBagCountDraft, setLaundryBagCount] = React.useState("");
+  const [laundryRecordedCount, setLaundryRecordedCount] = React.useState<number | null | undefined>(undefined);
+  const serverLaundryRecorded = payload?.laundryState?.readinessBaselineRecorded === true;
+  const laundryBagCountRecorded = laundryRecordedCount !== undefined || serverLaundryRecorded;
+  const laundryBagCount = laundryBagCountRecorded
+    ? String((laundryRecordedCount !== undefined ? laundryRecordedCount : payload?.laundryState?.recordedLaundryBagCount) ?? "")
+    : laundryBagCountDraft;
   const [laundryPhoto, setLaundryPhoto] = React.useState<CapturedMedia[]>([]);
   const [laundrySkipCode, setLaundrySkipCode] = React.useState("LINEN_STILL_WASHING");
   const [laundrySkipNote, setLaundrySkipNote] = React.useState("");
@@ -216,25 +226,25 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
 
   async function sendLaundryEarlyUpdate() {
     if (!laundryOutcome) return;
+    try { onlineAction.begin("Laundry update"); } catch (error: any) { setLaundryEarlyNotice({ tone: "danger", text: error.message }); return; }
+    let actionError: unknown;
     setLaundryEarlyNotice(null);
     setLaundryEarlySending(true);
     try {
-      const res = await fetch(`/api/cleaner/jobs/${jobId}/laundry-status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(evidenceScope ? { "X-Cleaner-Draft-Identity": evidenceScope.draftIdentity } : {}) },
-        body: JSON.stringify({
+      const count = laundryOutcome === "READY_FOR_PICKUP" ? parseLaundryBagCountInput(laundryBagCount) : undefined;
+      const body = await onlineAction.post(`/api/cleaner/jobs/${jobId}/laundry-status`, {
           formRevision: evidenceScope?.formRevision,
           laundryOutcome,
+          laundryBagCount: count,
           bagLocation: laundryBagLocation.trim() || undefined,
           laundryPhotoKey: laundryPhoto[0]?.key,
           laundrySkipReasonCode: laundryOutcome === "READY_FOR_PICKUP" ? undefined : laundrySkipCode,
           laundrySkipReasonNote: laundrySkipNote.trim() || undefined,
-        }),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok || body?.ok !== true) {
-        throw new Error(body?.error || "Could not send the laundry update.");
-      }
+        }, draftIdentity);
+      const savedCount = laundryOutcome === "READY_FOR_PICKUP"
+        ? (Number.isInteger(body.recordedLaundryBagCount) && Number(body.recordedLaundryBagCount) >= 1 && Number(body.recordedLaundryBagCount) <= 50 ? Number(body.recordedLaundryBagCount) : null)
+        : undefined;
+      if (savedCount !== undefined) setLaundryRecordedCount(savedCount);
       setLaundryEarlySentAt(
         new Date().toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })
       );
@@ -245,6 +255,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         JSON.stringify({
           laundryOutcome,
           bagLocation: laundryBagLocation.trim(),
+          bagCount: savedCount === undefined ? laundryBagCount : String(savedCount ?? ""),
           photoKey: laundryPhoto[0]?.key ?? null,
           skipCode: laundryOutcome === "READY_FOR_PICKUP" ? null : laundrySkipCode,
           skipNote: laundrySkipNote.trim(),
@@ -255,8 +266,10 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       setLaundryEarlyNotice(deliveryWarning ? { tone: "danger", text: deliveryWarning }
         : { tone: "success", text: body.duplicated ? "Laundry update already saved." : "Laundry update saved." });
     } catch (e: any) {
+      actionError = e;
       setLaundryEarlyNotice({ tone: "danger", text: e?.message ?? "Could not send the update." });
     } finally {
+      onlineAction.finish(actionError);
       setLaundryEarlySending(false);
     }
   }
@@ -374,6 +387,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         setLaundryOutcome(laundry.outcome);
       }
       if (typeof laundry.bagLocation === "string") setLaundryBagLocation(laundry.bagLocation);
+      if (typeof laundry.bagCount === "string") setLaundryBagCount(laundry.bagCount);
       if (typeof laundry.skipCode === "string" && laundry.skipCode) setLaundrySkipCode(laundry.skipCode);
       if (typeof laundry.skipNote === "string") setLaundrySkipNote(laundry.skipNote);
       if (Array.isArray(laundry.photo)) {
@@ -623,6 +637,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   const laundryCurrentSignature = JSON.stringify({
     laundryOutcome,
     bagLocation: laundryBagLocation.trim(),
+    bagCount: laundryBagCount,
     photoKey: laundryPhoto[0]?.key ?? null,
     skipCode: laundryOutcome === "READY_FOR_PICKUP" ? null : laundrySkipCode,
     skipNote: laundrySkipNote.trim(),
@@ -778,6 +793,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       laundry: {
         outcome: laundryOutcome,
         bagLocation: laundryBagLocation,
+        bagCount: laundryBagCount,
         skipCode: laundrySkipCode,
         skipNote: laundrySkipNote,
         photo: laundryPhoto,
@@ -795,6 +811,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       bulkPool,
       laundryOutcome,
       laundryBagLocation,
+      laundryBagCount,
       laundrySkipCode,
       laundrySkipNote,
       laundryPhoto,
@@ -863,6 +880,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     bulkPool,
     laundryOutcome,
     laundryBagLocation,
+    laundryBagCount,
     laundrySkipCode,
     laundrySkipNote,
     laundryPhoto,
@@ -935,6 +953,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     /** Replayed on the retry that follows the start-briefing dialog. */
     briefingAck?: StartBriefingAckEntry[]
   ) {
+    if (onlineAction.blocked) { flash("danger", onlineAction.uncertain ? "Check the latest server status before clocking in." : "Clock-in needs a connection."); return; }
     // `clockIn` is also wired straight to onClick in places, which would pass a
     // MouseEvent here — accept only a real answer object.
     const offSiteAnswer =
@@ -958,6 +977,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       );
       return;
     }
+    try { onlineAction.begin("Clock-in"); } catch (error: any) { flash("danger", error.message); return; }
+    let actionError: unknown;
     setBusy("clockin");
     try {
       if (!isResume) {
@@ -978,13 +999,13 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
           return;
         }
 
-        const checkin = await post(`/api/cleaner/jobs/${jobId}/gps-checkin`, {
+        const checkin = await onlineAction.post(`/api/cleaner/jobs/${jobId}/gps-checkin`, {
           lat: gps.lat,
           lng: gps.lng,
           accuracy: gps.accuracy,
           confirmed: true,
           ...(offSiteAnswer ? { reasonCode: offSiteAnswer.code, note: offSiteAnswer.note } : {}),
-        }).catch((err: any) => {
+        }, draftIdentity).catch((err: any) => {
           // 409 = the server wants a reason for the distance before it records
           // anything.
           if ((err?.data as any)?.error === "OFF_SITE_REASON_REQUIRED") return err.data;
@@ -1006,12 +1027,12 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
           flash("info", "Your location is only roughly accurate here — we've noted that.");
         }
       }
-      const started = await post(`/api/cleaner/jobs/${jobId}/start`, {
+      const started = await onlineAction.post(`/api/cleaner/jobs/${jobId}/start`, {
         allowFutureStart: true,
         propertyCodeConfirmed,
         laundryBagConfirmed,
         ...(briefingAck ? { startBriefingAck: briefingAck } : {}),
-      }).catch((err: any) => {
+      }, draftIdentity).catch((err: any) => {
         // 409 = there are things this cleaner must READ before the clock
         // starts. The server returns the resolved list so the dialog and the
         // gate can never disagree about what has to be read.
@@ -1030,8 +1051,10 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       flash("success", isResume ? "Timer resumed." : "Clocked in — job started.");
       await load();
     } catch (e: any) {
+      actionError = e;
       flash("danger", e.message);
     } finally {
+      onlineAction.finish(actionError);
       setBusy(null);
     }
   }
@@ -1056,14 +1079,18 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   }, [arrivedByTag, busy, ownStarted]);
 
   async function pauseClock() {
+    try { onlineAction.begin("Pause clock"); } catch (error: any) { flash("danger", error.message); return; }
+    let actionError: unknown;
     setBusy("pause");
     try {
-      await post(`/api/cleaner/jobs/${jobId}/stop`);
+      await onlineAction.post(`/api/cleaner/jobs/${jobId}/stop`, {}, draftIdentity);
       flash("info", "Clock paused.");
       await load();
     } catch (e: any) {
+      actionError = e;
       flash("danger", e.message);
     } finally {
+      onlineAction.finish(actionError);
       setBusy(null);
     }
   }
@@ -1071,6 +1098,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   // Clock out WITHOUT the form (admin-allowlisted): the clock stops but the job
   // stays open — not counted as completed until the form is submitted.
   async function clockOutEarly() {
+    if (onlineAction.blocked) { flash("danger", "Reconnect and check the latest server status before clocking out."); return; }
     if (
       typeof window !== "undefined" &&
       !window.confirm(
@@ -1078,9 +1106,11 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       )
     )
       return;
+    try { onlineAction.begin("Clock out early"); } catch (error: any) { flash("danger", error.message); return; }
+    let actionError: unknown;
     setBusy("clockout-early");
     try {
-      await post(`/api/cleaner/jobs/${jobId}/clock-out-early`);
+      await onlineAction.post(`/api/cleaner/jobs/${jobId}/clock-out-early`, {}, draftIdentity);
       try {
         const gps = await getGps();
         await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng });
@@ -1090,14 +1120,37 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       flash("success", "Clocked out. Come back any time to finish the form — the job isn't complete until it's submitted.");
       await load();
     } catch (e: any) {
+      actionError = e;
       flash("danger", e.message);
     } finally {
+      onlineAction.finish(actionError);
       setBusy(null);
     }
   }
 
   function setTask(id: string, patch: Partial<TaskDraft>) {
     setTaskDrafts((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  }
+
+  async function checkActionStatus() {
+    const generation = loadGenerationRef.current;
+    try {
+      await onlineAction.reconcile(async () => {
+        const response = await fetch(`/api/jobs/${jobId}/form`, { cache: "no-store" });
+        const data = await response.json();
+        if (generation !== loadGenerationRef.current) throw new Error("Job context changed. Check the current job status again.");
+        if (!response.ok || data?.draftIdentity !== draftIdentity || data?.job?.id !== jobId ||
+          typeof data?.timeState?.isRunning !== "boolean" || typeof data?.assignmentState?.responseStatus !== "string" ||
+          (onlineAction.uncertain === "Laundry update" && !("laundryState" in data))) {
+          throw new Error("The latest status could not be verified. Keep your draft and try checking again when connected.");
+        }
+        // Supersede reads that began before this explicit reconciliation.
+        ++loadGenerationRef.current;
+        setPayload(data);
+        flash("info", `Latest server status checked: clock ${data.timeState.isRunning ? "running" : "stopped"}.` +
+          (onlineAction.uncertain === "Laundry update" ? ` Laundry: ${data.laundryState?.status ?? "no update recorded"}. Review before sending another update.` : " Review the current state before continuing."));
+      });
+    } catch (error: any) { flash("danger", error.message); }
   }
 
   /**
@@ -1114,6 +1167,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   }
 
   async function submit(opts?: { finalCheckupAck?: FinalCheckupAckEntry[] }) {
+    if (onlineAction.uncertain) { flash("danger", "Check the latest server status before submitting."); return; }
     if (bulkPool.length || (laundryPhoto.length && (!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP")) || (carryPhotos.length && (!carryHasNew || !carryNotes.some(note => note.trim())))) {
       flash("danger", "Assign unfiled photos and explicitly remove unused laundry or next-clean photos before submitting. Originals stay in device recovery."); return;
     }
@@ -1190,6 +1244,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         return;
       }
       if (laundryOutcome === "READY_FOR_PICKUP") {
+        try { parseLaundryBagCountInput(laundryBagCount); } catch (error: any) { flash("danger", error.message); return; }
         if (!laundryBagLocation.trim()) {
           flash("danger", "Bag location is required when laundry is ready for pickup.");
           return;
@@ -1203,6 +1258,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         return;
       }
     }
+    try { onlineAction.begin("Submit job"); } catch (error: any) { flash("danger", error.message); return; }
+    let actionError: unknown;
     setBusy("submit");
     setNotice(null);
     try {
@@ -1271,12 +1328,13 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         if (laundryEarlySentAt) body.supersedesEarlyLaundryUpdate = true;
         if (laundryOutcome === "READY_FOR_PICKUP") {
           body.bagLocation = laundryBagLocation.trim();
+          body.laundryBagCount = parseLaundryBagCountInput(laundryBagCount);
         } else {
           body.laundrySkipReasonCode = laundrySkipCode;
           if (laundrySkipNote.trim()) body.laundrySkipReasonNote = laundrySkipNote.trim();
         }
       }
-      const data = await post(`/api/cleaner/jobs/${jobId}/submit`, body);
+      const data = await onlineAction.post(`/api/cleaner/jobs/${jobId}/submit`, body, draftIdentity);
       draftSubmittedRef.current = true;
       resetDraftSave();
       setFinalCheckupServerItems(null);
@@ -1298,6 +1356,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       await load();
       return data;
     } catch (e: any) {
+      actionError = e;
       // Server-side final check-up gate (R7): reopen the dialog for exactly the
       // items the server says are missing.
       if (e?.code === "FINAL_CHECKUP_REQUIRED") {
@@ -1313,6 +1372,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       }
       flash("danger", e.message);
     } finally {
+      onlineAction.finish(actionError);
       setBusy(null);
     }
   }
@@ -1438,7 +1498,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     setActiveStage,
     startGateBlocks,
     startGateSatisfied,
-    clockInDisabled: startGateBlocks && !startGateSatisfied,
+    clockInDisabled: onlineAction.blocked || (startGateBlocks && !startGateSatisfied),
     propertyCodeConfirmed,
     setPropertyCodeConfirmed,
     laundryBagConfirmRequired,
@@ -1461,6 +1521,9 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     setLaundryOutcome,
     laundryBagLocation,
     setLaundryBagLocation,
+    laundryBagCount,
+    setLaundryBagCount,
+    laundryBagCountRecorded,
     laundryPhoto,
     setLaundryPhoto,
     laundrySkipCode,
@@ -1525,6 +1588,15 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       }} /> : null}
 
       {!locked ? <DraftSaveStatus state={draftSave} onRetry={() => flushDraft()} /> : null}
+      {!onlineAction.online ? <EAlert tone="info" title="Working offline">
+        You can continue your draft and retain photos on this device. Clock changes, job offers, laundry updates and submission need a connection and are never queued automatically.
+      </EAlert> : null}
+      {onlineAction.uncertain ? <EAlert tone="danger" title="Action outcome needs checking">
+        {onlineAction.uncertain} may have reached the server. Your draft and retained photos are unchanged.
+        <EButton variant="outline" disabled={!onlineAction.online || onlineAction.checking} onClick={() => void checkActionStatus()}>
+          {onlineAction.checking ? "Checking status…" : "Check latest server status"}
+        </EButton>
+      </EAlert> : null}
       {!locked && localRecoveryWarning ? <EAlert tone="info" title="Local recovery">{localRecoveryWarning}</EAlert> : null}
       {!locked && legacyDraftPresent ? <EAlert tone="info" title="Older local draft">
         An older unscoped local draft was not loaded or changed. Its ownership cannot be confirmed.

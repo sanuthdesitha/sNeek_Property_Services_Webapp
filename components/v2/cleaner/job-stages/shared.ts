@@ -156,6 +156,9 @@ export interface WorkspaceApi {
   laundryOutcome: LaundryOutcome | "";
   setLaundryOutcome: (v: LaundryOutcome | "") => void;
   laundryBagLocation: string;
+  laundryBagCount: string;
+  setLaundryBagCount: (v: string) => void;
+  laundryBagCountRecorded: boolean;
   setLaundryBagLocation: (v: string) => void;
   laundryPhoto: CapturedMedia[];
   setLaundryPhoto: (v: CapturedMedia[]) => void;

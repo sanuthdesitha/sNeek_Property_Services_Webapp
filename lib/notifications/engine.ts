@@ -18,6 +18,9 @@ interface SendNotificationOptions {
   to?: string;
   channels?: NotificationChannel[];
   recipientRole?: NotificationRecipientRole;
+  durable?: Omit<import("./queue-delivery").DurableDeliveryContext, "eventKey" | "transports" | "templateRecipientRole"> & {
+    recipient: import("./delivery").Recipient;
+  };
 }
 
 /**
@@ -29,6 +32,30 @@ export async function sendNotification(
   context: NotificationContext,
   options: SendNotificationOptions = {}
 ): Promise<void> {
+  if (options.durable) {
+    // Failures must abort the caller's transaction, rather than being swallowed
+    // by the legacy best-effort dispatcher below.
+    const { queueDelivery } = await import("./queue-delivery");
+    const eventDef = FINANCE_EVENTS.find(event => event.key === eventKey);
+    if (!eventDef) throw new Error("Unknown notification event.");
+    const recipientRole = options.recipientRole ?? eventDef.defaultRecipients[0];
+    if (recipientRole !== "ADMIN") throw new Error("This template recipient scope has no durable authorization adapter.");
+    const template = await options.durable.tx.notificationTemplate.findUnique({ where: { eventKey } });
+    if (!template) throw new Error("Notification template unavailable.");
+    const content = substituteTemplate(template, context);
+    const channels = options.channels ?? Array.from(eventDef.defaultChannels) as NotificationChannel[];
+    if ((channels.includes("EMAIL") && !content.html) || (channels.includes("SMS") && !content.sms) || (channels.includes("PUSH") && (!content.pushTitle || !content.pushBody))) throw new Error("Notification template content incomplete.");
+    await queueDelivery({
+      recipients: [options.durable.recipient], category: "billing",
+      web: { subject: content.pushTitle ?? content.subject ?? "Notification", body: content.pushBody ?? content.text ?? content.subject ?? "Notification" },
+      email: channels.includes("EMAIL") ? { subject: content.subject ?? "sNeek Ops Notification", html: content.html!, logBody: content.text } : null,
+      sms: channels.includes("SMS") ? content.sms : null,
+      kind: FINANCE_EVENT_EMAIL_KIND[eventKey],
+    }, { ...options.durable, eventKey, templateRecipientRole: recipientRole,
+      transports: [...(channels.includes("EMAIL") ? ["EMAIL" as const] : []), ...(channels.includes("SMS") ? ["SMS" as const] : []), ...(channels.includes("PUSH") ? ["INBOX" as const, "WEB_PUSH" as const] : [])],
+    });
+    return;
+  }
   try {
     const eventDef = FINANCE_EVENTS.find((e) => e.key === eventKey);
     if (!eventDef) {

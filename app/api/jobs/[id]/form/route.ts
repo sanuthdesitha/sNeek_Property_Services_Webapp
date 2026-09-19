@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cleanerBagBaseline, recordedCleanerReadiness } from "@/lib/laundry/quantity-baseline";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
@@ -85,8 +86,7 @@ export async function GET(
         laundryTask: {
           include: {
             confirmations: {
-              orderBy: { createdAt: "desc" },
-              take: 1,
+              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             },
           },
         },
@@ -616,6 +616,8 @@ export async function GET(
       laundryState: job.laundryTask
         ? {
             status: job.laundryTask.status,
+            recordedLaundryBagCount: cleanerBagBaseline([...job.laundryTask.confirmations].reverse())?.count ?? null,
+            readinessBaselineRecorded: recordedCleanerReadiness([...job.laundryTask.confirmations].reverse()) !== null,
             noPickupRequired: job.laundryTask.noPickupRequired,
             skipReasonCode: job.laundryTask.skipReasonCode,
             skipReasonNote: job.laundryTask.skipReasonNote,

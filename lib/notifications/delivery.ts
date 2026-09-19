@@ -14,7 +14,7 @@ import { sendWebPushToUser } from "@/lib/notifications/web-push";
 import { resolveNotificationHrefForRole } from "@/lib/notifications/feed";
 import { logger } from "@/lib/logger";
 
-type Recipient = {
+export type Recipient = {
   id: string;
   role?: Role | null;
   email?: string | null;
@@ -33,7 +33,7 @@ type EmailPayload = {
   logBody?: string;
 };
 
-type DeliveryInput = {
+export type DeliveryInput = {
   recipients: Recipient[];
   category: NotificationCategory;
   jobId?: string | null;
@@ -49,6 +49,8 @@ type DeliveryInput = {
    * ENTIRE notification pipeline and toggling any other switch did nothing.
    */
   kind?: EmailAutoKind;
+  /** New domain events only: queue in the same transaction as their stable receipt. */
+  durable?: import("./queue-delivery").DurableDeliveryContext;
 };
 
 /** Fallback mapping from notification category → email-automation kind. */
@@ -209,6 +211,11 @@ async function sendSmsNotification(
 }
 
 export async function deliverNotificationToRecipients(input: DeliveryInput) {
+  if (input.durable) {
+    const { queueDelivery } = await import("./queue-delivery");
+    await queueDelivery(input, input.durable);
+    return;
+  }
   const recipients = dedupeRecipients(input.recipients);
 
   // Audience-level controls apply on top of the per-user category preferences:

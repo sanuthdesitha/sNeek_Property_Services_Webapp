@@ -31,6 +31,7 @@ import { ECheckbox, EField, EInput, ESelect, ETextarea } from "@/components/v2/c
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import { toast } from "@/hooks/use-toast";
 import { pickupNeedsReadinessAnswer } from "@/lib/laundry/pickup-readiness";
+import { cleanerBagBaseline, type QuantityConfirmation } from "@/lib/laundry/quantity-baseline";
 
 /* ── Types ─────────────────────────────────────────────────────────────────── */
 
@@ -54,7 +55,7 @@ export type ActionTask = {
   supplierId?: string | null;
   flagNotes?: string | null;
   property?: { name?: string | null; suburb?: string | null } | null;
-  confirmations?: Array<{ notes?: string | null; bagLocation?: string | null }>;
+  confirmations?: Array<QuantityConfirmation & { bagLocation?: string | null }>;
 };
 
 export type Supplier = { id: string; name: string };
@@ -202,6 +203,10 @@ export function LaundryActionModal({
   const earlyReturn = action === "RETURNED" && isEarlyDropoffCandidate(task);
   // The cleaner never confirmed, so the driver is the only witness.
   const needsReadiness = pickupNeedsReadinessAnswer(task.status);
+  const baseline = cleanerBagBaseline(task.confirmations ?? []);
+  const [discrepancyReason, setDiscrepancyReason] = React.useState("");
+  const [pickupPhotoBusy, setPickupPhotoBusy] = React.useState(false);
+  const [pickupUnknown, setPickupUnknown] = React.useState(false);
 
   const [bagCount, setBagCount] = React.useState(isEdit ? String(completion.bagCount) : "1");
   // Deliberately starts blank rather than defaulting to "READY": a prefilled
@@ -230,6 +235,9 @@ export function LaundryActionModal({
   const [failedMode, setFailedMode] = React.useState<FailedPickupMode>("RESCHEDULE");
   const [failedDate, setFailedDate] = React.useState("");
   const [failedReason, setFailedReason] = React.useState("");
+  const [failurePhoto, setFailurePhoto] = React.useState<CapturedMedia[]>([]);
+  const [failureUnknown, setFailureUnknown] = React.useState(false);
+  const [failurePhotoBusy, setFailurePhotoBusy] = React.useState(false);
   const [confirmed, setConfirmed] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
 
@@ -311,12 +319,14 @@ export function LaundryActionModal({
 
     // ── FAILED_PICKUP → POST reschedule / approval request ──────────────────
     if (action === "FAILED_PICKUP") {
+      if (failureUnknown || failurePhotoBusy) return;
       const reason = failedReason.trim();
       if (!reason) return fail("Reason required", "Explain why the pickup failed.");
       const payload: Record<string, unknown> = {
         confirm: true,
         notes: notes.trim() || undefined,
         failedPickupReason: reason,
+        failedPickupPhotoKey: failurePhoto[0]?.key,
       };
       if (failedMode === "RESCHEDULE") {
         if (!failedDate.trim()) return fail("New pickup date required", "Choose the rescheduled pickup date.");
@@ -334,17 +344,22 @@ export function LaundryActionModal({
           body: JSON.stringify(payload),
         });
         const body = await res.json().catch(() => ({}));
-        if (!res.ok) return fail("Update failed", body?.error ?? "Could not save the failed pickup update.");
+        if (!res.ok) {
+          if (res.status === 409) setFailureUnknown(true);
+          return fail("Update failed", body?.error ?? "Could not save the failed pickup update.");
+        }
+        if (body.id !== task.id || body.status !== (failedMode === "RESCHEDULE" ? "CONFIRMED" : "FLAGGED")) throw new Error("Incomplete acknowledgement");
         toast({
-          title: failedMode === "RESCHEDULE" ? "Pickup rescheduled" : "Approval request sent",
+          title: failedMode === "RESCHEDULE" ? "Pickup rescheduled" : "Approval request saved",
           description:
-            failedMode === "RESCHEDULE"
-              ? "The pickup date has been updated and admin has been notified."
-              : "Admin approval is now required before this pickup can be skipped or deleted.",
+            body.deliveryWarning ?? (failedMode === "RESCHEDULE"
+              ? "The pickup date has been updated."
+              : "Admin approval is required before this pickup can be skipped or deleted."),
         });
         onDone();
       } catch (err: any) {
-        fail("Update failed", err?.message ?? "Network error — check your connection and try again.");
+        setFailureUnknown(true);
+        fail("Outcome not confirmed", "The report may have been saved. Refresh the task before reporting again.");
       } finally {
         setSubmitting(false);
       }
@@ -359,9 +374,15 @@ export function LaundryActionModal({
     };
 
     if (action === "PICKED_UP") {
+      if (pickupPhotoBusy || pickupUnknown) return;
       const n = Number(bagCount || 0);
-      if (!Number.isFinite(n) || n < 1) return fail("Bag count required", "Enter how many bags were picked up.");
-      payload.bagCount = Math.round(n);
+      if (!Number.isInteger(n) || n < 1 || n > 50) return fail("Bag count required", "Enter a whole number from 1 to 50 bags.");
+      payload.bagCount = n;
+      payload.quantityBaselineId = baseline?.confirmationId ?? null;
+      if (baseline && baseline.count !== n) {
+        if (!discrepancyReason.trim() || !pickupPhoto[0]?.key) return fail("Discrepancy details required", "Add a reason and pickup photo for the bag quantity difference.");
+        payload.discrepancyReason = discrepancyReason.trim();
+      }
       if (needsReadiness) {
         if (!pickupReadiness) {
           return fail(
@@ -414,11 +435,13 @@ export function LaundryActionModal({
         body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) return fail("Update failed", body?.error ?? "Could not update status.");
+      if (!res.ok) { if (action === "PICKED_UP" && res.status === 409) setPickupUnknown(true); return fail("Update failed", body?.error ?? "Could not update status."); }
+      if (action === "PICKED_UP" && (body.id !== task.id || body.status !== "PICKED_UP")) throw new Error("Pickup acknowledgement incomplete");
       toast({ title: "Laundry updated" });
       onDone();
     } catch (err: any) {
-      fail("Update failed", err?.message ?? "Network error — check your connection and try again.");
+      if (action === "PICKED_UP") { setPickupUnknown(true); fail("Pickup outcome not confirmed", "Refresh the task before confirming again."); }
+      else fail("Update failed", err?.message ?? "Network error — check your connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -462,12 +485,15 @@ export function LaundryActionModal({
 
         {action === "PICKED_UP" ? (
           <>
+            <p>{baseline ? `Cleaner reported ${baseline.count} bags ready. This expected quantity will stay recorded.` : "Expected bag quantity unknown: no explicit cleaner count was recorded."}</p>
+            {baseline && baseline.count !== Number(bagCount) ? <EField label="Reason for quantity difference"><ETextarea value={discrepancyReason} onChange={event => setDiscrepancyReason(event.target.value)} placeholder="Explain the expected versus collected bags" /></EField> : null}
+            {pickupUnknown ? <EButton variant="outline" onClick={onDone}>Refresh task</EButton> : null}
             <EField label="Key handling photo (optional)" hint="Proof of the key at pickup.">
               <MediaCapture value={pickupKeyPhoto} onChange={setPickupKeyPhoto} mode="photo" folder="laundry/key" multiple={false} stamp={{ tag: "laundry", reference: task.property?.name ?? undefined, contextLabel: "Key photo (pickup)" }} />
             </EField>
-            {config.showPickupPhoto ? (
-              <EField label="Pickup photo (optional)">
-                <MediaCapture value={pickupPhoto} onChange={setPickupPhoto} mode="photo" folder="laundry/pickup" multiple={false} stamp={{ tag: "laundry", reference: task.property?.name ?? undefined, contextLabel: "Pickup photo" }} />
+            {config.showPickupPhoto || (baseline && baseline.count !== Number(bagCount)) ? (
+              <EField label={baseline && baseline.count !== Number(bagCount) ? "Pickup photo (required for quantity difference)" : "Pickup photo (optional)"}>
+                <MediaCapture value={pickupPhoto} onChange={setPickupPhoto} onBusyChange={setPickupPhotoBusy} disabled={submitting || pickupUnknown} mode="photo" folder="laundry/pickup" multiple={false} stamp={{ tag: "laundry", reference: task.property?.name ?? undefined, contextLabel: "Pickup photo" }} />
               </EField>
             ) : null}
           </>
@@ -585,6 +611,10 @@ export function LaundryActionModal({
         {/* Failed pickup fields */}
         {action === "FAILED_PICKUP" ? (
           <div className="space-y-4 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning)/0.06)] p-3">
+            <EField label="Access-failure photo (optional)">
+              <MediaCapture value={failurePhoto} onChange={setFailurePhoto} onBusyChange={setFailurePhotoBusy} mode="photo" folder={`laundry/failed-pickup/${task.id}`} multiple={false} disabled={submitting || failureUnknown} />
+            </EField>
+            {failureUnknown ? <EButton variant="outline" onClick={onDone}>Refresh task</EButton> : null}
             <EField label="What should happen next?">
               <ESelect value={failedMode} onChange={(e) => setFailedMode(e.target.value as FailedPickupMode)}>
                 <option value="RESCHEDULE">Reschedule pickup</option>
@@ -639,7 +669,7 @@ export function LaundryActionModal({
           <EButton variant="outline" onClick={onClose} disabled={submitting}>
             Cancel
           </EButton>
-          <EButton onClick={() => void submit()} disabled={submitting}>
+          <EButton onClick={() => void submit()} disabled={submitting || failureUnknown || failurePhotoBusy || pickupUnknown || pickupPhotoBusy}>
             {submitting ? "Saving…" : "Confirm"}
           </EButton>
         </div>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cleanerBagBaseline } from "@/lib/laundry/quantity-baseline";
 import { JobStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { cleanerLaundryStatusSchema } from "@/lib/validations/job";
@@ -7,7 +8,7 @@ import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { resolveAppUrl } from "@/lib/app-url";
 import { z } from "zod";
 import { cleanerDraftIdentity } from "@/lib/cleaner/draft-identity";
-import { getSharedCleanerJobDraft, withSharedCleanerJobDraftLock } from "@/lib/cleaner/shared-job-draft";
+import { getSharedCleanerJobDraft } from "@/lib/cleaner/shared-job-draft";
 import { earlyLaundryEvidenceConflict, isLaundryReceipt } from "@/lib/laundry/early-evidence";
 import { getTransactionAppSettings } from "@/lib/settings";
 import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form";
@@ -15,6 +16,7 @@ import { jobFormRevision } from "@/lib/forms/job-form-revision";
 import { listCleanerJobTasks } from "@/lib/job-tasks/service";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { guestSummaryFromReservation, resolveFinalCheckupItems } from "@/lib/forms/final-checkup";
+import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
 
 function normalizeLaundrySubmission(body: {
   laundryReady?: boolean;
@@ -33,7 +35,8 @@ function normalizeLaundrySubmission(body: {
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.CLEANER]);
-    const body = cleanerLaundryStatusSchema.extend({ formRevision: z.string().regex(/^[a-f0-9]{64}$/).optional() }).parse(await req.json());
+    const rawBody = await req.json();
+    const body = cleanerLaundryStatusSchema.extend({ formRevision: z.string().regex(/^[a-f0-9]{64}$/).optional() }).parse(rawBody);
     const laundryOutcome = normalizeLaundrySubmission(body);
     if (!laundryOutcome) {
       return NextResponse.json({ error: "Laundry outcome is required." }, { status: 400 });
@@ -43,7 +46,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const suppliedIdentity = req.headers.get("X-Cleaner-Draft-Identity");
     if (suppliedIdentity && suppliedIdentity !== identity) return NextResponse.json({ error: "Account changed. Reload this job." }, { status: 409 });
     const afterCommit: Array<() => Promise<void>> = [];
-    const response = await withSharedCleanerJobDraftLock(params.id, async tx => {
+    const receipt = await withCleanerAction({ session, jobId: params.id, action: "laundry-status", requestId: req.headers.get("X-Cleaner-Action-Id"), draftIdentity: req.headers.get("X-Cleaner-Draft-Identity"), body: rawBody }, async tx => {
+    const run = async () => {
     await tx.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${params.id} FOR UPDATE`;
     await tx.$queryRaw`SELECT "id" FROM "JobAssignment" WHERE "jobId" = ${params.id} ORDER BY "id" FOR SHARE`;
     const assignment = await tx.jobAssignment.findFirst({
@@ -161,6 +165,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       cleanerId: session.user.id,
       laundryOutcome,
       bagLocation,
+      laundryBagCount: body.laundryBagCount,
       laundryPhotoKey,
       laundrySkipReasonCode,
       laundrySkipReasonNote,
@@ -168,13 +173,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       portalUrl: resolveAppUrl("/laundry", req),
     }, { transaction: tx, afterCommit });
 
+    const recordedConfirmations = result.laundryTask ? await tx.laundryConfirmation.findMany({ where: { laundryTaskId: result.laundryTask.id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] }) : [];
     return NextResponse.json({
       ok: true,
+      recordedLaundryBagCount: cleanerBagBaseline(recordedConfirmations)?.count ?? null,
       duplicated: result.duplicated,
       status: result.laundryTask?.status ?? null,
       updatedAt: result.laundryTask?.updatedAt ?? null,
     });
+    };
+    const response = await run();
+    return { status: response.status, body: await response.json() };
     });
+    const response = NextResponse.json(receipt.body, { status: receipt.status });
     try {
       for (const notify of afterCommit) await notify();
     } catch {
@@ -184,7 +195,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
     return response;
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    const status = err instanceof ActionReceiptError ? err.status : err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
   }
 }

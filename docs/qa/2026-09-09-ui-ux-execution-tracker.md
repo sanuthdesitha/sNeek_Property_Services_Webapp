@@ -1,10 +1,35 @@
 # v2 Improvement Execution Tracker
 
-Updated: 2026-09-13
+Updated: 2026-09-20
 
-Scope: all 106 items in `2026-09-09-ui-ux-improvement-proposal.md`. No item is complete merely because code exists. Implemented, automated-tested, browser-verified and external/device-verified are separate milestones. Work remains local unless a later request authorizes publishing.
+Scope: all 106 items in `2026-09-09-ui-ux-improvement-proposal.md`. No item is complete merely because code exists. Implemented, automated-tested, browser-verified and external/device-verified are separate milestones. The owner authorized pushing verified changes on September 13 and repeated that request on September 20. Remote publication is recorded separately from implementation.
 
 ## Current slice
+
+### Wave 27: Verified shift, recovery, client privacy and access-failure checkpoint
+
+- Wave 26 was committed as `007eb853`. GitHub authentication was restored through device authorization on September 20. The owner-authorized push follows this verified checkpoint; remote confirmation is recorded in the task response.
+- Cleaner Today combines personal pending offers (including future offers), accepted work, saved route order and active-job resume. Failed queries are unavailable, and future-only work is distinguished from an empty shift. Twenty-three focused checks and desktop/mobile real local-fixture journeys passed; the first browser attempt failed during fixture cleanup, corrected before the passing rerun.
+- Adaptive form navigation derives room progress from the shared validation projection, distinguishes not-applicable from unanswered and opens/focuses the exact incomplete field without changing answers. Agent verification: 89 focused tests and four desktop/mobile real-renderer browser cases passed.
+- Client job responses enforce Jobs/report/finance/staff-name/progress visibility and property-scoped invoice authorization; raw location history is excluded and arrival coordinates require a fresh en-route sample. Progress polling serializes/aborts reads and exposes stale/unavailable/retry states. Correspondence reads authorize job scope before retrieving or marking only returned messages read. Seventy focused tests and both desktop/mobile progress/privacy journeys passed. The final correspondence receipt extension is recorded below.
+- Laundry access failure validates optional image ownership/type, locks current task/property scope, and atomically records evidence, audit and the existing reschedule/flag path. Post-commit notification failure returns a saved receipt with warning; uncertain modal outcomes require refresh. Eighteen focused tests, three real PostgreSQL transaction/race tests and both desktop/mobile journeys passed. Existing key-lost and skipped-pickup rules remain authoritative.
+- Shared navigation now has an explicit Show all pages action that clears search and expands authorized groups while preserving pins. Nineteen component tests and both desktop/mobile persistence journeys passed; the first expanded mobile case required scoping its assertion to the visible status element.
+- Active-job continuity now exposes the cleaner's own observed clock state, latest tab-scoped draft acknowledgement and device evidence recovery status. Seventy-three focused strip/workspace/API checks and 21 draft-hook/status checks passed; both desktop/mobile shift journeys verified the strip.
+- Client job conversations retain context-bound tab drafts and UUID receipts before dispatch. Explicit retry checks the same saved message, while account/scope changes isolate drafts and access loss clears visible content. Polling cannot overwrite a newer send acknowledgement. Internal notes remain separately labeled. Thirty focused checks (including nine actual PostgreSQL cases) and four desktop/mobile Radix focus, reload and lost-response journeys passed on September 20. Office notification failure is distinct from a saved message; provider calls were mocked.
+- Authoritative cleaner actions use atomic request receipts and a recovery fence under the shared draft/user/job/assignment locks. Recovery revalidates access and distinguishes a saved action from a cancelled undispatched request; it never blindly replays. Early clock-out rechecks its current allowlist, and skipped/finished jobs reject clock/check-in changes. Final focused batch: 129 checks, including 26 actual PostgreSQL tests; four desktop/mobile recovery and bag-count journeys passed. Submit status/form/media/inventory/clock/laundry core is transactional; pre-existing pay, report, QA, task/carry-forward and notification follow-ups remain post-commit best effort, not durable exactly-once delivery.
+- Prospective laundry baselines explicitly record bags; legacy counts remain unknown. Driver differences require a reason and owned image, preserve immutable expected/actual snapshots and remain resolvable after task deletion through nullable references. Cleaner drafts and authoritative early acknowledgements retain/freeze the baseline count. No physical bag or linen-set identity policy was invented.
+- Device capture retains originals before quota estimation, gives bounded low-storage/dark/small-image advice, preserves audio when conversion is supported and falls back when it is not. Thirty-nine focused checks and both desktop/mobile real dark-image/portrait-preview journeys passed. Physical phone/codec certification remains separate.
+- Recipient-owned inbox snooze and acknowledgement persist independently of provider delivery and read state, with revision/audit guards. The lifecycle distinguishes queue/provider acceptance/failure/read/acknowledgement. Earlier 155 focused checks and both desktop/mobile snooze, expiry, acknowledgement and detail journeys passed.
+- Typed notification envelopes, intent/attempt records, conservative retry/reconciliation and the admin delivery queue now share durable adapters across both delivery entry points. Failed pickup enqueues an inbox intent in its domain transaction; worker/fallback dispatches bounded batches. Final 82 focused checks include 13 actual PostgreSQL checks, and both desktop/mobile queue journeys passed. Internal URLs reject cross-origin normalization and inbox dispatch locks the current recipient role. External transports are opt-in and no live provider was invoked. Non-admin authorization adapters, broader producer migration and configured critical escalation remain open.
+- Interrupted agents resumed on September 20 and froze source after their focused checks. The first DB reruns failed to connect because the restarted synthetic cluster used the default port; the cluster was corrected to loopback 55432 and all affected tests passed. Combined full regression with coverage exited 0: 372 files / 4,520 tests passed, one legacy test skipped, test phase 1,017.34 seconds plus report generation. Of 77 touched source files measured against the default 95% target, 15 pass all three metrics, 60 are below target and two are excluded by coverage configuration. Exact per-file results are in `2026-09-20-wave27-verification.md`; this is not a 95% coverage certification. Final production build, including the later invoice correction, passed compilation, type validation and all 713 pages in 458 seconds (exit 0). GitHub authentication and the redesign push dry run succeeded; remote SHA confirmation follows the commit.
+
+### September 20 invoice generation correction (owner-requested)
+
+- The owner reported many started jobs missing from generated invoices for a selected period, without a remembered client/job example. The exact historical invoice could not be reproduced; current selection behavior was verified with synthetic PostgreSQL data.
+- Manual generation now admits in-progress/later jobs or retained clock history after reassignment, while excluding never-started assignment/travel states. Client/property/period/skipped rules and existing non-void invoice reservations remain. Completed-only automatic invoicing retains its policy.
+- Classic manual generation previously omitted periodBasis and silently used completion date. It now exposes the basis and defaults to SCHEDULED, matching the dates printed on job lines and the existing v2 default. SERVICE remains selectable; completion can fall outside a job's scheduled period.
+- Both invoice screens explain started-job eligibility and report included versus already-invoiced job counts. Existing drafts reserve their jobs; VOID invoices release them for generation. Missing client rates continue to reject generation rather than silently drop those jobs.
+- Independent review also identified the maintenance source's silent 500-row pre-period cap. It now applies completion-period bounds in the database and includes every qualifying repair. Regression exercises 501 older and 501 in-period repairs with boundary, scope and payment exclusions. This follow-up was requested after the 4,520-test full pass: 232 billing tests across 23 files passed, including three actual PostgreSQL generation scenarios, plus both desktop/mobile real invoice UI journeys. The final production build passed in 458 seconds (exit 0). The earlier in-progress build was deliberately stopped to include this newly requested correction.
 
 ### Wave 26: Typed evidence, reviewed bulk changes and property portfolio
 
@@ -328,7 +353,7 @@ No new external provider calls, messages, payments or AI transmissions. Existing
 | --- | --- | --- | --- |
 | 001 | P1 / M: Role-aware command search. | Partial | Wave 11: scoped search for eight roles, 105 integrated tests and admin/client browser checks; category and remaining role walkthrough gaps listed above. |
 | 002 | P1 / S: Independent mobile tabs. | Implemented | Unit tests; cleaner and VA browser checks |
-| 003 | P1 / M: Searchable grouped sidebar. | Partial | See finding-level progress |
+| 003 | P1 / M: Searchable grouped sidebar. | Implemented | Authorized favorites, remembered expansion, active-group reveal, search and explicit all-pages reset. 19 component tests and desktop/mobile persistence journeys passed in Wave 27. |
 | 004 | P1 / S: Useful header. | Partial | See finding-level progress |
 | 005 | P1 / M: Shared entity context. | Planned | Pending |
 | 006 | P1 / M: Saved views. | Partial | Personal admin Jobs views, columns and ADMIN-published team fallback implemented; unit, actual DB and desktop/mobile save/reload/precedence checks passed. Team named catalogs and other operational lists remain. |
@@ -353,23 +378,23 @@ No new external provider calls, messages, payments or AI transmissions. Existing
 | 025 | P1 / M: Rebook from a prior clean. | Implemented | Reuses authorized current property/service only, revalidates source and access, then fresh availability/review/price. Helper/page/link and booking regressions plus desktop/mobile browser checks passed. |
 | 026 | P1 / M: Clear booking review. | Partial | Waves 12-15: identity, date, scoped retry/recovery, estimate visibility and guest-timing/access-record context. Contractual inclusions, reservation-specific constraints and fuller access prerequisites remain. |
 | 027 | P1 / M: Explain schedule changes. | Planned | Pending |
-| 028 | P1 / L: Trustworthy progress. | Planned | Pending |
+| 028 | P1 / L: Trustworthy progress. | Implemented | Wave 27 client lifecycle/progress and freshness/privacy projection pass 70 focused tests and both desktop/mobile retry/privacy journeys. |
 | 029 | P1 / M: Report workspace extension. | Planned | Pending |
-| 030 | P1 / M: Property-linked conversations. | Planned | Pending |
+| 030 | P1 / M: Property-linked conversations. | Implemented | Wave 27 context-bound conversation receipts, safe explicit retry, scoped tab drafts and separate internal-note/client labels. 30 focused checks (nine actual PostgreSQL) and four desktop/mobile focus/reload/recovery journeys passed. |
 | 031 | P2 / M: Property change history. | Planned | Pending |
 | 032 | P1 / M: Clear billing buckets. | Partial | Wave 25 labels history limits, unbilled estimates, invoice totals and paid/part-paid states; read errors no longer fabricate hidden access/zero balance. Seven finance/scope tests passed. Full outstanding/overdue/credit/receipt breakdown and reconciliation remain. |
 | 033 | P2 / M: Portfolio statement and export. | Planned | Pending |
 | 034 | P1 / M: Service preferences with guardrails. | Planned | Pending |
-| 035 | P1 / M: Single shift workspace. | Planned | Pending |
-| 036 | P1 / M: Persistent active-job strip. | Partial | Property/status/resume strip and failure states tested and cleaner browser checked. Authoritative timer/save state remains. |
+| 035 | P1 / M: Single shift workspace. | Implemented | Wave 27 Today combines own pending offers, accepted route order and current-work resume. 23 focused tests and both desktop/mobile synthetic-DB journeys passed. |
+| 036 | P1 / M: Persistent active-job strip. | Implemented | Wave 27 own observed clock, tab draft acknowledgement, device recovery state and job resume. 94 focused checks and both desktop/mobile shift/strip journeys passed. |
 | 037 | P1 / M: Pre-arrival brief. | Planned | Pending |
 | 038 | P1 / M: Timing hierarchy. | Partial | Waves 16-17 share validated planned/guest timing and contradiction warnings; 128 focused tests and Today/Jobs/Calendar mobile checks pass. Route/detail/fullscreen and desktop timing visual verification remain; live browser activation discrepancy is unresolved. |
-| 039 | P1 / L: Adaptive form navigation. | Planned | Pending |
+| 039 | P1 / L: Adaptive form navigation. | Implemented | Wave 27 shared validation-derived room progress and exact focus jumps preserve answers and N/A semantics. 89 focused and four desktop/mobile cases passed. |
 | 040 | P0 / L: Durable evidence queue. | Partial | Wave 26 extends durable originals/receipts, typed moves and recovery to main form/guided/bulk/task/laundry/new carry-forward destinations. Focused, PostgreSQL and 20 IndexedDB browser cases pass. Standalone damage/maintenance/lost-found capture paths remain separate. |
-| 041 | P1 / M: Device-aware capture. | Planned | Pending |
-| 042 | P0 / L: Offline contracts. | Planned | Pending |
+| 041 | P1 / M: Device-aware capture. | Implemented | Wave 27 bounded storage/image advice, original retention, orientation preview and audio-preserving fallback. 39 focused checks and both desktop/mobile capture journeys passed; physical device certification separate. |
+| 042 | P0 / L: Offline contracts. | Partial | Wave 27 explicit offline/online-only states and durable receipt/fence recovery for seven cleaner actions; current authorization checked before recovery. Wider standalone issue capture and other portal mutation contracts remain. |
 | 043 | P1 / M: Submission preflight. | Implemented | Unified missing-form/task/laundry evidence and synchronization blockers, explicit unused/unassigned evidence handling, and rejection retains the form. Panel/workspace/contract tests pass; main evidence destinations and early-send integration verified in Wave 26. |
-| 044 | P1 / M: Recoverable job transitions. | Planned | Pending |
+| 044 | P1 / M: Recoverable job transitions. | Implemented | Wave 27 atomic request receipts and cancellation fences protect cleaner transitions, stale/revoked access and uncertain outcomes. 129 focused checks including 26 PostgreSQL checks, plus desktop/mobile recovery journeys. Post-commit follow-ups remain best effort. |
 | 045 | P1 / M: Structured issue escalation. | Planned | Pending |
 | 046 | P1 / M: Explainable pay timeline. | Planned | Pending |
 | 047 | P2 / M: QA coaching loop. | Planned | Pending |
@@ -394,9 +419,9 @@ No new external provider calls, messages, payments or AI transmissions. Existing
 | 066 | P1 / M: Inspection pay reconciliation. | Planned | Pending |
 | 067 | P1 / M: Next-stop execution view. | Implemented | Dominant valid pickup/drop-off action, audience-filtered access, recorded quantities/location and configured proof summary. Six tests passed in UTC/Sydney and both desktop/mobile action/refresh-error scenarios passed. |
 | 068 | P1 / L: Bag/set traceability. | Planned | Pending |
-| 069 | P1 / M: Quantity discrepancy workflow. | Planned | Pending |
+| 069 | P1 / M: Quantity discrepancy workflow. | Implemented | Wave 27 prospective bag baselines, required mismatch reason/photo and immutable independently resolvable exceptions. Cleaner draft/early/final count integration and actual DB/browser checks passed; legacy quantities unknown. |
 | 070 | P2 / L: Readiness-linked ETA. | Planned | Pending |
-| 071 | P1 / M: Access-failure handling. | Planned | Pending |
+| 071 | P1 / M: Access-failure handling. | Implemented | Wave 27 evidence-backed existing reschedule/flag/contact paths preserve key-lost/skipped rules. 18 focused, three real PostgreSQL and both desktop/mobile cases passed. |
 | 072 | P1 / M: Cross-role handoff receipt. | Implemented | Wave 26 recorded cleaner/driver handoffs expose actor/time, photo/quantity/location, reasons and correction differences. Eleven final focused tests and desktop/mobile receipt checks pass. No unrecorded dual-party acceptance is implied. |
 | 073 | P2 / M: Capacity/load planner. | Planned | Pending |
 | 074 | P1 / M: Daily reconciliation. | Planned | Pending |
@@ -408,11 +433,11 @@ No new external provider calls, messages, payments or AI transmissions. Existing
 | 080 | P2 / L: Asset history. | Planned | Pending |
 | 081 | P2 / M: Cleaning and guest-window coordination. | Planned | Pending |
 | 082 | P1 / M: Closure verification. | Planned | Pending |
-| 083 | P0 / L: Typed event-to-delivery contract. | Partial | See finding-level progress |
-| 084 | P1 / L: Persistent role-scoped inbox. | Partial | Shared cursor inbox with recipient-owned persistent PUSH read controls, unread filtering and retry states. Unit and desktop/mobile read-reload checks pass; fuller archive/action/resolution lifecycle is next. |
+| 083 | P0 / L: Typed event-to-delivery contract. | Partial | Wave 27 typed event/entity/actor/scope/transport intents and attempts unify both delivery entry points for opted-in ADMIN_OPERATIONS events; atomic failed-pickup producer verified. Non-admin adapters and broader producer migration remain. |
+| 084 | P1 / L: Persistent role-scoped inbox. | Implemented | Recipient-owned inbox read, needs-action, snoozed, resolved and archive states persist with revision/audit guards; focused and desktop/mobile snooze/expiry/reload checks passed. |
 | 085 | P0 / M: Correct deep links. | Partial | See finding-level progress |
-| 086 | P1 / M: Notification lifecycle. | Partial | Recipient-owned read, personal needs-action/resolved and archive/restore implemented with revision/audit guards. 86 focused checks and desktop/mobile persistence pass; new core coverage100%. Snooze, domain acknowledgement and retention remain. |
-| 087 | P1 / L: Delivery retry and escalation. | Planned | Pending |
+| 086 | P1 / M: Notification lifecycle. | Implemented | Separate queue/provider acceptance/failure/read/explicit acknowledgement receipts, with no claim that provider acceptance proves device delivery. Focused and desktop/mobile detail/reload checks passed. |
+| 087 | P1 / L: Delivery retry and escalation. | Partial | Wave 27 bounded known-rejection retries, stable event deduplication and audited failed/uncertain queue. 82 final focused checks incl13 PostgreSQL and desktop/mobile queue checks pass. Broader event migration and configured critical escalation remain. |
 | 088 | P1 / M: Preference clarity. | Partial | Wave 25 clarifies web/device versus delivery state, fixes PUSH web-consent selection and calendar preference persistence. Tests passed; digest/escalation policy and end-to-end delivery remain. |
 | 089 | P1 / M: Device notification setup. | Partial | Wave 25 adds explicit permission/registration/own-account checks and user-initiated setup/repair/removal/local test. Silent rebinding is removed and impersonation writes denied. Automated tests passed; actual phone/provider delivery is not certified. |
 | 090 | P1 / M: Noise control. | Planned | Pending |

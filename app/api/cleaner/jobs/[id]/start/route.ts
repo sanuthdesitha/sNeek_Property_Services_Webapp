@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
+import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
 import {
   Role,
   JobStatus,
@@ -46,7 +46,11 @@ export async function POST(
 ) {
   try {
     const session = await requireRole([Role.CLEANER]);
-    const body = schema.parse(await req.json().catch(() => ({})));
+    const rawBody = await req.json().catch(() => ({}));
+    const body = schema.parse(rawBody);
+    const afterCommit: Array<() => Promise<unknown>> = [];
+    const result = await withCleanerAction({ session, jobId: params.id, action: "start", requestId: req.headers.get("X-Cleaner-Action-Id"), draftIdentity: req.headers.get("X-Cleaner-Draft-Identity"), body: rawBody }, async db => {
+    const run = async () => {
     const settings = await getAppSettings();
 
     // Verify this cleaner is assigned
@@ -69,6 +73,7 @@ export async function POST(
       select: {
         id: true,
         status: true,
+        cleanSkipStatus: true,
         scheduledDate: true,
         jobType: true,
         isRework: true,
@@ -86,6 +91,7 @@ export async function POST(
     if (!job) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
+    if (job.cleanSkipStatus === "SKIPPED") return NextResponse.json({ error: "This clean has been skipped." }, { status: 409 });
 
     const lockedStatuses: JobStatus[] = [
       JobStatus.SUBMITTED,
@@ -337,7 +343,7 @@ export async function POST(
     const staleLogs = openOtherLogs.filter((log) => !isBlockingOpenLog(log));
     if (staleLogs.length > 0) {
       const now = new Date();
-      await db.$transaction(
+      await Promise.all(
         staleLogs.map((log) =>
           db.timeLog.update({
             where: { id: log.id },
@@ -375,20 +381,14 @@ export async function POST(
     });
 
     if (!openLog) {
-      try {
-        await db.timeLog.create({
-          data: { jobId: params.id, userId: session.user.id, startedAt: new Date() },
-        });
-      } catch (err: any) {
-        // A concurrent "start" (double-tap / retry) may have created the open
-        // log first — the partial unique index (TimeLog_job_user_open_unique)
-        // rejects the duplicate with P2002. That's the desired outcome: one open
-        // log exists, so treat this as already-running rather than erroring.
-        if (err?.code !== "P2002") throw err;
-      }
+      // Request/actor/job locks serialize normal retries. A conflicting legacy
+      // writer must roll this transaction back rather than swallow P2002 in an
+      // already-aborted PostgreSQL transaction.
+      await db.timeLog.create({ data: { jobId: params.id, userId: session.user.id, startedAt: new Date() } });
     }
 
-    await db.$transaction(async (tx) => {
+    {
+      const tx = db;
       if (assignment.responseStatus !== JobAssignmentResponseStatus.ACCEPTED) {
         await tx.jobAssignment.update({
           where: { id: assignment.id },
@@ -412,7 +412,7 @@ export async function POST(
           enRouteEtaUpdatedAt: null,
         },
       });
-    });
+    }
 
     // Persist the job-start confirmation into job meta + an audit row (only on the
     // first gated start for this cleaner, so a resume/re-clock-in doesn't overwrite
@@ -504,11 +504,17 @@ export async function POST(
     }
 
     // Notify client that cleaning has started (fire-and-forget)
-    sendClientJobNotification({ jobId: params.id, type: "JOB_STARTED" });
+    afterCommit.push(() => sendClientJobNotification({ jobId: params.id, type: "JOB_STARTED" }));
 
     return NextResponse.json({ ok: true, alreadyRunning: Boolean(openLog) });
+    };
+    const response = await run();
+    return { status: response.status, body: await response.json() };
+    });
+    for (const notify of afterCommit) void notify().catch(() => {});
+    return NextResponse.json(result.body, { status: result.status });
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    const status = err instanceof ActionReceiptError ? err.status : err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
   }
 }

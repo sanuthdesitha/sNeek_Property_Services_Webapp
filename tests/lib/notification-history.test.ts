@@ -164,3 +164,8 @@ it("does not overwrite provider delivery states when marking inbox records read"
   mocks.rows.mockResolvedValue([{ ...row, status: "FAILED", deliveryStatus: null }]);
   expect((await (await GET()).json())[0].canMarkRead).toBe(false);
 });
+it("joins recipient acknowledgement independently from provider evidence", async () => {
+  mocks.states.mockResolvedValue({ "notification-1": { revision: 1, acknowledgedAt: "2026-09-13T01:00:00Z", followUp: "NONE", archived: false } });
+  const body = await (await GET(new Request("http://localhost/api/notifications/log?lifecycle=1"))).json();
+  expect(body[0].lifecycle).toMatchObject({ dispatch: "INBOX_AVAILABLE", provider: "NOT_RECORDED", personalRead: "UNREAD", acknowledgement: "ACKNOWLEDGED" });
+});

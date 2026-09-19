@@ -36,6 +36,7 @@ function buildCleanerConfirmationNotes(params: {
   source: CleanerLaundryUpdateSource;
   laundryOutcome: CleanerLaundryOutcome;
   reasonCode?: string | null;
+  laundryBagCount?: number | null;
   reasonNote?: string | null;
 }) {
   return JSON.stringify({
@@ -43,6 +44,7 @@ function buildCleanerConfirmationNotes(params: {
     laundryOutcome: params.laundryOutcome,
     reasonCode: params.reasonCode ?? null,
     reasonNote: params.reasonNote ?? null,
+    ...(params.laundryOutcome === "READY_FOR_PICKUP" && params.laundryBagCount != null ? { bagCount: params.laundryBagCount, unit: "bags" } : {}),
   });
 }
 
@@ -213,12 +215,14 @@ export async function applyCleanerLaundryStatusUpdate(params: {
   cleanerId: string;
   laundryOutcome: CleanerLaundryOutcome;
   bagLocation?: string | null;
+  laundryBagCount?: number | null;
   laundryPhotoKey?: string | null;
   laundrySkipReasonCode?: string | null;
   laundrySkipReasonNote?: string | null;
   source: CleanerLaundryUpdateSource;
   portalUrl: string;
 }, execution?: { transaction: Prisma.TransactionClient; afterCommit: Array<() => Promise<void>> }) {
+  if (params.laundryBagCount != null && (!Number.isInteger(params.laundryBagCount) || params.laundryBagCount < 1 || params.laundryBagCount > 50)) throw new Error("Bags ready must be a whole number from 1 to 50.");
   const database = execution?.transaction ?? db;
   const transact = <T>(run: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> => execution ? run(execution.transaction) : db.$transaction(run);
   const notify = async (run: () => Promise<void>) => { if (execution) execution.afterCommit.push(run); else await run(); };
@@ -347,6 +351,7 @@ export async function applyCleanerLaundryStatusUpdate(params: {
           notes: buildCleanerConfirmationNotes({
             source: params.source,
             laundryOutcome: params.laundryOutcome,
+            laundryBagCount: params.laundryBagCount,
           }),
         },
       });

@@ -2,6 +2,7 @@ import { destinationOf, evidenceSubmissionChanged } from "@/lib/cleaner/evidence
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
 import { submitJobSchema } from "@/lib/validations/job";
 import { deductStockFromSubmission, fireLowStockSideEffects } from "@/lib/inventory/stock";
 import { generateJobReport } from "@/lib/reports/generator";
@@ -41,6 +42,7 @@ import {
   NotificationChannel,
   NotificationStatus,
   Role,
+  Prisma,
 } from "@prisma/client";
 
 function extractUploads(data: Record<string, unknown>): Record<string, string[]> {
@@ -171,13 +173,15 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  // When we atomically claim the SUBMITTED transition (below), remember the
-  // status to roll back to if anything downstream throws, so a failed submit
-  // never strands the job as SUBMITTED with no form. null = nothing to revert.
-  let claimedFromStatus: JobStatus | null = null;
   try {
     const session = await requireRole([Role.CLEANER]);
-    const body = submitJobSchema.parse(await req.json());
+    const rawBody = await req.json();
+    const body = submitJobSchema.parse(rawBody);
+    const globalDb = db;
+    const afterCommit: Array<() => Promise<unknown>> = [];
+    const deliveryAfterCommit: Array<() => Promise<void>> = [];
+    const result = await withCleanerAction({ session, jobId: params.id, action: "submit", requestId: req.headers.get("X-Cleaner-Action-Id"), draftIdentity: req.headers.get("X-Cleaner-Draft-Identity"), body: rawBody }, async db => {
+    const run = async () => {
 
     const assignment = await db.jobAssignment.findFirst({
       where: {
@@ -308,7 +312,7 @@ export async function POST(
     }
 
     const appSettings = await getAppSettings();
-    const effectiveForm = await resolveEffectiveJobForm(job, appSettings);
+    const effectiveForm = await resolveEffectiveJobForm(job, appSettings, { database: db });
     if (!effectiveForm.persistedTemplateId || !effectiveForm.template || body.templateId !== effectiveForm.persistedTemplateId) {
       return NextResponse.json({ code: "FORM_CHANGED", error: effectiveForm.submittable
         ? "The job form changed. Reload the form before submitting."
@@ -323,7 +327,7 @@ export async function POST(
     const formProperty = usesRevisionContract ? jobFormProperty(effectiveSchema, job.property) : job.property;
 
     const answers = (body.data ?? {}) as Record<string, unknown>;
-    const unifiedJobTasks = await listCleanerJobTasks(job.id);
+    const unifiedJobTasks = await listCleanerJobTasks(job.id, db);
     const hasUnifiedAdminTasks = unifiedJobTasks.some((task) => task.source === "ADMIN");
     const adminRequestedTasks = sanitizeAdminRequestedTasks(
       answers,
@@ -582,14 +586,7 @@ export async function POST(
 
     // Carry-forward tasks are advisory in this workflow and must not block submission.
 
-    // ATOMIC CLAIM — the idempotency point for the whole submission. All
-    // validation above only reads/returns; everything below writes (form
-    // submission, media, stock deduction, tasks, status). Transition the job to
-    // SUBMITTED here, conditionally on it not already being in a locked state, so
-    // two concurrent submits (double-tap / retry) can't both proceed — only the
-    // one that actually flips the row (count === 1) continues; the loser gets a
-    // 409 and does NO side effects (no duplicate submission, no double stock
-    // deduction). If anything below throws, the outer catch reverts this claim.
+    // Claim, evidence snapshot and submission writes share the receipt transaction.
     const claimInput = {
       where: { id: params.id, status: { notIn: lockedStatuses } },
       data: { status: JobStatus.SUBMITTED },
@@ -613,7 +610,7 @@ export async function POST(
       const staleEvidence = unusedEvidence || evidenceSubmissionChanged(receipts, uploads, submittedUnifiedTaskUpdates, carryForward?.taskPhotoKeys ?? {});
       if (staleEvidence) return { count: -1 };
       return tx.job.updateMany(claimInput);
-    });
+    }, db);
     if (claim.count === -1) return NextResponse.json({ code: "EVIDENCE_CHANGED",
       error: "Job evidence changed in another capture or tab. Reload and review attachments before submitting." }, { status: 409 });
     if (claim.count !== 1) {
@@ -622,23 +619,10 @@ export async function POST(
         { status: 409 }
       );
     }
-    claimedFromStatus = job.status;
 
-    // BUG 1 FIX — atomic critical section. The FormSubmission, its media, the
-    // stock deduction, and clearing the form-pending flag are now ONE
-    // transaction. Previously these were separate awaits after the status claim;
-    // if a later write threw (esp. stock deduction, whose own per-item tx could
-    // fail), the FormSubmission + media rows survived while the outer catch
-    // reverted the job to IN_PROGRESS — so a retry created a SECOND submission
-    // and deducted the same stock AGAIN (double-charge). Wrapping them means any
-    // throw rolls the whole clean back together with the status revert: no
-    // orphaned submission, no double deduction. `deductStockFromSubmission` runs
-    // on `tx` (no inner transaction) and returns the low-stock rows so the
-    // best-effort notifications / auto-restock fire AFTER commit, where their
-    // failure can never roll back a recorded clean.
+    // Media, stock, clock and laundry persist atomically with the final receipt.
     const inventoryUsage = sanitizeInventoryUsage(body.data as Record<string, unknown>);
-    const { submission, lowStockRows } = await db.$transaction(
-      async (tx) => {
+    const { submission, lowStockRows } = await (async (tx: Prisma.TransactionClient) => {
         const created = await tx.formSubmission.create({
           data: {
             jobId: params.id,
@@ -723,20 +707,83 @@ export async function POST(
           data: { status: JobStatus.SUBMITTED, formPendingAfterClockOut: false },
         });
 
-        return { submission: created, lowStockRows: low };
-      },
-      // Generous timeout: media createMany + a multi-item stock loop can exceed
-      // Prisma's 5s interactive-tx default on large submissions.
-      { timeout: 20_000 }
-    );
+    if (laundryOutcome !== undefined) {
+      await applyCleanerLaundryStatusUpdate({ jobId: job.id, cleanerId: session.user.id, laundryOutcome, bagLocation,
+        laundryBagCount: body.laundryBagCount, laundryPhotoKey, laundrySkipReasonCode, laundrySkipReasonNote,
+        source: "FINAL_SUBMISSION", portalUrl: resolveAppUrl("/laundry", req) }, { transaction: tx, afterCommit: deliveryAfterCommit });
+    }
+    if (openLog) {
+      const review = buildClockReview({
+        job: {
+          scheduledDate: job.scheduledDate,
+          dueTime: job.dueTime,
+          endTime: job.endTime,
+          estimatedHours: job.estimatedHours,
+        },
+        startedAt: openLog.startedAt,
+        completedDurationMinutes,
+        settings: appSettings,
+      });
+      const stoppedAt = review.suggestedStoppedAt;
+      const durationM = review.cappedRunningDurationMinutes;
 
-    // The submission + stock deduction + status are now durably committed. From
-    // here on the work is best-effort side-effects — notifications, QA
-    // scaffolding, cleanup — and NONE of it may revert the claim (the job really
-    // is submitted). Clearing the revert target makes the outer catch a no-op for
-    // the status, so a downstream hiccup can never strand a recorded clean or
-    // re-open it for a duplicate submission.
-    claimedFromStatus = null;
+      await db.timeLog.update({
+        where: { id: openLog.id },
+        data: {
+          stoppedAt,
+          durationM,
+        },
+      });
+
+      if (body.clockAdjustmentRequest) {
+        const requestedDurationM = Number(body.clockAdjustmentRequest.requestedDurationM);
+        if (Number.isFinite(requestedDurationM) && requestedDurationM > 0) {
+          const requestedCurrentSegmentMinutes = Math.max(
+            0,
+            requestedDurationM - completedDurationMinutes
+          );
+          await db.timeLogAdjustmentRequest.create({
+            data: {
+              timeLogId: openLog.id,
+              jobId: job.id,
+              cleanerId: session.user.id,
+              requestedDurationM,
+              requestedStoppedAt: new Date(
+                openLog.startedAt.getTime() + requestedCurrentSegmentMinutes * 60_000
+              ),
+              originalDurationM: durationM,
+              originalStoppedAt: stoppedAt,
+              reason: body.clockAdjustmentRequest.reason?.trim() || null,
+            },
+          });
+
+          const adminUsers = await db.user.findMany({
+            where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
+            select: { id: true },
+          });
+          if (adminUsers.length > 0) {
+            await db.notification.createMany({
+              data: adminUsers.map((admin) => ({
+                userId: admin.id,
+                jobId: job.id,
+                channel: "PUSH",
+                subject: "Clock adjustment approval needed",
+                body: `${job.property.name}: ${session.user.name ?? session.user.email ?? "Cleaner"} requested a clock adjustment review.`,
+                status: "SENT",
+                sentAt: new Date(),
+              })),
+            });
+          }
+        }
+      }
+    }
+
+        return { submission: created, lowStockRows: low };
+      })(db);
+
+    // This callback runs only after the submission and receipt have committed.
+    afterCommit.push(async () => {
+    const db = globalDb;
 
     // Low-stock notifications + auto-restock: best-effort, post-commit (guarded
     // internally so they never throw into this handler).
@@ -853,27 +900,6 @@ export async function POST(
         }
       } catch (carryErr) {
         console.error("[carry-forward] persist failed", carryErr);
-      }
-    }
-
-    // Post-commit side-effect: laundry status. Guarded so a failure here can
-    // never bubble to the outer catch and (now that the clean is committed)
-    // strand a recorded submission.
-    if (laundryOutcome !== undefined) {
-      try {
-        await applyCleanerLaundryStatusUpdate({
-          jobId: job.id,
-          cleanerId: session.user.id,
-          laundryOutcome,
-          bagLocation,
-          laundryPhotoKey,
-          laundrySkipReasonCode,
-          laundrySkipReasonNote,
-          source: "FINAL_SUBMISSION",
-          portalUrl: resolveAppUrl("/laundry", req),
-        });
-      } catch (laundryErr) {
-        console.error("[laundry] status update failed", laundryErr);
       }
     }
 
@@ -1043,72 +1069,6 @@ export async function POST(
       }
     }
 
-    if (openLog) {
-      const review = buildClockReview({
-        job: {
-          scheduledDate: job.scheduledDate,
-          dueTime: job.dueTime,
-          endTime: job.endTime,
-          estimatedHours: job.estimatedHours,
-        },
-        startedAt: openLog.startedAt,
-        completedDurationMinutes,
-        settings: appSettings,
-      });
-      const stoppedAt = review.suggestedStoppedAt;
-      const durationM = review.cappedRunningDurationMinutes;
-
-      await db.timeLog.update({
-        where: { id: openLog.id },
-        data: {
-          stoppedAt,
-          durationM,
-        },
-      });
-
-      if (body.clockAdjustmentRequest) {
-        const requestedDurationM = Number(body.clockAdjustmentRequest.requestedDurationM);
-        if (Number.isFinite(requestedDurationM) && requestedDurationM > 0) {
-          const requestedCurrentSegmentMinutes = Math.max(
-            0,
-            requestedDurationM - completedDurationMinutes
-          );
-          await db.timeLogAdjustmentRequest.create({
-            data: {
-              timeLogId: openLog.id,
-              jobId: job.id,
-              cleanerId: session.user.id,
-              requestedDurationM,
-              requestedStoppedAt: new Date(
-                openLog.startedAt.getTime() + requestedCurrentSegmentMinutes * 60_000
-              ),
-              originalDurationM: durationM,
-              originalStoppedAt: stoppedAt,
-              reason: body.clockAdjustmentRequest.reason?.trim() || null,
-            },
-          });
-
-          const adminUsers = await db.user.findMany({
-            where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
-            select: { id: true },
-          });
-          if (adminUsers.length > 0) {
-            await db.notification.createMany({
-              data: adminUsers.map((admin) => ({
-                userId: admin.id,
-                jobId: job.id,
-                channel: "PUSH",
-                subject: "Clock adjustment approval needed",
-                body: `${job.property.name}: ${session.user.name ?? session.user.email ?? "Cleaner"} requested a clock adjustment review.`,
-                status: "SENT",
-                sentAt: new Date(),
-              })),
-            });
-          }
-        }
-      }
-    }
-
     // Notify client that cleaning is complete (fire-and-forget)
     sendClientJobNotification({ jobId: params.id, type: "JOB_COMPLETE" });
     queueClientPostJobAutomations(params.id).catch(console.error);
@@ -1125,19 +1085,17 @@ export async function POST(
     await clearSharedCleanerJobDraft(params.id);
 
     return NextResponse.json({ ok: true, submissionId: submission.id });
+    });
+    return NextResponse.json({ ok: true, submissionId: submission.id });
+    };
+    const response = await run();
+    return { status: response.status, body: await response.json() };
+    });
+    for (const complete of [...deliveryAfterCommit, ...afterCommit]) { try { await complete(); } catch (error) { console.error("[submit] post-commit follow-up failed", error); } }
+    return NextResponse.json(result.body, { status: result.status, headers: { "Cache-Control": "private, no-store" } });
   } catch (err: any) {
-    // Roll back an in-flight SUBMITTED claim (only if the job is still SUBMITTED,
-    // so a concurrent advance isn't clobbered) so a failed submit doesn't leave
-    // the job stranded and un-retryable. Best-effort; never mask the real error.
-    if (claimedFromStatus !== null) {
-      await db.job
-        .updateMany({
-          where: { id: params.id, status: JobStatus.SUBMITTED },
-          data: { status: claimedFromStatus },
-        })
-        .catch(() => {});
-    }
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    // The transaction already rolled back any incomplete mutation and receipt.
+    const status = err instanceof ActionReceiptError ? err.status : err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
   }
 }

@@ -205,6 +205,7 @@ const draftPayRequestItemSchema = z.object({
 });
 
 export const submitJobSchema = z.object({
+  laundryBagCount: z.number().int().min(1).max(50).optional(),
   templateId: z.string().min(1),
   formContractVersion: z.literal(1).optional(),
   formRevision: z.string().regex(/^[a-f0-9]{64}$/).optional(),
@@ -255,6 +256,7 @@ export const submitJobSchema = z.object({
 });
 
 export const cleanerLaundryStatusSchema = z.object({
+  laundryBagCount: z.number().int().min(1).max(50).optional(),
   laundryReady: z.boolean().optional(),
   laundryOutcome: z.enum(["READY_FOR_PICKUP", "NOT_READY", "NO_PICKUP_REQUIRED"]).optional(),
   // Enum, not a free string: an unrecognised code here is what permanently

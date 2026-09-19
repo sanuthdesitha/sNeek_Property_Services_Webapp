@@ -34,6 +34,7 @@ export function NextStopExecution({ task, kind, config, onAction }: {
     </details>
     <p>{!config ? "Proof settings unavailable. Reload the page to reload settings." : kind === "pickup" ? `Count bags and confirm pickup.${config.showPickupPhoto ? " Pickup photo is optional." : ""}` : `Record drop-off location and confirm return.${config.requireDropoffPhoto ? " Drop-off photo required." : ""}${config.requireEarlyDropoffReason ? " Early returns require a reason." : ""}`}</p>
     {action ? <EButton onClick={() => onAction(task.id, action)}>{action === "PICKED_UP" ? "Confirm pickup" : "Confirm drop-off"}</EButton> : <p role="status">{task.status === "FLAGGED" ? "This task is flagged. Review it on the task board before continuing." : kind === "dropoff" ? "Pickup must be recorded before confirming drop-off." : "Review this task's current status on the task board."}</p>}
+    {action === "PICKED_UP" ? <EButton variant="outline" onClick={() => onAction(task.id, "FAILED_PICKUP")}>Report access problem</EButton> : null}
     <a className="ml-3 underline" href={`/v2/laundry/tracking#task-${encodeURIComponent(task.id)}`}>Open task board</a>
   </div>;
 }

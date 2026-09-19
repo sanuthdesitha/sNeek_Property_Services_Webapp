@@ -2572,6 +2572,7 @@ model LaundryTask {
   property      Property              @relation(fields: [propertyId], references: [id])
   supplier      LaundrySupplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   confirmations LaundryConfirmation[]
+  quantityExceptions LaundryQuantityException[]
 
   @@index([droppedAt])
   @@index([status])
@@ -4766,4 +4767,71 @@ model LostFoundEvent {
   item      LostFoundItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@index([itemId])
+}
+
+// Durable new-event delivery only. Legacy Notification/NotificationLog rows are never replayed.
+model NotificationIntent {
+  id             String   @id @default(cuid())
+  idempotencyKey String   @unique
+  envelopeHash   String
+  eventId        String
+  eventKey       String
+  recipientId   String
+  transport      String
+  envelope       Json
+  status         String   @default("QUEUED")
+  attemptCount   Int      @default(0)
+  nextAttemptAt  DateTime? @default(now())
+  leaseToken     String?
+  leaseUntil     DateTime?
+  notificationId String?  @unique
+  lastErrorCode  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  attempts       NotificationAttempt[]
+
+  @@index([status, nextAttemptAt])
+  @@index([recipientId, createdAt])
+  @@index([eventId])
+}
+
+model NotificationAttempt {
+  id                String   @id @default(cuid())
+  intentId          String
+  number            Int
+  leaseToken        String
+  status            String
+  providerReference String?
+  errorCode         String?
+  startedAt         DateTime @default(now())
+  finishedAt        DateTime?
+  intent            NotificationIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+
+  @@unique([intentId, number])
+  @@index([status, startedAt])
+}
+
+// Independent of pickup/return state; snapshots remain unchanged by completion corrections.
+model LaundryQuantityException {
+  id String @id @default(cuid())
+  laundryTaskId String?
+  originalTaskId String
+  propertyId String
+  jobId String
+  pickupConfirmationId String @unique
+  unit String @default("bags")
+  expectedCount Int
+  actualCount Int
+  baseline Json
+  reason String @db.Text
+  photoKey String
+  photoUrl String @db.Text
+  reportedById String
+  createdAt DateTime @default(now())
+  resolvedAt DateTime?
+  resolvedById String?
+  resolutionNote String? @db.Text
+  version Int @default(0)
+  laundryTask LaundryTask? @relation(fields: [laundryTaskId], references: [id], onDelete: SetNull)
+  @@index([resolvedAt, createdAt, id])
 }

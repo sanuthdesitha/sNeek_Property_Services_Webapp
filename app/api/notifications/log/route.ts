@@ -71,7 +71,9 @@ export async function GET(request: Request) {
     const visibleItems = page.filter((row) => isNotificationVisibleToRole(row, role))
       .map((row) => toNotificationFeedItem(row, role, version));
     const states = params.get("lifecycle") === "1" ? await readInboxStates(session.user.id, visibleItems.map(row => row.id)) : null;
-    const items = states ? visibleItems.map(row => ({ ...row, inboxState: states[row.id] })) : visibleItems;
+    const items = states ? visibleItems.map(row => ({ ...row, inboxState: states[row.id],
+      lifecycle: { ...row.lifecycle, acknowledgement: states[row.id]?.acknowledgedAt ? "ACKNOWLEDGED" : "NOT_RECORDED" },
+    })) : visibleItems;
     return NextResponse.json(
       paginated ? { items, nextCursor } : items,
       { headers: privateHeaders }

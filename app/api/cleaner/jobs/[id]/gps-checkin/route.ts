@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
+import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
 import { haversineMeters } from "@/lib/jobs/gps";
 import { notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
 import { classifyCheckInLocation, resolveOnSiteRadius } from "@/lib/gps/distance";
@@ -25,6 +25,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       /** Coded reason, required when the fix is beyond the on-site radius. */
       reasonCode?: unknown;
     };
+    const afterCommit: Array<() => Promise<unknown>> = [];
+    const result = await withCleanerAction({ session, jobId: params.id, action: "gps-checkin", requestId: req.headers.get("X-Cleaner-Action-Id"), draftIdentity: req.headers.get("X-Cleaner-Draft-Identity"), body }, async db => {
+    const run = async () => {
     const lat = toNumber(body.lat);
     const lng = toNumber(body.lng);
     const accuracy = toNumber(body.accuracy);
@@ -43,6 +46,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
       select: {
         id: true,
+        status: true,
+        cleanSkipStatus: true,
         gpsCheckInAt: true,
         arrivedAt: true,
         property: {
@@ -62,6 +67,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // the arrival record.
     if (job.gpsCheckInAt && !adjusted) {
       return NextResponse.json({ ok: true, preserved: true, gpsCheckInAt: job.gpsCheckInAt });
+    }
+    if (job.cleanSkipStatus === "SKIPPED" || ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED", "WAITING_CONTINUATION_APPROVAL"].includes(job.status)) {
+      return NextResponse.json({ error: "Arrival evidence cannot be changed in this job state." }, { status: 409 });
     }
 
     const propertyLat = toNumber(job.property?.latitude);
@@ -159,13 +167,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // When the cleaner adjusts the auto-detected location, alert admins and
     // leave a note so the manual override is reviewable.
     if (adjusted) {
-      await notifyAdminsByPush({
+      afterCommit.push(() => notifyAdminsByPush({
         jobId: job.id,
         subject: "Cleaner adjusted GPS check-in",
         body: `${job.property?.name ?? "A job"}: ${session.user.name ?? "Cleaner"} manually adjusted their check-in location${
           distanceMeters != null ? ` (~${distanceMeters}m from property)` : ""
         }.${note ? ` Note: ${note}` : ""}`,
-      }).catch(() => undefined);
+      }).catch(() => undefined));
 
       await db.auditLog
         .create({
@@ -184,13 +192,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // An off-site start is worth an admin's attention AND an audit row. The
     // note alone was never enough: nothing surfaced it, and nothing counted it.
     if (verdict === "OFF_SITE" && reasonCode) {
-      await notifyAdminsByPush({
+      afterCommit.push(() => notifyAdminsByPush({
         jobId: job.id,
         subject: "Job started away from the property",
         body: `${job.property?.name ?? "A job"}: ${session.user.name ?? "Cleaner"} started ~${Math.round(
           distanceMeters ?? 0
         )}m away — ${offSiteReasonLabel(reasonCode)}.${note ? ` Note: ${note}` : ""}`,
-      }).catch(() => undefined);
+      }).catch(() => undefined));
 
       await db.auditLog
         .create({
@@ -223,8 +231,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           ? `Check-in recorded ${distanceMeters}m from the property.`
           : "Check-in recorded.",
     });
+    };
+    const response = await run();
+    return { status: response.status, body: await response.json() };
+    });
+    for (const notify of afterCommit) void notify().catch(() => {});
+    return NextResponse.json(result.body, { status: result.status });
   } catch (error: any) {
-    const status = error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;
+    const status = error instanceof ActionReceiptError ? error.status : error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: error?.message ?? "Could not store GPS check-in." }, { status });
   }
 }

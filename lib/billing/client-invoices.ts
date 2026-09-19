@@ -14,15 +14,14 @@ import { groupInvoiceLines, shouldGroupInvoice } from "@/lib/billing/invoice-gro
 
 /**
  * Jobs eligible to be billed on a client invoice: any job that has actually
- * started or finished. We deliberately exclude not-yet-started jobs
- * (UNASSIGNED/OFFERED) — there's nothing to bill yet — and skipped cleans are
+ * started or finished. Assignment and travel alone are not proof of work.
+ * Historical time logs also qualify jobs whose workflow has since reset.
+ * Skipped cleans are
  * filtered separately via cleanSkipStatus. (There is no CANCELLED status in the
  * Job model.) This lets admins bill unfinished/in-progress work, not just
  * COMPLETED/INVOICED jobs.
  */
 export const BILLABLE_JOB_STATUSES: JobStatus[] = [
-  JobStatus.ASSIGNED,
-  JobStatus.EN_ROUTE,
   JobStatus.IN_PROGRESS,
   JobStatus.PAUSED,
   JobStatus.WAITING_CONTINUATION_APPROVAL,
@@ -202,11 +201,9 @@ export async function generateClientInvoice(input: {
         clientId: input.clientId,
         ...(input.propertyId ? { id: input.propertyId } : {}),
       },
-      status: {
-        in: input.completedOnly
-          ? [JobStatus.COMPLETED, JobStatus.INVOICED]
-          : BILLABLE_JOB_STATUSES,
-      },
+      ...(input.completedOnly
+        ? { status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] } }
+        : { AND: [{ OR: [{ status: { in: BILLABLE_JOB_STATUSES } }, { timeLogs: { some: {} } }] }] }),
       // Skipped cleans ("don't clean this turnover") are never billed.
       cleanSkipStatus: { not: "SKIPPED" },
       ...(input.periodStart || input.periodEnd
@@ -246,6 +243,7 @@ export async function generateClientInvoice(input: {
   });
 
   const unInvoicedJobs = jobs.filter((job) => !invoicedJobIds.has(job.id));
+  const alreadyInvoicedJobCount = jobs.length - unInvoicedJobs.length;
 
   // Canonical client charge per job (fixed job price → property rate → job-type
   // price). Compute once and reuse for both the missing-rate guard and the lines,
@@ -392,7 +390,11 @@ export async function generateClientInvoice(input: {
     where: {
       removedAt: null,
       payPayer: "CLIENT",
-      completedAt: { not: null },
+      completedAt: {
+        not: null,
+        ...(input.periodStart ? { gte: input.periodStart } : {}),
+        ...(input.periodEnd ? { lte: input.periodEnd } : {}),
+      },
       includedInClientInvoiceId: null,
       item: {
         propertyId: input.propertyId ? input.propertyId : undefined,
@@ -415,7 +417,6 @@ export async function generateClientInvoice(input: {
         },
       },
     },
-    take: 500,
   });
 
   const maintenanceLines = buildMaintenanceInvoiceLines({
@@ -447,7 +448,8 @@ export async function generateClientInvoice(input: {
     // Rewording it turns every empty period into a logged error and stalls the
     // client's invoicing schedule. The sentence now covers shopping and
     // maintenance too, but the first four words must not change.
-    throw new Error("No billable completed jobs found for the selected client and period.");
+    throw new Error("No billable completed jobs found for the selected client and period." +
+      (alreadyInvoicedJobCount > 0 ? ` ${alreadyInvoicedJobCount} eligible job(s) are already on a non-void invoice, including drafts.` : ""));
   }
 
   const gstFlag = input.gstEnabled ?? settings.pricing.gstEnabled;
@@ -476,6 +478,7 @@ export async function generateClientInvoice(input: {
         source: "job-rate-generator",
         shoppingRunCount: shoppingLines.length,
         maintenanceCount: maintenanceLines.length,
+        generationSummary: { includedJobCount: lines.length, alreadyInvoicedJobCount },
       },
       lines: { create: allLines },
     },
@@ -521,7 +524,7 @@ export async function generateClientInvoice(input: {
     return created;
   });
 
-  return invoice;
+  return { ...invoice, generationSummary: { includedJobCount: lines.length, alreadyInvoicedJobCount } };
 }
 
 /**

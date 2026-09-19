@@ -28,6 +28,7 @@ vi.mock("@/lib/s3", () => ({ publicUrl: (v: string) => v }));
 vi.mock("@/lib/settings", () => ({
   getAppSettings: vi.fn(async () => ({ pricing: { gstEnabled: true } })),
 }));
+vi.mock("@/lib/billing/invoice-sequence", () => ({ issueInvoiceNumber: vi.fn(async () => "INV-TEST") }));
 
 import { generateClientInvoice } from "@/lib/billing/client-invoices";
 
@@ -95,8 +96,57 @@ describe("generateClientInvoice — period basis decides the job window", () => 
   it("always scopes to the client and billable statuses regardless of basis", async () => {
     const where = await runAndCaptureJobWhere("SCHEDULED");
     expect(where.property).toEqual({ clientId: "client_1" });
-    expect(where.status.in).toContain("COMPLETED");
+    expect(where.AND[0].OR).toEqual([
+      { status: { in: ["IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL", "SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] } },
+      { timeLogs: { some: {} } },
+    ]);
     // Skipped cleans are never billed on any basis.
     expect(where.cleanSkipStatus).toEqual({ not: "SKIPPED" });
+  });
+
+  it("includes every eligible repair after more than 500 older repairs, preserving scope and pay checks", async () => {
+    const repair = (id: string, completedAt: Date) => ({
+      id, completedAt, removedAt: null, payPayer: "CLIENT", payType: "FIXED",
+      payAmount: 10, payHours: null, includedInClientInvoiceId: null,
+      item: { title: id, propertyId: "property_1", property: { clientId: "client_1" } },
+    });
+    const eligible = Array.from({ length: 501 }, (_, i) => repair(`eligible-${i}`, i === 0 ? START : END));
+    const candidates = [
+      ...Array.from({ length: 501 }, (_, i) => repair(`old-${i}`, new Date(START.getTime() - 1))),
+      ...eligible,
+      repair("future", new Date(END.getTime() + 1)),
+      { ...repair("no-pay", START), payAmount: null },
+      { ...repair("removed", START), removedAt: START },
+      { ...repair("company", START), payPayer: "COMPANY" },
+      { ...repair("billed", START), includedInClientInvoiceId: "previous" },
+      { ...repair("other-property", START), item: { title: "Other", propertyId: "property_2", property: { clientId: "client_1" } } },
+      { ...repair("other-client", START), item: { title: "Private", propertyId: "property_1", property: { clientId: "client_2" } } },
+    ];
+    // Model database filtering and any query limit before the real billing helper.
+    dbMock.maintenanceItemAssignment.findMany.mockImplementation(async ({ where, take }) => {
+      expect(where.completedAt).toEqual({ not: null, gte: START, lte: END });
+      expect(take).toBeUndefined();
+      return candidates.filter(row => row.removedAt === where.removedAt &&
+        row.payPayer === where.payPayer && row.includedInClientInvoiceId === where.includedInClientInvoiceId &&
+        row.item.property.clientId === where.item.property.clientId && row.item.propertyId === where.item.propertyId &&
+        (!where.completedAt.gte || row.completedAt >= where.completedAt.gte) &&
+        (!where.completedAt.lte || row.completedAt <= where.completedAt.lte))
+        .slice(0, take);
+    });
+    const create = vi.fn(async ({ data }) => ({ id: "invoice", ...data }));
+    const updateMany = vi.fn(async () => ({ count: 501 }));
+    dbMock.$transaction.mockImplementation(async fn => fn({
+      clientInvoice: { create }, maintenanceItemAssignment: { updateMany },
+    }));
+
+    await generateClientInvoice({ clientId: "client_1", propertyId: "property_1", periodStart: START, periodEnd: END });
+
+    const lines = create.mock.calls[0][0].data.lines.create;
+    expect(lines).toHaveLength(501);
+    expect(lines.every((line: { lineTotal: number }) => line.lineTotal === 10)).toBe(true);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: { in: eligible.map(row => row.id) } },
+      data: { includedInClientInvoiceId: "invoice", includedInClientInvoiceAt: expect.any(Date) },
+    });
   });
 });

@@ -220,6 +220,14 @@ async function main() {
     }));
   }
 
+  if (jobEnabled("notification-intent-dispatch")) {
+    await boss.schedule("notification-intent-dispatch", "*/5 * * * *", {});
+    await boss.work("notification-intent-dispatch", safeHandler("notification-intent-dispatch", async () => {
+      const { dispatchNotificationIntents } = await import("@/lib/notifications/intent-store");
+      await dispatchNotificationIntents(new Date());
+    }));
+  }
+
   if (jobEnabled("case-follow-up")) {
     await boss.schedule("case-follow-up", "0 */4 * * *", {});
     await boss.work("case-follow-up", safeHandler("case-follow-up", async () => {

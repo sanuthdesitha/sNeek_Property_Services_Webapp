@@ -18,6 +18,8 @@ describe("laundry next stop execution", () => {
     render(<NextStopExecution task={task} kind="pickup" config={config} onAction={onAction} />);
     fireEvent.click(screen.getByRole("button", { name: "Confirm pickup" }));
     expect(onAction).toHaveBeenCalledWith("t1", "PICKED_UP");
+    fireEvent.click(screen.getByRole("button", { name: "Report access problem" }));
+    expect(onAction).toHaveBeenCalledWith("t1", "FAILED_PICKUP");
     expect(screen.getByText(/Bag count not recorded/)).toBeVisible();
     expect(screen.getByText(/Pickup photo is optional/)).toBeVisible();
     expect(screen.getByRole("link", { name: "Open task board" })).toHaveAttribute("href", "/v2/laundry/tracking#task-t1");

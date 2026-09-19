@@ -7,8 +7,9 @@ import { publicUrl } from "@/lib/s3";
 import { startOfDay } from "date-fns";
 import { getAppSettings } from "@/lib/settings";
 import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
-import { pickupNeedsReadinessAnswer } from "@/lib/laundry/pickup-readiness";
 
+import { recordFailedPickup, FailedPickupError } from "@/lib/laundry/failed-pickup";
+import { recordQuantityPickup, QuantityPickupError } from "@/lib/laundry/quantity-pickup";
 const schema = z.object({
   status: z.enum([
     "PICKED_UP",
@@ -21,6 +22,8 @@ const schema = z.object({
   ]),
   confirm: z.boolean().optional(),
   bagCount: z.number().int().min(1).max(50).optional(),
+  quantityBaselineId: z.string().max(200).nullable().optional(),
+  discrepancyReason: z.string().trim().max(2000).optional(),
   // What the driver found on the doorstep. Required only when the cleaner
   // never confirmed — see lib/laundry/pickup-readiness.
   pickupReadiness: z.enum(["READY", "NOT_READY"]).optional(),
@@ -37,6 +40,7 @@ const schema = z.object({
   rescheduledPickupDate: z.string().datetime().optional(),
   requestedAction: z.enum(["SKIP", "DELETE"]).optional(),
   failedPickupReason: z.string().trim().max(2000).optional(),
+  failedPickupPhotoKey: z.string().trim().max(1000).optional(),
   notes: z.string().optional(),
 });
 
@@ -90,37 +94,6 @@ async function markActiveRouteStopComplete(taskId: string, kind: "PICKUP" | "DRO
   }
 }
 
-async function createRoleNotifications(
-  roles: Role[],
-  subject: string,
-  body: string,
-  jobId?: string | null,
-  excludeUserId?: string | null
-) {
-  const recipients = await db.user.findMany({
-    where: {
-      role: { in: roles },
-      isActive: true,
-      ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
-    },
-    select: { id: true },
-  });
-
-  if (!recipients.length) return;
-
-  await db.notification.createMany({
-    data: recipients.map((user) => ({
-      userId: user.id,
-      jobId: jobId ?? null,
-      channel: "PUSH",
-      subject,
-      body,
-      status: "SENT",
-      sentAt: new Date(),
-    })),
-  });
-}
-
 export async function POST(
   req: NextRequest,
   { params }: { params: { taskId: string } }
@@ -133,6 +106,8 @@ export async function POST(
       confirm,
       notes,
       bagCount,
+      quantityBaselineId,
+      discrepancyReason,
       pickupReadiness,
       loadWeightKg,
       pickupPhotoKey,
@@ -147,6 +122,7 @@ export async function POST(
       rescheduledPickupDate,
       requestedAction,
       failedPickupReason,
+      failedPickupPhotoKey,
     } = schema.parse(await req.json());
     if (confirm !== true) {
       return NextResponse.json({ error: "Confirmation required." }, { status: 400 });
@@ -178,14 +154,14 @@ export async function POST(
     }
     if (nextStatus === "FAILED_PICKUP_RESCHEDULE" && !["CONFIRMED", "PENDING"].includes(existing.status)) {
       return NextResponse.json(
-        { error: `Cannot mark failed pickup from status ${existing.status}` },
-        { status: 400 }
+        { error: `Task status changed to ${existing.status}. Refresh before reporting a failed pickup.` },
+        { status: 409 }
       );
     }
     if (nextStatus === "FAILED_PICKUP_REQUEST" && !["CONFIRMED", "PENDING"].includes(existing.status)) {
       return NextResponse.json(
-        { error: `Cannot request failed pickup approval from status ${existing.status}` },
-        { status: 400 }
+        { error: `Task status changed to ${existing.status}. Refresh before reporting a failed pickup.` },
+        { status: 409 }
       );
     }
 
@@ -236,169 +212,20 @@ export async function POST(
       return NextResponse.json(task);
     }
 
-    if (nextStatus === "FAILED_PICKUP_RESCHEDULE") {
-      const reason = failedPickupReason?.trim();
-      if (!reason) {
-        return NextResponse.json({ error: "A failed pickup reason is required." }, { status: 400 });
-      }
-      if (!rescheduledPickupDate) {
-        return NextResponse.json({ error: "A new pickup date is required." }, { status: 400 });
-      }
-
-      const nextPickupDate = new Date(rescheduledPickupDate);
-      if (Number.isNaN(nextPickupDate.getTime())) {
-        return NextResponse.json({ error: "Invalid rescheduled pickup date." }, { status: 400 });
-      }
-      if (startOfDay(nextPickupDate).getTime() <= startOfDay(existing.pickupDate).getTime()) {
-        return NextResponse.json(
-          { error: "Rescheduled pickup date must be later than the current pickup date." },
-          { status: 400 }
-        );
-      }
-      if (startOfDay(nextPickupDate).getTime() > startOfDay(existing.dropoffDate).getTime()) {
-        return NextResponse.json(
-          { error: "Rescheduled pickup date cannot be after the scheduled drop-off date." },
-          { status: 400 }
-        );
-      }
-
-      const task = await db.laundryTask.update({
-        where: { id: params.taskId },
-        data: {
-          pickupDate: nextPickupDate,
-          status: "CONFIRMED",
-        },
-      });
-
-      await db.laundryConfirmation.create({
-        data: {
-          laundryTaskId: params.taskId,
-          confirmedById: session.user.id,
-          laundryReady: true,
-          notes: JSON.stringify({
-            event: "FAILED_PICKUP_RESCHEDULE",
-            reason,
-            previousPickupDate: existing.pickupDate.toISOString(),
-            rescheduledPickupDate: nextPickupDate.toISOString(),
-            notes: notes || undefined,
-          }),
-        },
-      });
-
-      await db.auditLog.create({
-        data: {
-          userId: session.user.id,
-          jobId: existing.jobId,
-          action: "LAUNDRY_FAILED_PICKUP_RESCHEDULED",
-          entity: "LaundryTask",
-          entityId: params.taskId,
-          before: {
-            status: existing.status,
-            pickupDate: existing.pickupDate.toISOString(),
-          },
-          after: {
-            status: "CONFIRMED",
-            pickupDate: nextPickupDate.toISOString(),
-            reason,
-          },
-        },
-      });
-
-      await createRoleNotifications(
-        [Role.ADMIN, Role.OPS_MANAGER],
-        "Laundry pickup rescheduled",
-        `${existing.property.name}: pickup moved to ${nextPickupDate.toLocaleDateString("en-AU")} after failed attempt.`,
-        existing.jobId,
-        session.user.id
-      );
-
+    if (nextStatus === "FAILED_PICKUP_RESCHEDULE" || nextStatus === "FAILED_PICKUP_REQUEST") {
+      const task = await recordFailedPickup({ taskId: params.taskId, actorId: session.user.id, role: session.user.role,
+        status: nextStatus, reason: failedPickupReason ?? "", notes, photoKey: failedPickupPhotoKey,
+        date: rescheduledPickupDate, requestedAction });
       return NextResponse.json(task);
     }
-
-    if (nextStatus === "FAILED_PICKUP_REQUEST") {
-      const reason = failedPickupReason?.trim();
-      if (!reason) {
-        return NextResponse.json({ error: "A failed pickup reason is required." }, { status: 400 });
-      }
-      if (!requestedAction) {
-        return NextResponse.json({ error: "Choose whether to request skip or delete approval." }, { status: 400 });
-      }
-
-      const summary = `Failed pickup - ${requestedAction.toLowerCase()} approval requested: ${reason}`;
-      const task = await db.laundryTask.update({
-        where: { id: params.taskId },
-        data: {
-          status: "FLAGGED",
-          flagNotes: summary,
-        },
-      });
-
-      await db.laundryConfirmation.create({
-        data: {
-          laundryTaskId: params.taskId,
-          confirmedById: session.user.id,
-          laundryReady: true,
-          notes: JSON.stringify({
-            event: "FAILED_PICKUP_REQUEST",
-            approvalStatus: "PENDING",
-            requestedAction,
-            reason,
-            previousStatus: existing.status,
-            notes: notes || undefined,
-          }),
-        },
-      });
-
-      await db.auditLog.create({
-        data: {
-          userId: session.user.id,
-          jobId: existing.jobId,
-          action: "LAUNDRY_FAILED_PICKUP_APPROVAL_REQUESTED",
-          entity: "LaundryTask",
-          entityId: params.taskId,
-          before: {
-            status: existing.status,
-            flagNotes: null,
-          },
-          after: {
-            status: "FLAGGED",
-            requestedAction,
-            reason,
-          },
-        },
-      });
-
-      await createRoleNotifications(
-        [Role.ADMIN, Role.OPS_MANAGER],
-        "Laundry pickup approval requested",
-        `${existing.property.name}: laundry requested ${requestedAction.toLowerCase()} approval after failed pickup.`,
-        existing.jobId,
-        session.user.id
-      );
-
+    if (nextStatus === "PICKED_UP") {
+      const task = await recordQuantityPickup({ taskId: params.taskId, actorId: session.user.id, role: session.user.role, bagCount: bagCount ?? 0, pickupReadiness, photoKey: pickupPhotoKey, keyPhotoKey: pickupKeyPhotoKey, notes, baselineId: quantityBaselineId, discrepancyReason });
+      await markActiveRouteStopComplete(params.taskId, "PICKUP");
       return NextResponse.json(task);
     }
-
     const data: any = { status: nextStatus };
     let actualDroppedAt: Date | null = null;
     let isEarlyDropoff = false;
-    if (nextStatus === "PICKED_UP") {
-      if (!bagCount || bagCount < 1) {
-        return NextResponse.json({ error: "Bag count is required for pickup." }, { status: 400 });
-      }
-      // The cleaner never ticked "ready", so the driver is the only person who
-      // knows what was actually there. Without this the record cannot tell a
-      // forgotten tick apart from no linen at all — both looked identical on
-      // the cleaner's history.
-      if (pickupNeedsReadinessAnswer(existing.status) && !pickupReadiness) {
-        return NextResponse.json(
-          { error: "Tell us whether the linen was ready — the cleaner did not mark it." },
-          { status: 400 }
-        );
-      }
-      data.pickedUpAt = new Date();
-      data.pickupKeyPhotoUrl = pickupKeyPhotoKey?.trim() ? publicUrl(pickupKeyPhotoKey.trim()) : null;
-    }
     if (nextStatus === "DROPPED") {
       if (!dropoffLocation?.trim()) {
         return NextResponse.json({ error: "Drop-off location is required." }, { status: 400 });
@@ -438,26 +265,10 @@ export async function POST(
         confirmedById: session.user.id,
         laundryReady: true,
         bagLocation: nextStatus === "DROPPED" ? dropoffLocation?.trim() : undefined,
-        s3Key:
-          nextStatus === "DROPPED"
-            ? dropoffPhotoKey?.trim() || null
-            : nextStatus === "PICKED_UP"
-              ? pickupPhotoKey?.trim() || null
-              : null,
-        photoUrl:
-          nextStatus === "DROPPED"
-            ? dropoffPhotoKey?.trim()
-              ? publicUrl(dropoffPhotoKey.trim())
-              : undefined
-            : nextStatus === "PICKED_UP" && settings.laundryPortalVisibility.showPickupPhoto && pickupPhotoKey?.trim()
-              ? publicUrl(pickupPhotoKey.trim())
-              : undefined,
+        s3Key: dropoffPhotoKey?.trim() || null,
+        photoUrl: dropoffPhotoKey?.trim() ? publicUrl(dropoffPhotoKey.trim()) : undefined,
         notes: JSON.stringify({
           event: nextStatus,
-          bagCount: nextStatus === "PICKED_UP" ? bagCount : undefined,
-          pickupReadiness: nextStatus === "PICKED_UP" ? pickupReadiness : undefined,
-          pickupPhotoKey: nextStatus === "PICKED_UP" ? pickupPhotoKey?.trim() : undefined,
-          pickupKeyPhotoKey: nextStatus === "PICKED_UP" ? pickupKeyPhotoKey?.trim() : undefined,
           dropoffKeyPhotoKey: nextStatus === "DROPPED" ? dropoffKeyPhotoKey?.trim() : undefined,
           dropoffLocation: nextStatus === "DROPPED" ? dropoffLocation?.trim() : undefined,
           totalPrice: nextStatus === "DROPPED" ? totalPrice : undefined,
@@ -473,15 +284,11 @@ export async function POST(
       },
     });
 
-    if (nextStatus === "PICKED_UP" || nextStatus === "DROPPED") {
-      await markActiveRouteStopComplete(
-        params.taskId,
-        nextStatus === "PICKED_UP" ? "PICKUP" : "DROP"
-      );
-    }
+    await markActiveRouteStopComplete(params.taskId, "DROP");
 
     return NextResponse.json(task);
   } catch (err: any) {
+    if (err instanceof FailedPickupError || err instanceof QuantityPickupError) return NextResponse.json({ error: err.message }, { status: err.status });
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
   }
@@ -661,6 +468,7 @@ export async function PATCH(
 
     return NextResponse.json(updated);
   } catch (err: any) {
+    if (err instanceof FailedPickupError) return NextResponse.json({ error: err.message }, { status: err.status });
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message ?? "Could not update laundry record." }, { status });
   }

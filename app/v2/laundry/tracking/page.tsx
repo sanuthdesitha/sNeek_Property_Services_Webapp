@@ -2,6 +2,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { TrackingBoard } from "@/components/v2/laundry/laundry-board";
+import { QuantityExceptions } from "@/components/v2/laundry/quantity-exceptions";
 
 export const metadata = { title: "Tracking · Estate laundry" };
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ export default async function LaundryTrackingPage() {
         description="Follow every set from pickup to return, and move it along."
       />
       <TrackingBoard canDelete={canDelete} />
+      <QuantityExceptions />
     </div>
   );
 }

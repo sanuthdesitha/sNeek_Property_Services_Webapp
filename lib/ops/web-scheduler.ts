@@ -51,6 +51,10 @@ type FallbackJob = {
 };
 
 const JOBS: FallbackJob[] = [
+  { name: "notification-intent-dispatch", minIntervalMs: 5 * MIN, run: async () => {
+    const { dispatchNotificationIntents } = await import("@/lib/notifications/intent-store");
+    await dispatchNotificationIntents(new Date());
+  } },
   // Called frequently; syncAllIcalIfDue gates each feed by its own due time.
   { name: "ical-sync", minIntervalMs: 20 * MIN, run: async () => { await syncAllIcalIfDue(new Date()); } },
   { name: "reminder-dispatch", minIntervalMs: 30 * MIN, run: async () => { await dispatchJobReminders({ reminderType: "ALL" }); } },

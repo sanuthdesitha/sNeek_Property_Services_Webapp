@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { TRACKED_STATUSES } from "@/lib/gps/tracked-statuses";
+import { cleanerDraftIdentity } from "@/lib/cleaner/draft-identity";
 
 export const dynamic = "force-dynamic";
 const privateHeaders = { "Cache-Control": "private, no-store", Vary: "Cookie" };
@@ -30,11 +31,16 @@ export async function GET() {
         assignments: { some: { userId: session.user.id, removedAt: null } },
       },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-      select: { id: true, status: true, property: { select: { name: true } } },
+      select: { id: true, status: true, property: { select: { name: true } },
+        timeLogs: { where: { userId: session.user.id, stoppedAt: null }, select: { startedAt: true }, orderBy: { startedAt: "desc" }, take: 1 } },
     });
 
     return NextResponse.json({
-      job: job ? { id: job.id, status: job.status, property: job.property } : null,
+      job: job ? { id: job.id, status: job.status, property: job.property,
+        draftIdentity: cleanerDraftIdentity(session, job.id),
+        clock: { running: Boolean(job.timeLogs[0]), startedAt: job.timeLogs[0]?.startedAt ?? null },
+        checkedAt: new Date().toISOString(),
+      } : null,
     }, { headers: privateHeaders });
   } catch (err: any) {
     const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 500;

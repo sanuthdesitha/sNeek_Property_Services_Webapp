@@ -23,13 +23,14 @@ function sharedCleanerDraftKey(jobId: string) {
 export async function withSharedCleanerJobDraftLock<T>(
   jobId: string,
   mutate: (tx: Prisma.TransactionClient) => Promise<T>,
-  tx?: Prisma.TransactionClient
+  tx?: Prisma.TransactionClient,
+  options?: { timeout?: number }
 ): Promise<T> {
   const run = async (client: Prisma.TransactionClient) => {
     await client.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sharedCleanerDraftKey(jobId)}))`;
     return mutate(client);
   };
-  return tx ? run(tx) : db.$transaction(run, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+  return tx ? run(tx) : db.$transaction(run, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, ...options });
 }
 
 export async function getSharedCleanerJobDraft(jobId: string, tx?: Prisma.TransactionClient): Promise<SharedCleanerJobDraftRecord | null> {

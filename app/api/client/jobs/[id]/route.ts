@@ -3,13 +3,18 @@ import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-porta
 import { db } from "@/lib/db";
 import { computeJobProgressPercent } from "@/lib/jobs/progress";
 
-const STALE_LIVE_PING_MS = 2 * 60 * 1000;
+import { projectClientJob, STALE_CLIENT_LOCATION_MS } from "@/lib/client/job-response";
+const privateHeaders = { "Cache-Control": "private, no-store" };
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  try {
   // Chokepoint: viewing a job needs no specific grant — any active VA — but
   // the lookup below is narrowed to the actor's property scope, not just the
   // client, so a scoped VA cannot read jobs on ungranted properties.
   const portal = await requireClientPortal();
+  if (!portal.visibility.showJobs) {
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403, headers: privateHeaders });
+  }
 
   const job = await db.job.findFirst({
     where: { id: params.id, property: propertyScopeWhere(portal) },
@@ -38,7 +43,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       drivingDelayedReason: true,
       arrivedAt: true,
       cleanerLocationPings: {
-        where: { timestamp: { gte: new Date(Date.now() - STALE_LIVE_PING_MS) } },
+        where: { timestamp: { gte: new Date(Date.now() - STALE_CLIENT_LOCATION_MS) } },
         orderBy: { timestamp: "desc" },
         take: 1,
         select: { lat: true, lng: true, accuracy: true, heading: true, speed: true, timestamp: true },
@@ -88,6 +93,15 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         },
       },
       invoiceLines: {
+        where: {
+          invoice: {
+            clientId: portal.clientId,
+            status: { notIn: ["DRAFT", "VOID"] },
+            ...(portal.propertyIds ? {
+              lines: { some: {}, every: { job: { property: propertyScopeWhere(portal) } } },
+            } : {}),
+          },
+        },
         select: {
           id: true,
           description: true,
@@ -132,7 +146,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     },
   });
 
-  if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404, headers: privateHeaders });
 
   // Live mid-clean progress — OFF by default behind the showLiveProgress
   // visibility switch; only computed while the job is IN_PROGRESS.
@@ -140,35 +154,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     ? await computeJobProgressPercent(job, portal.settings, job.property as any)
     : null;
 
-  // Strip phone numbers unless admin has enabled cleaner contact visibility for this property
-  const showContact = job.property.showCleanerContactToClient;
-  const latestPing = job.cleanerLocationPings[0] ?? null;
-  const sanitizedJob = {
-    ...job,
-    progressPercent,
-    liveTrip:
-      job.status === "EN_ROUTE"
-        ? {
-            cleanerLat: latestPing?.lat ?? null,
-            cleanerLng: latestPing?.lng ?? null,
-            accuracy: latestPing?.accuracy ?? null,
-            heading: latestPing?.heading ?? null,
-            speed: latestPing?.speed ?? null,
-            lastPingAt: latestPing?.timestamp ?? null,
-            propertyLat: job.property.latitude ?? null,
-            propertyLng: job.property.longitude ?? null,
-          }
-        : null,
-    assignments: job.assignments.map((assignment) => ({
-      ...assignment,
-      user: {
-        id: assignment.user.id,
-        name: assignment.user.name,
-        image: assignment.user.image,
-        ...(showContact ? { phone: assignment.user.phone } : {}),
-      },
-    })),
-  };
-
-  return NextResponse.json(sanitizedJob);
+  return NextResponse.json(projectClientJob(job, portal, progressPercent), { headers: privateHeaders });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const status = message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 500;
+    return NextResponse.json({ error: status === 500 ? "Could not load job." : message }, { status, headers: privateHeaders });
+  }
 }

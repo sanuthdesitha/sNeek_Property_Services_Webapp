@@ -6,7 +6,7 @@ import {
   Role,
 } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
+import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
 import { getAppSettings } from "@/lib/settings";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { renderEmailTemplate } from "@/lib/email-templates";
@@ -49,7 +49,11 @@ export async function POST(
 ) {
   try {
     const session = await requireRole([Role.CLEANER]);
-    const body = schema.parse(await req.json().catch(() => ({})));
+    const rawBody = await req.json().catch(() => ({}));
+    const body = schema.parse(rawBody);
+    const afterCommit: Array<() => Promise<unknown>> = [];
+    const result = await withCleanerAction({ session, jobId: params.id, action: "assignment-response", requestId: req.headers.get("X-Cleaner-Action-Id"), draftIdentity: req.headers.get("X-Cleaner-Draft-Identity"), body: rawBody }, async db => {
+    const run = async () => {
     const settings = await getAppSettings();
 
     const [job, assignment, adminRecipients] = await Promise.all([
@@ -139,7 +143,8 @@ export async function POST(
     let transferredCleanerLabel = "another cleaner";
     let transferredCleaner: TransferRecipient | null = null;
 
-    await db.$transaction(async (tx) => {
+    {
+      const tx = db;
       if (body.action === "ACCEPT") {
         await tx.jobAssignment.update({
           where: { id: assignment.id },
@@ -291,7 +296,7 @@ export async function POST(
           } as any,
         },
       });
-    });
+    }
 
     const adminSubject =
       body.action === "ACCEPT"
@@ -300,7 +305,7 @@ export async function POST(
           ? `${companyName}: Job declined (${jobReference})`
           : `${companyName}: Job transferred (${jobReference})`;
     const adminNoteText = note ? `<p><strong>Cleaner note:</strong> ${note}</p>` : "";
-    await deliverNotificationToRecipients({
+    afterCommit.push(() => deliverNotificationToRecipients({
       recipients: adminRecipients,
       category: "jobs",
       jobId: job.id,
@@ -331,7 +336,7 @@ export async function POST(
           : body.action === "DECLINE"
             ? `${actorName} declined ${jobReference} at ${propertyLabel}.`
             : `${actorName} transferred ${jobReference} to ${transferredCleanerLabel}.`,
-    });
+    }));
 
     if (body.action === "TRANSFER" && transferredCleaner) {
       const transferRecipient: TransferRecipient = transferredCleaner;
@@ -360,7 +365,7 @@ export async function POST(
           timingFlags: `Transferred by ${actorName}. Awaiting confirmation.`,
         }
       );
-      await deliverNotificationToRecipients({
+      afterCommit.push(() => deliverNotificationToRecipients({
         recipients: [transferRecipient],
         category: "jobs",
         jobId: job.id,
@@ -374,7 +379,7 @@ export async function POST(
           logBody: emailTemplate.subject,
         },
         sms: cleanerTemplate.smsBody,
-      });
+      }));
     }
 
     return NextResponse.json({
@@ -395,8 +400,15 @@ export async function POST(
             : JobAssignmentResponseStatus.TRANSFERRED
       ),
     });
+    };
+    const response = await run();
+    return { status: response.status, body: await response.json() };
+    });
+    let deliveryFailed = false;
+    for (const notify of afterCommit) { try { await notify(); } catch { deliveryFailed = true; } }
+    return NextResponse.json({ ...result.body, ...(deliveryFailed ? { deliveryWarning: "Assignment response saved, but notification delivery could not be confirmed." } : {}) }, { status: result.status });
   } catch (error: any) {
-    const status = error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;
+    const status = error instanceof ActionReceiptError ? error.status : error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json(
       { error: error?.message ?? "Could not update the assignment response." },
       { status }

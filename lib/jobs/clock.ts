@@ -1,4 +1,4 @@
-import { JobStatus } from "@prisma/client";
+import { JobStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 
 /**
@@ -25,10 +25,14 @@ export async function clockOutCleaner(input: {
   jobId: string;
   userId: string;
   now?: Date;
+  tx?: Prisma.TransactionClient;
 }): Promise<ClockOutResult> {
+  if (!input.tx) return db.$transaction(tx => clockOutCleaner({ ...input, tx }));
+  const client = input.tx;
+  await client.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${input.jobId} FOR UPDATE`;
   const now = input.now ?? new Date();
 
-  const openLog = await db.timeLog.findFirst({
+  const openLog = await client.timeLog.findFirst({
     where: { jobId: input.jobId, userId: input.userId, stoppedAt: null },
     orderBy: { startedAt: "desc" },
     select: { id: true, startedAt: true },
@@ -41,7 +45,7 @@ export async function clockOutCleaner(input: {
     Math.round((now.getTime() - openLog.startedAt.getTime()) / 60_000)
   );
 
-  await db.timeLog.update({
+  await client.timeLog.update({
     where: { id: openLog.id },
     data: { stoppedAt: now, durationM },
   });
@@ -49,17 +53,11 @@ export async function clockOutCleaner(input: {
   // Only move an actively-running job back — never drag one that has advanced
   // to SUBMITTED/QA_REVIEW/COMPLETED/INVOICED. A stale open log, or another
   // cleaner clocking out of a shared job, must not reopen finished work.
-  await db.job.updateMany({
+  await client.job.updateMany({
     where: {
       id: input.jobId,
-      status: {
-        notIn: [
-          JobStatus.SUBMITTED,
-          JobStatus.QA_REVIEW,
-          JobStatus.COMPLETED,
-          JobStatus.INVOICED,
-        ],
-      },
+      status: JobStatus.IN_PROGRESS,
+      cleanSkipStatus: { not: "SKIPPED" },
     },
     data: { status: JobStatus.PAUSED },
   });

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { saveCleanerDraft } from "@/lib/cleaner/save-draft-client";
+import { writeDraftStatus } from "@/lib/cleaner/draft-status-snapshot";
 
 export type DraftSaveState = {
   phase: "idle" | "saving" | "saved" | "error";
@@ -36,7 +37,8 @@ export function useDraftSave(draftIdentity?: string) {
     if (!mounted.current) return;
     ++revision.current;
     setState({ phase: "saving" });
-  }, []);
+    writeDraftStatus(draftIdentity, "saving");
+  }, [draftIdentity]);
 
   // Drop queued saves and ignore running acknowledgements. An already-sent
   // request is not cancelled. The caller must also cancel its debounce timer.
@@ -45,7 +47,8 @@ export function useDraftSave(draftIdentity?: string) {
     ++epoch.current;
     ++revision.current;
     setState({ phase: "idle" });
-  }, []);
+    writeDraftStatus(draftIdentity, "idle");
+  }, [draftIdentity]);
 
   const save = useCallback((
     jobId: string,
@@ -57,6 +60,7 @@ export function useDraftSave(draftIdentity?: string) {
     const savedRevision = ++revision.current;
     const savedEpoch = epoch.current;
     setState({ phase: "saving" });
+    writeDraftStatus(draftIdentity, "saving");
 
     // Copy using the same JSON representation as the client transport so later
     // edits to the caller's objects cannot change a queued request's payload.
@@ -65,6 +69,7 @@ export function useDraftSave(draftIdentity?: string) {
       snapshot = JSON.parse(JSON.stringify(draft));
     } catch {
       setState({ phase: "error", message: uncertainMessage });
+      writeDraftStatus(draftIdentity, "error");
       return Promise.resolve();
     }
 
@@ -78,6 +83,7 @@ export function useDraftSave(draftIdentity?: string) {
       }
       if (!mounted.current || savedEpoch !== epoch.current || savedRevision !== revision.current) return;
       setState(result.ok ? { phase: "saved" } : { phase: "error", message: result.message });
+      writeDraftStatus(draftIdentity, result.ok ? "saved" : "error");
     };
     const completion = tail.current.then(run);
     tail.current = completion;

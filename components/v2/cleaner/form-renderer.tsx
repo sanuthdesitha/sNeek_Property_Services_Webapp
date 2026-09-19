@@ -89,6 +89,7 @@ const ValidationContext = React.createContext<ValidationCtx>({
 /** Whether THIS cleaner may use the "no photo taken" option (admin-granted). */
 const NoPhotoContext = React.createContext<boolean>(false);
 
+const LaundryVisibilityContext = React.createContext<boolean | undefined>(undefined);
 export function FormRenderer({
   schema,
   answers,
@@ -107,11 +108,13 @@ export function FormRenderer({
   canUseNoPhoto = false,
   stockUpdateMode,
   propertyId,
+  laundryReady,
 }: {
   schema: FormSchema;
   answers: AnswerMap;
   uploads: UploadMap;
   property: Record<string, unknown>;
+  laundryReady?: boolean;
   /** Property stock items (from GET /api/jobs/[id]/form). Self-fetched when omitted. */
   inventoryStock?: PropertyStockRow[];
   /** Which stock control to render. CLASSIC records usage as answers and
@@ -213,7 +216,7 @@ export function FormRenderer({
         answers,
         uploadCounts,
         property,
-        undefined,
+        laundryReady,
         requiredChecklistTicksBlockSubmit,
         {
           canUseNoPhoto,
@@ -224,7 +227,7 @@ export function FormRenderer({
             >) ?? {},
         }
       ),
-    [schema, answers, uploadCounts, property, requiredChecklistTicksBlockSubmit, canUseNoPhoto]
+    [schema, answers, uploadCounts, property, laundryReady, requiredChecklistTicksBlockSubmit, canUseNoPhoto]
   );
   const errorMap = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -241,11 +244,11 @@ export function FormRenderer({
   }, []);
 
   const scrollToField = React.useCallback((fieldId: string) => {
-    const el = anchorsRef.current.get(fieldId);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.focus?.();
-    }
+    window.dispatchEvent(new CustomEvent("sneek:open-form-field", { detail: { fieldId } }));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const el = anchorsRef.current.get(fieldId) ?? anchorsRef.current.get(fieldId.replace(/_details$/, ""));
+      if (el) { el.scrollIntoView({ behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" }); el.focus?.(); }
+    }));
   }, []);
 
   // External integration point: any submit flow can dispatch
@@ -267,6 +270,8 @@ export function FormRenderer({
   // exceptions field. No-op when nothing matches.
   React.useEffect(() => {
     const onFocusField = (e: Event) => {
+      const exact = (e as CustomEvent)?.detail?.fieldId;
+      if (typeof exact === "string" && exact) { setRevealAll(true); scrollToField(exact); return; }
       const match = String((e as CustomEvent)?.detail?.match ?? "").toLowerCase();
       if (!match) return;
       const id = Array.from(anchorsRef.current.keys()).find((k) => k.toLowerCase().includes(match));
@@ -295,6 +300,7 @@ export function FormRenderer({
     : errors.filter((e) => touched.has(e.fieldId));
 
   return (
+    <LaundryVisibilityContext.Provider value={laundryReady}>
     <NoPhotoContext.Provider value={canUseNoPhoto}>
     <ValidationContext.Provider value={validation}>
       <div className="space-y-5">
@@ -333,6 +339,7 @@ export function FormRenderer({
       </div>
     </ValidationContext.Provider>
     </NoPhotoContext.Provider>
+    </LaundryVisibilityContext.Provider>
   );
 }
 
@@ -530,17 +537,26 @@ function SectionBlock({
   progress?: { done: number; total: number };
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
+  const laundryReady = React.useContext(LaundryVisibilityContext);
+  React.useEffect(() => {
+    const reveal = (event: Event) => {
+      const fieldId = (event as CustomEvent)?.detail?.fieldId;
+      if (typeof fieldId === "string" && flattenFieldsOneLevel(section.fields).some(field => field.id === fieldId || fieldDetailsKey(String(field.id)) === fieldId)) setOpen(true);
+    };
+    window.addEventListener("sneek:open-form-field", reveal);
+    return () => window.removeEventListener("sneek:open-form-field", reveal);
+  }, [section.fields]);
   const [guided, setGuided] = React.useState(false);
   const collapsible = forceCollapsible || Boolean(section.collapsible);
   const complete = progress != null && progress.total > 0 && progress.done >= progress.total;
-  if (!isTemplateNodeVisible(section as any, answers, property)) return null;
+  if (!isTemplateNodeVisible(section as any, answers, property, laundryReady)) return null;
 
   const fields = flattenFieldsOneLevel(section.fields);
 
   // Select-all / Clear affordance for sections made of checkbox tasks: toggles
   // every visible checkbox field in this section at once.
   const checkboxFields = fields.filter(
-    (field: any) => field?.type === "checkbox" && isFlattenedFieldVisible(field, answers, property)
+    (field: any) => field?.type === "checkbox" && isFlattenedFieldVisible(field, answers, property, laundryReady)
   );
   const allChecked =
     checkboxFields.length > 0 && checkboxFields.every((field: any) => answers[field.id] === true);
@@ -553,7 +569,7 @@ function SectionBlock({
   // upload fields in this section.
   const photoTargets = fields.filter(
     (field: any) =>
-      isFlattenedFieldVisible(field, answers, property) &&
+      isFlattenedFieldVisible(field, answers, property, laundryReady) &&
       isUploadFieldType(field?.type) &&
       (field?.type === "photo" || field?.mediaMode === "both")
   );
@@ -570,6 +586,7 @@ function SectionBlock({
       <button
         type="button"
         onClick={() => collapsible && setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-center justify-between gap-2 p-4 text-left"
       >
         <div className="min-w-0">
@@ -881,6 +898,7 @@ function FieldBlock({
   disabled: boolean;
 }) {
   const validation = React.useContext(ValidationContext);
+  const laundryReady = React.useContext(LaundryVisibilityContext);
   const anchorRef = React.useRef<HTMLDivElement | null>(null);
 
   const detailsKey = fieldDetailsKey(field.id);
@@ -892,9 +910,9 @@ function FieldBlock({
   React.useEffect(() => {
     validation.registerAnchor(field.id, anchorRef.current);
     return () => validation.registerAnchor(field.id, null);
-  }, [field.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [field.id, answers, property, laundryReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!isFlattenedFieldVisible(field as any, answers, property)) return null;
+  if (!isFlattenedFieldVisible(field as any, answers, property, laundryReady)) return null;
 
   const value = answers[field.id];
   const set = (v: unknown) => onAnswer(field.id, v);
@@ -965,6 +983,7 @@ function FieldBlock({
   return (
     <div
       ref={anchorRef}
+      data-field-id={field.id}
       tabIndex={-1}
       className={cn(
         "space-y-1.5 scroll-mt-24 outline-none",

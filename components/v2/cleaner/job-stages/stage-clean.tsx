@@ -18,22 +18,13 @@ import { ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture } from "@/components/v2/cleaner/media-capture";
 import { FormRenderer } from "@/components/v2/cleaner/form-renderer";
 import { flattenFieldsOneLevel, isTemplateNodeVisible, isFlattenedFieldVisible } from "@/lib/forms/visibility";
-import { collectFormErrors } from "@/lib/forms/validate-submission";
+import { formNavigation } from "@/lib/forms/navigation";
+import { FormNavigation } from "@/components/v2/cleaner/form-navigation";
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import { BulkPhotoAssign, type BulkAssignField } from "@/components/v2/cleaner/bulk-photo-assign";
 import { TaskChip } from "@/components/v2/cleaner/job-stages/parts";
 import { EarlyCheckoutStatus } from "@/components/v2/cleaner/job-actions";
 import { titleCase, type WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
-
-/** True when a field counts toward "required data" (non-upload, required). */
-function isRequiredDataField(field: any): boolean {
-  return field?.required === true && !isUploadFieldType(field?.type);
-}
-/** True when a field counts toward "required photo" (upload, required or min>0). */
-function isRequiredPhotoField(field: any): boolean {
-  if (!isUploadFieldType(field?.type)) return false;
-  return field?.required === true || (typeof field?.minPhotos === "number" && field.minPhotos > 0);
-}
 
 export function StageClean({ api }: { api: WorkspaceApi }) {
   const { schema, answers, uploads, jobTasks, taskDrafts, locked, property, addressLine, template } = api;
@@ -44,75 +35,13 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
     return counts;
   }, [uploads]);
 
-  // Error set (fieldIds still incomplete) — the single source of truth for
-  // "satisfied?", mirroring the submit route + FormRenderer's own validation.
-  const errorIds = React.useMemo(() => {
-    if (!schema) return new Set<string>();
-    const errs = collectFormErrors(
-      schema,
-      answers,
-      uploadCounts,
-      property ?? {},
-      api.laundryEnabled ? api.laundryOutcome === "READY_FOR_PICKUP" : undefined,
-      api.requiredChecklistTicksBlockSubmit,
-      {
-        canUseNoPhoto: api.canUseNoPhoto,
-        reasons:
-          ((answers as Record<string, unknown>).__noPhotoReasons as Record<
-            string,
-            { reasonCode: string }
-          >) ?? {},
-      }
-    );
-    return new Set(errs.map((e) => e.fieldId));
-  }, [
-    schema,
-    answers,
-    uploadCounts,
-    property,
-    api.laundryEnabled,
-    api.laundryOutcome,
-    api.requiredChecklistTicksBlockSubmit,
-    api.canUseNoPhoto,
-  ]);
-
-  // Per-section required tallies (data + photos), computed the same way
-  // FormRenderer flattens/filters sections so the counts line up with the UI.
-  const { progressBySection, tasksDone, tasksTotal, photosDone, photosTotal } = React.useMemo(() => {
-    const map = new Map<string, { done: number; total: number }>();
-    let tD = 0, tT = 0, pD = 0, pT = 0;
-    const sections = Array.isArray(schema?.sections) ? schema!.sections : [];
-    for (const section of sections) {
-      if (!isTemplateNodeVisible(section as any, answers, property ?? {})) continue;
-      const fields = flattenFieldsOneLevel(section.fields).filter((f: any) =>
-        isFlattenedFieldVisible(f, answers, property ?? {})
-      );
-      let done = 0, total = 0;
-      for (const f of fields) {
-        const req = isRequiredDataField(f);
-        const photo = isRequiredPhotoField(f);
-        if (!req && !photo) continue;
-        total += 1;
-        const satisfied = !errorIds.has(String(f.id));
-        if (satisfied) done += 1;
-        if (photo) {
-          pT += 1;
-          if (satisfied) pD += 1;
-        } else {
-          tT += 1;
-          if (satisfied) tD += 1;
-        }
-      }
-      map.set(section.id, { done, total });
-    }
-    return { progressBySection: map, tasksDone: tD, tasksTotal: tT, photosDone: pD, photosTotal: pT };
-  }, [schema, answers, property, errorIds]);
-
-  const sectionProgress = React.useCallback(
-    (sectionId: string) => progressBySection.get(sectionId),
-    [progressBySection]
-  );
-
+  const laundryReady = api.laundryEnabled ? api.laundryOutcome === "READY_FOR_PICKUP" : undefined;
+  const navigation = React.useMemo(() => formNavigation(schema, answers, uploadCounts, property ?? {}, laundryReady, api.requiredChecklistTicksBlockSubmit, api.canUseNoPhoto), [schema, answers, uploadCounts, property, laundryReady, api.requiredChecklistTicksBlockSubmit, api.canUseNoPhoto]);
+  const sectionProgress = React.useCallback((sectionId: string) => navigation.rooms.find(room => room.id === sectionId), [navigation]);
+  const tasksDone = navigation.rooms.reduce((sum, room) => sum + room.dataDone, 0);
+  const tasksTotal = navigation.rooms.reduce((sum, room) => sum + room.dataTotal, 0);
+  const photosDone = navigation.rooms.reduce((sum, room) => sum + room.mediaDone, 0);
+  const photosTotal = navigation.rooms.reduce((sum, room) => sum + room.mediaTotal, 0);
   // Flat list of the form's upload fields (form order), for the bulk assign
   // sheet's destination list. Same flatten + visibility rules the renderer uses,
   // so a hidden section never shows up as a destination.
@@ -120,9 +49,9 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
     const out: BulkAssignField[] = [];
     const sections = Array.isArray(schema?.sections) ? schema!.sections : [];
     for (const section of sections) {
-      if (!isTemplateNodeVisible(section as any, answers, property ?? {})) continue;
+      if (!isTemplateNodeVisible(section as any, answers, property ?? {}, laundryReady)) continue;
       const fields = flattenFieldsOneLevel(section.fields).filter((f: any) =>
-        isFlattenedFieldVisible(f, answers, property ?? {})
+        isFlattenedFieldVisible(f, answers, property ?? {}, laundryReady)
       );
       for (const f of fields) {
         if (!isUploadFieldType(f?.type)) continue;
@@ -136,7 +65,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
       }
     }
     return out;
-  }, [schema, answers, property]);
+  }, [schema, answers, property, laundryReady]);
 
   function reportException() {
     if (typeof window !== "undefined") {
@@ -175,6 +104,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
         </div>
       ) : null}
 
+      {schema ? <FormNavigation navigation={navigation} /> : null}
       {/* Admin-raised timing request (early check-in / late checkout) awaiting
           this cleaner's approval — self-hides when there is none. */}
       <EarlyCheckoutStatus jobId={api.jobId} />
@@ -283,6 +213,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
           </div>
           <FormRenderer
             schema={schema}
+            laundryReady={laundryReady}
             answers={answers}
             uploads={uploads}
             property={property}

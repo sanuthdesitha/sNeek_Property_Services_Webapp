@@ -48,6 +48,8 @@ import { processEvidence } from "@/lib/cleaner/evidence-client";
 import { useEvidenceScope } from "./evidence-context";
 import { getVolatileEvidence, retainVolatileEvidence, releaseVolatileEvidence } from "@/lib/cleaner/evidence-volatile";
 import { destinationKey, destinationOf, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
+import { deviceStorageAdvice, inspectImageCapture } from "@/lib/uploads/capture-advice";
+import { CaptureAdviceNotice } from "./capture-advice-notice";
 
 export interface CapturedMedia {
   key: string;
@@ -397,6 +399,8 @@ export async function prepareAndUploadFiles(
     onProgress?: (done: number, total: number) => void;
     /** Fires as bytes move, so a big video shows movement rather than a spinner. */
     onFileProgress?: (inFlight: UploadProgress[]) => void;
+    /** Advisory checks never replace review of the original or block an upload. */
+    onAdvice?: (filename: string, messages: string[]) => void;
     /**
      * Abort the batch. Files already uploaded stay in `results` — a cancel that
      * threw away thirty finished photos to stop the thirty-first would be worse
@@ -414,6 +418,11 @@ export async function prepareAndUploadFiles(
     }));
     const durableIds = new Set<string>();
     if (!opts.recoveryRecords) records.forEach(retainVolatileEvidence);
+    // Retain originals before asking the browser about available storage.
+    if (opts.onAdvice) {
+      const advice = await deviceStorageAdvice(files.reduce((total, file) => total + file.size, 0));
+      if (advice.length) opts.onAdvice("Device storage", advice);
+    }
     for (let index = 0; index < records.length; index++) {
       try {
         if (!opts.recoveryRecords) await putEvidence(records[index]);
@@ -437,7 +446,7 @@ export async function prepareAndUploadFiles(
           const uploaded = await prepareAndUploadFiles([new File([current.blob], current.filename, { type: current.mime })], {
             folder: `forms/${current.jobId}/${current.id}`, source: current.source, signal: opts.signal,
             stamp: current.stamp === null ? null : { ...current.stamp, capturedAt: current.createdAt },
-            prepared, onFileProgress: opts.onFileProgress,
+            prepared, onFileProgress: opts.onFileProgress, onAdvice: opts.onAdvice,
             beforeNetwork, noAutoRetry: true,
             onAllocated: async allocation => {
               const parts = allocation.key.split("/");
@@ -494,6 +503,11 @@ export async function prepareAndUploadFiles(
         publish();
         let dispose: (() => Promise<void>) | undefined;
         try {
+          if (opts.onAdvice && !opts.prepared) {
+            const advice = await inspectImageCapture(file);
+            if (advice.length) opts.onAdvice(file.name, advice);
+            opts.signal?.throwIfAborted();
+          }
           let prepared: File;
           if (opts.prepared) {
             prepared = opts.prepared;
@@ -712,6 +726,7 @@ export function MediaCapture({
   multiple = true,
   minPhotos,
   disabled = false,
+  onBusyChange,
   stamp,
   error = false,
 }: {
@@ -725,6 +740,8 @@ export function MediaCapture({
   multiple?: boolean;
   minPhotos?: number;
   disabled?: boolean;
+  /** Allows the containing action to wait for selected uploads before saving. */
+  onBusyChange?: (busy: boolean) => void;
   /**
    * Extra evidence-stamp context (address, reference, contextLabel, tag…)
    * merged over the branding/GPS base. Omit for the default stamp; pass `null`
@@ -737,10 +754,12 @@ export function MediaCapture({
   const evidenceScope = useEvidenceScope();
   const evidenceFieldId = suppliedFieldId ?? (evidenceDestination ? destinationKey(evidenceDestination) : undefined);
   const [busy, setBusy] = React.useState(0);
+  React.useEffect(() => { onBusyChange?.(busy > 0); }, [busy, onBusyChange]);
   // Counting up beats a spinner: on a slow connection a lump spinner is
   // indistinguishable from a hang, and cleaners kill the tab.
   const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const [captureAdvice, setCaptureAdvice] = React.useState<Record<string, string[]>>({});
   // Kept until the cleaner clears or retries them. A message that vanishes is
   // no use to someone who looked away while thirty photos uploaded.
   const [failures, setFailures] = React.useState<UploadFailure[]>([]);
@@ -769,6 +788,10 @@ export function MediaCapture({
       const controller = new AbortController();
       abortRef.current = controller;
       try {
+        // Legacy non-job uploads still keep the selected File objects for retry.
+        if (!evidenceScope) void deviceStorageAdvice(list.reduce((total, file) => total + file.size, 0)).then(messages => {
+          if (messages.length && !controller.signal.aborted) setCaptureAdvice(previous => ({ ...previous, "Device storage": messages }));
+        });
         const { results, failed } = await prepareAndUploadFiles(list, {
           folder,
           stamp,
@@ -779,6 +802,7 @@ export function MediaCapture({
           onProgress: (uploadDone, total) =>
             setProgress(total > 1 ? { done: uploadDone, total } : null),
           onFileProgress: setInFlight,
+          onAdvice: (filename, messages) => setCaptureAdvice(previous => ({ ...previous, [filename]: messages })),
         });
         // Replaced rather than appended: this list IS the files that just
         // ran, so anything previously failed and now retried disappears.
@@ -1004,6 +1028,7 @@ export function MediaCapture({
       ) : null}
 
       {uploadError ? <p className="text-[0.75rem] text-[hsl(var(--e-danger))]">{uploadError}</p> : null}
+      <CaptureAdviceNotice advice={captureAdvice} onDismiss={() => setCaptureAdvice({})}/>
 
       {notice ? (
         <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{notice}</p>

@@ -1,6 +1,7 @@
 import { NotificationChannel, type Notification, Role } from "@prisma/client";
 import { resolveAdminNotificationHref } from "@/lib/notifications/navigation";
 import type { PortalVersion } from "@/lib/portal-version";
+import { notificationLifecycle, type NotificationLifecycle } from "./delivery-lifecycle";
 
 export type NotificationFeedItem = {
   id: string;
@@ -15,6 +16,7 @@ export type NotificationFeedItem = {
   href: string;
   isRead: boolean;
   canMarkRead: boolean;
+  lifecycle: NotificationLifecycle;
 };
 
 export function notificationWhereForRole(role: Role, userId: string) {
@@ -69,6 +71,7 @@ export function toNotificationFeedItem(notification: Notification, role: Role, v
     subject: notification.subject ?? null,
     body: notification.body,
     status: String(notification.status),
+    lifecycle: notificationLifecycle(notification),
     createdAt: notification.createdAt.toISOString(),
     sentAt: notification.sentAt ? notification.sentAt.toISOString() : null,
     href: resolveNotificationHrefForRole(notification, role, version),

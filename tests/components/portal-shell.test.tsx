@@ -28,6 +28,20 @@ function shell(accent: "admin" | "client" = "admin", entries: NavItem[] = nav) {
 function mount() { return render(shell()); }
 
 describe("portal navigation", () => {
+  it("shows every authorized destination from search or collapsed groups and preserves pins", () => {
+    localStorage.setItem("sneek:nav-groups:test-admin:admin", '["Configuration","Daily","Favorites"]');
+    localStorage.setItem("sneek:nav-favorites:test-admin:admin", '["/v2/admin/settings","/unauthorized"]');
+    const view = mount();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } });
+    expect(screen.getByRole("status")).toHaveTextContent("No matching pages");
+    fireEvent.click(screen.getByRole("button", { name: "Show all pages" }));
+    const rail = screen.getByRole("navigation", { name: "Portal navigation" });
+    for (const name of ["Command", "Jobs", "Settings"]) expect(within(rail).getByRole("link", { name })).toBeVisible();
+    expect(rail.querySelector('a[href="/unauthorized"]')).toBeNull();
+    expect(localStorage.getItem("sneek:nav-favorites:test-admin:admin")).toContain("/v2/admin/settings");
+    view.unmount(); mount();
+    expect(screen.getByRole("button", { name: "Favorites" })).toHaveAttribute("aria-expanded", "true");
+  });
   it("collapses with keyboard controls and remembers groups separately from favorites", async () => {
     const user = userEvent.setup();
     const view = mount();

@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { sydneyTodayKey, addDaysToKey } from "@/lib/time/sydney-range";
+import { isCleanerShiftOffer, SHIFT_ROUTE_STATUSES } from "@/lib/cleaner/shift";
+import { ShiftRouteOverview } from "@/components/v2/cleaner/shift-route-overview";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { Role } from "@prisma/client";
@@ -100,7 +103,11 @@ async function getCleanerWeekJobs(userId: string, todayStart: Date, nextWeek: Da
     .findMany({
       where: {
         assignments: { some: { userId, removedAt: null } },
-        scheduledDate: { gte: todayStart, lt: nextWeek },
+        OR: [
+          { scheduledDate: { gte: todayStart, lt: nextWeek } },
+          { status: { in: ["UNASSIGNED", "OFFERED", "ASSIGNED"] }, assignments: { some: { userId, removedAt: null, responseStatus: "PENDING" } } },
+        ],
+        cleanSkipStatus: { not: "SKIPPED" },
         status: { notIn: ["COMPLETED", "INVOICED"] },
       },
       select: {
@@ -118,7 +125,7 @@ async function getCleanerWeekJobs(userId: string, todayStart: Date, nextWeek: Da
         internalNotes: true,
         assignments: {
           where: { removedAt: null },
-          select: { userId: true, payRate: true },
+          select: { userId: true, payRate: true, responseStatus: true },
         },
         property: {
           select: {
@@ -138,7 +145,7 @@ async function getCleanerWeekJobs(userId: string, todayStart: Date, nextWeek: Da
         { startTime: "asc" },
       ],
     })
-    .catch(() => []);
+    .catch(() => null);
 }
 
 export default async function CleanerTodayPage() {
@@ -152,17 +159,22 @@ export default async function CleanerTodayPage() {
     "there";
 
   const now = toZonedTime(new Date(), TZ);
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const nextWeek = new Date(todayStart.getTime() + 7 * 86_400_000);
+  const dayKey = sydneyTodayKey();
+  const todayStart = new Date(`${dayKey}T00:00:00.000Z`);
+  const nextWeek = new Date(`${addDaysToKey(dayKey, 7)}T00:00:00.000Z`);
 
-  const [jobs, urgentItems, settings, cleanerUser] = await Promise.all([
+  const [jobsResult, attentionResult, settings, cleanerUser] = await Promise.all([
     getCleanerWeekJobs(session.user.id, todayStart, nextWeek),
-    getCleanerImmediateAttention(session.user.id).catch(() => []),
+    getCleanerImmediateAttention(session.user.id).catch(() => null),
     getAppSettings().catch(() => null),
     db.user
       .findUnique({ where: { id: session.user.id }, select: { hourlyRate: true } })
       .catch(() => null),
   ]);
+
+  const jobs = jobsResult ?? [];
+  const urgentItems = attentionResult ?? [];
+  const isOffer = (job: (typeof jobs)[number]) => isCleanerShiftOffer(job, session.user.id);
 
   // Per-job pay for THIS cleaner (same canonical math as the job screen/briefing).
   const fmtAud = (n: number) =>
@@ -193,15 +205,15 @@ export default async function CleanerTodayPage() {
   }
 
   const visibleUrgent = urgentItems.filter((item) => Number(item.count) > 0);
-  const offeredJobs = jobs.filter((j) => j.status === "OFFERED");
-  const todayJobs = jobs.filter((j) => isSameLocalDay(toZonedTime(j.scheduledDate, TZ), now));
-  const nextJob = todayJobs[0] ?? jobs[0] ?? null;
+  const offeredJobs = jobs.filter(isOffer);
+  const todayJobs = jobs.filter((j) => !isOffer(j) && j.scheduledDate.toISOString().slice(0, 10) === dayKey);
+  const nextJob = jobs.find(j => !isOffer(j) && SHIFT_ROUTE_STATUSES.includes(j.status) && j.scheduledDate >= todayStart) ?? null;
 
   // "My day" = everything that wants your attention today: today's scheduled
   // jobs plus any outstanding offers (which may be for a future day). `jobs` is
   // already ordered by date → priority → time, so the timeline stays in order.
   const myDay = jobs.filter(
-    (j) => j.status === "OFFERED" || isSameLocalDay(toZonedTime(j.scheduledDate, TZ), now)
+    (j) => isOffer(j) || isSameLocalDay(toZonedTime(j.scheduledDate, TZ), now)
   );
 
   const dateLine = format(now, "EEEE · d MMMM").toUpperCase();
@@ -216,9 +228,9 @@ export default async function CleanerTodayPage() {
           {greeting}, {cleanerName}.
         </h1>
         <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-          {jobCount === 0
-            ? "No jobs scheduled today — enjoy the day."
-            : `${jobCount} job${jobCount === 1 ? "" : "s"} today.`}
+          {jobsResult === null ? "Your shift could not be loaded." : jobCount === 0
+            ? "No accepted jobs scheduled today."
+            : `${jobCount} accepted job${jobCount === 1 ? "" : "s"} today.`}
         </p>
       </header>
 
@@ -228,12 +240,20 @@ export default async function CleanerTodayPage() {
           how the day is planned. */}
       <DailyBriefing />
 
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <p>Shift snapshot from this page load. {jobsResult !== null ? `${offeredJobs.length} pending offer${offeredJobs.length === 1 ? "" : "s"}.` : ""}</p>
+        <a href="/v2/cleaner" className="inline-flex min-h-11 items-center underline">Refresh shift</a>
+      </div>
+      {jobsResult === null || attentionResult === null ? <div role="alert" className="border-l-4 border-red-600 p-3 text-sm">{jobsResult === null ? "Jobs and route are unavailable. " : ""}{attentionResult === null ? "Attention items are unavailable. " : ""}Refresh this page to try again.</div> : null}
+      {jobsResult !== null ? <ShiftRouteOverview userId={session.user.id} day={dayKey} stops={todayJobs.filter(job => SHIFT_ROUTE_STATUSES.includes(job.status)).map(job => ({ jobId: job.id, property: job.property.name, address: fullAddress(job.property), startTime: job.startTime, status: job.status }))} /> : null}
+
+
       {/* My day — one vertical timeline of today's jobs + outstanding offers */}
-      {myDay.length > 0 ? (
+      {jobsResult === null ? null : myDay.length > 0 ? (
         <section className="space-y-3">
           <span className="e-eyebrow">MY DAY</span>
           {myDay.map((j) => {
-            const isOffered = j.status === "OFFERED";
+            const isOffered = isOffer(j);
             const isToday = isSameLocalDay(toZonedTime(j.scheduledDate, TZ), now);
             const timeWindow = j.startTime
               ? j.dueTime
@@ -259,8 +279,8 @@ export default async function CleanerTodayPage() {
                         </span>
                       ) : null}
                     </span>
-                    <EBadge tone={statusTone(j.status)} soft>
-                      {titleCase(j.status)}
+                    <EBadge tone={isOffered ? "warning" : statusTone(j.status)} soft>
+                      {isOffered ? "Offer awaiting your response" : titleCase(j.status)}
                     </EBadge>
                   </div>
 
@@ -329,9 +349,9 @@ export default async function CleanerTodayPage() {
         </section>
       ) : (
         <EEmptyState
-          eyebrow="All clear"
-          title="Nothing scheduled"
-          description="You have no jobs booked for today or the days ahead."
+          eyebrow="Today"
+          title="No work scheduled today"
+          description={nextJob ? `Your next accepted job is ${format(toZonedTime(nextJob.scheduledDate, TZ), "EEE d MMM")} at ${nextJob.property.name}.` : "No jobs or pending offers need a response on this page."}
         />
       )}
 
@@ -380,9 +400,9 @@ export default async function CleanerTodayPage() {
       ) : null}
 
       <section className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-3">
-        <EStatCard label="Today" value={String(jobCount)} />
-        <EStatCard label="This week" value={String(jobs.length)} />
-        <EStatCard label="Next" value={nextJob?.startTime || "—"} />
+        <EStatCard label="Accepted today" value={jobsResult === null ? "Unavailable" : String(jobCount)} />
+        <EStatCard label="Next 7 days" value={jobsResult === null ? "Unavailable" : String(jobs.filter(j => !isOffer(j) && j.scheduledDate >= todayStart && j.scheduledDate < nextWeek).length)} />
+        <EStatCard label="Next" value={jobsResult === null ? "Unavailable" : nextJob?.startTime || "—"} />
       </section>
 
       {/* Coaching & feedback — self-hides when the cleaner has no records */}
@@ -397,7 +417,7 @@ export default async function CleanerTodayPage() {
           <ECardBody className="flex items-center gap-3 pt-6 text-[hsl(var(--e-muted-foreground))]">
             <CheckCircle2 className="h-5 w-5" />
             <p className="text-[0.8125rem]">
-              Finish {jobCount === 1 ? "it" : `all ${jobCount}`} and the day closes with a flourish.
+              Review each job before ending your shift. Submitted jobs remain visible while checks finish.
             </p>
           </ECardBody>
         </ECard>

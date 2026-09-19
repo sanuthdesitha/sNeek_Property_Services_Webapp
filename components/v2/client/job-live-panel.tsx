@@ -6,7 +6,7 @@
  * used (GET /api/client/jobs/[id], every 15s) while the job is EN_ROUTE, and
  * renders the ETA, pause/delay state, schedule comparison, and live trip map.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MapPin } from "lucide-react";
 import { EBadge, ECard, ECardBody, ECardHeader, ECardTitle } from "@/components/v2/ui/primitives";
@@ -35,7 +35,7 @@ type LiveJob = {
 };
 
 function formatFreshness(value: string | null | undefined) {
-  if (!value) return "No live update yet";
+  if (!value || !Number.isFinite(new Date(value).getTime())) return "No live update yet";
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
   return `${Math.floor(seconds / 60)}m ago`;
@@ -49,52 +49,57 @@ function tripStateLabel(job: LiveJob) {
 }
 
 export function JobLivePanel({ jobId }: { jobId: string }) {
+  return <JobLiveReading key={jobId} jobId={jobId} />;
+}
+
+function JobLiveReading({ jobId }: { jobId: string }) {
   const router = useRouter();
   const [job, setJob] = useState<LiveJob | null>(null);
-  const wasEnRoute = useRef(false);
+  const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-
-    async function load(): Promise<LiveJob | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    async function load() {
+      setLoading(true);
+      let continuePolling = true;
       try {
         const res = await fetch(`/api/client/jobs/${jobId}`, {
-          cache: "no-store",
+          cache: "no-store", signal: controller.signal,
           headers: { "x-progress-toast": "off" },
         });
-        if (!res.ok) return null;
-        const data = (await res.json()) as LiveJob;
-        if (!cancelled) setJob(data);
-        return data;
-      } catch {
-        return null;
-      }
-    }
-
-    load().then((data) => {
-      if (!data || data.status !== "EN_ROUTE") return;
-      wasEnRoute.current = true;
-      intervalId = setInterval(async () => {
-        const updated = await load();
-        if (updated && updated.status !== "EN_ROUTE" && intervalId) {
-          clearInterval(intervalId);
-          intervalId = null;
-          // The rest of the page is server-rendered — refresh it so the status
-          // badge and timeline catch up once the cleaner arrives.
+        if (!res.ok) throw new Error("Unavailable");
+        const data = await res.json() as LiveJob;
+        if (cancelled) return;
+        if (data.id !== jobId || typeof data.status !== "string") throw new Error("Invalid response");
+        setJob(data);
+        setFailed(false);
+        if (data.status !== "EN_ROUTE") {
+          continuePolling = false;
           router.refresh();
         }
-      }, 15000);
-    });
+      } catch {
+        if (!cancelled) setFailed(true);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          if (continuePolling) timer = setTimeout(load, 15000);
+        }
+      }
+    }
+    void load();
+    return () => { cancelled = true; controller.abort(); clearTimeout(timer); };
+  }, [jobId, router, attempt]);
 
-    return () => {
-      cancelled = true;
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [jobId, router]);
-
+  // Hide stale arrival/map data on failed refresh instead of implying it is live.
+  if (failed) return <ECard><ECardBody className="space-y-2 pt-5" role="status">
+    <p>Live arrival updates are unavailable. Retry to check the cleaner's latest status.</p>
+    <button type="button" className="underline" disabled={loading} onClick={() => setAttempt((value) => value + 1)}>{loading ? "Checking…" : "Retry arrival updates"}</button>
+  </ECardBody></ECard>;
   if (!job || job.status !== "EN_ROUTE") return null;
-
   // Compare predicted arrival vs scheduled start time (mirrors legacy logic).
   const scheduleStatus: "early" | "late" | "on-time" | null = (() => {
     if (!job.startTime || job.enRouteEtaMinutes == null || job.drivingPausedAt) return null;

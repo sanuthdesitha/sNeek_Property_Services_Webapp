@@ -21,35 +21,55 @@ export function JobProgressPanel({
   jobId: string;
   initialPercent: number | null;
 }) {
+  return <JobProgressReading key={jobId} jobId={jobId} initialPercent={initialPercent} />;
+}
+
+function JobProgressReading({ jobId, initialPercent }: { jobId: string; initialPercent: number | null }) {
   const router = useRouter();
-  const [percent, setPercent] = useState<number | null>(initialPercent);
+  const [percent, setPercent] = useState<number | null>(Number.isFinite(initialPercent) ? initialPercent : null);
+  const [failed, setFailed] = useState(false);
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    const timer = window.setInterval(async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
+    async function load() {
+      setLoading(true);
+      let continuePolling = true;
       try {
-        const res = await fetch(`/api/client/jobs/${jobId}`, { cache: "no-store" });
-        if (!res.ok) return;
+        const res = await fetch(`/api/client/jobs/${jobId}`, { cache: "no-store", signal: controller.signal, headers: { "x-progress-toast": "off" } });
+        if (!res.ok) throw new Error("Unavailable");
         const data = await res.json();
         if (cancelled) return;
+        if (data.id !== jobId || typeof data.status !== "string") throw new Error("Invalid response");
         if (data.status !== "IN_PROGRESS") {
-          window.clearInterval(timer);
+          continuePolling = false;
+          setPercent(null);
           router.refresh();
           return;
         }
-        setPercent(typeof data.progressPercent === "number" ? data.progressPercent : null);
+        if (data.progressPercent !== null && (typeof data.progressPercent !== "number" || !Number.isFinite(data.progressPercent))) throw new Error("Invalid progress");
+        setPercent(data.progressPercent);
+        setCheckedAt(new Date());
+        setFailed(false);
       } catch {
-        // transient — keep the last reading
+        if (!cancelled) setFailed(true);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          if (continuePolling) timer = setTimeout(load, REFRESH_MS);
+        }
       }
-    }, REFRESH_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [jobId, router]);
+    }
+    void load();
+    return () => { cancelled = true; controller.abort(); clearTimeout(timer); };
+  }, [jobId, router, attempt]);
 
-  if (percent == null) return null;
-  const clamped = Math.min(100, Math.max(0, Math.round(percent)));
+  if (percent == null && !failed) return null;
+  const clamped = Math.min(100, Math.max(0, Math.round(percent ?? 0)));
 
   return (
     <ECard variant="ceremony">
@@ -59,9 +79,9 @@ export function JobProgressPanel({
             <Sparkles className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" />
             Checklist progress
           </span>
-          <span className="e-tnum font-semibold text-[hsl(var(--e-accent-portal))]">~{clamped}%</span>
+          <span className="e-tnum font-semibold text-[hsl(var(--e-accent-portal))]">{percent == null ? "Unavailable" : `~${clamped}%`}</span>
         </div>
-        <div
+        {percent != null ? <div
           className="h-2 w-full overflow-hidden rounded-[var(--e-radius-pill)] bg-[hsl(var(--e-muted))]"
           role="progressbar"
           aria-valuenow={clamped}
@@ -73,10 +93,15 @@ export function JobProgressPanel({
             className="h-full rounded-[var(--e-radius-pill)] bg-[hsl(var(--e-accent-portal))] transition-[width] duration-500"
             style={{ width: `${clamped}%` }}
           />
-        </div>
+        </div> : null}
         <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-          Live from your cleaner's checklist — updates as they work.
+          Estimated progress. This may use checklist updates or elapsed time.
         </p>
+        {checkedAt ? <p className="text-xs text-[hsl(var(--e-muted-foreground))]">Last checked {checkedAt.toLocaleTimeString("en-AU")}</p> : null}
+        {failed ? <div role="status" className="space-y-2 text-sm">
+          <p>Could not refresh progress.{percent != null ? " Showing the last available estimate." : ""}</p>
+          <button type="button" disabled={loading} className="underline" onClick={() => setAttempt((value) => value + 1)}>{loading ? "Checking…" : "Retry progress"}</button>
+        </div> : null}
       </ECardBody>
     </ECard>
   );

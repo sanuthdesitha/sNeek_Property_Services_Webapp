@@ -15,7 +15,7 @@ vi.mock("@/lib/jobs/meta", () => ({ parseJobInternalNotes: () => ({}) }));
 vi.mock("@/lib/forms/final-checkup", () => ({ guestSummaryFromReservation: () => ({}), resolveFinalCheckupItems: () => [] }));
 vi.mock("@/lib/app-url", () => ({ resolveAppUrl: () => "https://example.invalid/laundry" }));
 const revision = "a".repeat(64);
-const tx = { $queryRaw: m.query, jobAssignment: { findFirst: m.assignment }, job: { findUnique: m.job }, property: { findUnique: m.property }, timeLog: { findFirst: m.time } };
+const tx = { $queryRaw: m.query, user: { findUnique: async () => ({ isActive: true, role: "CLEANER", extraRoles: [] }) }, laundryConfirmation: { findMany: async () => [] }, jobAssignment: { findFirst: m.assignment }, job: { findUnique: m.job }, property: { findUnique: m.property }, timeLog: { findFirst: m.time } };
 const request = (patch = {}, identity: string | null = "identity") => new NextRequest("http://localhost/api/cleaner/jobs/job/laundry-status", { method: "POST", headers: { "Content-Type": "application/json", ...(identity ? { "X-Cleaner-Draft-Identity": identity } : {}) }, body: JSON.stringify({ laundryOutcome: "READY_FOR_PICKUP", bagLocation: "Gate", laundryPhotoKey: "key", formRevision: revision, ...patch }) });
 const context = { params: { id: "job" } };
 beforeEach(() => {

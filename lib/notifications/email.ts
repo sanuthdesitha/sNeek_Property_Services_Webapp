@@ -126,12 +126,13 @@ async function resolveRecipient(email: string): Promise<ResolvedRecipient> {
 
 export async function sendEmailDetailed(
   payload: EmailPayload
-): Promise<{ ok: boolean; error?: string; externalId?: string | null; skipped?: boolean }> {
+): Promise<{ ok: boolean; error?: string; externalId?: string | null; skipped?: boolean; acceptance?: "ACCEPTED" | "NOT_ACCEPTED" | "UNKNOWN"; retryable?: boolean }> {
+  let dispatchStarted = false;
   try {
     const resend = getResendClient();
     if (!resend) {
       logger.warn({ to: payload.to, subject: payload.subject }, "Email skipped because RESEND_API_KEY is not configured");
-      return { ok: false, error: "RESEND_API_KEY is not configured" };
+      return { ok: false, error: "RESEND_API_KEY is not configured", acceptance: "NOT_ACCEPTED", retryable: false };
     }
 
     // Automatic emails are gated on the admin's email-automation settings
@@ -245,6 +246,7 @@ export async function sendEmailDetailed(
 
     const html = await prepareHtml(payload.html);
 
+    dispatchStarted = true;
     const response = await resend.emails.send({
       from: payload.from ?? FROM,
       to: Array.isArray(payload.to) ? payload.to : [payload.to],
@@ -253,10 +255,17 @@ export async function sendEmailDetailed(
       replyTo: payload.replyTo,
       attachments: payload.attachments,
     });
-    return { ok: true, externalId: response.data?.id ?? null };
+    if (response.error) {
+      // SDK errors may be returned instead of thrown. Server failures are
+      // uncertain; only explicit validation/auth/rate rejection proves no send.
+      const knownRejection = ["missing_required_field", "invalid_access", "invalid_parameter", "invalid_region", "rate_limit_exceeded", "missing_api_key", "invalid_api_Key", "invalid_from_address", "validation_error", "not_found", "method_not_allowed"].includes(response.error.name);
+      return { ok: false, error: response.error.message, acceptance: knownRejection ? "NOT_ACCEPTED" : "UNKNOWN", retryable: response.error.name === "rate_limit_exceeded" };
+    }
+    if (!response.data?.id) return { ok: false, error: "Email provider acceptance could not be confirmed.", acceptance: "UNKNOWN" };
+    return { ok: true, externalId: response.data.id, acceptance: "ACCEPTED" };
   } catch (err: any) {
     logger.error({ err, payload }, "Failed to send email");
-    return { ok: false, error: err?.message ?? "Unknown email provider error" };
+    return { ok: false, error: err?.message ?? "Unknown email provider error", acceptance: dispatchStarted ? "UNKNOWN" : "NOT_ACCEPTED", retryable: !dispatchStarted };
   }
 }
 

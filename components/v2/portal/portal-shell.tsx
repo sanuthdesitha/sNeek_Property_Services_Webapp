@@ -140,6 +140,14 @@ export function PortalShell({
       try { localStorage.setItem(groupPreferenceKey, JSON.stringify(collapsed)); } catch { /* Keep the session preference. */ }
     }
   };
+  const showAllPages = () => {
+    setQuery("");
+    setDismissedActiveGroup(null);
+    setGroupPreferences({ key: groupPreferenceKey, collapsed: [] });
+    if (groupPreferenceKey) {
+      try { localStorage.setItem(groupPreferenceKey, "[]"); } catch { /* The full navigation remains available in this session. */ }
+    }
+  };
 
   const railInner = (surface: "desktop" | "drawer") => (
     <div className="flex h-full min-h-0 flex-col">
@@ -152,6 +160,10 @@ export function PortalShell({
           onChange={(event) => setQuery(event.target.value)}
           className="h-11 w-full rounded border border-[hsl(var(--e-sidebar-hairline))] bg-transparent pl-9 pr-2 text-sm text-[hsl(var(--e-sidebar-fg))] placeholder:text-[hsl(var(--e-sidebar-fg))]/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" />
       </div>
+      <button type="button" onClick={showAllPages}
+        className="mx-3 min-h-11 rounded px-3 text-left text-xs text-[hsl(var(--e-sidebar-fg))] hover:bg-white/5 focus-visible:outline focus-visible:outline-2">
+        Show all pages
+      </button>
       <nav aria-label="Portal navigation" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain px-3 py-2">
         {filteredNav.length === 0 ? <p role="status" className="px-3 py-4 text-sm text-[hsl(var(--e-sidebar-fg))]">No matching pages</p> : null}
         {sections.map((section, index) => {

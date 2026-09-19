@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   report: vi.fn(), notify: vi.fn(), lifecycle: vi.fn(), automations: vi.fn(), qa: vi.fn(),
   clear: vi.fn(), lowStock: vi.fn(), unexpected: vi.fn(), templates: vi.fn(), anchor: vi.fn(), provision: vi.fn(),
   draft: vi.fn(), lock: vi.fn(), query: vi.fn(),
+  laundry: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ db: {
   jobAssignment: { findFirst: mocks.assignment },
@@ -27,7 +28,7 @@ vi.mock("@/lib/reports/generator", () => ({ generateJobReport: mocks.report }));
 vi.mock("@/lib/s3", () => ({ publicUrl: (key: string) => `https://media.invalid/${key}` }));
 vi.mock("@/lib/cases/service", () => ({ createCase: mocks.unexpected }));
 vi.mock("@/lib/cases/notifications", () => ({ notifyCaseCreated: mocks.unexpected }));
-vi.mock("@/lib/laundry/cleaner-status", () => ({ applyCleanerLaundryStatusUpdate: mocks.unexpected }));
+vi.mock("@/lib/laundry/cleaner-status", () => ({ applyCleanerLaundryStatusUpdate: mocks.laundry }));
 vi.mock("@/lib/cleaner/shared-job-draft", () => ({ clearSharedCleanerJobDraft: mocks.clear,
   getSharedCleanerJobDraft: mocks.draft, withSharedCleanerJobDraftLock: mocks.lock }));
 vi.mock("@/lib/notifications/client-job-notifications", () => ({ sendClientJobNotification: mocks.notify }));
@@ -69,7 +70,6 @@ function submit(data: Record<string, unknown>, templateId = "template", contract
 }
 function expectNoWrites() {
   expect(mocks.claim).not.toHaveBeenCalled();
-  expect(mocks.transaction).not.toHaveBeenCalled();
   expect(mocks.create).not.toHaveBeenCalled();
   expect(mocks.report).not.toHaveBeenCalled();
   expect(mocks.clear).not.toHaveBeenCalled();
@@ -100,14 +100,19 @@ beforeEach(() => {
   mocks.continuation.mockResolvedValue([]); mocks.tasks.mockResolvedValue([]);
   mocks.claim.mockImplementation(async () => { events.push("claim"); return { count: 1 }; });
   mocks.draft.mockResolvedValue(null); mocks.query.mockResolvedValue([]);
-  mocks.lock.mockImplementation(async (_job, callback) => callback({ $queryRaw: mocks.query, job: { updateMany: mocks.claim } }));
+  mocks.lock.mockImplementation(async (_job, callback, tx) => tx ? callback(tx) : mocks.transaction(callback));
   mocks.create.mockImplementation(async () => { events.push("snapshot"); return { id: "submission" }; });
   mocks.media.mockResolvedValue({ count: 1 }); mocks.update.mockResolvedValue({});
   mocks.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
     events.push("transaction");
     const result = await callback({
+      $queryRaw: mocks.query,
+      user: { findUnique: async () => ({ isActive: true, role: Role.CLEANER, extraRoles: [] }) },
+      jobAssignment: { findFirst: mocks.assignment },
+      formTemplate: { findUnique: mocks.template, findMany: mocks.templates, findFirst: mocks.anchor, create: mocks.provision },
+      timeLog: { findFirst: mocks.timeLog },
       formSubmission: { create: mocks.create }, submissionMedia: { createMany: mocks.media },
-      job: { update: mocks.update },
+      job: { update: mocks.update, findUnique: mocks.job, updateMany: mocks.claim },
     });
     events.push("commit"); return result;
   });
@@ -116,6 +121,15 @@ beforeEach(() => {
 });
 
 describe("real cleaner submit form contract", () => {
+  it("writes an explicit ready bag count through the same final-submission transaction", async () => {
+    (job.property as any).laundryEnabled = true;
+    mocks.laundry.mockResolvedValue({ ok: true });
+    const response = await submit({ note: "Done", uploads: { photo: ["evidence.jpg"], laundry_photo: ["laundry.jpg"] } }, "template",
+      { laundryOutcome: "READY_FOR_PICKUP", bagLocation: "Shelf", laundryBagCount: 3 });
+    expect(response.status, JSON.stringify(await response.json())).toBe(200);
+    expect(mocks.laundry).toHaveBeenCalledWith(expect.objectContaining({ laundryBagCount: 3, source: "FINAL_SUBMISSION" }), expect.objectContaining({ transaction: expect.objectContaining({ formSubmission: expect.any(Object) }) }));
+    expect(mocks.create.mock.calls[0][0].data.data).not.toHaveProperty("__laundryReadyBaseline");
+  });
   it.each(["bulkPool", "laundry", "carryForwardNew", "jobTask"])("rejects unused or unavailable typed %s evidence before the status claim", async type => {
     const destination = type === "jobTask" ? { type, taskId: "removed-task" } : { type };
     mocks.draft.mockResolvedValue({ evidenceReceipts: { capture: { key: "durable.jpg", fieldId: "unused", destination } } });
@@ -138,7 +152,7 @@ describe("real cleaner submit form contract", () => {
     const response = await submit({ note: "Done", uploads: { photo: detached ? ["durable.jpg"] : ["other.jpg"] } },
       "template", { formContractVersion: 1, formRevision });
     expect(response.status).toBe(409); expect(await response.json()).toMatchObject({ code: "EVIDENCE_CHANGED" });
-    expect(mocks.query).toHaveBeenCalledOnce(); expect(mocks.lock).toHaveBeenCalledOnce();
+    expect(mocks.query).toHaveBeenCalledTimes(5); expect(mocks.lock).toHaveBeenCalledTimes(2);
     expectNoWrites();
   });
   it.each([1, 2])("evaluates floorCount with the read-side property contract (%s floors)", async floorCount => {
@@ -226,7 +240,7 @@ describe("real cleaner submit form contract", () => {
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, submissionId: "submission" });
-    expect(events).toEqual(["claim", "transaction", "snapshot", "commit"]);
+    expect(events).toEqual(["transaction", "claim", "snapshot", "commit"]);
     expect(mocks.create).toHaveBeenCalledTimes(1);
     const stored = mocks.create.mock.calls[0][0].data;
     expect(stored).toMatchObject({ jobId: "job", templateId: "template", submittedById: "cleaner" });
@@ -252,7 +266,7 @@ describe("real cleaner submit form contract", () => {
     mocks.assignment.mockResolvedValue(null);
     const response = await submit({});
     expect(response.status).toBe(403);
-    expect(mocks.assignment).toHaveBeenCalledWith({ where: { jobId: "job", userId: "cleaner", removedAt: null } });
+    expect(mocks.assignment).toHaveBeenCalledWith(expect.objectContaining({ where: { jobId: "job", userId: "cleaner", removedAt: null } }));
     expect(mocks.template).not.toHaveBeenCalled(); expectNoWrites();
   });
 

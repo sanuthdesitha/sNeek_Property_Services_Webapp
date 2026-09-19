@@ -18,6 +18,7 @@
  *    evidence stamping is never bypassed.
  */
 import * as React from "react";
+import { CaptureAdviceNotice } from "./capture-advice-notice";
 import { useEvidenceScope } from "./evidence-context";
 import { EstatePortal } from "@/components/v2/ui/portal-root";
 import { Camera, ImagePlus, Check, X, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
@@ -66,6 +67,7 @@ export function GuidedCapture({
   });
   const [pending, setPending] = React.useState(0);
   const [error, setError] = React.useState<string | null>(null);
+  const [captureAdvice, setCaptureAdvice] = React.useState<Record<string, string[]>>({});
   const [mounted, setMounted] = React.useState(false);
 
   const cameraRef = React.useRef<HTMLInputElement | null>(null);
@@ -106,6 +108,7 @@ export function GuidedCapture({
           stamp: stampFor(fieldId),
           source,
           evidence: evidenceScope ? { ...evidenceScope, fieldId } : undefined,
+          onAdvice: (filename, messages) => setCaptureAdvice(previous => ({ ...previous, [filename]: messages })),
         });
         if (failed.length > 0) {
           // Name them: re-picking two files beats re-picking the whole batch.
@@ -205,6 +208,7 @@ export function GuidedCapture({
         </div>
 
         {error ? <p className="mt-2 text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</p> : null}
+        <CaptureAdviceNotice advice={captureAdvice} onDismiss={() => setCaptureAdvice({})}/>
 
         {/* Thumbnail strip */}
         <div className="mt-4">

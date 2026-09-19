@@ -311,3 +311,65 @@ it("does not claim success when the recipient record was removed", async () => {
   await screen.findByRole("alert");
   expect(screen.getByText("Unread")).toBeVisible();
 });
+
+describe("notification snooze", () => {
+  it("snoozes by explicit duration and ends snooze without changing follow-up or read", async () => {
+    const initial = { ...emptyInboxState(), followUp: "NEEDS_ACTION" as const };
+    fetchMock.mockImplementation(async (_url, init) => {
+      if (init?.method !== "PATCH") return response([row({ inboxState: initial, isRead: false })]);
+      const input = JSON.parse(init.body);
+      const current = input.revision === 0 ? initial : { ...initial, revision: 1, snoozedUntil: new Date(Date.now() + 3600000).toISOString() };
+      return response({ state: nextInboxState(current, input.action, input.snoozedUntil) });
+    });
+    render(<NotificationInbox accent="client" />); open();
+    fireEvent.click(await screen.findByRole("button", { name: "Snooze 1 hour" }));
+    await waitFor(() => expect(screen.queryByRole("link")).toBeNull());
+    const patch = fetchMock.mock.calls.find(call => call[1]?.method === "PATCH"); const input = JSON.parse(patch![1].body);
+    expect(Date.parse(input.snoozedUntil) - Date.now()).toBeGreaterThan(3500000);
+    fireEvent.change(screen.getByLabelText("Personal follow-up filter"), { target: { value: "SNOOZED" } });
+    expect(screen.getByText("Personal follow-up: Needs action")).toBeVisible(); expect(screen.getByText("Unread")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "End snooze" })); await waitFor(() => expect(screen.queryByRole("link")).toBeNull());
+    fireEvent.change(screen.getByLabelText("Personal follow-up filter"), { target: { value: "NEEDS_ACTION" } }); expect(screen.getByRole("link")).toBeVisible();
+  });
+  it("expired snoozes return on the clock without a write or refresh", async () => {
+    vi.useFakeTimers();
+    try {
+      const until = new Date(Date.now() + 2000).toISOString();
+      fetchMock.mockResolvedValue(response([row({ inboxState: { ...emptyInboxState(), snoozedUntil: until } })]));
+      render(<NotificationInbox accent="client" />); open(); await act(async () => { await Promise.resolve(); });
+      expect(screen.queryByRole("link")).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); }); expect(screen.getByRole("link")).toBeVisible();
+      expect(fetchMock.mock.calls.every(call => call[1]?.method === "GET")).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+  it("does not hide an item when snooze save fails or acknowledgement differs", async () => {
+    fetchMock.mockResolvedValueOnce(response([row({ inboxState: emptyInboxState() })])).mockResolvedValueOnce(response({ state: { ...emptyInboxState(), revision: 1 } }));
+    render(<NotificationInbox accent="client" />); open(); fireEvent.click(await screen.findByRole("button", { name: "Snooze 24 hours" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save follow-up"); expect(screen.getByRole("link")).toBeVisible();
+  });
+});
+
+describe("notification lifecycle details", () => {
+  it("separates dispatch, device evidence, read and acknowledgement", async () => {
+    fetchMock.mockResolvedValue(response([row({ inboxState: { ...emptyInboxState(), followUp: "RESOLVED" }, lifecycle: { dispatch: "INBOX_AVAILABLE", provider: "NOT_RECORDED", personalRead: "UNREAD", acknowledgement: "NOT_RECORDED" } })]));
+    render(<NotificationInbox accent="client" />); open(); await screen.findByText("Delivery details"); fireEvent.click(screen.getByText("Delivery details"));
+    expect(screen.getByText("Available in your inbox")).toBeVisible(); expect(screen.getByText("No provider delivery evidence recorded")).toBeVisible(); expect(screen.getByText(/Acknowledgement: not recorded/)).toBeVisible(); expect(screen.getByText("Personal follow-up: Resolved")).toBeVisible();
+  });
+  it("rejects malformed lifecycle data rather than presenting invented success", async () => {
+    fetchMock.mockResolvedValue(response([row({ lifecycle: { provider: "DELIVERED" } })])); render(<NotificationInbox accent="client" />); open(); await screen.findByText("No recent notifications."); expect(screen.queryByRole("link")).toBeNull();
+  });
+});
+
+it("acknowledgement requires explicit action and does not mark read or resolve follow-up", async () => {
+  const initial = { ...emptyInboxState(), followUp: "NEEDS_ACTION" as const };
+  fetchMock.mockResolvedValueOnce(response([row({ inboxState: initial, isRead: false, lifecycle: { dispatch: "INBOX_AVAILABLE", provider: "NOT_RECORDED", personalRead: "UNREAD", acknowledgement: "NOT_RECORDED" } })])).mockResolvedValueOnce(response({ state: nextInboxState(initial, "ACKNOWLEDGE") }));
+  render(<NotificationInbox accent="client" />); open(); const button = await screen.findByRole("button", { name: "Acknowledge notification" });
+  expect(fetchMock).toHaveBeenCalledTimes(1); fireEvent.click(button);
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Acknowledge notification" })).toBeNull());
+  expect(screen.getByText("Unread")).toBeVisible(); expect(screen.getByText("Personal follow-up: Needs action")).toBeVisible(); expect(screen.getByText(/Acknowledged/)).toBeVisible();
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ id: "one", revision: 0, action: "ACKNOWLEDGE" });
+});
+it("does not invent acknowledgement if mutation response lacks it", async () => {
+  fetchMock.mockResolvedValueOnce(response([row({ inboxState: emptyInboxState() })])).mockResolvedValueOnce(response({ state: { ...emptyInboxState(), revision: 1 } }));
+  render(<NotificationInbox accent="client" />); open(); fireEvent.click(await screen.findByRole("button", { name: "Acknowledge notification" })); expect(await screen.findByRole("alert")).toHaveTextContent("Could not save follow-up"); expect(screen.getByRole("button", { name: "Acknowledge notification" })).toBeVisible();
+});

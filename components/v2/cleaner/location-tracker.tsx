@@ -7,11 +7,12 @@ import { useSession } from "next-auth/react";
 import { ArrowRight, RefreshCw } from "lucide-react";
 import { useGpsTracker } from "@/lib/gps/client";
 import { isTrackedStatus } from "@/lib/gps/tracked-statuses";
+import { ActiveWorkStatus } from "./active-work-status";
 
 const PROBE_INTERVAL_MS = 60_000;
 
 const LABELS = { EN_ROUTE: "On the way", IN_PROGRESS: "In progress", PAUSED: "Paused" };
-type ActiveJob = { id: string; status: keyof typeof LABELS; property: { name: string } };
+type ActiveJob = { id: string; status: keyof typeof LABELS; property: { name: string }; draftIdentity?: string; clock?: { running: boolean; startedAt: string | null }; checkedAt?: string };
 type ProbeState = { scope: string; job: ActiveJob | null; failed: boolean; loading: boolean };
 
 function parseJob(value: unknown): ActiveJob | null {
@@ -28,7 +29,13 @@ function parseJob(value: unknown): ActiveJob | null {
     throw new Error("Invalid active job");
   }
   encodeURIComponent(job.id);
-  return { id: job.id, status: job.status as ActiveJob["status"], property: { name: job.property.name.trim() } };
+  const extra = job as Record<string, unknown>;
+  const clock = extra.clock as ActiveJob["clock"];
+  const validClock = typeof extra.draftIdentity === "string" && /^[a-f0-9]{64}$/.test(extra.draftIdentity) && clock && typeof clock.running === "boolean" &&
+    ((clock.running && typeof clock.startedAt === "string" && Number.isFinite(Date.parse(clock.startedAt))) || (!clock.running && clock.startedAt === null)) &&
+    typeof extra.checkedAt === "string" && Number.isFinite(Date.parse(extra.checkedAt)) && Date.parse(extra.checkedAt) <= Date.now() + 5000;
+  return { id: job.id, status: job.status as ActiveJob["status"], property: { name: job.property.name.trim() },
+    ...(validClock ? { draftIdentity: extra.draftIdentity as string, clock, checkedAt: extra.checkedAt as string } : {}) };
 }
 
 export function LocationTracker() {
@@ -117,6 +124,8 @@ export function LocationTracker() {
         <div className="min-w-0 flex-1 basis-40 [overflow-wrap:anywhere]">
           <p className="text-sm font-semibold">{job.property.name}</p>
           <p className="text-xs text-[hsl(var(--e-muted-foreground))]">{LABELS[job.status]}</p>
+          {job.draftIdentity && job.clock && job.checkedAt ? <ActiveWorkStatus key={job.draftIdentity} identity={job.draftIdentity} jobId={job.id} clock={job.clock} checkedAt={job.checkedAt}/>
+            : <p className="text-xs text-[hsl(var(--e-muted-foreground))]">Clock and save status unavailable.</p>}
         </div>
         <Link href={href} className={actionClass}>Resume job<ArrowRight aria-hidden="true" className="h-4 w-4" /></Link>
       </> : null}

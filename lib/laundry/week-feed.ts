@@ -29,7 +29,7 @@ export const laundryWeekTaskInclude = {
     select: { id: true, name: true, pricePerKg: true, avgTurnaround: true },
   },
   job: { select: { scheduledDate: true, status: true } },
-  confirmations: { orderBy: { createdAt: "asc" as const } },
+  confirmations: { orderBy: [{ createdAt: "asc" as const }, { id: "asc" as const }] },
 } satisfies Prisma.LaundryTaskInclude;
 
 export type LaundryWeekTask = Prisma.LaundryTaskGetPayload<{

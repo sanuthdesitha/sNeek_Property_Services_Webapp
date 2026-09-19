@@ -234,6 +234,7 @@ export function ClientInvoicesPage() {
   const [genPropertyId, setGenPropertyId] = useState("");
   const [genPeriodStart, setGenPeriodStart] = useState("");
   const [genPeriodEnd, setGenPeriodEnd] = useState("");
+  const [genPeriodBasis, setGenPeriodBasis] = useState<"SCHEDULED" | "SERVICE">("SCHEDULED");
   const [genGstEnabled, setGenGstEnabled] = useState(true);
 
   // Rate dialog
@@ -391,13 +392,19 @@ export function ClientInvoicesPage() {
         propertyId: genPropertyId || undefined,
         periodStart: genPeriodStart ? `${genPeriodStart}T00:00:00.000Z` : undefined,
         periodEnd: genPeriodEnd ? `${genPeriodEnd}T23:59:59.999Z` : undefined,
+        periodBasis: genPeriodBasis,
         gstEnabled: genGstEnabled,
       }),
     });
     const body = await res.json().catch(() => ({}));
     setBusy(null);
     if (!res.ok) { toast({ title: "Generate failed", description: body.error, variant: "destructive" }); return; }
-    toast({ title: "Invoice draft created" });
+    const summary = body.generationSummary;
+    const hasSummary = Number.isSafeInteger(summary?.includedJobCount) && summary.includedJobCount >= 0 &&
+      Number.isSafeInteger(summary?.alreadyInvoicedJobCount) && summary.alreadyInvoicedJobCount >= 0;
+    toast({ title: "Invoice draft created", ...(hasSummary ? {
+      description: `${summary.includedJobCount} job(s) included. ${summary.alreadyInvoicedJobCount} job(s) already on another non-void invoice, including drafts.`,
+    } : {}) });
     setShowGenerate(false);
     await load();
     await loadInvoice(body.id);
@@ -862,8 +869,19 @@ export function ClientInvoicesPage() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Generates lines for all completed jobs with billing rates set. Shopping reimbursements are included automatically.
+              Includes started or finished jobs in the selected period. Skipped cleans, unstarted work and
+              jobs already on a non-void invoice (including drafts) are excluded. Missing rates must be resolved
+              before generation. Approved shopping reimbursements are included automatically.
             </p>
+            <div className="space-y-2">
+              <Label htmlFor="invoice-period-basis">Bill jobs by</Label>
+              <select id="invoice-period-basis" className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={genPeriodBasis} onChange={event => setGenPeriodBasis(event.target.value as "SCHEDULED" | "SERVICE")}>
+                <option value="SCHEDULED">Scheduled date - matches the date printed on each line</option>
+                <option value="SERVICE">Completion date - scheduled date for unfinished work</option>
+              </select>
+              <p className="text-xs text-muted-foreground">Applies when a period is set. Completion date can differ from the scheduled date printed on the invoice.</p>
+            </div>
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"

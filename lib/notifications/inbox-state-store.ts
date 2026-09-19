@@ -22,7 +22,7 @@ export async function readInboxStates(userId: string, ids: string[]) {
 export async function changeInboxState(userId: string, role: Role, input: unknown) {
   const parsed = inboxMutationSchema.safeParse(input);
   if (!parsed.success) throw new InboxStateError(400, "Invalid follow-up action.");
-  const { id, revision, action } = parsed.data;
+  const { id, revision, action, snoozedUntil } = parsed.data;
   return db.$transaction(async tx => {
     const key = inboxStateKey(userId, id);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
@@ -31,8 +31,12 @@ export async function changeInboxState(userId: string, role: Role, input: unknow
     const stored = await tx.appSetting.findUnique({ where: { key } });
     const current = stored ? decode(stored.value) : emptyInboxState();
     if (current.revision !== revision) throw new InboxStateError(409, "Follow-up changed elsewhere. Refresh notifications before retrying.");
+    if (action === "ACKNOWLEDGE" && current.acknowledgedAt) throw new InboxStateError(409, "Already acknowledged. Refresh notifications.");
+    if (action === "SNOOZE" && (current.archived || Date.parse(snoozedUntil!) <= Date.now() || Date.parse(snoozedUntil!) > Date.now() + 30 * 24 * 60 * 60 * 1000)) {
+      throw new InboxStateError(400, "Choose a future snooze time within 30 days for an unarchived notification.");
+    }
     if (action === "RESOLVE" && current.followUp !== "NEEDS_ACTION") throw new InboxStateError(409, "Only an active personal follow-up can be resolved. Refresh notifications.");
-    const next = nextInboxState(current, action);
+    const next = nextInboxState(current, action, snoozedUntil);
     await tx.appSetting.upsert({ where: { key }, create: { key, value: next }, update: { value: next } });
     await tx.auditLog.create({ data: { userId, action: `NOTIFICATION_INBOX_${action}`, entity: "Notification", entityId: id, before: current, after: next } });
     return next;

@@ -2,6 +2,7 @@ import { StrictMode, type ReactNode } from "react";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDraftSave } from "@/lib/cleaner/use-draft-save";
+import { readDraftStatus } from "@/lib/cleaner/draft-status-snapshot";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -27,6 +28,26 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("useDraftSave with the real save client", () => {
+  it("retains unconfirmed save status across navigation instead of accepting a late unmounted acknowledgement", async () => {
+    const identity = "snapshot-unmount";
+    const { result, unmount } = renderHook(() => useDraftSave(identity));
+    act(() => { void result.current.save("job", "editor", {}); });
+    await tick();
+    expect(readDraftStatus(identity)?.phase).toBe("saving");
+    unmount(); await reply(0);
+    expect(readDraftStatus(identity)?.phase).toBe("saving");
+    expect(readDraftStatus("another-identity")).toBeNull();
+  });
+  it("publishes only the newest acknowledgement and clears it on explicit reset", async () => {
+    const identity = "snapshot-revision";
+    const { result } = renderHook(() => useDraftSave(identity));
+    act(() => { void result.current.save("job", "editor", {}); }); await tick();
+    act(() => result.current.markDirty()); await reply(0);
+    expect(readDraftStatus(identity)?.phase).toBe("saving");
+    act(() => { void result.current.save("job", "editor", {}); }); await tick(); await reply(1);
+    expect(readDraftStatus(identity)?.phase).toBe("saved");
+    act(() => result.current.reset()); expect(readDraftStatus(identity)).toBeNull();
+  });
   it("sends immutable snapshots FIFO and confirms only the latest save", async () => {
     const { result } = renderHook(useDraftSave);
     const draft = { answers: { note: "first" } };

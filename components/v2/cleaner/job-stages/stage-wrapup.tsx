@@ -233,7 +233,7 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                  "Edit update" is the deliberate way back into the form. */
               <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-success)/0.4)] bg-[hsl(var(--e-success)/0.06)] p-3">
                 <p className="flex items-center gap-1.5 text-[0.875rem] font-[600] text-[hsl(var(--e-success))]">
-                  <Check className="h-4 w-4" /> Laundry update sent
+                  <Check className="h-4 w-4" /> Laundry update saved
                 </p>
                 <dl className="space-y-0.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
                   <div className="flex gap-1.5">
@@ -252,6 +252,7 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                       <dd className="font-[550]">{api.laundryEarlySentAt}</dd>
                     </div>
                   ) : null}
+                  {api.laundryOutcome === "READY_FOR_PICKUP" ? <div className="flex gap-1.5"><dt>Bags ready:</dt><dd>{api.laundryBagCount || "Not recorded"}</dd></div> : null}
                 </dl>
                 <EButton variant="outline" size="sm" disabled={locked} onClick={api.beginLaundryEdit}>
                   Edit update
@@ -277,6 +278,11 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
             </EField>
             {api.laundryOutcome === "READY_FOR_PICKUP" ? (
               <>
+                <EField label="Bags ready (optional)">
+                  <EInput aria-label="Bags ready (optional)" type="number" min={1} max={50} step={1} value={api.laundryBagCount}
+                    disabled={locked || api.laundryBagCountRecorded} onChange={e => api.setLaundryBagCount(e.target.value)} />
+                  <p className="text-xs text-[hsl(var(--e-muted-foreground))]">{api.laundryBagCountRecorded ? "The original ready count is retained for pickup comparison. An unrecorded count stays unknown." : "Count the bags left for pickup. Leave blank if you cannot confirm the count."}</p>
+                </EField>
                 <EField label="Bag location (required)">
                   {api.laundryBagLocationOptions.length > 0 ? (
                     <ESelect

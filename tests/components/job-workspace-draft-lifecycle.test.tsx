@@ -36,7 +36,11 @@ function FixtureStage({ api }: { api: WorkspaceApi }) {
       onChange={(event) => api.onAnswer("note", event.target.value)} /></label>
     <button disabled={api.locked || Boolean(api.busy)} onClick={api.requestSubmit}>Submit fixture</button>
     <button onClick={() => api.setLaundryOutcome("NOT_READY")}>Prepare laundry fixture</button>
+    <button onClick={() => { api.setLaundryOutcome("READY_FOR_PICKUP"); api.setLaundryBagLocation("Shelf"); api.setLaundryPhoto([{ key: "laundry/photo.jpg", url: "/photo.jpg", type: "photo" } as any]); }}>Prepare ready fixture</button>
+    <label>Fixture bags<input value={api.laundryBagCount} disabled={api.laundryBagCountRecorded} onChange={event => api.setLaundryBagCount(event.target.value)} /></label>
     <button onClick={() => void api.sendLaundryEarlyUpdate()}>Send laundry fixture</button>
+    <button onClick={() => void api.pauseClock()}>Pause fixture</button>
+    <button onClick={() => void api.clockIn()}>Start fixture</button>
     {api.laundryEarlyNotice ? <span data-testid="laundry-notice">{api.laundryEarlyNotice.text}</span> : null}
     {api.laundryEarlySentAt ? <span data-testid="laundry-saved">Saved</span> : null}
   </>;
@@ -78,19 +82,24 @@ let unexpected: string[];
 let currentStatus: string;
 let readDraft: () => Promise<Response>;
 let laundryResponse: Record<string, unknown>;
+let clockResponse: () => Promise<Response>;
 
 beforeEach(() => {
   vi.useFakeTimers();
   localStorage.clear();
+  sessionStorage.clear();
   patches = []; formResponses = []; unexpected = []; currentStatus = "IN_PROGRESS";
   readDraft = () => Promise.resolve(json({ draft: null }));
   laundryResponse = { ok: true };
+  clockResponse = () => Promise.resolve(json({ ok: true }));
   submitResponse = deferred<Response>(); gpsResponse = deferred();
   device.gps.mockReset().mockReturnValue(gpsResponse.promise);
   // The client has no independent auth fetch: authenticated form/briefing/draft
   // responses are fixtures; PATCH 401/403 behavior is exercised below.
   fetchMock = vi.fn((input: RequestInfo | URL, options: RequestInit = {}) => {
     const url = String(input); const method = options.method ?? "GET";
+    if ((url.endsWith("/stop") || url.endsWith("/start")) && method === "POST") return clockResponse();
+    if (url.endsWith("/action-recovery") && method === "POST") return Promise.resolve(json({ ok: true, state: "COMMITTED", result: { status: 200, body: { ok: true } } }));
     if (url === "/api/jobs/job/form" && method === "GET") return formResponses.shift() ?? Promise.resolve(json(form(currentStatus)));
     if (url === "/api/cleaner/jobs/job/briefing" && method === "GET") return Promise.resolve(json({}));
     if (url === "/api/cleaner/property-access/property" && method === "GET") return Promise.resolve(json({}));
@@ -139,6 +148,77 @@ async function submit() {
 }
 
 describe("real JobWorkspace draft lifecycle", () => {
+  it.each([null, 4])("uses the canonical persisted baseline on reload (count=%s)", async count => {
+    localStorage.setItem(mirrorKey, localEnvelope({ answers: {}, laundry: { outcome: "READY_FOR_PICKUP", bagCount: "9" } }));
+    formResponses.push(Promise.resolve(json({ ...form(), laundryState: { readinessBaselineRecorded: true, recordedLaundryBagCount: count, latestConfirmation: { notes: "Driver comment" } } })));
+    await mount();
+    expect(screen.getByLabelText("Fixture bags")).toHaveValue(count === null ? "" : String(count));
+    expect(screen.getByLabelText("Fixture bags")).toBeDisabled();
+  });
+  it("retains the optional count in drafts and freezes the actual ready receipt on duplicate", async () => {
+    laundryResponse = { ok: true, duplicated: true, recordedLaundryBagCount: 2 };
+    const view = await mount();
+    fireEvent.click(screen.getByText("Prepare ready fixture"));
+    fireEvent.change(screen.getByLabelText("Fixture bags"), { target: { value: "3" } });
+    await advance();
+    expect(patches.at(-1)?.body.state.laundry.bagCount).toBe("3");
+    view.unmount(); await mount();
+    expect(screen.getByLabelText("Fixture bags")).toHaveValue("3");
+    await act(async () => { fireEvent.click(screen.getByText("Send laundry fixture")); });
+    expect(JSON.parse(calls("/laundry-status", "POST")[0][1].body).laundryBagCount).toBe(3);
+    expect(screen.getByLabelText("Fixture bags")).toHaveValue("2");
+    expect(screen.getByLabelText("Fixture bags")).toBeDisabled();
+  });
+  it("rejects an invalid explicit ready count before dispatch but leaves blank unknown", async () => {
+    await mount(); fireEvent.click(screen.getByText("Prepare ready fixture"));
+    fireEvent.change(screen.getByLabelText("Fixture bags"), { target: { value: "1.5" } });
+    await act(async () => { fireEvent.click(screen.getByText("Send laundry fixture")); });
+    expect(calls("/laundry-status", "POST")).toHaveLength(0);
+    expect(screen.getByTestId("laundry-notice")).toHaveTextContent("whole number");
+    fireEvent.change(screen.getByLabelText("Fixture bags"), { target: { value: "" } });
+    await act(async () => { fireEvent.click(screen.getByText("Send laundry fixture")); });
+    expect(JSON.parse(calls("/laundry-status", "POST")[0][1].body)).not.toHaveProperty("laundryBagCount");
+    expect(screen.getByLabelText("Fixture bags")).toHaveValue("");
+    expect(screen.getByLabelText("Fixture bags")).toBeDisabled();
+  });
+  it("keeps offline edits while clock and laundry commands do not dispatch or replay on reconnect", async () => {
+    await mount();
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    await act(async () => { window.dispatchEvent(new Event("offline")); });
+    edit("offline original");
+    await act(async () => {
+      fireEvent.click(screen.getByText("Pause fixture")); fireEvent.click(screen.getByText("Start fixture"));
+      fireEvent.click(screen.getByText("Prepare laundry fixture"));
+    });
+    await act(async () => { fireEvent.click(screen.getByText("Send laundry fixture")); });
+    expect(calls("/stop", "POST")).toHaveLength(0); expect(calls("/start", "POST")).toHaveLength(0);
+    expect(calls("/laundry-status", "POST")).toHaveLength(0);
+    online.mockReturnValue(true);
+    await act(async () => { window.dispatchEvent(new Event("online")); });
+    expect(calls("/stop", "POST")).toHaveLength(0);
+    expect(screen.getByLabelText("Fixture answer")).toHaveValue("offline original");
+    online.mockRestore();
+  });
+  it("blocks uncertain clock retries across remount until a fresh authenticated status read succeeds", async () => {
+    clockResponse = () => Promise.reject(new TypeError("response lost after commit"));
+    const view = await mount(); edit("keep my evidence notes");
+    await act(async () => { fireEvent.click(screen.getByText("Pause fixture")); });
+    expect(screen.getByText("Action outcome needs checking")).toBeInTheDocument();
+    await act(async () => { fireEvent.click(screen.getByText("Pause fixture")); });
+    expect(calls("/stop", "POST")).toHaveLength(1);
+    view.unmount(); await mount();
+    expect(screen.getByText("Action outcome needs checking")).toBeInTheDocument();
+    formResponses.push(Promise.resolve(json({ error: "unavailable" }, 503)));
+    await act(async () => { fireEvent.click(screen.getByText("Check latest server status")); });
+    expect(screen.getByText("Action outcome needs checking")).toBeInTheDocument();
+    await act(async () => { fireEvent.click(screen.getByText("Check latest server status")); });
+    expect(screen.queryByText("Action outcome needs checking")).not.toBeInTheDocument();
+    expect(calls("/stop", "POST")).toHaveLength(1);
+    expect(screen.getByLabelText("Fixture answer")).toHaveValue("keep my evidence notes");
+    clockResponse = () => Promise.resolve(json({ ok: true }));
+    await act(async () => { fireEvent.click(screen.getByText("Pause fixture")); });
+    expect(calls("/stop", "POST")).toHaveLength(2);
+  });
   it.each([false, true])("keeps acknowledged early laundry saved without claiming delivery (duplicate=%s)", async duplicated => {
     const warning = "Laundry update saved, but notification delivery could not be confirmed. Contact the office if urgent.";
     laundryResponse = duplicated ? { ok: true, duplicated: true } : { ok: true, duplicated: false, deliveryWarning: warning };

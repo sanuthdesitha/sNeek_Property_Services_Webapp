@@ -475,7 +475,12 @@ export function EstateInvoices() {
         toast({ title: "Generate failed", description: body.error, variant: "destructive" });
         return;
       }
-      toast({ title: "Invoice draft created" });
+      const summary = body.generationSummary;
+      const hasSummary = Number.isSafeInteger(summary?.includedJobCount) && summary.includedJobCount >= 0 &&
+        Number.isSafeInteger(summary?.alreadyInvoicedJobCount) && summary.alreadyInvoicedJobCount >= 0;
+      toast({ title: "Invoice draft created", ...(hasSummary ? {
+        description: `${summary.includedJobCount} job(s) included. ${summary.alreadyInvoicedJobCount} job(s) already on another non-void invoice, including drafts.`,
+      } : {}) });
       setShowGenerate(false);
       await load();
     } finally {
@@ -1019,7 +1024,7 @@ export function EstateInvoices() {
               onChange={(e) => setGenPeriodBasis(e.target.value as "SCHEDULED" | "SERVICE")}
             >
               <option value="SCHEDULED">Scheduled date — matches the date printed on each line</option>
-              <option value="SERVICE">Completion date — bills by when work was finished</option>
+              <option value="SERVICE">Completion date - scheduled date for unfinished work</option>
             </ESelect>
           </EField>
           {genPeriodBasis === "SERVICE" && (genPeriodStart || genPeriodEnd) ? (
@@ -1037,8 +1042,10 @@ export function EstateInvoices() {
             <ESwitch checked={genGstEnabled} onCheckedChange={setGenGstEnabled} />
           </div>
           <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-            Generates lines for all completed jobs with billing rates set. Shopping reimbursements are included
-            automatically.
+            Includes jobs that have started or finished, across all selected client properties and within
+            the selected period. Jobs already on another non-void invoice (including drafts), skipped
+            cleans and work that has not started are excluded. Missing billing rates must be resolved
+            before generation. Approved shopping reimbursements are included automatically.
           </p>
           <EButton
             className="w-full"
