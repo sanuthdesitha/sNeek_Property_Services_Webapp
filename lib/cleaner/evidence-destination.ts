@@ -10,6 +10,13 @@ export const evidenceDestinationSchema = z.discriminatedUnion("type", [
 ]);
 export type EvidenceDestination = z.infer<typeof evidenceDestinationSchema>;
 export type BoundEvidence = { key: string; fieldId: string; destination?: EvidenceDestination; detached?: boolean };
+/** Layout hint only. Server must separately verify actor, job, saved pool and object. */
+export function isLegacyEvidenceKey(key: string): boolean {
+  if (!key || key.length > 1000 || /[\\\u0000-\u0020]/.test(key)) return false;
+  const parts = key.split("/");
+  return !parts.some(part => !part || part === "." || part === "..") &&
+    ((parts[0] === "forms" && parts.length === 3) || (parts[0] === "jobs" && parts.length === 4));
+}
 export function destinationOf(value: { fieldId: string; destination?: EvidenceDestination }): EvidenceDestination {
   return value.destination ?? { type: "formField", fieldId: value.fieldId };
 }

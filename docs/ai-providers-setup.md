@@ -83,3 +83,5 @@ All three providers can receive authorized examples from the same property and f
 ## Deployment status
 
 Checks inspect metadata, not image quality. Review results on representative jobs; unsupported models and malformed output fail safely. Queued QA reviews from a different provider stop after a provider switch; explicitly retry analysis on the review page to use current settings. Requests already sent before a setting change cannot be recalled. This code change does not provision a live server, download weights or verify real inference. Follow the setup on your hosting environment and verify both web and worker connectivity.
+
+Older bulk photos: Auto assign now verifies eligible pre-receipt uploads already saved in the unassigned pool before analysing them. No re-upload is needed. Files owned by a different cleaner, stale/conflicting receipts or unsupported storage layouts still require manual assignment or office review. Redeploy and reload the cleaner form to use this compatibility step.

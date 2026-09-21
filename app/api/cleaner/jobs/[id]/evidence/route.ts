@@ -21,6 +21,7 @@ import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { evidenceDestinationSchema, destinationOf, destinationKey, destinationMedia, setDestinationMedia, removeEvidenceKeys } from "@/lib/cleaner/evidence-destination";
 
 const schema = z.object({ captureId: z.string().uuid(), fieldId: z.string().min(1).max(200),
+  legacy: z.boolean().optional(),
   destination: evidenceDestinationSchema.optional(),
   move: z.object({ from: evidenceDestinationSchema, version: z.number().int().nonnegative() }).optional(),
   templateId: z.string().min(1), formRevision: z.string().regex(/^[a-f0-9]{64}$/),
@@ -37,9 +38,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Upload endpoints allocate exactly forms/job/capture/actor/filename. Never accept
     // another actor's object or caller-supplied URLs as an attachment receipt.
     const segments = body.key.split("/");
-    if (segments.length !== 5 || segments[0] !== "forms" || segments[1] !== params.id ||
-      segments[2] !== body.captureId || segments[3] !== session.user.id ||
-      !segments[4] || segments.some(part => part === "." || part === "..")) return json({ error: "Invalid evidence ownership." }, 403);
+    const safeKey = !/[\\\u0000-\u0020\u007f]/.test(body.key) && !segments.some(part => !part || part === "." || part === "..");
+    const owned = body.legacy
+      ? (segments.length === 3 && segments[0] === "forms" && segments[1] === session.user.id)
+        || (segments.length === 4 && segments[0] === "jobs" && segments[1] === params.id && segments[2] === session.user.id)
+      : segments.length === 5 && segments[0] === "forms" && segments[1] === params.id && segments[2] === body.captureId && segments[3] === session.user.id;
+    if (!safeKey || !owned) return json({ error: "Invalid evidence ownership." }, 403);
     const initialAssignment = await db.jobAssignment.findFirst({ where: { jobId: params.id, userId: session.user.id, removedAt: null }, select: { id: true } });
     if (!initialAssignment) return json({ error: "Not assigned to this job." }, 403);
       const { client: s3, bucket: Bucket } = await resolveS3();
@@ -106,6 +110,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (!allowedKind || !isAllowedUploadContentType(object.ContentType, body.key)) return json({ error: "This file type does not match the evidence field. Keep the original for review." }, 409);
       const verifiedMedia = { key: body.key, url: publicUrl(body.key), kind, name: body.name };
       const known = receipts[body.captureId];
+      if (body.legacy) {
+        if (kind !== "image") return json({ error: "Only saved legacy photos can be acknowledged." }, 409);
+        if (Object.entries(receipts).some(([id, receipt]) => id !== body.captureId && receipt.key === body.key)) return json({ error: "This photo already has an evidence receipt. Refresh before assigning it." }, 409);
+        if (!known) {
+          const pool = destinationMedia(state, { type: "bulkPool" });
+          const otherDestinations = [
+            ...Object.keys((state.uploads ?? {}) as object).map(fieldId => ({ type: "formField" as const, fieldId })),
+            ...Object.keys((state.taskDrafts ?? {}) as object).map(taskId => ({ type: "jobTask" as const, taskId })),
+            { type: "laundry" as const }, { type: "carryForwardNew" as const },
+          ];
+          if (target.type !== "bulkPool" || !pool.some(media => media?.key === body.key && media.kind === "image")
+            || otherDestinations.some(destination => destinationMedia(state, destination).some(media => media?.key === body.key))) {
+            return json({ error: "This photo must already be saved only in this job's unassigned pool. Refresh before assigning it." }, 409);
+          }
+        }
+      }
       if (known) {
         if (known.detached) return json({ error: "This attachment was explicitly removed. Keep the original for review." }, 409);
         if (known.key !== body.key || known.formRevision !== revision || known.draftIdentity !== identity) return json({ error: "Evidence receipt conflict. Keep the file for review." }, 409);

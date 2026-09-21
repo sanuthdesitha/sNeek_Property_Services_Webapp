@@ -82,7 +82,13 @@ export async function proposePhotoAssignments(jobId: string, session: Session, r
   if (new Set(input.photos.map(photo => photo.key)).size !== input.photos.length || new Set(input.photos.map(photo => photo.captureId)).size !== input.photos.length) fail(400, "Choose each photo only once.");
   for (const photo of input.photos) {
     const parts = photo.key.split("/");
-    if (parts.length !== 5 || parts[0] !== "forms" || parts[1] !== jobId || parts[2] !== photo.captureId || parts[3] !== session.user.id || !parts[4] || parts.some(part => part === "." || part === "..")) fail(403, "Invalid photo ownership.");
+    const safeKey = !/[\\\u0000-\u0020\u007f]/.test(photo.key) && !parts.some(part => !part || part === "." || part === "..");
+    const owned = (parts.length === 5 && parts[0] === "forms" && parts[1] === jobId && parts[2] === photo.captureId && parts[3] === session.user.id)
+      || (parts.length === 3 && parts[0] === "forms" && parts[1] === session.user.id)
+      || (parts.length === 4 && parts[0] === "jobs" && parts[1] === jobId && parts[2] === session.user.id);
+    // Legacy ownership alone is insufficient: the locked snapshot below still
+    // requires its adopted receipt, current revision and saved unassigned image.
+    if (!safeKey || !owned) fail(403, "Invalid photo ownership.");
   }
   const config = await getVisionSettings();
   const historicalEnabled = config.historicalAssignmentExamplesEnabled !== false;

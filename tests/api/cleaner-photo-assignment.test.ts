@@ -41,6 +41,33 @@ it("returns proposals from canonical fields and owned bytes without moving evide
   expect(m.assign.mock.calls[0][0].fields).toMatchObject([{ id: "bathroom", sectionLabel: "Room", referenceImages: [{ data: "eA==" }] }]); expect(JSON.stringify(draft)).toBe(before);
   expect(response.headers.get("cache-control")).toBe("private, no-store");
 });
+it.each(["forms/cleaner/old.jpg", "jobs/job/cleaner/old.jpg"])("analyses adopted legacy photo %s using its unchanged storage key", async legacyKey => {
+  draft.state.bulkPool[0].key = legacyKey; draft.evidenceReceipts[captureId].key = legacyKey;
+  const response = await run({ photos: [{ captureId, key: legacyKey, version: 0 }] });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ proposals: [{ captureId, key: legacyKey, version: 0, fieldId: "bathroom" }] });
+  expect(m.image).toHaveBeenCalledWith(legacyKey, captureId); expect(m.assign).toHaveBeenCalledTimes(1);
+  expect(draft.state.bulkPool[0].key).toBe(legacyKey);
+});
+it.each(["missing-receipt", "detached", "identity", "revision", "version", "destination", "pool"])("rejects adopted legacy photo with invalid %s before image disclosure", async change => {
+  const legacyKey = "forms/cleaner/old.jpg";
+  draft.state.bulkPool[0].key = legacyKey; draft.evidenceReceipts[captureId].key = legacyKey;
+  const receipt = draft.evidenceReceipts[captureId];
+  if (change === "missing-receipt") delete draft.evidenceReceipts[captureId];
+  if (change === "detached") receipt.detached = true;
+  if (change === "identity") receipt.draftIdentity = "other";
+  if (change === "revision") receipt.formRevision = "b".repeat(64);
+  if (change === "version") receipt.version = 1;
+  if (change === "destination") receipt.destination = { type: "formField", fieldId: "bathroom" };
+  if (change === "pool") draft.state.bulkPool = [];
+  expect((await run({ photos: [{ captureId, key: legacyKey, version: 0 }] })).status).toBe(409);
+  expect(m.image).not.toHaveBeenCalled(); expect(m.assign).not.toHaveBeenCalled();
+});
+it.each(["forms/other/old.jpg", "jobs/other/cleaner/old.jpg", "jobs/job/other/old.jpg", "forms/cleaner/..", "forms/cleaner/old\\file.jpg", "forms/cleaner/old\nfile.jpg", "jobs/job/cleaner/", key.replace("photo.jpg", ".."), key.replace("photo.jpg", "bad\u007ffile.jpg")])("rejects forged legacy and malformed durable key %s", async invalidKey => {
+  draft.state.bulkPool[0].key = invalidKey; draft.evidenceReceipts[captureId].key = invalidKey;
+  expect((await run({ photos: [{ captureId, key: invalidKey, version: 0 }] })).status).toBe(403);
+  expect(m.image).not.toHaveBeenCalled(); expect(m.assign).not.toHaveBeenCalled();
+});
 it.each([key.replace("forms/job/", "forms/other/"), key.replace("/cleaner/", "/another/"), "https://example.com/photo.jpg"])("rejects cross-job/actor/url input before storage/provider: %s", async value => {
   expect((await run({ photos: [{ ...input.photos[0], key: value }] })).status).toBe(403); expect(m.image).not.toHaveBeenCalled(); expect(m.assign).not.toHaveBeenCalled();
 });

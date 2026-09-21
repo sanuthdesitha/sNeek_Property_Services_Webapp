@@ -42,7 +42,7 @@ import {
 import type { UploadMap } from "@/components/v2/cleaner/form-renderer";
 import { useEvidenceScope } from "./evidence-context";
 import { moveEvidence, removeEvidence } from "@/lib/cleaner/evidence-client";
-import { destinationOf, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
+import { destinationOf, isLegacyEvidenceKey, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
 import {
   addToPool,
   assignToField,
@@ -208,16 +208,40 @@ export function BulkPhotoAssign({
       if (!prepareAutoAssign) throw new Error("Save the current form and reopen bulk photos before auto assigning.");
       await prepareAutoAssign(); if (!current()) return;
       const headers = { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": scope.draftIdentity };
-      const { response: read, body: draft } = await requestJson(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, { headers, cache: "no-store" });
+      let { response: read, body: draft } = await requestJson(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, { headers, cache: "no-store" });
       if (!current()) return;
       if (!read.ok) throw new Error(draft.error || "Could not check saved photos. Try again.");
       const unassigned = new Set(poolRef.current.filter(media => media.kind === "image" && !assignmentIndex(uploadsRef.current)[media.key]).map(media => media.key));
+      // Older saved pool uploads predate receipts. The server verifies ownership,
+      // saved location and the exact stored image before acknowledging them.
+      const receiptedKeys = new Set(Object.values(draft.draft?.evidenceReceipts ?? {}).map(value => (value as any)?.key));
+      const legacyKeys = Array.from(unassigned).filter(key => !receiptedKeys.has(key) && isLegacyEvidenceKey(key));
+      for (const key of legacyKeys) {
+        if (!current()) return;
+        if (!poolRef.current.some(media => media.key === key) || assignmentIndex(uploadsRef.current)[key]) continue;
+        setAiNote("Verifying older uploaded photos. Originals stay in place; no files are uploaded again.");
+        const captureId = crypto.randomUUID();
+        const { response, body } = await requestJson(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/evidence`, {
+          method: "POST", headers, body: JSON.stringify({ legacy: true, captureId, key,
+            fieldId: "bulkPool", destination: { type: "bulkPool" }, templateId: scope.templateId, formRevision: scope.formRevision,
+            name: (poolRef.current.find(media => media.key === key)?.name ?? "Photo").slice(0, 300) }),
+        });
+        if (!current()) return;
+        if (!response.ok) throw new Error(body.error || "An older photo could not be verified. Originals are unchanged; retry or assign manually.");
+        if (body.ok !== true || body.captureId !== captureId || body.key !== key || body.destination?.type !== "bulkPool" || body.version !== 0) throw new Error("Photo verification was not confirmed. Retry to check the saved receipt; no file was uploaded again.");
+      }
+      if (legacyKeys.length) {
+        ({ response: read, body: draft } = await requestJson(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, { headers, cache: "no-store" }));
+        if (!current()) return;
+        if (!read.ok) throw new Error(draft.error || "Could not check verified photos. Try again.");
+        setAiNote(null);
+      }
       const photos = Object.entries(draft.draft?.evidenceReceipts ?? {}).flatMap(([captureId, value]) => {
         const receipt = value as any;
         return receipt && !receipt.detached && receipt.draftIdentity === scope.draftIdentity && receipt.formRevision === scope.formRevision && destinationOf(receipt).type === "bulkPool" && unassigned.has(receipt.key) && Number.isInteger(receipt.version ?? 0)
           ? [{ captureId, key: receipt.key as string, version: receipt.version ?? 0 }] : [];
       });
-      if (!photos.length) throw new Error("No acknowledged, unassigned photos are ready. Finish evidence recovery or assign manually.");
+      if (!photos.length) throw new Error("No photos are eligible for auto assignment in this form. Photos from another cleaner, an older form version, or an unsupported upload need manual assignment or office review. Originals remain unchanged.");
       const held = proposalScope === startedScope ? proposals.filter(row => photos.some(photo => photo.captureId === row.captureId && photo.key === row.key && photo.version === row.version)) : [];
       setProposalScope(startedScope); setProposals(held);
       let remaining = photos.filter(photo => !held.some(row => row.captureId === photo.captureId));

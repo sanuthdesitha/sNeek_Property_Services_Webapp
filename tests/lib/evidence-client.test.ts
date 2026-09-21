@@ -45,6 +45,7 @@ describe("durable evidence receipt recovery", () => {
     await moveEvidence(scope, receipt, { type: "bulkPool" }, { type: "formField", fieldId: "proof" });
     expect(saved.destination).toEqual({ type: "formField", fieldId: "proof" }); expect(saved.destinationVersion).toBe(1);
     expect(JSON.parse(fetcher.mock.calls[1][1].body).move).toEqual({ from: { type: "bulkPool" }, version: 0 });
+    expect(JSON.parse(fetcher.mock.calls[1][1].body).legacy).toBe(true);
   });
   it("reconciles an already committed move after lost acknowledgement from the server ledger", async () => {
     saved = { ...record, destination: { type: "bulkPool" }, receipt, status: "attached" };

@@ -1469,6 +1469,8 @@ Bounces and complaints feed the **suppression list** (`lib/email/suppression.ts`
 
 ## Change Log
 
+- **2026-09-22** - Auto-assignment now acknowledges older unassigned pool photos before analysis without uploading bytes again. Legacy forms/actor/file and jobs/job/actor/file objects require current cleaner ownership, saved exclusive pool membership, image HEAD verification, current form revision and no conflicting receipt. Strict versioned moves and human assignment approval remain enforced.
+
 - **2026-09-21** - V2 Marketing > Social posts > New draft now exposes AI caption generation through the configured provider. Generated text is previewed and explicitly applied before saving; errors/cancellation preserve manual captions and generation never publishes.
 
 - **2026-09-21** - Added OpenAI and local Ollama alongside Anthropic for photo analysis and social drafting, with provider isolation, local model checks, private deployment overrides and connection instructions.

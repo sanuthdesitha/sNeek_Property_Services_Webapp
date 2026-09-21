@@ -10,6 +10,32 @@ test.beforeAll(async () => {
   css = (await postcss([tailwind({ config: path.resolve("tailwind.config.ts") })]).process(await fs.readFile("app/globals.css", "utf8"), { from: "app/globals.css" })).css + await fs.readFile("app/v2/estate.css", "utf8");
 });
 const photoNames = ["one.jpg", "two.jpg", "three.jpg", "four.jpg", "five.jpg", "six.jpg"];
+test("older saved photos are acknowledged before analysis and explicitly assigned", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 780 });
+  const receipts: Record<string, any> = {}; const writes: any[] = [];
+  await page.route("http://localhost:3999/**", async route => {
+    const url = route.request().url();
+    if (url.endsWith("/draft")) return route.fulfill({ json: { draft: { evidenceReceipts: receipts } } });
+    if (url.endsWith("/evidence")) {
+      const body = route.request().postDataJSON(); writes.push(body);
+      receipts[body.captureId] = { key: body.key, draftIdentity: "actor", formRevision: "revision", destination: body.destination, version: body.move ? body.move.version + 1 : 0 };
+      return route.fulfill({ json: { ok: true, captureId: body.captureId, ...receipts[body.captureId] } });
+    }
+    if (url.endsWith("/auto-assign")) {
+      const photos = route.request().postDataJSON().photos;
+      expect(writes).toHaveLength(1); expect(writes[0].legacy).toBe(true);
+      return route.fulfill({ json: { templateId: "template", formRevision: "revision", draftIdentity: "actor", minConfidence: .8, proposals: photos.map((photo: any) => ({ ...photo, fieldId: "kitchen", confidence: .96, reason: "Kitchen match" })) } });
+    }
+    return route.fulfill({ contentType: "text/html", body: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>' });
+  });
+  await page.goto("http://localhost:3999/bulk?legacy"); await page.addStyleTag({ content: css }); await page.addScriptTag({ content: bundle });
+  await page.getByRole("button", { name: "Auto assign", exact: true }).click();
+  await expect(page.getByText("Kitchen match")).toBeVisible(); await expect(page.getByText("Unassigned: 1")).toBeVisible();
+  expect(writes).toHaveLength(1);
+  await page.getByRole("button", { name: "Accept 1 high-confidence suggestion" }).click();
+  await expect(page.getByText("Unassigned: 0")).toBeVisible();
+  expect(writes).toHaveLength(2); expect(writes[1]).toMatchObject({ legacy: true, key: "forms/cleaner/old.jpg", move: { version: 0 } });
+});
 class BulkPhotos {
   constructor(readonly page: Page) {}
   async upload() { await this.page.getByLabel("Choose photos", { exact: true }).setInputFiles(photoNames.map(name => ({ name, mimeType: "image/jpeg", buffer: Buffer.from("mock upload") }))); await expect(this.page.getByText("Unassigned: 6")).toBeVisible(); }

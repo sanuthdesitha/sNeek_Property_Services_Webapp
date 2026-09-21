@@ -28,6 +28,50 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 const state = () => JSON.parse(screen.getByTestId("state").textContent!);
 async function analyse() { fireEvent.click(screen.getByRole("button", { name: "Auto assign", exact: true })); await screen.findByText("Bench and sink visible"); }
 
+it("verifies older saved photos before analysing without re-uploading or auto-applying", async () => {
+  const key = "forms/cleaner/old.jpg"; let ack: any;
+  fetcher.mockImplementation(async (url: string, init: RequestInit) => {
+    if (url.endsWith("/draft")) return json({ draft: { evidenceReceipts: ack ? { [ack.captureId]: { ...scope, key, version: 0, destination: { type: "bulkPool" } } } : {} } });
+    if (url.endsWith("/evidence")) { ack = JSON.parse(init.body as string); return json({ ok: true, ...ack, version: 0 }); }
+    return json(response([{ ...proposal(key), captureId: ack.captureId, version: 0 }]));
+  });
+  render(<Harness initialKeys={[key]} />); await analyse();
+  expect(fetcher.mock.calls.map(call => call[0].split("/").pop())).toEqual(["draft", "evidence", "draft", "auto-assign"]);
+  expect(ack).toMatchObject({ legacy: true, key, destination: { type: "bulkPool" }, templateId: scope.templateId, formRevision: scope.formRevision });
+  expect(fetcher.mock.calls[1][1].headers["X-Cleaner-Draft-Identity"]).toBe(scope.draftIdentity);
+  expect(mocks.move).not.toHaveBeenCalled(); expect(state().pool[0].key).toBe(key);
+});
+it("keeps legacy originals and never requests AI when verification fails", async () => {
+  const key = "jobs/job/cleaner/old.jpg";
+  fetcher.mockImplementation(async (url: string) => url.endsWith("/draft") ? json({ draft: { evidenceReceipts: {} } }) : json({ error: "Invalid evidence ownership." }, 403));
+  render(<Harness initialKeys={[key]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Auto assign", exact: true }));
+  await screen.findByText("Invalid evidence ownership.");
+  expect(fetcher).toHaveBeenCalledTimes(2); expect(state().pool[0].key).toBe(key); expect(mocks.move).not.toHaveBeenCalled();
+});
+it("does not adopt old photos with another actor's existing receipt", async () => {
+  const key = "forms/cleaner/old.jpg";
+  fetcher.mockResolvedValue(json({ draft: { evidenceReceipts: { previous: { ...scope, draftIdentity: "other", key, version: 0, destination: { type: "bulkPool" } } } } }));
+  render(<Harness initialKeys={[key]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Auto assign", exact: true }));
+  await screen.findByText(/No photos are eligible/);
+  expect(fetcher).toHaveBeenCalledTimes(1); expect(state().pool[0].key).toBe(key);
+});
+it("recovers a lost legacy acknowledgement from the server without adopting twice", async () => {
+  const key = "forms/cleaner/old.jpg"; let ack: any;
+  fetcher.mockImplementation(async (url: string, init: RequestInit) => {
+    if (url.endsWith("/draft")) return json({ draft: { evidenceReceipts: ack ? { [ack.captureId]: { ...scope, key, version: 0, destination: { type: "bulkPool" } } } : {} } });
+    if (url.endsWith("/evidence")) { ack = JSON.parse(init.body as string); throw new Error("Connection interrupted"); }
+    return json(response([{ ...proposal(key), captureId: ack.captureId, version: 0 }]));
+  });
+  render(<Harness initialKeys={[key]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Auto assign", exact: true }));
+  await screen.findByText("Connection interrupted");
+  await analyse();
+  expect(fetcher.mock.calls.filter(call => call[0].endsWith("/evidence"))).toHaveLength(1);
+  expect(state().pool[0].key).toBe(key);
+});
+
 it("waits for confirmed draft save, proposes only unassigned receipts, and explicitly accepts high confidence through strict moves", async () => {
   const save = deferred<void>(); mocks.prepare.mockReturnValue(save.promise); render(<Harness />);
   fireEvent.click(screen.getByRole("button", { name: "Auto assign", exact: true })); expect(fetcher).not.toHaveBeenCalled();

@@ -1,5 +1,5 @@
 import { getEvidence, putEvidence, sameEvidenceScope, type EvidenceRecord, type EvidenceScope, type EvidenceReceipt } from "./evidence-store";
-import { destinationOf, destinationKey, type EvidenceDestination } from "./evidence-destination";
+import { destinationOf, destinationKey, isLegacyEvidenceKey, type EvidenceDestination } from "./evidence-destination";
 // Keep a known remote receipt available in this tab even if device storage
 // temporarily fails after upload. Across a restart, uploading/no receipt is
 // explicitly uncertain and must never automatically send the blob again.
@@ -38,7 +38,7 @@ export async function moveEvidence(scope: EvidenceScope, media: EvidenceReceipt,
       return;
     }
     const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/evidence`, { method: "POST", headers,
-      body: JSON.stringify({ captureId: id, fieldId: to.type === "formField" ? to.fieldId : destinationKey(to), destination: to,
+      body: JSON.stringify({ captureId: id, ...(isLegacyEvidenceKey(media.key) ? { legacy: true } : {}), fieldId: to.type === "formField" ? to.fieldId : destinationKey(to), destination: to,
         templateId: scope.templateId, formRevision: scope.formRevision, key: media.key, name: media.name ?? "Evidence", move: { from, version: receipt.version ?? 0 } }) });
     const body = await response.json();
     if (!response.ok || !body.ok) throw new Error(body.error || "Evidence move was not confirmed. Retry after reloading.");
