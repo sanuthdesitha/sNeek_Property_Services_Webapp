@@ -7,7 +7,7 @@ import { EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate
 
 const propertySchema = z.object({ id: z.string().min(1), name: z.string().min(1) });
 const safeImageUrl = (value: string) => /^https?:\/\//i.test(value) || (value.startsWith("/") && !value.startsWith("//") && !value.includes("\\"));
-const itemSchema = z.object({ id: z.string().min(1), fieldId: z.string().min(1), fieldLabel: z.string(), sectionLabel: z.string(), submittedAt: z.string().refine(value => Number.isFinite(Date.parse(value))), url: z.string().refine(safeImageUrl).nullable(), excluded: z.boolean() });
+const itemSchema = z.object({ id: z.string().min(1), fieldId: z.string().min(1), fieldLabel: z.string(), sectionLabel: z.string(), submittedAt: z.string().refine(value => Number.isFinite(Date.parse(value))), sourceJobId: z.string().min(1).optional(), url: z.string().refine(safeImageUrl).nullable(), excluded: z.boolean() });
 const trainingSchema = z.object({ status: z.string(), error: z.string().nullable().optional(), modelVersion: z.string().nullable().optional(), lastTrainedAt: z.string().nullable().optional(), metrics: z.record(z.unknown()).nullable().optional() });
 const pageSchema = z.object({ property: propertySchema, items: z.array(itemSchema).max(60), nextOffset: z.number().int().nonnegative().nullable(), training: trainingSchema.nullable().optional(), modelConfigured: z.boolean().optional(), trainingEnabled: z.boolean().optional() });
 type Property = z.infer<typeof propertySchema>;
@@ -44,7 +44,7 @@ function PropertyMemory({ canEdit }: { canEdit: boolean }) {
   return <ECard className="min-w-0 [overflow-wrap:anywhere]">
     <ECardHeader><ECardTitle>Property photo memory</ECardTitle></ECardHeader>
     <ECardBody className="space-y-4">
-      <p className="text-sm">Historical labelled photos are shown below. Only compatible recent examples from the latest submission for each job are sampled. They help identify rooms and photo sections; they do not set QA cleanliness standards or fine-tune the base AI model.</p>
+      <p className="text-sm">Photos from previous job submissions and their reports are shown below. Older forms use their linked template when a saved snapshot is unavailable. Only compatible recent examples from the latest submission for each job are sampled. They help identify rooms and photo sections; they do not set QA cleanliness standards or fine-tune the base AI model.</p>
       <p className="text-sm">Excluding an example stops its use in photo memory. The original submission and evidence remain unchanged. Enable or disable property memory in vision settings above.</p>
       {!canEdit ? <p className="text-sm">Read-only access. An administrator can exclude or restore examples.</p> : null}
       <form className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end" onSubmit={event => { event.preventDefault(); void search(query); }}>
@@ -125,13 +125,14 @@ function MemoryItems({ property, canEdit }: { property: Property; canEdit: boole
     </section>
     {message ? <p role="status" className="text-sm">{message}</p> : null}
     {loading ? <p role="status" className="text-sm">Loading examples…</p> : null}
-    {loaded && !loading && !items.length ? <p className="text-sm">No valid labelled examples on this page.{nextOffset !== null ? " More submission records are available below." : ""}</p> : null}
+    {loaded && !loading && !items.length ? <p className="text-sm">No labelled report photos found in the records checked.{nextOffset !== null ? " Continue loading to check older jobs." : " Photos need a matching section in the saved or linked form template."}</p> : null}
     {Array.from(groups.entries()).map(([key, rows]) => <section key={key} className="space-y-3"><h4 className="text-sm font-semibold">{rows[0].sectionLabel || "Section"} · {rows[0].fieldLabel || rows[0].fieldId}</h4><div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {rows.map(item => <article key={item.id} className="min-w-0 space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
         {item.url ? <a href={item.url} target="_blank" rel="noreferrer" aria-label={`Open ${item.fieldLabel} example`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}<img src={item.url} alt={`${item.fieldLabel} submitted example`} loading="lazy" className="aspect-video w-full rounded object-cover" />
         </a> : <p className="text-sm">Image preview unavailable.</p>}
         <p className="text-xs">Submitted <time dateTime={item.submittedAt}>{new Intl.DateTimeFormat("en-AU", { dateStyle: "medium", timeStyle: "short", timeZone: "Australia/Sydney" }).format(new Date(item.submittedAt))}</time> (Sydney)</p>
+        {item.sourceJobId ? <a className="inline-flex min-h-11 items-center text-sm underline" href={`/v2/admin/jobs/${encodeURIComponent(item.sourceJobId)}`}>View source job and report</a> : null}
         <p className="text-sm font-medium">{item.excluded ? "Excluded from memory" : "Not excluded from memory"}</p>
         {canEdit ? <EButton className="h-auto min-h-11 whitespace-normal py-2" variant="outline" disabled={writing || loading || uncertain} onClick={() => { setEditor({ id: item.id, excluded: !item.excluded }); setReason(""); setMessage(""); }}>{item.excluded ? "Restore example" : "Exclude example"}</EButton> : null}
         {editor?.id === item.id ? <form className="space-y-2" onSubmit={event => { event.preventDefault(); void save(); }}><EField label="Reason for this change"><ETextarea aria-label="Reason for this change" value={reason} maxLength={1000} rows={3} disabled={writing || uncertain} onChange={event => setReason(event.target.value)} /></EField><div className="flex flex-wrap gap-2"><EButton type="submit" className="min-h-11" disabled={writing || loading || uncertain}>{writing ? "Saving…" : editor.excluded ? "Confirm exclusion" : "Confirm restoration"}</EButton><EButton className="min-h-11" type="button" variant="ghost" disabled={writing} onClick={() => setEditor(null)}>Cancel change</EButton></div></form> : null}

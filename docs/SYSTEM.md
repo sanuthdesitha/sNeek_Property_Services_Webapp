@@ -836,6 +836,8 @@ A client self-serve booking created a `Job` the moment they tapped submit. Nobod
 
 ### B20. Cleaner bulk upload — bounded, ordered, and honest about failures (2026-08-20)
 
+**Historical report photo compatibility (2026-09).** Property memory, matching and training read the same stored submission media and field labels used by job reports. Older submissions without a saved schema use their linked form template; checkbox/status evidence is included alongside upload fields. Verified legacy `jobs/{jobId}/...` and `forms/{submittedById}/{file}` layouts are supported with job/submitter checks. The memory browser searches past unsupported rows (up to 300 per request), returns at most 60 examples, and links each photo to its source job/report. This does not require re-uploading old photos or configuring the dedicated model service to browse them.
+
 **AI photo assignment and property memory (2026-09).** The existing bulk pool now offers explicit analysis of every acknowledged unassigned photo, in sequential bounded batches. Cleaners review proposals before applying them; uncertain photos remain for manual choice. Versioned evidence receipts, current actor/job/form scope, capacity checks and pre/post analysis snapshots prevent stale suggestions from overwriting manual work. Cancel or partial failure retains completed proposals; uncertain requests are not automatically resent.
 
 Assignment uses current form labels and uploaded reference images, plus an optional bounded library of previous labelled submissions from the same property. A section/field identity must match its saved template; reused IDs with changed labels, ambiguous aliases, unassigned uploads and excluded photos are not examples. Samples represent distinct jobs and are refreshed as new submissions arrive. Admin AI configuration includes a property photo-memory browser with audited exclusion/restoration; removing an example never deletes job evidence. Historical photos explain *location*, not the cleanliness standard.
@@ -1690,3 +1692,5 @@ One line per shipped wave. Newest first. (Add to this list with every future wav
 - **2026-09-21** — Corrected client Jobs Today/date selection, redesigned client laundry filtering and compact details, and repaired laundry driver mobile layouts.
 
 - **2026-09-21** — Added reviewable bulk photo matching, property example memory, optional dedicated continuously updated section classifiers, and reference-photo QA suggestions with approval-only deductions.
+
+- **2026-09-21** — Restored older job/report photos in property memory and training through linked-template, checklist-evidence and legacy-upload compatibility; improved pagination and source-job links.

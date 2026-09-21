@@ -81,3 +81,22 @@ it("training samples more than two jobs per class and binds current labels and e
   mocks.memory.mockResolvedValue({ value: { excludedMediaIds: ["outside-sample"] } });
   expect((await readPropertyTrainingExamples("property")).revision).not.toBe(result.revision);
 });
+it("includes previous v1 report photos and checkbox assignments without snapshot metadata", async () => {
+  const legacy = submission("legacy");
+  const schema = { sections: [{ title: "Bedroom one", fields: [{ id: "bed1", label: "Bed photo", type: "checkbox" }] }] };
+  const row = { ...legacy, data: {}, template: { schema }, submittedById: "cleaner", media: [{ id: "old-photo", fieldId: "bed1", mediaType: "PHOTO", s3Key: "jobs/legacy/cleaner/photo.jpg" }] };
+  mocks.submissions.mockResolvedValue([row]); mocks.latest.mockResolvedValue(row);
+  const history = await getHistoricalAssignmentExamples(input);
+  expect(history.examples).toHaveLength(1); expect(history.examples[0]).toMatchObject({ fieldId: "bed1", storageKey: "jobs/legacy/cleaner/photo.jpg" });
+  const training = await readPropertyTrainingExamples("property");
+  expect(training.labels).toEqual([fields[0]]); expect(training.examples[0].mediaId).toBe("old-photo");
+  expect(mocks.submissions.mock.calls[0][0].select).toMatchObject({ template: { select: { schema: true } }, submittedById: true });
+});
+it("includes earlier v2 actor-bound forms but rejects a foreign actor without reverting to arbitrary keys", async () => {
+  const legacy = submission("legacy");
+  const row = { ...legacy, submittedById: "cleaner", media: [{ ...legacy.media[0], s3Key: "forms/cleaner/photo.jpg" }] };
+  mocks.submissions.mockResolvedValue([row]);
+  expect((await getHistoricalAssignmentExamples(input)).examples).toHaveLength(1);
+  mocks.submissions.mockResolvedValue([{ ...row, submittedById: "different" }]);
+  expect((await getHistoricalAssignmentExamples(input)).examples).toEqual([]);
+});

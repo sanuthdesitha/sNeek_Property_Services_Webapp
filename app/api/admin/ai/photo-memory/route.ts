@@ -3,8 +3,7 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { deriveVisionFields } from "@/lib/ai/form-fields";
-import { jobFormProperty } from "@/lib/forms/job-form-property";
+import { resolveHistoricalMediaField, isHistoricalSubmissionImageKey } from "@/lib/ai/historical-media";
 import { getPresignedDownloadUrl } from "@/lib/s3";
 import { photoMemoryKey, parsePhotoMemoryExclusions } from "@/lib/ai/photo-memory-settings";
 import { enqueuePropertyModelTraining } from "@/lib/ai/property-model-training";
@@ -37,23 +36,35 @@ export async function GET(request: Request) {
     if (!property) throw new MemoryError(404, "Property not found.");
     const saved = await db.appSetting.findUnique({ where: { key: photoMemoryKey(propertyId) } });
     const excluded = new Set(parsePhotoMemoryExclusions(saved?.value));
-    const media = await db.submissionMedia.findMany({
-      where: { mediaType: "PHOTO", submission: { job: { propertyId, status: { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] } } } },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: offset, take: 61,
-      include: { submission: { select: { data: true, laundryReady: true, createdAt: true, jobId: true } } },
-    });
-    const items = (await Promise.all(media.slice(0, 60).map(async photo => {
-      const rawData = photo.submission.data;
-      if (!rawData || typeof rawData !== "object" || Array.isArray(rawData)) return null;
-      const data = rawData as Record<string, unknown>;
-      const fields = deriveVisionFields(data.__templateSchema, data, jobFormProperty(data.__templateSchema, property), photo.submission.laundryReady === true);
-      const field = fields.find(item => item.id === photo.fieldId && item.imageCapable);
-      // Do not turn unlabelled uploads or unrelated storage objects into examples.
-      if (!field || !photo.s3Key.startsWith(`forms/${photo.submission.jobId}/`) || /[\\\u0000-\u0020]/.test(photo.s3Key) || photo.s3Key.split("/").some(part => !part || part === "." || part === "..")) return null;
-      return { id: photo.id, fieldId: field.id, fieldLabel: field.label, sectionLabel: field.sectionLabel, submittedAt: photo.submission.createdAt.toISOString(), url: await getPresignedDownloadUrl(photo.s3Key, 600).catch(() => null), excluded: excluded.has(photo.id) };
-    }))).filter(item => item !== null);
+    const items: { id: string; fieldId: string; fieldLabel: string; sectionLabel: string; submittedAt: string; sourceJobId: string; url: string | null; excluded: boolean }[] = [];
+    let scanOffset = offset, nextOffset: number | null = null;
+    const seen = new Set<string>();
+    const previewKeys = new Map<string, string>();
+    // Read past pages of unsupported evidence instead of showing an empty first
+    // page when older, labelled report photos are available further back.
+    for (let page = 0; page < 5 && items.length < 60; page++) {
+      const media = await db.submissionMedia.findMany({
+        where: { mediaType: "PHOTO", submission: { job: { propertyId, status: { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] } } } },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: scanOffset, take: 61,
+        include: { submission: { select: { data: true, template: { select: { schema: true } }, submittedById: true, createdAt: true, jobId: true } } },
+      });
+      let consumed = 0;
+      for (const photo of media.slice(0, 60)) {
+        consumed++;
+        const field = resolveHistoricalMediaField(photo.submission, photo);
+        if (!field || seen.has(photo.id) || !isHistoricalSubmissionImageKey(photo.s3Key, photo.submission.jobId, photo.submission.submittedById)) continue;
+        seen.add(photo.id);
+        previewKeys.set(photo.id, photo.s3Key);
+        items.push({ id: photo.id, fieldId: field.id, fieldLabel: field.label, sectionLabel: field.sectionLabel, submittedAt: photo.submission.createdAt.toISOString(), sourceJobId: photo.submission.jobId, url: null, excluded: excluded.has(photo.id) });
+        if (items.length === 60) break;
+      }
+      scanOffset += consumed;
+      nextOffset = media.length > consumed ? scanOffset : null;
+      if (nextOffset === null) break;
+    }
+    await Promise.all(items.map(async item => { item.url = await getPresignedDownloadUrl(previewKeys.get(item.id)!, 600).catch(() => null); }));
     const training = await db.aiPropertyModelTraining.findUnique({ where: { propertyId }, select: { status: true, error: true, modelVersion: true, lastTrainedAt: true, metricsJson: true } });
-    return NextResponse.json({ property: { id: property.id, name: property.name }, items, nextOffset: media.length > 60 ? offset + 60 : null, training, modelConfigured: getRecognitionConfiguration().configured, trainingEnabled: (await getVisionSettings()).dedicatedRecognitionEnabled }, { headers });
+    return NextResponse.json({ property: { id: property.id, name: property.name }, items, nextOffset, training, modelConfigured: getRecognitionConfiguration().configured, trainingEnabled: (await getVisionSettings()).dedicatedRecognitionEnabled }, { headers });
   } catch (error) { return failure(error); }
 }
 export async function PATCH(request: Request) {

@@ -12,6 +12,13 @@ it("loads only owned storage, verifies version/bytes and creates a resized image
   const metadata = await sharp(Buffer.from(result.data, "base64")).metadata(); expect(metadata).toMatchObject({ format: "jpeg", width: 1280, height: 640 });
   expect(m.get).toHaveBeenCalledWith({ Bucket: "owned-bucket", Key: "forms/job/capture/actor/photo.png", Range: `bytes=0-${bytes.length - 1}`, IfMatch: "version" });
 });
+it("loads an authorized legacy cleaner job image from the same configured storage", async () => {
+  const bytes = await sharp({ create: { width: 8, height: 8, channels: 3, background: "white" } }).png().toBuffer();
+  m.head.mockReturnValue({ promise: async () => ({ ContentLength: bytes.length, ContentType: "image/png", ETag: "legacy" }) });
+  m.get.mockReturnValue({ promise: async () => ({ Body: bytes }) });
+  expect(await loadVisionImage("jobs/old-job/cleaner/photo.png", "old-photo")).toMatchObject({ id: "old-photo", mediaType: "image/jpeg" });
+  expect(m.head).toHaveBeenCalledWith({ Bucket: "owned-bucket", Key: "jobs/old-job/cleaner/photo.png" });
+});
 it.each(["https://external.test/image", "form-references/../secret", "forms//photo", "forms/job\\photo"])("never retrieves unsafe storage paths %s", async key => {
   await expect(loadVisionImage(key, "id")).rejects.toThrow(); expect(m.resolve).not.toHaveBeenCalled();
 });

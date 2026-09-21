@@ -5,7 +5,7 @@ import { PropertyPhotoMemoryPanel } from "@/components/v2/admin/property-photo-m
 const auth = vi.hoisted(() => ({ session: { user: { id: "admin", role: "ADMIN", heldRoles: ["ADMIN"] }, impersonation: undefined as unknown } }));
 vi.mock("next-auth/react", () => ({ useSession: () => ({ status: "authenticated", data: auth.session }) }));
 const property = { id: "p1", name: "Harbour apartment" };
-const item = { id: "m1", fieldId: "kitchen", fieldLabel: "Kitchen after", sectionLabel: "Kitchen", submittedAt: "2026-09-20T03:00:00Z", url: "https://media.invalid/photo.jpg", excluded: false };
+const item = { sourceJobId: "job-1", id: "m1", fieldId: "kitchen", fieldLabel: "Kitchen after", sectionLabel: "Kitchen", submittedAt: "2026-09-20T03:00:00Z", url: "https://media.invalid/photo.jpg", excluded: false };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const page = (overrides: Record<string, unknown> = {}) => ({ property, items: [item], nextOffset: null, training: null, modelConfigured: true, trainingEnabled: true, ...overrides });
 let fetcher: ReturnType<typeof vi.fn>;
@@ -19,7 +19,7 @@ it("groups canonical labels and provenance, and writes only an explicit reasoned
     if (init?.method === "PATCH") { excluded = JSON.parse(init.body as string).excluded; return json({ ok: true }); }
     return json(url.includes("?q=") ? { properties: [property] } : page({ items: [{ ...item, excluded }] }));
   }); render(<PropertyPhotoMemoryPanel canEdit />); await select();
-  await screen.findByText("Kitchen · Kitchen after"); expect(screen.getByText(/20 Sept 2026/)).toBeVisible(); expect(fetcher.mock.calls.every(call => !call[1]?.method)).toBe(true);
+  await screen.findByText("Kitchen · Kitchen after"); expect(screen.getByRole("link", { name: "View source job and report" })).toHaveAttribute("href", "/v2/admin/jobs/job-1"); expect(screen.getByText(/20 Sept 2026/)).toBeVisible(); expect(fetcher.mock.calls.every(call => !call[1]?.method)).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Exclude example" })); fireEvent.click(screen.getByRole("button", { name: "Confirm exclusion" }));
   await screen.findByText(/Enter a reason between/); expect(excluded).toBe(false);
   fireEvent.change(screen.getByLabelText("Reason for this change"), { target: { value: "Photo is labelled as the wrong room" } }); fireEvent.click(screen.getByRole("button", { name: "Confirm exclusion" }));
@@ -41,7 +41,7 @@ it("blocks uncertain writes until refresh reveals the actual saved state", async
 });
 it("ignores a late property response after switching selection", async () => {
   const pending = deferred<Response>(); fetcher.mockImplementation((url: string) => url.includes("?q=") ? Promise.resolve(json({ properties: [property, { id: "p2", name: "Other property" }] })) : url.includes("propertyId=p1") ? pending.promise : Promise.resolve(json(page({ property: { id: "p2", name: "Other property" }, items: [] }))));
-  render(<PropertyPhotoMemoryPanel canEdit />); await select(); fireEvent.change(screen.getByLabelText("Property", { exact: true }), { target: { value: "p2" } }); await screen.findByText(/No valid labelled examples/);
+  render(<PropertyPhotoMemoryPanel canEdit />); await select(); fireEvent.change(screen.getByLabelText("Property", { exact: true }), { target: { value: "p2" } }); await screen.findByText(/No labelled report photos found/);
   await act(async () => pending.resolve(json(page()))); expect(screen.queryByText("Kitchen · Kitchen after")).not.toBeInTheDocument();
 });
 it("loads the next page even when filtered records leave the first page empty", async () => {

@@ -5,7 +5,7 @@ import type { VisionImage } from "./vision";
 
 /** Call only after authorizing this exact stored key against the job/template. Never resolves URLs. */
 export async function loadVisionImage(storageKey: string, id: string): Promise<VisionImage> {
-  if (!/^(forms|form-references)\//.test(storageKey) || /[\\\u0000-\u0020]/.test(storageKey) || storageKey.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Invalid stored image key.");
+  if (!/^(forms|form-references|jobs)\//.test(storageKey) || /[\\\u0000-\u0020]/.test(storageKey) || storageKey.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Invalid stored image key.");
   const { client, bucket } = await resolveS3();
   const head = await client.headObject({ Bucket: bucket, Key: storageKey }).promise();
   if (!head.ContentLength || head.ContentLength > 5 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp", "image/gif"].includes(head.ContentType ?? "")) throw new Error("Image must be JPEG, PNG, WebP or GIF and at most 5 MB.");

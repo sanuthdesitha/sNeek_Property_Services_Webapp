@@ -9,7 +9,7 @@ vi.mock("@/lib/ai/property-photo-model", () => ({ getRecognitionConfiguration: m
 vi.mock("@/lib/db", () => { const tx = { property: { findMany: m.properties, findUnique: m.property }, submissionMedia: { findMany: m.media, findFirst: m.one }, appSetting: { findUnique: m.saved, upsert: m.upsert }, auditLog: { create: m.audit }, aiPropertyModelTraining: { findUnique: m.state }, $queryRaw: m.query }; return { db: { ...tx, $transaction: (fn: any) => fn(tx) } }; });
 import { GET, PATCH, POST } from "@/app/api/admin/ai/photo-memory/route";
 const schema = { sections: [{ title: "Bathroom", fields: [{ id: "shower", type: "photo", label: "Shower" }] }] };
-const photo = { id: "photo-1", fieldId: "shower", s3Key: "forms/job-1/capture/actor/file.jpg", submission: { jobId: "job-1", createdAt: new Date("2026-09-21"), laundryReady: false, data: { __templateSchema: schema } } };
+const photo = { mediaType: "PHOTO", id: "photo-1", fieldId: "shower", s3Key: "forms/job-1/capture/actor/file.jpg", submission: { jobId: "job-1", createdAt: new Date("2026-09-21"), laundryReady: false, data: { __templateSchema: schema } } };
 const req = (body: unknown, method = "PATCH") => new Request("http://local/api/admin/ai/photo-memory", { method, body: JSON.stringify(body) });
 beforeEach(() => { vi.clearAllMocks(); m.role.mockResolvedValue({ user: { id: "admin" } }); m.property.mockResolvedValue({ id: "property-1", name: "Twelve" }); m.properties.mockResolvedValue([{ id: "property-1", name: "Twelve" }]); m.media.mockResolvedValue([photo]); m.one.mockResolvedValue({ id: photo.id }); m.saved.mockResolvedValue(null); m.state.mockResolvedValue(null); m.settings.mockResolvedValue({ dedicatedRecognitionEnabled: true }); m.config.mockReturnValue({ configured: true, token: "secret" }); m.sign.mockResolvedValue("https://images.invalid/photo"); });
 it("returns only property names and bounded search", async () => { const response = await GET(new Request("http://local/api/admin/ai/photo-memory?q=Twelve")); expect(await response.json()).toEqual({ properties: [{ id: "property-1", name: "Twelve" }] }); expect(m.properties.mock.calls[0][0]).toMatchObject({ take: 50, select: { id: true, name: true } }); });
@@ -23,3 +23,21 @@ it("queues explicit training only when configured and enabled", async () => { ex
 it("fails closed on corrupt exclusions, hiding database details", async () => { m.saved.mockResolvedValue({ value: { excludedMediaIds: "bad" } }); expect((await PATCH(req({ propertyId: "property-1", mediaId: photo.id, excluded: true, reason: "Old renovation" }))).status).toBe(400); expect(m.upsert).not.toHaveBeenCalled(); m.property.mockRejectedValue(new Error("secret-db-url")); const response = await GET(new Request("http://local/api/admin/ai/photo-memory?propertyId=property-1")); expect(response.status).toBe(503); expect(await response.text()).not.toContain("secret-db-url"); });
 it("rejects impersonated memory reads before signing or querying photos", async () => { m.role.mockResolvedValue({ user: { id: "ops" }, impersonation: { mode: "READ_ONLY" } }); expect((await GET(new Request("http://local/api/admin/ai/photo-memory?propertyId=property-1"))).status).toBe(403); expect(m.media).not.toHaveBeenCalled(); expect(m.sign).not.toHaveBeenCalled(); });
 it("skips malformed historical submission data without hiding valid photos", async () => { m.media.mockResolvedValue([{ ...photo, id: "bad", submission: { ...photo.submission, data: null } }, photo]); const response = await GET(new Request("http://local/api/admin/ai/photo-memory?propertyId=property-1")); expect(response.status).toBe(200); expect((await response.json()).items.map((item: any) => item.id)).toEqual([photo.id]); });
+
+it("uses linked report templates and checklist evidence from legacy job uploads", async () => {
+  m.media.mockResolvedValue([{ ...photo, s3Key: "forms/cleaner-1/photo.jpg", submission: { ...photo.submission, submittedById: "cleaner-1", data: {}, template: { schema: { sections: [{ title: "Bathroom", fields: [{ id: "shower", type: "checkbox", label: "Shower cleaned" }] }] } } } }]);
+  const result = await (await GET(new Request("http://local/api/admin/ai/photo-memory?propertyId=property-1"))).json();
+  expect(result.items).toHaveLength(1); expect(result.items[0]).toMatchObject({ fieldLabel: "Shower cleaned", sectionLabel: "Bathroom", sourceJobId: "job-1" });
+  expect(m.sign).toHaveBeenCalledWith("forms/cleaner-1/photo.jpg", 600);
+});
+it("reads past unsupported pages to find older report photos", async () => {
+  const invalid = Array.from({ length: 61 }, (_, i) => ({ ...photo, id: `pool-${i}`, fieldId: "pool" }));
+  m.media.mockResolvedValueOnce(invalid).mockResolvedValueOnce([photo]);
+  const result = await (await GET(new Request("http://local/api/admin/ai/photo-memory?propertyId=property-1"))).json();
+  expect(result.items.map((item: any) => item.id)).toEqual([photo.id]); expect(result.nextOffset).toBeNull(); expect(m.media.mock.calls.map(call => call[0].skip)).toEqual([0, 60]);
+});
+it("bounds empty-page scanning and preserves a cursor for older jobs", async () => {
+  m.media.mockResolvedValue(Array.from({ length: 61 }, (_, i) => ({ ...photo, id: `pool-${i}`, fieldId: "pool" })));
+  const result = await (await GET(new Request("http://local/api/admin/ai/photo-memory?propertyId=property-1"))).json();
+  expect(result.items).toEqual([]); expect(result.nextOffset).toBe(300); expect(m.media).toHaveBeenCalledTimes(5);
+});

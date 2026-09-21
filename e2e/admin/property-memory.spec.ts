@@ -33,7 +33,7 @@ for (const width of [320, 390, 1440]) test(`property memory review and explicit 
   });
   await page.goto("http://localhost:3997/memory"); await page.addStyleTag({ content: css }); await page.addScriptTag({ content: bundle });
   const ui = new MemoryPage(page); await ui.choose();
-  await expect(page.getByText(/No valid labelled examples on this page/)).toBeVisible(); await page.getByRole("button", { name: "Load more examples" }).click();
+  await expect(page.getByText(/No labelled report photos found/)).toBeVisible(); await page.getByRole("button", { name: "Load more examples" }).click();
   await expect(page.getByText("Main kitchen · Kitchen bench and appliances")).toBeVisible(); await ui.fits(); expect(mutations).toHaveLength(0);
   await page.getByRole("button", { name: "Exclude example" }).click(); await page.getByLabel("Reason for this change").fill("This is the wrong room; keep the original evidence.");
   await page.getByRole("button", { name: "Confirm exclusion" }).click(); await expect(page.getByText("Excluded from memory")).toBeVisible(); expect(mutations[0]).toMatchObject({ method: "PATCH", body: { propertyId: "p1", mediaId: "m1", excluded: true } });
