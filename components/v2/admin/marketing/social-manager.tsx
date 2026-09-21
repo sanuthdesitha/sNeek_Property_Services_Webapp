@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, Plus } from "lucide-react";
 import {
   EBadge,
@@ -59,6 +59,45 @@ export function SocialManager({
   const [channel, setChannel] = useState<SocialPost["channel"]>("INSTAGRAM");
   const [caption, setCaption] = useState("");
   const [scheduledFor, setScheduledFor] = useState("");
+  const [topic, setTopic] = useState("");
+  const [tone, setTone] = useState("friendly");
+  const [callToAction, setCallToAction] = useState("Contact us to book your next clean");
+  const [generating, setGenerating] = useState(false);
+  const [suggestion, setSuggestion] = useState("");
+  const [aiError, setAiError] = useState("");
+  const aiRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => aiRequest.current?.abort(), []);
+
+  function closeDraft() {
+    if (saving) return;
+    aiRequest.current?.abort();
+    aiRequest.current = null;
+    setGenerating(false);
+    setOpen(false);
+  }
+
+  async function generateCaption() {
+    if (generating || saving || topic.trim().length < 3) return;
+    const controller = new AbortController();
+    aiRequest.current = controller;
+    setGenerating(true); setAiError(""); setSuggestion("");
+    const timeout = setTimeout(() => controller.abort(), 60_000);
+    try {
+      const res = await fetch("/api/admin/marketing/ai-compose", {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
+        body: JSON.stringify({ platform: channel, topic: topic.trim(), tone, callToAction }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "AI composition failed. Please try again.");
+      if (typeof body.caption !== "string" || !body.caption.trim() || !Array.isArray(body.hashtags) || !body.hashtags.every((tag: unknown) => typeof tag === "string")) throw new Error("AI returned an invalid draft. Please try again.");
+      if (!controller.signal.aborted) setSuggestion(body.caption + (body.hashtags.length ? `\n\n${body.hashtags.join(" ")}` : ""));
+    } catch (error) {
+      if (aiRequest.current === controller) setAiError(controller.signal.aborted ? "Generation timed out. Your caption is unchanged. Try again when the model is ready." : error instanceof Error ? error.message : "AI composition failed.");
+    } finally {
+      clearTimeout(timeout);
+      if (aiRequest.current === controller) { aiRequest.current = null; setGenerating(false); }
+    }
+  }
 
   const byChannel = useMemo(() => {
     const map = new Map<string, SocialPost[]>();
@@ -89,6 +128,7 @@ export function SocialManager({
       setOpen(false);
       setCaption("");
       setScheduledFor("");
+      setSuggestion(""); setTopic(""); setAiError("");
     } catch (error: any) {
       onToast({ title: "Save failed", description: error?.message ?? "Could not save draft.", tone: "danger" });
     } finally {
@@ -156,24 +196,33 @@ export function SocialManager({
         <EEmptyState eyebrow="Social" title="No social posts yet" description="Create your first draft to start tracking posts across channels." />
       ) : null}
 
-      <EModal open={open} onClose={() => setOpen(false)} title="New social draft" eyebrow="Social" wide>
+      <EModal open={open} onClose={closeDraft} title="New social draft" eyebrow="Social" wide>
         <div className="space-y-4">
           <EField label="Channel">
-            <ESelect value={channel} onChange={(e) => setChannel(e.target.value as SocialPost["channel"])}>
+            <ESelect aria-label="Channel" disabled={generating || saving} value={channel} onChange={(e) => { setChannel(e.target.value as SocialPost["channel"]); setSuggestion(""); }}>
               {CHANNELS.map((ch) => (
                 <option key={ch.key} value={ch.key}>{ch.label}</option>
               ))}
             </ESelect>
           </EField>
+          <section className="space-y-3 rounded-lg border p-3" aria-label="AI caption composer">
+            <p className="text-sm">Generate a caption using your provider in <a className="underline" href="/v2/admin/ai">AI configuration</a>. Review it before using it. Nothing is published.</p>
+            <EField label="Topic"><EInput aria-label="Topic" maxLength={500} disabled={generating || saving} value={topic} onChange={e => setTopic(e.target.value)} placeholder="Airbnb turnover cleaning in Sydney" /></EField>
+            <EField label="Tone"><ESelect aria-label="Tone" disabled={generating || saving} value={tone} onChange={e => setTone(e.target.value)}><option value="friendly">Friendly</option><option value="professional">Professional</option><option value="playful">Playful</option><option value="urgent">Urgent</option></ESelect></EField>
+            <EField label="Call to action"><EInput aria-label="Call to action" maxLength={200} disabled={generating || saving} value={callToAction} onChange={e => setCallToAction(e.target.value)} /></EField>
+            <EButton size="sm" onClick={generateCaption} disabled={generating || saving || topic.trim().length < 3}>{generating ? "Generating…" : "Generate with AI"}</EButton>
+            {aiError && <p role="alert" className="text-sm">{aiError}</p>}
+            <div aria-live="polite">{suggestion && <div className="space-y-2"><p className="text-sm font-medium">Generated suggestion</p><p className="whitespace-pre-wrap break-words text-sm">{suggestion}</p><EButton size="sm" variant="outline" disabled={saving} onClick={() => { setCaption(suggestion); setSuggestion(""); }}>Use generated caption</EButton></div>}</div>
+          </section>
           <EField label="Caption">
-            <ETextarea rows={5} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Write the post caption…" />
+            <ETextarea aria-label="Caption" disabled={saving} rows={5} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Write the post caption…" />
           </EField>
           <EField label="Schedule for" hint="Leave blank to keep as a draft.">
             <EInput type="datetime-local" value={scheduledFor} onChange={(e) => setScheduledFor(e.target.value)} />
           </EField>
           <div className="flex justify-end gap-2 pt-1">
-            <EButton variant="outline" size="sm" onClick={() => setOpen(false)} disabled={saving}>Cancel</EButton>
-            <EButton size="sm" onClick={createDraft} disabled={saving}>{saving ? "Saving…" : "Create draft"}</EButton>
+            <EButton variant="outline" size="sm" onClick={closeDraft} disabled={saving}>Cancel</EButton>
+            <EButton size="sm" onClick={createDraft} disabled={saving || generating}>{saving ? "Saving…" : "Create draft"}</EButton>
           </div>
         </div>
       </EModal>

@@ -1469,6 +1469,8 @@ Bounces and complaints feed the **suppression list** (`lib/email/suppression.ts`
 
 ## Change Log
 
+- **2026-09-21** - V2 Marketing > Social posts > New draft now exposes AI caption generation through the configured provider. Generated text is previewed and explicitly applied before saving; errors/cancellation preserve manual captions and generation never publishes.
+
 - **2026-09-21** - Added OpenAI and local Ollama alongside Anthropic for photo analysis and social drafting, with provider isolation, local model checks, private deployment overrides and connection instructions.
 
 - **2026-09-20 - Client invoice generation:** Manual eligibility includes started/later status or retained TimeLog evidence after reassignment, under existing client/property/date/skip/non-void-invoice guards. Both manual screens default to scheduled-date periods; classic now exposes SERVICE as an explicit alternative. Generation returns and stores included/already-invoiced job counts. Maintenance selection applies completion-period bounds before retrieving all eligible assignments, without the former silent 500-record cap. Automatic completed-only cadence retains its prior policy. Verification is recorded in the execution tracker.
