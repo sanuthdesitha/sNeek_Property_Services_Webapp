@@ -115,7 +115,7 @@ export function describeLaundryConfirmation(confirmation: LaundryConfirmationLik
   }
 
   // Any human-written note travelling inside the envelope.
-  const note = asText(meta.reasonNote) ?? asText(meta.note);
+  const note = asText(meta.reasonNote) ?? asText(meta.note) ?? asText(meta.notes);
   if (note) parts.push(note);
 
   return parts.length > 0 ? parts.join(" · ") : null;

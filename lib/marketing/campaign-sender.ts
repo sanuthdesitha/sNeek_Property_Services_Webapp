@@ -11,7 +11,8 @@
  * off the client.users array.
  */
 import { db } from "@/lib/db";
-import { resolveTemplate } from "@/lib/messages/variables";
+import { normalizeCampaignAudience, resolveSingleCampaignRecipient } from "./campaign-audience";
+import { renderCampaignContent } from "@/lib/marketing/campaign-render";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { isSuppressed } from "@/lib/email/suppression";
@@ -47,7 +48,8 @@ async function loadRecipients(audience: any): Promise<ResolvedRecipient[]> {
   // Recipient selection: reuse the same broad-set query as email-campaigns.ts.
   // For SMS we additionally surface phone.
   const now = new Date();
-  const aud = (audience && typeof audience === "object" && !Array.isArray(audience)) ? audience : { type: "all_clients" };
+  const aud = normalizeCampaignAudience(audience);
+  if (aud.type === "single_recipient") return resolveSingleCampaignRecipient(aud.filters!.email!);
 
   // Named-segment audiences resolve through lib/marketing/segments.ts.
   if (aud.type === "segment" && isSegmentId(aud.filters?.segmentId)) {
@@ -143,7 +145,7 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
     // Never leave the row stuck in SENDING (it would never be re-dispatched).
     await (db as any).emailCampaign.update({
       where: { id: campaignId },
-      data: { campaignStatus: "FAILED" },
+      data: { campaignStatus: "FAILED", status: "failed", sentAt: null },
     });
     throw err;
   }
@@ -159,8 +161,7 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
   for (const r of recipients) {
     try {
       const ctx = { client: { id: r.clientId } };
-      const body = await resolveTemplate(bodySource, ctx);
-      const subject = subjectSource ? await resolveTemplate(subjectSource, ctx) : "(no subject)";
+      const rendered = await renderCampaignContent({ subject: subjectSource, body: bodySource }, ctx);
 
       if ((channel === "EMAIL" || channel === "BOTH") && r.email) {
         const ledgerEmail = r.email.toLowerCase();
@@ -189,8 +190,8 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
         } else {
           const res = await sendEmailDetailed({
             to: r.email,
-            subject,
-            html: body.includes("<") ? body : body.replace(/\n/g, "<br/>"),
+            subject: rendered.subject,
+            html: rendered.html,
           });
           if (res.ok) {
             sent++;
@@ -214,8 +215,7 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
 
       if ((channel === "SMS" || channel === "BOTH") && r.phone) {
         // SMS body: strip HTML tags if template was HTML
-        const smsBody = body.replace(/<[^>]+>/g, "").trim();
-        const res = await sendSmsDetailed(r.phone, smsBody);
+        const res = await sendSmsDetailed(r.phone, rendered.text);
         if (res.ok) sent++;
         else failed++;
       }
@@ -227,9 +227,9 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
   await (db as any).emailCampaign.update({
     where: { id: campaignId },
     data: {
-      campaignStatus: failed > 0 && sent === 0 ? "FAILED" : "SENT",
-      status: "sent",
-      sentAt: new Date(),
+      campaignStatus: failed > 0 ? "FAILED" : "SENT",
+      status: failed > 0 ? "failed" : "sent",
+      sentAt: failed > 0 ? null : new Date(),
       recipientCount: sent,
     },
   });
@@ -241,7 +241,7 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
     // ledger means a manual resend won't re-email anyone already contacted.
     await (db as any).emailCampaign.update({
       where: { id: campaignId },
-      data: { campaignStatus: "FAILED" },
+      data: { campaignStatus: "FAILED", status: "failed", sentAt: null },
     });
     throw err;
   }

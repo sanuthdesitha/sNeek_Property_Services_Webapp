@@ -1049,6 +1049,9 @@ The driver-facing verbs live in `app/api/laundry/[taskId]/status/route.ts` (POST
 
 ### C3. Driver portal
 
+**Phone layouts (2026-09).** Calendar tools wrap within narrow screens, boards constrain long property/address text and wrap actions, and history uses mobile cards with the existing correction action. Next-stop controls stack on phones, dialogs constrain native inputs, and phone button targets are at least 44px. Synthetic browser fixtures cover narrow and wide viewports without production data.
+
+
 **Access failure (2026-09-13).** Failed-pickup reports validate supplied image proof, then lock the task/property and recheck scope before atomically recording evidence, audit and the existing reschedule/flag outcome. A delivery-effect error after commit is a saved receipt with warning. Unknown responses require fresh status before retry; uploading proof blocks confirmation.
 
 **Recorded handoff receipts (2026-09-13).** Laundry receipt panels project stored cleaner/driver confirmations, actor/time, quantities, locations, photos, reason codes/notes and correction differences. Actor names are resolved only for already-authorized tasks. These are recorded one-sided actions; no recipient acceptance or immutable original quantity is invented.
@@ -1081,6 +1084,9 @@ All driver UI is v2 Estate (`app/v2/laundry/**`, components in `components/v2/la
 - The **weekly plan job** invokes `generateWeeklyLaundryPlan` from the same scheduler so tasks exist ahead of the week without manual planning.
 
 ### C5. Cleaner- and client-facing laundry
+
+**Client laundry filters (2026-09).** Estate Laundry supports authorized property selection, status, day/week/month/custom dates, and separate cleaning/pickup/drop-off date matching in Sydney time. Filter changes query the server, including historical custom ranges, retaining client/VA property scope; results are capped at 200 with the limit disclosed. Compact cards expose dates/status with expandable human-readable updates, bag counts, notes and permitted photos. Loading/errors do not present stale records as current matches; failed initial reads have a retry boundary.
+
 
 **Previous-clean cycle card (2026-07).** The linen a cleaner needs on job day belongs to the *previous* clean's cycle at the same property. `lib/laundry/previous-cycle.ts` resolves it: `pickPreviousCleanJob` (pure) selects the latest other non-rework turnover before the current job that has a LaundryTask; `pickDropConfirmation` picks the latest confirmation whose `event` is `DROPPED` — revert-tolerant by design. The cleaner workspace card (see Section B for the cleaner portal itself) shows status, dates and the drop photo/notes proof.
 
@@ -1363,6 +1369,9 @@ Admin builds a run at `app/v2/admin/payroll` from a date range. `getPayrollSumma
 
 ### D6. Client portal
 
+**Jobs Today controls (2026-09).** Jobs opens on the current Sydney day when no explicit saved selection exists. Today updates both the displayed month and selected date, clearing stale date bounds while retaining property/status choices. Explicit saved dates and All selections remain supported; the standalone calendar also uses Sydney time at month boundaries.
+
+
 **Job privacy and freshness (2026-09-13).** Client job DTOs gate reports, mixed-property invoices, staff identity and progress separately, omit raw GPS history and expose only fresh en-route arrival coordinates. Progress polling is serial/abortable with visible freshness and retry. Message reads resolve authorized job IDs before retrieval and mark only returned rows read.
 
 **Property portfolio (2026-09-13).** V2 home leads with scoped active properties, personal pins and a persisted compact/card layout. Per-property queries avoid the global job-history cap; Jobs/report/progress visibility controls service IDs, links and phases. Missing history/approval reads are unavailable, never zero; summary approval reads opt into strict persisted-record validation. Preferences use actor/client/team/scope context plus advisory-lock revision writes. A different account context requires full page reload; unknown saves require reread, and explicit clear includes hidden favorites. This displays service progress, not an authoritative guest-ready certification.
@@ -1411,6 +1420,9 @@ The **before/after gallery** appears on the client job page only when the job is
 - **Cases/disputes**: unified — `app/v2/client/disputes` simply redirects to `/v2/client/cases` (gated `showCases`, default off), backed by the cases workspace and `CaseTransition`/`CaseComment`/`CaseAttachment` models. **Maintenance** (`app/v2/client/maintenance`) is restricted to Airbnb properties via `filterAirbnbPropertyIds` (`lib/maintenance/airbnb.ts`). **Finance** (`app/v2/client/finance`, gated `showFinanceDetails`, default off) shows balance due and invoices from `getClientFinanceOverview` (`lib/billing/client-portal-finance.ts`) with a pay button wired to `app/api/client/invoices/[id]/pay`.
 
 ### D7. Marketing hub (2026-07 expansion)
+
+**Campaign personalization and individual recipients (2026-09).** Both email delivery paths render subject/body variables for each recipient. HTML values are escaped, blank first names use “there”, and unknown variables block delivery. Test-send renders a real selected client while delivering only to the signed-in admin. All campaign editors support a single existing client/contact email; matching is case-insensitive, uses the exact entered address, and rejects ambiguous client ownership or invalid audiences rather than broadening to all clients. Private audience preview shows matching recipients; suppression and preferences still apply at delivery. Partial/failed deliveries retain failed status and truthful UI counts; a rejected scheduled campaign does not stop later campaigns.
+
 
 ### Base hub: assets, discount campaigns, social
 
@@ -1664,3 +1676,7 @@ One line per shipped wave. Newest first. (Add to this list with every future wav
 - **2026-07-25** — Quick wins: invoice one-click Mark-as-paid + lifecycle graph (dead read-only page removed), calendar starts at today, jobs list day-grouped, accountability laundry team + suppliers panel.
 - **2026-07-24** — Nine-item wave: client multi-cleaner display + next-service fix, laundry date filters + mobile pass + status labels, cleaner step-3 layout, in-job extra-pay entry points, 24 h auto-pause, report gating + manual/auto reminders, bulk reminders + bulk QA assign.
 - **Earlier** — Base platform (v1 + v2 Estate rebuild, forms/checklist system, accountability engine, laundry live tracking, hiring ATS, integrations, and more) — described throughout as untagged behaviour.
+
+- **2026-09-21** — Fixed campaign variable substitution in both senders and test previews; added exact-address single-recipient selection and authenticated audience previews.
+
+- **2026-09-21** — Corrected client Jobs Today/date selection, redesigned client laundry filtering and compact details, and repaired laundry driver mobile layouts.

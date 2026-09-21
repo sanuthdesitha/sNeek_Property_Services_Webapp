@@ -183,7 +183,7 @@ export function InvoicesPanel({ properties }: { properties: PropertyOption[] }) 
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6 [overflow-wrap:anywhere] [&_input]:min-w-0 [&_select]:min-w-0">
       {/* Actions */}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <EButton variant="outline" size="sm" onClick={() => void loadPreview()} disabled={loading}>

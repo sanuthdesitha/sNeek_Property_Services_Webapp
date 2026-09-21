@@ -623,8 +623,8 @@ export function ClientJobsBoard({
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("ALL");
   const [showPast, setShowPast] = useState(false);
-  const [filterMode, setFilterMode] = useState<FilterMode>("all");
-  const [selectedDate, setSelectedDate] = useState("");
+  const [filterMode, setFilterMode] = useState<FilterMode>("today");
+  const [selectedDate, setSelectedDate] = useState(todayKeyOf);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   // Admin-side parity: narrow by property, job type and an explicit date range.
   const [propertyId, setPropertyId] = useState("ALL");
@@ -646,9 +646,18 @@ export function ClientJobsBoard({
         selectedDate?: string;
         viewMode?: ViewMode;
       };
-      if (parsed.filterMode) setFilterMode(parsed.filterMode);
-      if (parsed.selectedDate) setSelectedDate(parsed.selectedDate);
-      if (parsed.viewMode) setViewMode(parsed.viewMode);
+      if (parsed.filterMode && ["all", "today", "tomorrow", "week", "date"].includes(parsed.filterMode)) {
+        const date = typeof parsed.selectedDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.selectedDate) &&
+          !Number.isNaN(new Date(`${parsed.selectedDate}T00:00:00`).getTime()) &&
+          format(new Date(`${parsed.selectedDate}T00:00:00`), "yyyy-MM-dd") === parsed.selectedDate ? parsed.selectedDate : "";
+        if (parsed.filterMode !== "date" || date) {
+          setFilterMode(parsed.filterMode);
+          const selected = parsed.filterMode === "today" ? todayKeyOf() : parsed.filterMode === "tomorrow" ? tomorrowKeyOf() : date;
+          setSelectedDate(selected);
+          if (selected) setCalendarMonth(startOfMonth(new Date(`${selected}T00:00:00`)));
+        }
+      }
+      if (parsed.viewMode === "list" || parsed.viewMode === "calendar") setViewMode(parsed.viewMode);
     } catch {
       // ignore invalid local state
     }
@@ -674,6 +683,15 @@ export function ClientJobsBoard({
   );
 
   const todayKey = format(toZonedTime(new Date(), TZ), "yyyy-MM-dd");
+  function goToToday() {
+    const today = todayKeyOf();
+    setCalendarMonth(startOfMonth(new Date(`${today}T00:00:00`)));
+    setSelectedDate(today);
+    setFilterMode("today");
+    // Today replaces earlier date bounds; property/status choices remain intact.
+    setFromDate("");
+    setToDate("");
+  }
 
   const jobDayKeys = useMemo(
     () => new Set(jobs.map((job) => dayKey(job.scheduledDate))),
@@ -925,8 +943,9 @@ export function ClientJobsBoard({
             key={option.value}
             type="button"
             onClick={() => {
+              if (option.value === "today") { goToToday(); return; }
               setFilterMode(option.value);
-              setSelectedDate("");
+              setSelectedDate(option.value === "tomorrow" ? tomorrowKeyOf() : "");
             }}
             aria-pressed={filterMode === option.value}
             className={cn(
@@ -975,7 +994,7 @@ export function ClientJobsBoard({
                 <EButton
                   variant="outline"
                   size="sm"
-                  onClick={() => setCalendarMonth(startOfMonth(toZonedTime(new Date(), TZ)))}
+                  onClick={goToToday}
                 >
                   Today
                 </EButton>
@@ -1004,6 +1023,9 @@ export function ClientJobsBoard({
                   <button
                     key={key}
                     type="button"
+                    aria-label={`Select ${key}`}
+                    aria-pressed={isSelected}
+                    aria-current={key === todayKey ? "date" : undefined}
                     onClick={() => {
                       setSelectedDate(key);
                       setFilterMode("date");

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { SingleCampaignRecipient, normalizedRecipientEmail, validRecipientEmail } from "./single-campaign-recipient";
 
 interface Template {
   id: string;
@@ -18,7 +19,7 @@ interface Template {
 }
 
 type Channel = "EMAIL" | "SMS" | "BOTH";
-type AudienceType = "all_clients" | "inactive_clients" | "service_type";
+type AudienceType = "all_clients" | "inactive_clients" | "service_type" | "single_recipient";
 
 interface Props {
   templates: Template[];
@@ -33,6 +34,7 @@ export default function CampaignWizard({ templates }: Props) {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [audienceType, setAudienceType] = useState<AudienceType>("all_clients");
+  const [recipientEmail, setRecipientEmail] = useState("");
   const [daysSinceLast, setDaysSinceLast] = useState<number>(60);
   const [scheduleMode, setScheduleMode] = useState<"now" | "later">("now");
   const [scheduledFor, setScheduledFor] = useState<string>("");
@@ -58,6 +60,7 @@ export default function CampaignWizard({ templates }: Props) {
 
   async function handleSave(mode: "draft" | "schedule") {
     setError(null);
+    if (audienceType === "single_recipient" && !validRecipientEmail(recipientEmail)) { setError("Enter a valid recipient email"); return; }
     if (!name.trim()) {
       setError("Campaign name is required");
       return;
@@ -73,6 +76,7 @@ export default function CampaignWizard({ templates }: Props) {
     setSaving(true);
     try {
       const audience: any = { type: audienceType };
+      if (audienceType === "single_recipient") audience.filters = { email: normalizedRecipientEmail(recipientEmail) };
       if (audienceType === "inactive_clients") {
         audience.filters = { daysSinceLastBooking: daysSinceLast };
       }
@@ -181,9 +185,11 @@ export default function CampaignWizard({ templates }: Props) {
               className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground"
             >
               <option value="all_clients">All active clients</option>
+              <option value="single_recipient">One recipient</option>
               <option value="inactive_clients">Inactive clients (no bookings in N days)</option>
             </select>
           </div>
+          {audienceType === "single_recipient" ? <SingleCampaignRecipient email={recipientEmail} onChange={setRecipientEmail} /> : null}
           {audienceType === "inactive_clients" ? (
             <div>
               <Label htmlFor="cdays">Days since last booking</Label>

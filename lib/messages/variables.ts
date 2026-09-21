@@ -22,8 +22,9 @@ export interface VariableContext {
 export async function resolveTemplate(
   template: string,
   ctx: VariableContext,
+  options: { escapeHtml?: boolean; strictVariables?: boolean; firstNameFallback?: string } = {},
 ): Promise<string> {
-  const cache: Record<string, any> = {};
+  const cache: Record<string, any> = Object.create(null);
 
   const loaders: Record<string, () => Promise<any>> = {
     client: async () => {
@@ -87,7 +88,7 @@ export async function resolveTemplate(
 
   async function get(key: string) {
     if (!(key in cache)) {
-      const loader = loaders[key];
+      const loader = Object.prototype.hasOwnProperty.call(loaders, key) ? loaders[key] : null;
       cache[key] = loader ? await loader() : null;
     }
     return cache[key];
@@ -122,27 +123,34 @@ export async function resolveTemplate(
   }
 
   const tokens = Array.from(template.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g));
-  let output = template;
+  const replacements = new Map<string, string>();
   for (const match of tokens) {
+    if (replacements.has(match[0])) continue;
     const expr = match[1];
     const [path, ...filterParts] = expr.split("|").map((s) => s.trim());
     const filter = filterParts.join("|");
     const parts = path.split(".");
     const rootKey = parts[0];
     const obj = await get(rootKey);
+    if (options.strictVariables && obj == null) throw new Error(`Campaign variable context is unavailable: ${rootKey}.`);
     let value: any = obj;
     for (const p of parts.slice(1)) {
-      value = value == null ? undefined : value[p];
+      if (options.strictVariables && value != null && !Object.prototype.hasOwnProperty.call(Object(value), p)) throw new Error(`Unknown campaign variable: ${path}.`);
+      value = value == null || !Object.prototype.hasOwnProperty.call(Object(value), p) ? undefined : value[p];
     }
+    if (path === "client.firstName" && !String(value ?? "").trim() && options.firstNameFallback) value = options.firstNameFallback;
+    if (options.strictVariables && filter && !["date", "time", "currency", "upper", "lower"].includes(filter.split(/\s+/)[0])) throw new Error(`Unknown campaign variable filter: ${filter}.`);
     const rendered = filter
       ? applyFilter(value, filter)
       : value === undefined || value === null
         ? ""
         : String(value);
-    output = output.split(match[0]).join(rendered);
+    replacements.set(match[0], options.escapeHtml ? rendered.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!)) : rendered);
   }
 
-  return output;
+  // Only source tokens are replaced: recipient values cannot introduce a second
+  // template expression that is evaluated for another field.
+  return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, token => replacements.get(token) ?? "");
 }
 
 /**

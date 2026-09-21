@@ -22,6 +22,9 @@ import {
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { cn } from "@/lib/utils";
+import { toZonedTime } from "date-fns-tz";
+
+const portalToday = () => toZonedTime(new Date(), "Australia/Sydney");
 
 export type CalendarGridEvent = {
   id: string;
@@ -70,7 +73,7 @@ export function EstateCalendarGrid({
   initialMonthKey?: string;
 }) {
   const [month, setMonth] = useState(() =>
-    startOfMonth(initialMonthKey ? new Date(`${initialMonthKey}-01T00:00:00`) : new Date())
+    startOfMonth(initialMonthKey ? new Date(`${initialMonthKey}-01T00:00:00`) : portalToday())
   );
 
   const byDay = useMemo(() => {
@@ -89,7 +92,7 @@ export function EstateCalendarGrid({
     return eachDayOfInterval({ start, end });
   }, [month]);
 
-  const todayKey = format(new Date(), "yyyy-MM-dd");
+  const todayKey = format(portalToday(), "yyyy-MM-dd");
 
   return (
     <ECard>
@@ -105,7 +108,7 @@ export function EstateCalendarGrid({
           </EButton>
           <p className="e-display-sm text-[1.0625rem]">{format(month, "MMMM yyyy")}</p>
           <div className="flex items-center gap-2">
-            <EButton variant="outline" size="sm" onClick={() => setMonth(startOfMonth(new Date()))}>
+            <EButton variant="outline" size="sm" onClick={() => setMonth(startOfMonth(portalToday()))}>
               Today
             </EButton>
             <EButton
@@ -134,6 +137,8 @@ export function EstateCalendarGrid({
             return (
               <div
                 key={key}
+                aria-label={key}
+                aria-current={isToday ? "date" : undefined}
                 className={cn(
                   "min-h-[3rem] rounded-[var(--e-radius)] border p-0.5 text-left align-top sm:min-h-[5.5rem] sm:p-1.5",
                   inMonth

@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { useBasicConfirmDialog } from "@/components/shared/use-basic-confirm";
+import { SingleCampaignRecipient, normalizedRecipientEmail, validRecipientEmail } from "./single-campaign-recipient";
 
 type CampaignRow = {
   id: string;
@@ -30,7 +31,8 @@ type FormState = {
   name: string;
   subject: string;
   htmlBody: string;
-  audienceType: "all_clients" | "inactive_clients" | "service_type";
+  audienceType: "all_clients" | "inactive_clients" | "service_type" | "single_recipient";
+  recipientEmail: string;
   inactiveDays: string;
   jobTypes: string[];
   status: "draft" | "scheduled";
@@ -42,6 +44,7 @@ const EMPTY_FORM: FormState = {
   subject: "",
   htmlBody: "<p>Hello from sNeek.</p>",
   audienceType: "all_clients",
+  recipientEmail: "",
   inactiveDays: "60",
   jobTypes: [],
   status: "draft",
@@ -63,7 +66,8 @@ function formFromCampaign(row: CampaignRow): FormState {
     name: row.name,
     subject: row.subject,
     htmlBody: row.htmlBody,
-    audienceType: audience.type === "inactive_clients" || audience.type === "service_type" ? audience.type : "all_clients",
+    audienceType: audience.type === "inactive_clients" || audience.type === "service_type" || audience.type === "single_recipient" ? audience.type : "all_clients",
+    recipientEmail: typeof filters.email === "string" ? filters.email : "",
     inactiveDays: filters.daysSinceLastBooking ? String(filters.daysSinceLastBooking) : "60",
     jobTypes: Array.isArray(filters.jobTypes) ? filters.jobTypes : [],
     status: row.status === "scheduled" ? "scheduled" : "draft",
@@ -92,7 +96,7 @@ export function EmailCampaignsWorkspace({ initialCampaigns }: { initialCampaigns
       audience: {
         type: form.audienceType,
         filters:
-          form.audienceType === "inactive_clients"
+          form.audienceType === "single_recipient" ? { email: normalizedRecipientEmail(form.recipientEmail) } : form.audienceType === "inactive_clients"
             ? { daysSinceLastBooking: Number(form.inactiveDays || 60) }
             : form.audienceType === "service_type"
               ? { jobTypes: form.jobTypes }
@@ -104,6 +108,7 @@ export function EmailCampaignsWorkspace({ initialCampaigns }: { initialCampaigns
   }
 
   async function saveCampaign() {
+    if (form.audienceType === "single_recipient" && !validRecipientEmail(form.recipientEmail)) { toast({ title: "Enter a valid recipient email", variant: "destructive" }); return; }
     setSaving(true);
     try {
       const response = await fetch(editingId ? `/api/admin/email-campaigns/${editingId}` : "/api/admin/email-campaigns", {
@@ -128,13 +133,19 @@ export function EmailCampaignsWorkspace({ initialCampaigns }: { initialCampaigns
   }
 
   async function sendCampaign(id: string) {
+    const campaign = campaigns.find(row => row.id === id);
+    if (campaign?.audience?.type === "single_recipient") {
+      const email = campaign.audience.filters?.email;
+      if (typeof email !== "string" || !validRecipientEmail(email)) { toast({ title: "Fix the recipient email before sending", variant: "destructive" }); return; }
+      if (!await confirm({ title: "Send to one recipient", description: `Send this campaign only to ${normalizedRecipientEmail(email)}? Eligibility and preferences are checked again when sending.`, confirmLabel: "Send to this recipient" })) return;
+    }
     setSendingId(id);
     try {
       const response = await fetch(`/api/admin/email-campaigns/${id}/send`, { method: "POST" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? "Could not send campaign.");
-      setCampaigns((current) => current.map((item) => item.id === id ? { ...item, status: "sent", sentAt: new Date().toISOString(), recipientCount: body.sent ?? item.recipientCount } : item));
-      toast({ title: "Campaign sent", description: `${body.sent ?? 0} recipient(s) processed.` });
+      setCampaigns((current) => current.map((item) => item.id === id ? { ...item, status: body.failed > 0 ? "failed" : "sent", sentAt: body.failed > 0 ? null : new Date().toISOString(), recipientCount: body.sent ?? item.recipientCount } : item));
+      toast({ title: body.failed > 0 ? "Campaign has failed deliveries" : "Campaign processed", description: `${body.sent ?? 0} sent, ${body.failed ?? 0} failed, ${body.suppressed ?? 0} suppressed.`, variant: body.failed > 0 ? "destructive" : "default" });
     } catch (error: any) {
       toast({ title: "Send failed", description: error?.message ?? "Could not send campaign.", variant: "destructive" });
     } finally {
@@ -185,11 +196,13 @@ export function EmailCampaignsWorkspace({ initialCampaigns }: { initialCampaigns
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all_clients">All active clients</SelectItem>
+                <SelectItem value="single_recipient">One recipient</SelectItem>
                 <SelectItem value="inactive_clients">Inactive clients</SelectItem>
                 <SelectItem value="service_type">Clients by service type</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {form.audienceType === "single_recipient" ? <SingleCampaignRecipient email={form.recipientEmail} onChange={recipientEmail => setForm(current => ({ ...current, recipientEmail }))} /> : null}
           {form.audienceType === "inactive_clients" ? (
             <div className="space-y-2">
               <Label>No booking for at least X days</Label>

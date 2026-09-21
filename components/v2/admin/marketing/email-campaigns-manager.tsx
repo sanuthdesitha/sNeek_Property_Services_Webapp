@@ -12,6 +12,7 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { EConfirmModal, EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
+import { SingleCampaignRecipient, normalizedRecipientEmail, validRecipientEmail } from "@/components/admin/single-campaign-recipient";
 import {
   defaultDesign,
   parseEmailHtml,
@@ -55,13 +56,14 @@ export type CampaignStatsRow = {
 
 type SegmentRow = { id: string; label: string; description: string; count: number };
 
-type AudienceType = "all_clients" | "inactive_clients" | "service_type" | "segment";
+type AudienceType = "all_clients" | "inactive_clients" | "service_type" | "segment" | "single_recipient";
 
 type FormState = {
   name: string;
   subject: string;
   htmlBody: string;
   audienceType: AudienceType;
+  recipientEmail: string;
   segmentId: string;
   inactiveDays: string;
   jobTypes: string[];
@@ -76,6 +78,7 @@ const EMPTY_FORM: FormState = {
   subject: "",
   htmlBody: "",
   audienceType: "all_clients",
+  recipientEmail: "",
   segmentId: "all_active_clients",
   inactiveDays: "60",
   jobTypes: [],
@@ -95,7 +98,7 @@ function formFromCampaign(row: CampaignRow): FormState {
   const audience = row.audience && typeof row.audience === "object" ? row.audience : {};
   const filters = audience.filters && typeof audience.filters === "object" ? audience.filters : {};
   const audienceType: AudienceType =
-    audience.type === "inactive_clients" || audience.type === "service_type" || audience.type === "segment"
+    audience.type === "inactive_clients" || audience.type === "service_type" || audience.type === "segment" || audience.type === "single_recipient"
       ? audience.type
       : "all_clients";
   return {
@@ -103,6 +106,7 @@ function formFromCampaign(row: CampaignRow): FormState {
     subject: row.subject,
     htmlBody: row.htmlBody,
     audienceType,
+    recipientEmail: typeof filters.email === "string" ? filters.email : "",
     segmentId: typeof filters.segmentId === "string" ? filters.segmentId : "all_active_clients",
     inactiveDays: filters.daysSinceLastBooking ? String(filters.daysSinceLastBooking) : "60",
     jobTypes: Array.isArray(filters.jobTypes) ? filters.jobTypes : [],
@@ -173,6 +177,7 @@ export function EmailCampaignsManager({
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [sendConfirmId, setSendConfirmId] = useState<string | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [segments, setSegments] = useState<SegmentRow[]>([]);
   const [segmentsLoading, setSegmentsLoading] = useState(false);
@@ -233,7 +238,7 @@ export function EmailCampaignsManager({
       audience: {
         type: form.audienceType,
         filters:
-          form.audienceType === "segment"
+          form.audienceType === "single_recipient" ? { email: normalizedRecipientEmail(form.recipientEmail) } : form.audienceType === "segment"
             ? { segmentId: form.segmentId }
             : form.audienceType === "inactive_clients"
               ? { daysSinceLastBooking: Number(form.inactiveDays || 60) }
@@ -247,6 +252,7 @@ export function EmailCampaignsManager({
   }
 
   async function saveCampaign() {
+    if (form.audienceType === "single_recipient" && !validRecipientEmail(form.recipientEmail)) { onToast({ title: "Enter a valid recipient email", tone: "danger" }); return; }
     setSaving(true);
     try {
       const response = await fetch(editingId ? `/api/admin/email-campaigns/${editingId}` : "/api/admin/email-campaigns", {
@@ -270,24 +276,31 @@ export function EmailCampaignsManager({
     }
   }
 
-  async function sendCampaign(id: string) {
+  async function sendCampaign(id: string, confirmed = false) {
+    const campaign = campaigns.find(row => row.id === id);
+    if (campaign?.audience?.type === "single_recipient") {
+      const email = campaign.audience.filters?.email;
+      if (typeof email !== "string" || !validRecipientEmail(email)) { onToast({ title: "Fix the recipient email before sending", tone: "danger" }); return; }
+      if (!confirmed) { setSendConfirmId(id); return; }
+    }
     setSendingId(id);
     try {
       const response = await fetch(`/api/admin/email-campaigns/${id}/send`, { method: "POST" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? "Could not send campaign.");
       setCampaigns((cur) =>
-        cur.map((i) => (i.id === id ? { ...i, status: "sent", sentAt: new Date().toISOString(), recipientCount: body.sent ?? i.recipientCount } : i))
+        cur.map((i) => (i.id === id ? { ...i, status: body.failed > 0 ? "failed" : "sent", sentAt: body.failed > 0 ? null : new Date().toISOString(), recipientCount: body.sent ?? i.recipientCount } : i))
       );
       onToast({
-        title: "Campaign sent",
-        description: `${body.sent ?? 0} sent${body.suppressed ? `, ${body.suppressed} skipped (suppressed)` : ""}.`,
-        tone: "success",
+        title: body.failed > 0 ? "Campaign has failed deliveries" : "Campaign processed",
+        description: `${body.sent ?? 0} sent, ${body.failed ?? 0} failed, ${body.suppressed ?? 0} suppressed.`,
+        tone: body.failed > 0 ? "danger" : "success",
       });
     } catch (error: any) {
       onToast({ title: "Send failed", description: error?.message ?? "Could not send campaign.", tone: "danger" });
     } finally {
       setSendingId(null);
+      setSendConfirmId(null);
     }
   }
 
@@ -342,11 +355,13 @@ export function EmailCampaignsManager({
               <ESelect value={form.audienceType} onChange={(e) => setForm((c) => ({ ...c, audienceType: e.target.value as AudienceType }))}>
                 <option value="segment">Named segment</option>
                 <option value="all_clients">All active clients</option>
+                <option value="single_recipient">One recipient</option>
                 <option value="inactive_clients">Inactive clients</option>
                 <option value="service_type">Clients by service type</option>
               </ESelect>
             </EField>
 
+            {form.audienceType === "single_recipient" ? <SingleCampaignRecipient email={form.recipientEmail} onChange={recipientEmail => setForm(current => ({ ...current, recipientEmail }))} /> : null}
             {form.audienceType === "segment" ? (
               <div className="space-y-2">
                 <EField label="Segment">
@@ -500,6 +515,9 @@ export function EmailCampaignsManager({
         </ECard>
       </div>
 
+      <EConfirmModal open={Boolean(sendConfirmId)} onClose={() => setSendConfirmId(null)} title="Send to one recipient"
+        description={`Send this campaign only to ${campaigns.find(row => row.id === sendConfirmId)?.audience?.filters?.email ?? ""}? Eligibility and preferences are checked again when sending.`}
+        confirmLabel="Send to this recipient" loading={Boolean(sendingId)} onConfirm={() => { if (sendConfirmId) void sendCampaign(sendConfirmId, true); }} />
       <EConfirmModal
         open={Boolean(confirmId)}
         onClose={() => setConfirmId(null)}

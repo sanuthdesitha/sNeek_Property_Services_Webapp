@@ -4,6 +4,9 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
+import { resolveEmailCampaignRecipients } from "@/lib/marketing/email-campaigns";
+import { renderCampaignContent } from "@/lib/marketing/campaign-render";
+import { extractVariablePaths } from "@/lib/messages/variables";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +21,8 @@ export const dynamic = "force-dynamic";
  *    on the suppression list and a self-addressed preview is not marketing
  *  - no CampaignSend ledger row is written, so the test does not consume the
  *    recipient claim or count towards the campaign's `sent` analytics
- *  - {{variables}} are NOT resolved: there is no client context for a test, so
- *    the tokens stay visible and the admin can see exactly where they land
+ *  - personalization uses the first actual client in the selected audience;
+ *    delivery is still exclusively to the signed-in admin, never that client
  */
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   try {
@@ -34,11 +37,17 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
       return NextResponse.json({ error: "Campaign not found." }, { status: 404 });
     }
 
+    const { recipients } = await resolveEmailCampaignRecipients(campaign.audience);
+    const recipient = recipients.find(value => Boolean(value.clientId));
+    if (!recipient && extractVariablePaths(`${campaign.subject}\n${campaign.htmlBody}`).length > 0) {
+      return NextResponse.json({ error: "No eligible client is available to personalize this test. Select an audience containing a client and try again." }, { status: 400 });
+    }
+    const rendered = await renderCampaignContent({ subject: campaign.subject, body: campaign.htmlBody }, recipient ? { client: { id: recipient.clientId } } : {});
     const settings = await getAppSettings();
     const result = await sendEmailDetailed({
       to,
-      subject: `[TEST] ${campaign.subject}`,
-      html: campaign.htmlBody,
+      subject: `[TEST] ${rendered.subject}`,
+      html: rendered.html,
       replyTo: settings.accountsEmail || undefined,
       transactional: true,
       critical: true,
@@ -47,7 +56,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     if (!result.ok) {
       return NextResponse.json({ error: result.error ?? "Test send failed." }, { status: 400 });
     }
-    return NextResponse.json({ ok: true, to });
+    return NextResponse.json({ ok: true, to, previewClientName: recipient?.clientName ?? null });
   } catch (error: any) {
     const status = error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: error?.message ?? "Could not send test." }, { status });

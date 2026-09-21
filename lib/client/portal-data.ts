@@ -1,4 +1,4 @@
-import { JobStatus, JobType, type Prisma } from "@prisma/client";
+import { JobStatus, JobType, type LaundryStatus, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings, type ClientPortalVisibility } from "@/lib/settings";
 import { resolvePortalScopeForUser } from "@/lib/auth/client-portal";
@@ -543,7 +543,8 @@ export async function listClientJobsForUser(userId: string) {
     );
 }
 
-export async function listClientLaundryForUser(userId: string) {
+export type ClientLaundryFilters = { propertyId?: string; fromDate?: Date | null; toDate?: Date | null; status?: LaundryStatus; dateField?: "any" | "cleaning" | "pickup" | "dropoff" };
+export async function listClientLaundryForUser(userId: string, options?: ClientLaundryFilters) {
   const scope = await getPortalScope(userId);
   if (!scope) return [];
 
@@ -553,13 +554,22 @@ export async function listClientLaundryForUser(userId: string) {
   // whole; the cap is a safety limit, not the selection rule.
   const historyFrom = new Date();
   historyFrom.setDate(historyFrom.getDate() - CLIENT_JOBS_HISTORY_DAYS);
+  const explicitWindow = Boolean(options?.fromDate || options?.toDate);
+  const range = explicitWindow ? { ...(options?.fromDate ? { gte: options.fromDate } : {}), ...(options?.toDate ? { lte: options.toDate } : {}) } : { gte: historyFrom };
+  const dateField = options?.dateField ?? (explicitWindow ? "any" : "pickup");
+  const dateWhere: Prisma.LaundryTaskWhereInput = dateField === "cleaning" ? { job: { scheduledDate: range } }
+    : dateField === "dropoff" ? { dropoffDate: range }
+    : dateField === "pickup" ? { pickupDate: range }
+    : { OR: [{ pickupDate: range }, { dropoffDate: range }, { job: { scheduledDate: range } }] };
 
   return db.laundryTask.findMany({
     where: {
       property: scopedNestedPropertyFilter(scope),
-      // pickupDate is non-nullable on LaundryTask, so a plain lower bound is
-      // enough — no null branch to consider.
-      pickupDate: { gte: historyFrom },
+      // A requested property is an additional constraint; it never replaces
+      // the VA/client property scope above.
+      ...(options?.propertyId ? { propertyId: options.propertyId } : {}),
+      ...(options?.status ? { status: options.status } : {}),
+      ...dateWhere,
     },
     select: {
       id: true,
@@ -598,7 +608,7 @@ export async function listClientLaundryForUser(userId: string) {
         },
       },
     },
-    orderBy: [{ pickupDate: "asc" }, { updatedAt: "desc" }],
+    orderBy: [{ pickupDate: "desc" }, { updatedAt: "desc" }, { id: "desc" }],
     take: 200,
   }).then((rows) =>
     rows.map((row) => ({

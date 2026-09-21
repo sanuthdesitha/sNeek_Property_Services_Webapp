@@ -245,7 +245,7 @@ function StageDateChip({ task }: { task: BoardTask }) {
   if (!info) return null;
   return (
     <p
-      className={`mt-0.5 inline-flex items-center gap-1 text-[0.75rem] ${
+      className={`mt-0.5 inline-flex max-w-full items-center gap-1 text-[0.75rem] ${
         info.overdue
           ? "font-[550] text-[hsl(var(--e-danger))]"
           : "text-[hsl(var(--e-muted-foreground))]"
@@ -625,7 +625,7 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
   const flagged = active.filter((t) => t.status === "FLAGGED" || t.status === "SKIPPED_PICKUP");
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {control}
         <RefreshButton loading={loading} onClick={() => void load()} />
@@ -645,7 +645,7 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
             {flagged.map((t) => (
               <div
                 key={t.id}
-                className="flex items-start justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]"
+                className="flex flex-col items-stretch justify-between gap-2 sm:flex-row sm:items-start rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]"
               >
                 <div className="min-w-0">
                   <p className="truncate font-medium">{propertyLabel(t)}</p>
@@ -680,7 +680,7 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
       {active.length === 0 ? (
         <EEmptyState eyebrow="Quiet" title="Nothing in the queue" description="No active laundry sets right now." />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {QUEUE_STAGES.map((s) => {
             const items = active.filter((t) => t.status === s.status);
             return (
@@ -705,7 +705,7 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
                             key={it.id}
                             className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]"
                           >
-                            <div className="flex items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
                               <p className="min-w-0 truncate font-medium">{propertyLabel(it)}</p>
                               <KeyLostBadge task={it} />
                             </div>
@@ -796,7 +796,7 @@ export function RunsBoard({ canDelete = false }: BoardRoleProps) {
   const dropsDone = dropoffs.filter((t) => Boolean(t.droppedAt) || t.status === "DROPPED").length;
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {control}
         <RefreshButton loading={loading} onClick={() => void load()} />
@@ -805,7 +805,7 @@ export function RunsBoard({ canDelete = false }: BoardRoleProps) {
       {pickups.length === 0 && dropoffs.length === 0 ? (
         <EEmptyState eyebrow="Quiet" title="No runs" description="No pickups or drop-offs are scheduled in the selected range." />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2">
           <RunColumn
             title="Pickup loop"
             icon={<Truck className="h-4 w-4" />}
@@ -905,7 +905,7 @@ function RunColumn({
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{propertyLabel(t)}</p>
                     {t.property?.address || t.property?.suburb ? (
-                      <p className="mt-0.5 inline-flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                      <p className="mt-0.5 inline-flex max-w-full items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                         <MapPin className="h-3 w-3 shrink-0" />
                         <span className="truncate">{taskAddressText(t)}</span>
                       </p>
@@ -917,7 +917,7 @@ function RunColumn({
                       const late = !complete && sydneyDateKey(when) < sydneyTodayKey();
                       return (
                         <p
-                          className={`mt-0.5 inline-flex items-center gap-1 text-[0.75rem] ${
+                          className={`mt-0.5 inline-flex max-w-full items-center gap-1 text-[0.75rem] ${
                             late ? "font-[550] text-[hsl(var(--e-danger))]" : "text-[hsl(var(--e-muted-foreground))]"
                           }`}
                         >
@@ -929,7 +929,7 @@ function RunColumn({
                       );
                     })()}
                   </div>
-                  <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
+                  <div className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                     <NavButton task={t} />
                     <KeyLostBadge task={t} />
                     {overdue ? <EBadge tone="danger" soft>Overdue</EBadge> : null}
@@ -1234,7 +1234,7 @@ export function TrackingBoard({ canDelete = false }: BoardRoleProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {control}
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1326,7 +1326,7 @@ export function TrackingBoard({ canDelete = false }: BoardRoleProps) {
                         ) : null}
                       </p>
                     </div>
-                    <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
+                    <div className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                       {overdue ? (
                         <EBadge tone="danger" soft>
                           Overdue

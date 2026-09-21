@@ -1,7 +1,7 @@
 import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { getAppSettings } from "@/lib/settings";
 import { getClientPortalContext } from "@/lib/client/portal";
-import { listClientLaundryForUser } from "@/lib/client/portal-data";
+import { listClientLaundryForUser, listClientPropertiesForUser } from "@/lib/client/portal-data";
 import { logger } from "@/lib/logger";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { LaundryWorkspace } from "@/components/v2/client/laundry/laundry-workspace";
@@ -23,17 +23,19 @@ export default async function ClientLaundryPage() {
   // looked identical to the client, which is how a real fault went unnoticed.
   const tasks = await listClientLaundryForUser(session.user.id).catch((err) => {
     logger.error({ err, userId: session.user.id }, "Client laundry: task query failed");
-    return [];
+    throw err;
   });
+
+  const properties = await listClientPropertiesForUser(session.user.id);
 
   return (
     <div className="space-y-6">
       <EPageHeader
         eyebrow="Your homes"
         title="Laundry"
-        description="Read-only laundry schedule and timeline for your properties, with today's linked cleaning jobs pinned first."
+        description="Track laundry by property, status and date. Open any schedule for its updates, notes and photos."
       />
-      <LaundryWorkspace tasks={tasks} showLaundryImages={portal?.visibility.showLaundryImages ?? false} />
+      <LaundryWorkspace properties={properties.map(({ id, name }) => ({ id, name }))} tasks={tasks} showLaundryImages={portal?.visibility.showLaundryImages ?? false} />
     </div>
   );
 }

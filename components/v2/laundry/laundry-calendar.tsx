@@ -159,7 +159,7 @@ export function LaundryCalendar() {
     <div className="space-y-4">
       {/* Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto">
           <EButton
             variant="outline"
             size="icon"
@@ -168,7 +168,7 @@ export function LaundryCalendar() {
           >
             <ChevronLeft className="h-4 w-4" />
           </EButton>
-          <p className="e-display-sm min-w-[10rem] text-center">{format(monthAnchor, "MMMM yyyy")}</p>
+          <p className="e-display-sm min-w-0 flex-1 text-center sm:min-w-[10rem] sm:flex-none">{format(monthAnchor, "MMMM yyyy")}</p>
           <EButton
             variant="outline"
             size="icon"
@@ -180,6 +180,7 @@ export function LaundryCalendar() {
           <EButton
             variant="ghost"
             size="sm"
+            className="w-full sm:w-auto"
             onClick={() => {
               const now = new Date();
               setMonthAnchor(startOfMonth(now));
@@ -204,10 +205,10 @@ export function LaundryCalendar() {
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+      <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         {/* Month grid */}
         <ECard>
-          <ECardBody className="pt-6">
+          <ECardBody className="px-2 pt-4 sm:px-6 sm:pt-6">
             <div className="grid grid-cols-7 gap-px">
               {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
                 <div
@@ -224,9 +225,10 @@ export function LaundryCalendar() {
                 return (
                   <button
                     key={day.toISOString()}
+                    data-calendar-day
                     type="button"
                     onClick={() => setSelected(day)}
-                    className="flex min-h-[4.75rem] flex-col gap-1 rounded-[var(--e-radius-sm)] border p-1.5 text-left transition-colors duration-[120ms]"
+                    className="flex min-h-[4.75rem] min-w-0 flex-col gap-1 rounded-[var(--e-radius-sm)] border p-0.5 text-left transition-colors duration-[120ms] sm:p-1.5"
                     style={{
                       borderColor: isSel ? "hsl(var(--e-gold))" : "hsl(var(--e-border))",
                       backgroundColor: isSel

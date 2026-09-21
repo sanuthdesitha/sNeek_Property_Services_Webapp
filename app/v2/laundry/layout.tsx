@@ -49,7 +49,7 @@ export default function V2LaundryLayout({ children }: { children: React.ReactNod
   const nav = React.useMemo(() => withAttentionBadges(NAV, counts), [counts]);
 
   return (
-    <div data-skin="estate" data-portal-accent="laundry">
+    <div data-skin="estate" data-portal-accent="laundry" className="max-sm:[&_main_button:not([data-calendar-day])]:min-h-11">
       <PortalShell accent="laundry" wordmark="sNeek" nav={nav} roleLabel="Laundry">
         {children}
       </PortalShell>

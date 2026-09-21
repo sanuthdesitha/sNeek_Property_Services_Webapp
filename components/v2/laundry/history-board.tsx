@@ -203,7 +203,7 @@ export function HistoryBoard() {
       {/* Filters */}
       <ECard>
         <ECardBody className="pt-6">
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end">
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_auto_auto_auto] xl:items-end">
             <EField label="Search property or supplier">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
@@ -295,6 +295,22 @@ export function HistoryBoard() {
                   </div>
                 </div>
 
+                <div className="space-y-3 md:hidden">
+                  {g.rows.map((t) => (
+                    <article key={t.id} className="min-w-0 space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 [overflow-wrap:anywhere]">
+                      <p className="font-medium">{propertyLabel(t)}</p>
+                      <EBadge tone={toneFor(t.status)} soft>{labelFor(t.status)}</EBadge>
+                      <dl className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="col-span-2"><dt className="text-[hsl(var(--e-muted-foreground))]">Supplier</dt><dd>{t.supplier?.name ?? "—"}</dd></div>
+                        <div><dt className="text-[hsl(var(--e-muted-foreground))]">Weight</dt><dd>{t.bagWeightKg ? `${t.bagWeightKg.toFixed(1)} kg` : "—"}</dd></div>
+                        <div><dt className="text-[hsl(var(--e-muted-foreground))]">Cost</dt><dd>{t.dropoffCostAud ? `$${t.dropoffCostAud.toFixed(0)}` : "—"}</dd></div>
+                        <div><dt className="text-[hsl(var(--e-muted-foreground))]">Returned</dt><dd>{t.droppedAt ? format(new Date(t.droppedAt), "HH:mm") : "—"}</dd></div>
+                      </dl>
+                      {t.status === "DROPPED" ? <EButton className="w-full" variant="outline" onClick={() => openAction(t, "EDIT_COMPLETED")}><FilePenLine className="h-4 w-4" />Edit completed task</EButton> : null}
+                    </article>
+                  ))}
+                </div>
+                <div className="hidden md:block">
                 <ETableShell
                   headers={[
                     { label: "Property" },
@@ -339,6 +355,7 @@ export function HistoryBoard() {
                     </tr>
                   ))}
                 </ETableShell>
+                </div>
               </ECardBody>
             </ECard>
           ))}

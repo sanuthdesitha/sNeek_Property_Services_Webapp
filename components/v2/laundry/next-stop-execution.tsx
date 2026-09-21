@@ -19,7 +19,7 @@ export function NextStopExecution({ task, kind, config, onAction }: {
   const bags = Number.isInteger(pickup?.bagCount) && pickup.bagCount > 0 ? pickup.bagCount : null;
   const location = confirmations.find(row => row.bagLocation?.trim())?.bagLocation;
   const action = kind === "pickup" && ["PENDING", "CONFIRMED"].includes(task.status) ? "PICKED_UP" : kind === "dropoff" && task.status === "PICKED_UP" ? "RETURNED" : null;
-  return <div className="space-y-3 border-t border-[hsl(var(--e-border))] pt-3 text-sm">
+  return <div className="min-w-0 space-y-3 break-words [overflow-wrap:anywhere] border-t border-[hsl(var(--e-border))] pt-3 text-sm">
     {task.property?.address ? <p>{task.property.address}</p> : null}
     <p>{bags == null ? (kind === "pickup" ? "Bag count not recorded; count bags at pickup." : "Bag count not recorded; check the task history before returning bags.") : `${bags} bags recorded at pickup.`}</p>
     {location ? <p>Recorded bag location: {location}</p> : null}
@@ -33,8 +33,10 @@ export function NextStopExecution({ task, kind, config, onAction }: {
       </div>)}</div> : <p>No structured laundry access guide recorded. Check the task board for existing access notes.</p>}
     </details>
     <p>{!config ? "Proof settings unavailable. Reload the page to reload settings." : kind === "pickup" ? `Count bags and confirm pickup.${config.showPickupPhoto ? " Pickup photo is optional." : ""}` : `Record drop-off location and confirm return.${config.requireDropoffPhoto ? " Drop-off photo required." : ""}${config.requireEarlyDropoffReason ? " Early returns require a reason." : ""}`}</p>
+    <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
     {action ? <EButton onClick={() => onAction(task.id, action)}>{action === "PICKED_UP" ? "Confirm pickup" : "Confirm drop-off"}</EButton> : <p role="status">{task.status === "FLAGGED" ? "This task is flagged. Review it on the task board before continuing." : kind === "dropoff" ? "Pickup must be recorded before confirming drop-off." : "Review this task's current status on the task board."}</p>}
     {action === "PICKED_UP" ? <EButton variant="outline" onClick={() => onAction(task.id, "FAILED_PICKUP")}>Report access problem</EButton> : null}
-    <a className="ml-3 underline" href={`/v2/laundry/tracking#task-${encodeURIComponent(task.id)}`}>Open task board</a>
+    <a className="inline-flex min-h-11 items-center underline" href={`/v2/laundry/tracking#task-${encodeURIComponent(task.id)}`}>Open task board</a>
+    </div>
   </div>;
 }

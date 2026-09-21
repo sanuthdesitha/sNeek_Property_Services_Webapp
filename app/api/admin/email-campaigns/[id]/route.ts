@@ -3,18 +3,7 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { isSegmentId } from "@/lib/marketing/segments";
-
-const audienceSchema = z.object({
-  // "segment" delegates recipient resolution to lib/marketing/segments.ts; the
-  // other three are the original ad-hoc filters, kept for saved campaigns.
-  type: z.enum(["all_clients", "inactive_clients", "service_type", "segment"]),
-  filters: z.object({
-    daysSinceLastBooking: z.number().int().min(1).max(3650).optional(),
-    jobTypes: z.array(z.string().trim().min(1)).optional(),
-    segmentId: z.string().trim().min(1).refine(isSegmentId, "Unknown segment").optional(),
-  }).optional(),
-});
+import { emailCampaignAudienceSchema as audienceSchema } from "@/lib/marketing/campaign-audience";
 
 const campaignSchema = z.object({
   name: z.string().trim().min(1).max(160),
@@ -29,6 +18,7 @@ const campaignSchema = z.object({
 // Accepted only when the request body looks like a marketing-engine patch
 // (presence of channel/campaignStatus/scheduledFor/templateId).
 const marketingPatchSchema = z.object({
+  audience: audienceSchema.optional(),
   channel: z.enum(["EMAIL", "SMS", "BOTH"]).optional(),
   campaignStatus: z
     .enum(["DRAFT", "SCHEDULED", "SENDING", "SENT", "FAILED", "PAUSED", "CANCELLED"])
@@ -51,6 +41,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (isMarketingPatch) {
       const patch = marketingPatchSchema.parse(raw);
       const data: any = {};
+      if (patch.audience !== undefined) data.audience = patch.audience;
       if (patch.channel !== undefined) data.channel = patch.channel;
       if (patch.campaignStatus !== undefined) data.campaignStatus = patch.campaignStatus;
       if (patch.scheduledFor !== undefined) data.scheduledFor = patch.scheduledFor ? new Date(patch.scheduledFor) : null;

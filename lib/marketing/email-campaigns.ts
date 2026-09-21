@@ -1,42 +1,13 @@
 ﻿import { ClientInvoiceStatus, JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
+import { renderCampaignContent } from "@/lib/marketing/campaign-render";
 import { getAppSettings } from "@/lib/settings";
 import { isSuppressed } from "@/lib/email/suppression";
 import { isSegmentId, resolveSegment, type SegmentId } from "@/lib/marketing/segments";
 
-export type EmailCampaignAudience = {
-  type: "all_clients" | "inactive_clients" | "service_type" | "segment";
-  filters?: {
-    daysSinceLastBooking?: number;
-    jobTypes?: string[];
-    segmentId?: SegmentId;
-  };
-};
-
-function normalizeAudience(value: unknown): EmailCampaignAudience {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { type: "all_clients" };
-  }
-  const row = value as Record<string, unknown>;
-  const type =
-    row.type === "inactive_clients" || row.type === "service_type" || row.type === "segment"
-      ? row.type
-      : "all_clients";
-  const filters = row.filters && typeof row.filters === "object" && !Array.isArray(row.filters)
-    ? row.filters as Record<string, unknown>
-    : {};
-  return {
-    type,
-    filters: {
-      daysSinceLastBooking: Number.isFinite(Number(filters.daysSinceLastBooking)) ? Number(filters.daysSinceLastBooking) : undefined,
-      jobTypes: Array.isArray(filters.jobTypes)
-        ? filters.jobTypes.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-        : undefined,
-      segmentId: isSegmentId(filters.segmentId) ? filters.segmentId : undefined,
-    },
-  };
-}
+export type { EmailCampaignAudience } from "./campaign-audience";
+import { normalizeCampaignAudience, resolveSingleCampaignRecipient } from "./campaign-audience";
 
 function primaryClientEmail(client: {
   email: string | null;
@@ -57,7 +28,11 @@ export async function listEmailCampaigns() {
 }
 
 export async function resolveEmailCampaignRecipients(audienceInput: unknown) {
-  const audience = normalizeAudience(audienceInput);
+  const audience = normalizeCampaignAudience(audienceInput);
+  if (audience.type === "single_recipient") {
+    const recipients = await resolveSingleCampaignRecipient(audience.filters!.email!);
+    return { audience, recipients, count: recipients.length };
+  }
   const now = new Date();
 
   // Named-segment audiences delegate wholesale to lib/marketing/segments.ts —
@@ -136,6 +111,7 @@ export async function dispatchEmailCampaignById(campaignId: string) {
   if (!campaign) {
     throw new Error("Campaign not found.");
   }
+  try {
 
   const { recipients, count } = await resolveEmailCampaignRecipients(campaign.audience);
   if (count === 0) {
@@ -143,12 +119,13 @@ export async function dispatchEmailCampaignById(campaignId: string) {
       where: { id: campaign.id },
       data: { status: "sent", sentAt: new Date(), recipientCount: 0 },
     });
-    return { sent: 0 };
+    return { sent: 0, suppressed: 0, failed: 0 };
   }
 
   const settings = await getAppSettings();
   let sent = 0;
   let suppressedCount = 0;
+  let failed = 0;
   for (const recipient of recipients) {
     const ledgerEmail = recipient.email.toLowerCase();
     // Campaigns are non-transactional marketing — bounced / complained /
@@ -158,6 +135,8 @@ export async function dispatchEmailCampaignById(campaignId: string) {
       suppressedCount += 1;
       continue;
     }
+
+    const rendered = await renderCampaignContent({ subject: campaign.subject, body: campaign.htmlBody }, { client: { id: recipient.clientId } });
 
     // Claim via the unique (campaignId,email) ledger so a crashed/retried
     // dispatch never re-emails someone already contacted (audit: partial-send
@@ -175,8 +154,8 @@ export async function dispatchEmailCampaignById(campaignId: string) {
 
     const result = await sendEmailDetailed({
       to: recipient.email,
-      subject: campaign.subject,
-      html: campaign.htmlBody,
+      subject: rendered.subject,
+      html: rendered.html,
       replyTo: settings.accountsEmail || undefined,
     });
     if (result.ok) {
@@ -190,6 +169,7 @@ export async function dispatchEmailCampaignById(campaignId: string) {
         }).catch(() => undefined);
       }
     } else {
+      failed += 1;
       // Drop the claim so a later run can retry this recipient.
       await (db as any).campaignSend.deleteMany({
         where: { campaignId: campaign.id, email: ledgerEmail },
@@ -200,13 +180,19 @@ export async function dispatchEmailCampaignById(campaignId: string) {
   await db.emailCampaign.update({
     where: { id: campaign.id },
     data: {
-      status: "sent",
-      sentAt: new Date(),
+      status: failed > 0 ? "failed" : "sent",
+      sentAt: failed > 0 ? null : new Date(),
       recipientCount: sent,
     },
   });
 
-  return { sent, suppressed: suppressedCount };
+  return { sent, suppressed: suppressedCount, failed };
+  } catch (error) {
+    // Rendering fails before claiming a recipient. Keep existing successful
+    // claims intact, but never leave a scheduled campaign labelled sending.
+    await db.emailCampaign.update({ where: { id: campaign.id }, data: { status: "failed", sentAt: null } }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function dispatchScheduledEmailCampaigns(now = new Date()) {
@@ -225,6 +211,7 @@ export async function dispatchScheduledEmailCampaigns(now = new Date()) {
   });
 
   let dispatched = 0;
+  let failed = 0;
   for (const campaign of campaigns) {
     // Atomic claim (legacy status path): flip "scheduled" -> "sending" with a
     // conditional updateMany so two overlapping ticks / app instances can't both
@@ -242,8 +229,15 @@ export async function dispatchScheduledEmailCampaigns(now = new Date()) {
     });
     if (claim.count !== 1) continue;
 
-    const result = await dispatchEmailCampaignById(campaign.id);
-    dispatched += result.sent;
+    try {
+      const result = await dispatchEmailCampaignById(campaign.id);
+      dispatched += result.sent;
+      if (result.failed) failed += 1;
+    } catch {
+      failed += 1;
+      // The dispatch records its own failure. Other scheduled campaigns must
+      // still get their turn; failed recipients are never blindly replayed.
+    }
   }
-  return { campaigns: campaigns.length, dispatched };
+  return { campaigns: campaigns.length, dispatched, failed };
 }

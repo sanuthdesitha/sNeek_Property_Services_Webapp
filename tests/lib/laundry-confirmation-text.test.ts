@@ -87,3 +87,7 @@ describe("describeLaundryConfirmation", () => {
     expect(describeLaundryConfirmation(envelope({ event: "SOMETHING_NEW" }))).toBeNull();
   });
 });
+
+it("retains pickup notes saved under the plural notes field", () => {
+  expect(describeLaundryConfirmation(envelope({event: "PICKED_UP", bagCount: 2, notes: "Two blue bags"}))).toContain("Two blue bags");
+});

@@ -1,0 +1,103 @@
+import React from "react";
+import { act, fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { SingleCampaignRecipient } from "@/components/admin/single-campaign-recipient";
+import { EmailCampaignsManager } from "@/components/v2/admin/marketing/email-campaigns-manager";
+import CampaignWizard from "@/components/admin/campaign-wizard";
+import { EmailCampaignsWorkspace } from "@/components/admin/email-campaigns-workspace";
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+const notices = vi.hoisted(() => ({ toast: vi.fn() }));
+vi.mock("@/hooks/use-toast", () => ({ toast: notices.toast }));
+vi.mock("@/components/v2/admin/marketing/email-block-editor", () => ({ EmailBlockEditor: () => <div>Editor</div>, EmailPreview: () => <div>Preview</div> }));
+const fetchMock = vi.fn();
+const row = { id: "campaign", name: "One person", subject: "Hello", htmlBody: "<p>Hello</p>", audience: { type: "single_recipient", filters: { email: "person@example.com" } }, status: "draft", scheduledAt: null, sentAt: null, recipientCount: null, createdAt: "2026-09-21T00:00:00Z" };
+const response = (body: unknown) => ({ ok: true, json: async () => body });
+beforeEach(() => { notices.toast.mockReset(); fetchMock.mockReset(); vi.stubGlobal("fetch", fetchMock); fetchMock.mockImplementation(async (url: string) => response(url.includes("segments") ? { segments: [] } : url.includes("audience-preview") ? { count: 1 } : { campaign: row, sent: 1 })); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+it.each([0, 1])("v2 shows failed status and truthful counts when %s emails were sent before a refusal", async sent => {
+  const onToast = vi.fn();
+  fetchMock.mockImplementation(async (url: string) => response(url.endsWith("/send") ? { sent, failed: 1, suppressed: 2 } : { segments: [] }));
+  render(<EmailCampaignsManager initialCampaigns={[{ ...row, audience: { type: "all_clients" } }]} onToast={onToast} brand={{} as never} />);
+  fireEvent.click(screen.getByRole("button", { name: "Send now" }));
+  await screen.findByText("failed", { exact: true });
+  expect(onToast).toHaveBeenCalledWith({ title: "Campaign has failed deliveries", description: `${sent} sent, 1 failed, 2 suppressed.`, tone: "danger" });
+  expect(onToast.mock.calls.some(([notice]) => notice.title === "Campaign sent")).toBe(false);
+  expect(screen.getByText(new RegExp(`Recipients processed: ${sent}`))).toBeInTheDocument();
+  expect(screen.queryByText(/^Sent \d/)).not.toBeInTheDocument();
+  expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/send"))).toHaveLength(1);
+});
+it.each([0, 1])("legacy shows failed status and truthful counts when %s emails were sent before a refusal", async sent => {
+  fetchMock.mockImplementation(async (url: string) => response(url.endsWith("/send") ? { sent, failed: 1, suppressed: 2 } : { segments: [] }));
+  render(<EmailCampaignsWorkspace initialCampaigns={[{ ...row, audience: { type: "all_clients" }, createdBy: { name: "Admin", email: "admin@example.com" } }]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Send now" }));
+  await screen.findByText("Status: failed", { exact: true });
+  expect(notices.toast).toHaveBeenCalledWith({ title: "Campaign has failed deliveries", description: `${sent} sent, 1 failed, 2 suppressed.`, variant: "destructive" });
+  expect(notices.toast.mock.calls.some(([notice]) => notice.title === "Campaign sent")).toBe(false);
+  expect(screen.getByText(`Recipients processed: ${sent}`)).toBeInTheDocument();
+  expect(screen.queryByText(/Status: sent|\| Sent /)).not.toBeInTheDocument();
+  expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/send"))).toHaveLength(1);
+});
+it("previews only the normalized exact email and shows no match without broadening", async () => {
+  fetchMock.mockResolvedValue(response({ count: 0 }));
+  render(<SingleCampaignRecipient email=" Person@Example.com " onChange={() => {}} />);
+  await screen.findByText(/No matching recipient for person@example.com/);
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ audience: { type: "single_recipient", filters: { email: "person@example.com" } } });
+});
+it("ignores a delayed preview for the previous email", async () => {
+  vi.useFakeTimers(); let first!: (value: unknown) => void;
+  fetchMock.mockImplementationOnce(() => new Promise(resolve => { first = resolve; })).mockResolvedValue(response({ count: 0 }));
+  const view = render(<SingleCampaignRecipient email="old@example.com" onChange={() => {}} />);
+  await act(async () => { vi.advanceTimersByTime(251); });
+  view.rerender(<SingleCampaignRecipient email="new@example.com" onChange={() => {}} />);
+  await act(async () => { vi.advanceTimersByTime(251); });
+  await act(async () => { first(response({ count: 1 })); });
+  expect(screen.getByRole("status")).toHaveTextContent("No matching recipient for new@example.com");
+});
+it("invalid email never queries an audience; failed preview offers explicit retry", async () => {
+  const view = render(<SingleCampaignRecipient email="" onChange={() => {}} />);
+  expect(screen.getByRole("status")).toHaveTextContent("Enter a valid email"); expect(fetchMock).not.toHaveBeenCalled();
+  fetchMock.mockRejectedValueOnce(new Error("offline"));
+  view.rerender(<SingleCampaignRecipient email="person@example.com" onChange={() => {}} />);
+  await screen.findByRole("button", { name: "Retry recipient preview" });
+  fireEvent.click(screen.getByRole("button", { name: "Retry recipient preview" }));
+  await screen.findByText("1 matching recipient: person@example.com");
+});
+it("editing a saved single recipient preserves its narrow audience on save", async () => {
+  render(<EmailCampaignsManager initialCampaigns={[row]} onToast={vi.fn()} brand={{} as never} />);
+  fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+  expect(screen.getByRole("textbox", { name: "Recipient email" })).toHaveValue("person@example.com");
+  fireEvent.change(screen.getByRole("textbox", { name: "Recipient email" }), { target: { value: " Other@Example.com " } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => url === "/api/admin/email-campaigns/campaign" && init.method === "PATCH")).toBe(true));
+  const [, init] = fetchMock.mock.calls.find(([url, init]) => url === "/api/admin/email-campaigns/campaign" && init.method === "PATCH")!;
+  expect(JSON.parse(init.body).audience).toEqual({ type: "single_recipient", filters: { email: "other@example.com" } });
+});
+it("send confirmation identifies the exact saved recipient and sends only after confirmation", async () => {
+  render(<EmailCampaignsManager initialCampaigns={[row]} onToast={vi.fn()} brand={{} as never} />);
+  fireEvent.click(screen.getByRole("button", { name: "Send now" }));
+  expect(screen.getByRole("dialog")).toHaveTextContent("person@example.com");
+  expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/send"))).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Send to this recipient" }));
+  await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/send"))).toHaveLength(1));
+});
+it("wizard saves a single-recipient payload and blocks blank email", async () => {
+  render(<CampaignWizard templates={[]} />);
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Campaign" } });
+  fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Hello" } });
+  fireEvent.change(screen.getByLabelText("Body"), { target: { value: "Hello there" } });
+  fireEvent.change(screen.getByLabelText("Segment"), { target: { value: "single_recipient" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save as draft" }));
+  expect(fetchMock).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole("textbox", { name: "Recipient email" }), { target: { value: "person@example.com" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save as draft" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === "/api/admin/email-campaigns")).toBe(true));
+  expect(JSON.parse(fetchMock.mock.calls.find(([url]) => url === "/api/admin/email-campaigns")![1].body).audience).toEqual(row.audience);
+});
+it("legacy editor keeps the saved single email instead of reverting to all clients", async () => {
+  render(<EmailCampaignsWorkspace initialCampaigns={[{ ...row, createdBy: { name: "Admin", email: "admin@example.com" } }]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+  expect(screen.getByRole("textbox", { name: "Recipient email" })).toHaveValue("person@example.com");
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => url === "/api/admin/email-campaigns/campaign" && init.method === "PATCH")).toBe(true));
+  expect(JSON.parse(fetchMock.mock.calls.find(([url, init]) => url === "/api/admin/email-campaigns/campaign" && init.method === "PATCH")![1].body).audience).toEqual(row.audience);
+});

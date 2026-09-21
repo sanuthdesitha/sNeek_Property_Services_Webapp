@@ -451,7 +451,7 @@ export function LaundryActionModal({
 
   return (
     <EModal open onClose={onClose} eyebrow="Laundry" title={ACTION_TITLE[action]} size="wide">
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4 [overflow-wrap:anywhere] [&_input]:min-w-0 [&_select]:min-w-0">
         {propertyLine ? (
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{propertyLine}</p>
         ) : null}
