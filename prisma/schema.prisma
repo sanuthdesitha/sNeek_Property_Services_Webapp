@@ -991,6 +991,7 @@ model Client {
 }
 
 model Property {
+  aiModelTraining            AiPropertyModelTraining?
   id                         String   @id @default(cuid())
   clientId                   String
   name                       String
@@ -1762,6 +1763,7 @@ model FormSubmission {
   laundryAdminOverrideById String?
   laundryAdminOverrideAt   DateTime?
   bagLocation              String?
+  aiPhotoReview            AiPhotoReview?
   autoQaScore              Float? // computed on submission
   createdAt                DateTime        @default(now())
   updatedAt                DateTime        @updatedAt
@@ -4172,6 +4174,25 @@ model QuizAssignment {
   @@index([token])
 }
 
+model AiPropertyModelTraining {
+  propertyId      String    @id
+  property        Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  status          String    @default("PENDING")
+  desiredRevision String
+  trainedRevision String?
+  leaseToken      String?
+  leaseUntil      DateTime?
+  attempts        Int       @default(0)
+  error           String?
+  lastTrainedAt   DateTime?
+  modelVersion    String?
+  metricsJson     Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status, leaseUntil, updatedAt])
+}
+
 model AppSetting {
   key       String   @id
   value     Json
@@ -4834,4 +4855,25 @@ model LaundryQuantityException {
   version Int @default(0)
   laundryTask LaundryTask? @relation(fields: [laundryTaskId], references: [id], onDelete: SetNull)
   @@index([resolvedAt, createdAt, id])
+}
+
+// AI observations are proposals. Only an explicit reviewer decision can change a QA score.
+model AiPhotoReview {
+  id String @id @default(cuid())
+  submissionId String @unique
+  status String @default("PENDING")
+  settings Json
+  result Json?
+  sourceFingerprint String?
+  leaseToken String?
+  leaseUntil DateTime?
+  attempts Int @default(0)
+  error String?
+  decision Json?
+  reviewedById String?
+  reviewedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  submission FormSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  @@index([status, leaseUntil, createdAt])
 }

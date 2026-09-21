@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { enqueuePropertyModelTraining } from "@/lib/ai/property-model-training";
 import { JobStatus, JobType, Role } from "@prisma/client";
+vi.mock("@/lib/ai/property-model-training", () => ({ enqueuePropertyModelTraining: vi.fn().mockResolvedValue(false) }));
 
 const mocks = vi.hoisted(() => ({
   role: vi.fn(), assignment: vi.fn(), job: vi.fn(), template: vi.fn(), timeLog: vi.fn(),
@@ -242,6 +244,7 @@ describe("real cleaner submit form contract", () => {
     expect(await response.json()).toEqual({ ok: true, submissionId: "submission" });
     expect(events).toEqual(["transaction", "claim", "snapshot", "commit"]);
     expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(enqueuePropertyModelTraining).toHaveBeenCalledWith("property", expect.objectContaining({ formSubmission: { create: mocks.create }, submissionMedia: { createMany: mocks.media } }));
     const stored = mocks.create.mock.calls[0][0].data;
     expect(stored).toMatchObject({ jobId: "job", templateId: "template", submittedById: "cleaner" });
     expect(stored.data.__templateSchema).toEqual(assembleJobForm(baseSchema, extras));

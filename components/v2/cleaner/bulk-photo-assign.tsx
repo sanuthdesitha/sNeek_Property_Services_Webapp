@@ -20,6 +20,7 @@
  * validation, autosave/draft and submit need no knowledge of this component.
  */
 import * as React from "react";
+import { z } from "zod";
 import {
   Camera,
   Check,
@@ -41,7 +42,7 @@ import {
 import type { UploadMap } from "@/components/v2/cleaner/form-renderer";
 import { useEvidenceScope } from "./evidence-context";
 import { moveEvidence, removeEvidence } from "@/lib/cleaner/evidence-client";
-import { type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
+import { destinationOf, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
 import {
   addToPool,
   assignToField,
@@ -62,6 +63,10 @@ interface PendingUpload {
   status: "uploading" | "failed";
 }
 
+const proposalSchema = z.object({ captureId: z.string().min(1), key: z.string().min(1), version: z.number().int().nonnegative(), fieldId: z.string().min(1).nullable(), confidence: z.number().min(0).max(1), reason: z.string().max(2000) });
+const proposalResponseSchema = z.object({ templateId: z.string(), formRevision: z.string(), draftIdentity: z.string(), minConfidence: z.number().min(0).max(1), proposals: z.array(proposalSchema).max(8) });
+type PhotoProposal = z.infer<typeof proposalSchema>;
+
 export function BulkPhotoAssign({
   open,
   onClose,
@@ -72,6 +77,7 @@ export function BulkPhotoAssign({
   fields,
   folder = "evidence",
   stamp,
+  prepareAutoAssign,
 }: {
   open: boolean;
   onClose: () => void;
@@ -86,6 +92,8 @@ export function BulkPhotoAssign({
   folder?: string;
   /** Evidence-stamp context (address/reference) — same shape MediaCapture takes. */
   stamp?: StampOptions | null;
+  /** Confirm the current answers are saved before the server derives destinations. */
+  prepareAutoAssign?: () => Promise<void>;
 }) {
   const evidenceScope = useEvidenceScope();
   const [moving, setMoving] = React.useState(false);
@@ -95,6 +103,26 @@ export function BulkPhotoAssign({
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [pending, setPending] = React.useState<PendingUpload[]>([]);
   const [uploadNote, setUploadNote] = React.useState<string | null>(null);
+  const [proposals, setProposals] = React.useState<PhotoProposal[]>([]);
+  const [proposalScope, setProposalScope] = React.useState<string | null>(null);
+  const [analysing, setAnalysing] = React.useState(false);
+  const [aiNote, setAiNote] = React.useState<string | null>(null);
+  const [minConfidence, setMinConfidence] = React.useState(0.8);
+  const [batchSize, setBatchSize] = React.useState(4);
+  const [analysisProgress, setAnalysisProgress] = React.useState({ completed: 0, total: 0 });
+  const [applying, setApplying] = React.useState(false);
+  const requestRef = React.useRef<{ id: number; controller?: AbortController }>({ id: 0 });
+  const movingRef = React.useRef(false);
+  const stopApplyingRef = React.useRef(false);
+  const scopeKey = JSON.stringify([open, evidenceScope, fields.map(field => field.id)]);
+  const scopeKeyRef = React.useRef(scopeKey); scopeKeyRef.current = scopeKey;
+  const fieldsRef = React.useRef(fields); fieldsRef.current = fields;
+  React.useEffect(() => {
+    ++requestRef.current.id; requestRef.current.controller?.abort();
+    stopApplyingRef.current = true;
+    setProposals([]); setProposalScope(null); setAnalysing(false); setAiNote(null); setBatchSize(4); setAnalysisProgress({ completed: 0, total: 0 });
+    return () => { ++requestRef.current.id; requestRef.current.controller?.abort(); stopApplyingRef.current = true; };
+  }, [scopeKey]);
 
   const state = React.useMemo(() => ({ pool, uploads }), [pool, uploads]);
   const assignedBy = React.useMemo(() => assignmentIndex(uploads), [uploads]);
@@ -156,6 +184,96 @@ export function BulkPhotoAssign({
   poolRef.current = pool;
   const uploadsRef = React.useRef(uploads);
   uploadsRef.current = uploads;
+
+  function cancelAnalysis() {
+    ++requestRef.current.id; requestRef.current.controller?.abort();
+    setAnalysing(false); setAiNote("Analysis cancelled. Completed suggestions are ready to review; remaining photos stay unassigned.");
+  }
+
+  async function autoAssign() {
+    if (!evidenceScope || analysing || movingRef.current || pending.some(item => item.status === "uploading")) return;
+    const scope = evidenceScope, startedScope = scopeKey;
+    const id = ++requestRef.current.id;
+    const controller = new AbortController(); requestRef.current.controller?.abort(); requestRef.current.controller = controller;
+    const current = () => requestRef.current.id === id && scopeKeyRef.current === startedScope;
+    const requestJson = async (url: string, init: RequestInit) => {
+      let timedOut = false;
+      const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 60_000);
+      try { const response = await fetch(url, { ...init, signal: controller.signal }); return { response, body: await response.json() }; }
+      catch (error) { if (timedOut) throw new Error("Analysis request timed out. Retry remaining photos or assign manually."); throw error; }
+      finally { clearTimeout(timeout); }
+    };
+    setAnalysing(true); setAiNote(null); setAnalysisProgress({ completed: 0, total: 0 });
+    try {
+      if (!prepareAutoAssign) throw new Error("Save the current form and reopen bulk photos before auto assigning.");
+      await prepareAutoAssign(); if (!current()) return;
+      const headers = { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": scope.draftIdentity };
+      const { response: read, body: draft } = await requestJson(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, { headers, cache: "no-store" });
+      if (!current()) return;
+      if (!read.ok) throw new Error(draft.error || "Could not check saved photos. Try again.");
+      const unassigned = new Set(poolRef.current.filter(media => media.kind === "image" && !assignmentIndex(uploadsRef.current)[media.key]).map(media => media.key));
+      const photos = Object.entries(draft.draft?.evidenceReceipts ?? {}).flatMap(([captureId, value]) => {
+        const receipt = value as any;
+        return receipt && !receipt.detached && receipt.draftIdentity === scope.draftIdentity && receipt.formRevision === scope.formRevision && destinationOf(receipt).type === "bulkPool" && unassigned.has(receipt.key) && Number.isInteger(receipt.version ?? 0)
+          ? [{ captureId, key: receipt.key as string, version: receipt.version ?? 0 }] : [];
+      });
+      if (!photos.length) throw new Error("No acknowledged, unassigned photos are ready. Finish evidence recovery or assign manually.");
+      const held = proposalScope === startedScope ? proposals.filter(row => photos.some(photo => photo.captureId === row.captureId && photo.key === row.key && photo.version === row.version)) : [];
+      setProposalScope(startedScope); setProposals(held);
+      let remaining = photos.filter(photo => !held.some(row => row.captureId === photo.captureId));
+      let completed = 0, total = remaining.length, limit = batchSize, adapted = false;
+      setAnalysisProgress({ completed, total });
+      while (remaining.length && current()) {
+        const freshRemaining = remaining.filter(photo => poolRef.current.some(media => media.key === photo.key) && !assignmentIndex(uploadsRef.current)[photo.key]);
+        total -= remaining.length - freshRemaining.length; remaining = freshRemaining;
+        setAnalysisProgress({ completed, total });
+        if (!remaining.length) break;
+        const batch = remaining.slice(0, limit);
+        const { response, body } = await requestJson(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/evidence/auto-assign`, { method: "POST", headers, body: JSON.stringify({ templateId: scope.templateId, formRevision: scope.formRevision, photos: batch }) });
+        if (!current()) return;
+        if (!response.ok) {
+          // This validation failure occurs before provider work; only reduce once.
+          if (response.status === 400 && !adapted && Number.isInteger(body.maxBatchSize) && body.maxBatchSize >= 1 && body.maxBatchSize < batch.length) {
+            limit = body.maxBatchSize; adapted = true; setBatchSize(limit); continue;
+          }
+          throw new Error(body.error || "Auto assignment is unavailable. Retry remaining photos or assign manually.");
+        }
+        const result = proposalResponseSchema.safeParse(body);
+        if (!result.success || result.data.templateId !== scope.templateId || result.data.formRevision !== scope.formRevision || result.data.draftIdentity !== scope.draftIdentity || result.data.proposals.length !== batch.length || new Set(result.data.proposals.map(row => row.captureId)).size !== batch.length || result.data.proposals.some(row => !batch.some(photo => photo.captureId === row.captureId && photo.key === row.key && photo.version === row.version) || (row.fieldId !== null && !fieldsRef.current.some(field => field.id === row.fieldId)))) throw new Error("Suggestions no longer match this form. Try again; no photos were assigned.");
+        const fresh = result.data.proposals.filter(row => poolRef.current.some(media => media.key === row.key) && !assignmentIndex(uploadsRef.current)[row.key]);
+        setMinConfidence(result.data.minConfidence); setProposals(previous => [...previous.filter(row => !fresh.some(next => next.captureId === row.captureId)), ...fresh]);
+        completed += batch.length; remaining = remaining.slice(batch.length); setAnalysisProgress({ completed, total });
+      }
+      if (current()) setAiNote("Analysis complete. Review suggestions before filing; uncertain photos need a manual section choice.");
+    } catch (error) {
+      if (current()) setAiNote(error instanceof Error ? error.message : "Analysis failed. Try again or assign manually.");
+    } finally { if (current()) setAnalysing(false); }
+  }
+
+  async function acceptProposals(rows: PhotoProposal[]) {
+    if (!evidenceScope || movingRef.current) return;
+    const scope = evidenceScope, startedScope = scopeKey;
+    movingRef.current = true; stopApplyingRef.current = false; setMoving(true); setApplying(true); setAiNote(null);
+    let count = 0;
+    try {
+      for (const row of rows) {
+        if (stopApplyingRef.current || scopeKeyRef.current !== startedScope) break;
+        const media = poolRef.current.find(media => media.key === row.key);
+        if (!media || assignmentIndex(uploadsRef.current)[row.key] || !row.fieldId || !fieldsRef.current.some(field => field.id === row.fieldId)) continue;
+        await moveEvidence(scope, media, { type: "bulkPool" }, { type: "formField", fieldId: row.fieldId }, { captureId: row.captureId, version: row.version });
+        if (scopeKeyRef.current !== startedScope) break;
+        // Another source may have updated the upload map while the receipt was saved.
+        if (poolRef.current.some(item => item.key === row.key) && !assignmentIndex(uploadsRef.current)[row.key]) {
+          const next = assignToField({ pool: poolRef.current, uploads: uploadsRef.current }, [row.key], row.fieldId);
+          poolRef.current = next.pool; uploadsRef.current = next.uploads; commit(next); ++count;
+        }
+        setProposals(current => current.filter(item => item.captureId !== row.captureId));
+      }
+      if (scopeKeyRef.current === startedScope) setAiNote(`${count} photo${count === 1 ? "" : "s"} assigned. Select a filed photo to move it or undo with Unassign.`);
+    } catch (error) {
+      if (scopeKeyRef.current === startedScope) setAiNote(`${count} photo${count === 1 ? "" : "s"} assigned. ${error instanceof Error ? error.message : "Assignment was not confirmed. Refresh evidence before trying again."}`);
+    } finally { movingRef.current = false; setMoving(false); setApplying(false); }
+  }
 
   const runUpload = React.useCallback(
     async (items: PendingUpload[]) => {
@@ -222,9 +340,9 @@ export function BulkPhotoAssign({
     }
   }
   async function assign(fieldId: string) {
-    if (moving) return;
+    if (movingRef.current) return;
     if (selected.length === 0 || !fieldId) return;
-    setMoving(true);
+    movingRef.current = true; setMoving(true);
     try {
     await acknowledgeMoves({ type: "formField", fieldId });
     const next = assignToField({ pool: poolRef.current, uploads: uploadsRef.current }, selected, fieldId);
@@ -234,19 +352,19 @@ export function BulkPhotoAssign({
     // Assign-next loop: jump the highlight to the next field still short.
     setActiveFieldId(nextUnmetField(fields, next.uploads, fieldId)?.id ?? fieldId);
     } catch (error) { setUploadNote(error instanceof Error ? error.message : "Move failed. Reload evidence."); }
-    finally { setMoving(false); }
+    finally { movingRef.current = false; setMoving(false); }
   }
 
   async function returnToPool() {
-    if (moving) return;
+    if (movingRef.current) return;
     if (selected.length === 0) return;
-    setMoving(true);
+    movingRef.current = true; setMoving(true);
     try {
     await acknowledgeMoves({ type: "bulkPool" });
     commit(unassignKeys({ pool: poolRef.current, uploads: uploadsRef.current }, selected));
     setSelected([]);
     } catch (error) { setUploadNote(error instanceof Error ? error.message : "Move failed. Reload evidence."); }
-    finally { setMoving(false); }
+    finally { movingRef.current = false; setMoving(false); }
   }
 
   function toggle(key: string) {
@@ -255,8 +373,8 @@ export function BulkPhotoAssign({
 
   const selectedAssignedCount = selected.filter((k) => assignedBy[k]).length;
   async function removeSelected() {
-    if (!evidenceScope || moving) return;
-    setMoving(true);
+    if (!evidenceScope || movingRef.current) return;
+    movingRef.current = true; setMoving(true);
     try {
       for (const key of selected) {
         await removeEvidence(evidenceScope, key);
@@ -265,7 +383,7 @@ export function BulkPhotoAssign({
       }
       setSelected([]);
     } catch (error) { setUploadNote(error instanceof Error ? error.message : "Removal failed."); }
-    finally { setMoving(false); }
+    finally { movingRef.current = false; setMoving(false); }
   }
   const sections = React.useMemo(() => {
     const order: string[] = [];
@@ -281,10 +399,12 @@ export function BulkPhotoAssign({
     return order.map((title) => ({ title, fields: map.get(title)! }));
   }, [fields]);
 
+  const reviewable = proposalScope === scopeKey ? proposals.filter(row => pool.some(media => media.key === row.key) && !assignedBy[row.key]) : [];
+  const highConfidence = reviewable.filter(row => row.fieldId !== null && row.confidence >= minConfidence);
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[110] flex flex-col bg-[hsl(var(--e-background))]">
+    <div role="dialog" aria-label="Bulk photos" aria-modal="true" className="fixed inset-0 z-[110] flex min-w-0 flex-col bg-[hsl(var(--e-background))] [overflow-wrap:anywhere]">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--e-border))] px-4 py-3">
         <div className="min-w-0">
@@ -296,6 +416,7 @@ export function BulkPhotoAssign({
         <button
           type="button"
           onClick={onClose}
+          disabled={applying}
           aria-label="Close bulk photos"
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))]"
         >
@@ -351,6 +472,34 @@ export function BulkPhotoAssign({
           {uploadNote ? (
             <p className="text-[0.75rem] text-[hsl(var(--e-danger))]">{uploadNote}</p>
           ) : null}
+        </section>
+
+        <section aria-label="Auto assignment suggestions" className="min-w-0 space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0"><p className="font-semibold">Auto assign photos</p><p className="text-xs text-[hsl(var(--e-muted-foreground))]">Analyse {pool.filter(media => media.kind === "image").length} unassigned photos in batches of up to {batchSize}. Existing suggestions are kept. Review before filing.</p></div>
+            <EButton className="min-h-11" disabled={!evidenceScope || !prepareAutoAssign || analysing || moving || !pool.some(media => media.kind === "image") || pending.some(item => item.status === "uploading")} onClick={() => void autoAssign()}>{analysing ? <><Loader2 className="h-4 w-4 animate-spin" />Analysing…</> : "Auto assign"}</EButton>
+          </div>
+          <p className="text-xs text-[hsl(var(--e-muted-foreground))]">Uses this property&apos;s reference photos and previous labelled submissions when available.</p>
+          {analysing ? <EButton variant="outline" className="min-h-11" onClick={cancelAnalysis}>Cancel analysis</EButton> : null}
+          {analysisProgress.total > 0 ? <p role="status" className="text-sm">Analysed {analysisProgress.completed} of {analysisProgress.total} photos.</p> : null}
+          {aiNote ? <p role="status" className="text-sm">{aiNote}</p> : null}
+          {highConfidence.length > 0 ? <EButton className="h-auto min-h-11 w-full whitespace-normal py-2" disabled={moving || analysing} onClick={() => void acceptProposals(highConfidence)}>Accept {highConfidence.length} high-confidence suggestion{highConfidence.length === 1 ? "" : "s"}</EButton> : null}
+          {applying ? <EButton variant="outline" className="min-h-11 whitespace-normal" onClick={() => { stopApplyingRef.current = true; setAiNote("Stopping after the current photo is confirmed."); }}>Stop after current photo</EButton> : null}
+          {reviewable.map(row => {
+            const media = pool.find(media => media.key === row.key)!;
+            const field = row.fieldId ? fieldById.get(row.fieldId) : undefined;
+            return <article key={row.captureId} className="min-w-0 space-y-2 border-t border-[hsl(var(--e-border))] pt-3">
+              <div className="flex min-w-0 items-start gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={media.url} alt={media.name || "Photo suggestion"} className="h-16 w-16 shrink-0 rounded object-cover" />
+                <div className="min-w-0"><p className="text-sm font-semibold">{field ? `${field.sectionTitle} · ${field.label}` : "Choose a section manually"}</p><p className="text-xs">{Math.round(row.confidence * 100)}% confidence{row.confidence < minConfidence ? " · Review needed" : ""}</p><p className="mt-1 text-sm">{row.reason}</p></div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {field ? <EButton className="min-h-11" variant="outline" disabled={moving || analysing} onClick={() => void acceptProposals([row])}>Accept suggestion</EButton> : <EButton className="min-h-11" variant="outline" disabled={moving} onClick={() => { setSelected([row.key]); setPickerOpen(true); }}>Choose section</EButton>}
+                <EButton className="min-h-11" variant="ghost" disabled={moving} onClick={() => setProposals(current => current.filter(item => item.captureId !== row.captureId))}>Dismiss suggestion</EButton>
+              </div>
+            </article>;
+          })}
         </section>
 
         {/* Step 2 — categorise */}
@@ -466,8 +615,8 @@ export function BulkPhotoAssign({
           <EButton
             variant="gold"
             size="sm"
-            className="flex-1"
-            disabled={selected.length === 0 || !activeFieldId}
+            className="h-auto min-h-11 w-full min-w-0 flex-none whitespace-normal py-2 sm:w-auto sm:flex-1"
+            disabled={moving || selected.length === 0 || !activeFieldId}
             onClick={() => activeFieldId && assign(activeFieldId)}
           >
             <CheckCircle2 className="h-4 w-4" />
@@ -476,7 +625,7 @@ export function BulkPhotoAssign({
           <EButton
             variant="outline"
             size="sm"
-            disabled={selected.length === 0 || fields.length === 0}
+            disabled={moving || selected.length === 0 || fields.length === 0}
             onClick={() => setPickerOpen(true)}
           >
             Assign to…
@@ -484,12 +633,12 @@ export function BulkPhotoAssign({
           <EButton
             variant="ghost"
             size="sm"
-            disabled={selectedAssignedCount === 0}
+            disabled={moving || selectedAssignedCount === 0}
             onClick={returnToPool}
           >
             <Undo2 className="h-4 w-4" /> Unassign
           </EButton>
-          <EButton variant="outline" size="sm" onClick={onClose}>
+          <EButton variant="outline" size="sm" onClick={onClose} disabled={applying}>
             Done
           </EButton>
           {evidenceScope ? <EButton variant="ghost" size="sm" disabled={moving || !selected.length} onClick={() => void removeSelected()}>Remove selected; keep originals</EButton> : null}

@@ -55,8 +55,8 @@ export function useDraftSave(draftIdentity?: string) {
     editorSessionId: string,
     draft: Record<string, unknown>,
     keepalive = false
-  ): Promise<void> => {
-    if (!mounted.current) return Promise.resolve();
+  ): Promise<boolean> => {
+    if (!mounted.current) return Promise.resolve(false);
     const savedRevision = ++revision.current;
     const savedEpoch = epoch.current;
     setState({ phase: "saving" });
@@ -70,23 +70,24 @@ export function useDraftSave(draftIdentity?: string) {
     } catch {
       setState({ phase: "error", message: uncertainMessage });
       writeDraftStatus(draftIdentity, "error");
-      return Promise.resolve();
+      return Promise.resolve(false);
     }
 
     const run = async () => {
-      if (!mounted.current || savedEpoch !== epoch.current) return;
+      if (!mounted.current || savedEpoch !== epoch.current) return false;
       let result;
       try {
         result = await saveCleanerDraft(jobId, editorSessionId, snapshot, keepalive, draftIdentity);
       } catch {
         result = { ok: false as const, message: uncertainMessage };
       }
-      if (!mounted.current || savedEpoch !== epoch.current || savedRevision !== revision.current) return;
+      if (!mounted.current || savedEpoch !== epoch.current || savedRevision !== revision.current) return false;
       setState(result.ok ? { phase: "saved" } : { phase: "error", message: result.message });
       writeDraftStatus(draftIdentity, result.ok ? "saved" : "error");
+      return result.ok;
     };
     const completion = tail.current.then(run);
-    tail.current = completion;
+    tail.current = completion.then(() => undefined);
     return completion;
   }, [draftIdentity]);
 

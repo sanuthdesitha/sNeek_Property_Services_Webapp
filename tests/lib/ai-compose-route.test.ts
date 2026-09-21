@@ -40,7 +40,7 @@ describe("AI compose API", () => {
   });
   it("reports missing configuration without testing connectivity", async () => {
     delete process.env.ANTHROPIC_API_KEY;
-    expect(await (await GET()).json()).toEqual({ provider: "anthropic", model: "claude-3-5-sonnet-20241022", configured: false, connection: "untested" });
+    expect(await (await GET()).json()).toEqual({ provider: "anthropic", model: "claude-sonnet-5", configured: false, connection: "untested" });
     expect(mocks.create).not.toHaveBeenCalled();
   });
   it.each([["UNAUTHORIZED", 401], ["FORBIDDEN", 403], ["private auth error test-secret-key", 500]] as const)("handles %s on both methods", async (message, status) => {

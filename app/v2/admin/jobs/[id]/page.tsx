@@ -1,3 +1,4 @@
+import { PhotoReviewPanel } from "@/components/v2/qa/photo-review-panel";
 import Link from "next/link";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -1206,6 +1207,7 @@ export default async function AdminJobDetailPage({
       {/* ── Quality (continued) ──────────────────────────────────────────── */}
       {tab === "quality" ? (
       <div className="space-y-4">
+        <PhotoReviewPanel jobId={job.id} />
         {/* QA */}
         <ECard>
           <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><ShieldCheck className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Quality</ECardTitle></ECardHeader>

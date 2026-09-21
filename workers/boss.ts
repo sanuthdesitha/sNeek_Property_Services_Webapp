@@ -569,6 +569,16 @@ async function main() {
 
   // Closes out submitted jobs nobody inspected. Without it a clean sits in
   // QA_REVIEW indefinitely, which also holds up the cleaner being paid for it.
+  if (jobEnabled("ai-photo-review")) {
+    await boss.schedule("ai-photo-review", "*/5 * * * *", {});
+    await boss.work("ai-photo-review", safeHandler("ai-photo-review", async () => { const { processPhotoReviewQueue } = await import("@/lib/ai/photo-review"); await processPhotoReviewQueue(); }));
+  }
+
+  if (jobEnabled("ai-property-model-training")) {
+    await boss.schedule("ai-property-model-training", "*/5 * * * *", {});
+    await boss.work("ai-property-model-training", safeHandler("ai-property-model-training", async () => { const { processPropertyModelTrainingQueue } = await import("@/lib/ai/property-model-training"); await processPropertyModelTrainingQueue(); }));
+  }
+
   if (jobEnabled("qa-auto-score")) {
     await boss.schedule("qa-auto-score", "0 * * * *", {});
     await boss.work("qa-auto-score", safeHandler("qa-auto-score", async () => {

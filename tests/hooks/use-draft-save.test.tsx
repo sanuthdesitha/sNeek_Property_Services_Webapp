@@ -28,6 +28,14 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("useDraftSave with the real save client", () => {
+  it("returns a confirmed result only for the current saved snapshot", async () => {
+    const { result } = renderHook(useDraftSave);
+    let saved!: Promise<boolean>;
+    act(() => { saved = result.current.save("job", "editor", {}); }); await tick(); await reply(0);
+    expect(await saved).toBe(true);
+    act(() => { saved = result.current.save("job", "editor", {}); }); await tick();
+    act(() => result.current.markDirty()); await reply(1); expect(await saved).toBe(false);
+  });
   it("retains unconfirmed save status across navigation instead of accepting a late unmounted acknowledgement", async () => {
     const identity = "snapshot-unmount";
     const { result, unmount } = renderHook(() => useDraftSave(identity));
@@ -51,8 +59,8 @@ describe("useDraftSave with the real save client", () => {
   it("sends immutable snapshots FIFO and confirms only the latest save", async () => {
     const { result } = renderHook(useDraftSave);
     const draft = { answers: { note: "first" } };
-    let first!: Promise<void>;
-    let second!: Promise<void>;
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
     act(() => {
       first = result.current.save("job", "editor-a", draft);
       draft.answers.note = "second";
@@ -126,7 +134,7 @@ describe("useDraftSave with the real save client", () => {
 
   it.each([true, false])("reset drops queued work and ignores running completion (success=%s)", async (success) => {
     const { result } = renderHook(useDraftSave);
-    let queued!: Promise<void>;
+    let queued!: Promise<boolean>;
     act(() => {
       void result.current.save("old-job", "editor", { version: 1 });
       queued = result.current.save("old-job", "editor", { version: 2 });
@@ -157,7 +165,7 @@ describe("useDraftSave with the real save client", () => {
 
   it("reset before dispatch suppresses all queued requests", async () => {
     const { result } = renderHook(useDraftSave);
-    let completion!: Promise<void>;
+    let completion!: Promise<boolean>;
     act(() => { completion = result.current.save("job", "editor", {}); result.current.reset(); });
     await act(async () => { await completion; });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -167,7 +175,7 @@ describe("useDraftSave with the real save client", () => {
   it("unmount suppresses queued requests, completions, and retained callbacks", async () => {
     const { result, unmount } = renderHook(useDraftSave);
     const api = result.current;
-    let queued!: Promise<void>;
+    let queued!: Promise<boolean>;
     act(() => {
       void api.save("job", "editor", {});
       queued = api.save("job", "editor", { second: true });

@@ -51,6 +51,8 @@ type FallbackJob = {
 };
 
 const JOBS: FallbackJob[] = [
+  { name: "ai-property-model-training", minIntervalMs: 5 * MIN, run: async () => { const { processPropertyModelTrainingQueue } = await import("@/lib/ai/property-model-training"); await processPropertyModelTrainingQueue(); } },
+  { name: "ai-photo-review", minIntervalMs: 5 * MIN, run: async () => { const { processPhotoReviewQueue } = await import("@/lib/ai/photo-review"); await processPhotoReviewQueue(); } },
   { name: "notification-intent-dispatch", minIntervalMs: 5 * MIN, run: async () => {
     const { dispatchNotificationIntents } = await import("@/lib/notifications/intent-store");
     await dispatchNotificationIntents(new Date());

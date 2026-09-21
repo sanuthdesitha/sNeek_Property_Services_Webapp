@@ -23,7 +23,7 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe("AI configuration and composer", () => {
   it("exposes only sanitized configuration with the compatible default", () => {
-    expect(getAiConfiguration()).toEqual({ provider: "anthropic", model: "claude-3-5-sonnet-20241022", configured: true });
+    expect(getAiConfiguration()).toEqual({ provider: "anthropic", model: "claude-sonnet-5", configured: true });
     expect(mocks.constructor).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
   });
@@ -38,7 +38,7 @@ describe("AI configuration and composer", () => {
     expect(await composeSocialPost(request)).toEqual(post);
     expect(mocks.constructor).toHaveBeenCalledWith({ apiKey: "test-secret-key", timeout: 30000, maxRetries: 0 });
     expect(mocks.create).toHaveBeenCalledTimes(1);
-    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ model: "claude-3-5-sonnet-20241022", max_tokens: 1024 }));
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ model: "claude-sonnet-5", max_tokens: 1024 }));
   });
   it("reads a model override at call time", async () => {
     vi.stubEnv("ANTHROPIC_MODEL", " custom-model ");
@@ -48,7 +48,7 @@ describe("AI configuration and composer", () => {
   });
   it("falls back for a whitespace model override", () => {
     vi.stubEnv("ANTHROPIC_MODEL", "  ");
-    expect(getAiConfiguration().model).toBe("claude-3-5-sonnet-20241022");
+    expect(getAiConfiguration().model).toBe("claude-sonnet-5");
   });
   it("accepts fenced JSON across text blocks and ignores non-text blocks", async () => {
     mocks.create.mockResolvedValue({ content: [

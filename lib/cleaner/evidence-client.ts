@@ -16,14 +16,18 @@ export async function removeEvidence(scope: EvidenceScope, key: string) {
   });
 }
 
-export async function moveEvidence(scope: EvidenceScope, media: EvidenceReceipt, from: EvidenceDestination, to: EvidenceDestination) {
+export async function moveEvidence(scope: EvidenceScope, media: EvidenceReceipt, from: EvidenceDestination, to: EvidenceDestination, expected?: { captureId: string; version: number }) {
   const headers = { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": scope.draftIdentity };
   const read = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, { headers, cache: "no-store" });
   const draft = await read.json();
   if (!read.ok) throw new Error(draft.error || "Evidence could not be checked.");
   const entry = Object.entries(draft.draft?.evidenceReceipts ?? {}).find(([, value]) => (value as any).key === media.key) as [string, any] | undefined;
-  if (!entry) return; // Existing legacy uploaded media remains list-managed.
+  if (!entry) {
+    if (expected) throw new Error("Evidence receipt changed. Refresh suggestions before assigning.");
+    return; // Existing legacy uploaded media remains list-managed.
+  }
   const [id, receipt] = entry;
+  if (expected && (id !== expected.captureId || (receipt.version ?? 0) !== expected.version || destinationKey(destinationOf(receipt)) !== destinationKey(from))) throw new Error("Evidence receipt changed. Refresh suggestions before assigning.");
   const alreadyMoved = destinationKey(destinationOf(receipt)) === destinationKey(to);
   if (receipt.detached || receipt.draftIdentity !== scope.draftIdentity || receipt.formRevision !== scope.formRevision || (!alreadyMoved && destinationKey(destinationOf(receipt)) !== destinationKey(from))) throw new Error("Evidence changed or belongs to another cleaner. Reload before moving it.");
   if (!navigator.locks?.request) throw new Error("This browser cannot safely coordinate evidence recovery.");
@@ -38,6 +42,7 @@ export async function moveEvidence(scope: EvidenceScope, media: EvidenceReceipt,
         templateId: scope.templateId, formRevision: scope.formRevision, key: media.key, name: media.name ?? "Evidence", move: { from, version: receipt.version ?? 0 } }) });
     const body = await response.json();
     if (!response.ok || !body.ok) throw new Error(body.error || "Evidence move was not confirmed. Retry after reloading.");
+    if (expected && (body.captureId !== id || body.key !== media.key || body.version !== expected.version + 1 || !body.destination || destinationKey(body.destination) !== destinationKey(to))) throw new Error("Evidence move acknowledgement did not match. Reload evidence before assigning again.");
     const record = await getEvidence(id);
     if (record && sameEvidenceScope(record, scope)) await putEvidence({ ...record, destination: to, fieldId: to.type === "formField" ? to.fieldId : destinationKey(to), destinationVersion: body.version });
   });

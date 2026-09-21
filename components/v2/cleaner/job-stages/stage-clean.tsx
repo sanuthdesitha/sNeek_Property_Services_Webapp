@@ -243,6 +243,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
         uploads={uploads}
         setUploads={api.setUploads}
         fields={bulkFields}
+        prepareAutoAssign={api.prepareBulkAutoAssign}
         stamp={{
           address: addressLine || undefined,
           reference: (property?.name as string) || undefined,

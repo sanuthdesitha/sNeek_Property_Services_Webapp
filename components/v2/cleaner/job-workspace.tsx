@@ -1456,6 +1456,12 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   const api: WorkspaceApi = {
     draftSaveState: draftSave,
     retryDraftSave: () => { void flushDraft(); },
+    prepareBulkAutoAssign: async () => {
+      if (!draftHydratedRef.current || locked || draftSubmittedRef.current) throw new Error("Reload the current editable form before auto assigning.");
+      if (draftTimerRef.current) { clearTimeout(draftTimerRef.current); draftTimerRef.current = null; }
+      const confirmed = await saveDraft(jobId, editorSessionIdRef.current, mirrorDraft());
+      if (!confirmed) throw new Error("The current draft save was not confirmed. Finish saving, then try auto assign again.");
+    },
     payload,
     job,
     property,

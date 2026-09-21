@@ -3,16 +3,23 @@ import { Role } from "@prisma/client";
 import { ArrowRight, RefreshCw } from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
 import { getAiConfiguration } from "@/lib/ai/config";
+import { getVisionSettings } from "@/lib/ai/vision-settings";
+import { VisionSettingsPanel } from "@/components/v2/admin/vision-settings";
+import { getRecognitionConfiguration } from "@/lib/ai/property-photo-model";
+import { PropertyPhotoMemoryPanel } from "@/components/v2/admin/property-photo-memory";
 import { EBadge, EPageHeader } from "@/components/v2/ui/primitives";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "AI configuration | Estate admin" };
 
 export default async function AiConfigurationPage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const config = getAiConfiguration();
+  const visionSettings = await getVisionSettings();
   return <div className="space-y-6">
     <EPageHeader eyebrow="Configuration" title="AI configuration" />
+    <VisionSettingsPanel initialSettings={visionSettings} configured={config.configured} recognitionConfigured={getRecognitionConfiguration().configured} canEdit={(session.user.heldRoles ?? [session.user.role]).includes(Role.ADMIN)} />
+    <PropertyPhotoMemoryPanel canEdit={!session.impersonation && (session.user.heldRoles ?? [session.user.role]).includes(Role.ADMIN)} />
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[hsl(var(--e-border))] pb-4">
       <h2 className="text-base font-semibold">Social post composer</h2>
       <EBadge tone={config.configured ? "neutral" : "warning"} soft>{config.configured ? "Configured, not verified" : "Not configured"}</EBadge>

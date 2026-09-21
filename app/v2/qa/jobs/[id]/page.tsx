@@ -1,3 +1,4 @@
+import { PhotoReviewPanel } from "@/components/v2/qa/photo-review-panel";
 import { notFound } from "next/navigation";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -18,5 +19,5 @@ export default async function QaInspectionPage({ params }: { params: { id: strin
     .catch(() => null);
   if (!exists) notFound();
 
-  return <QaInspectionWorkspace jobId={params.id} />;
+  return <div className="space-y-6"><PhotoReviewPanel jobId={params.id} /><QaInspectionWorkspace jobId={params.id} /></div>;
 }

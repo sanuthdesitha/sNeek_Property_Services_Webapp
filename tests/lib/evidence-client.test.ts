@@ -21,6 +21,18 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetcher);
 });
 describe("durable evidence receipt recovery", () => {
+  it("requires a matching strict acknowledgement before projecting a proposed move", async () => {
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ draft: { evidenceReceipts: { capture: { ...record, key: receipt.key, version: 2, destination: { type: "bulkPool" } } } } })));
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, captureId: "wrong", key: receipt.key, version: 3, destination: { type: "formField", fieldId: "proof" } })));
+    await expect(moveEvidence(scope, receipt, { type: "bulkPool" }, { type: "formField", fieldId: "proof" }, { captureId: "capture", version: 2 })).rejects.toThrow("acknowledgement did not match");
+    expect(store.put).not.toHaveBeenCalled();
+  });
+  it.each(["missing", "version", "capture", "destination"])("strict proposed move rejects %s receipt without a write", async changed => {
+    const entry = { ...record, key: receipt.key, version: changed === "version" ? 3 : 2, destination: changed === "destination" ? { type: "formField", fieldId: "proof" } : { type: "bulkPool" } };
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ draft: { evidenceReceipts: changed === "missing" ? {} : { [changed === "capture" ? "other" : "capture"]: entry } } })));
+    await expect(moveEvidence(scope, receipt, { type: "bulkPool" }, { type: "formField", fieldId: "proof" }, { captureId: "capture", version: 2 })).rejects.toThrow("receipt changed");
+    expect(fetcher).toHaveBeenCalledTimes(1); expect(store.put).not.toHaveBeenCalled();
+  });
   it("does not route a moved attached capture back into a stale field", async () => {
     saved = { ...record, destination: { type: "bulkPool" }, status: "attached", receipt };
     await expect(processEvidence(record, scope, vi.fn())).rejects.toThrow("moved to another destination");

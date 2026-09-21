@@ -1,3 +1,5 @@
+import { enqueuePhotoReview } from "@/lib/ai/photo-review";
+import { enqueuePropertyModelTraining } from "@/lib/ai/property-model-training";
 import { destinationOf, evidenceSubmissionChanged } from "@/lib/cleaner/evidence-destination";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
@@ -689,6 +691,9 @@ export async function POST(
           );
           await tx.submissionMedia.createMany({ data: mediaRows });
         }
+
+        await enqueuePhotoReview(created.id, tx);
+        await enqueuePropertyModelTraining(job.propertyId, tx);
 
         let low: Awaited<ReturnType<typeof deductStockFromSubmission>>["lowStockRows"] = [];
         if (inventoryUsage && job.property.inventoryEnabled) {
