@@ -71,3 +71,6 @@ prisma/migrations/*.sql.bak
 /Website.zip
 /Website_Backup_*.zip
 /such
+
+# Locally uploaded AI model weights; deploy separately, never commit.
+/models/

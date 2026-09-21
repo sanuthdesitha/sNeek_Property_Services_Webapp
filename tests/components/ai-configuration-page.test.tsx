@@ -6,7 +6,7 @@ import { DEFAULT_VISION_SETTINGS } from "@/lib/ai/vision-settings-schema";
 const mocks = vi.hoisted(() => ({ role: vi.fn(), config: vi.fn() }));
 vi.mock("@/components/v2/admin/property-photo-memory", () => ({ PropertyPhotoMemoryPanel: () => null }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
-vi.mock("@/lib/ai/config", () => ({ getAiConfiguration: mocks.config }));
+vi.mock("@/lib/ai/config", () => ({ getAiConfiguration: mocks.config, getVisionProviderConfiguration: mocks.config }));
 vi.mock("@/lib/ai/property-photo-model", () => ({ getRecognitionConfiguration: () => ({ configured: false }) }));
 vi.mock("@/lib/ai/vision-settings", () => ({ getVisionSettings: async () => DEFAULT_VISION_SETTINGS }));
 beforeEach(() => { vi.resetAllMocks(); mocks.role.mockResolvedValue({ user: { role: Role.ADMIN } }); });

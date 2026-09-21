@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { loadVisionImage } from "@/lib/ai/images";
-import { getAiConfiguration } from "@/lib/ai/config";
+import { getVisionProviderConfiguration } from "@/lib/ai/config";
 import { predictPropertyRecognition } from "@/lib/ai/property-photo-model";
 import { getHistoricalAssignmentExamples } from "@/lib/ai/historical-assignment-examples";
 import { deriveVisionFields } from "@/lib/ai/form-fields";
@@ -128,7 +128,7 @@ export async function proposePhotoAssignments(jobId: string, session: Session, r
     ? await predictPropertyRecognition({ propertyId: initial.propertyId, revision: model.trainedRevision, modelVersion: model.modelVersion, photos, fields: fields.map(({ id, label, sectionLabel }) => ({ id, label, sectionLabel })) }) : null;
   const accepted = recognized?.assignments.filter(item => item.fieldId !== null && item.confidence >= config.minConfidence) ?? [];
   const remainingPhotos = photos.filter(photo => !accepted.some(item => item.photoId === photo.id));
-  const fallback = remainingPhotos.length && getAiConfiguration().configured ? await assignPhotosToFields({ photos: remainingPhotos, fields }) : { assignments: remainingPhotos.map(photo => ({ photoId: photo.id, fieldId: null, confidence: 0, reason: "No confident model match and vision fallback is unavailable. Assign this photo manually." })) };
+  const fallback = remainingPhotos.length && getVisionProviderConfiguration(config.provider).configured ? await assignPhotosToFields({ photos: remainingPhotos, fields }) : { assignments: remainingPhotos.map(photo => ({ photoId: photo.id, fieldId: null, confidence: 0, reason: "No confident model match and vision fallback is unavailable. Assign this photo manually." })) };
   const result = { assignments: [...accepted, ...fallback.assignments] };
   if (accepted.length && !(await getVisionSettings()).dedicatedRecognitionEnabled) fail(409, "Photo matching settings changed. Request fresh suggestions.");
   if (((await getVisionSettings()).historicalAssignmentExamplesEnabled !== false) !== historicalEnabled) fail(409, "Photo matching settings changed. Request fresh suggestions.");

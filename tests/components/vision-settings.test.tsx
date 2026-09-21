@@ -3,6 +3,18 @@ import { afterEach, expect, it, vi } from "vitest";
 import { VisionSettingsPanel } from "@/components/v2/admin/vision-settings";
 import { DEFAULT_VISION_SETTINGS } from "@/lib/ai/vision-settings-schema";
 afterEach(() => vi.unstubAllGlobals());
+it("switches providers explicitly and checks only the selected provider credential", async () => {
+  const fetch = vi.fn().mockImplementation(async (_url, init) => ({ ok: true, json: async () => ({ settings: JSON.parse(init.body) }) })); vi.stubGlobal("fetch", fetch);
+  render(<VisionSettingsPanel initialSettings={{ ...DEFAULT_VISION_SETTINGS, provider: "anthropic", model: "claude-sonnet-5" }} canEdit configured={false} providerConfigured={{ openai: true, anthropic: false }} />);
+  fireEvent.change(screen.getByLabelText("Photo analysis provider"), { target: { value: "openai" } });
+  expect(screen.getByLabelText("Vision model")).toHaveValue("gpt-4.1");
+  expect(screen.getByRole("button", { name: "Check provider and saved model" })).toBeDisabled();
+  expect(fetch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save vision settings" }));
+  await screen.findByText("Vision settings saved.");
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ provider: "openai", model: "gpt-4.1" });
+  expect(screen.getByRole("button", { name: "Check provider and saved model" })).toBeEnabled();
+});
 it("read-only ops cannot write or check and mounting sends no provider requests", () => {
   const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
   render(<VisionSettingsPanel initialSettings={DEFAULT_VISION_SETTINGS} canEdit={false} configured />);
@@ -45,4 +57,11 @@ it("dedicated training remains opt-in and sends its explicit setting without cla
   fireEvent.click(toggle); fireEvent.click(screen.getByRole("button", { name: "Save vision settings" }));
   await screen.findByText("Vision settings saved.");
   expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ dedicatedRecognitionEnabled: true });
+});
+
+it("uses the server's configured model when switching to local inference", () => {
+  render(<VisionSettingsPanel initialSettings={DEFAULT_VISION_SETTINGS} canEdit configured providerConfigured={{ ollama: true }} providerModels={{ ollama: "custom/property:latest" }} />);
+  fireEvent.change(screen.getByLabelText("Photo analysis provider"), { target: { value: "ollama" } });
+  expect(screen.getByLabelText("Vision model")).toHaveValue("custom/property:latest");
+  expect(screen.getByRole("button", { name: "Check provider and saved model" })).toBeDisabled();
 });

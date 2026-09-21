@@ -168,7 +168,7 @@ export default function ComposeSocialPostPage() {
               />
             </div>
             <Button onClick={handleGenerate} disabled={generating}>
-              {generating ? "Generating…" : "Generate with Claude"}
+              {generating ? "Generating…" : "Generate with AI"}
             </Button>
           </div>
         </Card>

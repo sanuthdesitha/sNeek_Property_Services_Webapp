@@ -2,12 +2,17 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_VISION_SETTINGS } from "@/lib/ai/vision-settings-schema";
 const mocks = vi.hoisted(() => ({ find: vi.fn(), upsert: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: { appSetting: { findUnique: mocks.find, upsert: mocks.upsert } } }));
-vi.mock("@/lib/ai/config", () => ({ getAiConfiguration: () => ({ model: "configured-model" }) }));
+vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: () => ({ model: "configured-model" }) }));
 import { getVisionSettings, saveVisionSettings, VISION_SETTINGS_KEY } from "@/lib/ai/vision-settings";
 beforeEach(() => vi.clearAllMocks());
 it("defaults disabled and respects the server model", async () => {
   mocks.find.mockResolvedValue(null);
   expect(await getVisionSettings()).toEqual({ ...DEFAULT_VISION_SETTINGS, model: "configured-model" });
+});
+it("preserves Anthropic for settings saved before provider selection existed", async () => {
+  const { provider, ...legacy } = DEFAULT_VISION_SETTINGS;
+  mocks.find.mockResolvedValue({ value: { ...legacy, model: "claude-sonnet-5" } });
+  expect(await getVisionSettings()).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5" });
 });
 it("adds historical example default to older stored settings without enabling assignment", async () => {
   const { historicalAssignmentExamplesEnabled, ...legacy } = DEFAULT_VISION_SETTINGS;

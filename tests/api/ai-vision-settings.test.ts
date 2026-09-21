@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({ role: vi.fn(), get: vi.fn(), save: vi.fn(), ch
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
 vi.mock("@/lib/ai/vision-settings", () => ({ getVisionSettings: mocks.get, saveVisionSettings: mocks.save }));
 vi.mock("@/lib/ai/vision", () => ({ checkVisionConnection: mocks.check }));
-vi.mock("@/lib/ai/config", () => ({ getAiConfiguration: mocks.config }));
+vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: mocks.config }));
 vi.mock("@/lib/ai/property-photo-model", () => ({ getRecognitionConfiguration: mocks.recognition }));
 import { GET, PATCH } from "@/app/api/admin/ai/vision/route";
 import { POST } from "@/app/api/admin/ai/vision/check/route";
@@ -28,6 +28,11 @@ it("requires credential before enabling", async () => {
   mocks.config.mockReturnValue({ configured: false });
   expect((await PATCH(request({ ...DEFAULT_VISION_SETTINGS, comparisonEnabled: true }))).status).toBe(400);
 });
+it("requires the selected provider's key, not another configured provider", async () => {
+  mocks.config.mockImplementation(provider => ({ configured: provider === "anthropic" }));
+  const response = await PATCH(request({ ...DEFAULT_VISION_SETTINGS, provider: "openai", comparisonEnabled: true }));
+  expect(response.status).toBe(400); expect((await response.json()).error).toContain("OPENAI_API_KEY"); expect(mocks.save).not.toHaveBeenCalled();
+});
 it("requires dedicated service credentials but supports recognition without an Anthropic key", async () => {
   mocks.config.mockReturnValue({ configured: false });
   const input = { ...DEFAULT_VISION_SETTINGS, dedicatedRecognitionEnabled: true, assignmentEnabled: true };
@@ -43,4 +48,14 @@ it("denies writes and checks before side effects", async () => {
 it("does not expose provider errors", async () => {
   mocks.check.mockRejectedValue(new Error("secret-key-provider-body"));
   const response = await POST(); expect(response.status).toBe(502); expect(await response.text()).not.toContain("secret-key");
+});
+
+it("accepts tagged local models and requires a local endpoint to enable them", async () => {
+  const settings = { ...DEFAULT_VISION_SETTINGS, provider: "ollama", model: "gemma3:4b", comparisonEnabled: true };
+  mocks.config.mockImplementation(provider => ({ configured: provider !== "ollama" }));
+  const rejected = await PATCH(request(settings));
+  expect(rejected.status).toBe(400); expect((await rejected.json()).error).toContain("OLLAMA_BASE_URL");
+  mocks.config.mockReturnValue({ configured: true });
+  expect((await PATCH(request(settings))).status).toBe(200);
+  expect(mocks.save).toHaveBeenCalledWith(settings);
 });

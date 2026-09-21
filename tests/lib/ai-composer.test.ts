@@ -10,10 +10,13 @@ vi.mock("@anthropic-ai/sdk", () => ({
     messages = { create: mocks.create };
   },
 }));
+vi.mock("@/lib/ai/openai-vision", () => ({ requestOpenAiVision: vi.fn() }));
+vi.mock("@/lib/ai/ollama", () => ({ requestOllamaJson: vi.fn() }));
 const post = { caption: "A clean start", hashtags: ["#Clean", "#Sydney"], suggestedHook: "Welcome home" };
 const request = { platform: "INSTAGRAM" as const, topic: "Spring cleaning" };
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubEnv("AI_TEXT_PROVIDER", "anthropic");
   vi.stubEnv("ANTHROPIC_API_KEY", "test-secret-key");
   vi.stubEnv("ANTHROPIC_MODEL", "");
   delete process.env.ANTHROPIC_MODEL;

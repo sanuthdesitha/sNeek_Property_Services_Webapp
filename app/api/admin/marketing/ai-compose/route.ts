@@ -54,16 +54,16 @@ export async function POST(req: NextRequest) {
   if (!getAiConfiguration().configured) {
     return NextResponse.json(
       { error: "AI composition is not configured. Ask an administrator to configure the provider on the server." },
-      { status: 503 },
+      { status: 503, headers: { "Cache-Control": "private, no-store" } },
     );
   }
   try {
     const result = await composeSocialPost(parsed.data);
-    return NextResponse.json(result);
+    return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json(
       { error: "AI composition failed. Please try again later." },
-      { status: 502 },
+      { status: 502, headers: { "Cache-Control": "private, no-store" } },
     );
   }
 }
