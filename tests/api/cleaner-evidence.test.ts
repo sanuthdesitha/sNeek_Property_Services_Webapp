@@ -39,6 +39,27 @@ beforeEach(() => {
   mocks.head.mockImplementation(async () => { events.push("head"); return { ContentLength: 123, ContentType: "image/jpeg" }; });
 });
 describe("evidence attachment acknowledgement", () => {
+  it("keeps no-allocation tombstones idempotent after a late owned allocation", async () => {
+    expect((await DELETE(request({ cancelPending: true, key: undefined }, identity, "DELETE"), context)).status).toBe(200);
+    expect((await DELETE(request({ cancelPending: true }, identity, "DELETE"), context)).status).toBe(200);
+    expect((await POST(request(), context)).status).toBe(409);
+    expect((await DELETE(request({ cancelPending: true, key: `forms/job/${captureId}/other/file.jpg` }, identity, "DELETE"), context)).status).toBe(409);
+    expect(mocks.save).toHaveBeenCalledTimes(1);
+  });
+  it.each([false, true])("cancels pending capture with allocation=%s and rejects delayed attachment", async allocated => {
+    const response = await DELETE(request({ cancelPending: true, key: allocated ? key : undefined }, identity, "DELETE"), context);
+    expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ captureId, detached: true });
+    expect(draft.evidenceReceipts[captureId].detached).toBe(true);
+    expect(mocks.head).not.toHaveBeenCalled();
+    expect((await POST(request(), context)).status).toBe(409);
+    expect((await DELETE(request({ cancelPending: true, key: allocated ? key : undefined }, identity, "DELETE"), context)).status).toBe(200);
+  });
+  it.each(["revision", "assignment", "key", "identity"])("refuses pending cancellation with changed %s", async change => {
+    if (change === "revision") mocks.revision.mockReturnValue("b".repeat(64));
+    if (change === "assignment") mocks.assignment.mockResolvedValue(null);
+    const response = await DELETE(request({ cancelPending: true, key: change === "key" ? `forms/job/${captureId}/another/file.jpg` : key }, change === "identity" ? "other" : identity, "DELETE"), context);
+    expect(response.status).toBe(change === "assignment" || change === "key" ? 403 : 409); expect(mocks.save).not.toHaveBeenCalled();
+  });
   const legacyKeys = ["forms/cleaner/old.jpg", "jobs/job/cleaner/old.jpg"];
   function legacyPool(oldKey: string) {
     draft = { state: { bulkPool: [{ key: oldKey, kind: "image", url: "https://old.invalid/photo", name: "old.jpg" }] }, evidenceReceipts: {} };

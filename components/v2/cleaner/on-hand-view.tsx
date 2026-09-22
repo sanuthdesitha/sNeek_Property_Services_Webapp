@@ -11,14 +11,25 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, PackageCheck, SendToBack } from "lucide-react";
 import { EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { EInput, ESelect } from "@/components/v2/cleaner/fields";
+import { useSession } from "next-auth/react";
+import { OwnStockEntry, type StockItem } from "./own-stock-entry";
 import { toast } from "@/hooks/use-toast";
 
 type Property = { id: string; name: string; suburb: string };
-type Holding = { id: string; quantity: number; item: { id: string; name: string; unit: string } | null };
+type Holding = { id: string; quantity: number; updatedAt: string; item: { id: string; name: string; unit: string } | null };
 
 export function OnHandView({ properties }: { properties: Property[] }) {
+  const { data: session, status } = useSession();
+  if (status !== "authenticated" || !session?.user.id) return null;
+  const scope = JSON.stringify([session.user.id, session.impersonation ?? null]);
+  return <ScopedOnHand key={scope} scope={scope} properties={properties} readOnly={session.impersonation?.mode === "READ_ONLY"} />;
+}
+function ScopedOnHand({ properties, scope, readOnly }: { properties: Property[]; scope: string; readOnly: boolean }) {
+  const [items, setItems] = useState<StockItem[]>([]);
+  const [error, setError] = useState("");
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(true);
+  const [adjustFor, setAdjustFor] = useState<string | null>(null);
   const [openFor, setOpenFor] = useState<string | null>(null);
   const [propertyId, setPropertyId] = useState("");
   const [qty, setQty] = useState("");
@@ -29,8 +40,9 @@ export function OnHandView({ properties }: { properties: Property[] }) {
     try {
       const res = await fetch("/api/cleaner/inventory/held-stock", { cache: "no-store" });
       const body = await res.json().catch(() => ({}));
-      if (res.ok) setHoldings(Array.isArray(body.holdings) ? body.holdings : []);
-    } finally {
+      if (!res.ok || !Array.isArray(body.holdings) || !Array.isArray(body.items)) throw new Error("Your stock could not be loaded. Refresh to try again.");
+      setHoldings(body.holdings); setItems(body.items); setError("");
+    } catch (error) { setError(error instanceof Error ? error.message : "Stock unavailable."); } finally {
       setLoading(false);
     }
   }, []);
@@ -73,17 +85,11 @@ export function OnHandView({ properties }: { properties: Property[] }) {
       </p>
     );
   }
-  if (holdings.length === 0) {
-    return (
-      <div className="rounded-[var(--e-radius-lg)] border border-dashed border-[hsl(var(--e-border-strong))] p-6 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-        <PackageCheck className="mx-auto mb-2 h-6 w-6" />
-        You have no stock on hand. Items you shop for get added here so you can drop them at the unit.
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      <EButton variant="outline" className="min-h-11" onClick={() => void refresh()}>Refresh stock</EButton>
+      {error ? <div role="alert">{error}<EButton onClick={() => void refresh()}>Refresh stock</EButton></div> : readOnly ? <p>Read-only view.</p> : <OwnStockEntry scope={scope} items={items} onSaved={refresh} />}
+      {!error && !holdings.length ? <p>You have no stock recorded on hand.</p> : null}
       {holdings.map((h) => (
         <ECard key={h.id}>
           <ECardBody className="py-3">
@@ -96,6 +102,7 @@ export function OnHandView({ properties }: { properties: Property[] }) {
               </div>
               <EButton
                 size="sm"
+                disabled={readOnly || h.quantity <= 0}
                 variant="outline"
                 onClick={() => {
                   setOpenFor(h.id);
@@ -106,6 +113,8 @@ export function OnHandView({ properties }: { properties: Property[] }) {
                 <SendToBack className="h-3.5 w-3.5" /> Deliver
               </EButton>
             </div>
+            {!readOnly ? <EButton variant="ghost" className="min-h-11 mt-2" onClick={() => setAdjustFor(adjustFor === h.id ? null : h.id)}>Set remaining quantity</EButton> : null}
+            {!readOnly && adjustFor === h.id ? <OwnStockEntry key={h.updatedAt} scope={scope} holding={h} items={[]} onSaved={refresh} /> : null}
             {openFor === h.id ? (
               <div className="mt-2 grid gap-2 rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))] p-2 sm:grid-cols-[1fr_90px_auto]">
                 <ESelect value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
@@ -125,7 +134,7 @@ export function OnHandView({ properties }: { properties: Property[] }) {
                   onChange={(e) => setQty(e.target.value)}
                   className="e-tnum"
                 />
-                <EButton size="sm" onClick={() => void deliver(h.id)} disabled={delivering}>
+                <EButton size="sm" onClick={() => void deliver(h.id)} disabled={delivering || readOnly}>
                   {delivering ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm"}
                 </EButton>
               </div>

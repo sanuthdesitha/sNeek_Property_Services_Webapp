@@ -42,12 +42,13 @@ export async function listHeldStock(opts?: {
   holderUserId?: string;
   itemId?: string;
   includeDelivered?: boolean;
+  includeEmpty?: boolean;
 }) {
   return db.heldStock.findMany({
     where: {
       holderUserId: opts?.holderUserId,
       itemId: opts?.itemId,
-      ...(opts?.includeDelivered ? {} : { status: HeldStockStatus.HELD, quantity: { gt: 0 } }),
+      ...(opts?.includeDelivered ? {} : { status: HeldStockStatus.HELD, ...(opts?.includeEmpty ? {} : { quantity: { gt: 0 } }) }),
     },
     include: HELD_INCLUDE,
     orderBy: [{ createdAt: "desc" }],

@@ -44,7 +44,7 @@ import { getAccuratePosition } from "@/lib/geo/get-position";
 import { uploadMultipart } from "@/lib/uploads/multipart-client";
 import { compressVideo, isVideoFile } from "@/lib/uploads/compress-video";
 import { getEvidence, listEvidence, putEvidence, type EvidenceRecord, type EvidenceScope } from "@/lib/cleaner/evidence-store";
-import { processEvidence } from "@/lib/cleaner/evidence-client";
+import { cancelPendingEvidence, processEvidence } from "@/lib/cleaner/evidence-client";
 import { useEvidenceScope } from "./evidence-context";
 import { getVolatileEvidence, retainVolatileEvidence, releaseVolatileEvidence } from "@/lib/cleaner/evidence-volatile";
 import { destinationKey, destinationOf, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
@@ -170,6 +170,14 @@ class PermanentUploadError extends Error {}
 
 /** Above this, an automatic retry costs more than it saves on mobile data. */
 const AUTO_RETRY_MAX_BYTES = 25 * 1024 * 1024;
+// Avoid silently sending very large originals when browser encoding is unavailable.
+const ORIGINAL_VIDEO_FALLBACK_MAX_BYTES = 150 * 1024 * 1024;
+function uploadContentType(file: File): string {
+  if (file.type && file.type.toLowerCase() !== "application/octet-stream") return file.type;
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  const videoTypes: Record<string, string> = { mp4: "video/mp4", mov: "video/quicktime", m4v: "video/x-m4v", webm: "video/webm", avi: "video/x-msvideo", mkv: "video/x-matroska", "3gp": "video/3gpp", mpg: "video/mpeg", mpeg: "video/mpeg" };
+  return videoTypes[extension ?? ""] ?? file.type ?? "application/octet-stream";
+}
 
 /**
  * One upload, over XHR rather than fetch.
@@ -197,7 +205,7 @@ async function uploadLargeFile(
     const { url, key } = await uploadMultipart(
       file,
       file.name,
-      file.type || "application/octet-stream",
+      uploadContentType(file) || "application/octet-stream",
       (progress) => onBytes?.(progress.bytesUploaded, progress.totalBytes),
       signal,
       folder,
@@ -512,15 +520,24 @@ export async function prepareAndUploadFiles(
           if (opts.prepared) {
             prepared = opts.prepared;
           } else if (isVideoFile(file)) {
-            const result = await compressVideo(file, {
-              signal: opts.signal,
-              onProgress: (percent) => {
-                inFlight.set(index, { name: file.name, phase: "compressing", percent });
-                publish();
-              },
-            });
-            prepared = result.file;
-            dispose = result.dispose;
+            try {
+              const result = await compressVideo(file, {
+                signal: opts.signal,
+                onProgress: (percent) => {
+                  inFlight.set(index, { name: file.name, phase: "compressing", percent });
+                  publish();
+                },
+              });
+              prepared = result.file;
+              dispose = result.dispose;
+            } catch (error) {
+              opts.signal?.throwIfAborted();
+              if (file.size > ORIGINAL_VIDEO_FALLBACK_MAX_BYTES) throw error;
+              // Encoding support varies by phone/browser. Keep every track by
+              // uploading the original instead of discarding valid evidence.
+              prepared = file;
+              opts.onAdvice?.(file.name, ["This browser could not compress the video. Uploading the original; it may take longer and use more data."]);
+            }
           } else {
             prepared = await prepareCapturedFile(file, opts.source, opts.stamp);
           }
@@ -763,6 +780,10 @@ export function MediaCapture({
   // Kept until the cleaner clears or retries them. A message that vanishes is
   // no use to someone who looked away while thirty photos uploaded.
   const [failures, setFailures] = React.useState<UploadFailure[]>([]);
+  const [removingFailure, setRemovingFailure] = React.useState(false);
+  const [savedOriginals, setSavedOriginals] = React.useState<File[]>([]);
+  const latestValue = React.useRef(value);
+  latestValue.current = value;
   const [inFlight, setInFlight] = React.useState<UploadProgress[]>([]);
   const [lightbox, setLightbox] = React.useState<number | null>(null);
   // Cancelling is not an error, so it must not land in the red error line —
@@ -837,6 +858,25 @@ export function MediaCapture({
     abortRef.current?.abort();
   }, []);
 
+  const removeFailure = async (failure: UploadFailure) => {
+    setRemovingFailure(true); setUploadError(null);
+    try {
+      if (failure.captureId && evidenceScope) {
+        const record = await getEvidence(failure.captureId);
+        if (!record) throw new Error("The recovery record is unavailable. Reload this job before removing the upload.");
+        const key = await cancelPendingEvidence(record, evidenceScope);
+        if (key) onChange(latestValue.current.filter(media => media.key !== key));
+        setNotice("Failed upload removed. Its original is available in device recovery.");
+      } else if (failure.volatileId) {
+        if (!savedOriginals.includes(failure.file)) throw new Error("Save the original before removing this unsaved file.");
+        releaseVolatileEvidence(failure.volatileId);
+      }
+      setFailures(current => current.filter(item => item !== failure));
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Removal failed. Retry after reconnecting.");
+    } finally { setRemovingFailure(false); }
+  };
+
   const handleFiles = React.useCallback(
     async (files: FileList | null, source: CaptureSource) => {
       if (!files || files.length === 0) return;
@@ -865,11 +905,7 @@ export function MediaCapture({
   }, [failures, runUpload, evidenceScope, evidenceFieldId]);
 
   /**
-   * Removal is list-only. There is no cleaner-facing delete endpoint —
-   * `deleteObject` in lib/s3.ts is server-side and reached only when an admin
-   * deletes the whole submission — so the S3 object stays until then. That is
-   * deliberate: the alternative is handing every cleaner a way to erase
-   * evidence of a job from the bucket.
+   * Detach acknowledged media from the draft while retaining the remote object.
    */
   const removeKeys = React.useCallback(
     async (keys: Set<string>) => {
@@ -1058,9 +1094,7 @@ export function MediaCapture({
         </ul>
       ) : null}
 
-      {/* The failed list persists until retried or dismissed. Retry re-sends
-          the original File objects, so nobody has to hunt the camera roll for
-          the two photos out of thirty that did not make it. */}
+      {/* Failures remain actionable until recovered or explicitly removed. */}
       {failures.length > 0 ? (
         <div className="space-y-2 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger)/0.06)] p-2.5">
           <p className="text-[0.75rem] font-medium text-[hsl(var(--e-danger))]">
@@ -1077,25 +1111,23 @@ export function MediaCapture({
                 <button type="button" onClick={() => {
                   const url = URL.createObjectURL(f.file); const link = document.createElement("a");
                   link.href = url; link.download = f.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  setSavedOriginals(current => [...current, f.file]);
                 }}>Save original</button>
+                <button type="button" disabled={disabled || busy > 0 || removingFailure || Boolean(f.volatileId && !savedOriginals.includes(f.file))}
+                  className="ml-2 underline disabled:opacity-50" onClick={() => void removeFailure(f)}>
+                  {f.volatileId ? "Remove after saving original" : "Remove failed upload"}
+                </button>
               </li>
             ))}
           </ul>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={busy > 0}
-              onClick={() => void retryFailed()}
+              disabled={disabled || busy > 0 || removingFailure}
+              onClick={() => void retryFailed().catch(error => setUploadError(error instanceof Error ? error.message : "Retry failed."))}
               className="rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-danger))] px-2 py-1 text-[0.6875rem] font-medium text-[hsl(var(--e-danger))] disabled:opacity-50"
             >
               Retry {failures.length === 1 ? "it" : "them"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setFailures([])}
-              className="text-[0.6875rem] text-[hsl(var(--e-text-faint))] underline"
-            >
-              Dismiss
             </button>
           </div>
         </div>

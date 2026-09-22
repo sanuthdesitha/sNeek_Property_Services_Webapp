@@ -160,7 +160,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.CLEANER]);
-    const body = z.object({ key: z.string().min(1), formRevision: z.string().min(1) }).parse(await req.json());
+    const body = z.object({ cancelPending: z.boolean().optional(), key: z.string().min(1).max(1000).optional(), captureId: z.string().uuid().optional(), templateId: z.string().min(1).optional(), formRevision: z.string().min(1) }).refine(value => value.cancelPending ? Boolean(value.captureId && value.templateId) : Boolean(value.key)).parse(await req.json());
     const identity = cleanerDraftIdentity(session, params.id);
     if (req.headers.get("X-Cleaner-Draft-Identity") !== identity) return json({ error: "Account changed. Reload this job." }, 409);
     return await withSharedCleanerJobDraftLock(params.id, async tx => {
@@ -171,6 +171,41 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       const job = await tx.job.findUnique({ where: { id: params.id }, select: { status: true } });
       if (!job || ([JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED] as JobStatus[]).includes(job.status)) return json({ error: "This job is finished." }, 409);
       const existing = await getSharedCleanerJobDraft(params.id, tx);
+      if (body.cancelPending && body.captureId) {
+        if (!body.templateId) return json({ error: "Current form is required to cancel a capture." }, 400);
+        const fullJob = await tx.job.findUnique({ where: { id: params.id }, include: { property: true } });
+        if (!fullJob) return json({ error: "Job not found." }, 404);
+        await tx.$queryRaw`SELECT "id" FROM "Property" WHERE "id" = ${fullJob.propertyId} FOR SHARE`;
+        await tx.$queryRaw`SELECT "key" FROM "AppSetting" WHERE "key" = 'app' FOR SHARE`;
+        await tx.$queryRaw`SELECT "id" FROM "FormTemplate" WHERE "serviceType"::text = ${fullJob.jobType} ORDER BY "id" FOR SHARE`;
+        await tx.$queryRaw`SELECT "id" FROM "JobTask" WHERE "jobId" = ${params.id} ORDER BY "id" FOR SHARE`;
+        const freshJob = await tx.job.findUnique({ where: { id: params.id }, include: { property: true } });
+        if (!freshJob) return json({ error: "Job not found." }, 404);
+        const settings = await getTransactionAppSettings(tx);
+        const effective = await resolveEffectiveJobForm(freshJob, settings, { database: tx });
+        const tasks = await listCleanerJobTasks(params.id, tx);
+        const meta = parseJobInternalNotes(freshJob.internalNotes);
+        const adminTasks = tasks.filter(task => task.source === "ADMIN");
+        const finalCheckupItems = resolveFinalCheckupItems(settings, { jobType: freshJob.jobType }, {
+          guestSummary: guestSummaryFromReservation(meta.reservationContext),
+          adminRequests: (adminTasks.length ? adminTasks : meta.specialRequestTasks ?? []).map(task => ({ id: String(task.id), title: String(task.title ?? "") })),
+        });
+        if (!effective.template || !effective.submittable || effective.template.id !== body.templateId || jobFormRevision({ template: effective.template, job: freshJob, settings, finalCheckupItems, canUseNoPhoto: settings.noPhotoExemptCleanerIds.includes(session.user.id) }) !== body.formRevision) return json({ error: "The form changed. Keep the original for review." }, 409);
+        const known = existing?.evidenceReceipts?.[body.captureId];
+        const key = body.key ?? known?.key ?? `forms/${params.id}/${body.captureId}/${session.user.id}/cancelled`;
+        const parts = key.split("/");
+        const ownedCaptureKey = parts.length === 5 && parts[0] === "forms" && parts[1] === params.id && parts[2] === body.captureId && parts[3] === session.user.id && !parts.some(part => !part || part === "." || part === "..") && !/[\\\u0000-\u0020\u007f]/.test(key);
+        if (!known && !ownedCaptureKey) return json({ error: "Invalid evidence ownership." }, 403);
+        if (known && (known.draftIdentity !== identity || known.formRevision !== body.formRevision || (body.key && body.key !== known.key && !(known.detached && ownedCaptureKey)))) return json({ error: "Evidence receipt conflict. Keep the original." }, 409);
+        // A late allocation cannot undo a capture cancellation or make its
+        // retry fail merely because the first tombstone preceded allocation.
+        if (known?.detached) return json({ ok: true, captureId: body.captureId, detached: true });
+        if (Object.entries(existing?.evidenceReceipts ?? {}).some(([id, receipt]) => id !== body.captureId && receipt.key === key)) return json({ error: "Evidence receipt conflict. Keep the original." }, 409);
+        await saveSharedCleanerJobDraft(params.id, { ...existing, updatedAt: new Date().toISOString(), updatedByUserId: session.user.id, updatedByName: session.user.name ?? "Cleaner", editorSessionId: existing?.editorSessionId ?? `evidence:${body.captureId}`,
+          evidenceReceipts: { ...existing?.evidenceReceipts, [body.captureId]: { ...known, key, fieldId: known?.fieldId ?? "cancelled", formRevision: body.formRevision, draftIdentity: identity, detached: true } },
+          state: removeEvidenceKeys(existing?.state ?? {}, new Set([key])) }, tx);
+        return json({ ok: true, captureId: body.captureId, detached: true });
+      }
       const entries = Object.entries(existing?.evidenceReceipts ?? {}).filter(([, receipt]) => receipt.key === body.key);
       if (!entries.length || !existing) return json({ ok: true, key: body.key }); // Legacy list-only removal.
       if (entries.some(([, receipt]) => receipt.draftIdentity !== identity || receipt.formRevision !== body.formRevision)) return json({ error: "This evidence belongs to another capture context. Ask the office to review it." }, 409);
@@ -179,7 +214,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         receipts[id] = { ...receipt, detached: true };
       }
       await saveSharedCleanerJobDraft(params.id, { ...existing, evidenceReceipts: receipts,
-        updatedAt: new Date().toISOString(), state: removeEvidenceKeys(existing.state, new Set([body.key])) }, tx);
+        updatedAt: new Date().toISOString(), state: removeEvidenceKeys(existing.state, new Set([body.key!])) }, tx);
       return json({ ok: true, key: body.key });
     });
   } catch (error) {

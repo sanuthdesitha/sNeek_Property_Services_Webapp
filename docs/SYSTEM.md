@@ -141,6 +141,8 @@ Alongside that, automatic sends that carried **no `kind`** were backfilled — j
 
 ### A6. Uploads & media
 
+**Cleaner video compatibility and failed-upload removal (2026-09).** If browser video compression fails, originals up to 150 MiB can upload through the existing multipart flow; cancellation never triggers a fallback, and larger failures retain their originals for recovery. Common video extensions supply a video content type when phones omit it. Failed uploads now have an explicit removal action in the field and device recovery panel. Removal requires a server acknowledgement and records a detached capture even when no upload allocation exists, preventing delayed attachment requests from restoring it. Originals remain on the device until explicitly cleared; remote objects are not deleted. Required evidence fields still need replacement evidence before submission.
+
 Object storage is **S3-compatible (Cloudflare R2)** via `lib/s3.ts` — an `aws-sdk` v2 client, settings-first (A4) with a 60-second credential cache, plus `publicUrl()` (CDN base from `S3_PUBLIC_BASE_URL`) and presigned GET/PUT helpers.
 
 **Uploads died because the page reloaded itself (2026-08).** `next.config.mjs` had `reloadOnOnline: true` — a `@ducanh2912/next-pwa` option (its default) that injects `addEventListener("online", () => location.reload())` into the service-worker register script. Any momentary connectivity blip therefore hard-reloaded the page, and an upload is the longest, heaviest network operation in the app, so it was the thing most likely to be in flight when that happened. The browser aborted the POST and the server logged `Error: aborted … ECONNRESET` from `abortIncoming` — a body that started arriving and then stopped. It presented as "I pick a photo, press OK, the page refreshes and nothing uploads", looked account-specific because it tracks the person's *network* rather than their identity, and never reproduced locally because the service worker is disabled in development. Now `false`: reloading on reconnect discards whatever the user was in the middle of, and refreshing data after a genuine absence is `components/shared/return-sync.tsx`'s job — which itself now excludes file-dialog round trips, since opening a picker hides the tab and used to be mistaken for the user leaving.
@@ -488,6 +490,8 @@ The checklist system is a DB-backed content library that composes into per-prope
 - **Laundry auto-off indicator (2026-07)** — a dashed info card in the builder stating "Laundry update: automatic — Airbnb turnovers only (per-property toggle in Property settings). Rework jobs never show it." Laundry is deliberately *not* builder-configurable; the card exists so admins know where the real switch lives (the eligibility predicate, B5).
 
 ### B5. The cleaner portal journey (v2, five stages)
+
+**Personal stock on hand (2026-09).** Supplies → My stock exposes the existing held-stock ledger to cleaners. They can record newly held catalogue supplies or set the remaining quantity of their own holding, with a reason for corrections. Server-derived ownership and audited transactions protect every write; exact request retries do not duplicate stock or overwrite a later delivery. Corrections check the latest holding version under a row lock. Personal counts remain separate from property stock; the existing Deliver action transfers stock to a property.
 
 **Shift and form navigation (2026-09-13).** The active-job strip reads this cleaner's open TimeLog, labels stale observations, and reports tab/actor/job-scoped draft acknowledgements plus retained device evidence counts. Unconfirmed saves survive navigation without accepting late unmounted callbacks; unknown storage is never called synchronized. Today derives offers from the cleaner's own pending assignment, includes future pending offers, and shows accepted route stops in that user/day's saved order alongside active-work resume. Query failures are unavailable. Form room progress reuses submission validation, opens collapsed incomplete fields and distinguishes not-applicable requirements without changing answers.
 
@@ -1468,6 +1472,8 @@ Bounces and complaints feed the **suppression list** (`lib/email/suppression.ts`
 ---
 
 ## Change Log
+
+- **2026-09-22** — Cleaner video compression fallback and missing-MIME compatibility, acknowledged failed-upload removal with retained originals, and Supplies → My stock entry/correction using the existing audited held-stock ledger.
 
 - **2026-09-22** - Auto-assignment now acknowledges older unassigned pool photos before analysis without uploading bytes again. Legacy forms/actor/file and jobs/job/actor/file objects require current cleaner ownership, saved exclusive pool membership, image HEAD verification, current form revision and no conflicting receipt. Strict versioned moves and human assignment approval remain enforced.
 

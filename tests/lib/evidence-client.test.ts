@@ -4,7 +4,7 @@ const store = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn() }));
 vi.mock("@/lib/cleaner/evidence-store", async original => ({
   ...await original<typeof import("@/lib/cleaner/evidence-store")>(), getEvidence: store.get, putEvidence: store.put,
 }));
-import { processEvidence, moveEvidence } from "@/lib/cleaner/evidence-client";
+import { processEvidence, moveEvidence, cancelPendingEvidence } from "@/lib/cleaner/evidence-client";
 const scope = { jobId: "job", draftIdentity: "actor", templateId: "template", formRevision: "revision" };
 const receipt = { key: "forms/cleaner/file.jpg", url: "https://media.invalid/file.jpg", kind: "image" as const };
 let record: EvidenceRecord; let saved: EvidenceRecord; let fetcher: ReturnType<typeof vi.fn>;
@@ -21,6 +21,25 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetcher);
 });
 describe("durable evidence receipt recovery", () => {
+  it("returns the latest uploaded key after waiting for the capture lock", async () => {
+    saved = { ...record, status: "attached", receipt };
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, captureId: record.id, detached: true })));
+    expect(await cancelPendingEvidence(record, scope)).toBe(receipt.key);
+    expect(saved.status).toBe("detached"); expect(saved.receipt).toEqual(receipt);
+  });
+  it("requires capture cancellation acknowledgement and retains original bytes", async () => {
+    saved = { ...record, status: "uploading" };
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, captureId: record.id, detached: true })));
+    await cancelPendingEvidence(record, scope);
+    expect(saved.status).toBe("detached"); expect(saved.blob).toBe(record.blob);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({ cancelPending: true, captureId: record.id, formRevision: scope.formRevision });
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).key).toBeUndefined();
+  });
+  it("does not discard an original on rejected or mismatched cancellation acknowledgement", async () => {
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, captureId: "other", detached: true })));
+    await expect(cancelPendingEvidence(record, scope)).rejects.toThrow("not confirmed");
+    expect(store.put).not.toHaveBeenCalled(); expect(saved.blob).toBe(record.blob);
+  });
   it("requires a matching strict acknowledgement before projecting a proposed move", async () => {
     fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ draft: { evidenceReceipts: { capture: { ...record, key: receipt.key, version: 2, destination: { type: "bulkPool" } } } } })));
     fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, captureId: "wrong", key: receipt.key, version: 3, destination: { type: "formField", fieldId: "proof" } })));

@@ -4,6 +4,25 @@ import { destinationOf, destinationKey, isLegacyEvidenceKey, type EvidenceDestin
 // temporarily fails after upload. Across a restart, uploading/no receipt is
 // explicitly uncertain and must never automatically send the blob again.
 const receiptMemory = new Map<string, EvidenceRecord>();
+/** Cancel a capture without deleting its retained original or remote object. */
+export async function cancelPendingEvidence(record: EvidenceRecord, scope: EvidenceScope) {
+  if (!sameEvidenceScope(record, scope)) throw new Error("Evidence context changed. Reload before removing this capture.");
+  if (!navigator.locks?.request) throw new Error("This browser cannot safely coordinate evidence recovery.");
+  return await navigator.locks.request(`cleaner-evidence:${record.id}`, async () => {
+    const current = await getEvidence(record.id);
+    if (!current || !sameEvidenceScope(current, scope)) throw new Error("Evidence recovery context changed. Keep the original.");
+    const key = current.receipt?.key ?? current.allocation?.key;
+    const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/evidence`, {
+      method: "DELETE", headers: { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": scope.draftIdentity },
+      body: JSON.stringify({ cancelPending: true, captureId: current.id, templateId: scope.templateId, formRevision: scope.formRevision, ...(key ? { key } : {}) }),
+    });
+    const body = await response.json();
+    if (!response.ok || body.ok !== true || body.captureId !== current.id || body.detached !== true) throw new Error(body.error || "Capture removal was not confirmed. Keep the original and retry.");
+    await putEvidence({ ...current, status: "detached", error: undefined });
+    receiptMemory.delete(current.id);
+    return key;
+  });
+}
 export async function removeEvidence(scope: EvidenceScope, key: string) {
   if (!navigator.locks?.request) throw new Error("This browser cannot safely coordinate evidence recovery.");
   const id = key.split("/")[2] ?? key;

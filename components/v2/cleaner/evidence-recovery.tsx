@@ -3,7 +3,7 @@ import * as React from "react";
 import { clearAttachedEvidence, getEvidence, listEvidence, putEvidence, sameEvidenceScope, type EvidenceRecord, type EvidenceScope } from "@/lib/cleaner/evidence-store";
 import { getVolatileEvidence, getVolatileEvidenceRevision, subscribeVolatileEvidence, releaseVolatileEvidence } from "@/lib/cleaner/evidence-volatile";
 import { destinationOf, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
-import { removeEvidence } from "@/lib/cleaner/evidence-client";
+import { cancelPendingEvidence, removeEvidence } from "@/lib/cleaner/evidence-client";
 import { prepareAndUploadFiles, type CapturedMedia } from "./media-capture";
 
 export function EvidenceRecovery({ scope, locked, onRecovered, onRemoved }: {
@@ -54,7 +54,7 @@ export function EvidenceRecovery({ scope, locked, onRecovered, onRemoved }: {
   }
   return <section aria-label="Device evidence recovery" className="rounded border p-3 space-y-2">
     <h2 className="font-semibold">Evidence saved on this device</h2>
-    <p className="text-sm">Original files stay here until you clear an acknowledged attachment.</p>
+    <p className="text-sm">Remove a failed upload to stop recovery and unblock submission. Its original stays here until you clear the device copy.</p>
     {error ? <p role="alert">{error}</p> : null}
     {volatile.map(record => <div key={record.id} className="flex flex-wrap gap-2 items-center text-sm">
       <span>{record.filename} — Not saved on this device. Keep this page open.</span>
@@ -71,6 +71,13 @@ export function EvidenceRecovery({ scope, locked, onRecovered, onRemoved }: {
       <span>{record.filename} — {record.status === "detached" ? "Removed from job" : record.status === "attached" ? "Attached to job" : !sameEvidenceScope(record, scope) ? "Older form — keep for review" : record.receipt ? "Verifying attachment" : record.status === "preparing" ? "Preparing file; original saved" : record.status === "uploading" ? "Upload started; verification pending" : "Queued on this device"}</span>
       <button type="button" onClick={() => download(record)}>Save original</button>
       {!["attached", "detached"].includes(record.status) && sameEvidenceScope(record, scope) && !locked ? <button type="button" disabled={Boolean(busy)} onClick={() => void retry(record)}>{busy === record.id ? "Recovering…" : "Retry attachment"}</button> : null}
+      {!["attached", "detached"].includes(record.status) && sameEvidenceScope(record, scope) && !locked ? <button type="button" disabled={Boolean(busy)} onClick={() => {
+        setBusy(record.id); setError("");
+        void cancelPendingEvidence(record, scope).then(key => {
+          if (key) onRemoved?.(key);
+        }).catch(error => setError(error instanceof Error ? error.message : "Removal failed. Keep the original and retry."))
+          .finally(() => setBusy(null));
+      }}>Remove failed upload; keep original</button> : null}
       {record.status === "attached" && record.receipt && sameEvidenceScope(record, scope) && !locked ? <button type="button" disabled={Boolean(busy)} onClick={() => {
         setBusy(record.id);
         void removeEvidence(scope, record.receipt!.key).then(() => onRemoved?.(record.receipt!.key))

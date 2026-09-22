@@ -16,7 +16,7 @@ import { QuickScanLauncher } from "@/components/v2/cleaner/quick-scan-launcher";
 export const metadata = { title: "Supplies · Estate cleaner" };
 export const dynamic = "force-dynamic";
 
-type SuppliesTab = "quick-scan" | "restock" | "shopping" | "stock-runs";
+type SuppliesTab = "quick-scan" | "restock" | "shopping" | "stock-runs" | "my-stock";
 
 /**
  * Merged cleaner supplies hub — Restock + Shopping + Stock counts on one screen,
@@ -40,6 +40,7 @@ export default async function CleanerSuppliesPage({
   // Build the tab set from what's enabled — Restock is always present.
   const tabs: Array<{ key: SuppliesTab; label: string; icon: React.ReactNode }> = [
     { key: "quick-scan", label: "Quick scan", icon: <ScanLine className="h-4 w-4" /> },
+    { key: "my-stock", label: "My stock", icon: <Package className="h-4 w-4" /> },
     { key: "restock", label: "Restock", icon: <Package className="h-4 w-4" /> },
   ];
   if (showShopping) tabs.push({ key: "shopping", label: "Shopping", icon: <ShoppingCart className="h-4 w-4" /> });
@@ -54,7 +55,7 @@ export default async function CleanerSuppliesPage({
   // tab, so gating this fetch on "shopping" alone handed the default landing
   // screen an empty list and a cleaner opening Supplies saw nowhere to scan.
   const properties =
-    active === "shopping" || active === "quick-scan"
+    active === "shopping" || active === "quick-scan" || active === "my-stock"
       ? await db.property
           .findMany({
             where: { isActive: true },
@@ -85,7 +86,7 @@ export default async function CleanerSuppliesPage({
     .catch(() => []);
 
   const description =
-    active === "quick-scan"
+    active === "my-stock" ? "Record supplies you personally hold before delivering them to a property." : active === "quick-scan"
       ? "Scan a shelf label to add, remove, set or move stock. Pick the action once, then keep scanning."
       : active === "restock"
       ? "Topped up supplies at a property? Record what you added so on-hand counts stay accurate."
@@ -150,6 +151,7 @@ export default async function CleanerSuppliesPage({
 
       {active === "quick-scan" ? <QuickScanLauncher properties={properties} /> : null}
       {active === "restock" ? <RestockPanel /> : null}
+      {active === "my-stock" ? <OnHandView key={session.user.id} properties={properties} /> : null}
 
       {active === "shopping" ? (
         <div className="space-y-6">

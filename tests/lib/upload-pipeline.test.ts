@@ -404,6 +404,29 @@ describe("failures", () => {
 });
 
 describe("progress", () => {
+  it("uploads a bounded original when browser video compression is unsupported", async () => {
+    installFakeXhr(() => "ok");
+    const original = fakeFile("walkthrough.mov", 40 * 1024 * 1024, "video/quicktime");
+    vi.mocked(compressVideo).mockRejectedValueOnce(new Error("Unsupported codec"));
+    const onAdvice = vi.fn();
+    const out = await prepareAndUploadFiles([original], { ...OPTS, onAdvice });
+    expect(out.failedCount).toBe(0); expect(out.results[0].kind).toBe("video");
+    expect(vi.mocked(uploadMultipart).mock.calls.at(-1)?.[0]).toBe(original);
+    expect(onAdvice).toHaveBeenCalledWith(original.name, [expect.stringContaining("Uploading the original")]);
+  });
+  it.each(["", "application/octet-stream"])("sends phone video with generic MIME %s as video for attachment verification", async type => {
+    installFakeXhr(() => "ok");
+    const original = fakeFile("walkthrough.mov", 1024, type);
+    const out = await prepareAndUploadFiles([original], OPTS);
+    expect(out.failedCount).toBe(0);
+    expect(vi.mocked(uploadMultipart).mock.calls.at(-1)?.[2]).toBe("video/quicktime");
+  });
+  it("does not upload the original when compression is cancelled", async () => {
+    const state = installFakeXhr(() => "ok"); const controller = new AbortController();
+    vi.mocked(compressVideo).mockImplementationOnce(async () => { controller.abort(); throw new Error("Cancelled"); });
+    const out = await prepareAndUploadFiles([fakeFile("cancel.mp4", 1024, "video/mp4")], { ...OPTS, signal: controller.signal });
+    expect(out.results).toEqual([]); expect(state.calls).toEqual([]);
+  });
   it("uploads the compressed video and releases temporary storage afterward", async () => {
     installFakeXhr(() => "ok");
     const original = fakeFile("walkthrough.mov", 600 * 1024 * 1024, "video/quicktime");
