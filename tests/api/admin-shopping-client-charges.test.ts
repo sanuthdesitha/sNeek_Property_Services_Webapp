@@ -1,0 +1,20 @@
+// @vitest-environment node
+import { beforeEach, expect, it, vi } from "vitest";
+const m = vi.hoisted(() => ({ auth: vi.fn(), list: vi.fn(), review: vi.fn() }));
+vi.mock("@/lib/auth/session", () => ({ requireRole: m.auth }));
+vi.mock("@/lib/db", () => ({ db: {} }));
+vi.mock("@/lib/billing/shopping-client-charges", async original => ({ ...await original<any>(), listShoppingClientCharges: m.list, reviewShoppingClientCharge: m.review }));
+import { GET, PATCH } from "@/app/api/admin/inventory/shopping-runs/[id]/client-charges/route";
+import { ShoppingChargeConflict } from "@/lib/billing/shopping-client-charges";
+const context = { params: { id: "run-a" } };
+const body = { id: "charge-a", expectedRevision: 2, shoppingMinutes: 30, hourlyRate: 40, treatment: "RECHARGE", status: "APPROVED" };
+const request = (value: unknown = body) => new Request("http://local", { method: "PATCH", body: JSON.stringify(value) });
+beforeEach(() => { vi.resetAllMocks(); m.auth.mockResolvedValue({ user: { id: "admin" } }); m.list.mockResolvedValue([{ id: "charge-a" }]); m.review.mockResolvedValue({ id: "charge-a", revision: 3, status: "APPROVED" }); });
+it("reads only after office authorization and disables caching", async () => { const response = await GET(new Request("http://local"), context); expect(response.status).toBe(200); expect(m.auth).toHaveBeenCalledWith(["ADMIN", "OPS_MANAGER"]); expect(m.list).toHaveBeenCalledWith("run-a"); expect(response.headers.get("cache-control")).toBe("private, no-store"); });
+it("approves the run's charge with session actor and exact optimistic revision", async () => { const response = await PATCH(request(), context); expect(response.status).toBe(200); expect(m.review).toHaveBeenCalledWith({ ...body, expenseBillable: true }, "admin"); expect(await response.json()).toMatchObject({ ok: true, charge: { revision: 3 } }); });
+it.each([["UNAUTHORIZED",401],["FORBIDDEN",403]])("denies %s before accessing charges", async (reason, status) => { m.auth.mockRejectedValue(new Error(String(reason))); expect((await PATCH(request(), context)).status).toBe(status); expect(m.list).not.toHaveBeenCalled(); expect(m.review).not.toHaveBeenCalled(); });
+it.each(["FULL", "READ_ONLY"])("denies %s impersonated mutations", async mode => { m.auth.mockResolvedValue({ user: { id: "other" }, impersonation: { mode } }); expect((await PATCH(request(), context)).status).toBe(403); expect(m.review).not.toHaveBeenCalled(); });
+it("refuses a charge outside the path run", async () => { m.list.mockResolvedValue([{ id: "different" }]); expect((await PATCH(request(), context)).status).toBe(404); expect(m.review).not.toHaveBeenCalled(); });
+it("rejects malformed rate and extra actor fields", async () => { expect((await PATCH(request({ ...body, hourlyRate: -1 }), context)).status).toBe(400); expect((await PATCH(request({ ...body, actorId: "forged" }), context)).status).toBe(400); expect(m.review).not.toHaveBeenCalled(); });
+it.each(["Choose an independent client hourly rate before approval.", "Shopping billing changed. Refresh before reviewing."])("returns review conflicts truthfully: %s", async message => { m.review.mockRejectedValue(new ShoppingChargeConflict(message)); const response = await PATCH(request(), context); expect(response.status).toBe(409); expect(await response.json()).toEqual({ error: message }); });
+it("sanitizes unexpected storage errors rather than claiming approval", async () => { m.review.mockRejectedValue(new Error("secret-db")); const response = await PATCH(request(), context); expect(response.status).toBe(503); expect(await response.text()).not.toContain("secret-db"); });

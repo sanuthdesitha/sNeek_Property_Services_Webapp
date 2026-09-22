@@ -8,7 +8,7 @@ import {
   canTransitionInvoice,
   reverseRefusalReason,
 } from "@/lib/finance/invoice-transitions";
-import { calculateGstBreakdown } from "@/lib/pricing/gst";
+import { calculateShoppingAwareInvoiceTotals } from "@/lib/billing/shopping-client-charges";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 
@@ -107,6 +107,11 @@ export async function PATCH(
       include: { lines: true },
     });
     if (!existing) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
+    const protectedShoppingLine = (id: string) => existing.lines.find(line => line.id === id && (line.shoppingClientChargeId || line.shoppingRunId));
+    if ((body.removeLineId && protectedShoppingLine(body.removeLineId)) || body.updateLines?.some(line => protectedShoppingLine(line.id) && (line.quantity !== undefined || line.unitPrice !== undefined || line.propertyId !== undefined))) {
+      return NextResponse.json({ error: "Shopping allocations are locked to their reviewed amounts. Void this invoice and review the shopping charge before generating its replacement." }, { status: 409 });
+    }
+    if (body.addLine?.category.startsWith("SHOPPING_")) return NextResponse.json({ error: "Add shopping charges through the shopping run review so expenses and time are tracked once." }, { status: 400 });
 
     let statusOverride: { from: string; to: string } | null = null;
     // Status changes must follow the allowed lifecycle graph, unless an ADMIN
@@ -232,7 +237,7 @@ export async function PATCH(
     if (body.updateLines?.length || body.addLine || body.removeLineId || body.gstEnabled !== undefined) {
       const updatedLines = await db.clientInvoiceLine.findMany({ where: { invoiceId: params.id } });
       subtotal = updatedLines.reduce((sum, l) => sum + Number(l.lineTotal), 0);
-      const breakdown = calculateGstBreakdown(subtotal, { gstEnabled });
+      const breakdown = calculateShoppingAwareInvoiceTotals(updatedLines, gstEnabled);
       gstAmount = breakdown.gstAmount;
       totalAmount = breakdown.totalAmount;
     }

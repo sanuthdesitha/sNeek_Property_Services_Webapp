@@ -1,3 +1,4 @@
+import { requireSession } from "@/lib/auth/session";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -17,6 +18,7 @@ export async function InvoiceSummaryPage({ id, portal }: { id: string; portal: "
     throw error;
   }
   if (!invoice) notFound();
+  const allowClientDownload = portal === "client" && (await requireSession()).user.role === "CLIENT" && ["APPROVED", "SENT", "PART_PAID", "PARTIALLY_PAID", "PAID"].includes(invoice.status);
   const period = invoice.periodStart || invoice.periodEnd
     ? `${date(invoice.periodStart)} - ${date(invoice.periodEnd)}`
     : "Not specified";
@@ -30,6 +32,7 @@ export async function InvoiceSummaryPage({ id, portal }: { id: string; portal: "
       <h1 className="break-words text-2xl font-semibold">{invoice.invoiceNumber}</h1>
       <p className="mt-2 text-sm">{invoice.status.replace(/_/g, " ")}</p>
     </header>
+    {allowClientDownload ? <section className="space-y-2 rounded border p-4 text-sm"><a className="inline-flex min-h-11 items-center underline" href={`/api/client/invoices/${encodeURIComponent(invoice.id)}/pdf`}>Download invoice PDF</a><p>You can upload this PDF as a bill in your own Xero account and review its details there. This download does not connect to or import into your Xero account.</p><a className="inline-flex min-h-11 items-center underline" href="https://central.xero.com/s/article/Upload-bills-into-Xero" target="_blank" rel="noopener noreferrer">Xero: upload bills</a></section> : null}
     <dl className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
       <div><dt className="text-sm text-[hsl(var(--e-muted-foreground))]">Invoice total</dt><dd className="mt-1 text-xl font-semibold">{new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(Number(invoice.totalAmount))}</dd></div>
       <div><dt className="text-sm text-[hsl(var(--e-muted-foreground))]">Service period</dt><dd className="mt-1 text-sm">{period}</dd></div>

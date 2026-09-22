@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isShoppingDisbursement, shoppingXeroMapping } from "@/lib/finance/shopping-accounting";
 import { ClientInvoiceStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -61,7 +62,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       });
     }
 
-    const accountCode = integrations.xero.defaultAccountCode || "200";
     const defaultItemCode = integrations.xero.defaultItemCode?.trim() || "";
     const itemCodeByService = integrations.xero.itemCodeByService ?? {};
     // Per line: prefer the item code mapped to that job's service type, else the
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Only send an explicit tax type when configured (e.g. AU "OUTPUT2"); leaving
     // it undefined lets Xero apply the sales account's own default tax rate,
     // which avoids region-specific "invalid TaxType" 400s.
-    const taxType = integrations.xero.salesTaxType?.trim() || undefined;
+    const taxType = invoice.gstEnabled === false ? "NONE" : integrations.xero.salesTaxType?.trim() || undefined;
     const reference =
       invoice.periodStart && invoice.periodEnd
         ? `Service period ${isoDate(invoice.periodStart)} – ${isoDate(invoice.periodEnd)}`
@@ -97,9 +97,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         description: buildDescription(line),
         quantity: line.quantity,
         unitAmount: line.unitPrice,
-        accountCode,
-        taxType,
-        itemCode: itemCodeFor(line),
+        ...shoppingXeroMapping(line.category, integrations.xero, taxType),
+        itemCode: isShoppingDisbursement(line.category) ? undefined : itemCodeFor(line),
       })),
       date: isoDate(invoice.createdAt),
       reference,

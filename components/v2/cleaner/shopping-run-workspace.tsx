@@ -128,6 +128,7 @@ type CustomDraft = {
   unitCost: string;
   note: string;
 };
+type CatalogItem = { id: string; name: string; category: string; unit: string; supplier: string | null };
 
 function formatRunStatus(status: RunStatus) {
   if (status === "IN_PROGRESS") return "Shopping in progress";
@@ -193,6 +194,8 @@ export function ShoppingRunWorkspace({
   const [uploading, setUploading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [run, setRun] = useState<RunDetail | null>(null);
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const [purchaseItemId, setPurchaseItemId] = useState("");
   const [customDraft, setCustomDraft] = useState<CustomDraft>({
     propertyId: "",
     itemName: "",
@@ -210,6 +213,7 @@ export function ShoppingRunWorkspace({
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not load shopping run.");
       setRun(body as RunDetail);
+      setCatalogItems(Array.isArray(body.catalogItems) ? body.catalogItems : []);
     } catch (error: any) {
       toast({ title: "Shopping run failed", description: error?.message, variant: "destructive" });
     } finally {
@@ -243,10 +247,8 @@ export function ShoppingRunWorkspace({
   }, [run]);
 
   useEffect(() => {
-    if (!customDraft.propertyId && propertyOptions.length > 0) {
-      setCustomDraft((prev) => ({ ...prev, propertyId: propertyOptions[0]!.propertyId }));
-    }
-  }, [customDraft.propertyId, propertyOptions]);
+    if (run?.ownerScope === "CLIENT" && !customDraft.propertyId && propertyOptions.length) setCustomDraft(previous => ({ ...previous, propertyId: propertyOptions[0].propertyId }));
+  }, [run?.ownerScope, customDraft.propertyId, propertyOptions]);
 
   const summary = useMemo(() => {
     if (!run) return { lines: 0, planned: 0, purchased: 0, estimated: 0, actual: 0 };
@@ -325,40 +327,44 @@ export function ShoppingRunWorkspace({
 
   function addCustomPurchase() {
     if (!run) return;
-    if (!customDraft.propertyId || !customDraft.itemName.trim()) {
-      toast({ title: "Custom purchase incomplete", description: "Choose a property and enter the purchase name.", variant: "destructive" });
+    const catalogItem = catalogItems.find(item => item.id === purchaseItemId);
+    if (!catalogItem && !customDraft.itemName.trim()) {
+      toast({ title: "Purchase incomplete", description: "Choose a catalogue item or enter the purchase name.", variant: "destructive" });
       return;
     }
     const qty = Math.max(0, Number(customDraft.qty || 0));
     const unitCost = Math.max(0, Number(customDraft.unitCost || 0));
-    if (qty <= 0 || unitCost <= 0) {
+    if (!Number.isFinite(qty) || !Number.isFinite(unitCost) || qty <= 0 || unitCost <= 0) {
       toast({ title: "Enter quantity and cost", description: "Custom purchases need both quantity and unit cost.", variant: "destructive" });
       return;
     }
-    const property = propertyOptions.find((e) => e.propertyId === customDraft.propertyId);
+    const property = customDraft.propertyId ? propertyOptions.find((e) => e.propertyId === customDraft.propertyId) : { propertyId: "", propertyName: "General stock", suburb: "" };
     if (!property) {
       toast({ title: "Property missing", variant: "destructive" });
       return;
     }
-    const itemId =
+    if (catalogItem && run.rows.some(row => row.itemId === catalogItem.id && row.propertyId === property.propertyId)) {
+      toast({ title: "Item already on this run", description: "Update its actual quantity and cost in the shopping list below.", variant: "destructive" }); return;
+    }
+    const itemId = catalogItem?.id ?? (
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
         ? `custom:${crypto.randomUUID()}`
-        : `custom:${Date.now()}`;
+        : `custom:${Date.now()}`);
     const nextRow: RunRow = {
       propertyId: property.propertyId,
       propertyName: property.propertyName,
       suburb: property.suburb,
       itemId,
-      isCustom: true,
-      itemName: customDraft.itemName.trim(),
-      category: customDraft.category.trim() || "Custom purchase",
-      supplier: null,
-      unit: customDraft.unit.trim() || "unit",
+      isCustom: !catalogItem,
+      itemName: catalogItem?.name ?? customDraft.itemName.trim(),
+      category: catalogItem?.category ?? (customDraft.category.trim() || "Custom purchase"),
+      supplier: catalogItem?.supplier ?? null,
+      unit: catalogItem?.unit ?? (customDraft.unit.trim() || "unit"),
       onHand: 0,
       parLevel: 0,
       reorderThreshold: 0,
       needed: 0,
-      plannedQty: qty,
+      plannedQty: 0,
       include: true,
       purchased: true,
       actualPurchasedQty: qty,
@@ -366,12 +372,13 @@ export function ShoppingRunWorkspace({
       actualLineCost: qty * unitCost,
       note: customDraft.note.trim() || undefined,
       priority: "Medium",
-      estimatedUnitCost: unitCost,
-      estimatedLineCost: qty * unitCost,
+      estimatedUnitCost: null,
+      estimatedLineCost: null,
     };
     setRun((prev) => (prev ? { ...prev, rows: [...prev.rows, nextRow] } : prev));
     setCustomDraft((prev) => ({ ...prev, itemName: "", qty: "1", unitCost: "", note: "" }));
-    toast({ title: "Custom purchase added" });
+    setPurchaseItemId("");
+    toast({ title: "Actual purchase added", description: "Save the run to keep this item." });
   }
 
   function removeCustomPurchase(itemId: string, propertyId: string) {
@@ -382,6 +389,9 @@ export function ShoppingRunWorkspace({
 
   async function save(statusOverride?: RunStatus) {
     if (!run) return;
+    if (statusOverride === "COMPLETED" && run.ownerScope === "CLEANER" && (!(run.shoppingTime?.requestedMinutes && run.shoppingTime.requestedMinutes > 0) || summary.actual <= 0 || !run.payment?.receipts.length)) {
+      toast({ title: "Shopping details required", description: "Enter shopping time, actual purchase quantities and costs, and attach a receipt before submitting.", variant: "destructive" }); return;
+    }
     setSaving(true);
     try {
       const status = statusOverride ?? run.status;
@@ -404,7 +414,7 @@ export function ShoppingRunWorkspace({
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not save shopping run.");
       setRun(body as RunDetail);
-      toast({ title: status === "COMPLETED" ? "Shopping run submitted" : "Shopping run saved" });
+      toast({ title: status === "COMPLETED" ? "Shopping run submitted" : "Shopping run saved", ...(body.notificationWarning ? { description: body.notificationWarning } : {}) });
     } catch (error: any) {
       toast({ title: "Save failed", description: error?.message, variant: "destructive" });
     } finally {
@@ -528,6 +538,8 @@ export function ShoppingRunWorkspace({
       </section>
 
       {/* Controls */}
+      {run.completedAt && <p role="status" className="text-sm">Submitted purchases are locked. Your stock is available in On-hand stock; ask the office for corrections.</p>}
+      <fieldset disabled={saving || Boolean(run.completedAt)} className="space-y-6 min-w-0">
       <ECard>
         <ECardHeader>
           <ECardTitle>Run controls</ECardTitle>
@@ -542,10 +554,11 @@ export function ShoppingRunWorkspace({
           <EButton variant="outline" onClick={() => void save("IN_PROGRESS")} disabled={saving || run.status === "COMPLETED"}>
             <Play className="h-4 w-4" /> Mark active
           </EButton>
-          <EButton variant="outline" onClick={() => void save()} disabled={saving}>
+          <EButton variant="outline" onClick={() => void save()} disabled={saving || Boolean(run.completedAt)}>
             <Save className="h-4 w-4" /> {saving ? "Saving…" : "Save draft"}
           </EButton>
-          <EButton variant="gold" onClick={() => void save("COMPLETED")} disabled={saving || run.status === "COMPLETED"}>
+          <p className="text-sm">Before submitting: record shopping time, the actual items and amount paid, and attach your receipt.</p>
+          <EButton variant="gold" onClick={() => void save("COMPLETED")} disabled={saving || uploading || Boolean(run.completedAt)}>
             <ShoppingBag className="h-4 w-4" /> {run.status === "COMPLETED" ? "Submitted" : "Submit run"}
           </EButton>
         </ECardBody>
@@ -696,15 +709,22 @@ export function ShoppingRunWorkspace({
       {/* Custom purchases */}
       <ECard>
         <ECardHeader>
-          <ECardTitle>Custom purchases</ECardTitle>
+          <ECardTitle>Items actually bought</ECardTitle>
         </ECardHeader>
         <ECardBody className="space-y-4">
+          <p className="text-sm">Add purchases that differ from the suggested list. Suggestions stay unchanged. Submit only after checking actual quantities and receipts; submitted purchases move into your on-hand stock and are locked for office review.</p>
+          <fieldset disabled={saving || Boolean(run.completedAt)} className="space-y-4">
+          <EField label="Catalogue item or custom purchase"><ESelect aria-label="Catalogue item or custom purchase" value={purchaseItemId} onChange={event => setPurchaseItemId(event.target.value)}>
+            <option value="">Custom purchase</option>
+            {catalogItems.map(item => <option key={item.id} value={item.id}>{item.name} · {item.unit}</option>)}
+          </ESelect></EField>
           <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_110px_110px]">
             <ESelect
+              aria-label="Purchase destination"
               value={customDraft.propertyId}
               onChange={(e) => setCustomDraft((prev) => ({ ...prev, propertyId: e.target.value }))}
             >
-              <option value="">Select property</option>
+              {run.ownerScope === "CLEANER" ? <option value="">General stock — assign to properties later</option> : <option value="">Select property</option>}
               {propertyOptions.map((property) => (
                 <option key={property.propertyId} value={property.propertyId}>
                   {property.propertyName} ({property.suburb})
@@ -713,11 +733,14 @@ export function ShoppingRunWorkspace({
             </ESelect>
             <EInput
               placeholder="Purchase name"
+              aria-label="Purchase name"
+              disabled={Boolean(purchaseItemId)}
               value={customDraft.itemName}
               onChange={(e) => setCustomDraft((prev) => ({ ...prev, itemName: e.target.value }))}
             />
             <EInput
               placeholder="Qty"
+              aria-label="Purchased quantity"
               type="number"
               min="0"
               step="0.01"
@@ -726,6 +749,7 @@ export function ShoppingRunWorkspace({
             />
             <EInput
               placeholder="Unit cost"
+              aria-label="Purchase unit cost"
               type="number"
               min="0"
               step="0.01"
@@ -750,9 +774,10 @@ export function ShoppingRunWorkspace({
               onChange={(e) => setCustomDraft((prev) => ({ ...prev, note: e.target.value }))}
             />
             <EButton type="button" onClick={addCustomPurchase}>
-              <Plus className="h-4 w-4" /> Add
+              <Plus className="h-4 w-4" /> Add actual purchase
             </EButton>
           </div>
+          </fieldset>
           {customRows.length > 0 ? (
             <div className="space-y-3">
               {customRows.map((row) => (
@@ -925,6 +950,7 @@ export function ShoppingRunWorkspace({
           </ECard>
         ))}
       </div>
+      </fieldset>
     </div>
   );
 }

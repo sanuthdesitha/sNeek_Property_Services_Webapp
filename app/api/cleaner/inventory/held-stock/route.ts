@@ -18,7 +18,7 @@ export async function GET() {
       listHeldStock({ holderUserId: session.user.id, includeEmpty: true }),
       db.inventoryItem.findMany({ where: { isActive: true }, orderBy: [{ name: "asc" }, { id: "asc" }], select: { id: true, name: true, unit: true } }),
     ]);
-    return NextResponse.json({ holdings: holdings.map(h => ({ id: h.id, quantity: h.quantity, updatedAt: h.updatedAt.toISOString(), item: h.item })), items }, { headers });
+    return NextResponse.json({ holdings: holdings.map(h => ({ id: h.id, quantity: h.quantity, updatedAt: h.updatedAt.toISOString(), sourceNote: h.sourceNote, item: h.item })), items }, { headers });
   } catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {

@@ -5,6 +5,8 @@
  *   GET /api/client/inventory/purchases → { runs: Purchase[] }
  * Styled purely with `--e-*` tokens. No v1 UI imports.
  */
+import { useSession } from "next-auth/react";
+import { z } from "zod";
 import { useEffect, useState } from "react";
 import { Receipt, CreditCard, ImageIcon, FileText, ShoppingBag } from "lucide-react";
 import { EBadge, ECard, ECardBody, EEmptyState, EEyebrow } from "@/components/v2/ui/primitives";
@@ -19,6 +21,8 @@ type Purchase = {
   shopper: string;
   paymentMethod: string | null;
   total: number;
+  billing?: Array<{ id: string; property: string; status: string; expenseAmount?: number; shoppingMinutes?: number; hourlyRate?: number | null; labourAmount?: number; treatment?: string; invoice?: { id: string; status: string; number: string } | null }>;
+  totalComplete: boolean; sharedRun: boolean; shoppingTime: { requestedMinutes: number | null; approvalStatus: string } | null;
   lines: PurchaseLine[];
   receipts: PurchaseReceipt[];
 };
@@ -28,6 +32,14 @@ function money(n: number) {
 }
 
 export function PurchasesFeed() {
+  const { data: session, status } = useSession();
+  if (status !== "authenticated" || !session?.user.id) return null;
+  return <ScopedPurchases key={JSON.stringify([session.user.id, session.impersonation ?? null])} />;
+}
+const billingSchema = z.object({ id: z.string(), property: z.string(), status: z.enum(["PENDING_REVIEW", "APPROVED"]), expenseAmount: z.number().finite().optional(), shoppingMinutes: z.number().finite().optional(), hourlyRate: z.number().finite().nullable().optional(), labourAmount: z.number().finite().optional(), treatment: z.string().optional(), invoice: z.object({ id: z.string(), status: z.string(), number: z.string() }).nullable().optional() });
+const purchaseSchema = z.object({ billing: z.array(billingSchema).optional(), id: z.string(), title: z.string(), date: z.string().datetime(), shopper: z.string(), paymentMethod: z.string().nullable(), total: z.number().finite(), totalComplete: z.boolean(), sharedRun: z.boolean(), shoppingTime: z.object({ requestedMinutes: z.number().finite().nonnegative().nullable(), approvalStatus: z.string() }).nullable(), lines: z.array(z.object({ itemName: z.string(), qty: z.number().finite(), unit: z.string(), property: z.string(), lineCost: z.number().finite().nullable() })), receipts: z.array(z.object({ url: z.string().url().refine(url => /^https?:\/\//.test(url)).nullable(), name: z.string(), mimeType: z.string().nullable(), amount: z.number().finite().nullable() })) });
+function ScopedPurchases() {
+  const [hasMore, setHasMore] = useState(false);
   const [runs, setRuns] = useState<Purchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +51,7 @@ export function PurchasesFeed() {
         const res = await fetch("/api/client/inventory/purchases", { cache: "no-store" });
         const body = await res.json().catch(() => ({}));
         if (!active) return;
-        if (res.ok) setRuns(Array.isArray(body.runs) ? body.runs : []);
+        if (res.ok) { const parsed = z.object({ runs: z.array(purchaseSchema), hasMore: z.boolean() }).safeParse(body); if (!parsed.success) throw new Error("Invalid purchases"); setRuns(parsed.data.runs); setHasMore(parsed.data.hasMore); }
         else setError(body.error ?? "Could not load purchases.");
       } catch {
         if (active) setError("Could not load purchases.");
@@ -66,12 +78,13 @@ export function PurchasesFeed() {
 
   return (
     <div className="space-y-4">
+      {hasMore ? <p className="text-sm">Showing the latest 50 completed shopping runs for your properties.</p> : null}
       {runs.map((run) => (
         <ECard key={run.id}>
           <ECardBody className="space-y-3 p-5">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="flex items-center gap-2 font-[550] text-[hsl(var(--e-foreground))]">
+                <p className="flex items-center gap-2 break-words font-[550] text-[hsl(var(--e-foreground))]">
                   <ShoppingBag className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> {run.title}
                 </p>
                 <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
@@ -85,14 +98,18 @@ export function PurchasesFeed() {
                     <CreditCard className="h-3 w-3" /> {run.paymentMethod}
                   </EBadge>
                 ) : null}
-                <span className="e-tnum e-numeral text-[1.125rem] text-[hsl(var(--e-gold-ink))]">{money(run.total)}</span>
+                <span className="e-tnum e-numeral text-[1.125rem] text-[hsl(var(--e-gold-ink))]">{run.totalComplete ? money(run.total) : `${money(run.total)} known costs`}</span>
               </div>
             </div>
 
+            <p className="text-sm">Purchase costs shown here are not an invoice or a payment request.</p>
+            {run.shoppingTime ? <p className="text-sm">Shopping time logged: {run.shoppingTime.requestedMinutes == null ? "Not recorded" : `${run.shoppingTime.requestedMinutes} minutes`}. Time approval: {run.shoppingTime.approvalStatus.replace(/_/g, " ").toLowerCase()}. This is the logged run time, not a client charge.</p> : null}
+            {run.billing?.map(charge => <div key={charge.id} className="rounded border p-3 text-sm space-y-1"><p className="font-semibold">{charge.property} · {charge.status === "APPROVED" ? "Approved client charge" : "Client charge awaiting review"}</p>{charge.status === "APPROVED" ? <><p>Expense: {money(charge.expenseAmount ?? 0)} · Shopping service: {charge.shoppingMinutes ?? 0} minutes{charge.hourlyRate != null ? ` at ${money(charge.hourlyRate)}/hour` : ""} · {money(charge.labourAmount ?? 0)}</p><p>Treatment: {charge.treatment?.replace(/_/g, " ").toLowerCase()}</p><p>{charge.invoice ? <a className="underline inline-flex min-h-11 items-center" href={`/v2/client/finance/invoices/${encodeURIComponent(charge.invoice.id)}`}>Invoice {charge.invoice.number}: {charge.invoice.status.toLowerCase()}</a> : "Not yet invoiced"}</p></> : <p>No client charge has been approved yet.</p>}</div>)}
+            {run.sharedRun ? <p className="text-sm">This run includes purchases outside your properties. Shared receipts and whole-run shopping time are withheld; ask the office for your allocation.</p> : null}
             <div className="divide-y divide-[hsl(var(--e-border))] rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
               {run.lines.map((line, i) => (
-                <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 text-[0.8125rem]">
-                  <span className="min-w-0 truncate">
+                <div key={i} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-1.5 text-[0.8125rem]">
+                  <span className="min-w-0 break-words">
                     {line.itemName}
                     <span className="text-[hsl(var(--e-muted-foreground))]"> · {line.property}</span>
                   </span>

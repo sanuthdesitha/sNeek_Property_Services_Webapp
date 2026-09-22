@@ -260,15 +260,15 @@ export function ShoppingLauncher({
     });
   }
 
-  async function createRun(status: RunStatus) {
+  async function createRun(status: RunStatus, general = false) {
     const name = runName.trim();
     if (!name) {
       toast({ title: "Run name required", variant: "destructive" });
       return;
     }
-    const rows = buildRows();
+    const rows = general ? [] : buildRows();
     const included = rows.filter((r) => r.include);
-    if (included.length === 0) {
+    if (!general && included.length === 0) {
       toast({ title: "Nothing selected", description: "Select at least one item.", variant: "destructive" });
       return;
     }
@@ -280,7 +280,7 @@ export function ShoppingLauncher({
         body: JSON.stringify({
           name,
           status,
-          planningScope: propertyId,
+          planningScope: general ? "general" : propertyId,
           startedAt: status === "IN_PROGRESS" ? new Date().toISOString() : undefined,
           rows,
         }),
@@ -305,6 +305,8 @@ export function ShoppingLauncher({
             <ECardTitle>Start a shopping run</ECardTitle>
           </ECardHeader>
           <ECardBody className="space-y-4">
+            {runsApiBase.startsWith("/api/cleaner/") && <><p className="text-sm">Shopping for your own stock? Start without property suggestions, record what you bought, then deliver it to properties later.</p>
+            <EButton variant="outline" disabled={creating !== ""} onClick={() => void createRun("IN_PROGRESS", true)}>Start general shopping</EButton></>}
             <div className="grid gap-3 md:grid-cols-[1.2fr_240px]">
               <EField label="Run name">
                 <EInput value={runName} onChange={(e) => setRunName(e.target.value)} placeholder="Shopping run name" />

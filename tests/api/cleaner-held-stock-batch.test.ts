@@ -1,0 +1,22 @@
+// @vitest-environment node
+import { beforeEach, expect, it, vi } from "vitest";
+const m = vi.hoisted(() => ({ auth: vi.fn(), execute: vi.fn(), notify: vi.fn() }));
+vi.mock("@/lib/auth/session", () => ({ requireRole: m.auth }));
+vi.mock("@/lib/db", () => ({ db: {} }));
+vi.mock("@/lib/inventory/held-stock-batch", async original => ({ ...await original<any>(), executeHeldStockBatch: m.execute }));
+vi.mock("@/lib/inventory/client-shopping-notifications", () => ({ notifyHeldStockDeliveries: m.notify }));
+import { POST } from "@/app/api/cleaner/inventory/held-stock/batch/route";
+import { HeldStockEntryError } from "@/lib/inventory/self-held-stock";
+const data = { requestId: "d067b35f-1cee-4444-8333-02b8c7f71ca1", action: "DELIVER", propertyId: "property", entries: [{ heldStockId: "held", quantity: 2 }] };
+const req = (body: unknown = data) => new Request("http://local", { method: "POST", body: JSON.stringify(body) });
+beforeEach(() => { vi.resetAllMocks(); m.auth.mockResolvedValue({ user: { id: "cleaner", role: "CLEANER" } }); m.execute.mockResolvedValue({ batchId: "batch", results: [{ id: "held", deliveryId: "delivery" }] }); m.notify.mockResolvedValue({ sent: 1, unconfirmed: 0 }); });
+it("binds holder and actor to session and notifies only after saved delivery", async () => { const result = await POST(req()); expect(result.status).toBe(200); expect(m.execute).toHaveBeenCalledWith("cleaner", "cleaner", true, data); expect(m.notify).toHaveBeenCalledWith("batch", [{ id: "held", deliveryId: "delivery" }]); expect(m.execute.mock.invocationCallOrder[0]).toBeLessThan(m.notify.mock.invocationCallOrder[0]); expect(result.headers.get("cache-control")).toBe("private, no-store"); });
+it("preserves real actor during full impersonation", async () => { m.auth.mockResolvedValue({ user: { id: "cleaner", role: "CLEANER" }, impersonation: { actorId: "admin", mode: "FULL" } }); expect((await POST(req())).status).toBe(200); expect(m.execute).toHaveBeenCalledWith("cleaner", "admin", true, data); });
+it("rejects read-only impersonation before mutation", async () => { m.auth.mockResolvedValue({ user: { id: "cleaner" }, impersonation: { mode: "READ_ONLY" } }); expect((await POST(req())).status).toBe(403); expect(m.execute).not.toHaveBeenCalled(); });
+it.each([["UNAUTHORIZED",401],["FORBIDDEN",403]])("denies %s", async (message, status) => { m.auth.mockRejectedValue(new Error(String(message))); expect((await POST(req())).status).toBe(status); expect(m.execute).not.toHaveBeenCalled(); });
+it("rejects forged holder and duplicate entries", async () => { expect((await POST(req({ ...data, holderUserId: "other" }))).status).toBe(400); expect((await POST(req({ ...data, entries: [data.entries[0], data.entries[0]] }))).status).toBe(400); expect(m.execute).not.toHaveBeenCalled(); });
+it("returns saved success with warning on postcommit mail failure", async () => { m.notify.mockRejectedValue(new Error("mail-secret")); const result = await POST(req()); expect(result.status).toBe(200); expect(await result.json()).toMatchObject({ ok: true, notificationWarning: expect.stringContaining("saved") }); });
+it("reports pending notification claims without inviting duplicate stock", async () => { m.notify.mockResolvedValue({ unconfirmed: 1 }); expect(await (await POST(req())).json()).toMatchObject({ ok: true, notificationWarning: expect.any(String) }); });
+it("does not notify on transactional failure and retains retryable server status", async () => { m.execute.mockRejectedValue(new Error("database-secret")); const result = await POST(req()); expect(result.status).toBe(503); expect(await result.text()).not.toContain("database-secret"); expect(m.notify).not.toHaveBeenCalled(); });
+it("returns payload conflict as409", async () => { m.execute.mockRejectedValue(new HeldStockEntryError(409, "Retry original batch")); expect((await POST(req())).status).toBe(409); });
+it("records without delivery notification", async () => { expect((await POST(req({ requestId: data.requestId, action: "RECORD", entries: [{ itemId: "soap", quantity: 2 }] }))).status).toBe(200); expect(m.notify).not.toHaveBeenCalled(); });

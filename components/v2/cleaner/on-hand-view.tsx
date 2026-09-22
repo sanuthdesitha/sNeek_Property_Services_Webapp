@@ -12,11 +12,14 @@ import { Loader2, PackageCheck, SendToBack } from "lucide-react";
 import { EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { EInput, ESelect } from "@/components/v2/cleaner/fields";
 import { useSession } from "next-auth/react";
+import { StockBatchForm } from "./stock-batch-form";
 import { OwnStockEntry, type StockItem } from "./own-stock-entry";
 import { toast } from "@/hooks/use-toast";
+import { groupHeldStock } from "@/lib/inventory/held-stock-grouping";
+import { pendingHeldStockDelivery, sendHeldStockDelivery } from "@/lib/inventory/held-stock-delivery-client";
 
 type Property = { id: string; name: string; suburb: string };
-type Holding = { id: string; quantity: number; updatedAt: string; item: { id: string; name: string; unit: string } | null };
+type Holding = { id: string; quantity: number; updatedAt: string; sourceNote?: string | null; item: { id: string; name: string; unit: string; category?: string } | null };
 
 export function OnHandView({ properties }: { properties: Property[] }) {
   const { data: session, status } = useSession();
@@ -58,21 +61,14 @@ function ScopedOnHand({ properties, scope, readOnly }: { properties: Property[];
     }
     setDelivering(true);
     try {
-      const res = await fetch(`/api/cleaner/inventory/held-stock/${id}/deliver`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ propertyId, quantity: Number(qty) }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast({ title: "Delivery failed", description: body.error, variant: "destructive" });
-        return;
-      }
-      toast({ title: "Delivered", description: "The unit's stock count was updated." });
+      const receipt = await sendHeldStockDelivery(scope, `/api/cleaner/inventory/held-stock/${id}/deliver`, { propertyId, quantity: Number(qty) });
+      toast({ title: "Delivered", description: receipt.notificationWarning || "The unit's stock count was updated." });
       setOpenFor(null);
       setPropertyId("");
       setQty("");
       await refresh();
+    } catch (error) {
+      toast({ title: "Delivery not confirmed", description: error instanceof Error ? error.message : "Retry the same delivery.", variant: "destructive" });
     } finally {
       setDelivering(false);
     }
@@ -88,14 +84,22 @@ function ScopedOnHand({ properties, scope, readOnly }: { properties: Property[];
   return (
     <div className="space-y-3">
       <EButton variant="outline" className="min-h-11" onClick={() => void refresh()}>Refresh stock</EButton>
-      {error ? <div role="alert">{error}<EButton onClick={() => void refresh()}>Refresh stock</EButton></div> : readOnly ? <p>Read-only view.</p> : <OwnStockEntry scope={scope} items={items} onSaved={refresh} />}
+      {error ? <div role="alert">{error}<EButton onClick={() => void refresh()}>Refresh stock</EButton></div> : readOnly ? <p>Read-only view.</p> : <><StockBatchForm scope={scope} action="RECORD" items={items} holdings={holdings} properties={properties} onSaved={refresh} /><StockBatchForm scope={scope} action="DELIVER" items={items} holdings={holdings} properties={properties} onSaved={refresh} /><details><summary className="min-h-11 py-2 cursor-pointer text-sm">Recover an earlier single-item entry</summary><OwnStockEntry scope={scope} items={items} onSaved={refresh} /></details></>}
       {!error && !holdings.length ? <p>You have no stock recorded on hand.</p> : null}
-      {holdings.map((h) => (
-        <ECard key={h.id}>
+      <p className="text-sm">Repeated additions of the same item are grouped below. Open the entries to correct quantities or record a delivery.</p>
+      {groupHeldStock(holdings).map(group => (
+        <section key={group.key} className="space-y-2">
+          <h3 className="text-sm font-semibold break-words">{group.category} · {group.item?.name ?? "Unknown item"}</h3>
+          <p className="text-sm">Total: {Number(group.quantity.toFixed(6))} {group.item?.unit ?? "unit"}(s) · {group.entries.length} {group.entries.length === 1 ? "entry" : "entries"}</p>
+          <details open={group.entries.length === 1}>
+            <summary className="cursor-pointer min-h-11 py-2 text-sm">View entries and update stock</summary>
+      {group.entries.map((h, index) => (
+        <ECard key={h.id} className="mb-2">
           <ECardBody className="py-3">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
-                <p className="truncate text-[0.875rem] font-[550]">{h.item?.name ?? "Item"}</p>
+                <p className="break-words text-[0.875rem] font-[550]">{group.entries.length > 1 ? `Entry ${index + 1}` : h.item?.name ?? "Item"}</p>
+                {h.sourceNote ? <p className="text-xs break-words">{h.sourceNote}</p> : null}
                 <p className="e-tnum text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                   {h.quantity} {h.item?.unit ?? "unit"}(s) on hand
                 </p>
@@ -105,9 +109,10 @@ function ScopedOnHand({ properties, scope, readOnly }: { properties: Property[];
                 disabled={readOnly || h.quantity <= 0}
                 variant="outline"
                 onClick={() => {
-                  setOpenFor(h.id);
-                  setPropertyId("");
-                  setQty(String(h.quantity));
+                  try {
+                    const pending = pendingHeldStockDelivery(scope, `/api/cleaner/inventory/held-stock/${h.id}/deliver`);
+                    setOpenFor(h.id); setPropertyId(pending?.propertyId ?? ""); setQty(String(pending?.quantity ?? h.quantity));
+                  } catch (error) { toast({ title: "Delivery unavailable", description: error instanceof Error ? error.message : "Enable browser storage.", variant: "destructive" }); }
                 }}
               >
                 <SendToBack className="h-3.5 w-3.5" /> Deliver
@@ -141,6 +146,9 @@ function ScopedOnHand({ properties, scope, readOnly }: { properties: Property[];
             ) : null}
           </ECardBody>
         </ECard>
+      ))}
+          </details>
+        </section>
       ))}
     </div>
   );

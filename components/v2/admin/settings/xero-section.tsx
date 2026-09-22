@@ -8,6 +8,7 @@ import { EField, EInput, ESaveStatus, ESectionHeading, useSaveStatus } from "./e
 
 interface XeroInvoiceDefaults {
   defaultAccountCode: string;
+  disbursementAccountCode: string;
   defaultItemCode: string;
   salesTaxType: string;
   contactFallbackEmail: string;
@@ -46,6 +47,7 @@ const ERROR_HELP: Record<string, string> = {
 export function XeroSection() {
   const [cfg, setCfg] = useState<XeroInvoiceDefaults>({
     defaultAccountCode: "",
+    disbursementAccountCode: "",
     defaultItemCode: "",
     salesTaxType: "",
     contactFallbackEmail: "",
@@ -88,6 +90,7 @@ export function XeroSection() {
       const x = data?.xero ?? {};
       setCfg({
         defaultAccountCode: x.defaultAccountCode ?? "",
+        disbursementAccountCode: x.disbursementAccountCode ?? "",
         defaultItemCode: x.defaultItemCode ?? "",
         salesTaxType: x.salesTaxType ?? "",
         contactFallbackEmail: x.contactFallbackEmail ?? "",
@@ -257,6 +260,9 @@ export function XeroSection() {
               onChange={(e) => setField("defaultAccountCode", e.target.value)}
               placeholder="200"
             />
+          </EField>
+          <EField label="Client disbursement account" htmlFor="xero-disbursement" hint="Your accountant's balance-sheet clearing account for client agency purchases. Must differ from Sales; exports use BAS Excluded.">
+            <EInput id="xero-disbursement" value={cfg.disbursementAccountCode} onChange={(e) => setField("disbursementAccountCode", e.target.value)} />
           </EField>
           <EField label="Sales tax type" htmlFor="xero-tax" hint="Xero tax type code, e.g. OUTPUT. Blank = auto from the GST toggle.">
             <EInput

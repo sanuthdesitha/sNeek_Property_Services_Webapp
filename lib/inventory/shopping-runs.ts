@@ -1,11 +1,15 @@
 import { randomUUID } from "crypto";
 import {
   Role,
+  type Prisma,
   ShoppingPaidByScope as PrismaShoppingPaidByScope,
   ShoppingPaymentMethod as PrismaShoppingPaymentMethod,
   ShoppingRunStatus as PrismaShoppingRunStatus,
 } from "@prisma/client";
 import { db } from "@/lib/db";
+import { syncShoppingRunHeldStock } from "@/lib/inventory/held-stock";
+import { ensureShoppingClientChargesForRun } from "@/lib/billing/shopping-client-charges";
+import { publicUrl, resolveS3 } from "@/lib/s3";
 import { resolveClientContactEmail } from "@/lib/clients/contact-sync";
 import {
   isShoppingExpenseAvailableForSettlement,
@@ -1252,8 +1256,8 @@ function buildShoppingRunRecordFromDb(run: any): ShoppingRunRecord {
   });
   const rows: ShoppingRunRow[] = Array.isArray(run.lines)
     ? run.lines.map((line: any) => ({
-        propertyId: line.propertyId,
-        propertyName: line.property?.name ?? "Property",
+        propertyId: line.propertyId ?? "",
+        propertyName: line.property?.name ?? (line.propertyId ? "Property" : "General stock"),
         suburb: line.property?.suburb ?? "",
         itemId: line.itemId ?? line.item?.id ?? line.id,
         isCustom: !line.itemId,
@@ -1338,9 +1342,9 @@ function buildShoppingRunRecordFromDb(run: any): ShoppingRunRecord {
   };
 }
 
-async function loadShoppingRunsFromDb(where?: Record<string, unknown>) {
-  await ensureLegacyShoppingRunsMigrated();
-  return db.shoppingRun.findMany({
+async function loadShoppingRunsFromDb(where?: Record<string, unknown>, client?: Pick<Prisma.TransactionClient, "shoppingRun">) {
+  if (!client) await ensureLegacyShoppingRunsMigrated();
+  return (client ?? db).shoppingRun.findMany({
     where: where as any,
     include: {
       owner: { select: { id: true, name: true, email: true, role: true } },
@@ -1774,6 +1778,27 @@ export async function saveShoppingRunForOwner(input: {
     }
   }
 
+  if (input.ownerScope === "CLEANER") {
+    if (existing?.submittedAt) throw new Error("Submitted shopping purchases are locked. Ask the office to correct this run.");
+    const catalog = await db.inventoryItem.findMany({ where: { id: { in: input.rows.map(row => row.itemId) } }, select: { id: true, name: true, category: true, supplier: true, unit: true, isActive: true } });
+    const seen = new Set<string>();
+    input.rows = input.rows.map(row => {
+      const existingRow = existingRecord?.rows.find(previous => previous.itemId === row.itemId && previous.propertyId === row.propertyId);
+      if (existingRecord && row.propertyId && !existingRecord.rows.some(previous => previous.propertyId === row.propertyId)) throw new Error("Choose a property already on this run, or use general stock.");
+      const key = JSON.stringify([row.propertyId, row.itemId]);
+      if (seen.has(key)) throw new Error("Each item can appear only once per shopping destination.");
+      seen.add(key);
+      const item = catalog.find(item => item.id === row.itemId);
+      if (!existingRow && !item && !row.itemId.startsWith("custom:")) throw new Error("Choose an available catalogue item or add a custom purchase.");
+      if (!existingRow && item && !item.isActive) throw new Error("This catalogue item is no longer available.");
+      return { ...row, ...(item ? { itemName: item.name, category: item.category, supplier: item.supplier, unit: item.unit, isCustom: false } : {}),
+        ...(!row.propertyId ? { propertyName: "General stock", suburb: "" } : {}),
+        actualPurchasedQty: row.purchased ? row.actualPurchasedQty : 0,
+        actualLineCost: row.purchased ? row.actualUnitCost == null ? row.actualLineCost : row.actualPurchasedQty * row.actualUnitCost : 0,
+      };
+    });
+  }
+
   const ownerScope = existingRecord?.ownerScope ?? input.ownerScope;
   const payment = normalizeOwnerPayment(
     sanitizePayment(
@@ -1793,6 +1818,25 @@ export async function saveShoppingRunForOwner(input: {
   });
   const hasClient = Boolean(existing?.clientId ?? input.clientId);
   const totals = computeShoppingRunTotals(input.rows, payment, hasClient);
+  if (input.ownerScope === "CLEANER" && input.status === "COMPLETED") {
+    if (!Number.isFinite(shoppingTime.requestedMinutes) || shoppingTime.requestedMinutes <= 0) throw new Error("Enter the time spent shopping before submitting.");
+    const purchased = input.rows.filter(row => row.purchased && row.actualPurchasedQty > 0);
+    if (!purchased.length || !Number.isFinite(totals.actualTotalCost) || totals.actualTotalCost <= 0 || purchased.some(row => !Number.isFinite(row.actualPurchasedQty) || row.actualUnitCost == null && row.actualLineCost == null || [row.actualUnitCost, row.actualLineCost].some(cost => cost != null && (!Number.isFinite(cost) || cost < 0)))) throw new Error("Enter actual purchased quantities and costs before submitting.");
+    if (!payment.receipts.length || payment.receipts.some(receipt => {
+      const parts = receipt.key.split("/");
+      return parts.length !== 3 || parts[0] !== "shopping-receipts" || parts[1] !== input.ownerUserId || parts.some(part => !part || part === "." || part === "..") || /[\\\u0000-\u0020\u007f]/.test(receipt.key);
+    })) throw new Error("Attach your shopping receipt before submitting.");
+    const { client: storage, bucket } = await resolveS3();
+    for (const receipt of payment.receipts) {
+      let object;
+      try { object = await storage.headObject({ Bucket: bucket, Key: receipt.key }).promise(); }
+      catch { throw new Error("The shopping receipt could not be verified. Keep the run and retry."); }
+      if (!object.ContentLength || !(object.ContentType?.startsWith("image/") && object.ContentType !== "image/svg+xml" || object.ContentType === "application/pdf")) throw new Error("Attach an uploaded image or PDF shopping receipt before submitting.");
+      receipt.url = publicUrl(receipt.key);
+      receipt.mimeType = object.ContentType;
+      receipt.sizeBytes = object.ContentLength;
+    }
+  }
   const existingCompat = existing ? parseCompatData(existing.legacySource) : {};
   const compat: ShoppingRunCompatData = {
     ...existingCompat,
@@ -1838,7 +1882,7 @@ export async function saveShoppingRunForOwner(input: {
       ? parseDateOrNull(input.startedAt)
       : existing?.startedAt ?? (input.status !== "DRAFT" ? now : null);
   const submittedAt =
-    input.completedAt !== undefined
+    input.ownerScope === "CLEANER" ? (input.status === "COMPLETED" ? now : null) : input.completedAt !== undefined
       ? parseDateOrNull(input.completedAt)
       : input.status === "COMPLETED"
         ? existing?.submittedAt ?? now
@@ -1854,8 +1898,15 @@ export async function saveShoppingRunForOwner(input: {
   );
 
   await db.$transaction(async (tx) => {
+    if (existing && input.ownerScope === "CLEANER") {
+      await tx.$queryRaw`SELECT "id" FROM "ShoppingRun" WHERE "id" = ${existing.id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "ShoppingSettlement" WHERE "shoppingRunId" = ${existing.id} ORDER BY "id" FOR UPDATE`;
+      const current = await tx.shoppingRun.findUnique({ where: { id: existing.id }, include: { settlements: true } });
+      if (!current || current.ownerUserId !== input.ownerUserId) throw new Error("FORBIDDEN");
+      if (current.submittedAt || current.updatedAt.getTime() !== existing.updatedAt.getTime() || current.settlements.some(settlement => settlement.includedInClientInvoiceId || settlement.includedInCleanerInvoiceId || settlement.includedInPayrollRunId || settlement.timeIncludedInCleanerInvoiceId || settlement.timeIncludedInPayrollRunId)) throw new Error("Shopping run changed or was submitted. Reload it; ask the office for corrections.");
+    }
     const lineCreates = input.rows.map((row) => ({
-      propertyId: row.propertyId,
+      propertyId: row.propertyId || null,
       itemId: validItemIds.has(row.itemId) ? row.itemId : null,
       itemName: row.itemName,
       category: row.category,
@@ -1935,6 +1986,7 @@ export async function saveShoppingRunForOwner(input: {
           settlements: { deleteMany: {}, create: [settlementCreate] },
         },
       });
+      if (input.ownerScope === "CLEANER" && input.status === "COMPLETED") { await syncShoppingRunHeldStock(tx, runId); await ensureShoppingClientChargesForRun(runId, tx); }
       return;
     }
 
@@ -1954,6 +2006,7 @@ export async function saveShoppingRunForOwner(input: {
         settlements: { create: [settlementCreate] },
       },
     });
+    if (input.ownerScope === "CLEANER" && input.status === "COMPLETED") { await syncShoppingRunHeldStock(tx, runId); await ensureShoppingClientChargesForRun(runId, tx); }
   });
 
   const saved = await getShoppingRunByIdForAdmin(runId);
@@ -1977,7 +2030,13 @@ export async function deleteShoppingRunForOwner(input: {
   } else if (run.ownerUserId !== input.ownerUserId) {
     return false;
   }
-  await db.shoppingRun.delete({ where: { id: input.id } });
+  await db.$transaction(async tx => {
+    await tx.$queryRaw`SELECT "id" FROM "ShoppingRun" WHERE "id" = ${input.id} FOR UPDATE`;
+    const current = await tx.shoppingRun.findUnique({ where: { id: input.id }, include: { settlements: true } });
+    if (!current || current.ownerUserId !== existing.ownerUserId) throw new Error("FORBIDDEN");
+    if (current.submittedAt || current.settlements.some(settlement => settlement.includedInClientInvoiceId || settlement.includedInCleanerInvoiceId || settlement.includedInPayrollRunId || settlement.timeIncludedInCleanerInvoiceId || settlement.timeIncludedInPayrollRunId)) throw new Error("Submitted or settled shopping runs cannot be deleted. Ask the office for corrections.");
+    await tx.shoppingRun.delete({ where: { id: input.id } });
+  });
   return true;
 }
 
@@ -2000,7 +2059,11 @@ export async function updateShoppingRunByAdmin(input: {
     paidAt?: string | null;
   };
 }) {
-  const dbRuns = await loadShoppingRunsFromDb({ id: input.id });
+  await ensureLegacyShoppingRunsMigrated();
+  await db.$transaction(async tx => {
+  await tx.$queryRaw`SELECT "id" FROM "ShoppingRun" WHERE "id" = ${input.id} FOR UPDATE`;
+  await tx.$queryRaw`SELECT "id" FROM "ShoppingSettlement" WHERE "shoppingRunId" = ${input.id} ORDER BY "id" FOR UPDATE`;
+  const dbRuns = await loadShoppingRunsFromDb({ id: input.id }, tx);
   const existing = dbRuns[0];
   if (!existing) throw new Error("NOT_FOUND");
   const current = buildShoppingRunRecordFromDb(existing);
@@ -2013,6 +2076,20 @@ export async function updateShoppingRunByAdmin(input: {
     },
     current.ownerScope
   );
+  const payerChanged = payment.method !== current.payment.method || payment.paidByScope !== current.payment.paidByScope || (payment.paidByUserId ?? null) !== (current.payment.paidByUserId ?? null);
+  if (payerChanged) {
+    const [billedCharge, legacySettlement] = await Promise.all([
+      tx.shoppingClientCharge.findFirst({ where: { shoppingRunId: input.id, invoiceId: { not: null } }, select: { id: true } }),
+      tx.shoppingSettlement.findFirst({ where: { shoppingRunId: input.id, includedInClientInvoiceId: { not: null } }, select: { id: true } }),
+    ]);
+    if (billedCharge || legacySettlement) throw new Error("This shopping run has invoiced client charges. Void the invoice and review its charges before changing who paid.");
+    // Payment changes invalidate the office's earlier expense decision. Keep
+    // the independent client rate and original allocation for the next review.
+    await tx.shoppingClientCharge.updateMany({
+      where: { shoppingRunId: input.id, invoiceId: null, status: "APPROVED" },
+      data: { status: "DRAFT", treatment: "PENDING", approvedAt: null, approvedById: null, revision: { increment: 1 } },
+    });
+  }
   const compat: ShoppingRunCompatData = {
     ...currentCompat,
     ownerScope: current.ownerScope,
@@ -2108,7 +2185,7 @@ export async function updateShoppingRunByAdmin(input: {
     }
   }
 
-  await db.shoppingRun.update({
+  await tx.shoppingRun.update({
     where: { id: input.id },
     data: {
       status: reconcileDbStatusFromCompat(
@@ -2184,6 +2261,7 @@ export async function updateShoppingRunByAdmin(input: {
     },
   });
 
+  });
   const saved = await getShoppingRunByIdForAdmin(input.id);
   if (!saved) throw new Error("NOT_FOUND");
   return saved;

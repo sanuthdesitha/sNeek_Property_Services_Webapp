@@ -1,3 +1,4 @@
+import { notifyClientsShoppingCompleted } from "./client-shopping-notifications";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { renderEmailTemplate } from "@/lib/email-templates";
@@ -111,14 +112,15 @@ export async function notifyShoppingRunSubmitted(input: {
     propertyNames,
   });
 
-  await notifyAdmins({
+  const deliveries = await Promise.allSettled([notifyAdmins({
     category: "shopping",
     webSubject: notificationTemplate.webSubject,
     webBody: notificationTemplate.webBody,
     smsBody: notificationTemplate.smsBody,
     templateSubject: template.subject,
     templateHtml: template.html,
-  });
+  }), notifyClientsShoppingCompleted(input.run.id)]);
+  if (deliveries.some(result => result.status === "rejected") || (deliveries[1].status === "fulfilled" && deliveries[1].value && "unconfirmed" in deliveries[1].value && deliveries[1].value.unconfirmed > 0)) throw new Error("Shopping was saved, but some notifications were not confirmed.");
 }
 
 export async function notifyStockRunRequested(input: {

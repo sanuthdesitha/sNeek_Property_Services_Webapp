@@ -15,6 +15,7 @@ export interface Phase3IntegrationsSettings {
     enabled: boolean;
     tenantId: string;
     defaultAccountCode: string;
+    disbursementAccountCode: string;
     /** Xero inventory Item code applied to invoice lines (the "item number"). */
     defaultItemCode: string;
     /** Per-service item codes, keyed by JobType (falls back to defaultItemCode). */
@@ -47,6 +48,7 @@ export const DEFAULT_PHASE3_INTEGRATIONS: Phase3IntegrationsSettings = {
     enabled: false,
     tenantId: "",
     defaultAccountCode: "200",
+    disbursementAccountCode: "",
     defaultItemCode: "",
     itemCodeByService: {},
     salesTaxType: "",
@@ -129,6 +131,7 @@ function sanitize(input: unknown): Phase3IntegrationsSettings {
           : DEFAULT_PHASE3_INTEGRATIONS.xero.defaultAccountCode,
       defaultItemCode:
         typeof xeroRaw.defaultItemCode === "string" ? xeroRaw.defaultItemCode.trim().slice(0, 30) : "",
+      disbursementAccountCode: typeof xeroRaw.disbursementAccountCode === "string" ? xeroRaw.disbursementAccountCode.trim().slice(0, 32) : "",
       itemCodeByService: sanitizeItemCodeMap(xeroRaw.itemCodeByService),
       salesTaxType:
         typeof xeroRaw.salesTaxType === "string" ? xeroRaw.salesTaxType.trim().toUpperCase().slice(0, 50) : "",

@@ -948,6 +948,7 @@ model User {
 // ─────────────────────────────────────────────
 
 model Client {
+  shoppingClientCharges ShoppingClientCharge[]
   id                        String    @id @default(cuid())
   name                      String
   email                     String?
@@ -991,6 +992,7 @@ model Client {
 }
 
 model Property {
+  shoppingClientCharges ShoppingClientCharge[]
   aiModelTraining            AiPropertyModelTraining?
   id                         String   @id @default(cuid())
   clientId                   String
@@ -2485,6 +2487,7 @@ model HeldStock {
   unitCostAud   Float?
   status        HeldStockStatus @default(HELD)
   shoppingRunId String? // optional link to the shopping run it came from
+  shoppingRunLineId String? // immutable purchased line supplying this holding
   sourceNote    String?         @db.Text
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
@@ -2492,9 +2495,11 @@ model HeldStock {
   item       InventoryItem       @relation(fields: [itemId], references: [id])
   holder     User                @relation("HeldStockHolder", fields: [holderUserId], references: [id])
   deliveries HeldStockDelivery[]
+  shoppingRunLine ShoppingRunLine? @relation(fields: [shoppingRunLineId], references: [id], onDelete: Restrict)
 
   @@index([holderUserId, status])
   @@index([itemId, status])
+  @@index([shoppingRunLineId])
 }
 
 /// A drop of held stock to a specific unit. Decrements HeldStock.quantity and
@@ -3077,6 +3082,7 @@ model QuoteEvent {
 }
 
 model ShoppingRun {
+  shoppingClientCharges ShoppingClientCharge[]
   id           String            @id @default(cuid())
   ownerUserId  String
   clientId     String?
@@ -3100,9 +3106,10 @@ model ShoppingRun {
 }
 
 model ShoppingRunLine {
+  shoppingMinutes Int @default(0)
   id            String   @id @default(cuid())
   shoppingRunId String
-  propertyId    String
+  propertyId    String?
   itemId        String?
   itemName      String
   category      String
@@ -3118,7 +3125,8 @@ model ShoppingRunLine {
   updatedAt     DateTime @updatedAt
 
   shoppingRun ShoppingRun    @relation(fields: [shoppingRunId], references: [id], onDelete: Cascade)
-  property    Property       @relation(fields: [propertyId], references: [id])
+  heldStocks  HeldStock[]
+  property    Property?      @relation(fields: [propertyId], references: [id])
   item        InventoryItem? @relation(fields: [itemId], references: [id])
 }
 
@@ -3338,6 +3346,7 @@ model UserRole {
 }
 
 model ClientInvoice {
+  shoppingClientCharges ShoppingClientCharge[]
   id                    String              @id @default(cuid())
   clientId              String
   invoiceNumber         String              @unique
@@ -3423,6 +3432,8 @@ model CleanerInvoiceSubmission {
 }
 
 model ClientInvoiceLine {
+  shoppingClientChargeId String?
+  shoppingClientCharge ShoppingClientCharge? @relation(fields: [shoppingClientChargeId], references: [id])
   id            String   @id @default(cuid())
   invoiceId     String
   jobId         String?
@@ -4876,4 +4887,38 @@ model AiPhotoReview {
   updatedAt DateTime @updatedAt
   submission FormSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   @@index([status, leaseUntil, createdAt])
+}
+
+model ShoppingClientCharge {
+  expenseBillable Boolean @default(true)
+  allocatedExpenseAmount Float @default(0)
+  allocatedMinutes Int @default(0)
+  id String @id @default(cuid())
+  shoppingRunId String
+  propertyId String
+  clientId String
+  sourceKey String
+  expenseAmount Float @default(0)
+  shoppingMinutes Int @default(0)
+  hourlyRate Float?
+  labourAmount Float @default(0)
+  treatment String @default("PENDING")
+  status String @default("DRAFT")
+  revision Int @default(0)
+  approvedAt DateTime?
+  approvedById String?
+  reviewNote String? @db.Text
+  invoiceId String?
+  billedAt DateTime?
+  billingSnapshot Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  shoppingRun ShoppingRun @relation(fields: [shoppingRunId], references: [id], onDelete: Restrict)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  invoice ClientInvoice? @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  invoiceLines ClientInvoiceLine[]
+  @@unique([shoppingRunId, sourceKey])
+  @@index([clientId, status, invoiceId])
+  @@index([propertyId])
 }

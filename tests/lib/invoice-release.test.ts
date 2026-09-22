@@ -25,6 +25,7 @@ function stubTx() {
   const maintenance = vi.fn(async () => ({ count: 1 }));
   return {
     tx: {
+      shoppingClientCharge: { updateMany: vi.fn(async () => ({ count: 0 })) },
       shoppingSettlement: { updateMany: shopping },
       maintenanceItemAssignment: { updateMany: maintenance },
     } as any,
@@ -75,6 +76,7 @@ describe("releaseInvoiceConsumables", () => {
 
   it("is fine when the invoice consumed nothing", async () => {
     const tx = {
+      shoppingClientCharge: { updateMany: vi.fn(async () => ({ count: 0 })) },
       shoppingSettlement: { updateMany: vi.fn(async () => ({ count: 0 })) },
       maintenanceItemAssignment: { updateMany: vi.fn(async () => ({ count: 0 })) },
     } as any;
@@ -94,3 +96,4 @@ describe("releaseInvoiceConsumables", () => {
     expect(maintenance).toHaveBeenCalledTimes(1);
   });
 });
+it("voiding releases allocated charges for this invoice and advances their revision", async () => { const { tx } = stubTx(); await releaseInvoiceConsumables(tx, "inv-release"); expect(tx.shoppingClientCharge.updateMany).toHaveBeenCalledWith({ where: { invoiceId: "inv-release" }, data: { invoiceId: null, billedAt: null, revision: { increment: 1 } } }); });

@@ -12,6 +12,7 @@
  */
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { ShoppingClientCharges } from "./shopping-client-charges";
 import { ArrowLeft, Download, FileText, Loader2, Receipt, ShoppingCart, Upload } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEyebrow, EStatCard } from "@/components/v2/ui/primitives";
@@ -200,6 +201,7 @@ export function EstateShoppingRunDetail({
 
   return (
     <div className="space-y-6">
+      <ShoppingClientCharges key={runId} runId={runId} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Role } from "@prisma/client";
+import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
@@ -52,10 +53,11 @@ const patchSchema = z.object({
   rows: z
     .array(
       z.object({
-        propertyId: z.string().min(1),
+        propertyId: z.string(),
         propertyName: z.string().min(1),
         suburb: z.string().optional().default(""),
         itemId: z.string().min(1),
+        isCustom: z.boolean().optional(),
         itemName: z.string().min(1),
         category: z.string().min(1),
         supplier: z.string().nullable().optional(),
@@ -101,7 +103,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       ownerUserId: session.user.id,
     });
     if (!run) return NextResponse.json({ error: "Run not found." }, { status: 404 });
-    return NextResponse.json(run);
+    const catalogItems = await db.inventoryItem.findMany({ where: { isActive: true }, orderBy: [{ name: "asc" }, { id: "asc" }], select: { id: true, name: true, category: true, unit: true, supplier: true } });
+    return NextResponse.json({ ...run, catalogItems });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message ?? "Request failed." }, { status });
@@ -172,13 +175,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           }
         : undefined,
     });
-    if ((body.status ?? existing.status) === "COMPLETED" && existing.status !== "COMPLETED") {
+    let notificationWarning: string | undefined;
+    if ((body.status ?? existing.status) === "COMPLETED" && !existing.completedAt) {
       await notifyShoppingRunSubmitted({
         run: saved,
         actorLabel: session.user.name || session.user.email || "Cleaner",
-      });
+      }).catch(() => { notificationWarning = "Shopping run saved, but notification delivery could not be confirmed. Do not resubmit the purchase."; });
     }
-    return NextResponse.json(saved);
+    return NextResponse.json({ ...saved, ...(notificationWarning ? { notificationWarning } : {}) });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message ?? "Update failed." }, { status });

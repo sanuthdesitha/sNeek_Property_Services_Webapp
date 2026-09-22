@@ -3,10 +3,12 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { deliverHeldStock } from "@/lib/inventory/held-stock";
+import { notifyHeldStockDelivery } from "@/lib/inventory/held-stock-delivery-notification";
 
 const schema = z.object({
   propertyId: z.string().min(1),
   quantity: z.number().positive(),
+  requestId: z.string().uuid().optional(),
   note: z.string().trim().max(2000).nullable().optional(),
 });
 
@@ -14,15 +16,18 @@ const schema = z.object({
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    if (session.impersonation) throw new Error("FORBIDDEN");
     const body = schema.parse(await req.json());
     const delivery = await deliverHeldStock({
       heldStockId: params.id,
       propertyId: body.propertyId,
       quantity: body.quantity,
+      requestId: body.requestId,
       deliveredById: session.user.id,
       note: body.note ?? null,
     });
-    return NextResponse.json({ ok: true, deliveryId: delivery.id });
+    const notificationWarning = await notifyHeldStockDelivery(params.id, delivery.id);
+    return NextResponse.json({ ok: true, deliveryId: delivery.id, notificationWarning });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

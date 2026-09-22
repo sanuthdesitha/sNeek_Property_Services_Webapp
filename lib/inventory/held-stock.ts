@@ -8,7 +8,12 @@
  * audit row), so the unit count only ever reflects stock actually delivered.
  */
 import { HeldStockStatus, StockTxType } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
+import { syncShoppingRunHeldStock } from "./shopping-held-stock";
+import { createShoppingClientChargeForDelivery } from "@/lib/billing/shopping-client-charges";
+import { deliveryShare } from "./delivery-allocation";
+export { syncShoppingRunHeldStock } from "./shopping-held-stock";
 
 export async function createHeldStock(input: {
   itemId: string;
@@ -56,84 +61,24 @@ export async function listHeldStock(opts?: {
 }
 
 /** Group current on-hand holdings by holder, for the "who has what" board. */
-export async function getOnHandByHolder() {
-  const rows = await listHeldStock();
+export async function getOnHandByHolder(opts?: { includeEmpty?: boolean }) {
+  const rows = await listHeldStock(opts);
   const byHolder = new Map<
     string,
-    { holder: (typeof rows)[number]["holder"]; items: Array<{ heldStockId: string; item: (typeof rows)[number]["item"]; quantity: number }> }
+    { holder: (typeof rows)[number]["holder"]; items: Array<{ heldStockId: string; item: (typeof rows)[number]["item"]; quantity: number; updatedAt: string; sourceNote: string | null }> }
   >();
   for (const row of rows) {
     const key = row.holderUserId;
     if (!byHolder.has(key)) byHolder.set(key, { holder: row.holder, items: [] });
-    byHolder.get(key)!.items.push({ heldStockId: row.id, item: row.item, quantity: row.quantity });
+    byHolder.get(key)!.items.push({ heldStockId: row.id, item: row.item, quantity: row.quantity, updatedAt: row.updatedAt.toISOString(), sourceNote: row.sourceNote });
   }
   return Array.from(byHolder.values());
 }
 
-/**
- * Move a completed shopping run's purchased items into the run owner's on-hand
- * ledger. Quantities are aggregated per catalog item (a run can have the same
- * item across several properties) with a quantity-weighted unit cost. Idempotent
- * per run — refuses if this run was already deposited. Lines without a catalog
- * `itemId` are skipped (the ledger is keyed on InventoryItem).
- */
+/** Post a completed run once; the same helper is called by automatic completion. */
 export async function depositShoppingRunToOnHand(runId: string) {
-  const run = await db.shoppingRun.findUnique({
-    where: { id: runId },
-    select: {
-      id: true,
-      ownerUserId: true,
-      lines: {
-        where: { itemId: { not: null }, purchasedQty: { gt: 0 } },
-        select: { itemId: true, purchasedQty: true, unitCost: true },
-      },
-    },
-  });
-  if (!run) throw new Error("Shopping run not found.");
-
-  const byItem = new Map<string, { qty: number; costSum: number; costQty: number }>();
-  for (const line of run.lines) {
-    if (!line.itemId) continue;
-    const agg = byItem.get(line.itemId) ?? { qty: 0, costSum: 0, costQty: 0 };
-    agg.qty += line.purchasedQty;
-    if (line.unitCost != null) {
-      agg.costSum += line.unitCost * line.purchasedQty;
-      agg.costQty += line.purchasedQty;
-    }
-    byItem.set(line.itemId, agg);
-  }
-  if (byItem.size === 0) throw new Error("No purchased items linked to the catalog to deposit.");
-
-  // A run deposits MANY HeldStock rows (one per item), so a unique constraint on
-  // shoppingRunId can't enforce "deposit once". Instead serialize concurrent
-  // deposits of the SAME run with a transaction-scoped advisory lock, so the
-  // already-deposited check below is reliable (two double-clicks / two admins
-  // can't both pass a stale count and double the on-hand quantity).
-  const created = await db.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`heldstock-deposit:${runId}`}))`;
-    const already = await tx.heldStock.count({ where: { shoppingRunId: runId } });
-    if (already > 0) throw new Error("This run's purchases are already on hand.");
-    const rows: Array<{ id: string }> = [];
-    for (const [itemId, agg] of Array.from(byItem.entries())) {
-      const row = await tx.heldStock.create({
-        data: {
-          itemId,
-          holderUserId: run.ownerUserId,
-          quantity: agg.qty,
-          originalQty: agg.qty,
-          unitCostAud: agg.costQty > 0 ? Number((agg.costSum / agg.costQty).toFixed(2)) : null,
-          shoppingRunId: runId,
-          sourceNote: "From shopping run",
-        },
-        select: { id: true },
-      });
-      rows.push(row);
-    }
-    return rows;
-  });
-  return { count: created.length };
+  return db.$transaction(tx => syncShoppingRunHeldStock(tx, runId));
 }
-
 /**
  * Drop a quantity of held stock at a unit: decrements the holding and bumps the
  * property's real on-hand count (with an audited StockTx). When the holding hits
@@ -145,19 +90,33 @@ export async function deliverHeldStock(input: {
   quantity: number;
   deliveredById: string;
   note?: string | null;
+  requestId?: string;
   /** When set, the holding must belong to this user (cleaner self-service guard). */
   requireHolderUserId?: string;
-}) {
+}, database?: import("@prisma/client").Prisma.TransactionClient) {
   const qty = Math.max(0, Number(input.quantity) || 0);
-  if (qty <= 0) throw new Error("Delivery quantity must be greater than zero.");
+  if (!Number.isFinite(qty) || qty <= 0) throw new Error("Delivery quantity must be greater than zero.");
 
-  return db.$transaction(async (tx) => {
+  const work = async (tx: import("@prisma/client").Prisma.TransactionClient) => {
+    await tx.$queryRaw`SELECT "id" FROM "HeldStock" WHERE "id" = ${input.heldStockId} FOR UPDATE`;
     const held = await tx.heldStock.findUnique({ where: { id: input.heldStockId } });
     if (!held) throw new Error("Held stock not found.");
     if (input.requireHolderUserId && held.holderUserId !== input.requireHolderUserId) {
       throw new Error("This stock is not on hand with you.");
     }
+    const deliveryId = input.requestId ? `delivery_${createHash("sha256").update(JSON.stringify([input.deliveredById, held.id, input.requestId])).digest("hex")}` : undefined;
+    if (deliveryId) {
+      const previous = await tx.heldStockDelivery.findUnique({ where: { id: deliveryId } });
+      if (previous) {
+        if (previous.propertyId !== input.propertyId || previous.quantity !== qty || (previous.note ?? null) !== (input.note ?? null)) throw new Error("This delivery request already recorded different details. Refresh stock before a new delivery.");
+        return previous;
+      }
+    }
     if (held.status !== HeldStockStatus.HELD) throw new Error("This stock has already been cleared.");
+    const source = held.shoppingRunLineId ? await tx.shoppingRunLine.findUnique({ where: { id: held.shoppingRunLineId } }) : null;
+    if (source?.propertyId && source.propertyId !== input.propertyId) throw new Error("This purchase was allocated to another property. Ask the office to review its client charge before changing the destination.");
+    if (source) await tx.$queryRaw`SELECT "id" FROM "ShoppingRun" WHERE "id" = ${source.shoppingRunId} FOR UPDATE`;
+    const previousDeliveries = source && !source.propertyId ? await tx.heldStockDelivery.aggregate({ where: { heldStockId: held.id }, _sum: { quantity: true } }) : null;
 
     // Atomic conditional decrement: the WHERE guards on status + sufficient
     // quantity, so two concurrent deliveries can't both pass a stale read-check
@@ -197,8 +156,9 @@ export async function deliverHeldStock(input: {
       },
     });
 
-    return tx.heldStockDelivery.create({
+    const delivery = await tx.heldStockDelivery.create({
       data: {
+        ...(deliveryId ? { id: deliveryId } : {}),
         heldStockId: held.id,
         propertyId: input.propertyId,
         quantity: qty,
@@ -206,5 +166,13 @@ export async function deliverHeldStock(input: {
         note: input.note ?? null,
       },
     });
-  });
+    if (source && !source.propertyId) {
+      const deliveredBefore = previousDeliveries?._sum.quantity ?? 0;
+      await createShoppingClientChargeForDelivery(tx, { deliveryId: delivery.id, runId: source.shoppingRunId, propertyId: input.propertyId,
+        expenseAmount: deliveryShare(Math.round((source.lineCost ?? source.purchasedQty * (source.unitCost ?? 0)) * 100), source.purchasedQty, deliveredBefore, qty) / 100,
+        shoppingMinutes: deliveryShare(source.shoppingMinutes, source.purchasedQty, deliveredBefore, qty) });
+    }
+    return delivery;
+  };
+  return database ? work(database) : db.$transaction(work);
 }

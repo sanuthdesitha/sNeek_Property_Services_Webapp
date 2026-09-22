@@ -45,10 +45,11 @@ const shoppingTimeSchema = z.object({
 });
 
 const rowSchema = z.object({
-  propertyId: z.string().min(1),
+  propertyId: z.string(),
   propertyName: z.string().min(1),
   suburb: z.string().optional().default(""),
   itemId: z.string().min(1),
+  isCustom: z.boolean().optional(),
   itemName: z.string().min(1),
   category: z.string().min(1),
   supplier: z.string().nullable().optional(),
@@ -161,13 +162,14 @@ export async function POST(req: NextRequest) {
           }
         : undefined,
     });
+    let notificationWarning: string | undefined;
     if (body.status === "COMPLETED") {
       await notifyShoppingRunSubmitted({
         run: saved,
         actorLabel: session.user.name || session.user.email || "Cleaner",
-      });
+      }).catch(() => { notificationWarning = "Shopping run saved, but notification delivery could not be confirmed. Do not resubmit the purchase."; });
     }
-    return NextResponse.json(saved, { status: body.id ? 200 : 201 });
+    return NextResponse.json({ ...saved, ...(notificationWarning ? { notificationWarning } : {}) }, { status: body.id ? 200 : 201 });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message ?? "Save failed." }, { status });

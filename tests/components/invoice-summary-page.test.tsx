@@ -3,10 +3,11 @@ import { render, screen } from "@testing-library/react";
 import { InvoiceSummaryPage } from "@/components/v2/shared/invoice-summary-page";
 
 const mocks = vi.hoisted(() => ({
-  summary: vi.fn(), notFound: vi.fn(), redirect: vi.fn(),
+  session: vi.fn(), summary: vi.fn(), notFound: vi.fn(), redirect: vi.fn(),
   notFoundError: new Error("NEXT_NOT_FOUND"),
   redirectError: new Error("NEXT_REDIRECT"),
 }));
+vi.mock("@/lib/auth/session", () => ({ requireSession: mocks.session }));
 vi.mock("@/lib/billing/portal-invoice-summary", () => ({ getPortalInvoiceSummary: mocks.summary }));
 vi.mock("next/navigation", () => ({ notFound: mocks.notFound, redirect: mocks.redirect }));
 
@@ -29,6 +30,7 @@ function expectDetail(label: string, value: string) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.session.mockResolvedValue({ user: { role: "CLIENT" } });
   mocks.summary.mockResolvedValue(invoice());
   // Next navigation terminates rendering by throwing.
   mocks.notFound.mockImplementation(() => { throw mocks.notFoundError; });
@@ -51,7 +53,8 @@ describe.each([
     expectDetail("Created", "9 Sept 2026");
     expectDetail("Sent", "10 Sept 2026");
     expect(screen.getByRole("link", { name: "Invoices" })).toHaveAttribute("href", returnHref);
-    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getAllByRole("link")).toHaveLength(portal === "client" ? 3 : 1);
+    if (portal === "client") expect(screen.getByRole("link", { name: "Download invoice PDF" })).toHaveAttribute("href", "/api/client/invoices/inv-1/pdf");
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(container.querySelector("form, input, select, textarea, [contenteditable='true']")).toBeNull();
     expect(mocks.notFound).not.toHaveBeenCalled();
@@ -108,3 +111,5 @@ describe.each([
     },
   );
 });
+
+it("does not expose the client-only download control to a VA", async () => { mocks.session.mockResolvedValue({ user: { role: "VA" } }); render(await InvoiceSummaryPage({ id: "inv-1", portal: "client" })); expect(screen.queryByRole("link", { name: "Download invoice PDF" })).not.toBeInTheDocument(); });

@@ -6,7 +6,9 @@ import { logger } from "@/lib/logger";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
 import { publicUrl } from "@/lib/s3";
 import { getAppSettings } from "@/lib/settings";
-import { calculateGstBreakdown } from "@/lib/pricing/gst";
+import { calculateShoppingAwareInvoiceTotals } from "./shopping-client-charges";
+import { shoppingXeroMapping } from "@/lib/finance/shopping-accounting";
+import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 import { computeClientCharge } from "@/lib/finance/job-money";
 import { issueInvoiceNumber } from "@/lib/billing/invoice-sequence";
 import { buildMaintenanceInvoiceLines } from "@/lib/billing/maintenance-billing";
@@ -304,6 +306,7 @@ export async function generateClientInvoice(input: {
 
   const shoppingRuns = await db.shoppingRun.findMany({
     where: {
+      shoppingClientCharges: { none: {} },
       settlements: {
         some: {
           clientBillable: true,
@@ -348,7 +351,7 @@ export async function generateClientInvoice(input: {
       if (run.lines.length === 0) return false;
       const properties = run.lines.map((line) => line.property);
       if (properties.some((property) => !property || property.clientId !== input.clientId)) return false;
-      if (input.propertyId && properties.some((property) => property.id !== input.propertyId)) return false;
+      if (input.propertyId && properties.some((property) => property?.id !== input.propertyId)) return false;
       return run.settlements.length > 0;
     })
     .map((run) => {
@@ -367,6 +370,7 @@ export async function generateClientInvoice(input: {
         lineTotal: total,
         category: "SHOPPING_REIMBURSEMENT",
         settlementId: settlement.id,
+        sourceUpdatedAt: run.updatedAt,
       };
     })
     .filter(Boolean) as Array<{
@@ -379,7 +383,23 @@ export async function generateClientInvoice(input: {
       lineTotal: number;
       category: string;
       settlementId: string;
+      sourceUpdatedAt: Date;
     }>;
+
+  const allocatedCharges = await db.shoppingClientCharge.findMany({ where: {
+    clientId: input.clientId, property: { clientId: input.clientId }, status: "APPROVED", invoiceId: null,
+    treatment: { in: ["AGENCY_DISBURSEMENT", "RECHARGE"] },
+    ...(input.propertyId ? { propertyId: input.propertyId } : {}),
+    ...(input.periodEnd ? { approvedAt: { lte: input.periodEnd } } : {}),
+  }, include: { property: { select: { name: true } }, shoppingRun: { select: { title: true } } }, orderBy: [{ shoppingRunId: "asc" }, { id: "asc" }] });
+  const chargeLines = allocatedCharges.flatMap(charge => {
+    const common = { jobId: null, shoppingRunId: charge.shoppingRunId, shoppingClientChargeId: charge.id, propertyId: charge.propertyId, note: charge.reviewNote };
+    const rows = [];
+    if (charge.expenseAmount > 0) rows.push({ ...common, description: "Shopping purchases - " + charge.property.name + " - " + charge.shoppingRun.title, quantity: 1, unitPrice: charge.expenseAmount, lineTotal: charge.expenseAmount, category: charge.treatment === "AGENCY_DISBURSEMENT" ? "SHOPPING_DISBURSEMENT" : "SHOPPING_REIMBURSEMENT" });
+    if (charge.labourAmount > 0 && charge.shoppingMinutes > 0 && charge.hourlyRate !== null) rows.push({ ...common, description: "Shopping time - " + charge.property.name + " (" + charge.shoppingMinutes + " min @ $" + charge.hourlyRate.toFixed(2) + "/hour)", quantity: 1, unitPrice: charge.labourAmount, lineTotal: charge.labourAmount, category: "SHOPPING_TIME" });
+    return rows;
+  });
+  const billedCharges = allocatedCharges.filter(charge => chargeLines.some(line => line.shoppingClientChargeId === charge.id));
 
   // REPAIRS THE CLIENT AGREED TO COVER. `payPayer: "CLIENT"` has always meant
   // "bill this on" and nothing has ever billed it, so an agreed repair was paid
@@ -429,7 +449,8 @@ export async function generateClientInvoice(input: {
 
   const allLines = [
     ...lines,
-    ...shoppingLines.map(({ settlementId, ...line }) => line),
+    ...shoppingLines.map(({ settlementId, sourceUpdatedAt, ...line }) => line),
+    ...chargeLines,
     // propertyId is carried through so the invoice can group the repair under
     // the right property — a maintenance charge with no property on a
     // multi-property invoice is a line the client cannot place.
@@ -453,16 +474,15 @@ export async function generateClientInvoice(input: {
   }
 
   const gstFlag = input.gstEnabled ?? settings.pricing.gstEnabled;
-  const { subtotal, gstAmount, totalAmount } = calculateGstBreakdown(
-    allLines.reduce((sum, line) => sum + line.lineTotal, 0),
-    { gstEnabled: gstFlag }
-  );
+  const { subtotal, gstAmount, totalAmount } = calculateShoppingAwareInvoiceTotals(allLines, gstFlag);
 
   const invoiceNumber = await nextInvoiceNumber();
   // Atomic: create the invoice (with its lines) AND mark the consumed shopping
   // settlements in one transaction, so a crash can't leave settlements billable
   // again or produce an invoice with orphaned consumption.
   const invoice = await db.$transaction(async (tx) => {
+    const runIds = Array.from(new Set([...shoppingLines.map(line => line.shoppingRunId), ...billedCharges.map(charge => charge.shoppingRunId)])).sort();
+    for (const runId of runIds) await tx.$queryRaw`SELECT "id" FROM "ShoppingRun" WHERE "id" = ${runId} FOR UPDATE`;
     const created = await tx.clientInvoice.create({
     data: {
       clientId: client.id,
@@ -476,7 +496,7 @@ export async function generateClientInvoice(input: {
       gstEnabled: gstFlag,
       metadata: {
         source: "job-rate-generator",
-        shoppingRunCount: shoppingLines.length,
+        shoppingRunCount: new Set([...shoppingLines.map(line => line.shoppingRunId), ...billedCharges.map(charge => charge.shoppingRunId)]).size,
         maintenanceCount: maintenanceLines.length,
         generationSummary: { includedJobCount: lines.length, alreadyInvoicedJobCount },
       },
@@ -504,10 +524,18 @@ export async function generateClientInvoice(input: {
   });
 
     if (shoppingLines.length > 0) {
-      await tx.shoppingSettlement.updateMany({
-        where: { id: { in: shoppingLines.map((line) => line.settlementId) } },
+      const consumed = await tx.shoppingSettlement.updateMany({
+        where: { id: { in: shoppingLines.map((line) => line.settlementId) }, includedInClientInvoiceId: null, clientBillable: true, adminApprovedForClient: true, shoppingRun: { shoppingClientCharges: { none: {} }, lines: { every: { property: { clientId: input.clientId, ...(input.propertyId ? { id: input.propertyId } : {}) } } } }, OR: shoppingLines.map(line => ({ id: line.settlementId, shoppingRun: { updatedAt: line.sourceUpdatedAt } })) },
         data: { includedInClientInvoiceId: created.id },
       });
+      if (consumed.count !== shoppingLines.length) throw new Error("Shopping billing changed while the invoice was generated. Refresh and try again.");
+    }
+
+    for (const charge of billedCharges) {
+      const clientPaid = charge.expenseAmount > 0 ? await tx.shoppingSettlement.findFirst({ where: { shoppingRunId: charge.shoppingRunId, OR: [{ paidByScope: "CLIENT" }, { paymentMethod: "CLIENT_CARD" }] }, select: { id: true } }) : null;
+      if (clientPaid) throw new Error("The client already paid these shopping expenses. Review the allocation before invoicing.");
+      const claimed = await tx.shoppingClientCharge.updateMany({ where: { id: charge.id, revision: charge.revision, invoiceId: null, status: "APPROVED", treatment: charge.treatment, clientId: input.clientId, property: { clientId: input.clientId } }, data: { invoiceId: created.id, billedAt: new Date(), revision: { increment: 1 }, billingSnapshot: { expenseAmount: charge.expenseAmount, shoppingMinutes: charge.shoppingMinutes, hourlyRate: charge.hourlyRate, labourAmount: charge.labourAmount, treatment: charge.treatment, revision: charge.revision } } });
+      if (claimed.count !== 1) throw new Error("Shopping billing changed while the invoice was generated. Refresh and try again.");
     }
 
     // Inside the SAME transaction as the invoice, for the same reason the
@@ -551,6 +579,7 @@ export async function releaseInvoiceConsumables(
   invoiceId: string
 ): Promise<{ shoppingSettlements: number; maintenanceAssignments: number }> {
   const [shopping, maintenance] = await Promise.all([
+    // Charges retain their historical invoice lines and snapshot when released.
     tx.shoppingSettlement.updateMany({
       where: { includedInClientInvoiceId: invoiceId },
       data: { includedInClientInvoiceId: null },
@@ -560,6 +589,7 @@ export async function releaseInvoiceConsumables(
       data: { includedInClientInvoiceId: null, includedInClientInvoiceAt: null },
     }),
   ]);
+  await tx.shoppingClientCharge.updateMany({ where: { invoiceId }, data: { invoiceId: null, billedAt: null, revision: { increment: 1 } } });
   return {
     shoppingSettlements: shopping.count,
     maintenanceAssignments: maintenance.count,
@@ -604,9 +634,7 @@ export async function getClientInvoice(invoiceId: string) {
   const lineSum = Number(
     invoice.lines.reduce((sum, line) => sum + Number(line.lineTotal), 0).toFixed(2)
   );
-  const expected = calculateGstBreakdown(lineSum, {
-    gstEnabled: invoice.gstEnabled ?? true,
-  });
+  const expected = calculateShoppingAwareInvoiceTotals(invoice.lines, invoice.gstEnabled ?? true);
   const totalsMismatch = Math.abs(expected.totalAmount - Number(invoice.totalAmount)) > 0.011;
   if (totalsMismatch) {
     logger.warn(
@@ -814,6 +842,7 @@ export async function renderClientInvoicePdf(
 
 export async function buildClientInvoiceXeroCsv(invoice: NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>) {
   const taxType = Number(invoice.gstAmount ?? 0) > 0 ? "OUTPUT" : "NONE";
+  const integrationSettings = await getPhase3IntegrationsSettings();
   const header = [
     "ContactName",
     "EmailAddress",
@@ -824,6 +853,7 @@ export async function buildClientInvoiceXeroCsv(invoice: NonNullable<Awaited<Ret
     "Quantity",
     "UnitAmount",
     "TaxType",
+    "AccountCode",
     "Reference",
   ];
   const rows = invoice.lines.map((line) => [
@@ -835,7 +865,8 @@ export async function buildClientInvoiceXeroCsv(invoice: NonNullable<Awaited<Ret
     line.description,
     line.quantity.toFixed(2),
     line.unitPrice.toFixed(2),
-    taxType,
+    shoppingXeroMapping(line.category, integrationSettings.xero, taxType).taxType ?? taxType,
+    shoppingXeroMapping(line.category, integrationSettings.xero, taxType).accountCode,
     line.job?.jobNumber || line.job?.id || line.id,
   ]);
   return [header, ...rows]

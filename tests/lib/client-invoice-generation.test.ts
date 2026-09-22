@@ -12,6 +12,7 @@ const { dbMock } = vi.hoisted(() => ({
     priceBook: { findMany: vi.fn() },
     job: { findMany: vi.fn() },
     shoppingRun: { findMany: vi.fn() },
+    shoppingClientCharge: { findMany: vi.fn(async () => []) },
     // Client-paid repairs are a third line source now, so the generator queries
     // this too. Without it here the whole function dies on an undefined model
     // before it ever reaches the assertion.

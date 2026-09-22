@@ -1,6 +1,7 @@
 import { startOfWeek, subDays, subMonths } from "date-fns";
 import { ClientInvoiceStatus, JobStatus, LeadStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { invoiceOperatingRevenue, isShoppingDisbursement } from "./shopping-accounting";
 
 // Heavy history queries below feed rolling trend charts. Bound them to a
 // fixed window instead of loading the entire history on every dashboard load.
@@ -24,7 +25,7 @@ function labelFromEmail(email: string | null | undefined) {
 export async function getFinanceDashboardData(now = new Date()) {
   const since = subMonths(now, TREND_WINDOW_MONTHS);
 
-  const [invoices, jobs, totalLeads, convertedLeads, clients, reviews, avgInvoiceAgg] = await Promise.all([
+  const [invoices, jobs, totalLeads, convertedLeads, clients, reviews, avgInvoiceAgg, agencyTotal] = await Promise.all([
     // Trend + MTD/YTD source. Windowed by paid date (paidAt ?? createdAt). The
     // current month and year (used by mtdRevenue/ytdRevenue) sit inside the
     // 24-month window. revenueByMonth/Service/Cleaner charts become windowed.
@@ -98,7 +99,9 @@ export async function getFinanceDashboardData(now = new Date()) {
         OR: [{ paidAt: { lte: now } }, { paidAt: null, createdAt: { lte: now } }],
       },
       _avg: { totalAmount: true },
+      _count: { _all: true },
     }),
+    db.clientInvoiceLine.aggregate({ where: { category: "SHOPPING_DISBURSEMENT", invoice: { status: ClientInvoiceStatus.PAID, OR: [{ paidAt: { lte: now } }, { paidAt: null, createdAt: { lte: now } }] } }, _sum: { lineTotal: true } }),
   ]);
 
   const revenueByMonthMap = new Map<string, number>();
@@ -108,9 +111,10 @@ export async function getFinanceDashboardData(now = new Date()) {
   for (const invoice of invoices) {
     const paidDate = invoice.paidAt ?? invoice.createdAt;
     const month = monthKey(paidDate);
-    revenueByMonthMap.set(month, (revenueByMonthMap.get(month) ?? 0) + Number(invoice.totalAmount ?? 0));
+    revenueByMonthMap.set(month, (revenueByMonthMap.get(month) ?? 0) + invoiceOperatingRevenue(invoice));
 
     for (const line of invoice.lines) {
+      if (isShoppingDisbursement(line.category)) continue;
       const amount = Number(line.lineTotal ?? 0);
       const serviceLabel = line.job?.jobType?.replace(/_/g, " ") || line.category || "Other";
       revenueByServiceMap.set(serviceLabel, (revenueByServiceMap.get(serviceLabel) ?? 0) + amount);
@@ -144,11 +148,11 @@ export async function getFinanceDashboardData(now = new Date()) {
   const paidInvoices = invoices.filter((invoice) => (invoice.paidAt ?? invoice.createdAt) <= now);
   const mtdRevenue = paidInvoices
     .filter((invoice) => (invoice.paidAt ?? invoice.createdAt) >= startOfMonth)
-    .reduce((sum, invoice) => sum + Number(invoice.totalAmount ?? 0), 0);
+    .reduce((sum, invoice) => sum + invoiceOperatingRevenue(invoice), 0);
   const ytdRevenue = paidInvoices
     .filter((invoice) => (invoice.paidAt ?? invoice.createdAt) >= startOfYear)
-    .reduce((sum, invoice) => sum + Number(invoice.totalAmount ?? 0), 0);
-  const avgJobValue = avgInvoiceAgg._avg.totalAmount ?? 0;
+    .reduce((sum, invoice) => sum + invoiceOperatingRevenue(invoice), 0);
+  const avgJobValue = (avgInvoiceAgg._avg.totalAmount ?? 0) - (avgInvoiceAgg._count._all ? Number(agencyTotal._sum.lineTotal ?? 0) / avgInvoiceAgg._count._all : 0);
 
   const sixtyDaysAgo = subDays(now, 60);
   const churnRiskClients = clients.filter((client) => {
