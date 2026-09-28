@@ -145,3 +145,18 @@ it("falls back for uncertain model predictions and rejects mid-request model rep
 });
 
 it("returns explicit manual choices when no trained model or vision fallback is configured", async () => { m.aiConfig.mockReturnValue({ configured: false }); const response = await run(); expect(response.status).toBe(200); expect((await response.json()).proposals[0]).toMatchObject({ fieldId: null, confidence: 0 }); expect(m.assign).not.toHaveBeenCalled(); });
+it("limits local CPU vision to one submitted photo before any image loads", async () => {
+ m.visionSettings.mockResolvedValue({ provider: "ollama", assignmentEnabled: true, batchSize: 4, minConfidence: .85 });
+ const second = { captureId: "22345678-1234-4123-8123-123456789012", key: "forms/job/22345678-1234-4123-8123-123456789012/cleaner/two.jpg", version: 0 };
+ draft.state.bulkPool.push({ key: second.key, kind: "image" }); draft.evidenceReceipts[second.captureId] = { ...draft.evidenceReceipts[captureId], key: second.key };
+ const response = await run({ photos: [...input.photos, second] }); expect(response.status).toBe(400); expect(await response.json()).toMatchObject({ maxBatchSize: 1 }); expect(m.image).not.toHaveBeenCalled(); expect(m.assign).not.toHaveBeenCalled();
+});
+it("bounds local reference work and tolerates unavailable optional older examples", async () => {
+ m.visionSettings.mockResolvedValue({ provider: "ollama", assignmentEnabled: true, batchSize: 4, minConfidence: .85 });
+ fields[0].references = Array.from({ length: 12 }, (_,i) => ({ kind: "image", storageKey: `form-references/admin/ref${i}.jpg` }));
+ fields.push({ id: "kitchen", type: "photo", label: "Kitchen", references: [{kind: "image", storageKey: "form-references/admin/kitchen.jpg"}] });
+ m.image.mockImplementation(async (storedKey, id) => { if (storedKey.includes("ref0")) throw new Error("Old reference missing"); return { id, data: "eA==", mediaType: "image/jpeg" }; });
+ expect((await run()).status).toBe(200); expect(m.image).toHaveBeenCalledTimes(4); expect(m.assign.mock.calls[0][0].photos).toHaveLength(1); expect(m.assign.mock.calls[0][0].fields.flatMap((field: any) => field.referenceImages)).toHaveLength(2);
+});
+it("never skips a submitted photo that cannot be read", async () => { m.image.mockRejectedValue(new Error("Photo missing")); expect((await run()).status).toBe(503); expect(m.assign).not.toHaveBeenCalled(); });
+it("explains local model failures without leaking provider errors", async () => { m.visionSettings.mockResolvedValue({ provider: "ollama", assignmentEnabled: true, batchSize: 4, minConfidence: .85 }); m.assign.mockRejectedValue(new Error("private provider secret")); const response = await run(); expect(response.status).toBe(503); const body = await response.text(); expect(body).toContain("local image model"); expect(body).not.toContain("private provider secret"); });

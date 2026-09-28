@@ -14,6 +14,7 @@ describe("recovery destination acknowledgement", () => {
     mocks.list.mockResolvedValue([pending]); mocks.cancel.mockResolvedValue("allocated-key");
     const removed = vi.fn();
     render(<EvidenceRecovery scope={scope} locked={false} onRecovered={vi.fn()} onRemoved={removed} />);
+    fireEvent.click(await screen.findByText(/upload.*to check/));
     fireEvent.click(await screen.findByRole("button", { name: "Remove failed upload; keep original" }));
     await waitFor(() => expect(removed).toHaveBeenCalledWith("allocated-key"));
     expect(mocks.cancel).toHaveBeenCalledWith(pending, scope);
@@ -22,6 +23,7 @@ describe("recovery destination acknowledgement", () => {
     mocks.list.mockResolvedValue([pending]); mocks.cancel.mockRejectedValue(new Error("Reconnect to confirm removal."));
     const removed = vi.fn();
     render(<EvidenceRecovery scope={scope} locked={false} onRecovered={vi.fn()} onRemoved={removed} />);
+    fireEvent.click(await screen.findByText(/upload.*to check/));
     fireEvent.click(await screen.findByRole("button", { name: "Remove failed upload; keep original" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Reconnect to confirm removal.");
     expect(removed).not.toHaveBeenCalled();
@@ -42,6 +44,7 @@ describe("recovery destination acknowledgement", () => {
     mocks.upload.mockResolvedValue({ results: [receipt], failed: [], failedCount: 0 });
     const recovered = vi.fn();
     render(<EvidenceRecovery scope={scope} locked={false} onRecovered={recovered} />);
+    fireEvent.click(await screen.findByText(/upload.*to check/));
     fireEvent.click(await screen.findByRole("button", { name: "Retry attachment" }));
     await waitFor(() => expect(recovered).toHaveBeenCalledWith("proof", receipt, latest.destination));
     expect(mocks.upload.mock.calls[0][1].recoveryRecords).toEqual([latest]);

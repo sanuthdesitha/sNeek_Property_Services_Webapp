@@ -24,8 +24,8 @@ import * as React from "react";
 import { EvidenceContext } from "./evidence-context";
 import { getVolatileEvidenceCount } from "@/lib/cleaner/evidence-volatile";
 import { EvidenceRecovery } from "./evidence-recovery";
-import { listEvidence } from "@/lib/cleaner/evidence-store";
-import { removeEvidence } from "@/lib/cleaner/evidence-client";
+
+import { removeEvidence, reconcileEvidenceAcknowledgementsWithChanges, projectReconciledEvidence } from "@/lib/cleaner/evidence-client";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -182,6 +182,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   const evidenceScope = React.useMemo(() => payload?.formRevision && payload?.template?.id ? {
     draftIdentity, jobId, templateId: payload.template.id as string, formRevision: payload.formRevision as string,
   } : null, [draftIdentity, jobId, payload?.formRevision, payload?.template?.id]);
+  const evidenceScopeRef = React.useRef(evidenceScope);
+  evidenceScopeRef.current = evidenceScope;
   const [briefing, setBriefing] = React.useState<any>(null);
 
   const [answers, setAnswers] = React.useState<AnswerMap>({});
@@ -1166,11 +1168,24 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     void submit();
   }
 
+  async function restoreConfirmedUploads() {
+    const scope = evidenceScopeRef.current;
+    if (!scope) return { changed: false, records: [] };
+    const result = await reconcileEvidenceAcknowledgementsWithChanges(scope);
+    if (evidenceScopeRef.current !== scope) throw new Error("The form changed while checking uploads. Reload this job.");
+    const projected = projectReconciledEvidence(draftStateRef.current(), result.reconciled, scope);
+    if (projected.changed) {
+      setUploads(projected.state.uploads ?? {});
+      setBulkPool(projected.state.bulkPool ?? []);
+      setTaskDrafts(projected.state.taskDrafts ?? {});
+      setLaundryPhoto(projected.state.laundry?.photo ?? []);
+      setCarryPhotos(projected.state.carryForward?.photos ?? []);
+    }
+    return { changed: projected.changed, records: result.records };
+  }
   async function submit(opts?: { finalCheckupAck?: FinalCheckupAckEntry[] }) {
     if (onlineAction.uncertain) { flash("danger", "Check the latest server status before submitting."); return; }
-    if (bulkPool.length || (laundryPhoto.length && (!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP")) || (carryPhotos.length && (!carryHasNew || !carryNotes.some(note => note.trim())))) {
-      flash("danger", "Assign unfiled photos and explicitly remove unused laundry or next-clean photos before submitting. Originals stay in device recovery."); return;
-    }
+
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       flash("danger", "Connect before submitting. Clock-out is not queued while offline.");
       return;
@@ -1185,10 +1200,15 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     }
     if (evidenceScope) {
       try {
-        const pending = (await listEvidence()).some(record => record.draftIdentity === draftIdentity && record.jobId === jobId &&
+        const recovered = await restoreConfirmedUploads();
+        if (recovered.changed) { flash("success", "Saved uploads restored. Review the form and submit again."); return; }
+        const pending = recovered.records.some(record => record.draftIdentity === draftIdentity && record.jobId === jobId &&
           record.formRevision === evidenceScope.formRevision && !["attached", "detached"].includes(record.status));
         if (pending) { flash("danger", "Attach the pending evidence from device recovery before submitting."); return; }
       } catch { flash("danger", "Device evidence recovery could not be checked. Reload before submitting."); return; }
+    }
+    if (bulkPool.length || (laundryPhoto.length && (!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP")) || (carryPhotos.length && (!carryHasNew || !carryNotes.some(note => note.trim())))) {
+      flash("danger", "Assign unfiled photos and explicitly remove unused laundry or next-clean photos before submitting. Originals stay in device recovery."); return;
     }
     // Client-side validation gate (mirrors the server's required-field rules):
     // reveal inline errors + scroll to the first, and block the submit so the
@@ -1458,6 +1478,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     retryDraftSave: () => { void flushDraft(); },
     prepareBulkAutoAssign: async () => {
       if (!draftHydratedRef.current || locked || draftSubmittedRef.current) throw new Error("Reload the current editable form before auto assigning.");
+      const recovered = await restoreConfirmedUploads();
+      if (recovered.changed) throw new Error("Saved uploads restored. Tap Auto assign again to analyse the updated photo pool.");
       if (draftTimerRef.current) { clearTimeout(draftTimerRef.current); draftTimerRef.current = null; }
       const confirmed = await saveDraft(jobId, editorSessionIdRef.current, mirrorDraft());
       if (!confirmed) throw new Error("The current draft save was not confirmed. Finish saving, then try auto assign again.");
@@ -1568,31 +1590,6 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       <BackLink />
 
       <JobHeader api={api} />
-      {!locked && ((laundryPhoto.length > 0 && (!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP")) || (carryPhotos.length > 0 && (!carryHasNew || !carryNotes.some(note => note.trim())))) ? <EAlert tone="info" title="Unused attachments">
-        These photos need an active laundry outcome or next-clean flag. Remove unused attachments explicitly; saved originals remain in device recovery.
-        {[...((!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP") ? laundryPhoto : []), ...((!carryHasNew || !carryNotes.some(note => note.trim())) ? carryPhotos : [])].map(media => <button type="button" key={media.key} className="block underline" onClick={() => {
-          if (!evidenceScope) { flash("danger", "Reload the form before removing evidence."); return; }
-          void removeEvidence(evidenceScope, media.key).then(() => {
-            setLaundryPhoto(previous => previous.filter(item => item.key !== media.key));
-            setCarryPhotos(previous => previous.filter(item => item.key !== media.key));
-          }).catch(error => flash("danger", error instanceof Error ? error.message : "Removal failed."));
-        }}>Remove {media.name || "photo"}; keep original</button>)}
-      </EAlert> : null}
-      {evidenceScope ? <EvidenceRecovery scope={evidenceScope} locked={locked} onRemoved={key => {
-        const remove = (media: CapturedMedia[]) => media.filter(item => item.key !== key);
-        setBulkPool(remove); setLaundryPhoto(remove); setCarryPhotos(remove);
-        setUploads(previous => Object.fromEntries(Object.entries(previous).map(([field, media]) => [field, remove(media)])));
-        setTaskDrafts(previous => Object.fromEntries(Object.entries(previous).map(([id, task]) => [id, { ...task, proof: remove(task.proof) }])));
-      }} onRecovered={(fieldId, media, destination) => {
-        const append = (previous: CapturedMedia[]) => previous.some(item => item.key === media.key) ? previous : [...previous, media];
-        if (destination?.type === "bulkPool") { setBulkPool(append); return; }
-        if (destination?.type === "laundry") { setLaundryPhoto(append); return; }
-        if (destination?.type === "carryForwardNew") { setCarryPhotos(append); return; }
-        if (destination?.type === "jobTask") { setTaskDrafts(previous => ({ ...previous, [destination.taskId]: { ...(previous[destination.taskId] ?? { decision: "OPEN", note: "" }), proof: append(previous[destination.taskId]?.proof ?? []) } })); return; }
-        setUploads(previous => ({ ...previous, [fieldId]: previous[fieldId]?.some(item => item.key === media.key)
-          ? previous[fieldId] : [...(previous[fieldId] ?? []), media] }));
-      }} /> : null}
-
       {!locked ? <DraftSaveStatus state={draftSave} onRetry={() => flushDraft()} /> : null}
       {!onlineAction.online ? <EAlert tone="info" title="Working offline">
         You can continue your draft and retain photos on this device. Clock changes, job offers, laundry updates and submission need a connection and are never queued automatically.
@@ -1657,6 +1654,32 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
 
         <StageFooterNav api={api} />
       </div>
+
+      {!locked && ((laundryPhoto.length > 0 && (!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP")) || (carryPhotos.length > 0 && (!carryHasNew || !carryNotes.some(note => note.trim())))) ? <EAlert tone="info" title="Unused attachments">
+        These photos need an active laundry outcome or next-clean flag. Remove unused attachments explicitly; saved originals remain in device recovery.
+        {[...((!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP") ? laundryPhoto : []), ...((!carryHasNew || !carryNotes.some(note => note.trim())) ? carryPhotos : [])].map(media => <button type="button" key={media.key} className="block underline" onClick={() => {
+          if (!evidenceScope) { flash("danger", "Reload the form before removing evidence."); return; }
+          void removeEvidence(evidenceScope, media.key).then(() => {
+            setLaundryPhoto(previous => previous.filter(item => item.key !== media.key));
+            setCarryPhotos(previous => previous.filter(item => item.key !== media.key));
+          }).catch(error => flash("danger", error instanceof Error ? error.message : "Removal failed."));
+        }}>Remove {media.name || "photo"}; keep original</button>)}
+      </EAlert> : null}
+      {evidenceScope ? <EvidenceRecovery scope={evidenceScope} locked={locked} onRemoved={key => {
+        const remove = (media: CapturedMedia[]) => media.filter(item => item.key !== key);
+        setBulkPool(remove); setLaundryPhoto(remove); setCarryPhotos(remove);
+        setUploads(previous => Object.fromEntries(Object.entries(previous).map(([field, media]) => [field, remove(media)])));
+        setTaskDrafts(previous => Object.fromEntries(Object.entries(previous).map(([id, task]) => [id, { ...task, proof: remove(task.proof) }])));
+      }} onRecovered={(fieldId, media, destination) => {
+        const append = (previous: CapturedMedia[]) => previous.some(item => item.key === media.key) ? previous : [...previous, media];
+        if (destination?.type === "bulkPool") { setBulkPool(append); return; }
+        if (destination?.type === "laundry") { setLaundryPhoto(append); return; }
+        if (destination?.type === "carryForwardNew") { setCarryPhotos(append); return; }
+        if (destination?.type === "jobTask") { setTaskDrafts(previous => ({ ...previous, [destination.taskId]: { ...(previous[destination.taskId] ?? { decision: "OPEN", note: "" }), proof: append(previous[destination.taskId]?.proof ?? []) } })); return; }
+        setUploads(previous => ({ ...previous, [fieldId]: previous[fieldId]?.some(item => item.key === media.key)
+          ? previous[fieldId] : [...(previous[fieldId] ?? []), media] }));
+      }} /> : null}
+
 
       <ActionFab api={api} />
 

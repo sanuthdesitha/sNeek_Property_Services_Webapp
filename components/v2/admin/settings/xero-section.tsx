@@ -180,7 +180,7 @@ export function XeroSection() {
   const isConnected = connection?.connected ?? false;
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6 [&_input]:min-h-11 [&_button]:min-h-11">
       <ESectionHeading
         eyebrow="Accounting"
         title="Xero"
@@ -199,7 +199,7 @@ export function XeroSection() {
       {/* Connection card */}
       <ECard variant="ceremony" className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
             <EBadge tone={isConnected ? "success" : "neutral"} soft>
               {isConnected ? "Connected" : "Not connected"}
             </EBadge>
@@ -290,22 +290,23 @@ export function XeroSection() {
           </p>
           <div className="mt-4 grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
             {SERVICE_TYPES.map((svc) => (
-              <div key={svc.value} className="flex items-center gap-3">
-                <span className="w-40 flex-shrink-0 truncate text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+              <div key={svc.value} className="flex min-w-0 flex-wrap items-center gap-3">
+                <span className="w-full sm:w-40 flex-shrink-0 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
                   {svc.label}
                 </span>
                 <EInput
                   value={cfg.itemCodeByService[svc.value] ?? ""}
                   onChange={(e) => setServiceCode(svc.value, e.target.value)}
                   placeholder="item code"
-                  className="h-8 text-[0.8125rem]"
+                  aria-label={`${svc.label} item code`}
+                  className="min-w-0 flex-1 text-[0.8125rem]"
                 />
               </div>
             ))}
           </div>
         </div>
 
-        <div className="mt-5 flex items-center justify-end gap-3">
+        <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
           <ESaveStatus status={status} />
           <EButton onClick={saveCfg} disabled={savingCfg}>
             {savingCfg ? "Saving…" : "Save invoice defaults"}

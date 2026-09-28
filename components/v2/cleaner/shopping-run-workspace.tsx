@@ -546,10 +546,10 @@ export function ShoppingRunWorkspace({
         </ECardHeader>
         <ECardBody className="grid gap-3 xl:grid-cols-[1.2fr_200px_auto_auto_auto] xl:items-end">
           <EField label="Run name">
-            <EInput value={run.name} onChange={(e) => setRun((prev) => (prev ? { ...prev, name: e.target.value } : prev))} />
+            <EInput className="min-h-11" value={run.name} onChange={(e) => setRun((prev) => (prev ? { ...prev, name: e.target.value } : prev))} />
           </EField>
           <EField label="Timeline">
-            <EInput value={`Started ${timeLabel(run.startedAt)} · Submitted ${timeLabel(run.completedAt)}`} disabled />
+            <EInput className="min-h-11" value={`Started ${timeLabel(run.startedAt)} · Submitted ${timeLabel(run.completedAt)}`} disabled />
           </EField>
           <EButton variant="outline" onClick={() => void save("IN_PROGRESS")} disabled={saving || run.status === "COMPLETED"}>
             <Play className="h-4 w-4" /> Mark active
@@ -585,17 +585,17 @@ export function ShoppingRunWorkspace({
               </ESelect>
             </EField>
             <EField label="Paid by scope">
-              <EInput value={run.payment?.paidByScope?.replace(/_/g, " ") ?? "-"} disabled />
+              <EInput className="min-h-11" value={run.payment?.paidByScope?.replace(/_/g, " ") ?? "-"} disabled />
             </EField>
             <EField label="Paid by name">
-              <EInput
+              <EInput className="min-h-11"
                 placeholder="Paid by name"
                 value={run.payment?.paidByName ?? ""}
                 onChange={(e) => updatePayment({ paidByName: e.target.value })}
               />
             </EField>
             <EField label="Payment note">
-              <EInput
+              <EInput className="min-h-11"
                 placeholder="Payment note"
                 value={run.payment?.note ?? ""}
                 onChange={(e) => updatePayment({ note: e.target.value })}
@@ -672,7 +672,7 @@ export function ShoppingRunWorkspace({
           <ECardBody className="space-y-3">
             <div className="grid gap-3 md:grid-cols-[220px_1fr]">
               <EField label="Minutes spent shopping">
-                <EInput
+                <EInput className="min-h-11"
                   type="number"
                   min="0"
                   max="1440"
@@ -719,7 +719,7 @@ export function ShoppingRunWorkspace({
             {catalogItems.map(item => <option key={item.id} value={item.id}>{item.name} · {item.unit}</option>)}
           </ESelect></EField>
           <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_110px_110px]">
-            <ESelect
+            <label className="block min-w-0 space-y-1.5 text-sm font-medium text-[hsl(var(--e-text-secondary))]"><span>Purchase destination</span><ESelect className="min-h-11"
               aria-label="Purchase destination"
               value={customDraft.propertyId}
               onChange={(e) => setCustomDraft((prev) => ({ ...prev, propertyId: e.target.value }))}
@@ -730,15 +730,15 @@ export function ShoppingRunWorkspace({
                   {property.propertyName} ({property.suburb})
                 </option>
               ))}
-            </ESelect>
-            <EInput
+            </ESelect></label>
+            <label className="block min-w-0 space-y-1.5 text-sm font-medium text-[hsl(var(--e-text-secondary))]"><span>Purchase name</span><EInput className="min-h-11"
               placeholder="Purchase name"
               aria-label="Purchase name"
               disabled={Boolean(purchaseItemId)}
               value={customDraft.itemName}
               onChange={(e) => setCustomDraft((prev) => ({ ...prev, itemName: e.target.value }))}
-            />
-            <EInput
+            /></label>
+            <label className="block min-w-0 space-y-1.5 text-sm font-medium text-[hsl(var(--e-text-secondary))]"><span>Quantity purchased</span><EInput className="min-h-11"
               placeholder="Qty"
               aria-label="Purchased quantity"
               type="number"
@@ -746,8 +746,8 @@ export function ShoppingRunWorkspace({
               step="0.01"
               value={customDraft.qty}
               onChange={(e) => setCustomDraft((prev) => ({ ...prev, qty: e.target.value }))}
-            />
-            <EInput
+            /></label>
+            <label className="block min-w-0 space-y-1.5 text-sm font-medium text-[hsl(var(--e-text-secondary))]"><span>Unit cost ($)</span><EInput className="min-h-11"
               placeholder="Unit cost"
               aria-label="Purchase unit cost"
               type="number"
@@ -755,25 +755,25 @@ export function ShoppingRunWorkspace({
               step="0.01"
               value={customDraft.unitCost}
               onChange={(e) => setCustomDraft((prev) => ({ ...prev, unitCost: e.target.value }))}
-            />
+            /></label>
           </div>
           <div className="grid gap-3 lg:grid-cols-[1fr_140px_1fr_auto] lg:items-end">
-            <EInput
+            <label className="block min-w-0 space-y-1.5 text-sm font-medium text-[hsl(var(--e-text-secondary))]"><span>Category</span><EInput className="min-h-11"
               placeholder="Category"
               value={customDraft.category}
               onChange={(e) => setCustomDraft((prev) => ({ ...prev, category: e.target.value }))}
-            />
-            <EInput
+            /></label>
+            <label className="block min-w-0 space-y-1.5 text-sm font-medium text-[hsl(var(--e-text-secondary))]"><span>Unit (e.g. bottle)</span><EInput className="min-h-11"
               placeholder="Unit"
               value={customDraft.unit}
               onChange={(e) => setCustomDraft((prev) => ({ ...prev, unit: e.target.value }))}
-            />
-            <EInput
+            /></label>
+            <label className="block min-w-0 space-y-1.5 text-sm font-medium text-[hsl(var(--e-text-secondary))]"><span>Purchase note (optional)</span><EInput className="min-h-11"
               placeholder="Optional note"
               value={customDraft.note}
               onChange={(e) => setCustomDraft((prev) => ({ ...prev, note: e.target.value }))}
-            />
-            <EButton type="button" onClick={addCustomPurchase}>
+            /></label>
+            <EButton className="min-h-11" type="button" onClick={addCustomPurchase}>
               <Plus className="h-4 w-4" /> Add actual purchase
             </EButton>
           </div>
@@ -803,7 +803,7 @@ export function ShoppingRunWorkspace({
                     </EConfirmButton>
                   </div>
                   <div className="mt-3 grid gap-3 md:grid-cols-[120px_120px_1fr]">
-                    <EInput
+                    <label className="block min-w-0 space-y-1.5 text-sm font-medium"><span>Quantity purchased</span><EInput className="min-h-11"
                       type="number"
                       min="0"
                       step="0.01"
@@ -816,8 +816,8 @@ export function ShoppingRunWorkspace({
                           include: true,
                         })
                       }
-                    />
-                    <EInput
+                    /></label>
+                    <label className="block min-w-0 space-y-1.5 text-sm font-medium"><span>Unit cost ($)</span><EInput className="min-h-11"
                       type="number"
                       min="0"
                       step="0.01"
@@ -829,12 +829,12 @@ export function ShoppingRunWorkspace({
                           include: true,
                         })
                       }
-                    />
-                    <EInput
+                    /></label>
+                    <label className="block min-w-0 space-y-1.5 text-sm font-medium"><span>Receipt or purchase note</span><EInput className="min-h-11"
                       value={row.note ?? ""}
                       onChange={(e) => updateRow(row.itemId, row.propertyId, { note: e.target.value })}
                       placeholder="Receipt or purchase note"
-                    />
+                    /></label>
                   </div>
                 </div>
               ))}
@@ -900,7 +900,7 @@ export function ShoppingRunWorkspace({
                       </p>
                     </div>
                     <div className="grid gap-2 sm:grid-cols-3">
-                      <EInput
+                      <EInput className="min-h-11"
                         type="number"
                         min="0"
                         value={row.actualPurchasedQty ?? 0}
@@ -912,7 +912,7 @@ export function ShoppingRunWorkspace({
                         }
                         aria-label="Purchased quantity"
                       />
-                      <EInput
+                      <EInput className="min-h-11"
                         type="number"
                         min="0"
                         step="0.01"
@@ -941,8 +941,8 @@ export function ShoppingRunWorkspace({
                       value={row.note ?? ""}
                       onChange={(e) => updateRow(row.itemId, row.propertyId, { note: e.target.value })}
                     />
-                    <EInput value={row.priority || "Medium"} disabled />
-                    <EInput value={`Actual ${money(row.actualLineCost || 0)}`} disabled />
+                    <EInput className="min-h-11" value={row.priority || "Medium"} disabled />
+                    <EInput className="min-h-11" value={`Actual ${money(row.actualLineCost || 0)}`} disabled />
                   </div>
                 </div>
               ))}

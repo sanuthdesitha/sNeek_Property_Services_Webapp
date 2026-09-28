@@ -9,7 +9,7 @@ import { useSession } from "next-auth/react";
 import { z } from "zod";
 import { useEffect, useState } from "react";
 import { Receipt, CreditCard, ImageIcon, FileText, ShoppingBag } from "lucide-react";
-import { EBadge, ECard, ECardBody, EEmptyState, EEyebrow } from "@/components/v2/ui/primitives";
+import { EBadge, EButton, ECard, ECardBody, EEmptyState, EEyebrow } from "@/components/v2/ui/primitives";
 import { EInlineNotice } from "@/components/v2/client/fields";
 
 type PurchaseLine = { itemName: string; qty: number; unit: string; property: string; lineCost: number | null };
@@ -39,6 +39,7 @@ export function PurchasesFeed() {
 const billingSchema = z.object({ id: z.string(), property: z.string(), status: z.enum(["PENDING_REVIEW", "APPROVED"]), expenseAmount: z.number().finite().optional(), shoppingMinutes: z.number().finite().optional(), hourlyRate: z.number().finite().nullable().optional(), labourAmount: z.number().finite().optional(), treatment: z.string().optional(), invoice: z.object({ id: z.string(), status: z.string(), number: z.string() }).nullable().optional() });
 const purchaseSchema = z.object({ billing: z.array(billingSchema).optional(), id: z.string(), title: z.string(), date: z.string().datetime(), shopper: z.string(), paymentMethod: z.string().nullable(), total: z.number().finite(), totalComplete: z.boolean(), sharedRun: z.boolean(), shoppingTime: z.object({ requestedMinutes: z.number().finite().nonnegative().nullable(), approvalStatus: z.string() }).nullable(), lines: z.array(z.object({ itemName: z.string(), qty: z.number().finite(), unit: z.string(), property: z.string(), lineCost: z.number().finite().nullable() })), receipts: z.array(z.object({ url: z.string().url().refine(url => /^https?:\/\//.test(url)).nullable(), name: z.string(), mimeType: z.string().nullable(), amount: z.number().finite().nullable() })) });
 function ScopedPurchases() {
+  const [reload, setReload] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [runs, setRuns] = useState<Purchase[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +47,7 @@ function ScopedPurchases() {
 
   useEffect(() => {
     let active = true;
+    setLoading(true); setError(null);
     (async () => {
       try {
         const res = await fetch("/api/client/inventory/purchases", { cache: "no-store" });
@@ -62,10 +64,10 @@ function ScopedPurchases() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reload]);
 
-  if (loading) return <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Loading purchases…</p>;
-  if (error) return <EInlineNotice tone="danger">{error}</EInlineNotice>;
+  if (loading) return <p role="status" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-6 text-sm text-[hsl(var(--e-muted-foreground))]">Loading purchases…</p>;
+  if (error) return <div className="space-y-3"><EInlineNotice tone="danger">{error}</EInlineNotice><EButton variant="outline" className="min-h-11" onClick={() => setReload(value => value + 1)}>Retry purchases</EButton></div>;
   if (runs.length === 0) {
     return (
       <EEmptyState
@@ -85,10 +87,10 @@ function ScopedPurchases() {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="flex items-center gap-2 break-words font-[550] text-[hsl(var(--e-foreground))]">
-                  <ShoppingBag className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> {run.title}
+                  <ShoppingBag className="h-4 w-4 shrink-0 text-[hsl(var(--e-accent-portal))]" /> {run.title}
                 </p>
                 <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                  {new Date(run.date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })} ·
+                  {new Date(run.date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric", timeZone: "Australia/Sydney" })} ·
                   Shopped by {run.shopper}
                 </p>
               </div>
@@ -102,9 +104,9 @@ function ScopedPurchases() {
               </div>
             </div>
 
-            <p className="text-sm">Purchase costs shown here are not an invoice or a payment request.</p>
+            <p className="rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))] p-3 text-xs leading-relaxed text-[hsl(var(--e-muted-foreground))]">Purchase costs shown here are not an invoice or a payment request.</p>
             {run.shoppingTime ? <p className="text-sm">Shopping time logged: {run.shoppingTime.requestedMinutes == null ? "Not recorded" : `${run.shoppingTime.requestedMinutes} minutes`}. Time approval: {run.shoppingTime.approvalStatus.replace(/_/g, " ").toLowerCase()}. This is the logged run time, not a client charge.</p> : null}
-            {run.billing?.map(charge => <div key={charge.id} className="rounded border p-3 text-sm space-y-1"><p className="font-semibold">{charge.property} · {charge.status === "APPROVED" ? "Approved client charge" : "Client charge awaiting review"}</p>{charge.status === "APPROVED" ? <><p>Expense: {money(charge.expenseAmount ?? 0)} · Shopping service: {charge.shoppingMinutes ?? 0} minutes{charge.hourlyRate != null ? ` at ${money(charge.hourlyRate)}/hour` : ""} · {money(charge.labourAmount ?? 0)}</p><p>Treatment: {charge.treatment?.replace(/_/g, " ").toLowerCase()}</p><p>{charge.invoice ? <a className="underline inline-flex min-h-11 items-center" href={`/v2/client/finance/invoices/${encodeURIComponent(charge.invoice.id)}`}>Invoice {charge.invoice.number}: {charge.invoice.status.toLowerCase()}</a> : "Not yet invoiced"}</p></> : <p>No client charge has been approved yet.</p>}</div>)}
+            {run.billing?.map(charge => <div key={charge.id} className="min-w-0 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-4 text-sm leading-relaxed space-y-2"><p className="font-semibold break-words">{charge.property} · {charge.status === "APPROVED" ? "Approved client charge" : "Client charge awaiting review"}</p>{charge.status === "APPROVED" ? <><p>Expense: {money(charge.expenseAmount ?? 0)} · Shopping service: {charge.shoppingMinutes ?? 0} minutes{charge.hourlyRate != null ? ` at ${money(charge.hourlyRate)}/hour` : ""} · {money(charge.labourAmount ?? 0)}</p><p>Treatment: {charge.treatment?.replace(/_/g, " ").toLowerCase()}</p><p>{charge.invoice ? <a className="underline inline-flex min-h-11 items-center" href={`/v2/client/finance/invoices/${encodeURIComponent(charge.invoice.id)}`}>Invoice {charge.invoice.number}: {charge.invoice.status.toLowerCase()}</a> : "Not yet invoiced"}</p></> : <p>No client charge has been approved yet.</p>}</div>)}
             {run.sharedRun ? <p className="text-sm">This run includes purchases outside your properties. Shared receipts and whole-run shopping time are withheld; ask the office for your allocation.</p> : null}
             <div className="divide-y divide-[hsl(var(--e-border))] rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
               {run.lines.map((line, i) => (
@@ -156,6 +158,8 @@ function ScopedPurchases() {
                     ) : (
                       <span
                         key={i}
+                        title={`${r.name}: receipt unavailable`}
+                        aria-label={`${r.name}: receipt unavailable`}
                         className="flex h-20 w-20 items-center justify-center rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))]"
                       >
                         <ImageIcon className="h-5 w-5" />

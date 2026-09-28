@@ -8,7 +8,7 @@
  *   POST /api/admin/inventory/held-stock/[id]/deliver        { propertyId, quantity }
  * Catalog options (items / holders / properties) are supplied by the hub page.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { OwnStockEntry } from "@/components/v2/cleaner/own-stock-entry";
 import { groupHeldStock } from "@/lib/inventory/held-stock-grouping";
@@ -51,6 +51,8 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
   const [byHolder, setByHolder] = useState<HolderGroup[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const recordingRef = useRef(false);
+  const deliveringRef = useRef(false);
   // Record-on-hand modal
   const [recordOpen, setRecordOpen] = useState(false);
   const [itemId, setItemId] = useState("");
@@ -101,10 +103,12 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
   }
 
   async function record() {
+    if (recordingRef.current) return;
     if (!itemId || !holderUserId || !(Number(quantity) > 0)) {
       toast({ title: "Item, holder and quantity are required.", variant: "destructive" });
       return;
     }
+    recordingRef.current = true;
     setRecording(true);
     try {
       const res = await fetch("/api/admin/inventory/held-stock", {
@@ -126,7 +130,10 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
       toast({ title: "On-hand stock recorded" });
       setRecordOpen(false);
       await refresh();
+    } catch {
+      toast({ title: "Record not confirmed", description: "Refresh stock before trying again.", variant: "destructive" });
     } finally {
+      recordingRef.current = false;
       setRecording(false);
     }
   }
@@ -139,11 +146,12 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
   }
 
   async function deliver() {
-    if (!deliverFor) return;
+    if (!deliverFor || deliveringRef.current) return;
     if (!deliverPropertyId || !(Number(deliverQty) > 0)) {
       toast({ title: "Choose a property and quantity.", variant: "destructive" });
       return;
     }
+    deliveringRef.current = true;
     setDelivering(true);
     try {
       const receipt = await sendHeldStockDelivery(scope, `/api/admin/inventory/held-stock/${deliverFor.heldStockId}/deliver`, { propertyId: deliverPropertyId, quantity: Number(deliverQty) });
@@ -153,27 +161,28 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
     } catch (error) {
       toast({ title: "Delivery not confirmed", description: error instanceof Error ? error.message : "Retry the same delivery.", variant: "destructive" });
     } finally {
+      deliveringRef.current = false;
       setDelivering(false);
     }
   }
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5 [&_button]:min-h-11 [&_input]:min-h-11 [&_select]:min-h-11">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <section className="grid grid-cols-2 gap-4 sm:max-w-md">
-          <EStatCard label="Holders with stock" value={totals.holders} icon={<PackageCheck className="h-4 w-4" />} />
-          <EStatCard label="Units on hand" value={totals.units} icon={<PackageCheck className="h-4 w-4" />} />
+          <EStatCard label="Holders with stock" value={loading || error ? "—" : totals.holders} icon={<PackageCheck className="h-4 w-4" />} />
+          <EStatCard label="Units on hand" value={loading || error ? "—" : totals.units} icon={<PackageCheck className="h-4 w-4" />} />
         </section>
         <EButton disabled={readOnly} size="sm" variant="gold" onClick={openRecord}>
           <Plus className="h-3.5 w-3.5" /> Record on-hand
         </EButton>
       </div>
 
-      <EButton variant="outline" onClick={() => void refresh()}>Refresh stock</EButton>
-      {error ? <p role="alert">{error}</p> : null}
+      <EButton variant="outline" disabled={loading} onClick={() => void refresh()}>Refresh stock</EButton>
+      {error ? <p role="alert" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] bg-[hsl(var(--e-surface))] p-4 text-sm text-[hsl(var(--e-danger))]">{error}</p> : null}
       {loading ? (
         <ECard className="p-16 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Loading…</ECard>
-      ) : withStock.length === 0 ? (
+      ) : error && withStock.length === 0 ? null : withStock.length === 0 ? (
         <ECard className="p-16 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
           No stock is currently held by anyone.
         </ECard>
@@ -195,14 +204,14 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
                 </div>
               </div>
               <div className="space-y-3 p-4">
-                {groupHeldStock(group.items).map(itemGroup => <section key={itemGroup.key} className="min-w-0 rounded border p-3">
+                {groupHeldStock(group.items).map(itemGroup => <section key={itemGroup.key} className="min-w-0 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3 sm:p-4">
                   <p className="text-xs text-[hsl(var(--e-muted-foreground))]">{itemGroup.category}</p>
                   <h3 className="font-semibold break-words">{itemGroup.item?.name ?? "Unknown item"}</h3>
                   <p className="text-sm">{itemGroup.quantity} {itemGroup.item?.unit ?? "units"} total</p>
                   <details className="mt-2">
                     <summary className="cursor-pointer min-h-11 py-2 text-sm">{itemGroup.entries.length} {itemGroup.entries.length === 1 ? "entry" : "entries"} · edit or deliver</summary>
                     <div className="space-y-3">
-                      {itemGroup.entries.map((h, index) => <div key={h.heldStockId} className="border-t pt-3 space-y-2">
+                      {itemGroup.entries.map((h, index) => <div key={h.heldStockId} className="border-t border-[hsl(var(--e-border))] pt-3 space-y-2">
                         <p className="text-sm">Entry {index + 1}: {h.quantity} {h.item?.unit ?? "units"}</p>
                         {h.sourceNote ? <p className="text-xs break-words">{h.sourceNote}</p> : null}
                         <div className="flex flex-wrap gap-2">
@@ -222,7 +231,7 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
 
       <EModal
         open={recordOpen}
-        onClose={() => setRecordOpen(false)}
+        onClose={() => { if (!recordingRef.current) setRecordOpen(false); }}
         eyebrow="On-hand"
         title="Record on-hand stock"
         wide
@@ -230,7 +239,7 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <EField label="Item">
-              <ESelect value={itemId} onChange={(e) => setItemId(e.target.value)}>
+              <ESelect aria-label="Item" value={itemId} onChange={(e) => setItemId(e.target.value)}>
                 <option value="">Choose item…</option>
                 {catalog.items.map((i) => (
                   <option key={i.id} value={i.id}>
@@ -240,7 +249,7 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
               </ESelect>
             </EField>
             <EField label="Held by">
-              <ESelect value={holderUserId} onChange={(e) => setHolderUserId(e.target.value)}>
+              <ESelect aria-label="Held by" value={holderUserId} onChange={(e) => setHolderUserId(e.target.value)}>
                 <option value="">Cleaner / client / QA…</option>
                 {catalog.holders.map((h) => (
                   <option key={h.id} value={h.id}>
@@ -250,14 +259,15 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
               </ESelect>
             </EField>
             <EField label="Quantity">
-              <EInput type="number" min={0} step="0.01" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+              <EInput aria-label="Quantity to record" type="number" min={0} step="0.01" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
             </EField>
             <EField label="Unit cost ($, optional)">
-              <EInput type="number" min={0} step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} />
+              <EInput aria-label="Unit cost (AUD)" type="number" min={0} step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} />
             </EField>
           </div>
           <EField label="Note (optional)">
             <EInput
+              aria-label="Stock note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="e.g. Bought 12 toilet rolls at Costco"
@@ -271,13 +281,13 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
 
       <EModal
         open={Boolean(deliverFor)}
-        onClose={() => setDeliverFor(null)}
+        onClose={() => { if (!deliveringRef.current) setDeliverFor(null); }}
         eyebrow="Deliver"
         title={`Deliver ${deliverFor?.item?.name ?? "stock"} to a unit`}
       >
         <div className="space-y-4">
           <EField label="To property">
-            <ESelect value={deliverPropertyId} onChange={(e) => setDeliverPropertyId(e.target.value)}>
+            <ESelect aria-label="To property" value={deliverPropertyId} onChange={(e) => setDeliverPropertyId(e.target.value)}>
               <option value="">Select property…</option>
               {catalog.properties.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -290,6 +300,7 @@ function ScopedEstateOnHand({ catalog, scope, readOnly }: { catalog: OnHandCatal
             <EInput
               type="number"
               min={0}
+              aria-label="Quantity to deliver"
               max={deliverFor?.quantity}
               step="0.01"
               value={deliverQty}

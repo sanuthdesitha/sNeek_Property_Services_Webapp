@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { EButton } from "@/components/v2/ui/primitives";
 import { clearAttachedEvidence, getEvidence, listEvidence, putEvidence, sameEvidenceScope, type EvidenceRecord, type EvidenceScope } from "@/lib/cleaner/evidence-store";
 import { getVolatileEvidence, getVolatileEvidenceRevision, subscribeVolatileEvidence, releaseVolatileEvidence } from "@/lib/cleaner/evidence-volatile";
 import { destinationOf, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
@@ -52,38 +53,42 @@ export function EvidenceRecovery({ scope, locked, onRecovered, onRemoved }: {
     link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     setExported(current => [...current, record.id]);
   }
-  return <section aria-label="Device evidence recovery" className="rounded border p-3 space-y-2">
-    <h2 className="font-semibold">Evidence saved on this device</h2>
+  const pendingCount = volatile.length + records.filter(record => !["attached", "detached"].includes(record.status) && sameEvidenceScope(record, scope)).length;
+  return <section aria-label="Device evidence recovery" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] text-sm">
+    <details><summary className="min-h-11 cursor-pointer px-4 py-3 font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--e-accent-portal))]">{pendingCount ? `${pendingCount} upload${pendingCount === 1 ? "" : "s"} to check` : "Saved file copies"}<span className="ml-2 text-xs font-normal text-[hsl(var(--e-muted-foreground))]">Retry or manage files</span></summary><div className="space-y-3 border-t border-[hsl(var(--e-border))] p-4">
+    <h2 className="font-semibold">Upload recovery</h2>
     <p className="text-sm">Remove a failed upload to stop recovery and unblock submission. Its original stays here until you clear the device copy.</p>
-    {error ? <p role="alert">{error}</p> : null}
-    {volatile.map(record => <div key={record.id} className="flex flex-wrap gap-2 items-center text-sm">
+
+    {volatile.map(record => <div key={record.id} className="flex flex-wrap gap-2 items-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))] p-3 text-sm [&>span]:w-full [&>span]:break-words">
       <span>{record.filename} — Not saved on this device. Keep this page open.</span>
-      <button type="button" onClick={() => download(record)}>Save original</button>
-      {!locked && sameEvidenceScope(record, scope) ? <button type="button" disabled={Boolean(busy)} onClick={() => {
+      <EButton type="button" variant="outline" size="sm" className="min-h-11 h-auto whitespace-normal text-left" onClick={() => download(record)}>Save original</EButton>
+      {!locked && sameEvidenceScope(record, scope) ? <EButton type="button" variant="outline" size="sm" className="min-h-11 h-auto whitespace-normal text-left" disabled={Boolean(busy)} onClick={() => {
         setBusy(record.id);
         void putEvidence(record).then(() => { releaseVolatileEvidence(record.id); return retry(record); }).catch(() => {
           setError("Device storage is still unavailable. Save the original before leaving."); setBusy(null);
         });
-      }}>Retry saving and attaching</button> : null}
-      {exported.includes(record.id) ? <button type="button" onClick={() => releaseVolatileEvidence(record.id)}>I saved the original; remove from this page</button> : null}
+      }}>Retry saving and attaching</EButton> : null}
+      {exported.includes(record.id) ? <EButton type="button" variant="outline" size="sm" className="min-h-11 h-auto whitespace-normal text-left" onClick={() => releaseVolatileEvidence(record.id)}>I saved the original; remove from this page</EButton> : null}
     </div>)}
-    {records.map(record => <div key={record.id} className="flex flex-wrap gap-2 items-center text-sm">
+    {records.map(record => <div key={record.id} className="flex flex-wrap gap-2 items-center rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))] p-3 text-sm [&>span]:w-full [&>span]:break-words">
       <span>{record.filename} — {record.status === "detached" ? "Removed from job" : record.status === "attached" ? "Attached to job" : !sameEvidenceScope(record, scope) ? "Older form — keep for review" : record.receipt ? "Verifying attachment" : record.status === "preparing" ? "Preparing file; original saved" : record.status === "uploading" ? "Upload started; verification pending" : "Queued on this device"}</span>
-      <button type="button" onClick={() => download(record)}>Save original</button>
-      {!["attached", "detached"].includes(record.status) && sameEvidenceScope(record, scope) && !locked ? <button type="button" disabled={Boolean(busy)} onClick={() => void retry(record)}>{busy === record.id ? "Recovering…" : "Retry attachment"}</button> : null}
-      {!["attached", "detached"].includes(record.status) && sameEvidenceScope(record, scope) && !locked ? <button type="button" disabled={Boolean(busy)} onClick={() => {
+      <EButton type="button" variant="outline" size="sm" className="min-h-11 h-auto whitespace-normal text-left" onClick={() => download(record)}>Save original</EButton>
+      {!["attached", "detached"].includes(record.status) && sameEvidenceScope(record, scope) && !locked ? <EButton type="button" variant="outline" size="sm" className="min-h-11 h-auto whitespace-normal text-left" disabled={Boolean(busy)} onClick={() => void retry(record)}>{busy === record.id ? "Recovering…" : "Retry attachment"}</EButton> : null}
+      {!["attached", "detached"].includes(record.status) && sameEvidenceScope(record, scope) && !locked ? <EButton type="button" variant="outline" size="sm" className="min-h-11 h-auto whitespace-normal text-left" disabled={Boolean(busy)} onClick={() => {
         setBusy(record.id); setError("");
         void cancelPendingEvidence(record, scope).then(key => {
           if (key) onRemoved?.(key);
         }).catch(error => setError(error instanceof Error ? error.message : "Removal failed. Keep the original and retry."))
           .finally(() => setBusy(null));
-      }}>Remove failed upload; keep original</button> : null}
-      {record.status === "attached" && record.receipt && sameEvidenceScope(record, scope) && !locked ? <button type="button" disabled={Boolean(busy)} onClick={() => {
+      }}>Remove failed upload; keep original</EButton> : null}
+      {record.status === "attached" && record.receipt && sameEvidenceScope(record, scope) && !locked ? <EButton type="button" variant="outline" size="sm" className="min-h-11 h-auto whitespace-normal text-left" disabled={Boolean(busy)} onClick={() => {
         setBusy(record.id);
         void removeEvidence(scope, record.receipt!.key).then(() => onRemoved?.(record.receipt!.key))
           .catch(error => setError(error instanceof Error ? error.message : "Removal failed.")).finally(() => setBusy(null));
-      }}>Remove attachment; keep original</button> : null}
-      {["attached", "detached"].includes(record.status) ? <button type="button" disabled={Boolean(busy)} onClick={() => void clearAttachedEvidence(record).catch(() => setError("Could not clear the device copy."))}>Clear device copy</button> : null}
+      }}>Remove attachment; keep original</EButton> : null}
+      {["attached", "detached"].includes(record.status) ? <EButton type="button" variant="outline" size="sm" className="min-h-11 h-auto whitespace-normal text-left" disabled={Boolean(busy)} onClick={() => void clearAttachedEvidence(record).catch(() => setError("Could not clear the device copy."))}>Clear device copy</EButton> : null}
     </div>)}
+    </div></details>
+    {error ? <p role="alert" className="px-4 pb-3 text-[hsl(var(--e-danger))]">{error}</p> : null}
   </section>;
 }

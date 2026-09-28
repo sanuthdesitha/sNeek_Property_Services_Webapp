@@ -1,4 +1,5 @@
 "use client";
+import { PHOTO_ASSIGNMENT_REQUEST_TIMEOUT_MS } from "@/lib/ai/runtime-limits";
 
 /**
  * Bulk photo upload + categorise sheet (cleaner job form).
@@ -198,7 +199,7 @@ export function BulkPhotoAssign({
     const current = () => requestRef.current.id === id && scopeKeyRef.current === startedScope;
     const requestJson = async (url: string, init: RequestInit) => {
       let timedOut = false;
-      const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 60_000);
+      const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, url.endsWith("/auto-assign") ? PHOTO_ASSIGNMENT_REQUEST_TIMEOUT_MS : 60_000);
       try { const response = await fetch(url, { ...init, signal: controller.signal }); return { response, body: await response.json() }; }
       catch (error) { if (timedOut) throw new Error("Analysis request timed out. Retry remaining photos or assign manually."); throw error; }
       finally { clearTimeout(timeout); }

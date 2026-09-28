@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { PurchasesFeed } from "@/components/v2/client/shopping/purchases-feed";
 vi.mock("next-auth/react", () => ({ useSession: () => ({ status: "authenticated", data: { user: { id: "client" } } }) }));
@@ -9,3 +9,11 @@ it("distinguishes logged shopping time and recorded costs from client charges", 
 it("explains shared receipt/time withholding", async () => { vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ runs: [{ ...purchase, shoppingTime: null, sharedRun: true }], hasMore: false })))); render(<PurchasesFeed />); await screen.findByText(/Shared receipts and whole-run shopping time are withheld/); expect(screen.queryByText(/25 minutes/)).not.toBeInTheDocument(); });
 it("rejects unsafe receipt responses instead of rendering provider links", async () => { vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ runs: [{ ...purchase, receipts: [{ url: "javascript:alert(1)", name: "Receipt", mimeType: "image/jpeg", amount: null }] }], hasMore: false })))); render(<PurchasesFeed />); await screen.findByText("Could not load purchases."); expect(screen.queryByRole("link")).not.toBeInTheDocument(); });
 it("shows approved client labour and separate pending review without invented draft amounts", async () => { vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ runs: [{ ...purchase, billing: [{ id: "a", property: "House", status: "APPROVED", expenseAmount: 10, shoppingMinutes: 12, hourlyRate: 30, labourAmount: 6, treatment: "RECHARGE", invoice: { id: "invoice", number: "INV-1", status: "SENT" } }, { id: "b", property: "Second house", status: "PENDING_REVIEW" }] }], hasMore: false })))); render(<PurchasesFeed />); await screen.findByText(/Approved client charge/); expect(screen.getByText(/Shopping service: 12 minutes at \$30.00\/hour/)).toBeVisible(); expect(screen.getByText("Invoice INV-1: sent")).toBeVisible(); expect(screen.getByText("No client charge has been approved yet.")).toBeVisible(); });
+it("offers explicit retry after a failed load and displays the recovered purchases", async () => {
+ const request = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ error: "Temporarily unavailable" }), { status: 503 })).mockImplementation(async () => new Response(JSON.stringify({ runs: [purchase], hasMore: false })));
+ vi.stubGlobal("fetch", request); render(<PurchasesFeed />);
+ const retry = await screen.findByRole("button", { name: "Retry purchases" });
+ fireEvent.click(retry);
+ await screen.findByText(/Shopping time logged: 25 minutes/);
+ expect(request).toHaveBeenCalledTimes(2);
+});

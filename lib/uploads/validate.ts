@@ -48,3 +48,16 @@ export function isAllowedUploadContentType(
   if ((ct === "application/octet-stream" || ct === "") && ALLOWED_MEDIA_EXTENSIONS.has(ext)) return true;
   return false;
 }
+
+/** Match upload endpoint MIME fallback without overriding an explicit incompatible type. */
+export function allowedUploadKind(contentType: string | undefined | null, filename: string): "image" | "video" | "file" | null {
+  if (!isAllowedUploadContentType(contentType, filename)) return null;
+  const type = String(contentType ?? "").toLowerCase().split(";")[0].trim();
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("video/")) return "video";
+  if (type === "application/pdf") return "file";
+  const extension = filename.split(".").pop()?.toLowerCase();
+  if (["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tiff"].includes(extension ?? "")) return "image";
+  if (["mp4", "mov", "m4v", "avi", "mkv", "webm", "3gp", "mpeg", "mpg"].includes(extension ?? "")) return "video";
+  return extension === "pdf" ? "file" : null;
+}

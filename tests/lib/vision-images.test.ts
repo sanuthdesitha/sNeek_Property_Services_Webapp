@@ -30,3 +30,12 @@ it("rejects truncated and disguised nonimage bytes before provider use", async (
   m.get.mockReturnValueOnce({ promise: async () => ({ Body: Buffer.from("x") }) }).mockReturnValueOnce({ promise: async () => ({ Body: Buffer.from("abc") }) });
   await expect(loadVisionImage("forms/job/photo", "id")).rejects.toThrow("changed"); await expect(loadVisionImage("forms/job/photo", "id")).rejects.toThrow();
 });
+it.each(["application/octet-stream", "", undefined, "IMAGE/PNG; charset=binary"])("decodes authorized photo bytes with stored MIME %s", async ContentType => {
+  const bytes = await sharp({ create: { width: 8, height: 8, channels: 3, background: "white" } }).png().toBuffer();
+  m.head.mockReturnValue({ promise: async () => ({ ContentLength: bytes.length, ContentType }) }); m.get.mockReturnValue({ promise: async () => ({ Body: bytes }) });
+  expect(await loadVisionImage("jobs/job/cleaner/photo.png", "photo")).toMatchObject({ mediaType: "image/jpeg" });
+});
+it("rejects a generic MIME object whose image extension disguises nonimage bytes", async () => {
+  m.head.mockReturnValue({ promise: async () => ({ContentLength:3,ContentType:"application/octet-stream"}) }); m.get.mockReturnValue({promise:async()=>({Body:Buffer.from("abc")})});
+  await expect(loadVisionImage("forms/job/photo.jpg", "photo")).rejects.toThrow();
+});

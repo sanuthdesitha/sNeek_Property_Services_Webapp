@@ -43,3 +43,17 @@ it("requires a note for waived cost and submits the waiver independently from la
   const request = fetchMock.mock.calls.find(call => call[1]?.method === "PATCH");
   expect(JSON.parse(request![1].body)).toMatchObject({ expenseBillable: false, shoppingMinutes: 30, hourlyRate: 40, reviewNote: "Purchase covered by office" });
 });
+it("labels a changed rate as an unsaved preview while retaining the saved allocation", async () => {
+ render(<ShoppingClientCharges runId="run" />);
+ await screen.findByLabelText("Client rate for charge");
+ fireEvent.change(screen.getByLabelText("Client rate for charge"), { target: { value: "100" } });
+ expect(screen.getByText(/Unsaved labour preview/)).toHaveTextContent("$50.00");
+ expect(screen.getByText("Saved allocation").parentElement).toHaveTextContent("Time charge: $0.00");
+ expect(fetchMock.mock.calls.every(call => !call[1]?.method)).toBe(true);
+});
+it("shows loading rather than an empty allocation message while the initial request is pending", () => {
+ fetchMock.mockImplementation(() => new Promise(() => {}));
+ render(<ShoppingClientCharges runId="run" />);
+ expect(screen.getByRole("status")).toHaveTextContent("Loading client allocations");
+ expect(screen.queryByText(/No client allocations yet/)).not.toBeInTheDocument();
+});

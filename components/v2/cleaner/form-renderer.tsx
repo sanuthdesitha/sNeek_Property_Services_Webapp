@@ -1097,6 +1097,7 @@ function FieldControl({
     case "longtext":
       return (
         <ETextarea
+          aria-label={field.label || field.id}
           placeholder={field.placeholder}
           value={String(value ?? "")}
           disabled={disabled}
@@ -1119,7 +1120,8 @@ function FieldControl({
             min={field.min}
             max={field.max}
             step={field.step}
-            placeholder={field.placeholder}
+            aria-label={field.label || field.id}
+          placeholder={field.placeholder}
             value={value === undefined || value === null ? "" : String(value)}
             disabled={disabled}
             className={errCls}
@@ -1149,6 +1151,7 @@ function FieldControl({
       return (
         <EInput
           type={field.type === "email" ? "email" : "tel"}
+          aria-label={field.label || field.id}
           placeholder={field.placeholder}
           value={String(value ?? "")}
           disabled={disabled}
@@ -1297,6 +1300,7 @@ function FieldControl({
     default:
       return (
         <EInput
+          aria-label={field.label || field.id}
           placeholder={field.placeholder}
           value={String(value ?? "")}
           disabled={disabled}

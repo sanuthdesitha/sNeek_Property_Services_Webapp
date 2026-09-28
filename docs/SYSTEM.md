@@ -446,6 +446,12 @@ The rules are **stored once** — in the job's `internalNotes` meta as `earlyChe
 
 ### B4. Forms system
 
+**Cleaner evidence and compact job UI (2026-09, September 28).** The cleaning stage no longer mounts the oversized top progress/room checklist. Room-level counts and required-field validation remain. Device recovery is a collapsed, labelled disclosure below the stage, with touch-sized retry/remove/download controls. Before submission or bulk analysis, scoped device records are reconciled against authorized server receipts and actual saved destination media under capture locks. Confirmed attachments are restored into the current form without overwriting unrelated answers; changed forms ask for review/retry. Missing or genuinely pending evidence still blocks submission. Generic/empty phone MIME metadata may use the existing allowed filename extension; explicitly incompatible MIME types are rejected. Vision additionally decodes and checks actual image format, size and pixel limits.
+
+**CPU-hosted photo assignment (2026-09, September 28).** Ollama assignment uses one submitted photo with at most three optional reference/history attempts. Other providers retain their configured batch and twenty-image budget. Missing optional old examples are skipped; submitted photo failures are not skipped. Local inference has a bounded 180-second deadline and the browser assignment request 240 seconds. Provider failures preserve uploads and show actionable retry/manual-assignment guidance. Provider ownership, form revision, confidence, capacity and explicit application rules remain. This improves local tolerance but does not establish successful production inference or change QA scores automatically.
+
+**Shopping and stock presentation (2026-09, September 28).** Existing cleaner, admin and client shopping/stock surfaces use responsive Estate cards, labelled touch-sized controls, status badges and loading/error states. Admin labour previews distinguish unsaved estimates from saved allocations; repeat save/record clicks are guarded. Client receipts and invoice PDF actions clarify availability. These presentation changes do not alter stock, billing or reimbursement accounting rules.
+
 #### The builder used to lose edits on Back (2026-08)
 
 Reported as "a template I duplicated reverts to the one I copied it from". A fresh duplicate is byte-identical to its source, so that symptom and "reverts to its own pre-edit state" are the same thing — the copy had simply gone back to how it started.
@@ -1477,6 +1483,8 @@ Bounces and complaints feed the **suppression list** (`lib/email/suppression.ts`
 ---
 
 ## Change Log
+
+- **2026-09-28:** Simplified cleaner job header/recovery UI, repaired verified upload acknowledgements and generic phone MIME handling, bounded local photo assignment for CPU servers, and polished existing shopping/stock/admin/client surfaces. Verification and production limitations: `docs/qa/cleaner-evidence-ui-2026-09-28.md`.
 
 - **2026-09-22** — Completed the existing shopping/held-stock workflow: actual and general purchases, verified receipts/time, automatic purchased stock, audited admin/cleaner corrections, delivery allocations, scoped client emails/details, reviewed expense/time invoicing, agency accounting separation, and client-owned invoice PDF download for manual Xero upload. Three additive migrations required; see docs/qa/shopping-lifecycle-2026-09-22.md.
 

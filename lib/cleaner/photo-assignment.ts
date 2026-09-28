@@ -1,4 +1,5 @@
 import "server-only";
+import { photoAssignmentLimits } from "@/lib/ai/runtime-limits";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { loadVisionImage } from "@/lib/ai/images";
@@ -95,7 +96,8 @@ export async function proposePhotoAssignments(jobId: string, session: Session, r
   const dedicatedEnabled = config.dedicatedRecognitionEnabled === true;
   const initial = await snapshot(jobId, session, input, identity, historicalEnabled, dedicatedEnabled);
   if (!config.assignmentEnabled) fail(409, "AI photo assignment is not enabled. Assign photos manually.");
-  if (input.photos.length > config.batchSize) throw new PhotoAssignmentError(400, `Choose no more than ${config.batchSize} photos for one analysis.`, config.batchSize);
+  const limits = photoAssignmentLimits(config.provider, config.batchSize);
+  if (input.photos.length > limits.batchSize) throw new PhotoAssignmentError(400, `Choose no more than ${limits.batchSize} photos for one analysis.`, limits.batchSize);
   if (!initial.fields.length) fail(409, "No available image fields in this form. Assign photos manually.");
   let bytes = 0, images = 0;
   async function image(key: string, id: string): Promise<VisionImage> {
@@ -118,11 +120,15 @@ export async function proposePhotoAssignments(jobId: string, session: Session, r
     }
     return plan;
   });
-  for (let round = 0; images < 20 && plans.some(plan => plan.length > round); round++) {
-    for (let index = 0; index < fields.length && images < 20; index++) {
+  let exampleAttempts = 0;
+  const maxExampleAttempts = limits.imageBudget - photos.length;
+  for (let round = 0; exampleAttempts < maxExampleAttempts && plans.some(plan => plan.length > round); round++) {
+    for (let index = 0; index < fields.length && exampleAttempts < maxExampleAttempts; index++) {
       const example = plans[index][round]; if (!example) continue;
       const target = example.historical ? fields[index].historicalExamples : fields[index].referenceImages;
-      target.push(await image(example.key, (example.historical ? "history" : "ref") + "-" + fields[index].id + "-" + target.length));
+      exampleAttempts++;
+      try { target.push(await image(example.key, (example.historical ? "history" : "ref") + "-" + fields[index].id + "-" + target.length)); }
+      catch { /* Optional older examples may have expired; never discard a submitted photo. */ }
     }
   }
   // Recheck before provider disclosure and again before returning proposals.
@@ -134,7 +140,14 @@ export async function proposePhotoAssignments(jobId: string, session: Session, r
     ? await predictPropertyRecognition({ propertyId: initial.propertyId, revision: model.trainedRevision, modelVersion: model.modelVersion, photos, fields: fields.map(({ id, label, sectionLabel }) => ({ id, label, sectionLabel })) }) : null;
   const accepted = recognized?.assignments.filter(item => item.fieldId !== null && item.confidence >= config.minConfidence) ?? [];
   const remainingPhotos = photos.filter(photo => !accepted.some(item => item.photoId === photo.id));
-  const fallback = remainingPhotos.length && getVisionProviderConfiguration(config.provider).configured ? await assignPhotosToFields({ photos: remainingPhotos, fields }) : { assignments: remainingPhotos.map(photo => ({ photoId: photo.id, fieldId: null, confidence: 0, reason: "No confident model match and vision fallback is unavailable. Assign this photo manually." })) };
+  let fallback;
+  try {
+    fallback = remainingPhotos.length && getVisionProviderConfiguration(config.provider).configured ? await assignPhotosToFields({ photos: remainingPhotos, fields }) : { assignments: remainingPhotos.map(photo => ({ photoId: photo.id, fieldId: null, confidence: 0, reason: "No confident model match and vision fallback is unavailable. Assign this photo manually." })) };
+  } catch {
+    throw new PhotoAssignmentError(503, config.provider === "ollama"
+      ? "The local image model could not finish analysing this photo. Your uploads are saved. Retry once, or ask the office to check the Ollama model and server memory. You can still choose photo sections manually."
+      : "The image analysis service could not finish. Your uploads are saved. Retry, or ask the office to check the AI connection. You can still choose photo sections manually.");
+  }
   const result = { assignments: [...accepted, ...fallback.assignments] };
   if (accepted.length && !(await getVisionSettings()).dedicatedRecognitionEnabled) fail(409, "Photo matching settings changed. Request fresh suggestions.");
   if (((await getVisionSettings()).historicalAssignmentExamplesEnabled !== false) !== historicalEnabled) fail(409, "Photo matching settings changed. Request fresh suggestions.");

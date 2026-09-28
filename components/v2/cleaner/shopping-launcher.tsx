@@ -305,14 +305,14 @@ export function ShoppingLauncher({
             <ECardTitle>Start a shopping run</ECardTitle>
           </ECardHeader>
           <ECardBody className="space-y-4">
-            {runsApiBase.startsWith("/api/cleaner/") && <><p className="text-sm">Shopping for your own stock? Start without property suggestions, record what you bought, then deliver it to properties later.</p>
-            <EButton variant="outline" disabled={creating !== ""} onClick={() => void createRun("IN_PROGRESS", true)}>Start general shopping</EButton></>}
+            {runsApiBase.startsWith("/api/cleaner/") && <><p className="rounded-[var(--e-radius)] bg-[hsl(var(--e-accent-portal-soft))] p-3 text-sm leading-relaxed text-[hsl(var(--e-text-secondary))]">Shopping for your own stock? Start without property suggestions, record what you bought, then deliver it to properties later.</p>
+            <EButton className="min-h-11 h-auto whitespace-normal py-2" variant="outline" disabled={creating !== ""} onClick={() => void createRun("IN_PROGRESS", true)}>Start general shopping</EButton></>}
             <div className="grid gap-3 md:grid-cols-[1.2fr_240px]">
               <EField label="Run name">
-                <EInput value={runName} onChange={(e) => setRunName(e.target.value)} placeholder="Shopping run name" />
+                <EInput className="min-h-11" value={runName} onChange={(e) => setRunName(e.target.value)} placeholder="Shopping run name" />
               </EField>
               <EField label="Property scope">
-                <ESelect value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+                <ESelect className="min-h-11" value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
                   <option value="all">All visible properties</option>
                   {payload.properties.map((property) => (
                     <option key={property.id} value={property.id}>
@@ -478,7 +478,7 @@ export function ShoppingLauncher({
                         </p>
                       </div>
                       <EField label="Qty">
-                        <EInput
+                        <EInput className="min-h-11"
                           type="number"
                           min="0"
                           max={Math.max(0, entry.row.needed)}

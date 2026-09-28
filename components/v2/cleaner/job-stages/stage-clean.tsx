@@ -19,7 +19,7 @@ import { MediaCapture } from "@/components/v2/cleaner/media-capture";
 import { FormRenderer } from "@/components/v2/cleaner/form-renderer";
 import { flattenFieldsOneLevel, isTemplateNodeVisible, isFlattenedFieldVisible } from "@/lib/forms/visibility";
 import { formNavigation } from "@/lib/forms/navigation";
-import { FormNavigation } from "@/components/v2/cleaner/form-navigation";
+
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import { BulkPhotoAssign, type BulkAssignField } from "@/components/v2/cleaner/bulk-photo-assign";
 import { TaskChip } from "@/components/v2/cleaner/job-stages/parts";
@@ -38,10 +38,6 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
   const laundryReady = api.laundryEnabled ? api.laundryOutcome === "READY_FOR_PICKUP" : undefined;
   const navigation = React.useMemo(() => formNavigation(schema, answers, uploadCounts, property ?? {}, laundryReady, api.requiredChecklistTicksBlockSubmit, api.canUseNoPhoto), [schema, answers, uploadCounts, property, laundryReady, api.requiredChecklistTicksBlockSubmit, api.canUseNoPhoto]);
   const sectionProgress = React.useCallback((sectionId: string) => navigation.rooms.find(room => room.id === sectionId), [navigation]);
-  const tasksDone = navigation.rooms.reduce((sum, room) => sum + room.dataDone, 0);
-  const tasksTotal = navigation.rooms.reduce((sum, room) => sum + room.dataTotal, 0);
-  const photosDone = navigation.rooms.reduce((sum, room) => sum + room.mediaDone, 0);
-  const photosTotal = navigation.rooms.reduce((sum, room) => sum + room.mediaTotal, 0);
   // Flat list of the form's upload fields (form order), for the bulk assign
   // sheet's destination list. Same flatten + visibility rules the renderer uses,
   // so a hidden section never shows up as a destination.
@@ -75,36 +71,6 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
 
   return (
     <div className="space-y-5">
-      {/* Sticky mini progress bar */}
-      {schema ? (
-        <div className="sticky top-[7.5rem] z-10 -mx-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.95)] px-3 py-2 backdrop-blur lg:top-4">
-          <div className="flex items-center justify-between gap-3 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">
-            <span>
-              {tasksDone}/{tasksTotal} tasks · {photosDone}/{photosTotal} photos
-            </span>
-            <span className="tabular-nums">
-              {tasksTotal + photosTotal > 0
-                ? Math.round(((tasksDone + photosDone) / (tasksTotal + photosTotal)) * 100)
-                : 100}
-              %
-            </span>
-          </div>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[hsl(var(--e-muted))]">
-            <div
-              className="h-full rounded-full bg-[hsl(var(--e-gold))] transition-[width] duration-300"
-              style={{
-                width: `${
-                  tasksTotal + photosTotal > 0
-                    ? Math.round(((tasksDone + photosDone) / (tasksTotal + photosTotal)) * 100)
-                    : 100
-                }%`,
-              }}
-            />
-          </div>
-        </div>
-      ) : null}
-
-      {schema ? <FormNavigation navigation={navigation} /> : null}
       {/* Admin-raised timing request (early check-in / late checkout) awaiting
           this cleaner's approval — self-hides when there is none. */}
       <EarlyCheckoutStatus jobId={api.jobId} />

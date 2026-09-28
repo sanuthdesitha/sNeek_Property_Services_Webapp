@@ -1,5 +1,6 @@
 import "server-only";
 import sharp from "sharp";
+import { allowedUploadKind } from "@/lib/uploads/validate";
 import { resolveS3 } from "@/lib/s3";
 import type { VisionImage } from "./vision";
 
@@ -8,7 +9,7 @@ export async function loadVisionImage(storageKey: string, id: string): Promise<V
   if (!/^(forms|form-references|jobs)\//.test(storageKey) || /[\\\u0000-\u0020]/.test(storageKey) || storageKey.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Invalid stored image key.");
   const { client, bucket } = await resolveS3();
   const head = await client.headObject({ Bucket: bucket, Key: storageKey }).promise();
-  if (!head.ContentLength || head.ContentLength > 5 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp", "image/gif"].includes(head.ContentType ?? "")) throw new Error("Image must be JPEG, PNG, WebP or GIF and at most 5 MB.");
+  if (!head.ContentLength || head.ContentLength > 5 * 1024 * 1024 || allowedUploadKind(head.ContentType, storageKey) !== "image") throw new Error("Image must be JPEG, PNG, WebP or GIF and at most 5 MB.");
   const object = await client.getObject({ Bucket: bucket, Key: storageKey, Range: `bytes=0-${head.ContentLength - 1}`, ...(head.ETag ? { IfMatch: head.ETag } : {}) }).promise();
   const bytes = Buffer.isBuffer(object.Body) ? object.Body : object.Body instanceof Uint8Array ? Buffer.from(object.Body) : null;
   if (!bytes || bytes.length !== head.ContentLength) throw new Error("Stored image changed or could not be read.");

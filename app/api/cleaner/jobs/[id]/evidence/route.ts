@@ -16,7 +16,7 @@ import { publicUrl, resolveS3 } from "@/lib/s3";
 import { unionMedia } from "@/lib/cleaner/draft-merge";
 import { isTemplateNodeVisible } from "@/lib/forms/visibility";
 import { jobFormProperty } from "@/lib/forms/job-form-property";
-import { isAllowedUploadContentType } from "@/lib/uploads/validate";
+import { allowedUploadKind } from "@/lib/uploads/validate";
 import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { evidenceDestinationSchema, destinationOf, destinationKey, destinationMedia, setDestinationMedia, removeEvidenceKeys } from "@/lib/cleaner/evidence-destination";
 
@@ -105,9 +105,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (target.type === "carryForwardNew") { destination = { type: "photo" }; destinationVisible = true; }
       if (!destination) return json({ error: "This evidence field no longer exists. Keep the file for review." }, 409);
       const receipts = existing?.evidenceReceipts ?? {};
-      const kind = object.ContentType?.startsWith("video/") ? "video" : object.ContentType?.startsWith("image/") ? "image" : "file";
+      const kind = allowedUploadKind(object.ContentType, body.key);
       const allowedKind = destination.type === "file" || (destination.mediaMode === "both" ? kind !== "file" : destination.type === "video" ? kind === "video" : kind === "image");
-      if (!allowedKind || !isAllowedUploadContentType(object.ContentType, body.key)) return json({ error: "This file type does not match the evidence field. Keep the original for review." }, 409);
+      if (!kind || !allowedKind) return json({ error: "This file type does not match the evidence field. Keep the original for review." }, 409);
       const verifiedMedia = { key: body.key, url: publicUrl(body.key), kind, name: body.name };
       const known = receipts[body.captureId];
       if (body.legacy) {

@@ -8,7 +8,7 @@
  *          { propertyId, quantity }
  */
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, PackageCheck, SendToBack } from "lucide-react";
+import { Loader2, PackageCheck, SendToBack, RefreshCw } from "lucide-react";
 import { EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { EInput, ESelect } from "@/components/v2/cleaner/fields";
 import { useSession } from "next-auth/react";
@@ -82,17 +82,17 @@ function ScopedOnHand({ properties, scope, readOnly }: { properties: Property[];
     );
   }
   return (
-    <div className="space-y-3">
-      <EButton variant="outline" className="min-h-11" onClick={() => void refresh()}>Refresh stock</EButton>
-      {error ? <div role="alert">{error}<EButton onClick={() => void refresh()}>Refresh stock</EButton></div> : readOnly ? <p>Read-only view.</p> : <><StockBatchForm scope={scope} action="RECORD" items={items} holdings={holdings} properties={properties} onSaved={refresh} /><StockBatchForm scope={scope} action="DELIVER" items={items} holdings={holdings} properties={properties} onSaved={refresh} /><details><summary className="min-h-11 py-2 cursor-pointer text-sm">Recover an earlier single-item entry</summary><OwnStockEntry scope={scope} items={items} onSaved={refresh} /></details></>}
-      {!error && !holdings.length ? <p>You have no stock recorded on hand.</p> : null}
-      <p className="text-sm">Repeated additions of the same item are grouped below. Open the entries to correct quantities or record a delivery.</p>
+    <div className="space-y-5 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold tracking-tight">My stock</h2><p className="mt-1 text-sm text-[hsl(var(--e-muted-foreground))]">Record supplies, deliver to a property, or correct a holding.</p></div><EButton variant="outline" className="min-h-11" onClick={() => void refresh()}><RefreshCw aria-hidden className="h-4 w-4" />Refresh stock</EButton></div>
+      {error ? <div role="alert" className="space-y-3 rounded-[var(--e-radius)] bg-[hsl(var(--e-danger-soft))] p-4 text-sm text-[hsl(var(--e-danger))]">{error}<EButton onClick={() => void refresh()}>Refresh stock</EButton></div> : readOnly ? <p>Read-only view.</p> : <><div className="grid items-start gap-4 xl:grid-cols-2"><StockBatchForm scope={scope} action="RECORD" items={items} holdings={holdings} properties={properties} onSaved={refresh} /><StockBatchForm scope={scope} action="DELIVER" items={items} holdings={holdings} properties={properties} onSaved={refresh} /></div><details className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-4"><summary className="min-h-11 py-3 cursor-pointer text-sm font-medium text-[hsl(var(--e-muted-foreground))]">Recover an earlier single-item entry</summary><OwnStockEntry scope={scope} items={items} onSaved={refresh} /></details></>}
+      {!error && !holdings.length ? <div className="flex items-start gap-3 rounded-[var(--e-radius-lg)] border border-dashed border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] p-5"><PackageCheck aria-hidden className="h-5 w-5 shrink-0 text-[hsl(var(--e-muted-foreground))]" /><p className="text-sm text-[hsl(var(--e-text-secondary))]">You have no stock recorded on hand.</p></div> : null}
+      <p className="text-sm leading-relaxed text-[hsl(var(--e-muted-foreground))]">Repeated additions of the same item are grouped below. Open the entries to correct quantities or record a delivery.</p>
       {groupHeldStock(holdings).map(group => (
-        <section key={group.key} className="space-y-2">
+        <section key={group.key} className="space-y-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4">
           <h3 className="text-sm font-semibold break-words">{group.category} · {group.item?.name ?? "Unknown item"}</h3>
-          <p className="text-sm">Total: {Number(group.quantity.toFixed(6))} {group.item?.unit ?? "unit"}(s) · {group.entries.length} {group.entries.length === 1 ? "entry" : "entries"}</p>
+          <p className="e-tnum text-sm text-[hsl(var(--e-text-secondary))]">Total: {Number(group.quantity.toFixed(6))} {group.item?.unit ?? "unit"}(s) · {group.entries.length} {group.entries.length === 1 ? "entry" : "entries"}</p>
           <details open={group.entries.length === 1}>
-            <summary className="cursor-pointer min-h-11 py-2 text-sm">View entries and update stock</summary>
+            <summary className="cursor-pointer min-h-11 py-3 text-sm font-medium text-[hsl(var(--e-accent-portal))]">View entries and update stock</summary>
       {group.entries.map((h, index) => (
         <ECard key={h.id} className="mb-2">
           <ECardBody className="py-3">
@@ -121,25 +121,25 @@ function ScopedOnHand({ properties, scope, readOnly }: { properties: Property[];
             {!readOnly ? <EButton variant="ghost" className="min-h-11 mt-2" onClick={() => setAdjustFor(adjustFor === h.id ? null : h.id)}>Set remaining quantity</EButton> : null}
             {!readOnly && adjustFor === h.id ? <OwnStockEntry key={h.updatedAt} scope={scope} holding={h} items={[]} onSaved={refresh} /> : null}
             {openFor === h.id ? (
-              <div className="mt-2 grid gap-2 rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))] p-2 sm:grid-cols-[1fr_90px_auto]">
-                <ESelect value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+              <div className="mt-2 grid gap-2 rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))] p-3 sm:grid-cols-[minmax(0,1fr)_110px_auto] sm:items-end">
+                <label className="block min-w-0 space-y-1.5 text-sm font-medium"><span>Delivery property</span><ESelect className="min-h-11" value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
                   <option value="">To property</option>
                   {properties.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} · {p.suburb}
                     </option>
                   ))}
-                </ESelect>
-                <EInput
+                </ESelect></label>
+                <label className="block min-w-0 space-y-1.5 text-sm font-medium"><span>Quantity</span><EInput
                   type="number"
                   min={0}
                   max={h.quantity}
                   step="0.01"
                   value={qty}
                   onChange={(e) => setQty(e.target.value)}
-                  className="e-tnum"
-                />
-                <EButton size="sm" onClick={() => void deliver(h.id)} disabled={delivering || readOnly}>
+                  className="e-tnum min-h-11"
+                /></label>
+                <EButton size="sm" className="min-h-11" onClick={() => void deliver(h.id)} disabled={delivering || readOnly}>
                   {delivering ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm"}
                 </EButton>
               </div>

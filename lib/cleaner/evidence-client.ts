@@ -1,5 +1,5 @@
-import { getEvidence, putEvidence, sameEvidenceScope, type EvidenceRecord, type EvidenceScope, type EvidenceReceipt } from "./evidence-store";
-import { destinationOf, destinationKey, isLegacyEvidenceKey, type EvidenceDestination } from "./evidence-destination";
+import { getEvidence, listEvidence, putEvidence, sameEvidenceScope, type EvidenceRecord, type EvidenceScope, type EvidenceReceipt } from "./evidence-store";
+import { destinationOf, destinationKey, destinationMedia, setDestinationMedia, evidenceDestinationSchema, isLegacyEvidenceKey, type EvidenceDestination } from "./evidence-destination";
 // Keep a known remote receipt available in this tab even if device storage
 // temporarily fails after upload. Across a restart, uploading/no receipt is
 // explicitly uncertain and must never automatically send the blob again.
@@ -158,4 +158,79 @@ export async function processEvidence(record: EvidenceRecord, scope: EvidenceSco
       throw error;
     }
   });
+}
+
+/** Repair a lost device ACK only from the authorized server receipt and its saved media. */
+export async function reconcileEvidenceAcknowledgementsWithChanges(scope: EvidenceScope): Promise<{ records: EvidenceRecord[]; reconciled: EvidenceRecord[] }> {
+  const records = await listEvidence();
+  const pending = records.filter(record => sameEvidenceScope(record, scope) && record.status !== "detached");
+  if (!pending.length) return { records, reconciled: [] };
+  if (!navigator.locks?.request) throw new Error("This browser cannot safely coordinate evidence recovery.");
+  const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, { headers: { "X-Cleaner-Draft-Identity": scope.draftIdentity }, cache: "no-store" });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || "Saved evidence could not be checked. Retry when connected.");
+  const draft = body.draft;
+  const reconciled: EvidenceRecord[] = [];
+  for (const record of pending) await navigator.locks.request(`cleaner-evidence:${record.id}`, async () => {
+    const current = await getEvidence(record.id);
+    if (!current || !sameEvidenceScope(current, scope) || current.status === "detached") return;
+    const saved = draft?.evidenceReceipts?.[current.id];
+    if (!saved || saved.draftIdentity !== scope.draftIdentity || saved.formRevision !== scope.formRevision || typeof saved.key !== "string" || typeof saved.fieldId !== "string") return;
+    const version = saved.version ?? 0;
+    if (!Number.isInteger(version) || version < (current.destinationVersion ?? 0)) return;
+    const expectedKey = current.receipt?.key ?? current.allocation?.key;
+    if (!expectedKey || saved.key !== expectedKey) return;
+    const destination = evidenceDestinationSchema.safeParse(saved.destination ?? { type: "formField", fieldId: saved.fieldId });
+    if (!destination.success) return;
+    if (saved.detached === true) {
+      const updated: EvidenceRecord = { ...current, status: "detached", error: undefined };
+      await putEvidence(updated); reconciled.push(updated); receiptMemory.delete(current.id); return;
+    }
+    if (saved.detached !== undefined && saved.detached !== false) return;
+    const media = destinationMedia(draft.state ?? {}, destination.data).find(item => item?.key === saved.key);
+    if (!media || typeof media.url !== "string" || !["image", "video", "file"].includes(media.kind)) return;
+    const updated: EvidenceRecord = { ...current, status: "attached", fieldId: saved.fieldId, destination: destination.data, destinationVersion: version,
+      receipt: { key: media.key, url: media.url, kind: media.kind, name: typeof media.name === "string" ? media.name : current.filename }, error: undefined };
+    if (current.status !== "attached" || JSON.stringify(current.receipt) !== JSON.stringify(updated.receipt) || destinationKey(destinationOf(current)) !== destinationKey(destination.data) || current.destinationVersion !== version) await putEvidence(updated);
+    reconciled.push(updated);
+    receiptMemory.delete(current.id);
+  });
+  return { records: await listEvidence(), reconciled };
+}
+export async function reconcileEvidenceAcknowledgements(scope: EvidenceScope): Promise<EvidenceRecord[]> {
+  return (await reconcileEvidenceAcknowledgementsWithChanges(scope)).records;
+}
+
+/** Project only records confirmed by this server reconciliation, never all cached attachments. */
+export function projectReconciledEvidence(state: Record<string, any>, reconciled: EvidenceRecord[], scope: EvidenceScope): { state: Record<string, any>; changed: boolean } {
+  let next = state;
+  for (const record of reconciled) {
+    if (!sameEvidenceScope(record, scope) || !["attached", "detached"].includes(record.status)) continue;
+    const key = record.receipt?.key ?? record.allocation?.key;
+    if (!key) continue;
+    const destinations: EvidenceDestination[] = [
+      ...Object.keys(next.uploads ?? {}).map(fieldId => ({type: "formField" as const, fieldId})),
+      ...Object.keys(next.taskDrafts ?? {}).map(taskId => ({type: "jobTask" as const, taskId})),
+      {type: "bulkPool"}, {type: "laundry"}, {type: "carryForwardNew"},
+    ];
+    const target = destinationOf(record);
+    let retained = false;
+    for (const destination of destinations) {
+      const current = destinationMedia(next, destination);
+      if (!current.some(media => media?.key === key)) continue;
+      const belongsHere = record.status === "attached" && record.receipt && destinationKey(destination) === destinationKey(target);
+      const replacement = current.flatMap(media => {
+        if (media?.key !== key) return [media];
+        if (!belongsHere || retained) return [];
+        retained = true;
+        // Keep capture metadata and the original photo ordering. A receipt's
+        // optional display name must not erase device-specific metadata.
+        const verified = record.receipt!;
+        return [media.kind === verified.kind && media.url === verified.url ? media : { ...media, ...verified }];
+      });
+      if (replacement.length !== current.length || replacement.some((media, index) => media !== current[index])) next = setDestinationMedia(next, destination, replacement);
+    }
+    if (record.status === "attached" && record.receipt && !retained) next = setDestinationMedia(next, target, [...destinationMedia(next, target), record.receipt]);
+  }
+  return { state: next, changed: next !== state };
 }

@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { EButton } from "@/components/v2/ui/primitives";
+import { EButton, EBadge } from "@/components/v2/ui/primitives";
 import { EInput, ESelect } from "@/components/v2/cleaner/fields";
+import { Loader2, PackageCheck } from "lucide-react";
 export type StockItem = { id: string; name: string; unit: string };
 type Entry = { requestId: string; itemId?: string; quantity: number; sourceNote?: string; heldStockId?: string; expectedUpdatedAt?: string; reason?: string };
 export function OwnStockEntry({ items, onSaved, scope, holding, apiPath = "/api/cleaner/inventory/held-stock", administrative = false }: { apiPath?: string; administrative?: boolean; holding?: { id: string; quantity: number; updatedAt: string }; scope: string; items: StockItem[]; onSaved: () => Promise<void> }) {
@@ -33,14 +34,14 @@ export function OwnStockEntry({ items, onSaved, scope, holding, apiPath = "/api/
     } catch (error) { setMessage(error instanceof Error ? error.message : "Saving was not confirmed. Retry this same entry."); }
     finally { lock.current = false; setBusy(false); }
   }
-  return <form className="space-y-3 rounded-lg border p-4 min-w-0" onSubmit={event => { event.preventDefault(); void save(); }}>
-    <h3 className="font-semibold">{holding ? "Set remaining quantity" : "Record stock you hold"}</h3>
-    {holding ? <p className="text-sm">{administrative ? "Enter the quantity this person currently holds in this entry, including zero. Give a reason. This does not deliver stock to a property." : "Enter what you currently hold in this entry, including zero if used up. Give a reason. This corrects your personal holding only; it does not deliver stock to a property."}</p> : <p className="text-sm">Add supplies you physically have that are not already listed below. This adds a new holding; it does not replace your total or change stock at a property.</p>}
-    {!holding ? <label className="block text-sm">Item<ESelect aria-label="Stock item" className="mt-1 w-full min-w-0" value={itemId} disabled={busy || !!pending} onChange={event => setItemId(event.target.value)}><option value="">Choose an item</option>{items.map(item => <option value={item.id} key={item.id}>{item.name} ({item.unit})</option>)}</ESelect></label> : null}
-    <label className="block text-sm">{holding ? "Remaining quantity" : "Quantity to add"}<EInput aria-label={holding ? "Remaining quantity" : "Quantity to add"} type="number" required min={holding ? "0" : "0.01"} max="1000000" step="any" value={quantity} disabled={busy || !!pending} onChange={event => setQuantity(event.target.value)} /></label>
-    <label className="block text-sm">{holding ? "Reason for adjustment" : "Note (optional)"}<EInput aria-label={holding ? "Reason for adjustment" : "Stock note"} maxLength={2000} value={note} disabled={busy || !!pending} onChange={event => setNote(event.target.value)} /></label>
-    {message ? <p role="status" className="text-sm break-words">{message}</p> : null}
-    {pending && !busy ? <p className="text-sm">Confirmation is pending. Retry the same entry to avoid recording it twice.</p> : null}
-    <EButton type="submit" disabled={!hydrated || busy || (!pending && !holding && !items.length)} className="min-h-11 h-auto whitespace-normal">{busy ? "Recording…" : pending ? "Retry same stock entry" : holding ? "Save remaining quantity" : "Record my stock"}</EButton>
+  return <form aria-busy={busy} className="space-y-4 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4 min-w-0" onSubmit={event => { event.preventDefault(); void save(); }}>
+    <h3 className="flex items-center gap-2 font-semibold"><PackageCheck aria-hidden className="h-5 w-5 shrink-0 text-[hsl(var(--e-accent-portal))]" />{holding ? "Set remaining quantity" : "Record stock you hold"}</h3>
+    {holding ? <p className="text-sm leading-relaxed text-[hsl(var(--e-text-secondary))]">{administrative ? "Enter the quantity this person currently holds in this entry, including zero. Give a reason. This does not deliver stock to a property." : "Enter what you currently hold in this entry, including zero if used up. Give a reason. This corrects your personal holding only; it does not deliver stock to a property."}</p> : <p className="text-sm leading-relaxed text-[hsl(var(--e-text-secondary))]">Add supplies you physically have that are not already listed below. This adds a new holding; it does not replace your total or change stock at a property.</p>}
+    {!holding ? <label className="block space-y-1.5 text-sm font-medium text-[hsl(var(--e-text-secondary))]">Item<ESelect aria-label="Stock item" className="mt-1.5 min-h-11 w-full min-w-0" value={itemId} disabled={busy || !!pending} onChange={event => setItemId(event.target.value)}><option value="">Choose an item</option>{items.map(item => <option value={item.id} key={item.id}>{item.name} ({item.unit})</option>)}</ESelect></label> : null}
+    <label className="block space-y-1.5 text-sm font-medium text-[hsl(var(--e-text-secondary))]">{holding ? "Remaining quantity" : "Quantity to add"}<EInput className="mt-1.5 min-h-11" aria-label={holding ? "Remaining quantity" : "Quantity to add"} type="number" required min={holding ? "0" : "0.01"} max="1000000" step="any" value={quantity} disabled={busy || !!pending} onChange={event => setQuantity(event.target.value)} /></label>
+    <label className="block space-y-1.5 text-sm font-medium text-[hsl(var(--e-text-secondary))]">{holding ? "Reason for adjustment" : "Note (optional)"}<EInput className="mt-1.5 min-h-11" aria-label={holding ? "Reason for adjustment" : "Stock note"} maxLength={2000} value={note} disabled={busy || !!pending} onChange={event => setNote(event.target.value)} /></label>
+    {message ? <p role="status" className="rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))] p-3 text-sm leading-relaxed break-words">{message}</p> : null}
+    {pending && !busy ? <div className="space-y-2 rounded-[var(--e-radius)] bg-[hsl(var(--e-warning-soft))] p-3"><EBadge tone="warning" soft>Confirmation pending</EBadge><p className="text-sm leading-relaxed">Confirmation is pending. Retry the same entry to avoid recording it twice.</p></div> : null}
+    <EButton type="submit" disabled={!hydrated || busy || (!pending && !holding && !items.length)} className="min-h-11 h-auto whitespace-normal w-full sm:w-auto py-2">{busy ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : null}{busy ? "Recording…" : pending ? "Retry same stock entry" : holding ? "Save remaining quantity" : "Record my stock"}</EButton>
   </form>;
 }

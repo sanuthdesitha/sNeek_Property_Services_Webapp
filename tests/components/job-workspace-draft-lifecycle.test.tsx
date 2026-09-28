@@ -2,9 +2,9 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
-const device = vi.hoisted(() => ({ gps: vi.fn() }));
+const device = vi.hoisted(() => ({ gps: vi.fn(), evidence: [] as any[] }));
 vi.mock("@/lib/cleaner/evidence-store", async importOriginal => ({
-  ...await importOriginal<typeof import("@/lib/cleaner/evidence-store")>(), listEvidence: vi.fn(async () => []),
+  ...await importOriginal<typeof import("@/lib/cleaner/evidence-store")>(), listEvidence: vi.fn(async () => device.evidence), getEvidence: vi.fn(async (id: string) => device.evidence.find(row => row.id === id)), putEvidence: vi.fn(async (record: any) => { device.evidence = device.evidence.map(row => row.id === record.id ? record : row); }),
 }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/lib/geo/get-position", () => ({ getAccuratePosition: device.gps }));
@@ -30,7 +30,9 @@ import { JobWorkspace } from "@/components/v2/cleaner/job-workspace";
 
 // Only presentation is replaced: these controls invoke the real parent's
 // editing, validation, submission and refresh callbacks. Save/status stay real.
+let latestApi: WorkspaceApi;
 function FixtureStage({ api }: { api: WorkspaceApi }) {
+  latestApi = api;
   return <>
     <label>Fixture answer<input value={String(api.answers.note ?? "")} disabled={api.locked}
       onChange={(event) => api.onAnswer("note", event.target.value)} /></label>
@@ -86,6 +88,8 @@ let clockResponse: () => Promise<Response>;
 
 beforeEach(() => {
   vi.useFakeTimers();
+  device.evidence = [];
+  Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_key: string, fn: () => Promise<unknown>) => fn() } });
   localStorage.clear();
   sessionStorage.clear();
   patches = []; formResponses = []; unexpected = []; currentStatus = "IN_PROGRESS";
@@ -505,5 +509,37 @@ describe("real JobWorkspace draft lifecycle", () => {
     await advance(); expect(patches).toHaveLength(1);
     expect(patches[0].body.state.answers.note).toBe("reopened answer");
     await respond(0); expect(screen.getByRole("status")).toHaveTextContent("Draft save confirmed");
+  });
+});
+
+describe("workspace acknowledged upload restoration", () => {
+  const media = { key: "forms/job/capture/cleaner/photo.jpg", url: "https://safe.invalid/photo.jpg", kind: "image" as const, name: "photo.jpg" };
+  function lostCallback(status = "uploaded", destination: any = { type: "formField", fieldId: "photo" }) {
+    const record = { draftIdentity: identity, jobId: "job", templateId: "template", formRevision: "b".repeat(64), id: "capture", fieldId: destination.type === "bulkPool" ? "bulkPool" : "photo", destination, filename: "photo.jpg", mime: "image/jpeg", blob: new Blob(["original"]), createdAt: 1, folder: "forms", source: "camera", status, receipt: media };
+    device.evidence = [record];
+    readDraft = () => Promise.resolve(json({ draft: { evidenceReceipts: { capture: { key: media.key, fieldId: record.fieldId, destination, version: 0, draftIdentity: identity, formRevision: record.formRevision } }, state: destination.type === "bulkPool" ? { bulkPool: [media] } : { uploads: { photo: [media] } } } }));
+  }
+  it.each(["uploaded", "attached"])("restores a missed photo callback from %s before validation; next submit carries its key", async status => {
+    const payload = form(); payload.template.schema.sections = [{ id: "room", fields: [{ id: "photo", label: "Required proof", type: "photo", required: true }] }] as any;
+    formResponses.push(Promise.resolve(json(payload))); await mount(); lostCallback(status);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit fixture" })); });
+    expect(calls("/submit", "POST")).toHaveLength(0); expect(latestApi.uploads.photo).toEqual([media]);
+    expect(screen.getByText("Saved uploads restored. Review the form and submit again.")).toBeInTheDocument();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit fixture" })); });
+    expect(calls("/submit", "POST")).toHaveLength(1); expect(JSON.parse(String(calls("/submit", "POST")[0][1].body)).data.uploads.photo).toEqual([media.key]);
+  });
+  it("restores the pool before autoassign preparation saves; next preparation confirms the current restored pool", async () => {
+    await mount(); lostCallback("uploaded", { type: "bulkPool" });
+    await act(async () => { await expect(latestApi.prepareBulkAutoAssign!()).rejects.toThrow("Saved uploads restored"); });
+    expect(patches).toHaveLength(0); expect(latestApi.bulkPool).toEqual([media]);
+    let prepared!: Promise<void>;
+    await act(async () => { prepared = latestApi.prepareBulkAutoAssign!(); await Promise.resolve(); });
+    expect(patches).toHaveLength(1); expect(patches[0].body.state.bulkPool).toEqual([media]);
+    await respond(0); await expect(prepared).resolves.toBeUndefined();
+  });
+  it("does not let a genuinely unacknowledged pending capture pass the submit gate", async () => {
+    await mount(); lostCallback(); readDraft = () => Promise.resolve(json({ draft: null }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit fixture" })); });
+    expect(calls("/submit", "POST")).toHaveLength(0); expect(latestApi.uploads.photo).toBeUndefined(); expect(device.evidence[0].status).toBe("uploaded");
   });
 });

@@ -308,3 +308,13 @@ describe("real cleaner submit form contract", () => {
     expectNoWrites();
   });
 });
+
+it.each(["forms/job/12345678-1234-4123-8123-123456789012/cleaner/photo.jpg", "forms/cleaner/legacy.jpg", "jobs/job/cleaner/legacy.jpg", "forms/job/12345678-1234-4123-8123-123456789012/cleaner/video.mov"])("accepts acknowledged required evidence key %s without falsely reporting missing", async key => {
+  mocks.draft.mockResolvedValue({ state: { uploads: { photo: [{ key, kind: key.endsWith(".mov") ? "video" : "image", url: `https://media.invalid/${key}` }] } }, evidenceReceipts: { capture: { key, fieldId: "photo", destination: { type: "formField", fieldId: "photo" }, version: 0 } } });
+  const result = await submit({ note: "Work finished", uploads: { photo: [key] } });
+  expect(result.status).toBe(200); expect(mocks.create).toHaveBeenCalledOnce();
+});
+it("still refuses genuinely empty required uploads even when an unrelated server receipt exists", async () => {
+  mocks.draft.mockResolvedValue({ evidenceReceipts: { capture: { key: "photo.jpg", fieldId: "other" } } });
+  const result = await submit({ note: "Done", uploads: {} }); expect(result.status).toBe(400); expect((await result.json()).error).toContain("Missing required uploads"); expectNoWrites();
+});

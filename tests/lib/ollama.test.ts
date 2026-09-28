@@ -19,3 +19,9 @@ it("rejects malformed or oversized input before any network request", async () =
 it("bounds response bytes and sanitizes transport/provider errors without retries", async () => { fetcher.mockResolvedValueOnce(new Response("x".repeat(1024 * 1024 + 1))); await expect(checkOllamaModel(input.model)).rejects.toThrow("Local Ollama could not"); fetcher.mockRejectedValueOnce(new Error("private-key-and-provider-body")); await expect(checkOllamaModel(input.model)).rejects.toThrow("no cloud fallback"); expect(fetcher).toHaveBeenCalledTimes(2); });
 it.each([503, 200])("cancels unread response body for rejected status or declared oversize (%s)", async status => { const cancel = vi.fn(); const stream = new ReadableStream({ cancel }); fetcher.mockResolvedValue(new Response(stream, { status, headers: status === 200 ? { "content-length": String(2 * 1024 * 1024) } : {} })); await expect(checkOllamaModel(input.model)).rejects.toThrow(); expect(cancel).toHaveBeenCalledTimes(1); });
 it("checks single-image limitation through model family aliases", async () => { fetcher.mockResolvedValue(response({ ...info, details: { family: "custom", families: ["custom", "mllama"] } })); await expect(requestOllamaJson({ ...input, model: "my-renamed-model", images: [image, { ...image, id: "reference" }] })).rejects.toThrow("only one image"); expect(fetcher).toHaveBeenCalledTimes(1); });
+it("allows bounded CPU inference time while model metadata checks stay short", async () => {
+ const timeout = vi.spyOn(AbortSignal, "timeout");
+ await requestOllamaJson(input);
+ expect(timeout.mock.calls.map(call => call[0])).toEqual([8000, 180000]);
+ timeout.mockRestore();
+});

@@ -198,3 +198,24 @@ describe("evidence attachment acknowledgement", () => {
     expect((await POST(request(), context)).status).toBe(409);
   });
 });
+
+it.each(["application/octet-stream", "", undefined, "IMAGE/JPEG; charset=binary"])("acknowledges a required photo with supported stored MIME %s", async contentType => {
+  mocks.head.mockResolvedValue({ ContentLength: 123, ContentType: contentType });
+  mocks.form.mockResolvedValue({ submittable: true, template: { id: "template", schema: { sections: [{ id: "room", fields: [{ id: "photo", type: "photo", required: true }] }] } } });
+  const response = await POST(request(), context); expect(response.status).toBe(200); expect(draft.state.uploads.photo[0]).toMatchObject({ key, kind: "image" }); expect(draft.evidenceReceipts[captureId].key).toBe(key);
+});
+it("acknowledges a legacy saved octet-stream photo for auto assignment", async () => {
+  const oldKey = "forms/cleaner/old.jpg"; draft = { state: { bulkPool: [{ key: oldKey, kind: "image" }] }, evidenceReceipts: {} };
+  mocks.head.mockResolvedValue({ ContentLength: 123, ContentType: "application/octet-stream" });
+  expect((await POST(request({ key: oldKey, legacy: true, fieldId: "bulkPool", destination: { type: "bulkPool" } }), context)).status).toBe(200);
+  expect(draft.state.bulkPool[0].kind).toBe("image");
+});
+it("acknowledges generic-MIME video only in a video-compatible destination", async () => {
+  const videoKey = key.replace(".jpg", ".mov"); mocks.head.mockResolvedValue({ ContentLength: 123, ContentType: "application/octet-stream" });
+  expect((await POST(request({ key: videoKey }), context)).status).toBe(409);
+  mocks.form.mockResolvedValue({ submittable: true, template: { id: "template", schema: { sections: [{ fields: [{ id: "photo", type: "photo", mediaMode: "both", required: true }] }] } } });
+  expect((await POST(request({ key: videoKey }), context)).status).toBe(200); expect(draft.state.uploads.photo[0].kind).toBe("video");
+});
+it.each(["text/html", "image/svg+xml", "application/pdf"])("never treats explicit incompatible %s as a photo from its filename", async ContentType => {
+  mocks.head.mockResolvedValue({ ContentLength: 123, ContentType }); expect((await POST(request(), context)).status).toBe(409); expect(mocks.save).not.toHaveBeenCalled();
+});

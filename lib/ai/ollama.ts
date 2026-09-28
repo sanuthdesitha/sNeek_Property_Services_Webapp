@@ -1,4 +1,5 @@
 import "server-only";
+import { OLLAMA_INFERENCE_TIMEOUT_MS } from "./runtime-limits";
 import { isIP } from "node:net";
 import type { VisionImage } from "./vision";
 
@@ -22,7 +23,7 @@ function remote(value: Record<string, unknown>) { return Boolean(value.remote_ho
 async function post(path: "show" | "chat", body: unknown) {
   try {
     const key = process.env.OLLAMA_API_KEY?.trim();
-    const response = await fetch(`${endpoint()}/api/${path}`, { method: "POST", headers: { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}) }, body: JSON.stringify(body), redirect: "error", cache: "no-store", signal: AbortSignal.timeout(path === "show" ? 8_000 : 45_000) });
+    const response = await fetch(`${endpoint()}/api/${path}`, { method: "POST", headers: { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}) }, body: JSON.stringify(body), redirect: "error", cache: "no-store", signal: AbortSignal.timeout(path === "show" ? 8_000 : OLLAMA_INFERENCE_TIMEOUT_MS) });
     if (!response.ok || response.redirected || !response.body || Number(response.headers.get("content-length")) > 1024 * 1024) { await response.body?.cancel().catch(() => undefined); throw new Error("Unavailable"); }
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let size = 0, text = "";
     try { for (;;) { const chunk = await reader.read(); if (chunk.done) break; size += chunk.value.length; if (size > 1024 * 1024) throw new Error("Oversized result"); text += decoder.decode(chunk.value, { stream: true }); } text += decoder.decode(); }

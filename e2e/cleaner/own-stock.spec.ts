@@ -51,7 +51,7 @@ for (const width of [320, 390, 1440]) test(`personal stock creation and zero cor
   expect(await page.evaluate(() => Math.max(document.body.scrollWidth, document.documentElement.scrollWidth) - innerWidth)).toBeLessThanOrEqual(1);
   await page.screenshot({ path: info.outputPath(`own-stock-${width}.png`), fullPage: true });
 });
-for (const width of [320, 390]) test(`atomic multi-item stock and recovered delivery at ${width}px`, async ({ page }, info) => {
+for (const width of [320, 390, 1440]) test(`atomic multi-item stock and recovered delivery at ${width}px`, async ({ page }, info) => {
  await page.setViewportSize({ width, height: 800 });
  const items = [{ id: "soap", name: "Soap", unit: "bottles" }, { id: "cloth", name: "Cloths", unit: "each" }];
  let holdings: any[] = []; const deliveries: any[] = []; let failed = false;
@@ -73,6 +73,8 @@ for (const width of [320, 390]) test(`atomic multi-item stock and recovered deli
  await page.goto("http://localhost:3996/");
  await page.getByLabel("Stock item 1", { exact: true }).selectOption("soap"); await page.getByLabel("Quantity to record 1").fill("2");
  await page.getByText("Add another item", { exact: true }).click(); await page.getByLabel("Stock item 2").selectOption("cloth"); await page.getByLabel("Quantity to record 2").fill("3");
+ await expect(page.getByText("Catalogue item", { exact: true })).toHaveCount(2);
+ await page.screenshot({ path: info.outputPath(`stock-batch-record-${width}.png`), fullPage: true });
  await page.getByRole("button", { name: "Record 2 items" }).click(); await expect(page.getByText("Second item unavailable; no items saved")).toBeVisible(); expect(holdings).toHaveLength(0); await expect(page.getByLabel("Quantity to record 1")).toHaveValue("2"); await expect(page.getByLabel("Quantity to record 2")).toHaveValue("3");
  await page.getByRole("button", { name: "Record 2 items" }).click(); await expect(page.getByLabel("Select holding 2")).toBeVisible();
  await page.getByLabel("Bulk delivery property").selectOption("property"); await page.getByLabel("Select holding 1").check(); await page.getByLabel("Select holding 2").check();
