@@ -42,6 +42,7 @@ import { ProfilePermissionsSection } from "@/components/v2/admin/settings/profil
 import { IntegrationsSection } from "@/components/v2/admin/settings/integrations-section";
 import { IcalSection } from "@/components/v2/admin/settings/ical-section";
 import { GatewaysSection } from "@/components/v2/admin/settings/gateways-section";
+import { OllamaSection } from "@/components/v2/admin/settings/ollama-section";
 import { XeroSection } from "@/components/v2/admin/settings/xero-section";
 import { FinanceNotificationsSection } from "@/components/v2/admin/settings/finance-notifications-section";
 import { OverviewSection } from "@/components/v2/admin/settings/overview-section";
@@ -74,6 +75,7 @@ type TabKey =
   | "integrations"
   | "ical-sync"
   | "payment-gateways"
+  | "ollama"
   | "xero"
   | "finance-notifications"
   | "notification-tools"
@@ -124,6 +126,7 @@ const ALL_TABS: Array<{ key: TabKey; label: string; icon: JSX.Element; adminOnly
   { key: "profile-permissions", label: "Profile permissions", icon: <UserCog className="h-4 w-4" />, adminOnly: true, group: "Access & permissions" },
   { key: "roles", label: "Roles & permissions", icon: <KeyRound className="h-4 w-4" />, adminOnly: true, group: "Access & permissions" },
   // System — the record of everything.
+  { key: "ollama", label: "Ollama", icon: <Plug className="h-4 w-4" />, adminOnly: true, group: "System" },
   { key: "audit", label: "Audit log", icon: <History className="h-4 w-4" />, adminOnly: true, group: "System" },
 ];
 
@@ -187,6 +190,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
         })}
       </div>
 
+      {activeTab === "ollama" && isAdmin ? <OllamaSection /> : null}
       {activeTab === "overview" ? <OverviewSection isAdmin={isAdmin} /> : null}
 
       {activeTab === "look" && isAdmin ? (

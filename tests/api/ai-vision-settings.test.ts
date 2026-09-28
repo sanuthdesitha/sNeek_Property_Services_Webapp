@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({ role: vi.fn(), get: vi.fn(), save: vi.fn(), ch
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
 vi.mock("@/lib/ai/vision-settings", () => ({ getVisionSettings: mocks.get, saveVisionSettings: mocks.save }));
 vi.mock("@/lib/ai/vision", () => ({ checkVisionConnection: mocks.check }));
-vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: mocks.config }));
+vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: mocks.config, getResolvedVisionProviderConfiguration: mocks.config }));
 vi.mock("@/lib/ai/property-photo-model", () => ({ getRecognitionConfiguration: mocks.recognition }));
 import { GET, PATCH } from "@/app/api/admin/ai/vision/route";
 import { POST } from "@/app/api/admin/ai/vision/check/route";
@@ -54,7 +54,7 @@ it("accepts tagged local models and requires a local endpoint to enable them", a
   const settings = { ...DEFAULT_VISION_SETTINGS, provider: "ollama", model: "gemma3:4b", comparisonEnabled: true };
   mocks.config.mockImplementation(provider => ({ configured: provider !== "ollama" }));
   const rejected = await PATCH(request(settings));
-  expect(rejected.status).toBe(400); expect((await rejected.json()).error).toContain("OLLAMA_BASE_URL");
+  expect(rejected.status).toBe(400); expect((await rejected.json()).error).toContain("Settings → Ollama");
   mocks.config.mockReturnValue({ configured: true });
   expect((await PATCH(request(settings))).status).toBe(200);
   expect(mocks.save).toHaveBeenCalledWith(settings);

@@ -3,7 +3,7 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { composeSocialPost } from "@/lib/marketing/ai-composer";
-import { getAiConfiguration } from "@/lib/ai/config";
+import { getResolvedAiConfiguration } from "@/lib/ai/config";
 
 export const dynamic = "force-dynamic";
 
@@ -24,12 +24,12 @@ async function authorize() {
 export async function GET() {
   const denied = await authorize();
   if (denied) return denied;
-  return NextResponse.json(
-    { ...getAiConfiguration(), connection: "untested" },
-    { headers: { "Cache-Control": "private, no-store" } },
-  );
+  try {
+    return NextResponse.json({ ...await getResolvedAiConfiguration(), connection: "untested" }, { headers: { "Cache-Control": "private, no-store" } });
+  } catch {
+    return NextResponse.json({ error: "AI configuration could not be loaded. Review the saved provider settings." }, { status: 503, headers: { "Cache-Control": "private, no-store" } });
+  }
 }
-
 const schema = z.object({
   platform: z.enum(["FACEBOOK", "INSTAGRAM", "YOUTUBE", "TIKTOK"]),
   topic: z.string().min(3).max(500),
@@ -51,13 +51,13 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid", details: parsed.error.format() }, { status: 400 });
   }
-  if (!getAiConfiguration().configured) {
+  try {
+  if (!(await getResolvedAiConfiguration()).configured) {
     return NextResponse.json(
       { error: "AI composition is not configured. Ask an administrator to configure the provider on the server." },
       { status: 503, headers: { "Cache-Control": "private, no-store" } },
     );
   }
-  try {
     const result = await composeSocialPost(parsed.data);
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch {

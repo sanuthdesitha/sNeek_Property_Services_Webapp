@@ -18,3 +18,22 @@ export function getAiConfiguration(): { provider: AiProvider; model: string; con
     configured: ["openai", "anthropic", "ollama"].includes(requested) && config.configured,
   };
 }
+
+/** Resolved runtime settings. Sync exports above remain env-only for older callers. */
+export async function getResolvedVisionProviderConfiguration(provider: AiProvider) {
+  if (provider !== "ollama") return getVisionProviderConfiguration(provider);
+  const { getOllamaSettings } = await import("./ollama-settings");
+  const { validateOllamaBaseUrl } = await import("./ollama-settings-schema");
+  const settings = await getOllamaSettings();
+  return { provider, model: settings.visionModel, configured: validateOllamaBaseUrl(settings.baseUrl) };
+}
+export async function getResolvedAiConfiguration(): Promise<{provider: AiProvider;model:string;configured:boolean}> {
+  const { getOllamaSettings, getPublicOllamaSettings } = await import("./ollama-settings");
+  const { validateOllamaBaseUrl } = await import("./ollama-settings-schema");
+  const selection = await getPublicOllamaSettings();
+  const settings = selection.useForText ? await getOllamaSettings() : selection;
+  if (settings.useForText) return {provider:"ollama",model:settings.textModel,configured:validateOllamaBaseUrl(settings.baseUrl)};
+  const fallback = getAiConfiguration();
+  // An explicit saved false disables an old environment Ollama selection.
+  return fallback.provider === "ollama" ? { ...fallback, configured: false } : fallback;
+}

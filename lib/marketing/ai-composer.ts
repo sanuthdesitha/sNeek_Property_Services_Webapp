@@ -5,7 +5,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { getAiConfiguration } from "@/lib/ai/config";
+import { getResolvedAiConfiguration } from "@/lib/ai/config";
 import { requestOpenAiVision } from "@/lib/ai/openai-vision";
 import { requestOllamaJson } from "@/lib/ai/ollama";
 
@@ -25,7 +25,7 @@ export interface ComposedPost {
   suggestedHook: string;
 }
 
-const composedPostSchema = z.object({
+export const composedPostSchema = z.object({
   caption: z.string().trim().min(1).max(10000),
   hashtags: z.array(z.string().trim().min(2).max(100).regex(new RegExp("^#[\\p{L}\\p{N}_]+$", "u"))).max(30),
   suggestedHook: z.string().trim().max(1000),
@@ -46,7 +46,7 @@ const DEFAULT_BRAND_VOICE =
   "sNeek Property Services is a trusted Australian cleaning service for Airbnb hosts and property owners. Clean, calm, professional voice.";
 
 export async function composeSocialPost(req: ComposeRequest): Promise<ComposedPost> {
-  const config = getAiConfiguration();
+  const config = await getResolvedAiConfiguration();
   if (!config.configured) {
     throw new Error("Selected AI composition provider is not configured");
   }

@@ -5,7 +5,7 @@ vi.mock("@/lib/ai/ollama", () => ({ requestOllamaJson: mocks.local, checkOllamaM
 vi.mock("@/lib/ai/openai-vision", () => ({ requestOpenAiVision: mocks.openai, checkOpenAiModelAccess: mocks.openaiCheck }));
 vi.mock("@anthropic-ai/sdk", () => ({ default: class { constructor() { mocks.anthropic(); } } }));
 vi.mock("@/lib/ai/vision-settings", () => ({ getVisionSettings: mocks.settings }));
-vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: mocks.config }));
+vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: mocks.config, getResolvedVisionProviderConfiguration: mocks.config }));
 import { assignPhotosToFields, compareReferencePhotos, checkVisionConnection, type VisionImage } from "@/lib/ai/vision";
 const photo: VisionImage = { id: "photo", mediaType: "image/jpeg", data: "YWJj" };
 const settings = { ...DEFAULT_VISION_SETTINGS, provider: "ollama" as const, model: "gemma3:4b", assignmentEnabled: true, comparisonEnabled: true };

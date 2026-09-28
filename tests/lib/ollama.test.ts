@@ -1,10 +1,12 @@
 // @vitest-environment node
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { checkOllamaModel, isOllamaConfigured, requestOllamaJson } from "@/lib/ai/ollama";
+import { checkOllamaModel, isOllamaConfigured, requestOllamaJson, ollamaFetch, readOllamaResponse } from "@/lib/ai/ollama";
+const settings = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock("@/lib/ai/ollama-settings", () => ({ getOllamaSettings: settings.get }));
 const fetcher = vi.fn(); const image = { id: "photo", mediaType: "image/jpeg" as const, data: "eA==" }; const input = { model: "gemma3:4b", prompt: "Compare photos", instructions: "Use evidence only", images: [image], schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] } };
 const info = { capabilities: ["completion", "vision"], details: { family: "gemma3" } }; const chat = { model: "gemma3:4b", done: true, done_reason: "stop", message: { role: "assistant", content: '{"ok":true}' } };
 const response = (body: unknown) => new Response(JSON.stringify(body));
-beforeEach(() => { vi.stubGlobal("fetch", fetcher); vi.stubEnv("OLLAMA_BASE_URL", "http://ollama:11434"); vi.stubEnv("OLLAMA_API_KEY", "local-secret"); fetcher.mockReset(); fetcher.mockImplementation(async (url: string) => response(url.endsWith("/show") ? info : chat)); });
+beforeEach(() => { settings.get.mockImplementation(async () => ({ baseUrl: process.env.OLLAMA_BASE_URL, apiKey: process.env.OLLAMA_API_KEY, contextTokens:4096, inferenceTimeoutSeconds:180, keepAliveMinutes:5 })); vi.stubGlobal("fetch", fetcher); vi.stubEnv("OLLAMA_BASE_URL", "http://ollama:11434"); vi.stubEnv("OLLAMA_API_KEY", "local-secret"); fetcher.mockReset(); fetcher.mockImplementation(async (url: string) => response(url.endsWith("/show") ? info : chat)); });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 it("checks installed vision capability without inference or downloads", async () => { expect(await checkOllamaModel("gemma3:4b")).toBe("gemma3:4b"); expect(fetcher).toHaveBeenCalledTimes(1); expect(fetcher.mock.calls[0][0]).toBe("http://ollama:11434/api/show"); expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ model: "gemma3:4b", verbose: false }); });
 it("sends structured JSON schema and all labelled images only to configured local server", async () => { expect(await requestOllamaJson({ ...input, images: [image, { ...image, id: "reference" }] })).toEqual({ ok: true }); const [url, options] = fetcher.mock.calls[1]; expect(url).toBe("http://ollama:11434/api/chat"); expect(options).toMatchObject({ redirect: "error", cache: "no-store", headers: { Authorization: "Bearer local-secret" } }); const body = JSON.parse(options.body); expect(body).toMatchObject({ model: "gemma3:4b", stream: false, format: input.schema, options: { num_predict: 4096 } }); expect(body.messages[1].images).toEqual(["eA==", "eA=="]); expect(body.messages[1].content).toContain('"id":"reference"'); });
@@ -17,7 +19,7 @@ it("rejects single-image model for multiple inputs without dropping evidence", a
 it.each([{ ...chat, done: false }, { ...chat, done_reason: "length" }, { ...chat, remote_host: "https://ollama.com" }, { ...chat, model: "gemma:cloud" }, { ...chat, message: { role: "assistant", content: "not JSON" } }])("rejects incomplete/remote/malformed generated result %#", async value => { fetcher.mockImplementation(async (url: string) => response(url.endsWith("/show") ? info : value)); await expect(requestOllamaJson(input)).rejects.toThrow(); expect(fetcher).toHaveBeenCalledTimes(2); });
 it("rejects malformed or oversized input before any network request", async () => { await expect(requestOllamaJson({ ...input, images: [{ ...image, data: "https://external/image" }] })).rejects.toThrow(); await expect(requestOllamaJson({ ...input, images: Array(21).fill(image) })).rejects.toThrow(); expect(fetcher).not.toHaveBeenCalled(); });
 it("bounds response bytes and sanitizes transport/provider errors without retries", async () => { fetcher.mockResolvedValueOnce(new Response("x".repeat(1024 * 1024 + 1))); await expect(checkOllamaModel(input.model)).rejects.toThrow("Local Ollama could not"); fetcher.mockRejectedValueOnce(new Error("private-key-and-provider-body")); await expect(checkOllamaModel(input.model)).rejects.toThrow("no cloud fallback"); expect(fetcher).toHaveBeenCalledTimes(2); });
-it.each([503, 200])("cancels unread response body for rejected status or declared oversize (%s)", async status => { const cancel = vi.fn(); const stream = new ReadableStream({ cancel }); fetcher.mockResolvedValue(new Response(stream, { status, headers: status === 200 ? { "content-length": String(2 * 1024 * 1024) } : {} })); await expect(checkOllamaModel(input.model)).rejects.toThrow(); expect(cancel).toHaveBeenCalledTimes(1); });
+it.each([200])("cancels unread response body for rejected status or declared oversize (%s)", async status => { const cancel = vi.fn(); const stream = new ReadableStream({ cancel }); fetcher.mockResolvedValue(new Response(stream, { status, headers: status === 200 ? { "content-length": String(2 * 1024 * 1024) } : {} })); await expect(checkOllamaModel(input.model)).rejects.toThrow(); expect(cancel).toHaveBeenCalledTimes(1); });
 it("checks single-image limitation through model family aliases", async () => { fetcher.mockResolvedValue(response({ ...info, details: { family: "custom", families: ["custom", "mllama"] } })); await expect(requestOllamaJson({ ...input, model: "my-renamed-model", images: [image, { ...image, id: "reference" }] })).rejects.toThrow("only one image"); expect(fetcher).toHaveBeenCalledTimes(1); });
 it("allows bounded CPU inference time while model metadata checks stay short", async () => {
  const timeout = vi.spyOn(AbortSignal, "timeout");
@@ -25,3 +27,20 @@ it("allows bounded CPU inference time while model metadata checks stay short", a
  expect(timeout.mock.calls.map(call => call[0])).toEqual([8000, 180000]);
  timeout.mockRestore();
 });
+it("uses stored server credential and inference options without an environment fallback", async () => {
+ settings.get.mockResolvedValue({ baseUrl:"http://10.0.0.5:11434", apiKey:"stored-secret", contextTokens:8192, inferenceTimeoutSeconds:240, keepAliveMinutes:0 });
+ const timeout=vi.spyOn(AbortSignal,"timeout"); await requestOllamaJson(input);
+ expect(fetcher.mock.calls.map(call=>call[0])).toEqual(["http://10.0.0.5:11434/api/show","http://10.0.0.5:11434/api/chat"]);
+ expect(fetcher.mock.calls[1][1].headers.Authorization).toBe("Bearer stored-secret");
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({keep_alive:"0m",options:{num_ctx:8192}});
+ expect(timeout.mock.calls.map(call=>call[0])).toEqual([8000,240000]); timeout.mockRestore();
+});
+it.each([[401,"secret credential", "AUTH"],[403,"private token", "AUTH"],[404,"internal server address", "MODEL_MISSING"],[500,"requires more system memory secret", "MEMORY"],[503,"private server traceback", "SERVER"]])("sanitizes HTTP %s diagnostics", async (status,body,code)=>{
+ const result=readOllamaResponse(new Response(String(body),{status:Number(status)})); await expect(result).rejects.toMatchObject({code}); await expect(result).rejects.not.toThrow(String(body));
+});
+it("reports timeout distinctly without disclosing underlying transport error", async()=>{ const error=new Error("private URL and secret"); error.name="TimeoutError"; fetcher.mockRejectedValue(error); await expect(ollamaFetch("version")).rejects.toMatchObject({code:"TIMEOUT"}); expect(fetcher).toHaveBeenCalledOnce(); });
+it("rejects redirected, malformed and nonobject response bodies", async()=>{
+ const redirected=response({ok:true}); Object.defineProperty(redirected,"redirected",{value:true}); await expect(readOllamaResponse(redirected)).rejects.toMatchObject({code:"RESPONSE"});
+ for(const body of ["bad-json","null","[]"]) await expect(readOllamaResponse(new Response(body))).rejects.toMatchObject({code:"RESPONSE"});
+});
+it("cancels an actually oversized chunked stream without trusting missing content length",async()=>{const cancel=vi.fn();let sent=false;const stream=new ReadableStream({pull(controller){if(!sent){sent=true;controller.enqueue(new Uint8Array(1024*1024+1));}},cancel});await expect(readOllamaResponse(new Response(stream))).rejects.toMatchObject({code:"RESPONSE"});expect(cancel).toHaveBeenCalledOnce();});

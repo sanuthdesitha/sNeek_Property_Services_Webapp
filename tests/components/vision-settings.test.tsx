@@ -65,3 +65,8 @@ it("uses the server's configured model when switching to local inference", () =>
   expect(screen.getByLabelText("Vision model")).toHaveValue("custom/property:latest");
   expect(screen.getByRole("button", { name: "Check provider and saved model" })).toBeDisabled();
 });
+it("links Ollama setup and keeps its shared vision model read-only in this panel",()=>{
+  render(<VisionSettingsPanel initialSettings={{...DEFAULT_VISION_SETTINGS,provider:"ollama",model:"gemma3:4b"}} canEdit configured={false}/>);
+  expect(screen.getByLabelText("Vision model")).toBeDisabled();expect(screen.getByRole("link",{name:"Settings → Ollama"})).toHaveAttribute("href","/v2/admin/settings?tab=ollama");
+  expect(screen.getByText(/Change the shared vision model in Ollama setup/)).toBeVisible();expect(screen.queryByText(/Add this setting to your hosting environment and restart/)).not.toBeInTheDocument();
+});

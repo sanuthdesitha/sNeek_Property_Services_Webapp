@@ -20,6 +20,12 @@
 
 ### A1. Architecture overview
 
+**Ollama setup and capability diagnostics (2026-09, September 28).** Admin Settings → System → Ollama (`/v2/admin/settings?tab=ollama`) saves the internal server address, local text/vision models, optional encrypted gateway credential, text-provider selection, context window, inference deadline and keep-alive. Configuration uses `AppSetting.ai_ollama_v1` with environment fallback until saved; no schema migration. Public settings never return the key and remain readable to replace/clear a credential that cannot be decrypted. OpenAI and Claude remain supported. Existing AI workflow controls still govern photo assignment, comparison, historical examples and dedicated recognition; Ollama's model field there points to this shared setup.
+
+The setup lists installed and loaded models, and explicitly downloads a selected local library model through Ollama's streaming pull API. The application does not install Docker, start services, or mount a Docker socket. A reachable private Ollama service with persistent storage is a prerequisite. Download progress is sanitized and bounded; missing completion is not success. A database lease serializes setup saves, diagnostics and downloads across app replicas, with expiry and token-bound release.
+
+Separate checks verify server access, actual structured social text generation, four-image synthetic assignment with reference/history examples, and two-image synthetic comparison. Results include timestamps, duration and actionable sanitized connection/authentication/model/memory/timeout/format failures. A metadata check alone never marks inference working. Tests use generated colour cards and production result schemas, do not publish or mutate jobs/QA, and do not establish accuracy on real property photos. Dedicated property classifier training remains a separate service. Inference time is configurable from 30–300 seconds; browser assignment waits up to 360 seconds. Model downloads have a 30-minute bound. The server can require an encryption key only when storing a gateway credential; ordinary private Ollama does not require one.
+
 **Resumed v2 verification (2026-09).** The September 13 continuation is recorded in `docs/qa/2026-09-09-ui-ux-execution-tracker.md` Wave 25. Implementation, automated checks, authenticated browser checks and actual device/provider delivery remain separate evidence. The local verification database uses disposable fixtures; the original application database is not used for test mutations.
 
 **Command and Finance read reliability (2026-09).** Estate Command uses complete grouped unassigned counts instead of counting its 12-row preview. Critical query failures yield an unavailable/retry screen; the v2 caller requests strict dashboard metrics while classic callers retain their fallback compatibility. Schedule filters use UTC calendar keys and event windows use Sydney instants. Existing attention categories are linked explicitly, positive undisclosed work cannot show all-clear, and incomplete revenue is labelled as known charges with missing-rate guidance. Client Finance labels its latest-20-invoice and latest-50-completed-job scope; unbilled estimates are distinguished from payment requests and invoice totals from outstanding balances. Failed visibility or finance reads are unavailable rather than hidden access or zero balances. Invoice links retain server-scoped access and VA payment restrictions.
@@ -1483,6 +1489,8 @@ Bounces and complaints feed the **suppression list** (`lib/email/suppression.ts`
 ---
 
 ## Change Log
+
+- **2026-09-28:** Added persisted admin Ollama setup, local model downloads and independent generation/vision diagnostics with encrypted credentials, bounded transport and shared runtime configuration. Verification: `docs/qa/ollama-setup-2026-09-28.md`.
 
 - **2026-09-28:** Simplified cleaner job header/recovery UI, repaired verified upload acknowledgements and generic phone MIME handling, bounded local photo assignment for CPU servers, and polished existing shopping/stock/admin/client surfaces. Verification and production limitations: `docs/qa/cleaner-evidence-ui-2026-09-28.md`.
 

@@ -3,7 +3,7 @@ import { photoAssignmentLimits } from "@/lib/ai/runtime-limits";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { loadVisionImage } from "@/lib/ai/images";
-import { getVisionProviderConfiguration } from "@/lib/ai/config";
+import { getResolvedVisionProviderConfiguration } from "@/lib/ai/config";
 import { predictPropertyRecognition } from "@/lib/ai/property-photo-model";
 import { getHistoricalAssignmentExamples } from "@/lib/ai/historical-assignment-examples";
 import { deriveVisionFields } from "@/lib/ai/form-fields";
@@ -142,7 +142,7 @@ export async function proposePhotoAssignments(jobId: string, session: Session, r
   const remainingPhotos = photos.filter(photo => !accepted.some(item => item.photoId === photo.id));
   let fallback;
   try {
-    fallback = remainingPhotos.length && getVisionProviderConfiguration(config.provider).configured ? await assignPhotosToFields({ photos: remainingPhotos, fields }) : { assignments: remainingPhotos.map(photo => ({ photoId: photo.id, fieldId: null, confidence: 0, reason: "No confident model match and vision fallback is unavailable. Assign this photo manually." })) };
+    fallback = remainingPhotos.length && (await getResolvedVisionProviderConfiguration(config.provider)).configured ? await assignPhotosToFields({ photos: remainingPhotos, fields }) : { assignments: remainingPhotos.map(photo => ({ photoId: photo.id, fieldId: null, confidence: 0, reason: "No confident model match and vision fallback is unavailable. Assign this photo manually." })) };
   } catch {
     throw new PhotoAssignmentError(503, config.provider === "ollama"
       ? "The local image model could not finish analysing this photo. Your uploads are saved. Retry once, or ask the office to check the Ollama model and server memory. You can still choose photo sections manually."

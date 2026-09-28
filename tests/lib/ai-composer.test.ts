@@ -1,3 +1,4 @@
+vi.mock("@/lib/ai/ollama-settings", () => ({ getOllamaSettings: async () => { throw new Error("Unused local credentials must not be read"); }, getPublicOllamaSettings: async () => ({ useForText: false, baseUrl: "", textModel: "gemma3:4b", visionModel: "gemma3:4b" }) }));
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAiConfiguration } from "@/lib/ai/config";

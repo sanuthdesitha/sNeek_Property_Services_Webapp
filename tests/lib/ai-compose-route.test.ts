@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { Role } from "@prisma/client";
 import { GET, POST } from "@/app/api/admin/marketing/ai-compose/route";
+vi.mock("@/lib/db", () => ({ db: { appSetting: { findUnique: async () => null } } }));
 
 const mocks = vi.hoisted(() => ({ authorize: vi.fn(), create: vi.fn(), constructor: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.authorize }));

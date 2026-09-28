@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({ config: vi.fn(), openai: vi.fn(), ollama: vi.fn(), anthropic: vi.fn() }));
-vi.mock("@/lib/ai/config", () => ({ getAiConfiguration: m.config }));
+vi.mock("@/lib/ai/config", () => ({ getAiConfiguration: m.config, getResolvedAiConfiguration: m.config }));
 vi.mock("@/lib/ai/openai-vision", () => ({ requestOpenAiVision: m.openai }));
 vi.mock("@/lib/ai/ollama", () => ({ requestOllamaJson: m.ollama }));
 vi.mock("@anthropic-ai/sdk", () => ({ default: class { constructor() { m.anthropic(); } } }));

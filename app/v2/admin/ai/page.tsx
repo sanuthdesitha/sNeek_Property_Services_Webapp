@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Role } from "@prisma/client";
 import { ArrowRight, RefreshCw } from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
-import { getAiConfiguration, getVisionProviderConfiguration } from "@/lib/ai/config";
+import { getResolvedAiConfiguration, getResolvedVisionProviderConfiguration } from "@/lib/ai/config";
 import { getVisionSettings } from "@/lib/ai/vision-settings";
 import { VisionSettingsPanel } from "@/components/v2/admin/vision-settings";
 import { getRecognitionConfiguration } from "@/lib/ai/property-photo-model";
@@ -14,11 +14,12 @@ export const metadata = { title: "AI configuration | Estate admin" };
 
 export default async function AiConfigurationPage() {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  const config = getAiConfiguration();
+  const config = await getResolvedAiConfiguration();
   const visionSettings = await getVisionSettings();
   return <div className="space-y-6">
     <EPageHeader eyebrow="Configuration" title="AI configuration" />
-    <VisionSettingsPanel initialSettings={visionSettings} configured={getVisionProviderConfiguration(visionSettings.provider).configured} providerConfigured={{ openai: getVisionProviderConfiguration("openai").configured, anthropic: getVisionProviderConfiguration("anthropic").configured, ollama: getVisionProviderConfiguration("ollama").configured }} providerModels={{ openai: getVisionProviderConfiguration("openai").model, anthropic: getVisionProviderConfiguration("anthropic").model, ollama: getVisionProviderConfiguration("ollama").model }} recognitionConfigured={getRecognitionConfiguration().configured} canEdit={(session.user.heldRoles ?? [session.user.role]).includes(Role.ADMIN)} />
+    <VisionSettingsPanel initialSettings={visionSettings} configured={(await getResolvedVisionProviderConfiguration(visionSettings.provider)).configured} providerConfigured={{ openai: (await getResolvedVisionProviderConfiguration("openai")).configured, anthropic: (await getResolvedVisionProviderConfiguration("anthropic")).configured, ollama: (await getResolvedVisionProviderConfiguration("ollama")).configured }} providerModels={{ openai: (await getResolvedVisionProviderConfiguration("openai")).model, anthropic: (await getResolvedVisionProviderConfiguration("anthropic")).model, ollama: (await getResolvedVisionProviderConfiguration("ollama")).model }} recognitionConfigured={getRecognitionConfiguration().configured} canEdit={(session.user.heldRoles ?? [session.user.role]).includes(Role.ADMIN)} />
+    <Link href="/v2/admin/settings?tab=ollama" className="inline-flex min-h-11 items-center text-sm underline">Set up or test local Ollama</Link>
     <PropertyPhotoMemoryPanel canEdit={!session.impersonation && (session.user.heldRoles ?? [session.user.role]).includes(Role.ADMIN)} />
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[hsl(var(--e-border))] pb-4">
       <h2 className="text-base font-semibold">Social post composer</h2>

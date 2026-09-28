@@ -3,7 +3,7 @@ import { DEFAULT_VISION_SETTINGS } from "@/lib/ai/vision-settings-schema";
 const mocks = vi.hoisted(() => ({ create: vi.fn(), retrieve: vi.fn(), settings: vi.fn(), config: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({ default: class { messages = { create: mocks.create }; models = { retrieve: mocks.retrieve }; } }));
 vi.mock("@/lib/ai/vision-settings", () => ({ getVisionSettings: mocks.settings }));
-vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: mocks.config }));
+vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: mocks.config, getResolvedVisionProviderConfiguration: mocks.config }));
 import { assignPhotosToFields, compareReferencePhotos, checkVisionConnection, type VisionImage } from "@/lib/ai/vision";
 const photo: VisionImage = { id: "photo", mediaType: "image/jpeg", data: "YWJj" };
 const settings = { ...DEFAULT_VISION_SETTINGS, provider: "anthropic" as const, model: "claude-sonnet-5", comparisonEnabled: true, assignmentEnabled: true };

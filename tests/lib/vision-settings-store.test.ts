@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_VISION_SETTINGS } from "@/lib/ai/vision-settings-schema";
 const mocks = vi.hoisted(() => ({ find: vi.fn(), upsert: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: { appSetting: { findUnique: mocks.find, upsert: mocks.upsert } } }));
-vi.mock("@/lib/ai/config", () => ({ getVisionProviderConfiguration: () => ({ model: "configured-model" }) }));
+vi.mock("@/lib/ai/config", () => ({ getResolvedVisionProviderConfiguration: () => ({ model: "configured-model" }) }));
 import { getVisionSettings, saveVisionSettings, VISION_SETTINGS_KEY } from "@/lib/ai/vision-settings";
 beforeEach(() => vi.clearAllMocks());
 it("defaults disabled and respects the server model", async () => {
@@ -28,4 +28,10 @@ it("validates before storing the public settings only", async () => {
   expect(mocks.upsert).not.toHaveBeenCalled();
   expect(await saveVisionSettings(DEFAULT_VISION_SETTINGS)).toEqual(DEFAULT_VISION_SETTINGS);
   expect(mocks.upsert).toHaveBeenCalledWith({ where: { key: VISION_SETTINGS_KEY }, create: { key: VISION_SETTINGS_KEY, value: DEFAULT_VISION_SETTINGS }, update: { value: DEFAULT_VISION_SETTINGS } });
+});
+it("uses the dedicated saved Ollama model instead of a stale vision-panel model on read and save",async()=>{
+  mocks.find.mockResolvedValue({value:{...DEFAULT_VISION_SETTINGS,provider:"ollama",model:"stale:old"}});
+  expect(await getVisionSettings()).toMatchObject({provider:"ollama",model:"configured-model"});
+  expect(await saveVisionSettings({...DEFAULT_VISION_SETTINGS,provider:"ollama",model:"stale:old"})).toMatchObject({provider:"ollama",model:"configured-model"});
+  expect(mocks.upsert.mock.calls[0][0].update.value.model).toBe("configured-model");
 });
