@@ -22,3 +22,7 @@ it("rejects unsupported video before conversion starts", async () => {
   await expect(compressVideo(new File(["source"], "video.mov", { type: "video/quicktime" }))).rejects.toThrow("Try an MP4 video");
   expect(mocks.execute).not.toHaveBeenCalled(); expect(mocks.inputDispose).toHaveBeenCalledOnce();
 });
+it("avoids a large in-memory encoder when device storage is unavailable", async () => {
+ const original=new File(["original"],"large.mov",{type:"video/quicktime"});Object.defineProperty(original,"size",{value:26*1024*1024});
+ await expect(compressVideo(original)).rejects.toThrow("Device video workspace is unavailable");expect(mocks.init).not.toHaveBeenCalled();expect(mocks.inputDispose).toHaveBeenCalledOnce();
+});

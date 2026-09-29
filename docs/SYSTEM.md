@@ -452,6 +452,10 @@ The rules are **stored once** — in the job's `internalNotes` meta as `earlyChe
 
 ### B4. Forms system
 
+**Failed-attempt cleanup and low-storage uploads (2026-09, September 29).** The job workspace no longer renders the bottom Saved file copies / device recovery section. Failed or abandoned attempts do not require manual removal to submit; the field shows a short failure message and optional original download. Successful attachments remain intact. Submission checks current server receipts and the actual required-field evidence, while scoped live-upload tracking and shared/exclusive browser locks prevent submitting through an active upload. Stale cached statuses alone are not active uploads. Local failed originals are retained rather than deleting remote objects or blindly resending uncertain bytes.
+
+IndexedDB quota/unavailability no longer stops an upload before the network stage: original, prepared data, allocation and receipt can be held in session memory, with a keep-page-open advisory. Memory values override older device copies and can become durable again after storage recovers. This fallback does not survive page closure. When video compression lacks a private temporary workspace, clips above 25 MB avoid the large memory encoder; the existing direct-original fallback can send clips up to 150 MB. Larger originals require a shorter clip or working temporary storage. These changes cannot fix an operating-system camera failure that occurs before a file is selected.
+
 **Cleaner evidence and compact job UI (2026-09, September 28).** The cleaning stage no longer mounts the oversized top progress/room checklist. Room-level counts and required-field validation remain. Device recovery is a collapsed, labelled disclosure below the stage, with touch-sized retry/remove/download controls. Before submission or bulk analysis, scoped device records are reconciled against authorized server receipts and actual saved destination media under capture locks. Confirmed attachments are restored into the current form without overwriting unrelated answers; changed forms ask for review/retry. Missing or genuinely pending evidence still blocks submission. Generic/empty phone MIME metadata may use the existing allowed filename extension; explicitly incompatible MIME types are rejected. Vision additionally decodes and checks actual image format, size and pixel limits.
 
 **CPU-hosted photo assignment (2026-09, September 28).** Ollama assignment uses one submitted photo with at most three optional reference/history attempts. Other providers retain their configured batch and twenty-image budget. Missing optional old examples are skipped; submitted photo failures are not skipped. Local inference has a bounded 180-second deadline and the browser assignment request 240 seconds. Provider failures preserve uploads and show actionable retry/manual-assignment guidance. Provider ownership, form revision, confidence, capacity and explicit application rules remain. This improves local tolerance but does not establish successful production inference or change QA scores automatically.
@@ -1489,6 +1493,8 @@ Bounces and complaints feed the **suppression list** (`lib/email/suppression.ts`
 ---
 
 ## Change Log
+
+- **2026-09-29:** Removed the cleaner Saved file copies section/manual failed-attempt cleanup gate; added active-upload submission coordination and low-storage session/video fallbacks. Verification: `docs/qa/cleaner-failed-uploads-2026-09-29.md`.
 
 - **2026-09-28:** Added persisted admin Ollama setup, local model downloads and independent generation/vision diagnostics with encrypted credentials, bounded transport and shared runtime configuration. Verification: `docs/qa/ollama-setup-2026-09-28.md`.
 

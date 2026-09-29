@@ -22,10 +22,10 @@ import { parseLaundryBagCountInput } from "@/lib/laundry/bag-count";
  */
 import * as React from "react";
 import { EvidenceContext } from "./evidence-context";
-import { getVolatileEvidenceCount } from "@/lib/cleaner/evidence-volatile";
-import { EvidenceRecovery } from "./evidence-recovery";
+import { getActiveEvidenceUploadCount } from "@/lib/cleaner/evidence-volatile";
 
-import { removeEvidence, reconcileEvidenceAcknowledgementsWithChanges, projectReconciledEvidence } from "@/lib/cleaner/evidence-client";
+
+import { removeEvidence, checkSubmissionEvidence, withEvidenceSubmissionLock, projectReconciledEvidence } from "@/lib/cleaner/evidence-client";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -1170,8 +1170,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
 
   async function restoreConfirmedUploads() {
     const scope = evidenceScopeRef.current;
-    if (!scope) return { changed: false, records: [] };
-    const result = await reconcileEvidenceAcknowledgementsWithChanges(scope);
+    if (!scope) return { changed: false, records: [], activeCaptureIds: [] as string[] };
+    const result = await checkSubmissionEvidence(scope);
     if (evidenceScopeRef.current !== scope) throw new Error("The form changed while checking uploads. Reload this job.");
     const projected = projectReconciledEvidence(draftStateRef.current(), result.reconciled, scope);
     if (projected.changed) {
@@ -1181,17 +1181,24 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       setLaundryPhoto(projected.state.laundry?.photo ?? []);
       setCarryPhotos(projected.state.carryForward?.photos ?? []);
     }
-    return { changed: projected.changed, records: result.records };
+    return { changed: projected.changed, records: result.records, activeCaptureIds: result.activeCaptureIds };
   }
   async function submit(opts?: { finalCheckupAck?: FinalCheckupAckEntry[] }) {
+    const scope = evidenceScopeRef.current;
+    try {
+      if (scope) await withEvidenceSubmissionLock(scope, () => submitReady(opts));
+      else await submitReady(opts);
+    } catch (error) { flash("danger", error instanceof Error ? error.message : "Unable to submit. Please try again."); }
+  }
+  async function submitReady(opts?: { finalCheckupAck?: FinalCheckupAckEntry[] }) {
     if (onlineAction.uncertain) { flash("danger", "Check the latest server status before submitting."); return; }
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       flash("danger", "Connect before submitting. Clock-out is not queued while offline.");
       return;
     }
-    if (getVolatileEvidenceCount(evidenceScope) > 0) {
-      flash("danger", "Some original files are only in memory. Save or retry the failed capture before submitting.");
+    if (getActiveEvidenceUploadCount(evidenceScope) > 0) {
+      flash("danger", "An upload is still running. Wait for it to finish before submitting.");
       return;
     }
     if (payload?.formContractError) {
@@ -1202,13 +1209,11 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       try {
         const recovered = await restoreConfirmedUploads();
         if (recovered.changed) { flash("success", "Saved uploads restored. Review the form and submit again."); return; }
-        const pending = recovered.records.some(record => record.draftIdentity === draftIdentity && record.jobId === jobId &&
-          record.formRevision === evidenceScope.formRevision && !["attached", "detached"].includes(record.status));
-        if (pending) { flash("danger", "Attach the pending evidence from device recovery before submitting."); return; }
-      } catch { flash("danger", "Device evidence recovery could not be checked. Reload before submitting."); return; }
+        if (recovered.activeCaptureIds.length) { flash("danger", "An upload is still running. Wait for it to finish before submitting."); return; }
+      } catch { flash("danger", "Saved uploads could not be verified. Check your connection and try submitting again."); return; }
     }
     if (bulkPool.length || (laundryPhoto.length && (!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP")) || (carryPhotos.length && (!carryHasNew || !carryNotes.some(note => note.trim())))) {
-      flash("danger", "Assign unfiled photos and explicitly remove unused laundry or next-clean photos before submitting. Originals stay in device recovery."); return;
+      flash("danger", "Assign unfiled photos and explicitly remove unused laundry or next-clean photos before submitting. Failed upload attempts do not need to be removed."); return;
     }
     // Client-side validation gate (mirrors the server's required-field rules):
     // reveal inline errors + scroll to the first, and block the submit so the
@@ -1478,11 +1483,16 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     retryDraftSave: () => { void flushDraft(); },
     prepareBulkAutoAssign: async () => {
       if (!draftHydratedRef.current || locked || draftSubmittedRef.current) throw new Error("Reload the current editable form before auto assigning.");
+      const scope = evidenceScopeRef.current;
+      if (!scope) throw new Error("Reload the current form before auto assigning.");
+      return withEvidenceSubmissionLock(scope, async () => {
       const recovered = await restoreConfirmedUploads();
+      if (recovered.activeCaptureIds.length || getActiveEvidenceUploadCount(evidenceScopeRef.current)) throw new Error("Wait for the current uploads to finish before auto assigning.");
       if (recovered.changed) throw new Error("Saved uploads restored. Tap Auto assign again to analyse the updated photo pool.");
       if (draftTimerRef.current) { clearTimeout(draftTimerRef.current); draftTimerRef.current = null; }
       const confirmed = await saveDraft(jobId, editorSessionIdRef.current, mirrorDraft());
       if (!confirmed) throw new Error("The current draft save was not confirmed. Finish saving, then try auto assign again.");
+      });
     },
     payload,
     job,
@@ -1656,31 +1666,15 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       </div>
 
       {!locked && ((laundryPhoto.length > 0 && (!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP")) || (carryPhotos.length > 0 && (!carryHasNew || !carryNotes.some(note => note.trim())))) ? <EAlert tone="info" title="Unused attachments">
-        These photos need an active laundry outcome or next-clean flag. Remove unused attachments explicitly; saved originals remain in device recovery.
+        These photos need an active laundry outcome or next-clean flag. Remove these successful attachments if they are no longer needed.
         {[...((!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP") ? laundryPhoto : []), ...((!carryHasNew || !carryNotes.some(note => note.trim())) ? carryPhotos : [])].map(media => <button type="button" key={media.key} className="block underline" onClick={() => {
           if (!evidenceScope) { flash("danger", "Reload the form before removing evidence."); return; }
           void removeEvidence(evidenceScope, media.key).then(() => {
             setLaundryPhoto(previous => previous.filter(item => item.key !== media.key));
             setCarryPhotos(previous => previous.filter(item => item.key !== media.key));
           }).catch(error => flash("danger", error instanceof Error ? error.message : "Removal failed."));
-        }}>Remove {media.name || "photo"}; keep original</button>)}
+        }}>Remove {media.name || "photo"}</button>)}
       </EAlert> : null}
-      {evidenceScope ? <EvidenceRecovery scope={evidenceScope} locked={locked} onRemoved={key => {
-        const remove = (media: CapturedMedia[]) => media.filter(item => item.key !== key);
-        setBulkPool(remove); setLaundryPhoto(remove); setCarryPhotos(remove);
-        setUploads(previous => Object.fromEntries(Object.entries(previous).map(([field, media]) => [field, remove(media)])));
-        setTaskDrafts(previous => Object.fromEntries(Object.entries(previous).map(([id, task]) => [id, { ...task, proof: remove(task.proof) }])));
-      }} onRecovered={(fieldId, media, destination) => {
-        const append = (previous: CapturedMedia[]) => previous.some(item => item.key === media.key) ? previous : [...previous, media];
-        if (destination?.type === "bulkPool") { setBulkPool(append); return; }
-        if (destination?.type === "laundry") { setLaundryPhoto(append); return; }
-        if (destination?.type === "carryForwardNew") { setCarryPhotos(append); return; }
-        if (destination?.type === "jobTask") { setTaskDrafts(previous => ({ ...previous, [destination.taskId]: { ...(previous[destination.taskId] ?? { decision: "OPEN", note: "" }), proof: append(previous[destination.taskId]?.proof ?? []) } })); return; }
-        setUploads(previous => ({ ...previous, [fieldId]: previous[fieldId]?.some(item => item.key === media.key)
-          ? previous[fieldId] : [...(previous[fieldId] ?? []), media] }));
-      }} /> : null}
-
-
       <ActionFab api={api} />
 
       {/* One-time attention popup for client / admin requests on this job. */}

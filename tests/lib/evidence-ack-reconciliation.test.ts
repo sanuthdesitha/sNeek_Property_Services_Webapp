@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import type { EvidenceRecord } from "@/lib/cleaner/evidence-store";
 const m = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), put: vi.fn() }));
 vi.mock("@/lib/cleaner/evidence-store", async original => ({ ...await original<any>(), listEvidence: m.list, getEvidence: m.get, putEvidence: m.put }));
-import { reconcileEvidenceAcknowledgements, reconcileEvidenceAcknowledgementsWithChanges, projectReconciledEvidence } from "@/lib/cleaner/evidence-client";
+import { checkSubmissionEvidence, reconcileEvidenceAcknowledgements, reconcileEvidenceAcknowledgementsWithChanges, projectReconciledEvidence } from "@/lib/cleaner/evidence-client";
 const scope = { draftIdentity:"identity", jobId:"job", templateId:"template", formRevision:"revision" };
 const media = { key:"forms/job/capture/cleaner/photo.jpg",url:"https://safe.invalid/photo",kind:"image" };
 let record: EvidenceRecord; let draft: any; let fetcher: ReturnType<typeof vi.fn>;
@@ -10,7 +10,7 @@ beforeEach(() => {
   vi.resetAllMocks(); record = {...scope,id:"capture",fieldId:"photo",filename:"photo.jpg",mime:"image/jpeg",blob:new Blob(["original"]),createdAt:1,folder:"forms",source:"camera",status:"uploaded",receipt:media as any};
   draft = { evidenceReceipts: {capture:{key:media.key,fieldId:"photo",draftIdentity:scope.draftIdentity,formRevision:scope.formRevision,version:0}},state:{uploads:{photo:[media]}}};
   m.list.mockImplementation(async()=>[record]); m.get.mockImplementation(async()=>record);m.put.mockImplementation(async value=>{record=value});
-  Object.defineProperty(navigator,"locks",{configurable:true,value:{request:async (_key:string,fn:()=>Promise<void>)=>fn()}});
+  Object.defineProperty(navigator,"locks",{configurable:true,value:{request:async (_key:string,options:any,fn?:any)=>(fn ?? options)({})}});
   fetcher=vi.fn(async()=>new Response(JSON.stringify({draft})));vi.stubGlobal("fetch",fetcher);
 });
 it("repairs lost final device acknowledgement using matching server receipt and retains original",async()=>{const original=record.blob; const records=await reconcileEvidenceAcknowledgements(scope);expect(records[0].status).toBe("attached");expect(record.blob).toBe(original);expect(fetcher).toHaveBeenCalledTimes(1);expect(fetcher.mock.calls[0][1]).toMatchObject({cache:"no-store",headers:{"X-Cleaner-Draft-Identity":"identity"}});});
@@ -48,4 +48,46 @@ it("does not repeatedly request a review when visible media already matches",()=
 it("updates changed verified media transport fields in place while preserving capture metadata",()=>{
   const existing={...media,url:"https://old.invalid",width:100};const latest={uploads:{photo:[existing,{key:"other"}]}};
   const result=projectReconciledEvidence(latest,[{...record,status:"attached"}],scope);expect(result.changed).toBe(true);expect(result.state.uploads.photo[0]).toMatchObject({url:media.url,width:100});expect(result.state.uploads.photo[1].key).toBe("other");
+});
+it.each(["captured","preparing","uploading","uploaded"])("does not block abandoned %s state when no worker owns its capture lock",async status=>{
+  record.status=status as any;record.error=status==="uploaded"?"Previous attempt failed":undefined;draft=null;
+  const result=await checkSubmissionEvidence(scope);expect(result.activeCaptureIds).toEqual([]);expect(result.reconciled).toEqual([]);expect(record.status).toBe(status);expect(record.blob.size).toBeGreaterThan(0);expect(m.put).not.toHaveBeenCalled();
+});
+it("does not wait for a busy capture lock or fetch an obsolete server snapshot",async()=>{
+  Object.defineProperty(navigator,"locks",{configurable:true,value:{request:async (_key:string,options:any,fn:any)=>{expect(options).toEqual({ifAvailable:true});return fn(null)}}});
+  expect((await checkSubmissionEvidence(scope)).activeCaptureIds).toEqual(["capture"]);expect(fetcher).not.toHaveBeenCalled();expect(m.put).not.toHaveBeenCalled();
+});
+it("fetches server evidence only after taking the capture lock and repairs acknowledged failures",async()=>{
+  let held=false;record.error="Lost response";
+  Object.defineProperty(navigator,"locks",{configurable:true,value:{request:async(_key:string,_options:any,fn:any)=>{held=true;try{return await fn({})}finally{held=false}}}});
+  fetcher.mockImplementation(async()=>{expect(held).toBe(true);return new Response(JSON.stringify({draft}))});
+  const result=await checkSubmissionEvidence(scope);expect(result.activeCaptureIds).toEqual([]);expect(result.reconciled[0].status).toBe("attached");expect(record.error).toBeUndefined();
+});
+it("never revives a removal completed before the nonblocking capture lock was acquired",async()=>{
+  Object.defineProperty(navigator,"locks",{configurable:true,value:{request:async(_key:string,_options:any,fn:any)=>{record.status="detached";return fn({})}}});
+  const result=await checkSubmissionEvidence(scope);expect(result.reconciled).toEqual([]);expect(record.status).toBe("detached");expect(fetcher).not.toHaveBeenCalled();
+});it("does not turn unavailable device backup into a submission blocker after authorized server verification",async()=>{
+  m.list.mockRejectedValue(new Error("Device storage denied"));const result=await checkSubmissionEvidence(scope);
+  expect(result).toEqual({records:[],reconciled:[],activeCaptureIds:[]});expect(fetcher).toHaveBeenCalledOnce();expect(m.put).not.toHaveBeenCalled();
+});
+it("still rejects an unauthorized server check when device backup cannot be read",async()=>{
+  m.list.mockRejectedValue(new Error("Device storage denied"));fetcher.mockResolvedValue(new Response(JSON.stringify({error:"Not assigned"}),{status:403}));await expect(checkSubmissionEvidence(scope)).rejects.toThrow("Not assigned");
+});
+it("does not block only because an individual retained record becomes unreadable",async()=>{
+  m.get.mockRejectedValue(new Error("Read transaction failed"));expect((await checkSubmissionEvidence(scope)).activeCaptureIds).toEqual([]);expect(fetcher).toHaveBeenCalledOnce();expect(m.put).not.toHaveBeenCalled();
+});
+
+it("checks forty acknowledged photos with one fresh draft read after the first available lock",async()=>{
+  const records=Array.from({length:40},(_,index)=>({...record,id:`capture-${index}`,receipt:{...media,key:`forms/job/capture-${index}/cleaner/photo.jpg`} as any}));
+  draft={evidenceReceipts:Object.fromEntries(records.map(row=>[row.id,{key:row.receipt!.key,fieldId:"photo",draftIdentity:scope.draftIdentity,formRevision:scope.formRevision,version:0}])),state:{uploads:{photo:records.map(row=>row.receipt)}}};
+  m.list.mockResolvedValue(records);m.get.mockImplementation(async(id:string)=>records.find(row=>row.id===id));m.put.mockResolvedValue(undefined);
+  let acquired=0;
+  Object.defineProperty(navigator,"locks",{configurable:true,value:{request:async(_key:string,_options:any,fn:any)=>{acquired++;return fn({})}}});
+  fetcher.mockImplementation(async()=>{expect(acquired).toBe(1);return new Response(JSON.stringify({draft}))});
+  const result=await checkSubmissionEvidence(scope);expect(result.reconciled).toHaveLength(40);expect(result.activeCaptureIds).toEqual([]);expect(fetcher).toHaveBeenCalledOnce();
+});
+it("keeps fresh per-lock reads for compatibility recovery that can wait",async()=>{
+  const other={...record,id:"other",receipt:{...media,key:"forms/job/other/cleaner/photo.jpg"} as any};const rows=[record,other];
+  m.list.mockResolvedValue(rows);m.get.mockImplementation(async(id:string)=>rows.find(row=>row.id===id));m.put.mockResolvedValue(undefined);
+  await reconcileEvidenceAcknowledgementsWithChanges(scope);expect(fetcher).toHaveBeenCalledTimes(2);
 });

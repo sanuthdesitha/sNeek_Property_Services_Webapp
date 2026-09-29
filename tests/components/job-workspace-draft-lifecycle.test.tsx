@@ -27,6 +27,7 @@ vi.mock("@/components/v2/cleaner/job-stages/stage-footer", () => ({ StageFooterN
 vi.mock("@/components/v2/cleaner/job-stages/action-fab", () => ({ ActionFab: () => null }));
 
 import { JobWorkspace } from "@/components/v2/cleaner/job-workspace";
+import { beginActiveEvidenceUpload } from "@/lib/cleaner/evidence-volatile";
 
 // Only presentation is replaced: these controls invoke the real parent's
 // editing, validation, submission and refresh callbacks. Save/status stay real.
@@ -89,7 +90,7 @@ let clockResponse: () => Promise<Response>;
 beforeEach(() => {
   vi.useFakeTimers();
   device.evidence = [];
-  Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_key: string, fn: () => Promise<unknown>) => fn() } });
+  Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_key: string, options: any, callback?: any) => (callback ?? options)({ name: _key }) } });
   localStorage.clear();
   sessionStorage.clear();
   patches = []; formResponses = []; unexpected = []; currentStatus = "IN_PROGRESS";
@@ -537,9 +538,27 @@ describe("workspace acknowledged upload restoration", () => {
     expect(patches).toHaveLength(1); expect(patches[0].body.state.bulkPool).toEqual([media]);
     await respond(0); await expect(prepared).resolves.toBeUndefined();
   });
-  it("does not let a genuinely unacknowledged pending capture pass the submit gate", async () => {
+  it("does not require manual removal of an inactive failed optional capture", async () => {
     await mount(); lostCallback(); readDraft = () => Promise.resolve(json({ draft: null }));
+    device.evidence[0].error = "Upload failed";
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit fixture" })); });
-    expect(calls("/submit", "POST")).toHaveLength(0); expect(latestApi.uploads.photo).toBeUndefined(); expect(device.evidence[0].status).toBe("uploaded");
+    expect(calls("/submit", "POST")).toHaveLength(1); expect(latestApi.uploads.photo).toBeUndefined(); expect(device.evidence[0].status).toBe("uploaded");
+    expect(screen.queryByRole("region", { name: "Device evidence recovery" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Saved file copies")).not.toBeInTheDocument();
+  });
+  it("still blocks a missing required photo instead of counting the failed attempt as evidence", async () => {
+    const payload = form(); payload.template.schema.sections = [{ id: "room", fields: [{ id: "photo", label: "Required proof", type: "photo", required: true }] }] as any;
+    formResponses.push(Promise.resolve(json(payload))); await mount(); lostCallback(); readDraft = () => Promise.resolve(json({ draft: null }));
+    device.evidence[0].error = "Upload failed";
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit fixture" })); });
+    expect(calls("/submit", "POST")).toHaveLength(0); expect(latestApi.uploads.photo).toBeUndefined();
+  });
+  it("blocks an upload still running after its field unmounts", async () => {
+    await mount(); const finish = beginActiveEvidenceUpload({ draftIdentity: identity, jobId: "job", templateId: "template", formRevision: "b".repeat(64) });
+    try {
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit fixture" })); });
+      expect(calls("/submit", "POST")).toHaveLength(0);
+      expect(screen.getByText("An upload is still running. Wait for it to finish before submitting.")).toBeInTheDocument();
+    } finally { finish(); }
   });
 });

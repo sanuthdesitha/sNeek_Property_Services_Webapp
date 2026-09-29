@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-const evidenceStore = vi.hoisted(() => ({ rows: new Map<string, any>(), writes: 0, failAt: 0 }));
+const evidenceStore = vi.hoisted(() => ({ rows: new Map<string, any>(), writes: 0, failAt: 0, volatile: false }));
 vi.mock("@/lib/cleaner/evidence-store", async original => ({
   ...await original<typeof import("@/lib/cleaner/evidence-store")>(),
   getEvidence: async (id: string) => evidenceStore.rows.get(id),
+  isEvidenceVolatile: () => evidenceStore.volatile,
   putEvidence: async (record: any) => { if (++evidenceStore.writes === evidenceStore.failAt) throw new Error("quota exceeded"); evidenceStore.rows.set(record.id, record); },
 }));
 
@@ -168,13 +169,13 @@ function installFakeXhr(behaviour: (name: string) => Verdict, delayMs = 5) {
 
 const OPTS = { folder: "jobs/1", stamp: null, source: "gallery" as const };
 
-beforeEach(() => { vi.clearAllMocks(); evidenceStore.rows.clear(); evidenceStore.writes = 0; evidenceStore.failAt = 0; });
+beforeEach(() => { vi.clearAllMocks(); evidenceStore.rows.clear(); evidenceStore.writes = 0; evidenceStore.failAt = 0; evidenceStore.volatile = false; });
 afterEach(() => vi.unstubAllGlobals());
 
 describe("upload receipt and cleanup integrity", () => {
   it.each([1, 2])("retains original Files when durable batch write %s fails", async failAt => {
     evidenceStore.failAt = failAt;
-    Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_: string, run: () => Promise<unknown>) => run() } });
+    Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_: string, optionsOrRun: any, run?: (lock: object) => Promise<unknown>) => (typeof optionsOrRun === "function" ? optionsOrRun : run)({}) } });
     installFakeXhr(() => "ok");
     vi.stubGlobal("fetch", vi.fn(async (_url, opts) => { const body = JSON.parse(opts.body); return new Response(JSON.stringify({ ok: true, captureId: body.captureId, key: body.key })); }));
     const files = [fakeFile("first.jpg"), fakeFile("second.jpg")];
@@ -186,7 +187,7 @@ describe("upload receipt and cleanup integrity", () => {
   });
   it("persists the whole capture batch first, binds upload namespaces, and retries known receipt attachment without upload", async () => {
     evidenceStore.rows.clear();
-    Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_: string, run: () => Promise<unknown>) => run() } });
+    Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_: string, optionsOrRun: any, run?: (lock: object) => Promise<unknown>) => (typeof optionsOrRun === "function" ? optionsOrRun : run)({}) } });
     const state = installFakeXhr(() => { expect(evidenceStore.rows.size).toBe(2); return "ok"; });
     let first = true;
     vi.stubGlobal("fetch", vi.fn(async (_url, opts) => {
@@ -404,10 +405,10 @@ describe("failures", () => {
 });
 
 describe("progress", () => {
-  it("uploads a bounded original when browser video compression is unsupported", async () => {
+  it.each(["Unsupported codec", "Device video workspace is unavailable"])("uploads a bounded original after %s", async reason => {
     installFakeXhr(() => "ok");
     const original = fakeFile("walkthrough.mov", 40 * 1024 * 1024, "video/quicktime");
-    vi.mocked(compressVideo).mockRejectedValueOnce(new Error("Unsupported codec"));
+    vi.mocked(compressVideo).mockRejectedValueOnce(new Error(reason));
     const onAdvice = vi.fn();
     const out = await prepareAndUploadFiles([original], { ...OPTS, onAdvice });
     expect(out.failedCount).toBe(0); expect(out.results[0].kind).toBe("video");
@@ -478,4 +479,15 @@ describe("progress", () => {
     // 50/100 from the fake progress event.
     expect(frames).toContain(50);
   });
+});
+
+
+
+
+it("uploads and acknowledges a capture retained in temporary memory when durable storage is unavailable", async()=>{
+ evidenceStore.volatile=true;
+ Object.defineProperty(navigator,"locks",{configurable:true,value:{request:async(_name:string,optionsOrRun:any,run?:any)=>(typeof optionsOrRun==="function"?optionsOrRun:run)({})}});
+ installFakeXhr(()=>"ok");vi.stubGlobal("fetch",vi.fn(async(_url,opts)=>{const body=JSON.parse(opts.body);return new Response(JSON.stringify({ok:true,captureId:body.captureId,key:body.key}));}));
+ const advice=vi.fn();const result=await prepareAndUploadFiles([fakeFile("memory.jpg")],{...OPTS,onAdvice:advice,evidence:{jobId:"job",draftIdentity:"identity",templateId:"template",formRevision:"revision",fieldId:"photo"}});
+ expect(result.failedCount).toBe(0);expect(result.results).toHaveLength(1);expect(advice).toHaveBeenCalledWith("memory.jpg",[expect.stringContaining("Keep this page open")]);expect([...evidenceStore.rows.values()][0].status).toBe("attached");
 });

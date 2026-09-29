@@ -4,13 +4,14 @@ import type { EvidenceRecord } from "./evidence-store";
 type Scope = { draftIdentity: string; jobId: string };
 const listeners = new Set<() => void>();
 const originals = new Map<string, EvidenceRecord>();
+const activeUploads = new Map<symbol, Scope>();
 let revision = 0;
 function beforeUnload(event: BeforeUnloadEvent) { event.preventDefault(); event.returnValue = ""; }
 function changed() {
   revision++;
   if (typeof window !== "undefined") {
     window.removeEventListener("beforeunload", beforeUnload);
-    if (originals.size) window.addEventListener("beforeunload", beforeUnload);
+    if (activeUploads.size) window.addEventListener("beforeunload", beforeUnload);
   }
   listeners.forEach(listener => listener());
 }
@@ -29,4 +30,13 @@ export function getVolatileEvidenceCount(scope: Scope | null | undefined) {
 export function subscribeVolatileEvidence(listener: () => void) {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
+}
+
+/** Tracks real work until its finally block, even when the field unmounts. */
+export function beginActiveEvidenceUpload(scope: Scope) {
+  const id = Symbol("upload"); activeUploads.set(id, { ...scope }); changed();
+  return () => { if (activeUploads.delete(id)) changed(); };
+}
+export function getActiveEvidenceUploadCount(scope: Scope | null | undefined) {
+  return scope ? Array.from(activeUploads.values()).filter(value => value.jobId === scope.jobId && value.draftIdentity === scope.draftIdentity).length : 0;
 }

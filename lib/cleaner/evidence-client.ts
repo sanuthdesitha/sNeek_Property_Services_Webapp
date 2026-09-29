@@ -98,7 +98,9 @@ export async function processEvidence(record: EvidenceRecord, scope: EvidenceSco
   upload: (record: EvidenceRecord, beforeNetwork: () => Promise<void>) => Promise<EvidenceReceipt>): Promise<EvidenceReceipt> {
   if (!sameEvidenceScope(record, scope)) throw new Error("This evidence belongs to an older form. Keep it for office review.");
   if (!navigator.locks?.request) throw new Error("This browser cannot safely coordinate evidence recovery. Keep the original file and use a supported browser.");
-  return navigator.locks.request(`cleaner-evidence:${record.id}`, async () => {
+  return navigator.locks.request(evidenceJobLockName(scope), { mode: "shared", ifAvailable: true }, lock => {
+    if (!lock) throw new Error("This job is being submitted. Keep the original and wait for submission to finish.");
+    return navigator.locks.request(`cleaner-evidence:${record.id}`, async () => {
     let current = await getEvidence(record.id);
     if (!current || !sameEvidenceScope(current, scope)) throw new Error("Evidence recovery context changed. Reload this job.");
     if (destinationKey(destinationOf(current)) !== destinationKey(destinationOf(record))) throw new Error("This evidence moved to another destination. Reload device recovery before retrying.");
@@ -158,22 +160,38 @@ export async function processEvidence(record: EvidenceRecord, scope: EvidenceSco
       throw error;
     }
   });
+  });
 }
 
 /** Repair a lost device ACK only from the authorized server receipt and its saved media. */
-export async function reconcileEvidenceAcknowledgementsWithChanges(scope: EvidenceScope): Promise<{ records: EvidenceRecord[]; reconciled: EvidenceRecord[] }> {
-  const records = await listEvidence();
+async function reconcileEvidence(scope: EvidenceScope, nonblocking: boolean): Promise<{ records: EvidenceRecord[]; reconciled: EvidenceRecord[]; activeCaptureIds: string[] }> {
+  // Nonblocking checks run behind the job gate: read once, only after a capture
+  // lock is available. Blocking recovery must refresh after each potential wait.
+  let draftPromise: ReturnType<typeof readServerEvidenceDraft> | undefined;
+  const readDraft = () => nonblocking
+    ? (draftPromise ??= readServerEvidenceDraft(scope))
+    : readServerEvidenceDraft(scope);
+  let records: EvidenceRecord[];
+  try { records = await listEvidence(); }
+  catch (error) {
+    if (!nonblocking) throw error;
+    // Device backup availability is not a required form field. The caller holds
+    // the job submission lock, and the server still verifies the final ledger.
+    await readDraft();
+    return { records: [], reconciled: [], activeCaptureIds: [] };
+  }
   const pending = records.filter(record => sameEvidenceScope(record, scope) && record.status !== "detached");
-  if (!pending.length) return { records, reconciled: [] };
+  if (!pending.length) return { records, reconciled: [], activeCaptureIds: [] };
   if (!navigator.locks?.request) throw new Error("This browser cannot safely coordinate evidence recovery.");
-  const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, { headers: { "X-Cleaner-Draft-Identity": scope.draftIdentity }, cache: "no-store" });
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || "Saved evidence could not be checked. Retry when connected.");
-  const draft = body.draft;
   const reconciled: EvidenceRecord[] = [];
-  for (const record of pending) await navigator.locks.request(`cleaner-evidence:${record.id}`, async () => {
-    const current = await getEvidence(record.id);
+  const activeCaptureIds: string[] = [];
+  for (const record of pending) {
+    const reconcile = async () => {
+    let current: EvidenceRecord | undefined;
+    try { current = await getEvidence(record.id); }
+    catch (error) { if (!nonblocking) throw error; await readDraft(); return; }
     if (!current || !sameEvidenceScope(current, scope) || current.status === "detached") return;
+    const draft = await readDraft();
     const saved = draft?.evidenceReceipts?.[current.id];
     if (!saved || saved.draftIdentity !== scope.draftIdentity || saved.formRevision !== scope.formRevision || typeof saved.key !== "string" || typeof saved.fieldId !== "string") return;
     const version = saved.version ?? 0;
@@ -194,8 +212,16 @@ export async function reconcileEvidenceAcknowledgementsWithChanges(scope: Eviden
     if (current.status !== "attached" || JSON.stringify(current.receipt) !== JSON.stringify(updated.receipt) || destinationKey(destinationOf(current)) !== destinationKey(destination.data) || current.destinationVersion !== version) await putEvidence(updated);
     reconciled.push(updated);
     receiptMemory.delete(current.id);
-  });
-  return { records: await listEvidence(), reconciled };
+    };
+    if (nonblocking) await navigator.locks.request(`cleaner-evidence:${record.id}`, { ifAvailable: true }, async lock => {
+      if (!lock) { activeCaptureIds.push(record.id); return; }
+      await reconcile();
+    });
+    else await navigator.locks.request(`cleaner-evidence:${record.id}`, reconcile);
+  }
+  let latest = records;
+  try { latest = await listEvidence(); } catch (error) { if (!nonblocking) throw error; }
+  return { records: latest, reconciled, activeCaptureIds };
 }
 export async function reconcileEvidenceAcknowledgements(scope: EvidenceScope): Promise<EvidenceRecord[]> {
   return (await reconcileEvidenceAcknowledgementsWithChanges(scope)).records;
@@ -233,4 +259,24 @@ export function projectReconciledEvidence(state: Record<string, any>, reconciled
     if (record.status === "attached" && record.receipt && !retained) next = setDestinationMedia(next, target, [...destinationMedia(next, target), record.receipt]);
   }
   return { state: next, changed: next !== state };
+}
+function evidenceJobLockName(scope: EvidenceScope) { return `cleaner-evidence-job:${scope.draftIdentity}:${scope.jobId}`; }
+/** Hold upload admission closed until the submission callback settles. */
+export async function withEvidenceSubmissionLock<T>(scope: EvidenceScope, callback: () => Promise<T>): Promise<T> {
+  if (!navigator.locks?.request) throw new Error("This browser cannot safely coordinate evidence submission. Reload in a supported browser.");
+  return navigator.locks.request(evidenceJobLockName(scope), { mode: "exclusive", ifAvailable: true }, async lock => {
+    if (!lock) throw new Error("An upload is still running. Wait for it to finish, then submit again.");
+    return callback();
+  });
+}
+/** Failed or abandoned records are retained; only a live capture lock blocks. */
+export function checkSubmissionEvidence(scope: EvidenceScope) { return reconcileEvidence(scope, true); }
+export async function reconcileEvidenceAcknowledgementsWithChanges(scope: EvidenceScope): Promise<{ records: EvidenceRecord[]; reconciled: EvidenceRecord[] }> {
+  const {records,reconciled} = await reconcileEvidence(scope, false); return {records,reconciled};
+}
+async function readServerEvidenceDraft(scope: EvidenceScope) {
+  const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, { headers: { "X-Cleaner-Draft-Identity": scope.draftIdentity }, cache: "no-store" });
+  const body = await response.json();
+  if (!response.ok || !body || typeof body !== "object" || !("draft" in body)) throw new Error(body?.error || "Saved evidence could not be checked. Retry when connected.");
+  return body.draft;
 }

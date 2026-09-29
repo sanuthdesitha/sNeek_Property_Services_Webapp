@@ -4,7 +4,7 @@ const store = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn() }));
 vi.mock("@/lib/cleaner/evidence-store", async original => ({
   ...await original<typeof import("@/lib/cleaner/evidence-store")>(), getEvidence: store.get, putEvidence: store.put,
 }));
-import { processEvidence, moveEvidence, cancelPendingEvidence } from "@/lib/cleaner/evidence-client";
+import { processEvidence, moveEvidence, cancelPendingEvidence, withEvidenceSubmissionLock } from "@/lib/cleaner/evidence-client";
 const scope = { jobId: "job", draftIdentity: "actor", templateId: "template", formRevision: "revision" };
 const receipt = { key: "forms/cleaner/file.jpg", url: "https://media.invalid/file.jpg", kind: "image" as const };
 let record: EvidenceRecord; let saved: EvidenceRecord; let fetcher: ReturnType<typeof vi.fn>;
@@ -16,7 +16,7 @@ beforeEach(() => {
   saved = record;
   store.get.mockReset().mockImplementation(async () => saved);
   store.put.mockReset().mockImplementation(async row => { saved = row; });
-  Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_: string, callback: () => Promise<unknown>) => callback() } });
+  Object.defineProperty(navigator, "locks", { configurable: true, value: { request: async (_: string, options: any, callback?: any) => (callback ?? options)({}) } });
   fetcher = vi.fn(async () => new Response(JSON.stringify({ ok: true, captureId: "capture", key: receipt.key })));
   vi.stubGlobal("fetch", fetcher);
 });
@@ -166,4 +166,19 @@ describe("durable evidence receipt recovery", () => {
     Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
     await expect(processEvidence(record, scope, vi.fn())).rejects.toThrow("coordinate");
   });
+});
+
+it("refuses upload admission while the job submission lock is held without sending bytes", async () => {
+  Object.defineProperty(navigator,"locks",{configurable:true,value:{request:async (_name:string,options:any,callback?:any)=>(callback ?? options)(null)}});
+  const upload=vi.fn();await expect(processEvidence(record,scope,upload)).rejects.toThrow("being submitted");expect(upload).not.toHaveBeenCalled();expect(store.put).not.toHaveBeenCalled();
+});
+it("refuses submission immediately when another tab owns an active upload job lock",async()=>{
+  Object.defineProperty(navigator,"locks",{configurable:true,value:{request:async (_name:string,options:any,callback:any)=>{expect(options).toEqual({mode:"exclusive",ifAvailable:true});return callback(null)}}});
+  const submit=vi.fn();await expect(withEvidenceSubmissionLock(scope,submit)).rejects.toThrow("upload is still running");expect(submit).not.toHaveBeenCalled();
+});
+it("keeps the exclusive job lock throughout asynchronous submission",async()=>{
+  let held=false;let release!:()=>void;const pending=new Promise<void>(resolve=>{release=resolve});
+  Object.defineProperty(navigator,"locks",{configurable:true,value:{request:async (_name:string,_options:any,callback:any)=>{held=true;try{return await callback({})}finally{held=false}}}});
+  const result=withEvidenceSubmissionLock(scope,async()=>{expect(held).toBe(true);await pending;expect(held).toBe(true);return "saved"});
+  await Promise.resolve();expect(held).toBe(true);release();expect(await result).toBe("saved");expect(held).toBe(false);
 });
