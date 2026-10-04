@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { assertHolidayRateSnapshots } from "@/lib/finance/holiday-rates";
 import { issueInvoiceNumber } from "@/lib/billing/invoice-sequence";
 import { markCleanerShoppingRunsInvoiced, stampShoppingSettlementsForCleanerInvoice } from "@/lib/inventory/shopping-runs";
 import { qaAssignmentPayeeWhere } from "@/lib/qa/ownership";
@@ -19,6 +20,7 @@ export async function claimCleanerInvoice(input: { cleanerId: string; requestId?
     if (retry) return { ...retry, reused: true };
     if (data.rows.length + data.extraLineRows.length + data.qaInspectionRows.length + data.expenseRows.length + data.shoppingTimeRows.length === 0) throw new Error("No uninvoiced work remains. Review your submitted invoices.");
     const ids = Array.from(new Set(data.rows.map(row => row.jobId))).sort();
+    await assertHolidayRateSnapshots(tx, ids);
     const priorJobs = new Set(previous.flatMap(row => Array.isArray((row.lineData as any)?.jobIds) ? (row.lineData as any).jobIds as string[] : []));
     if (ids.some(id => priorJobs.has(id))) throw new Error("Invoice work changed. Refresh before submitting.");
     for (const id of ids) await tx.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${id} FOR UPDATE`;

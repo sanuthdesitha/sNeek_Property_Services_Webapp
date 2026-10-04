@@ -843,6 +843,7 @@ export default async function AdminJobDetailPage({
 
   return (
     <div className="space-y-6">
+      <a className="inline-block rounded border p-2" href={`/admin/settings/holiday-rates?jobId=${job.id}`}>Review public holiday rates</a>
       <div className="flex items-center gap-2">
         <EButton asChild variant="ghost" size="icon"><Link href="/v2/admin/jobs" aria-label="Back to jobs board"><ArrowLeft className="h-4 w-4" /></Link></EButton>
         <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Jobs · {job.jobNumber}</span>

@@ -175,3 +175,5 @@ describe("generateClientInvoice — period basis decides the job window", () => 
     expect(data.lines.create[0].note).toContain("PROVISIONAL");expect(data.lines.create[1].note).toContain("Prior-period");
   });
 });
+
+vi.mock("@/lib/finance/holiday-rates", () => ({ assertHolidayRateSnapshots: vi.fn(async () => {}) }));

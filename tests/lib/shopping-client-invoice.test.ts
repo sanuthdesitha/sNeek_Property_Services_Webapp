@@ -36,3 +36,5 @@ it("one minute at $100/hour invoices and exports the frozen $1.67 without rounde
  const csv = await buildClientInvoiceXeroCsv({ ...invoice, client: { name: "Client" }, createdAt: new Date("2026-09-22"), lines: [line] });
  expect(csv).toContain('"1.00","1.67"');
 });
+
+vi.mock("@/lib/finance/holiday-rates", () => ({ assertHolidayRateSnapshots: vi.fn(async () => {}) }));

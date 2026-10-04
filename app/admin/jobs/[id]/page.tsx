@@ -1090,6 +1090,7 @@ export default function JobDetailPage() {
 
   return (
     <div className="space-y-6">
+      <a className="inline-block rounded border p-2" href={`/admin/settings/holiday-rates?jobId=${job.id}`}>Review public holiday rates</a>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="icon" asChild>
           <Link href="/admin/jobs" aria-label="Back to jobs">

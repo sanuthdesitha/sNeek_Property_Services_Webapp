@@ -12,6 +12,7 @@ import { calculateShoppingAwareInvoiceTotals } from "./shopping-client-charges";
 import { shoppingXeroMapping } from "@/lib/finance/shopping-accounting";
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 import { computeClientCharge } from "@/lib/finance/job-money";
+import { assertHolidayRateSnapshots } from "@/lib/finance/holiday-rates";
 import { issueInvoiceNumber } from "@/lib/billing/invoice-sequence";
 import { buildMaintenanceInvoiceLines } from "@/lib/billing/maintenance-billing";
 import { groupInvoiceLines, shouldGroupInvoice } from "@/lib/billing/invoice-grouping";
@@ -496,6 +497,7 @@ export async function generateClientInvoice(input: {
     // Serialize job claims by client, then recheck the snapshot after waiting.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`client-invoice:${client.id}`}))`;
     const jobIds = lines.map(line => line.jobId).filter((id): id is string => Boolean(id));
+    await assertHolidayRateSnapshots(tx, jobIds, Object.fromEntries(unInvoicedJobs.map(job => [job.id, job.updatedAt])));
     if (jobIds.length && await tx.clientInvoiceLine.findFirst({ where: {
       jobId: { in: jobIds }, invoice: { clientId: client.id, status: { not: ClientInvoiceStatus.VOID } },
     }, select: { id: true } })) {

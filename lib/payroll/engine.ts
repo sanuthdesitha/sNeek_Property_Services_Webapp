@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { assertHolidayRateSnapshots } from "@/lib/finance/holiday-rates";
 import { PayrollRunStatus, PayoutStatus, PayoutMethod, Role, PayAdjustmentStatus } from "@prisma/client";
 import { getPayrollSummary } from "@/lib/finance/payroll";
 
@@ -158,6 +159,7 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
       if (cleaner.jobs.some(job => invoiced.has(job.id))) throw new Error("Some work is already reserved on a cleaner invoice. Reconcile before creating payroll.");
     }
 
+    await assertHolidayRateSnapshots(tx, includedJobIds, Object.fromEntries(payableCleaners.flatMap(cleaner => cleaner.jobs.map(job => [job.id, job.updatedAt]))));
     const createdRun = await tx.payrollRun.create({
       data: {
         periodStart: new Date(`${input.periodStart}T00:00:00+10:00`),

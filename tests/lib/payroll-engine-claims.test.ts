@@ -13,3 +13,12 @@ it.each(['shopping','job','adjustment','qa'] as const)('rolls back run and payou
 it('rejects work already reserved by the same payee invoice',async()=>{m.invoices.mockResolvedValue([{cleanerId:'a',lineData:{jobIds:['job-a']}}]);await expect(create()).rejects.toThrow('reserved on a cleaner invoice');expect(m.run).not.toHaveBeenCalled();});
 it('does not confuse other payee or legacy metadata with current job claims',async()=>{m.invoices.mockResolvedValue([{cleanerId:'b',lineData:{jobIds:['job-a']}},{cleanerId:'a',lineData:null}]);await expect(create()).resolves.toEqual({id:'run'});});
 it('locks multiple payees in deterministic order before claims',async()=>{m.summary.mockResolvedValue([cleaner('b'),cleaner('a')]);m.users.mockResolvedValue([{id:'a'},{id:'b'}]);m.job.mockResolvedValue({count:2});m.adjustment.mockResolvedValue({count:2});await create();expect(m.lock.mock.calls.map(call=>call[1])).toEqual(['a','b']);});
+
+vi.mock("@/lib/finance/holiday-rates", () => ({ assertHolidayRateSnapshots: vi.fn(async () => {}) }));
+
+import { assertHolidayRateSnapshots } from "@/lib/finance/holiday-rates";
+it("rejects a stale holiday snapshot before creating payroll or payouts", async () => {
+ vi.mocked(assertHolidayRateSnapshots).mockRejectedValueOnce(new Error("Holiday snapshot changed"));
+ await expect(create()).rejects.toThrow("Holiday snapshot changed");
+ expect(m.run).not.toHaveBeenCalled(); expect(m.payout).not.toHaveBeenCalled();
+});

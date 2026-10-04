@@ -41,6 +41,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
 
   return (
     <div className="space-y-6">
+      <a className="inline-block rounded border p-2" href="/admin/settings/holiday-rates">Public holiday rates</a>
       <PageHeader
         icon={<Settings />}
         title="Settings"

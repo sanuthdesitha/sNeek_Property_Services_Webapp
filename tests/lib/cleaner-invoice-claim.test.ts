@@ -69,3 +69,12 @@ it.each(['jobs','adjustments','qa','shopping'] as const)('does not substitute an
  if(stream==='shopping'){data.expenseRows=[{runId:'run',amount:20}];m.shoppingCount.mockImplementation(rejectInvalidVersion);}
  await expect(claim()).rejects.toThrow('Invalid Date rejected');expect(events.at(-1)).toBe('rollback');expect(events).not.toContain('commit');
 });
+
+vi.mock("@/lib/finance/holiday-rates", () => ({ assertHolidayRateSnapshots: vi.fn(async () => {}) }));
+
+import { assertHolidayRateSnapshots } from "@/lib/finance/holiday-rates";
+it("stops invoice claims when a holiday snapshot has drifted", async () => {
+ vi.mocked(assertHolidayRateSnapshots).mockRejectedValueOnce(new Error("Holiday snapshot changed"));
+ await expect(claim()).rejects.toThrow("Holiday snapshot changed");
+ expect(m.create).not.toHaveBeenCalled(); expect(events.at(-1)).toBe("rollback");
+});
