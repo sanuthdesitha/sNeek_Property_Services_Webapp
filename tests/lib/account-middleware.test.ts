@@ -7,6 +7,11 @@ import middleware from "@/middleware";
 const id = "a".repeat(32);
 const request = (path: string, headers: Record<string, string> = {}, method = "GET") => new NextRequest(`https://example.invalid${path}`, { headers, method });
 const event = {} as any;
+it.each(["/sw.js", "/workbox-abc123.js", "/worker-abc123.js"])("serves worker infrastructure without a scoped redirect: %s", async path => {
+ const response = await middleware(request(path, { referer: `https://example.invalid/_accounts/${id}/v2/cleaner` }), event);
+ expect(response.headers.get("location")).toBeNull();
+ expect(response.headers.get("x-middleware-next")).toBe("1");
+});
 beforeEach(() => vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ valid: true, id: "cleaner", role: "CLEANER", heldRoles: ["CLEANER"], defaultPortalVersion: "v2" }), { status: 200 }))));
 afterEach(() => vi.unstubAllGlobals());
 it("strips spoofed context from unscoped requests before forwarding", async () => {

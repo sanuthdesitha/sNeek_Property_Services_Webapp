@@ -14,6 +14,8 @@
 
 export {};
 
+import "./retained-cache-upgrade";
+
 declare const self: ServiceWorkerGlobalScope;
 
 type PushPayload = {

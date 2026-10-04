@@ -316,6 +316,11 @@ export default async function middleware(original: NextRequest, event: NextFetch
   if (!["http", "https"].includes(publicProtocol)) return NextResponse.json({ error: "Invalid origin" }, { status: 400 });
   const publicOrigin = new URL(`${publicProtocol}://${publicHost}`).origin;
   const path = original.nextUrl.pathname;
+  // Worker scripts are public infrastructure. Redirecting registration into a
+  // retained account path prevents updates in browsers with scoped tabs open.
+  if (/^\/(?:sw\.js|workbox-[\w-]+\.js|worker-[\w-]+\.js)$/.test(path)) {
+    return NextResponse.next({ request: { headers } });
+  }
   const context = readAccountPath(path);
   if (path.startsWith(ACCOUNT_PATH_PREFIX) && !context) return NextResponse.json({ error: "Invalid account context" }, { status: 400 });
   if (!context) {

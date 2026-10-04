@@ -1,4 +1,5 @@
 import withPWAInit from "@ducanh2912/next-pwa";
+import retainedCacheRules from "./lib/auth/retained-cache-rules.cjs";
 
 function normalizeAllowedOrigin(value) {
   if (!value || typeof value !== "string") return null;
@@ -90,14 +91,7 @@ const withPWA = withPWAInit({
   workboxOptions: {
     disableDevLogs: true,
     runtimeCaching: [
-      {
-        // Retained identity and revocation must be checked online on every
-        // request; the default page/API cache must never replay these sessions.
-        urlPattern: ({ sameOrigin, url: { pathname } }) => sameOrigin &&
-          (pathname.startsWith("/_accounts/") || pathname === "/accounts" || pathname.startsWith("/api/auth/retained")),
-        handler: "NetworkOnly",
-        method: "GET",
-      },
+      ...retainedCacheRules,
       {
         urlPattern: /^\/api\/cleaner\/jobs/i,
         handler: "NetworkFirst",
