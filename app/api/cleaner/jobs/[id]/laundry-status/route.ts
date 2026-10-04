@@ -1,3 +1,4 @@
+import { savedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
 import { NextRequest, NextResponse } from "next/server";
 import { cleanerBagBaseline } from "@/lib/laundry/quantity-baseline";
 import { JobStatus, Role } from "@prisma/client";
@@ -177,6 +178,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({
       ok: true,
       recordedLaundryBagCount: cleanerBagBaseline(recordedConfirmations)?.count ?? null,
+      savedUpdate: savedCleanerLaundryUpdate(recordedConfirmations),
       duplicated: result.duplicated,
       status: result.laundryTask?.status ?? null,
       updatedAt: result.laundryTask?.updatedAt ?? null,

@@ -1,4 +1,5 @@
 "use client";
+import { savedLaundrySignature, type SavedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
 import { parseLaundryBagCountInput } from "@/lib/laundry/bag-count";
 
 /**
@@ -227,6 +228,22 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   const [laundrySentSnapshot, setLaundrySentSnapshot] = React.useState<string | null>(null);
   const [laundryEditingAfterSend, setLaundryEditingAfterSend] = React.useState(false);
 
+  const [laundryReceiptId, setLaundryReceiptId] = React.useState<string | null>(null);
+  const restoreLaundryReceipt = React.useCallback((receipt: SavedCleanerLaundryUpdate, preserveEdits = false) => {
+    setLaundryReceiptId(receipt.id);
+    setLaundryEarlySentAt(new Date(receipt.recordedAt).toLocaleString("en-AU", { timeZone: "Australia/Sydney", dateStyle: "medium", timeStyle: "short" }) + " Sydney");
+    setLaundrySentSnapshot(savedLaundrySignature(receipt));
+    setLaundryRecordedCount(receipt.outcome === "READY_FOR_PICKUP" ? (receipt.bagCount ? Number(receipt.bagCount) : null) : undefined);
+    setLaundryEditingAfterSend(preserveEdits);
+    if (preserveEdits) return;
+    setLaundryOutcome(receipt.outcome);
+    setLaundryBagLocation(receipt.bagLocation);
+    setLaundryBagCount(receipt.bagCount);
+    setLaundrySkipCode(receipt.skipCode);
+    setLaundrySkipNote(receipt.skipNote);
+    setLaundryPhoto(receipt.photoKey ? [{ key: receipt.photoKey, url: receipt.photoUrl ?? "", kind: "image" }] : []);
+  }, []);
+
   async function sendLaundryEarlyUpdate() {
     if (!laundryOutcome) return;
     try { onlineAction.begin("Laundry update"); } catch (error: any) { setLaundryEarlyNotice({ tone: "danger", text: error.message }); return; }
@@ -248,26 +265,22 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         ? (Number.isInteger(body.recordedLaundryBagCount) && Number(body.recordedLaundryBagCount) >= 1 && Number(body.recordedLaundryBagCount) <= 50 ? Number(body.recordedLaundryBagCount) : null)
         : undefined;
       if (savedCount !== undefined) setLaundryRecordedCount(savedCount);
-      setLaundryEarlySentAt(
-        new Date().toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })
-      );
-      // Snapshot exactly what was sent. Submit compares against this so an
-      // unchanged early-sent update is NOT transmitted a second time (v1 locks
-      // the card after sending; v2 previously re-sent the whole block on submit).
-      setLaundrySentSnapshot(
-        JSON.stringify({
-          laundryOutcome,
-          bagLocation: laundryBagLocation.trim(),
-          bagCount: savedCount === undefined ? laundryBagCount : String(savedCount ?? ""),
-          photoKey: laundryPhoto[0]?.key ?? null,
-          skipCode: laundryOutcome === "READY_FOR_PICKUP" ? null : laundrySkipCode,
-          skipNote: laundrySkipNote.trim(),
-        }),
-      );
-      setLaundryEditingAfterSend(false);
+      const receipt = body.savedUpdate as SavedCleanerLaundryUpdate | null | undefined;
+      const unchanged = receipt ? savedLaundrySignature(receipt) === laundryCurrentSignature : false;
+      if (receipt) restoreLaundryReceipt(receipt, Boolean(body.duplicated) && !unchanged);
+      else {
+        // Older server/action receipts contain no timestamp: never invent one.
+        const response = await fetch(`/api/jobs/${jobId}/form`, { cache: "no-store" });
+        const current = response.ok ? await response.json() : null;
+        if (current?.draftIdentity === draftIdentity && current.laundryState?.savedUpdate) {
+          restoreLaundryReceipt(current.laundryState.savedUpdate, true);
+        }
+      }
       const deliveryWarning = typeof body.deliveryWarning === "string" ? body.deliveryWarning.trim() : "";
       setLaundryEarlyNotice(deliveryWarning ? { tone: "danger", text: deliveryWarning }
-        : { tone: "success", text: body.duplicated ? "Laundry update already saved." : "Laundry update saved." });
+        : body.duplicated && receipt && !unchanged
+          ? { tone: "danger", text: "The previous laundry update is still saved. These edits were not sent. Contact the office to correct a confirmed pickup." }
+          : { tone: "success", text: body.duplicated ? "Laundry update already saved." : "Laundry update saved." });
     } catch (e: any) {
       actionError = e;
       setLaundryEarlyNotice({ tone: "danger", text: e?.message ?? "Could not send the update." });
@@ -518,6 +531,12 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
               updatedByName: typeof envelope?.updatedByName === "string" ? envelope.updatedByName : null,
             });
           }
+          const savedUpdate = data.laundryState?.savedUpdate as SavedCleanerLaundryUpdate | null | undefined;
+          if (savedUpdate) {
+            // Only an explicit edit based on this receipt can supersede its fields.
+            // Older/pre-send drafts must never erase the committed update.
+            restoreLaundryReceipt(savedUpdate, merged?.laundry?.editingAfterSend === true && merged?.laundry?.receiptId === savedUpdate.id);
+          }
           draftHydratedRef.current = true;
         } catch {
           if (!isCurrent()) return;
@@ -536,7 +555,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, [jobId, draftIdentity, restoreDraftState, resetDraftSave]);
+  }, [jobId, draftIdentity, restoreDraftState, resetDraftSave, restoreLaundryReceipt]);
 
   React.useEffect(() => {
     void load();
@@ -794,6 +813,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       taskDrafts,
       bulkPool,
       laundry: {
+        receiptId: laundryReceiptId,
+        editingAfterSend: laundryEditingAfterSend,
         outcome: laundryOutcome,
         bagLocation: laundryBagLocation,
         bagCount: laundryBagCount,
@@ -812,6 +833,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       uploads,
       taskDrafts,
       bulkPool,
+      laundryReceiptId,
+      laundryEditingAfterSend,
       laundryOutcome,
       laundryBagLocation,
       laundryBagCount,

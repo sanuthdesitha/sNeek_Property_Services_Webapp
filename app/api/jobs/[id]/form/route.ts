@@ -1,3 +1,4 @@
+import { savedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
 import { NextRequest, NextResponse } from "next/server";
 import { cleanerBagBaseline, recordedCleanerReadiness } from "@/lib/laundry/quantity-baseline";
 import { requireRole } from "@/lib/auth/session";
@@ -613,6 +614,7 @@ export async function GET(
       laundryState: job.laundryTask
         ? {
             status: job.laundryTask.status,
+            savedUpdate: savedCleanerLaundryUpdate(job.laundryTask.confirmations),
             recordedLaundryBagCount: cleanerBagBaseline([...job.laundryTask.confirmations].reverse())?.count ?? null,
             readinessBaselineRecorded: recordedCleanerReadiness([...job.laundryTask.confirmations].reverse()) !== null,
             noPickupRequired: job.laundryTask.noPickupRequired,

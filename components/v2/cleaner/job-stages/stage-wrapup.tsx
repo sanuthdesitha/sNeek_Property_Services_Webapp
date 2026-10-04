@@ -110,7 +110,7 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
             <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2.5 text-left">
               <p className="text-[0.8125rem]">
                 Your quality score is{" "}
-                <span className="font-[600]">pending review</span> — you'll see it in
+                <span className="font-[600]">pending review</span> — you&apos;ll see it in
                 My performance.
               </p>
             </div>
@@ -248,12 +248,15 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                   ) : null}
                   {api.laundryEarlySentAt ? (
                     <div className="flex gap-1.5">
-                      <dt className="text-[hsl(var(--e-muted-foreground))]">Sent:</dt>
+                      <dt className="text-[hsl(var(--e-muted-foreground))]">Recorded:</dt>
                       <dd className="font-[550]">{api.laundryEarlySentAt}</dd>
                     </div>
                   ) : null}
                   {api.laundryOutcome === "READY_FOR_PICKUP" ? <div className="flex gap-1.5"><dt>Bags ready:</dt><dd>{api.laundryBagCount || "Not recorded"}</dd></div> : null}
+                  {api.laundryOutcome !== "READY_FOR_PICKUP" ? <div className="flex gap-1.5"><dt>Reason:</dt><dd>{api.laundrySkipNote || api.laundrySkipCode.replaceAll("_", " ").toLowerCase()}</dd></div> : null}
                 </dl>
+                {api.laundryPhoto[0]?.url ? <a href={api.laundryPhoto[0].url} target="_blank" rel="noopener noreferrer" className="text-sm underline">View saved laundry photo</a> : null}
+                <p className="text-xs text-[hsl(var(--e-muted-foreground))]">This is the saved update receipt. Notification delivery is tracked separately.</p>
                 <EButton variant="outline" size="sm" disabled={locked} onClick={api.beginLaundryEdit}>
                   Edit update
                 </EButton>
@@ -350,7 +353,7 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                     Linen ready before the form is done? Send this status to the laundry team now.
-                    {api.laundryEarlySentAt ? ` Last sent ${api.laundryEarlySentAt}.` : ""}
+                    {api.laundryEarlySentAt ? ` Last recorded ${api.laundryEarlySentAt}.` : ""}
                   </p>
                   <EButton
                     variant="outline"

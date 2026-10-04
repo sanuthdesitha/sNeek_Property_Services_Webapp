@@ -1,4 +1,5 @@
 import "server-only";
+import { withLaundryAreaEvidence } from "./laundry-area";
 import type { JobType } from "@prisma/client";
 import { collectRotationalItems, filterRotationalSchema } from "@/lib/accountability/rotation-schema";
 import { db } from "@/lib/db";
@@ -35,6 +36,7 @@ export async function resolveEffectiveJobForm(
       ? { id: "additionals-only", name: "Job additionals", serviceType: job.jobType,
           schema: assembleJobForm(null, jobMeta.additionals) }
       : null;
+  if (template && selected) template = { ...template, schema: withLaundryAreaEvidence(template.schema, job) };
   const fullRotationSections = (template?.schema as any)?.sections ?? [];
   const rotationalItems = collectRotationalItems(template?.schema);
   if (template && rotationalItems.length > 0 && !job.isRework) {

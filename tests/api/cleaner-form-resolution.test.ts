@@ -69,6 +69,14 @@ beforeEach(() => {
 });
 
 describe("real form read resolution", () => {
+  it("rehydrates the cleaner receipt after later driver confirmations without modifying history", async () => {
+    const confirmation = { id: "original", createdAt: new Date("2026-10-04T03:06:00Z"), bagLocation: "Shelf", s3Key: "laundry/photo.jpg", photoUrl: "/photo.jpg", notes: JSON.stringify({ source: "EARLY_UPDATE", laundryOutcome: "READY_FOR_PICKUP", bagCount: 2, unit: "bags" }) };
+    job.laundryTask = { status: "PICKED_UP", confirmations: [{ ...confirmation, id: "driver", createdAt: new Date("2026-10-05T00:00:00Z"), notes: JSON.stringify({ source: "PICKUP" }) }, confirmation] };
+    const { response, body } = await read();
+    expect(response.status).toBe(200);
+    expect(body.laundryState.savedUpdate).toMatchObject({ id: "original", recordedAt: "2026-10-04T03:06:00.000Z", photoKey: "laundry/photo.jpg", bagCount: "2" });
+    expect(job.laundryTask.confirmations).toHaveLength(2);
+  });
   it("selects floorCount and fingerprints the same visible property projection used by submission", async () => {
     const schema = { standardSections: false, sections: [{ id: "stairs", fields: [
       { id: "stairs-note", type: "text", required: true, conditional: { propertyField: "floorCount", value: 2 } },

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/cleaner/jobs/[id]/laundry-status/route";
-const m = vi.hoisted(() => ({ session: vi.fn(), assignment: vi.fn(), job: vi.fn(), property: vi.fn(), time: vi.fn(), draft: vi.fn(), update: vi.fn(), query: vi.fn(), lock: vi.fn(), revision: vi.fn(), effective: vi.fn() }));
+const m = vi.hoisted(() => ({ session: vi.fn(), assignment: vi.fn(), job: vi.fn(), property: vi.fn(), time: vi.fn(), draft: vi.fn(), update: vi.fn(), query: vi.fn(), lock: vi.fn(), revision: vi.fn(), effective: vi.fn(), confirmations: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.session }));
 vi.mock("@/lib/db", () => ({ db: {} }));
 vi.mock("@/lib/cleaner/draft-identity", () => ({ cleanerDraftIdentity: () => "identity" }));
@@ -15,11 +15,12 @@ vi.mock("@/lib/jobs/meta", () => ({ parseJobInternalNotes: () => ({}) }));
 vi.mock("@/lib/forms/final-checkup", () => ({ guestSummaryFromReservation: () => ({}), resolveFinalCheckupItems: () => [] }));
 vi.mock("@/lib/app-url", () => ({ resolveAppUrl: () => "https://example.invalid/laundry" }));
 const revision = "a".repeat(64);
-const tx = { $queryRaw: m.query, user: { findUnique: async () => ({ isActive: true, role: "CLEANER", extraRoles: [] }) }, laundryConfirmation: { findMany: async () => [] }, jobAssignment: { findFirst: m.assignment }, job: { findUnique: m.job }, property: { findUnique: m.property }, timeLog: { findFirst: m.time } };
+const tx = { $queryRaw: m.query, user: { findUnique: async () => ({ isActive: true, role: "CLEANER", extraRoles: [] }) }, laundryConfirmation: { findMany: m.confirmations }, jobAssignment: { findFirst: m.assignment }, job: { findUnique: m.job }, property: { findUnique: m.property }, timeLog: { findFirst: m.time } };
 const request = (patch = {}, identity: string | null = "identity") => new NextRequest("http://localhost/api/cleaner/jobs/job/laundry-status", { method: "POST", headers: { "Content-Type": "application/json", ...(identity ? { "X-Cleaner-Draft-Identity": identity } : {}) }, body: JSON.stringify({ laundryOutcome: "READY_FOR_PICKUP", bagLocation: "Gate", laundryPhotoKey: "key", formRevision: revision, ...patch }) });
 const context = { params: { id: "job" } };
 beforeEach(() => {
   vi.resetAllMocks();
+  m.confirmations.mockResolvedValue([]);
   m.session.mockResolvedValue({ user: { id: "cleaner", role: "CLEANER" } });
   m.assignment.mockResolvedValue({ id: "assigned" }); m.time.mockResolvedValue({ id: "time" });
   m.job.mockResolvedValue({ id: "job", propertyId: "property", status: "IN_PROGRESS", jobType: "AIRBNB_TURNOVER", isRework: false, property: { laundryEnabled: true } });
@@ -30,6 +31,12 @@ beforeEach(() => {
   m.update.mockResolvedValue({ duplicated: false, laundryTask: { status: "CONFIRMED" } });
 });
 describe("early laundry evidence authorization", () => {
+  it("returns the original persisted payload and timestamp on duplicate, not the requested edits", async () => {
+    m.update.mockResolvedValue({ duplicated: true, laundryTask: { id: "task", status: "CONFIRMED" } });
+    m.confirmations.mockResolvedValue([{ id: "original", createdAt: new Date("2026-10-04T03:06:00Z"), bagLocation: "Original shelf", s3Key: "original-key", photoUrl: "/original.jpg", notes: JSON.stringify({ source: "EARLY_UPDATE", laundryOutcome: "READY_FOR_PICKUP", bagCount: 2, unit: "bags" }) }]);
+    const response = await POST(request(), context);
+    expect(await response.json()).toMatchObject({ duplicated: true, savedUpdate: { id: "original", recordedAt: "2026-10-04T03:06:00.000Z", bagLocation: "Original shelf", photoKey: "original-key", bagCount: "2" } });
+  });
   it("checks and writes inside the same transaction, with notification work after commit", async () => {
     let inside = false; const notify = vi.fn(() => { expect(inside).toBe(false); return Promise.resolve(); });
     m.lock.mockImplementation(async (_: string, run: (tx: unknown) => unknown) => { inside = true; const result = await run(tx); inside = false; return result; });

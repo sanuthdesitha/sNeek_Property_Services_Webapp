@@ -74,6 +74,8 @@ export interface JobQuoteReferenceImage {
 
 export interface JobMeta {
   version: 1;
+  /** Form contract adopted only when a new residential job is created. */
+  laundryAreaEvidenceVersion?: 1;
   internalNoteText: string;
   isDraft: boolean;
   tags: string[];
@@ -450,6 +452,7 @@ export function parseJobInternalNotes(raw: string | null | undefined): JobMeta {
 
     return {
       version: 1,
+      laundryAreaEvidenceVersion: parsed.laundryAreaEvidenceVersion === 1 ? 1 : undefined,
       internalNoteText:
         typeof parsed.internalNoteText === "string"
           ? parsed.internalNoteText
@@ -534,6 +537,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
   };
 
   const hasStructuredData =
+    meta.laundryAreaEvidenceVersion === 1 ||
     meta.isDraft ||
     meta.tags.length > 0 ||
     meta.attachments.length > 0 ||
@@ -564,6 +568,7 @@ export function serializeJobInternalNotes(input: Partial<JobMeta> & { internalNo
 
   return JSON.stringify({
     version: 1,
+    ...(meta.laundryAreaEvidenceVersion === 1 ? { laundryAreaEvidenceVersion: 1 } : {}),
     internalNoteText: meta.internalNoteText.trim(),
     isDraft: meta.isDraft,
     tags: meta.tags,

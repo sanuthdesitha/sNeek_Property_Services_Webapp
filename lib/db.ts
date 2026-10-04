@@ -1,4 +1,5 @@
 import "server-only";
+import { markNewJobLaundryArea } from "@/lib/forms/laundry-area";
 import type { PrismaClient as PrismaClientType } from "@prisma/client";
 import { markMobileOutboxRows } from "@/lib/notifications/mobile-outbox-marker";
 import { canUseNodePrisma, getDatabaseUrl, isEdgeLikeRuntime } from "@/lib/database-runtime";
@@ -66,6 +67,14 @@ function registerNotificationMiddleware(prisma: PrismaClientType) {
     // transaction. A dedicated worker dispatches committed rows afterward.
     if (params.model === "Notification" && ["create", "createMany"].includes(params.action)) {
       params.args.data = markMobileOutboxRows(params.args.data);
+    }
+    // Stamp the new job's form version in its own transaction. No template,
+    // existing-job or draft writes are performed by this rollout.
+    if (params.model === "Job") {
+      if (params.action === "create") params.args.data = markNewJobLaundryArea(params.args.data);
+      if (params.action === "createMany") params.args.data = Array.isArray(params.args.data)
+        ? params.args.data.map(markNewJobLaundryArea) : markNewJobLaundryArea(params.args.data);
+      if (params.action === "upsert") params.args.create = markNewJobLaundryArea(params.args.create);
     }
     return next(params);
   });

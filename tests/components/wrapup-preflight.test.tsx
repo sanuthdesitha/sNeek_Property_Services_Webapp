@@ -14,6 +14,17 @@ function api(patch: Partial<WorkspaceApi> = {}): WorkspaceApi {
     requestSubmit: vi.fn(), setActiveStage: vi.fn(), ...patch } as unknown as WorkspaceApi;
 }
 describe("wrap-up preflight panel", () => {
+  it("shows the saved server time and photo and only edits after an explicit click", () => {
+    const model = api({ laundryEnabled: true, laundryLocked: true, laundryOutcome: "READY_FOR_PICKUP", laundryBagLocation: "Shelf", laundryBagCount: "2", laundryEarlySentAt: "4 Oct 2026, 2:06 pm Sydney", laundryPhoto: [{ key: "photo.jpg", url: "/saved-photo.jpg", kind: "image" }], beginLaundryEdit: vi.fn(), sendLaundryEarlyUpdate: vi.fn() });
+    render(<StageWrapup api={model} />);
+    expect(screen.getByText("Laundry update saved")).toBeInTheDocument();
+    expect(screen.getByText("4 Oct 2026, 2:06 pm Sydney")).toBeInTheDocument();
+    expect(screen.getByText("Recorded:")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View saved laundry photo" })).toHaveAttribute("href", "/saved-photo.jpg");
+    fireEvent.click(screen.getByRole("button", { name: "Edit update" }));
+    expect(model.beginLaundryEdit).toHaveBeenCalledOnce();
+    expect(model.sendLaundryEarlyUpdate).not.toHaveBeenCalled();
+  });
   it("keeps unassigned and unused evidence explicit until acknowledged removal", () => {
     const media = { key: "key", url: "/key", kind: "image" as const };
     render(<StageWrapup api={api({ bulkPool: [media], laundryPhoto: [media], carryPhotos: [media] })} />);

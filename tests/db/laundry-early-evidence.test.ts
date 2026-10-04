@@ -66,9 +66,14 @@ describe.skipIf(!databaseUrl)("early laundry handoff with real draft/job locks",
   afterAll(async () => { await m.client?.$disconnect(); });
 
   it("commits one confirmation through the real service and makes duplicate retries idempotent", async () => {
-    expect((await POST(request(), { params: { id } })).status).toBe(200);
+    const first = await POST(request(), { params: { id } });
+    expect(first.status).toBe(200);
+    const receipt = (await first.json()).savedUpdate;
+    expect(receipt).toMatchObject({ bagLocation: "Fixture gate", photoKey: "fixture-key", outcome: "READY_FOR_PICKUP" });
     expect(await m.client.laundryConfirmation.count({ where: { laundryTaskId: id, s3Key: "fixture-key" } })).toBe(1);
-    expect((await POST(request(), { params: { id } })).status).toBe(200);
+    const second = await POST(request(), { params: { id } });
+    expect(second.status).toBe(200);
+    expect((await second.json()).savedUpdate).toEqual(receipt);
     expect(await m.client.laundryConfirmation.count({ where: { laundryTaskId: id } })).toBe(1);
     expect(m.deliver).toHaveBeenCalledOnce(); // Mock only: no network/provider integration.
   });

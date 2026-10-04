@@ -32,3 +32,19 @@ it("propagates failed transaction persistence without delivery or retry",async()
 it("registers middleware once when the cached client is reused",async()=>{
  vi.resetModules();await import("@/lib/db");expect(use).toHaveBeenCalledOnce();
 });
+
+it.each(["create", "createMany", "upsert"])("versions only newly created residential jobs (%s), leaving updates and templates intact", async action => {
+ const data = { jobType: "AIRBNB_TURNOVER", internalNotes: "Keep this note", formTemplateId: "property-specific" };
+ const args = action === "upsert" ? { create: data, update: { internalNotes: "Existing job" } } : { data: action === "createMany" ? [data] : data };
+ const params = { model: "Job", action, args };
+ const next = vi.fn(async input => input);
+ await middleware(params, next);
+ const result = action === "upsert" ? (params.args as any).create : action === "createMany" ? (params.args as any).data[0] : (params.args as any).data;
+ expect(JSON.parse(result.internalNotes)).toMatchObject({ internalNoteText: "Keep this note", laundryAreaEvidenceVersion: 1 });
+ expect(result.formTemplateId).toBe("property-specific");
+ if (action === "upsert") expect((params.args as any).update).toEqual({ internalNotes: "Existing job" });
+ expect(data.internalNotes).toBe("Keep this note");
+ const update = { model: "Job", action: "update", args: { data } };
+ await middleware(update, next);
+ expect(update.args.data).toBe(data);
+});

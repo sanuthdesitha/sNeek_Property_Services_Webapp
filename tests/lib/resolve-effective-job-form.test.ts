@@ -118,3 +118,14 @@ it("fails closed when rotational state cannot be read on the caller transaction"
  await expect(resolveEffectiveJobForm(job, {}, { database: { formTemplate: { findMany: mocks.templates } } as any })).rejects.toThrow("Rotation state reader is unavailable");
  expect(mocks.rotation).not.toHaveBeenCalled(); expect(mocks.create).not.toHaveBeenCalled();
 });
+
+it("adds the versioned laundry-area field identically for read and submit, preserving the selected property template", async () => {
+  const input = { ...job, internalNotes: serializeJobInternalNotes({ additionals: extra, laundryAreaEvidenceVersion: 1 }) };
+  const read = await resolveEffectiveJobForm(input, {});
+  const submit = await resolveEffectiveJobForm(input, {}, { database: { formTemplate: { findMany: mocks.templates } } as any });
+  expect(read).toEqual(submit);
+  expect(read.persistedTemplateId).toBe("global");
+  expect(read.template?.schema.sections.at(-1)?.id).toBe("laundry-area-evidence-v1");
+  expect(read.template?.schema.sections.slice(0, -1)).toEqual(assembleJobForm(schema, extra).sections);
+  expect(mocks.create).not.toHaveBeenCalled();
+});

@@ -84,6 +84,10 @@ let fetchMock: ReturnType<typeof vi.fn>;
 let unexpected: string[];
 let currentStatus: string;
 let readDraft: () => Promise<Response>;
+const savedLaundry = (patch: Record<string, unknown> = {}) => ({
+  id: "laundry-receipt", recordedAt: "2026-10-04T03:06:00.000Z", outcome: "NOT_READY",
+  bagLocation: "", bagCount: "", photoKey: null, photoUrl: null, skipCode: "LINEN_STILL_WASHING", skipNote: "", ...patch,
+});
 let laundryResponse: Record<string, unknown>;
 let clockResponse: () => Promise<Response>;
 
@@ -95,7 +99,7 @@ beforeEach(() => {
   sessionStorage.clear();
   patches = []; formResponses = []; unexpected = []; currentStatus = "IN_PROGRESS";
   readDraft = () => Promise.resolve(json({ draft: null }));
-  laundryResponse = { ok: true };
+  laundryResponse = { ok: true, savedUpdate: savedLaundry() };
   clockResponse = () => Promise.resolve(json({ ok: true }));
   submitResponse = deferred<Response>(); gpsResponse = deferred();
   device.gps.mockReset().mockReturnValue(gpsResponse.promise);
@@ -154,6 +158,70 @@ async function submit() {
 }
 
 describe("real JobWorkspace draft lifecycle", () => {
+  it("restores the committed payload and original time after send, reload and a fresh second session; Edit preserves the receipt", async () => {
+    const receipt = savedLaundry({ outcome: "READY_FOR_PICKUP", bagCount: "2", bagLocation: "Shelf", photoKey: "laundry/photo.jpg", photoUrl: "/photo.jpg" });
+    laundryResponse = { ok: true, recordedLaundryBagCount: 2, savedUpdate: receipt };
+    let view = await mount();
+    fireEvent.click(screen.getByText("Prepare ready fixture"));
+    fireEvent.change(screen.getByLabelText("Fixture bags"), { target: { value: "2" } });
+    await act(async () => { fireEvent.click(screen.getByText("Send laundry fixture")); });
+    const originalTime = latestApi.laundryEarlySentAt;
+    expect(originalTime).toContain("2:06");
+    expect(latestApi.laundryLocked).toBe(true);
+    view.unmount();
+    // Even a stale pre-send mirror must not replace the canonical receipt.
+    localStorage.setItem(mirrorKey, localEnvelope({ laundry: { outcome: "NOT_READY", bagLocation: "Old place" } }));
+    const persisted = { ...form(), laundryState: { savedUpdate: receipt, readinessBaselineRecorded: true, recordedLaundryBagCount: 2 } };
+    formResponses.push(Promise.resolve(json(persisted)));
+    view = await mount();
+    expect(latestApi.laundryLocked).toBe(true);
+    expect(latestApi.laundryBagLocation).toBe("Shelf");
+    expect(latestApi.laundryPhoto[0].key).toBe(receipt.photoKey);
+    expect(latestApi.laundryEarlySentAt).toBe(originalTime);
+    view.unmount(); localStorage.clear(); sessionStorage.clear();
+    formResponses.push(Promise.resolve(json(persisted)));
+    view = await mount();
+    expect(latestApi.laundryLocked).toBe(true);
+    expect(latestApi.laundryEarlySentAt).toBe(originalTime);
+    await act(async () => { latestApi.beginLaundryEdit(); latestApi.setLaundryBagLocation("Edited shelf"); });
+    expect(latestApi.laundryLocked).toBe(false);
+    expect(latestApi.laundryEarlySentAt).toBe(originalTime);
+    await advance();
+    view.unmount();
+    formResponses.push(Promise.resolve(json(persisted)));
+    await mount();
+    expect(latestApi.laundryBagLocation).toBe("Edited shelf");
+    expect(latestApi.laundryLocked).toBe(false);
+    expect(latestApi.laundryEarlySentAt).toBe(originalTime);
+    expect(calls("/laundry-status", "POST")).toHaveLength(1);
+    // A duplicate response cannot claim that edited details have been sent.
+    laundryResponse = { ok: true, duplicated: true, recordedLaundryBagCount: 2, savedUpdate: receipt };
+    await act(async () => { fireEvent.click(screen.getByText("Send laundry fixture")); });
+    expect(latestApi.laundryEarlySentAt).toBe(originalTime);
+    expect(latestApi.laundryBagLocation).toBe("Edited shelf");
+    expect(latestApi.laundryLocked).toBe(false);
+    expect(screen.getByTestId("laundry-notice")).toHaveTextContent("These edits were not sent");
+  });
+  it("omits an unchanged restored early update from final submission", async () => {
+    const original = form();
+    const receipt = savedLaundry({ outcome: "READY_FOR_PICKUP", bagLocation: "Shelf", bagCount: "2", photoKey: "laundry/photo.jpg", photoUrl: "/photo.jpg" });
+    formResponses.push(Promise.resolve(json({ ...original, job: { ...original.job, jobType: "AIRBNB_TURNOVER", property: { ...original.job.property, laundryEnabled: true } }, laundryState: { savedUpdate: receipt, readinessBaselineRecorded: true, recordedLaundryBagCount: 2 } })));
+    await mount();
+    await act(async () => { latestApi.requestSubmit(); });
+    expect(calls("/submit", "POST")).toHaveLength(1);
+    const body = JSON.parse(calls("/submit", "POST")[0][1].body);
+    expect(body).not.toHaveProperty("laundryOutcome");
+    expect(calls("/laundry-status", "POST")).toHaveLength(0);
+  });
+  it.each(["NOT_READY", "NO_PICKUP_REQUIRED"])("restores saved %s without sending", async outcome => {
+    formResponses.push(Promise.resolve(json({ ...form(), laundryState: { savedUpdate: savedLaundry({ outcome, skipCode: "OTHER", skipNote: "No used linen" }) } })));
+    await mount();
+    expect(latestApi.laundryOutcome).toBe(outcome);
+    expect(latestApi.laundrySkipNote).toBe("No used linen");
+    expect(latestApi.laundryLocked).toBe(true);
+    expect(calls("/laundry-status", "POST")).toHaveLength(0);
+  });
+
   it.each([null, 4])("uses the canonical persisted baseline on reload (count=%s)", async count => {
     localStorage.setItem(mirrorKey, localEnvelope({ answers: {}, laundry: { outcome: "READY_FOR_PICKUP", bagCount: "9" } }));
     formResponses.push(Promise.resolve(json({ ...form(), laundryState: { readinessBaselineRecorded: true, recordedLaundryBagCount: count, latestConfirmation: { notes: "Driver comment" } } })));
@@ -162,7 +230,7 @@ describe("real JobWorkspace draft lifecycle", () => {
     expect(screen.getByLabelText("Fixture bags")).toBeDisabled();
   });
   it("retains the optional count in drafts and freezes the actual ready receipt on duplicate", async () => {
-    laundryResponse = { ok: true, duplicated: true, recordedLaundryBagCount: 2 };
+    laundryResponse = { ok: true, duplicated: true, recordedLaundryBagCount: 2, savedUpdate: savedLaundry({ outcome: "READY_FOR_PICKUP", bagCount: "2", bagLocation: "Shelf", photoKey: "laundry/photo.jpg", photoUrl: "/photo.jpg" }) };
     const view = await mount();
     fireEvent.click(screen.getByText("Prepare ready fixture"));
     fireEvent.change(screen.getByLabelText("Fixture bags"), { target: { value: "3" } });
@@ -182,6 +250,7 @@ describe("real JobWorkspace draft lifecycle", () => {
     expect(calls("/laundry-status", "POST")).toHaveLength(0);
     expect(screen.getByTestId("laundry-notice")).toHaveTextContent("whole number");
     fireEvent.change(screen.getByLabelText("Fixture bags"), { target: { value: "" } });
+    laundryResponse = { ok: true, savedUpdate: savedLaundry({ outcome: "READY_FOR_PICKUP", bagLocation: "Shelf", photoKey: "laundry/photo.jpg", photoUrl: "/photo.jpg" }) };
     await act(async () => { fireEvent.click(screen.getByText("Send laundry fixture")); });
     expect(JSON.parse(calls("/laundry-status", "POST")[0][1].body)).not.toHaveProperty("laundryBagCount");
     expect(screen.getByLabelText("Fixture bags")).toHaveValue("");
@@ -227,7 +296,7 @@ describe("real JobWorkspace draft lifecycle", () => {
   });
   it.each([false, true])("keeps acknowledged early laundry saved without claiming delivery (duplicate=%s)", async duplicated => {
     const warning = "Laundry update saved, but notification delivery could not be confirmed. Contact the office if urgent.";
-    laundryResponse = duplicated ? { ok: true, duplicated: true } : { ok: true, duplicated: false, deliveryWarning: warning };
+    laundryResponse = duplicated ? { ok: true, duplicated: true, savedUpdate: savedLaundry() } : { ok: true, duplicated: false, savedUpdate: savedLaundry(), deliveryWarning: warning };
     await mount();
     fireEvent.click(screen.getByRole("button", { name: "Prepare laundry fixture" }));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send laundry fixture" })); });
