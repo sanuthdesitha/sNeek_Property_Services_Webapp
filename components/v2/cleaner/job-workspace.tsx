@@ -153,6 +153,7 @@ interface JobTask {
   metadata?: { allowNotApplicable?: boolean };
 }
 interface TaskDraft {
+  missingPhotoReason?: string;
   decision: "OPEN" | "COMPLETED" | "NOT_COMPLETED" | "NOT_APPLICABLE";
   note: string;
   proof: CapturedMedia[];
@@ -385,6 +386,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
             decision:
               raw.decision === "COMPLETED" || raw.decision === "NOT_COMPLETED" || raw.decision === "NOT_APPLICABLE" ? raw.decision : "OPEN",
             note: typeof raw.note === "string" ? raw.note : "",
+            missingPhotoReason: typeof raw.missingPhotoReason === "string" ? raw.missingPhotoReason : undefined,
             proof: Array.isArray(raw.proof)
               ? (raw.proof.filter((m: any) => m && typeof m.key === "string") as CapturedMedia[])
               : [],
@@ -1325,6 +1327,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
           decision: (d.decision === "OPEN" ? "NOT_COMPLETED" : d.decision) as "COMPLETED" | "NOT_COMPLETED" | "NOT_APPLICABLE",
           note: d.note,
           proofKeys: d.proof.map((m) => m.key),
+          missingPhotoReason: d.missingPhotoReason?.trim() || undefined,
         };
       });
 

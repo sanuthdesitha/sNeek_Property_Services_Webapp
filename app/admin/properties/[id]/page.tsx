@@ -726,6 +726,7 @@ export default function PropertyDetailPage() {
         </Button>
         <div className="flex-1">
           <h2 className="text-2xl font-bold text-foreground">{property.name}</h2>
+          <Link className="underline" href={`/property-care?propertyId=${params.id}`}>Property memory and care</Link>
           <p className="text-sm text-muted-foreground">
             {property.address}, {property.suburb} - Client: {property.client?.name}
           </p>

@@ -509,7 +509,9 @@ function buildTasks(
       if (decision === "NOT_COMPLETED" || decision === "NOT_APPLICABLE") noteLabel = "Reason";
     }
 
+    if (task.missingPhotoReason && !rows.length && task.decision === "COMPLETED") { statusLabel = "Work reported complete — photo evidence missing"; statusTone = "bad"; noteLabel = "Work note"; }
     const metaParts: string[] = [];
+    if (task.missingPhotoReason && !rows.length) metaParts.push(`Missing photo: ${task.missingPhotoReason}`);
     if (variant === "admin") {
       if (task.requiresPhoto) metaParts.push("Photo proof required");
       if (task.requiresNote) metaParts.push("Note required");

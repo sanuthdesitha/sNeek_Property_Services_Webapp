@@ -511,3 +511,11 @@ describe("truthful device submission compatibility", () => {
     expect(response.status).toBe(400); expectNoWrites();
   });
 });
+
+it("records work completion and missing photo evidence separately without inventing an upload", async () => {
+ mocks.unexpected.mockResolvedValue({ carriedForwardCount: 0 });
+ mocks.tasks.mockResolvedValue([{ id: "care", title: "Inspect curtain", source: "ADMIN", requiresPhoto: true, requiresNote: true, metadata: { kind: "PROPERTY_CARE" } }]);
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] } }, "template", { jobTasks: [{ id: "care", decision: "COMPLETED", note: "Inspection performed", proofKeys: [], missingPhotoReason: "Camera failed after inspection" }] });
+ expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+ expect(mocks.create.mock.calls[0][0].data.data.__jobTasks[0]).toMatchObject({ decision: "COMPLETED", proofKeys: [], missingPhotoReason: "Camera failed after inspection" });
+});

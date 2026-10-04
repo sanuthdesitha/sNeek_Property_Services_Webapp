@@ -1,0 +1,1274 @@
+{
+  "schema_version": "1.0",
+  "title": "Property care: recurring task catalogue",
+  "version_date": "2026-10-04",
+  "status": "implementation proposal; all intervals adjustable recommendations",
+  "policy": {
+    "timezone": "Australia/Sydney",
+    "unknown_history": "initial_inspection_required; never manufacture last_done or mark every task overdue",
+    "clock_separation": "Inspection does not reset cleaning. Watering-needs check does not imply watered. Partial work resets only completed asset/area.",
+    "due_rule": "Calendar intervals run from actual verified completion in property local time; turnover rules apply once per turnover. No occupancy does not silently reset clock. A clean initial inspection may set an owner-approved prospective first cleaning due date, never a false last-cleaned date.",
+    "overrides": "Store property and asset cadence/product/manual overrides with author/reason/date. All intervals are adjustable recommendations; weekly curtains, monthly fans and fortnightly plant checks are starting examples, not fixed owner mandates. Shorten for heavy traffic/pets/coastal grit/dust/heat. Manuals and condition triggers can require earlier work.",
+    "scheduling": "No production schedule implied. Assign only tasks that fit owner-approved paid rotation minutes; default rotation budget unset, not extra unpaid time. Bundle nearby small tasks. Keep all other due work visible, not marked complete. Owner schedules separate undated quarterly deep clean. Safety/guest-ready issues escalate promptly, not deferred automatically to quarter.",
+    "completion_states": [
+      "not_applicable",
+      "initial_inspection_required",
+      "scheduled",
+      "inspected_clean",
+      "cleaning_needed",
+      "cleaned",
+      "blocked_unsafe",
+      "blocked_no_access",
+      "deferred_time",
+      "maintenance_required",
+      "evidence_missing"
+    ],
+    "evidence": "Photo proof required for every special-task completion and inspection: asset/location, current area, timestamp and cleaner. Before+after when soiled; after alone for ordinary completed area; inspection photo plus observation for inspected_clean. Missing/unusable proof => evidence_missing, never verified done. Avoid guests, documents, reflections and belongings. Photo cannot prove hidden sanitation.",
+    "deep_clean": "Quarterly owner review/planning cadence; actual booking date remains null until approved. Includes fabric washing, inaccessible/heavy furniture areas, complex dismantling and specialist work only after separate scope/access/paid time agreement.",
+    "global_safety": "No ladders/ceiling access, climbing furniture, electrical internals, heavy appliance moving, plumbing disassembly or chemical mixing. Use approved product labels, PPE and actual asset manual; stop/report mould concern, sharps, pests, damaged electrics, gas odour or unsafe access. Never generic caustic drain cleaner in dishwasher.",
+    "appliance_scope": "Exterior tasks do not replace after-use food-contact, milk-system, crumb tray, bowl or internal AC filter maintenance. Owner must add actual model-led tasks to routine checklist where applicable.",
+    "auto_attachment": {
+      "enabled": true,
+      "target": "next suitable future job at same property",
+      "eligible_when": [
+        "task due by job date or open condition issue",
+        "confirmed asset applicability and safe access",
+        "approved products/manual available",
+        "fits remaining paid rotation minutes",
+        "not a specialist/deep-clean-only task"
+      ],
+      "dedupe_key": [
+        "property_id",
+        "asset_id",
+        "task_id",
+        "action_kind",
+        "cycle_id"
+      ],
+      "one_active_attachment_per_cycle": true,
+      "cancellation": "Release assignment and carry same open cycle to next eligible job; preserve original due date",
+      "missed_or_partial": "Carry unfinished asset/action forward; no completion/date reset",
+      "completion": "Only confirmed completion with required evidence updates matching inspection or cleaning clock",
+      "no_eligible_job": "Show owner needs scheduling/time/access; do not silently drop or allocate unpaid minutes",
+      "auto_assign_cleaner": false,
+      "auto_date_quarterly_deep_clean": false
+    },
+    "default_instance_fields": {
+      "property_id": null,
+      "asset_id": null,
+      "location": null,
+      "last_inspected_at": null,
+      "last_cleaned_at": null,
+      "next_inspection_due": null,
+      "next_cleaning_due": null,
+      "cycle_id": null,
+      "assigned_job_id": null,
+      "manual_url": null,
+      "approved_product": null,
+      "paid_rotation_minutes": null,
+      "safe_access_confirmed": false,
+      "initial_inspection_required": true,
+      "evidence_required": true,
+      "auto_attach_enabled": true,
+      "completed_by": null,
+      "photos": [],
+      "exception_reason": null
+    }
+  },
+  "sources": [
+    {
+      "id": "bosch_filter",
+      "title": "Bosch: cleaning a dishwasher filter",
+      "url": "https://www.bosch-home.com/us/owner-support/get-support/support-selfhelp-dishwashers-cleaning-dishwasher-filter",
+      "basis": "User-removable filter method; actual model instructions override baseline."
+    },
+    {
+      "id": "bosch_monthly",
+      "title": "Bosch UK: dishwasher maintenance",
+      "url": "https://www.bosch-home.co.uk/how-to-maintain-a-clean-and-functional-dishwasher",
+      "basis": "Monthly maintenance example; not a universal model requirement."
+    },
+    {
+      "id": "bosch_hood",
+      "title": "Bosch: cleaning a ventilation hood",
+      "url": "https://www.bosch-home.com/us/owner-support/get-support/support-selfhelp-clean-ventilation",
+      "basis": "Check owner manual for filter removal and care; monthly baseline is operational recommendation."
+    },
+    {
+      "id": "samsung_tv",
+      "title": "Samsung: clean your TV",
+      "url": "https://www.samsung.com/us/support/answer/ANS10005221/",
+      "basis": "Cool/isolate, gentle microfiber care and no direct spray; model-specific exceptions exist."
+    },
+    {
+      "id": "daikin_filters",
+      "title": "Daikin Australia: filter cleaning frequency",
+      "url": "https://www.daikin.com.au/faq/maintenance/how-often-clean-air-conditioner-filter",
+      "basis": "Some internal AC filters need fortnightly care. External grille cleaning does not fulfil internal filter servicing."
+    },
+    {
+      "id": "rhs_plants",
+      "title": "RHS: help a poorly houseplant",
+      "url": "https://www.rhs.org.uk/plants/types/houseplants/how-to-help-a-poorly-houseplant",
+      "basis": "Check moisture and water when needed, not by a universal fixed watering interval."
+    }
+  ],
+  "items": [
+    {
+      "id": "curtains",
+      "title": "Curtains, each room",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "7d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-10",
+      "procedure": "Check hems, folds, stains, odour and fixings; gently vacuum reachable fabric with upholstery attachment if care label allows. Do not remove, wash or steam without approved fabric instructions; specialist washing belongs in the deep-clean plan.",
+      "condition_trigger": "Visible dust, spills, odour, damaged hooks or mould concern",
+      "photo_requirement": "Full curtain plus close-up of treated folds/issue",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "window_sills",
+      "title": "Window sills, each window",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "inspection_label": "7d",
+      "cleaning_label": "14d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Vacuum loose grit; wipe with surface-approved lightly damp cloth and dry. Protect timber and paint; keep drainage openings clear without probing.",
+      "condition_trigger": "Grit, insects, water pooling or condensation damage",
+      "photo_requirement": "Sill and corners",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "cobwebs",
+      "title": "Cobwebs, reachable corners",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "inspection_label": "7d",
+      "cleaning_label": "14d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Use a clean extension duster from the floor; catch debris and vacuum floor below. Avoid fixtures, smoke detectors and fragile surfaces.",
+      "condition_trigger": "Visible webs, repeated insect activity",
+      "photo_requirement": "Named corner or cornice after treatment",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "window_glass",
+      "title": "Window glass, safe reachable faces",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-10",
+      "procedure": "Spot-clean marks each turnover; clean reachable panes with approved glass product applied to cloth and dry streak-free. No leaning out or exterior height work.",
+      "condition_trigger": "Fingerprints, salt film, grease or bird marks",
+      "photo_requirement": "Whole named pane in angled light",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "ceiling_lights",
+      "title": "Ceiling lights, reachable exterior only",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 90
+      },
+      "inspection_label": "30d",
+      "cleaning_label": "90d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Switch off and allow to cool. Dust only exterior safely reachable from floor with appropriate tool. Do not remove covers, bulbs or fittings; no ladder or electrical internals.",
+      "condition_trigger": "Visible dust, insects inside cover, flickering or damage",
+      "photo_requirement": "Fixture from floor; inaccessible/inside debris documented for owner",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "under_beds",
+      "title": "Under beds, each bed",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "7d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-8",
+      "procedure": "Look with torch; retrieve only safe loose rubbish, vacuum reachable floor and edges. Do not lift heavy beds or dismantle frames; treat possessions as lost property.",
+      "condition_trigger": "Dust, hair, rubbish, lost property or pest signs",
+      "photo_requirement": "Under-bed floor from both accessible ends",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "tv_stand_inside",
+      "title": "TV stand, inside each compartment",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-8",
+      "procedure": "Open owner-approved compartments, move light decor only, vacuum dust and wipe appropriate surfaces dry. Keep liquids away from equipment and preserve cable positions.",
+      "condition_trigger": "Dust, crumbs, spills or blocked ventilation",
+      "photo_requirement": "Each opened compartment",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "behind_tv_stand",
+      "title": "Behind TV stand",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "30d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-8",
+      "procedure": "Vacuum reachable floor/gap without pulling the unit or straining cables. Move only an owner-approved light empty unit safely; otherwise photograph access limit.",
+      "condition_trigger": "Dust accumulation, pests or cable damage",
+      "photo_requirement": "Reachable rear gap and floor",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "behind_tv",
+      "title": "Behind television, exterior surroundings",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "30d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Turn off, cool and isolate only if safely accessible. Dry-dust reachable rear surroundings per manual; never detach wall mount, open casing, spray vents or pull cables. Report inaccessible areas.",
+      "condition_trigger": "Dust at reachable surfaces or obstructed airflow",
+      "photo_requirement": "Visible rear clearance without moving mounted TV",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": [
+        "samsung_tv"
+      ]
+    },
+    {
+      "id": "sofa_behind",
+      "title": "Behind sofas, each sofa",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-8",
+      "procedure": "Vacuum accessible rear floor and skirting. Move only light approved furniture within safe handling limits and restore position; no heavy lifting.",
+      "condition_trigger": "Dust, dropped items or spill",
+      "photo_requirement": "Rear floor/gap of named sofa",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "sofa_under",
+      "title": "Under sofas, each sofa",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "14d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-8",
+      "procedure": "Use low-profile vacuum or safe extension to reach underneath; do not tilt or lift heavy sofa. Report inaccessible remainder.",
+      "condition_trigger": "Hair, crumbs, rubbish or pests",
+      "photo_requirement": "Visible underneath floor",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "sofa_inside",
+      "title": "Inside sofas and under removable cushions",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "7d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-10",
+      "procedure": "Remove loose cushions only; check seams, vacuum exposed base/crevices and both cushion faces using upholstery tool; replace correctly. No mechanism or lining removal.",
+      "condition_trigger": "Crumbs, hair, stains or lost property",
+      "photo_requirement": "Exposed seat base before cushions replaced",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "cupboards",
+      "title": "All cupboard interiors, each compartment",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 90
+      },
+      "inspection_label": "30d",
+      "cleaning_label": "90d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-10",
+      "procedure": "Map every cupboard and shelf; work one assigned compartment at a time. Protect/temporarily remove owner-approved contents, vacuum, wipe compatible surfaces, dry fully, replace orderly. Never clear occupied guest storage.",
+      "condition_trigger": "Crumbs, sticky residue, musty smell or pest evidence",
+      "photo_requirement": "Each completed interior, including corners",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "non_kitchen_drawers",
+      "title": "All non-kitchen drawer interiors, each drawer",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 90
+      },
+      "inspection_label": "30d",
+      "cleaning_label": "90d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Map every drawer separately; inspect accessible owner-approved contents. Empty only as authorised, vacuum, wipe and dry before replacing. Do not force or remove fitted drawers.",
+      "condition_trigger": "Dust, debris, spills or sticking",
+      "photo_requirement": "Open named drawer showing full base",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "cupboard_mirrors",
+      "title": "Cupboard and wardrobe mirrors",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "7d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Spot-clean marks each turnover; use mirror-safe product on cloth, not frame/edges; dry without streaks. Avoid flooding backing or seals.",
+      "condition_trigger": "Fingerprints, streaks or damage",
+      "photo_requirement": "Whole mirror with no guests/private contents reflected",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "kitchen_drawers",
+      "title": "Kitchen drawer interiors, each drawer",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-8",
+      "procedure": "Check for crumbs each turnover; rotate full empty-and-clean by drawer. Keep utensils on clean surface, vacuum corners, wipe food-contact compatible surfaces, dry and replace. Separate from non-kitchen drawer IDs.",
+      "condition_trigger": "Crumbs, grease, sticky spills or pests",
+      "photo_requirement": "Empty clean drawer before replacing utensils",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "living_shelves",
+      "title": "Decorative living-room shelves, each shelf",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "inspection_label": "7d",
+      "cleaning_label": "14d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Give every shelf its own instance/location. Remove safe light ornaments one at a time, dust shelf and item, replace layout. Leave fragile/heavy items and inaccessible heights for owner.",
+      "condition_trigger": "Dust, rings or insects",
+      "photo_requirement": "Whole named shelf and cleared surface where practical",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "chairs_cushions",
+      "title": "Chairs and loose cushions, each chair",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "7d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-6",
+      "procedure": "Inspect and spot-clean per fabric label; vacuum upholstery/seams and underneath removable seat cushions, then restore. Wipe hard chair surfaces with compatible product.",
+      "condition_trigger": "Crumbs, hair, marks or loose fittings",
+      "photo_requirement": "Chair plus exposed seat beneath removable cushion",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "bin_exterior",
+      "title": "Bin exteriors, lids and handles",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "each_turnover"
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "turnover",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "2-4",
+      "procedure": "Remove surface soil with approved product; clean lid, handle, body and pedal then dry. Keep waste cloths separate from kitchen/food cloths.",
+      "condition_trigger": "Visible soil, stickiness or odour",
+      "photo_requirement": "Lid/handle and exterior body",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "bin_interior",
+      "title": "Bin interiors",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "7d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-6",
+      "procedure": "After emptying, inspect liner leakage. Clean inner base/walls with approved product, rinse if label requires and dry before new liner. Never reach into unknown sharp waste.",
+      "condition_trigger": "Leaks, odour, residue or pests; clean immediately when safe",
+      "photo_requirement": "Empty inner base/walls before liner fitted",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "oven_gaps",
+      "title": "Oven-side accessible gaps",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-8",
+      "procedure": "With appliance off and cool, vacuum accessible side/floor gaps using non-damaging nozzle. Never move oven, reach electrical/gas connections or insert tools into appliance openings.",
+      "condition_trigger": "Crumbs, grease, pests or dropped food",
+      "photo_requirement": "Each accessible side gap, noting hidden areas",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "drawer_tracks",
+      "title": "Drawer tracks and any fitted seals",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 90
+      },
+      "inspection_label": "30d",
+      "cleaning_label": "90d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Brush/vacuum exposed tracks, wipe compatible accessible seals and dry. Do not dismantle runners or add lubricant without manual/owner instruction.",
+      "condition_trigger": "Grit, sticking, damaged runner or seal",
+      "photo_requirement": "Named drawer track/seal close-up",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "wardrobe_tracks",
+      "title": "Sliding wardrobe tracks and seals",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-8",
+      "procedure": "Vacuum channel and corners, brush loose debris and wipe dry; inspect accessible seals. Do not lift doors out or force rollers.",
+      "condition_trigger": "Grit, sticking, damaged rollers or seal",
+      "photo_requirement": "Track length plus corner/seal",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "sliding_door_tracks",
+      "title": "Balcony and other sliding-door tracks/seals",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "inspection_label": "7d",
+      "cleaning_label": "14d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-10",
+      "procedure": "Vacuum grit, wipe channel/seals with compatible cloth and dry. Keep visible designed drainage outlets unobstructed; do not drill/probe, remove door or lubricate without instructions.",
+      "condition_trigger": "Sand, water pooling, sticking or damaged seals",
+      "photo_requirement": "Named door track and drainage corner",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "vent_grilles",
+      "title": "Reachable air/AC vent grilles, exterior",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-6",
+      "procedure": "Switch system off as instructed; vacuum/dust external grille gently without removing covers or pushing dust inward. No spray, coils, electrical parts or internal filter work in this task.",
+      "condition_trigger": "Dust mat, reduced airflow, odour or moisture",
+      "photo_requirement": "Whole named grille and close-up",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": [
+        "daikin_filters"
+      ]
+    },
+    {
+      "id": "dishwasher_interior",
+      "title": "Dishwasher interior and door seals",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-10",
+      "procedure": "Inspect empty tub/seals for food or standing water; wipe accessible edges as manual allows. Monthly approved maintenance cycle only with correct machine product and booked time for cycle completion. No ordinary dish soap or drain chemicals.",
+      "condition_trigger": "Food residue, odour, film, leaks or standing water",
+      "photo_requirement": "Open empty tub/seals; cycle record if run, no sanitation claim",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": [
+        "bosch_monthly"
+      ]
+    },
+    {
+      "id": "dishwasher_filter",
+      "title": "Dishwasher removable filter",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "7d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-8",
+      "procedure": "Follow model manual to remove user-serviceable filter, remove food, rinse and gently brush as permitted; refit/lock correctly before use. Follow shorter manual interval, including after each wash if specified.",
+      "condition_trigger": "Debris, smell or poor washing; clean sooner",
+      "photo_requirement": "Filter after cleaning and correctly refitted position",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": [
+        "bosch_filter"
+      ]
+    },
+    {
+      "id": "dishwasher_drain",
+      "title": "Dishwasher visible drain/sump area",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Inspect only safely visible drain area per manual; remove loose accessible food only if authorised. No pump cover, plumbing, sharp-object fishing or dismantling. Stop if blockage/standing water persists.",
+      "condition_trigger": "Standing water, error code, glass or drainage failure",
+      "photo_requirement": "Visible drain area/issue; hidden pipework cannot be certified",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "rangehood_exterior",
+      "title": "Rangehood exterior and accessible underside",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "7d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-6",
+      "procedure": "Switch off and cool; wipe approved surfaces with suitable degreasing cloth and dry. Avoid controls, motor openings and abrasive pads.",
+      "condition_trigger": "Grease film, drips or odour",
+      "photo_requirement": "Underside and exterior",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "rangehood_filters",
+      "title": "Rangehood removable grease filters",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "8-15",
+      "procedure": "Only remove if safely reachable and manual allows. Wash metal filters by approved method, dry and refit; never wash disposable charcoal filters unless explicitly permitted. Record charcoal replacement due per actual manual for owner.",
+      "condition_trigger": "Grease loading, reduced extraction or filter alert",
+      "photo_requirement": "Removed cleaned filter and refitted filter; confirm dry/refitted",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": [
+        "bosch_hood"
+      ]
+    },
+    {
+      "id": "stove",
+      "title": "Stove/cooktop surfaces",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "each_turnover"
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "turnover",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-10",
+      "procedure": "Cool and switch off; remove spills using cooktop-type approved product/tool. Clean removable parts only as manual permits and dry/refit. No gas jets, igniters, wiring or caustic oven cleaner on incompatible tops.",
+      "condition_trigger": "Burnt spills, grease or cracked glass; damage escalates",
+      "photo_requirement": "Whole cooktop and key dirty-area close-up",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "kettle_exterior",
+      "title": "Kettle exterior and base surroundings",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "each_turnover"
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "turnover",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "2-3",
+      "procedure": "Unplug safely, cool, wipe compatible outside with lightly damp cloth, dry; keep base/connector dry. Internal descaling is a separate manual-led task.",
+      "condition_trigger": "Fingerprints, splashes or damage",
+      "photo_requirement": "Kettle exterior/base surroundings",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "toaster_exterior",
+      "title": "Toaster exterior",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "each_turnover"
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "turnover",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "2-3",
+      "procedure": "Unplug and cool; wipe exterior and dry. Never insert tools into slots or immerse. Crumb-tray servicing only as a separate approved manual-led scope.",
+      "condition_trigger": "Crumbs outside, grease or damaged cord",
+      "photo_requirement": "Outside and surrounding surface, no internal-clean claim",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "coffee_exterior",
+      "title": "Coffee-machine exterior",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "each_turnover"
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "turnover",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "2-4",
+      "procedure": "Switch off, cool and isolate safely; wipe exterior with approved cloth and dry. Brewing parts, milk circuits and descaling need separate model instructions and any after-use requirements.",
+      "condition_trigger": "Splashes, coffee residue, leaks or alert",
+      "photo_requirement": "Exterior and counter below visible edges",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "rice_cooker_exterior",
+      "title": "Rice-cooker exterior",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "each_turnover"
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "turnover",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "2-3",
+      "procedure": "Unplug, cool, wipe outside and dry; no liquid in connector/vents. Bowl, lid, steam valve and food-contact cleaning require the model's after-use instructions, separate from exterior proof.",
+      "condition_trigger": "Food marks, odour, spills or cord damage",
+      "photo_requirement": "Exterior and visible surrounding surface",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "dishwasher_exterior",
+      "title": "Dishwasher exterior and handle",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "each_turnover"
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "turnover",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "2-4",
+      "procedure": "Wipe handle/front using finish-approved cloth; dry and avoid controls/vents. Stainless steel: follow grain if manufacturer advises.",
+      "condition_trigger": "Fingerprints, grease or drips",
+      "photo_requirement": "Full front and handle",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "fridge_top",
+      "title": "Fridge top, safely reachable",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "30d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Clean reachable top using compatible dry/very lightly damp tool without climbing or moving appliance. Do not obstruct ventilation or touch rear coils/wiring.",
+      "condition_trigger": "Dust, objects blocking clearance or spills",
+      "photo_requirement": "Top as safely visible; record inaccessible area",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "wardrobe_top",
+      "title": "Wardrobe tops, safely reachable",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "30d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Dust reachable top from floor using suitable tool; no climbing, heavy item removal or leaning furniture. Escalate inaccessible top.",
+      "condition_trigger": "Dust or stored objects at risk of falling",
+      "photo_requirement": "Top surface where safely visible",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "movable_rugs",
+      "title": "Under movable rugs, each rug",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-10",
+      "procedure": "Lift/roll only lightweight movable rug safely; vacuum floor and rug underside, clean floor as approved and dry before replacing flat. No fitted carpet lifting or heavy furniture moving.",
+      "condition_trigger": "Grit, odour, damp or curling/slip hazard",
+      "photo_requirement": "Exposed floor and rug underside before reset",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "shower_drain",
+      "title": "Shower drain, accessible hair trap",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "each_turnover"
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "turnover",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Wear gloves; remove visible hair from accessible lift-out strainer only where designed/manual permits; dispose in bin, clean/refit cover and check normal flow. No drain chemicals, deep probing or plumbing removal.",
+      "condition_trigger": "Hair, pooling, odour or slow drainage",
+      "photo_requirement": "Clear accessible trap/cover; report persistent slow flow",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "sink_drain",
+      "title": "Bathroom sink drain, accessible hair/debris",
+      "inspection": {
+        "kind": "each_turnover"
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "inspection_label": "turnover",
+      "cleaning_label": "7d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Wear gloves; remove accessible hair at plug/strainer using safe approved method; clean and refit user-removable part only. No trap disassembly or chemicals. Report persistent blockage.",
+      "condition_trigger": "Hair, slow flow, odour or leak",
+      "photo_requirement": "Accessible plug/strainer and basin; no hidden-drain claim",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "fans",
+      "title": "Fans, each portable or ceiling fan",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "30d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-8",
+      "procedure": "Switch off, allow blades to stop and isolate safely. Dust only safely reachable exterior/blades using manual-approved method. Ceiling fan must be reachable from floor; no ladder, dismantling or motor internals.",
+      "condition_trigger": "Dust on blades, wobble, noise or damage; stop use/report unsafe condition",
+      "photo_requirement": "Whole named fan and blade/detail or access limitation",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": []
+    },
+    {
+      "id": "plants",
+      "title": "Plants, each living plant: watering-needs check",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "condition_only"
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "condition",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "2-4",
+      "procedure": "Check plant label, soil moisture by approved method, leaf condition and drainage. Water only when species/soil instructions indicate; record water/no-water and reason. Empty accessible saucer as appropriate; no fixed fortnightly watering.",
+      "condition_trigger": "Dry soil for species, wilting, pests, standing water; increase checks in heat/rapid drying",
+      "photo_requirement": "Whole plant plus soil/pot; record moisture observation and amount if watered",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": false,
+      "source_ids": [
+        "rhs_plants"
+      ]
+    },
+    {
+      "id": "skirtings",
+      "title": "Skirting boards, each room (recommended addition)",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-8",
+      "procedure": "Vacuum/dust accessible skirting, wipe marks with finish-compatible cloth and dry. No furniture moving beyond safe approved light items.",
+      "condition_trigger": "Dust, scuffs or moisture damage",
+      "photo_requirement": "Named room skirting and corners",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": true,
+      "source_ids": []
+    },
+    {
+      "id": "bathroom_exhaust",
+      "title": "Bathroom exhaust grille, reachable exterior (recommended addition)",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "30d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Switch fan off; dust/vacuum safely reachable exterior from floor only. Do not remove cover, touch wiring or climb.",
+      "condition_trigger": "Dust mat, poor extraction, noise or damp",
+      "photo_requirement": "Whole grille and visible dust/issue",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": true,
+      "source_ids": []
+    },
+    {
+      "id": "fridge_gaskets",
+      "title": "Fridge door gaskets (recommended addition)",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "inspection_label": "7d",
+      "cleaning_label": "14d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "3-5",
+      "procedure": "Wipe accessible gasket folds using manual-approved cloth/product, dry and check closure. Do not pull seal out; no abrasive or incompatible chemicals.",
+      "condition_trigger": "Crumbs, stickiness, torn seal or poor closure",
+      "photo_requirement": "Gasket folds and affected corner",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": true,
+      "source_ids": []
+    },
+    {
+      "id": "mattress_surface",
+      "title": "Mattress surface/seams inspection (recommended addition)",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 30
+      },
+      "cleaning": {
+        "kind": "calendar_days",
+        "days": 90
+      },
+      "inspection_label": "30d",
+      "cleaning_label": "90d",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-8",
+      "procedure": "During booked linen work, inspect exposed surface and seams; vacuum only if care label permits. No wet extraction or flipping heavy mattress. Pest signs: stop, photograph and report; do not spread bedding between rooms.",
+      "condition_trigger": "Stains, odour, pest signs or damaged protector",
+      "photo_requirement": "Exposed named mattress surface/seams, discreet close-up if issue",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": true,
+      "source_ids": []
+    },
+    {
+      "id": "bathroom_sealant",
+      "title": "Bathroom sealant/grout condition check (recommended addition)",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 7
+      },
+      "cleaning": {
+        "kind": "condition_only"
+      },
+      "inspection_label": "7d",
+      "cleaning_label": "condition",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "2-4",
+      "procedure": "Inspect accessible shower/basin sealant and grout for gaps, persistent discolouration or damp. Clean ordinary surface residue only with compatible product; suspected mould or failed seals go to owner maintenance, no chemical mixing or re-sealing.",
+      "condition_trigger": "New gaps, black spots, persistent damp or leaks",
+      "photo_requirement": "Affected joint plus wider location",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": true,
+      "recommended_addition": true,
+      "source_ids": []
+    },
+    {
+      "id": "appliance_filters",
+      "title": "Accessible user-serviceable appliance filters (recommended addition)",
+      "inspection": {
+        "kind": "calendar_days",
+        "days": 14
+      },
+      "cleaning": {
+        "kind": "manual_required"
+      },
+      "inspection_label": "14d",
+      "cleaning_label": "manual",
+      "cadence_basis": "recommended_baseline",
+      "inspection_minutes_estimate": 1,
+      "cleaning_minutes_estimate": "5-10",
+      "procedure": "Inventory actual model and filter type. Inspect only if safely accessible and approved manual allows. Cleaning/replacement interval must be set from manual before auto-enabling; no ladder, electrical covers or generic washing of disposable filters.",
+      "condition_trigger": "Visible loading, warning indicator, airflow loss or odour",
+      "photo_requirement": "Filter condition and refitted position; record manual/part ID",
+      "instance_scope": "each_asset_or_named_location",
+      "enabled_default": false,
+      "recommended_addition": true,
+      "source_ids": []
+    }
+  ]
+}

@@ -82,3 +82,8 @@ describe("mergeDraftStates — task drafts and nested photos", () => {
     expect(out.carryForward.photos.map((x: any) => x.key)).toEqual(["c1", "c2"]);
   });
 });
+
+it("preserves truthful missing-photo reasons across devices without losing evidence", () => {
+ const result = mergeDraftStates({ updatedAt: "2026-10-04T01:00:00Z", taskDrafts: { care: { decision: "COMPLETED", missingPhotoReason: "Camera unavailable", proof: [] } } }, { updatedAt: "2026-10-04T02:00:00Z", taskDrafts: { care: { decision: "OPEN", proof: [m("later-proof")] } } });
+ expect(result.taskDrafts.care.missingPhotoReason).toBe("Camera unavailable"); expect(result.taskDrafts.care.proof).toHaveLength(1);
+});

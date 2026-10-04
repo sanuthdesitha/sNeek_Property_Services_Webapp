@@ -166,7 +166,8 @@ export function TaskEvidence({
             <ul className="space-y-4">
             {evidenced.map((task) => {
               const failed = task.proof?.some((p) => p.kind === "FAILURE_PROOF") ?? false;
-              const done = task.executionStatus === "COMPLETED";
+              const evidenceMissing = task.executionStatus === "COMPLETED" && task.requiresPhoto && !(task.proof ?? []).some(p => p.kind === "COMPLETION_PROOF" && isImage(p.mediaType));
+              const done = task.executionStatus === "COMPLETED" && !evidenceMissing;
               const notApplicable = task.completionDisposition === "NOT_APPLICABLE";
               return (
                 <li

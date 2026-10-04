@@ -133,6 +133,7 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
                           <p className="mb-1 flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                             <Camera className="h-3.5 w-3.5" /> Proof photo{t.requiresPhoto || d.decision === "NOT_APPLICABLE" ? " (required)" : ""}
                           </p>
+                          {t.requiresPhoto && d.proof.length === 0 ? <label className="block text-sm">If no photo is available, explain why (work completion remains unverified)<textarea value={d.missingPhotoReason ?? ""} disabled={locked} maxLength={2000} onChange={e => api.setTask(t.id, { missingPhotoReason: e.target.value })} className="w-full rounded border p-2" /></label> : null}
                           <MediaCapture
                             evidenceDestination={{ type: "jobTask", taskId: t.id }}
                             value={d.proof}

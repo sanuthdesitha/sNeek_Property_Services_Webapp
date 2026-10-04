@@ -184,6 +184,7 @@ export default async function EstateClientPropertyDetailPage({
 
   return (
     <div className="space-y-8">
+      <Link className="underline" href={`/property-care?propertyId=${params.id}`}>Planned and completed property care</Link>
       <div className="space-y-4">
         <EButton asChild variant="ghost" size="sm">
           <Link href="/v2/client/properties">

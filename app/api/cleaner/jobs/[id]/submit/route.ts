@@ -354,6 +354,7 @@ export async function POST(
         approvalStatus: task.approvalStatus,
         decision: update?.decision ?? "OPEN",
         note: update?.note?.trim() || "",
+        missingPhotoReason: update?.missingPhotoReason?.trim() || "",
         requiresPhoto: task.requiresPhoto === true,
         requiresNote: task.requiresNote === true,
         proofFieldId: unifiedJobTaskProofFieldId(String(task.id)),
@@ -578,9 +579,9 @@ export async function POST(
             { status: 400 }
           );
         }
-        if (task.requiresPhoto && proofKeys.length === 0) {
+        if (task.requiresPhoto && proofKeys.length === 0 && !update.missingPhotoReason?.trim()) {
           return NextResponse.json(
-            { error: `Image proof required for task: ${task.title}` },
+            { error: `Photo proof or a truthful missing-photo reason required for task: ${task.title}` },
             { status: 400 }
           );
         }
@@ -1013,6 +1014,7 @@ export async function POST(
             decision: task.decision,
             note: task.note,
             proofKeys: task.proofKeys ?? [],
+            missingPhotoReason: task.missingPhotoReason,
           })),
           baseUrl: req,
         }, { transaction: db, afterCommit });

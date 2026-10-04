@@ -60,6 +60,7 @@ function mergeTaskDrafts(older: AnyRec, newer: AnyRec): AnyRec {
       // back to OPEN just because the newer device hadn't touched this task.
       decision: n.decision && n.decision !== "OPEN" ? n.decision : o.decision ?? n.decision ?? "OPEN",
       note: typeof n.note === "string" && n.note ? n.note : (o.note ?? ""),
+      missingPhotoReason: typeof n.missingPhotoReason === "string" ? n.missingPhotoReason : o.missingPhotoReason,
       proof: unionMedia(o.proof, n.proof),
     };
   }

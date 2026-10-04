@@ -3478,6 +3478,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         decision,
         note,
         proofKeys,
+        missingPhotoReason: String(formData[`jobTaskMissingPhoto:${task.id}`] ?? "").trim() || undefined,
         requiresPhoto: task.requiresPhoto === true,
         requiresNote: task.requiresNote === true,
       };
@@ -3500,7 +3501,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
           });
           return null;
         }
-        if (task.requiresPhoto && task.proofKeys.length === 0) {
+        if (task.requiresPhoto && task.proofKeys.length === 0 && !task.missingPhotoReason) {
           toast({
             title: "Image proof required",
             description: `Upload proof for "${task.title}".`,
@@ -3531,6 +3532,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         decision: task.decision,
         note: task.note,
         proofKeys: task.proofKeys,
+        missingPhotoReason: task.missingPhotoReason,
       })),
       laundryOutcome: laundryOutcome ?? undefined,
       laundryReady: laundryOutcome ? laundryReady : undefined,
@@ -5311,6 +5313,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                         </div>
                       </div>
                       {renderTaskReferenceAttachments(task)}
+                      {task.requiresPhoto && proofCount === 0 ? <label className="block text-sm">If no photo is available, explain why (work completion remains unverified)<Textarea value={formData[`jobTaskMissingPhoto:${taskId}`] ?? ""} maxLength={2000} onChange={e => setFormData(prev => ({ ...prev, [`jobTaskMissingPhoto:${taskId}`]: e.target.value }))} /></label> : null}
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground">Task outcome</Label>
                         <Select

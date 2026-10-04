@@ -31,6 +31,7 @@ import { generateRecurringJobs } from "@/lib/ops/recurring";
 import { runSafetyCheckinAlerts } from "@/lib/ops/safety-checkins";
 import { runSlaEscalation } from "@/lib/ops/sla";
 import { sendStockAlerts } from "@/lib/ops/stock-alerts";
+import { dispatchPropertyCare } from "@/lib/property-care/service";
 import { dispatchUrgentStockReminders } from "@/lib/inventory/urgent-stock";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
 import { dispatchScheduledEmailCampaigns } from "@/lib/marketing/email-campaigns";
@@ -282,6 +283,11 @@ async function main() {
     await boss.work("stock-alerts", safeHandler("stock-alerts", async () => {
       await sendStockAlerts();
     }));
+  }
+
+  if (jobEnabled("property-care")) {
+    await boss.schedule("property-care", "5 * * * *", {}, { tz: TZ });
+    await boss.work("property-care", safeHandler("property-care", async () => { await dispatchPropertyCare(); }));
   }
 
   if (jobEnabled("urgent-stock-reminders")) {

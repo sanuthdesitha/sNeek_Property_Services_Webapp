@@ -35,6 +35,7 @@ export interface JobTask {
 }
 
 export interface TaskDraft {
+  missingPhotoReason?: string;
   decision: "OPEN" | "COMPLETED" | "NOT_COMPLETED" | "NOT_APPLICABLE";
   note: string;
   proof: CapturedMedia[];

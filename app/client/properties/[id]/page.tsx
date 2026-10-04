@@ -43,6 +43,7 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
 
   return (
     <div className="space-y-6">
+      <Link className="underline" href={`/property-care?propertyId=${params.id}`}>Planned and completed property care</Link>
       <div className="space-y-3">
         <Button asChild variant="outline" size="sm">
           <Link href="/client/properties">

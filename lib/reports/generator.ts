@@ -298,7 +298,8 @@ export function buildUnifiedJobTasksHtml(
       const renderedMedia = includePhotos ? mediaForTask : [];
       const note = typeof task.note === "string" ? task.note.trim() : "";
       const decision = String(task.decision ?? "OPEN");
-      const decisionLabel =
+      const evidenceMissing = decision === "COMPLETED" && task.missingPhotoReason && !mediaForTask.length;
+      const decisionLabel = evidenceMissing ? `Work reported complete — photo evidence missing: ${task.missingPhotoReason}` :
         decision === "NOT_COMPLETED"
           ? "Not completed"
           : decision === "COMPLETED"
@@ -320,8 +321,8 @@ export function buildUnifiedJobTasksHtml(
           </td>
           <td style="padding:10px;border-bottom:1px solid #bfdbfe;vertical-align:top;">
             <span style="display:inline-block;padding:4px 10px;border-radius:9999px;background:${
-              decision === "NOT_COMPLETED" ? "#fee2e2" : decision === "COMPLETED" ? "#dcfce7" : "#f1f5f9"
-            };color:${decision === "NOT_COMPLETED" ? "#991b1b" : decision === "COMPLETED" ? "#166534" : "#475569"};font-size:12px;font-weight:600;">
+              (decision === "NOT_COMPLETED" || evidenceMissing) ? "#fee2e2" : decision === "COMPLETED" ? "#dcfce7" : "#f1f5f9"
+            };color:${(decision === "NOT_COMPLETED" || evidenceMissing) ? "#991b1b" : decision === "COMPLETED" ? "#166534" : "#475569"};font-size:12px;font-weight:600;">
               ${escapeHtml(decisionLabel)}
             </span>
             ${

@@ -218,6 +218,7 @@ export const submitJobSchema = z.object({
         decision: z.enum(["COMPLETED", "NOT_COMPLETED", "NOT_APPLICABLE"]),
         note: z.string().trim().max(4000).optional(),
         proofKeys: z.array(z.string().trim().min(1)).max(20).optional(),
+        missingPhotoReason: z.string().trim().min(1).max(2000).optional(),
       })
     )
     .optional(),

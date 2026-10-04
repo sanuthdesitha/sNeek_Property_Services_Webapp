@@ -798,6 +798,7 @@ export async function applyCleanerJobTaskUpdates(input: {
     decision: "COMPLETED" | "NOT_COMPLETED" | "NOT_APPLICABLE";
     note?: string;
     proofKeys?: string[];
+    missingPhotoReason?: string;
   }>;
   baseUrl?: RequestLike;
 }, options: { transaction?: Prisma.TransactionClient; afterCommit?: Array<() => Promise<unknown>> } = {}) {
@@ -827,6 +828,8 @@ export async function applyCleanerJobTaskUpdates(input: {
     const note = update.note?.trim() || null;
     const proofKeys = (update.proofKeys ?? []).filter((key) => key.trim().length > 0);
 
+    const missingPhotoReason = update.missingPhotoReason?.trim() || null;
+    if (update.decision === "COMPLETED" && existing.requiresPhoto && !proofKeys.length && !missingPhotoReason) throw new Error("Photo proof or a truthful missing-photo reason is required.");
     const notApplicable = update.decision === "NOT_APPLICABLE";
     const metadata = existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata) ? existing.metadata as Record<string, unknown> : {};
     if (notApplicable && (metadata.allowNotApplicable !== true || !note || proofKeys.length === 0)) {
@@ -836,13 +839,14 @@ export async function applyCleanerJobTaskUpdates(input: {
       where: { id: update.id },
       data: {
         executionStatus: update.decision === "NOT_APPLICABLE" ? "CANCELLED" : update.decision,
+        metadata: { ...metadata, evidenceStatus: proofKeys.length ? "RECORDED" : existing.requiresPhoto ? "MISSING" : "NOT_REQUESTED", missingPhotoReason } as Prisma.InputJsonObject,
         ...(notApplicable ? { metadata: { ...metadata, disposition: "NOT_APPLICABLE", notApplicable: { reason: note, proofKeys, cleanerId: input.cleanerId, recordedAt: new Date().toISOString() } } as Prisma.InputJsonObject } : {}),
         completedAt: update.decision === "COMPLETED" ? new Date() : null,
         events: {
           create: {
             actorUserId: input.cleanerId,
             action: notApplicable ? "TASK_NOT_APPLICABLE" : update.decision === "COMPLETED" ? "TASK_COMPLETED" : "TASK_NOT_COMPLETED",
-            note,
+            note: missingPhotoReason && !proofKeys.length ? `${note || ""}\nPhoto evidence missing: ${missingPhotoReason}` : note,
             metadata: {
               proofCount: proofKeys.length,
             },
@@ -865,7 +869,7 @@ export async function applyCleanerJobTaskUpdates(input: {
       });
     }
 
-    if (update.decision === "NOT_COMPLETED") {
+    if (update.decision === "NOT_COMPLETED" && metadata.kind !== "PROPERTY_CARE") {
       const nextJob = await database.job.findFirst({
         where: {
           propertyId: input.propertyId,

@@ -543,3 +543,8 @@ it("presents not-applicable Scope tasks as neutral with reason and retained proo
  const vm = buildReportViewModel({ job: makeJob(), submission: makeSubmission({ data: { __jobTasks: [{ title: "Water plants", decision: "NOT_APPLICABLE", note: "No live plants here", proofFieldId: "plant_proof" }] }, media: [{ id: "plant", fieldId: "plant_proof", mediaType: "PHOTO", url: "https://example.invalid/proof.jpg", s3Key: "proof" }] }), localDate: "3 October 2026" });
  expect(vm.jobTasks[0]).toMatchObject({ statusLabel: "Not applicable", statusTone: "neutral", noteLabel: "Reason", note: "No live plants here" });
 });
+
+it("exports missing task evidence as review-needed, never green verified completion", () => {
+ const vm = buildReportViewModel({ job: makeJob(), submission: makeSubmission({ data: { __jobTasks: [{ title: "Inspect curtains", decision: "COMPLETED", requiresPhoto: true, note: "Inspected", missingPhotoReason: "Camera failed", proofFieldId: "care-proof", proofKeys: [] }] }, media: [] }), localDate: "4 October 2026" });
+ expect(vm.jobTasks[0].statusTone).toBe("bad"); expect(vm.jobTasks[0].statusLabel).toContain("evidence missing"); expect(JSON.stringify(vm.jobTasks[0])).toContain("Camera failed");
+});
