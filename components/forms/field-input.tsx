@@ -1,4 +1,6 @@
 "use client";
+import { isDeviceStatusField } from "@/lib/forms/device-status";
+import { DeviceStatusInput } from "./device-status-input";
 
 import * as React from "react";
 import { Minus, Plus, Star, MapPin, Loader2, QrCode, X } from "lucide-react";
@@ -96,6 +98,8 @@ export function FieldInput({ field, value, onChange, hideLabel }: FieldInputProp
   const headingFontStyle: React.CSSProperties | undefined = theme?.headingFont
     ? { fontFamily: theme.headingFont }
     : undefined;
+
+  if (isDeviceStatusField(field)) return <FieldShell field={field} value={value} hideLabel={hideLabel}><DeviceStatusInput field={field} value={value} onChange={onChange} /></FieldShell>;
 
   switch (field.type) {
     case "instruction":

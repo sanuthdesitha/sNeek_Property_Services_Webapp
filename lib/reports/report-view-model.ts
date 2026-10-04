@@ -1,3 +1,4 @@
+import { isDeviceException, formatDeviceException } from "@/lib/forms/device-status";
 // Pure data-shaping for the "Estate" job report template.
 //
 // buildReportViewModel maps a loaded job (+ latest form submission, QA review
@@ -53,6 +54,7 @@ export type ReportFieldVM = {
   value: string;
   answered: boolean;
   checked?: boolean;
+  deviceException?: boolean;
   yesNo?: "yes" | "no" | "na";
   rating?: { value: number; max: number };
   signatureDataUrl?: string;
@@ -327,6 +329,8 @@ function classifyField(field: any, answers: Record<string, unknown>): ReportFiel
       value: String(field?.description ?? field?.text ?? field?.helpText ?? ""),
     };
   }
+
+  if (isDeviceException(raw)) return { ...base, kind: "value", answered: true, deviceException: true, value: formatDeviceException(raw) };
 
   if (type === "checkbox") {
     const checked = raw === true || raw === "true" || raw === "yes";
@@ -699,16 +703,17 @@ export function buildReportViewModel(input: BuildReportViewModelInput): ReportVi
       : null;
   const submittedAtLabel = fmtSydney(submission?.createdAt, "d MMM yyyy, h:mm aaa");
 
+  const deviceExceptions = sections.flatMap(section => section.fields).filter(field => isDeviceException(data[field.id]));
   const totalAnswerable = sections.reduce((n, s) => n + s.answerableCount, 0);
   const totalAnswered = sections.reduce((n, s) => n + s.answeredCount, 0);
   const openTaskCount =
     adminTasks.filter((t) => t.statusTone === "bad").length +
     jobTasks.filter((t) => t.statusTone === "bad").length;
-  const issueCount = (qaVm?.damage.length ?? 0) + openTaskCount + selfInspectionIncomplete.length;
+  const issueCount = (qaVm?.damage.length ?? 0) + openTaskCount + selfInspectionIncomplete.length + deviceExceptions.length;
 
   const stats: ReportStatVM[] = [
     {
-      label: "Checklist completed",
+      label: deviceExceptions.length ? "Checklist answered" : "Checklist completed",
       value: totalAnswerable > 0 ? `${totalAnswered}/${totalAnswerable}` : UNANSWERED,
       sub: `${sections.length} section${sections.length === 1 ? "" : "s"}`,
     },
@@ -730,6 +735,7 @@ export function buildReportViewModel(input: BuildReportViewModelInput): ReportVi
   ];
 
   const flags: ReportFlagVM[] = [];
+  if (deviceExceptions.length) flags.push({ label: "Device exceptions — review required", tone: "warn" });
   if (qaVm && qaVm.damage.length > 0) flags.push({ label: "Damage reported", tone: "warn" });
   if (stockUsed.length > 0) flags.push({ label: "Supplies used / restock", tone: "info" });
   if (laundry?.readyLabel === "Yes") flags.push({ label: "Laundry ready", tone: "good" });

@@ -1,3 +1,4 @@
+import { isDeviceStatusField, isDeviceAnswerComplete, incompleteDeviceExceptions } from "@/lib/forms/device-status";
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { persistSubmissionPayRequestOnce } from "@/lib/cleaner/submission-pay";
 import { deductJobStockOnce } from "@/lib/cleaner/submission-stock";
@@ -162,7 +163,7 @@ function collectUntickedSelfInspection(
   for (const field of section.fields) {
     if (!field || typeof field.id !== "string") continue;
     if (field.type && field.type !== "checkbox") continue;
-    if (answers[field.id] === true) continue;
+    if (answers[field.id] === true || (isDeviceStatusField(field) && isDeviceAnswerComplete(answers[field.id]))) continue;
     unticked.push({
       id: field.id,
       label:
@@ -454,6 +455,8 @@ export async function POST(
     // every generated checklist tick mandatory). The flag is handed to the same
     // pure helper the cleaner's client gate uses (it also receives it in the
     // GET /api/jobs/[id]/form payload), so the two can never disagree.
+    const deviceErrors = incompleteDeviceExceptions(effectiveSchema, answers);
+    if (deviceErrors.length) return NextResponse.json({ error: "Record a valid device status and a reason for each exception.", missingRequiredFields: deviceErrors }, { status: 400 });
     const submitGateSettings = appSettings.accountability;
     const missingRequiredAnswers = collectRequiredAnswerFields(
       effectiveSchema,

@@ -126,7 +126,7 @@ function sectionHtml(section: ReportSectionVM): string {
 
   const progress =
     section.answerableCount > 0
-      ? `<span class="est-progress">${section.answeredCount}/${section.answerableCount} completed${
+      ? `<span class="est-progress">${section.answeredCount}/${section.answerableCount} ${section.fields.some(field => field.deviceException) ? "answered" : "completed"}${
           section.photoCount > 0 ? ` · ${section.photoCount} photo${section.photoCount === 1 ? "" : "s"}` : ""
         }</span>`
       : "";

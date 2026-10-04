@@ -1,3 +1,4 @@
+import { isDeviceException, formatDeviceException } from "./device-status";
 // Central registry of form field types. One entry per type declares the
 // metadata every other layer needs (builder picker, builder editor, renderers,
 // report/admin value formatting). Adding a new field type should mean adding a
@@ -195,6 +196,7 @@ export function isReadOnlyFieldType(type: string | undefined | null): boolean {
 
 /** Text representation of a field's answer for reports / admin display. */
 export function formatFieldValue(field: FormField, value: unknown, ctx?: FieldValueFormatContext): string {
+  if (isDeviceException(value)) return formatDeviceException(value);
   const def = getFieldTypeDef(field?.type);
   if (def) return def.formatValue(field, value, ctx);
   if (value === undefined || value === null || value === "") return "-";

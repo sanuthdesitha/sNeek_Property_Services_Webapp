@@ -1,3 +1,4 @@
+import { incompleteDeviceExceptions } from "@/lib/forms/device-status";
 import { applyQaToolEffect, qaEffectFingerprint } from "@/lib/qa/tool-effect";
 import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, QaAssignmentStatus, QaReworkSeverity, Role, StockRunStatus } from "@prisma/client";
@@ -687,6 +688,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       ? await resolveQaTemplate(params.id, true)
       : await db.qaFormTemplate.findUnique({ where: { id: body.templateId } });
     if (!template) return NextResponse.json({ error: "QA template not found." }, { status: 404 });
+    const deviceErrors = incompleteDeviceExceptions(template.schema, body.data);
+    if (deviceErrors.length) return NextResponse.json({ error: "Record a valid device status and a reason for each exception.", missingRequiredFields: deviceErrors }, { status: 400 });
 
     const job = await db.job.findUnique({
       where: { id: params.id },

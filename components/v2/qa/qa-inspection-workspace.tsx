@@ -1,4 +1,6 @@
 "use client";
+import { DeviceStatusInput } from "@/components/forms/device-status-input";
+import { isDeviceException, isDeviceStatusField } from "@/lib/forms/device-status";
 
 /**
  * ESTATE v2 — QA inspection workspace.
@@ -238,7 +240,7 @@ function scoreField(field: any, value: unknown): { points: number; max: number }
       return { points: Math.max(0, Math.min(value, scoreMax)) * weight, max: fieldMax };
     }
     if (field.type === "checkbox") {
-      return { points: value ? scoreMax * weight : 0, max: fieldMax };
+      return { points: !isDeviceException(value) && value ? scoreMax * weight : 0, max: fieldMax };
     }
     if (field.type === "yesno") {
       const isYes = value === true || (typeof value === "string" && ["true", "yes"].includes(value.trim().toLowerCase()));
@@ -383,6 +385,8 @@ function EFieldInput({
       {weightBadge}
     </label>
   );
+
+  if (isDeviceStatusField(field)) return <div className="space-y-1.5">{labelEl}<DeviceStatusInput field={field} value={value} onChange={onChange} /></div>;
 
   if (CHOICE_FIELD_TYPES.has(field.type)) {
     const options: string[] = Array.isArray(field.options) && field.options.length > 0 ? field.options : [];

@@ -1,3 +1,4 @@
+import { isDeviceStatusField, incompleteDeviceExceptions } from "./device-status";
 // Shared submission validation for the native renderer and submit endpoint.
 //
 // Surfaces the SAME required-field rules the submit endpoint enforces
@@ -77,6 +78,8 @@ export function collectFormErrors(
     errors.push(err);
   };
 
+  for (const field of incompleteDeviceExceptions(templateSchema, answers)) push({ fieldId: field.id, label: field.label, message: "Record a valid device status and an exception reason." });
+
   // 1) Required answerable fields (text/number/select/radio/yesno/rating/…).
   for (const field of collectRequiredAnswerFields(templateSchema, answers, property, {
     laundryReady,
@@ -89,7 +92,7 @@ export function collectFormErrors(
       label: field.label,
       // A required checkbox is a confirmation, not a blank — say what to do.
       message:
-        field.type === "checkbox" ? "Tick this box to confirm." : "This field is required.",
+        isDeviceStatusField(field) ? "Choose the actual device status and give a reason for any exception." : field.type === "checkbox" ? "Tick this box to confirm." : "This field is required.",
     });
   }
 

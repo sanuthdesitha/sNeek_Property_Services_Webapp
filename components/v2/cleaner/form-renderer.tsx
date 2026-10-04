@@ -1,4 +1,6 @@
 "use client";
+import { isDeviceStatusField } from "@/lib/forms/device-status";
+import { DeviceStatusInput } from "@/components/forms/device-status-input";
 
 /**
  * Native Estate renderer for a lib/forms FormSchema. Renders every field type
@@ -556,7 +558,7 @@ function SectionBlock({
   // Select-all / Clear affordance for sections made of checkbox tasks: toggles
   // every visible checkbox field in this section at once.
   const checkboxFields = fields.filter(
-    (field: any) => field?.type === "checkbox" && isFlattenedFieldVisible(field, answers, property, laundryReady)
+    (field: any) => field?.type === "checkbox" && !isDeviceStatusField(field) && isFlattenedFieldVisible(field, answers, property, laundryReady)
   );
   const allChecked =
     checkboxFields.length > 0 && checkboxFields.every((field: any) => answers[field.id] === true);
@@ -1090,6 +1092,8 @@ function FieldControl({
       />
     );
   }
+
+  if (isDeviceStatusField(field)) return <DeviceStatusInput field={field} value={value} onChange={set} disabled={disabled} />;
 
   const errCls = error ? "border-[hsl(var(--e-danger))]" : undefined;
 

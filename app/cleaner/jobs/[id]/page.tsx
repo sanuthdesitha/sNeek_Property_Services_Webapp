@@ -1,4 +1,5 @@
 "use client";
+import { isDeviceStatusField, isDeviceAnswerComplete } from "@/lib/forms/device-status";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -1969,6 +1970,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
   const totalFields = progressFields.length;
   const filledFields = progressFields.filter((field: any) => {
     const value = formData[field.id];
+    if (isDeviceStatusField(field)) return isDeviceAnswerComplete(value);
     if (field.type === "checkbox") return value === true;
     if (field.type === "number") {
       const numeric = Number(value);
@@ -2027,7 +2029,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     const updates: Record<string, any> = {};
     for (const section of checklistSections) {
       for (const field of section.fields ?? []) {
-        if (field.type === "checkbox") {
+        if (field.type === "checkbox" && !isDeviceStatusField(field)) {
           updates[field.id] = true;
         }
       }

@@ -1,3 +1,4 @@
+import { withDeviceApplicability } from "./device-status";
 import "server-only";
 import { withLaundryAreaEvidence } from "./laundry-area";
 import type { JobType } from "@prisma/client";
@@ -11,7 +12,7 @@ import { buildReworkFormSchema, ensureReworkFormTemplate, findReworkFormTemplate
 /** Server selection and assembly only. Reference signing belongs to the read route. */
 export async function resolveEffectiveJobForm(
   job: { jobType: JobType; propertyId: string; formTemplateId?: string | null;
-    isRework: boolean; reworkAreas?: unknown; internalNotes?: string | null },
+    isRework: boolean; reworkAreas?: unknown; internalNotes?: string | null; property?: { name?: unknown } },
   settings: { propertyFormTemplateOverrides?: TemplateOverridesMap | null },
   options: { provisionReworkAnchor?: boolean; database?: Pick<typeof db, "formTemplate"> & Partial<Pick<typeof db, "propertyRotationState">> } = {}
 ) {
@@ -37,6 +38,7 @@ export async function resolveEffectiveJobForm(
           schema: assembleJobForm(null, jobMeta.additionals) }
       : null;
   if (template && selected) template = { ...template, schema: withLaundryAreaEvidence(template.schema, job) };
+  if (template) template = { ...template, schema: withDeviceApplicability(template.schema, job.property) };
   const fullRotationSections = (template?.schema as any)?.sections ?? [];
   const rotationalItems = collectRotationalItems(template?.schema);
   if (template && rotationalItems.length > 0 && !job.isRework) {

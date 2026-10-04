@@ -192,3 +192,21 @@ it("returns the real arrival count in both cleaner projections", async () => {
   expect(body.jobMeta.reservationContext.preparationGuestCount).toBe(5);
   expect(body.nextGuest.preparationGuestCount).toBe(5);
 });
+
+
+it("projects the owner-confirmed P3 Ring removal without updating templates or job data", async () => {
+  job.property.name = "JacksonP3";
+  const schema = { ...baseSchema, sections: [{ id: "devices", title: "Devices", fields: [
+    { id: "ring", label: "Ring camera charged?", type: "checkbox", required: true },
+    { id: "minut", label: "Minut charged?", type: "checkbox", required: true },
+  ] }] };
+  const before = JSON.stringify({ schema, job });
+  mocks.templates.mockResolvedValue([template("global", 1, { schema })]);
+  const { response, body } = await read();
+  expect(response.status).toBe(200);
+  const fields = body.template.schema.sections.flatMap((section: any) => section.fields);
+  expect(fields.some((field: any) => field.id === "ring")).toBe(false);
+  expect(fields.some((field: any) => field.id === "minut")).toBe(true);
+  expect(JSON.stringify({ schema, job })).toBe(before);
+  expect(mocks.create).not.toHaveBeenCalled();
+});

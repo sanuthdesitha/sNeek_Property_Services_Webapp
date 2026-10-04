@@ -471,3 +471,43 @@ it("labels legacy admin-requested proof by the office task title and preserves c
  expect(media.label).toBe("Clean balcony rail — proof");
  expect(mocks.create.mock.calls[0][0].data.data.__adminRequestedTasks[0]).toMatchObject({ id: "legacy-task", completed: true, note: "Rail cleaned" });
 });
+
+
+describe("truthful device submission compatibility", () => {
+  const devices = [{ id: "ring", type: "checkbox", label: "Ring camera charged?", required: true }, { id: "minut", type: "checkbox", label: "Minut charged?", required: true }];
+  function useDevices(propertyName = "P4") {
+    job.property = { name: propertyName, laundryEnabled: false, inventoryEnabled: false };
+    mocks.template.mockResolvedValue({ id: "template", isActive: true, serviceType: JobType.AIRBNB_TURNOVER, version: 1,
+      schema: { ...baseSchema, sections: [...baseSchema.sections, { id: "devices", title: "Devices", fields: devices }] } });
+  }
+  it("allows P3 submission with removed Ring and honestly not-checked Minut; preserves answers and evidence", async () => {
+    useDevices("JacksonP3");
+    const data = { note: "Done", uploads: { photo: ["proof.jpg"] }, ring: false,
+      minut: { deviceStatus: "NOT_CHECKED", reason: "Owner did not check today." }, signature: "retained-signature" };
+    const response = await submit(data);
+    expect(response.status).toBe(200);
+    const saved = mocks.create.mock.calls[0][0].data.data;
+    expect(saved).toMatchObject(data);
+    const fields = saved.__templateSchema.sections.flatMap((section: any) => section.fields);
+    expect(fields.some((field: any) => field.id === "ring")).toBe(false);
+    expect(fields.some((field: any) => field.id === "minut")).toBe(true);
+    expect(fields.some((field: any) => field.type === "instruction" && field.label === "Ring camera removed from P3")).toBe(true);
+  });
+  it("does not exempt another property from recording Ring's actual outcome", async () => {
+    useDevices();
+    const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] }, minut: true });
+    expect(response.status).toBe(400); expectNoWrites();
+  });
+  it.each(["NEEDS_ATTENTION", "NOT_APPLICABLE", "NOT_CHECKED"])("stores %s and its reason without converting it to true", async deviceStatus => {
+    useDevices();
+    const ring = { deviceStatus, reason: "Actual observation from cleaner." };
+    const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] }, ring, minut: true });
+    expect(response.status).toBe(200);
+    expect(mocks.create.mock.calls[0][0].data.data.ring).toEqual(ring);
+  });
+  it("rejects an exception with no reason before any submission writes", async () => {
+    useDevices();
+    const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] }, ring: true, minut: { deviceStatus: "NOT_CHECKED", reason: " " } });
+    expect(response.status).toBe(400); expectNoWrites();
+  });
+});

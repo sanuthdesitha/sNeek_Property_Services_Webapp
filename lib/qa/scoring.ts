@@ -1,3 +1,4 @@
+import { isDeviceException } from "@/lib/forms/device-status";
 /**
  * QA submission scoring engine.
  *
@@ -98,7 +99,7 @@ export function computeQaScore(
         const clamped = Math.max(0, Math.min(value as number, field.scoring.max));
         fieldPoints = clamped * weight;
       } else if (field.type === "checkbox") {
-        fieldPoints = value ? field.scoring.max * weight : 0;
+        fieldPoints = !isDeviceException(value) && value ? field.scoring.max * weight : 0;
       } else if (field.type === "yesno") {
         // Only an explicit "Yes" scores; "No" and "N/A" score zero. Accept the
         // string "true"/"yes" as well as boolean true — some submit paths

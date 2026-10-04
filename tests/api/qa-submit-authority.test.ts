@@ -41,3 +41,12 @@ it("amendment requires an in-progress reopened assignment", async () => {
  await expect(requireQaSubmitAssignment({ jobId: "j", userId: "qa", roles: [Role.ADMIN], amending: true })).rejects.toThrow("FORBIDDEN");
  expect(m.assignment.mock.calls[0][0].where.status).toBe("IN_PROGRESS");
 });
+
+it("requires the explicit device-exception reason before QA submission writes", async () => {
+ m.assignment.mockResolvedValue({ id: "owned" });
+ m.template.mockResolvedValue({ schema: { sections: [{ fields: [{ id: "minut", type: "checkbox", label: "Minut charged?" }] }] } });
+ const response = await run({ data: { minut: { deviceStatus: "NOT_CHECKED", reason: " " } } });
+ expect(response.status).toBe(400);
+ expect((await response.json()).missingRequiredFields).toEqual([{ id: "minut", label: "Minut charged?" }]);
+ expect(m.write).not.toHaveBeenCalled();
+});

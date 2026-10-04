@@ -1,3 +1,4 @@
+import { isDeviceException } from "@/lib/forms/device-status";
 import { withReportGeneration } from "./generation-lease";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { db } from "@/lib/db";
@@ -392,7 +393,7 @@ function buildChecklistHtml(job: any, submission: any): { html: string; usedMedi
 
       const rows = fields
         .map((field: any) => {
-          const isCheckbox = field?.type === "checkbox";
+          const isCheckbox = field?.type === "checkbox" && !isDeviceException(answers[field.id]);
           const checked = answers[field.id] === true;
           const value = buildFieldValue(field, { answers, uploads, submission });
           const mediaForField = (submission?.media ?? []).filter((m: any) => m.fieldId === field.id);

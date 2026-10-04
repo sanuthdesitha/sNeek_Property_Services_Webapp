@@ -1,3 +1,4 @@
+import { isDeviceStatusField, isDeviceAnswerComplete } from "./device-status";
 import { isUploadFieldType } from "./field-types";
 import { isSelfInspectionSection } from "./self-inspection";
 
@@ -321,10 +322,10 @@ export function collectRequiredAnswerFields(
 
       const value = answers[String(field.id)];
       if (
-        !isRequiredAnswerMissing(fieldType, value, {
+        (isDeviceStatusField(field) ? isDeviceAnswerComplete(value) : !isRequiredAnswerMissing(fieldType, value, {
           inSelfInspectionSection,
           requiredChecklistTicksBlockSubmit,
-        })
+        }))
       ) {
         continue;
       }

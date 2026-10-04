@@ -142,6 +142,8 @@ export interface FormField {
   // choice enhancements
   allowOther?: boolean;
   searchable?: boolean;
+  // Explicit truthful device status / exception control.
+  deviceStatus?: boolean;
   // yes/no
   includeNa?: boolean;
   // reference/example media shown to the person filling the form

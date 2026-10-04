@@ -1,3 +1,4 @@
+import { isDeviceException, formatDeviceException } from "@/lib/forms/device-status";
 import { db } from "@/lib/db";
 import { getPresignedDownloadUrl, publicUrl, s3 } from "@/lib/s3";
 import { getAppSettings } from "@/lib/settings";
@@ -357,7 +358,8 @@ export async function buildQaReportHtml(
         .map((field: any) => {
           const raw = answers[field.id];
           let valueText = "-";
-          if (field.type === "checkbox") valueText = raw === true ? "Yes" : "No";
+          if (isDeviceException(raw)) valueText = formatDeviceException(raw);
+          else if (field.type === "checkbox") valueText = raw === true ? "Yes" : "No";
           else if (field.type === "rating") {
             const max = Number(field.max ?? 5) || 5;
             valueText = raw == null || raw === "" ? "-" : `${Number(raw)} / ${max}`;

@@ -1,4 +1,5 @@
 "use client";
+import { isDeviceException } from "@/lib/forms/device-status";
 
 /**
  * ESTATE read-only form-submission review — renders the cleaner's submitted
@@ -265,7 +266,7 @@ export function SubmissionReview({
                       </div>
                       <div className="divide-y divide-[hsl(var(--e-border))]">
                         {fields.map((field: any) => {
-                          const isCheckbox = field.type === "checkbox";
+                          const isCheckbox = field.type === "checkbox" && !isDeviceException((answers as Record<string, unknown>)[field.id]);
                           const checked = isCheckbox && (answers as Record<string, unknown>)[field.id] === true;
                           const label = isCheckbox
                             ? `${checkboxMark(checked)} ${String(field.label ?? field.id ?? "Checklist item")}`
