@@ -1,5 +1,6 @@
 import { JobType } from "@prisma/client";
 import { resolveJobCleanHours } from "@/lib/properties/clean-hours";
+import { airbnbReadinessDeadline } from "./turnover-readiness";
 
 /**
  * Display + accountability helpers for a job's start window and expected
@@ -28,7 +29,8 @@ type PropertyLike = {
  *
  * For AIRBNB_TURNOVER: a window bounded by the earliest start (job.startTime,
  * else the property's default checkout time, else "10:00") and the latest
- * finish (job.dueTime, else the property's default check-in time, else "15:00"),
+ * finish (the job's recorded dueTime, else readiness by 15:00 or an earlier
+ * property check-in). Recorded/manual job times are not silently rewritten.
  * e.g. "Start after 10:00 · finish before 15:00".
  *
  * For every other job type: the plain start time, or null when none is set.
@@ -36,7 +38,7 @@ type PropertyLike = {
 export function formatStartWindow(job: JobLike, property: PropertyLike): string | null {
   if (job.jobType === JobType.AIRBNB_TURNOVER) {
     const start = job.startTime || property.defaultCheckoutTime || "10:00";
-    const finish = job.dueTime || property.defaultCheckinTime || "15:00";
+    const finish = job.dueTime || airbnbReadinessDeadline(property.defaultCheckinTime);
     return `Start after ${start} · finish before ${finish}`;
   }
   return job.startTime || null;

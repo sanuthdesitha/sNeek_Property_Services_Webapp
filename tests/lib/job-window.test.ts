@@ -18,7 +18,7 @@ describe("formatStartWindow", () => {
         { jobType: "AIRBNB_TURNOVER" },
         { defaultCheckoutTime: "10:30", defaultCheckinTime: "16:00" }
       )
-    ).toBe("Start after 10:30 · finish before 16:00");
+    ).toBe("Start after 10:30 · finish before 15:00");
 
     // Nothing set anywhere → 10:00 / 15:00 fallbacks.
     expect(formatStartWindow({ jobType: "AIRBNB_TURNOVER" }, {})).toBe(
@@ -30,6 +30,16 @@ describe("formatStartWindow", () => {
     expect(
       formatStartWindow({ jobType: "DEEP_CLEAN", startTime: "09:00" }, {})
     ).toBe("09:00");
+  });
+
+  it("retains explicit recorded job times instead of silently rewriting manual or historical schedules", () => {
+    expect(formatStartWindow({ jobType: "AIRBNB_TURNOVER", dueTime: "16:00" }, {}))
+      .toBe("Start after 10:00 · finish before 16:00");
+  });
+
+  it("keeps an earlier property arrival as the fallback readiness deadline", () => {
+    expect(formatStartWindow({ jobType: "AIRBNB_TURNOVER" }, { defaultCheckinTime: "13:00" }))
+      .toBe("Start after 10:00 · finish before 13:00");
   });
 
   it("returns null for a non-turnover job with no start time", () => {

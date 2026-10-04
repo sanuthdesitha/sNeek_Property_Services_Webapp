@@ -1,4 +1,5 @@
-import { applyJobTimingRules, type JobTimingRule } from "@/lib/jobs/meta";
+import { applyJobTimingRules, resolveRuleTime, type JobTimingRule } from "@/lib/jobs/meta";
+import { airbnbReadinessDeadline } from "@/lib/jobs/turnover-readiness";
 
 /**
  * Resolve the final startTime/dueTime for a reservation-driven (iCal) turnover
@@ -34,5 +35,16 @@ export function resolveJobTimesFromReservation(input: {
   return {
     startTime: applied.startTime ?? input.reservationStartTime ?? null,
     dueTime: applied.dueTime ?? input.reservationDueTime ?? null,
+  };
+}
+
+/** Only the iCal AIRBNB_TURNOVER writer uses this policy. Booking times remain
+ * unchanged; an impossible late-checkout window must not postpone readiness.
+ */
+export function resolveAirbnbTurnoverTimes(input: Parameters<typeof resolveJobTimesFromReservation>[0]) {
+  const times = resolveJobTimesFromReservation(input);
+  return {
+    ...times,
+    dueTime: airbnbReadinessDeadline(input.reservationDueTime, resolveRuleTime(input.earlyCheckin)),
   };
 }

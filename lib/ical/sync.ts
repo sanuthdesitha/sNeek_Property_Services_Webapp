@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
 import { parseJobInternalNotes, serializeJobInternalNotes, type JobReservationContext } from "@/lib/jobs/meta";
-import { resolveJobTimesFromReservation } from "@/lib/ical/times";
+import { resolveAirbnbTurnoverTimes } from "@/lib/ical/times";
 import { classifySameDayCheckinPriority } from "@/lib/jobs/priority";
 import { SyncStatus, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { addDays } from "date-fns";
@@ -691,8 +691,8 @@ async function syncTurnoverJobsForReservations(params: {
     const turnoverDate = reservation.endDate;
     const turnoverDateKey = turnoverDate.toISOString().slice(0, 10);
     const incomingCheckin = params.sameDayCheckinsByDate.get(turnoverDateKey);
-    // dueTime = deadline = next guest's check-in. Property default wins unless
-    // the source is explicitly the iCal feed.
+    // Keep the actual arrival separately. The turnover resolver applies the
+    // 15:00 readiness cutoff without rewriting booking/check-in facts.
     const sameDayCheckinTime = useIcalTimes
       ? incomingCheckin?.checkinTime ?? params.property.defaultCheckinTime
       : params.property.defaultCheckinTime;
@@ -740,7 +740,7 @@ async function syncTurnoverJobsForReservations(params: {
       // same resolver as the re-sync path so the two can never diverge.
       const createNotes = mergeReservationContextIntoInternalNotes(undefined, reservationContext);
       const createMeta = parseJobInternalNotes(createNotes);
-      const createTimes = resolveJobTimesFromReservation({
+      const createTimes = resolveAirbnbTurnoverTimes({
         reservationStartTime: startTime,
         reservationDueTime: sameDayCheckinTime,
         earlyCheckin: createMeta.earlyCheckin,
@@ -810,7 +810,7 @@ async function syncTurnoverJobsForReservations(params: {
       // stored in internalNotes meta) so moving the booking never resets the
       // rule-driven start/due times back to the raw reservation times.
       const movedMeta = parseJobInternalNotes(existingJob.internalNotes);
-      const movedTimes = resolveJobTimesFromReservation({
+      const movedTimes = resolveAirbnbTurnoverTimes({
         reservationStartTime: startTime,
         reservationDueTime: sameDayCheckinTime,
         earlyCheckin: movedMeta.earlyCheckin,
@@ -885,7 +885,7 @@ async function syncTurnoverJobsForReservations(params: {
     // "early check-in" override. Parse the rules from the LATEST notes value
     // (the merge above may have just rewritten internalNotes).
     const latestMeta = parseJobInternalNotes(mergedInternalNotes ?? existingJob.internalNotes);
-    const resolvedTimes = resolveJobTimesFromReservation({
+    const resolvedTimes = resolveAirbnbTurnoverTimes({
       reservationStartTime: startTime,
       reservationDueTime: sameDayCheckinTime,
       earlyCheckin: latestMeta.earlyCheckin,
