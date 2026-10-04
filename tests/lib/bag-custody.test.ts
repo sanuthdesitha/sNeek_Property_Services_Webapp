@@ -1,0 +1,9 @@
+// @vitest-environment node
+import {expect,it,vi} from "vitest";
+vi.mock("@/lib/db",()=>({db:{}}));
+import {bagEventInput,validateBagTransition} from "@/lib/laundry/bag-custody";
+const now=new Date("2026-10-04T12:00:00Z");const input=()=>bagEventInput.parse({requestId:"00000000-0000-4000-8000-000000000001",taskId:"t",bagId:"bag-1",expectedVersion:0,status:"REGISTERED",observedAt:"2026-10-04T10:00:00Z",location:"Unknown",contents:null,itemCount:null,note:"Label observed; contents not checked"});
+it("preserves unknown contents/counts and canonical bag identity",()=>{expect(input()).toMatchObject({bagId:"BAG-1",contents:null,itemCount:null});expect(()=>validateBagTransition(null,input(),now)).not.toThrow();});
+it("never infers pickup or return from registration, schedule or contents",()=>{expect(()=>validateBagTransition(null,{...input(),status:"RETURNED"},now)).toThrow("Register");const previous={...input(),taskId:"t",version:1,status:"REGISTERED"} as any;expect(()=>validateBagTransition(previous,{...input(),status:"RETURNED",expectedVersion:1},now)).not.toThrow();expect(previous.status).toBe("REGISTERED");});
+it("rejects future, stale-version and out-of-order observations",()=>{expect(()=>validateBagTransition(null,{...input(),observedAt:"2026-10-05T10:00:00Z"},now)).toThrow("future");const prev={...input(),version:2} as any;expect(()=>validateBagTransition(prev,input(),now)).toThrow("CONFLICT");expect(()=>validateBagTransition(prev,{...input(),expectedVersion:2,observedAt:"2026-10-03T10:00:00Z"},now)).toThrow("predates");});
+it("requires explicit return before reuse on a later run",()=>{const prev={...input(),version:3,status:"PICKED_UP"} as any;expect(()=>validateBagTransition(prev,{...input(),taskId:"next"},now)).toThrow("explicit return");expect(()=>validateBagTransition({...prev,status:"RETURNED"},{...input(),taskId:"next"},now)).not.toThrow();});

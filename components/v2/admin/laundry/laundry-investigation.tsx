@@ -69,6 +69,7 @@ export function LaundryInvestigation({ initialTasks }: { initialTasks: LaundryTa
           <dl className="space-y-1 text-sm"><dt className="font-semibold">Readiness</dt><dd>{facts.ready}</dd><dt className="font-semibold">Current holder / location</dt><dd>{facts.holder}</dd><dt className="font-semibold">Next responsibility</dt><dd>{facts.next}</dd></dl>
           <div><h4 className="font-semibold">Recorded issues</h4>{facts.issues.length ? <ul>{facts.issues.map((issue,index)=><li key={index}>{issue}</li>)}</ul> : <p>None recorded.</p>}</div>
           {facts.milestones.length ? <ul className="text-sm">{facts.milestones.map(row=><li key={row.label}>{row.at} — {row.label}</li>)}</ul> : null}
+          <Link className="underline" href={`/linen-bags?taskId=${encodeURIComponent(task.id)}`}>Individual bag custody history</Link>
           <LaundryHandoffReceipts confirmations={task.confirmations ?? []} />
           {media.length ? <details><summary className="cursor-pointer underline">Evidence ({media.length})</summary><MediaGallery items={media} title="Laundry investigation evidence" className="mt-2 grid grid-cols-3 gap-2" /></details> : <p className="text-sm">No recorded photo evidence.</p>}
         </article>;

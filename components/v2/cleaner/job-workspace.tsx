@@ -1683,6 +1683,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       ) : null}
 
       {job?.property?.inventoryEnabled && job?.propertyId ? <StayPreparationPanel key={job.id} jobId={job.id} propertyId={job.propertyId} refreshToken={job.updatedAt} /> : null}
+      {job?.laundryTask?.id ? <a className="underline" href={`/linen-bags?taskId=${encodeURIComponent(job.laundryTask.id)}`}>Record or review individual linen bags</a> : null}
       <StageNav api={api} />
 
       <div>

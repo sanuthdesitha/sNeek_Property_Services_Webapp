@@ -430,6 +430,22 @@ describe("renderEstateReport", () => {
     customFooter: "",
   };
 
+  it("retains document state even when the theme hides header and summary", () => {
+    const vm=buildReportViewModel({job:makeJob(),submission:null,localDate:"4 October 2026"});
+    const html=renderEstateReport(vm,{...ctx,showHeader:false,showSummary:false});
+    expect(html).toContain("Draft preview — no submitted form; saved drafts are not included");
+  });
+  it("exports new device/laundry sections and care evidence from the submitted snapshot without internal finance",()=>{
+    const submission=makeSubmission();
+    submission.data.__templateSchema.sections.push({id:"devices",label:"Device status",fields:[{id:"minut",label:"Minut working",type:"yesno"}]} as any);
+    submission.data.__templateSchema.sections.push({id:"laundry-area",label:"Laundry area",fields:[{id:"laundry-proof-reason",label:"Missing laundry photo reason",type:"text"}]} as any);
+    Object.assign(submission.data,{minut:{deviceStatus:"NOT_CHECKED",reason:"Could not reach the device"},"laundry-proof-reason":"Appliance area locked",__internalFinance:"Never exposed profit"});
+    submission.data.__jobTasks.push({title:"Inspect curtains",decision:"NOT_COMPLETED",note:"Need approved ladder",proofFieldId:"curtain-proof",source:"INSPECTION"});
+    const html=renderEstateReport(buildReportViewModel({job:makeJob(),submission,localDate:"4 October 2026"}),ctx);
+    for(const text of ["Device status","Not checked / unknown","Could not reach the device","Laundry area","Appliance area locked","Inspect curtains","Need approved ladder","Cleaner signature"])expect(html).toContain(text);
+    expect(html).not.toContain("Never exposed profit");expect(html).toContain("Submitted form record — QA approval is separate");
+  });
+
   it("renders every section, field label and answer from the view model", () => {
     const html = renderEstateReport(build(), ctx);
     for (const text of [

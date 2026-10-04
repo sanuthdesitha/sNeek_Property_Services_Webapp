@@ -337,6 +337,7 @@ export function renderEstateReport(vm: ReportViewModel, c: EstateRenderCtx): str
 
   const summary = c.showSummary
     ? `<section class="est-summary">
+  <p class="est-document-state">${esc(vm.documentStatus ?? "Submitted form record — QA approval is separate")}</p>
   <div class="est-stats">${statsHtml}</div>
   ${flagsHtml}
   ${clockLine}
@@ -373,7 +374,7 @@ export function renderEstateReport(vm: ReportViewModel, c: EstateRenderCtx): str
     <header class="est-card-head"><h2>Verify this report</h2></header>
     <p class="est-verify-text">This report can be independently verified. Enter the code${
       c.verification.url ? " or scan the QR" : ""
-    } at our verification page to confirm this clean was performed and recorded by ${esc(c.companyName)}.</p>
+    } at our verification page to confirm this report was recorded by ${esc(c.companyName)}.</p>
     <div class="est-verify-code">${esc(c.verification.codeDisplay)}</div>
     ${c.verification.url ? `<a class="est-verify-link" href="${esc(c.verification.url)}" target="_blank" rel="noreferrer">${esc(c.verification.url)}</a>` : ""}
   </div>
@@ -521,6 +522,7 @@ ${c.headTags}
 </style>
 </head>
 <body>
+<p class="est-document-state">${esc(vm.documentStatus ?? "Submitted form record — QA approval is separate")}</p>
 ${header}
 ${summary}
 ${gpsHtml(vm)}

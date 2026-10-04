@@ -122,6 +122,7 @@ export function FinanceOverview({ data }: { data: FinanceOverviewData }) {
         />
       </div>
 
+      <a href="/turnover-profit" className="underline">Review profit for an individual turnover</a>
       <BreakdownList eyebrow="Trend" title="Revenue by month" rows={data.revenueByMonth} />
     </div>
   );

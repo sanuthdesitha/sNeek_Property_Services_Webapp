@@ -1,3 +1,4 @@
+import { reportDocumentStatus } from "./document-status";
 import { isDeviceException, formatDeviceException } from "@/lib/forms/device-status";
 // Pure data-shaping for the "Estate" job report template.
 //
@@ -122,6 +123,7 @@ export type ReportReworkAreaVM = {
 };
 
 export type ReportViewModel = {
+  documentStatus?: string;
   propertyName: string;
   propertyAddress: string;
   jobNumber: string;
@@ -715,7 +717,7 @@ export function buildReportViewModel(input: BuildReportViewModelInput): ReportVi
 
   const stats: ReportStatVM[] = [
     {
-      label: deviceExceptions.length ? "Checklist answered" : "Checklist completed",
+      label: !submission?.id ? "No submitted checklist" : deviceExceptions.length ? "Checklist answered" : "Checklist completed",
       value: totalAnswerable > 0 ? `${totalAnswered}/${totalAnswerable}` : UNANSWERED,
       sub: `${sections.length} section${sections.length === 1 ? "" : "s"}`,
     },
@@ -747,6 +749,7 @@ export function buildReportViewModel(input: BuildReportViewModelInput): ReportVi
   if (job?.isRework) flags.push({ label: "Rework visit", tone: "info" });
 
   return {
+    documentStatus: reportDocumentStatus(submission),
     propertyName: String(job?.property?.name ?? ""),
     propertyAddress: [job?.property?.address, job?.property?.suburb]
       .filter(Boolean)

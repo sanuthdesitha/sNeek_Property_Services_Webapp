@@ -1,3 +1,4 @@
+import { reportDocumentStatus } from "./document-status";
 import { isDeviceException } from "@/lib/forms/device-status";
 import { withReportGeneration } from "./generation-lease";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
@@ -22,7 +23,7 @@ import { ensureReportVerification, formatVerificationCode } from "./verification
 import { getAppBaseUrl } from "@/lib/app-url";
 
 const TZ = "Australia/Sydney";
-export const REPORT_TEMPLATE_VERSION = "v5-estate-modern";
+export const REPORT_TEMPLATE_VERSION = "v6-submission-state";
 
 type ReportThemeRecord = {
   id: string;
@@ -423,7 +424,7 @@ function buildChecklistHtml(job: any, submission: any): { html: string; usedMedi
 
       return `
         <div class="section">
-          <h3 style="margin:0 0 8px 0;">${escapeHtml(section.label ?? "Section")}</h3>
+          <h3 style="margin:0 0 8px 0;">${escapeHtml(section.title ?? section.label ?? "Section")}</h3>
           <table style="width:100%;border-collapse:collapse;">
             <thead>
               <tr>
@@ -589,7 +590,7 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
   // (when a base URL is configured) a QR link to the public /verify page.
   let verification: { codeDisplay: string; url: string | null; qrDataUrl: string | null } | null =
     null;
-  try {
+  if (submission) try {
     const { code } = await ensureReportVerification(jobId);
     const baseUrl = getAppBaseUrl();
     const url = baseUrl ? `${baseUrl}/verify/${code}` : null;
@@ -709,7 +710,7 @@ function buildReportHtml({ job, submission, qa, qaSubmission, localDate, setting
   const showSignature = isSectionVisible(themeRec, "signature");
   const showFooter = isSectionVisible(themeRec, "footer");
   const showQaSummary = isSectionVisible(themeRec, "qa-summary");
-  const renderedTitle = renderTitle(themeRec, { job, property: job.property }) || `${companyName} Cleaning Report`;
+  const renderedTitle = `${reportDocumentStatus(submission)} — ${renderTitle(themeRec, { job, property: job.property }) || `${companyName} Cleaning Report`}`;
   const customFooter = themeRec?.footerHtml?.trim() || "";
   // Theme-selected skin. Themes without an explicit template keep their old
   // "classic" look; when NO theme exists at all we default to the modern
@@ -817,6 +818,7 @@ ${
     companyName,
     logoUrl,
     renderedTitle,
+    documentStatus: reportDocumentStatus(submission),
     showHeader,
     showSummary,
     summaryInnerHtml,
@@ -832,6 +834,7 @@ ${
 }
 
 type ReportRenderCtx = {
+  documentStatus: string;
   headTags: string;
   primaryHsl: string;
   accentHsl: string;
@@ -887,6 +890,7 @@ ${c.headTags}
 </style>
 </head>
 <body>
+<p style="font-weight:700">${escapeHtml(c.documentStatus)}</p>
 ${c.showHeader ? `<div class="brand">
   ${c.logoUrl ? `<img src="${escapeHtml(c.logoUrl)}" alt="${escapeHtml(c.companyName)} logo" style="border:0;" />` : ""}
   <h1>${escapeHtml(c.renderedTitle)}</h1>
@@ -968,6 +972,7 @@ ${c.headTags}
 </style>
 </head>
 <body>
+<p style="font-weight:700">${escapeHtml(c.documentStatus)}</p>
 ${c.showHeader ? `<div class="lux-hero">
   ${c.logoUrl ? `<img src="${escapeHtml(c.logoUrl)}" alt="${escapeHtml(c.companyName)} logo" style="border:0;" />` : `<p class="eyebrow">${escapeHtml(c.companyName)}</p>`}
   <h1>${escapeHtml(c.job?.property?.name || c.renderedTitle)}</h1>

@@ -1,0 +1,9 @@
+import {expect,it} from "vitest";
+import {turnoverProfit,turnoverRevenue,verifiedCostsSchema,costCategories} from "@/lib/finance/turnover-profit-policy";
+const invoice=(extra={})=>({id:"i",invoiceNumber:"INV1",status:"SENT",paidAmount:null,paidDate:null,lines:[{jobId:"j",lineTotal:100}],...extra});
+it("does not count draft/void invoices or unpaid invoices as received cash",()=>{expect(turnoverRevenue("j",[invoice({status:"DRAFT"}),invoice({id:"v",status:"VOID"})])).toMatchObject({invoiced:null,cash:null});expect(turnoverRevenue("j",[invoice()])).toMatchObject({invoiced:100,cash:null});});
+it("deduplicates invoices and records only evidenced payments",()=>{const row=invoice({status:"PART_PAID",paidAmount:40,paidDate:"2026-10-04"});expect(turnoverRevenue("j",[row,row])).toMatchObject({invoiced:100,cash:40});expect(turnoverRevenue("j",[invoice({status:"PAID"})]).cash).toBeNull();});
+it("never guesses a cash allocation from an invoice shared by several turnovers",()=>expect(turnoverRevenue("j",[invoice({paidAmount:220,paidDate:"2026-10-04",lines:[{jobId:"j",lineTotal:100},{jobId:"other",lineTotal:100}]})])).toMatchObject({invoiced:100,cash:null}));
+it("missing costs are unknown; documented zero requires a reference",()=>{expect(turnoverProfit(100,null)).toMatchObject({profit:null,totalCost:null,documentedCostSubtotal:null});const costs=Object.fromEntries(costCategories.map(key=>[key,{amount:key==="CLEANER"?40:0,reference:"Reviewed invoice / explicit nil"}]));expect(turnoverProfit(100,costs).profit).toBe(60);expect(turnoverProfit(null,costs).profit).toBeNull();expect(verifiedCostsSchema.safeParse({jobId:"j",expectedVersion:0,confirmed:true,costs:{...costs,OTHER:{amount:0,reference:""}}}).success).toBe(false);});
+
+it("does not treat stale paid fields on an unpaid-status invoice as verified cash",()=>expect(turnoverRevenue("j",[invoice({status:"SENT",paidAmount:110,paidDate:"2026-10-04"})]).cash).toBeNull());
