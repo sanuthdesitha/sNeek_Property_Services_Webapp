@@ -1,6 +1,7 @@
 import { withAuth } from "next-auth/middleware";
 import type { NextRequestWithAuth } from "next-auth/middleware";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse, type NextFetchEvent } from "next/server";
+import { readAccountPath, bindAccountUrl, ACCOUNT_PATH_PREFIX } from "@/lib/auth/account-request-scope";
 import { Role } from "@prisma/client";
 import {
   IMPERSONATION_COOKIE,
@@ -16,8 +17,7 @@ import {
   type PortalVersion,
 } from "@/lib/portal-version";
 
-export default withAuth(
-  async function middleware(req) {
+async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?: Awaited<ReturnType<typeof validateActiveSession>> }) {
     const { pathname } = req.nextUrl;
     const token = req.nextauth.token;
 
@@ -85,7 +85,7 @@ export default withAuth(
     let heldRoles: Role[] | undefined;
     let houseLook: PortalVersion | undefined;
     if (token) {
-      const validation = await validateActiveSession(req);
+      const validation = req.retainedValidation ?? await validateActiveSession(req);
       if (validation.valid === false) {
         return applySecurityHeaders(NextResponse.redirect(new URL("/api/auth/local-signout", req.url)));
       }
@@ -244,8 +244,8 @@ export default withAuth(
     }
 
     return applySecurityHeaders(NextResponse.next());
-  },
-  {
+}
+const normalMiddleware = withAuth(portalMiddleware, {
     callbacks: {
       authorized({ token, req }) {
         const { pathname } = req.nextUrl;
@@ -256,6 +256,7 @@ export default withAuth(
         }
         // Public routes
         if (
+          pathname === "/accounts" ||
           pathname === "/login" ||
           pathname === "/v2/login" ||
           pathname === "/register" ||
@@ -303,6 +304,75 @@ export default withAuth(
     },
   }
 );
+
+
+export default async function middleware(original: NextRequest, event: NextFetchEvent) {
+  const headers = new Headers(original.headers);
+  headers.delete("x-sneek-retained-context");
+  // nextUrl may contain the server's bind address (0.0.0.0) behind a proxy.
+  // Browser referrers and redirects use the public host, as NextAuth does.
+  const publicHost = headers.get("x-forwarded-host")?.split(",")[0]?.trim() || headers.get("host") || original.nextUrl.host;
+  const publicProtocol = headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || original.nextUrl.protocol.replace(":", "");
+  if (!["http", "https"].includes(publicProtocol)) return NextResponse.json({ error: "Invalid origin" }, { status: 400 });
+  const publicOrigin = new URL(`${publicProtocol}://${publicHost}`).origin;
+  const path = original.nextUrl.pathname;
+  const context = readAccountPath(path);
+  if (path.startsWith(ACCOUNT_PATH_PREFIX) && !context) return NextResponse.json({ error: "Invalid account context" }, { status: 400 });
+  if (!context) {
+    let referringContext = null;
+    try { const ref = new URL(headers.get("referer") ?? ""); if (ref.origin === publicOrigin) referringContext = readAccountPath(ref.pathname); } catch { /* absent */ }
+    // A missed client transport must fail closed, not silently use the root account.
+    if (referringContext && !path.startsWith("/api/auth/retained") && path !== "/accounts" && path !== "/account-context.js") {
+      if (path.startsWith("/api/") && ["image", "video", "audio", "iframe"].includes(headers.get("sec-fetch-dest") ?? "") && original.method === "GET") return NextResponse.redirect(new URL(bindAccountUrl(referringContext.contextId, publicOrigin)(path + original.nextUrl.search), publicOrigin));
+      if (path.startsWith("/api/")) return NextResponse.json({ error: "Account context required. Reload this tab.", code: "ACCOUNT_CONTEXT_REQUIRED" }, { status: 409 });
+      if (original.method === "GET" && !path.startsWith("/_next/")) return NextResponse.redirect(new URL(bindAccountUrl(referringContext.contextId, publicOrigin)(path + original.nextUrl.search), publicOrigin));
+    }
+    const request = new NextRequest(original, { headers });
+    const response = await (normalMiddleware as any)(request, event) as NextResponse;
+    if (response?.headers.get("x-middleware-next") === "1") {
+      const next = NextResponse.next({ request: { headers } });
+      response.headers.forEach((value, key) => { if (!key.startsWith("x-middleware-")) next.headers.set(key, value); });
+      return next;
+    }
+    return response;
+  }
+  if (context.pathname === "/accounts" || context.pathname === "/login" || context.pathname === "/v2/login" || context.pathname === "/api/auth/local-signout") return NextResponse.redirect(new URL("/accounts", publicOrigin));
+  if (context.pathname.startsWith("/api/admin/impersonate") || context.pathname === "/api/me/active-role" && original.method !== "GET" || /^\/api\/auth\/(?:callback|signin)/.test(context.pathname)) return NextResponse.json({ error: "Manage identities from Accounts; this tab cannot change another account's session." }, { status: 403 });
+  let validation;
+  try {
+    const url = new URL("/api/auth/retained/validate", original.url); url.searchParams.set("context", context.contextId);
+    const response = await fetch(url, { headers: { cookie: headers.get("cookie") ?? "" }, cache: "no-store", redirect: "error" });
+    validation = response.ok ? await response.json() : null;
+  } catch { validation = null; }
+  if (!validation?.valid) return context.pathname.startsWith("/api/")
+    ? NextResponse.json({ error: "This account session expired or was revoked. Reauthenticate from Accounts." }, { status: 401, headers: { "Cache-Control": "no-store" } })
+    : NextResponse.redirect(new URL("/accounts?reauth=1", publicOrigin));
+  headers.set("x-sneek-retained-context", context.contextId);
+  const jar = (headers.get("cookie") ?? "").split(";").map(value => value.trim()).filter(value => {
+    const name = value.split("=")[0];
+    return !/^(?:__Secure-)?next-auth\.session-token(?:\.|$)/.test(name) && !/^(?:__Secure-)?sneek\.retained-jwt\./.test(name) && !["sneek.test-as", "sneek.active-role"].includes(name);
+  });
+  // Presence sentinels are transport only. auth-options.decode revalidates the
+  // opaque retained cookies against the database; these strings confer no authority.
+  for (const name of ["next-auth.session-token", "__Secure-next-auth.session-token", `sneek.retained-jwt.${context.contextId}`, `__Secure-sneek.retained-jwt.${context.contextId}`]) jar.push(`${name}=retained-context`);
+  headers.set("cookie", jar.join("; "));
+  const url = original.nextUrl.clone(); url.pathname = context.pathname;
+  const request = new NextRequest(url, { method: original.method, headers });
+  Object.assign(request, { nextauth: { token: { id: validation.id, role: validation.role } }, retainedValidation: validation });
+  const result = await portalMiddleware(request as any);
+  const location = result.headers.get("location");
+  if (location) {
+    const destination = new URL(location, original.url);
+    const target = ["/login", "/v2/login", "/api/auth/local-signout"].includes(destination.pathname) ? "/accounts?reauth=1" : bindAccountUrl(context.contextId, publicOrigin)(destination.pathname + destination.search + destination.hash);
+    result.headers.set("location", new URL(target, publicOrigin).href);
+    return result;
+  }
+  if (result.headers.get("x-middleware-next") !== "1") return result;
+  const response = NextResponse.rewrite(url, { request: { headers } });
+  result.headers.forEach((value, key) => { if (!key.startsWith("x-middleware-")) response.headers.set(key, value); });
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
+}
 
 function applySecurityHeaders(response: NextResponse) {
   response.headers.set("X-Frame-Options", "DENY");

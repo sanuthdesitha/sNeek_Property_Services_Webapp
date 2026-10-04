@@ -1,3 +1,5 @@
+import { decode as decodeJwt } from "next-auth/jwt";
+import { retainedContextId, retainedRequestSession } from "./retained-context";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
@@ -69,7 +71,10 @@ function shouldUseSecureCookies(baseUrl?: string) {
 function buildCookieConfig(secure: boolean): NextAuthOptions["cookies"] {
   return {
     sessionToken: {
-      name: secure ? "__Secure-next-auth.session-token" : "next-auth.session-token",
+      get name() {
+        const context = retainedContextId();
+        return context ? `${secure ? "__Secure-" : ""}sneek.retained-jwt.${context}` : secure ? "__Secure-next-auth.session-token" : "next-auth.session-token";
+      },
       options: {
         httpOnly: true,
         sameSite: "lax",
@@ -78,7 +83,7 @@ function buildCookieConfig(secure: boolean): NextAuthOptions["cookies"] {
       },
     },
     callbackUrl: {
-      name: secure ? "__Secure-next-auth.callback-url" : "next-auth.callback-url",
+      get name() { const context = retainedContextId(); return context ? `sneek.retained-callback.${context}` : secure ? "__Secure-next-auth.callback-url" : "next-auth.callback-url"; },
       options: {
         httpOnly: true,
         sameSite: "lax",
@@ -87,7 +92,7 @@ function buildCookieConfig(secure: boolean): NextAuthOptions["cookies"] {
       },
     },
     csrfToken: {
-      name: secure ? "__Host-next-auth.csrf-token" : "next-auth.csrf-token",
+      get name() { const context = retainedContextId(); return context ? `sneek.retained-csrf.${context}` : secure ? "__Host-next-auth.csrf-token" : "next-auth.csrf-token"; },
       options: {
         httpOnly: true,
         sameSite: "lax",
@@ -111,6 +116,18 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
     },
     jwt: {
       maxAge: 60 * 60 * 8,
+      async decode(params) {
+        if (!retainedContextId()) {
+          const decoded = await decodeJwt(params);
+          // A scoped session cookie must never become an unrevocable global login.
+          return decoded?.retainedContext ? null : decoded;
+        }
+        try {
+          const session = await retainedRequestSession();
+          return { id: session.user.id, role: session.user.role, name: session.user.name, email: session.user.email,
+            exp: Math.floor(Date.parse(session.expires) / 1000), retainedContext: retainedContextId() };
+        } catch { return null; }
+      },
     },
     pages: {
       signIn: "/login",
@@ -270,6 +287,7 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
         return token;
       },
       async session({ session, token }) {
+        if (token.retainedContext && typeof token.exp === "number") session.expires = new Date(token.exp * 1000).toISOString();
         if (session.user) {
           session.user.id = token.id as string;
           session.user.role = token.role as Role;

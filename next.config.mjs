@@ -91,6 +91,14 @@ const withPWA = withPWAInit({
     disableDevLogs: true,
     runtimeCaching: [
       {
+        // Retained identity and revocation must be checked online on every
+        // request; the default page/API cache must never replay these sessions.
+        urlPattern: ({ sameOrigin, url: { pathname } }) => sameOrigin &&
+          (pathname.startsWith("/_accounts/") || pathname === "/accounts" || pathname.startsWith("/api/auth/retained")),
+        handler: "NetworkOnly",
+        method: "GET",
+      },
+      {
         urlPattern: /^\/api\/cleaner\/jobs/i,
         handler: "NetworkFirst",
         method: "GET",

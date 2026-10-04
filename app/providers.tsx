@@ -12,7 +12,7 @@ import { WebPushSubscriber } from "@/components/notifications/web-push-subscribe
 import { AppInstallPrompt } from "@/components/shared/app-install-prompt";
 import { useEffect, useState } from "react";
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({ children, accountContext = null }: { children: React.ReactNode; accountContext?: string | null }) {
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: { queries: { staleTime: 60_000 } },
   }));
@@ -70,8 +70,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <div key={hardRefreshKey}>{children}</div>
         <GlobalRequestProgress />
         <LiveNotifications />
-        <NativeDevicePushRegistration />
-        <WebPushSubscriber />
+        {!accountContext ? <><NativeDevicePushRegistration /><WebPushSubscriber /></> : null}
         <AppInstallPrompt />
         <TextHistorySuggestions />
         <Toaster />

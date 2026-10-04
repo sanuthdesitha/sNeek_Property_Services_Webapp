@@ -41,6 +41,7 @@ export function RoleSwitcher() {
 
   React.useEffect(() => {
     let cancelled = false;
+    if (window.location.pathname.startsWith("/_accounts/")) return;
     fetch("/api/me/active-role", { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
@@ -85,10 +86,11 @@ export function RoleSwitcher() {
     }
   }
 
-  if (!state || !state.canSwitch) return null;
+  if (!state || !state.canSwitch) return <a className="mb-3 block text-sm underline" href="/accounts">Accounts</a>;
 
   return (
     <div className="mb-3">
+      <a className="mb-2 block text-sm underline" href="/accounts">Accounts</a>
       <p className="mb-1.5 inline-flex items-center gap-1.5 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-sidebar-fg))]/50">
         <UserCog className="h-3 w-3" aria-hidden />
         Working as

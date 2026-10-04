@@ -1,3 +1,6 @@
+/* eslint-disable @next/next/no-sync-scripts -- Account transport must bind before hydration starts requests. */
+import { retainedContextId } from "@/lib/auth/retained-context";
+import { AccountScopeProvider } from "@/components/auth/account-scope-provider";
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Cormorant_Garamond, Fraunces } from "next/font/google";
 import "./globals.css";
@@ -85,6 +88,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Resolve user's persisted theme preference for SSR. For "system" we default
   // to light on the server and let the pre-hydration script swap to dark if the
   // OS prefers dark — this prevents a flash-of-wrong-theme.
+  const accountContext = retainedContextId();
   const session = await getServerSession(authOptions);
   const themePref = await getThemeForUser((session as any)?.user?.id);
   // Admin "test as": the class drives the layout offsets in globals.css so the
@@ -115,6 +119,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className={initialClass} suppressHydrationWarning>
       <head>
+        {accountContext ? <script src="/account-context.js" /> : null}
         <script dangerouslySetInnerHTML={{ __html: preHydrationScript }} />
       </head>
       <body className={`${fontSans.variable} ${fontDisplay.variable} ${fontDisplaySerif.variable} ${fontEstateSerif.variable} ${fontMono.variable} antialiased`}>
@@ -123,7 +128,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             adds .has-impersonation-bar to <html> so sticky portal headers are
             pushed below it instead of hiding underneath. */}
         {impersonation ? <ImpersonationSlot banner={impersonation} /> : null}
-        <Providers>{children}</Providers>
+        <AccountScopeProvider contextId={accountContext}><Providers accountContext={accountContext}>{children}</Providers></AccountScopeProvider>
       </body>
     </html>
   );
