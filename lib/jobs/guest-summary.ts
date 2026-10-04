@@ -17,8 +17,10 @@
  */
 
 import type { JobReservationContext } from "./meta";
+import { stayNights } from "@/lib/inventory/stay-preparation-policy";
 
 export interface GuestSummary {
+  stayNights?: number | null;
   /** Display name, or null when the feed gave none. */
   name: string | null;
   /** Full origin text as supplied, e.g. "Sydney, Australia". */
@@ -130,6 +132,7 @@ export function buildGuestSummary(context?: JobReservationContext | null): Guest
   const origin = cleanText(ctx.locationText);
   const phoneLabel = cleanText(ctx.guestPhone);
   const summary: GuestSummary = {
+    stayNights: stayNights(ctx),
     name: cleanText(ctx.guestName),
     origin,
     country: extractCountry(origin),

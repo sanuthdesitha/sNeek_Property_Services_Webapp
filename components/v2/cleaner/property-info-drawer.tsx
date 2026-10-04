@@ -215,6 +215,7 @@ function NextGuestBlock({ nextGuest }: { nextGuest?: CleanerNextGuest | null }) 
             Arrives {arrival}
           </p>
         ) : null}
+        <p>Incoming stay: {nextGuest.stayNights == null ? "Unknown nights" : `${nextGuest.stayNights} nights (iCal dates)`}</p>
         {nextGuest.preparationGuestCount != null ? (
           <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
             Prepare for {nextGuest.preparationGuestCount}

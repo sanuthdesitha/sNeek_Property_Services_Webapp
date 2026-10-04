@@ -1,4 +1,5 @@
 "use client";
+import { StayPreparationPanel } from "./stay-preparation-panel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UrgentNeed } from "@/lib/inventory/urgent-stock";
 import { isUrgentStockClosed, type UrgentStockStage } from "@/lib/inventory/urgent-stock-policy";
@@ -49,6 +50,7 @@ export function UrgentStockWorkspace({ isAdmin, initialPropertyId = "" }: { isAd
       <button className="rounded border p-2" disabled={busy}>Save report</button>
     </form> : propertyId ? <p>No configured inventory items available.</p> : null}
     {data.nextCleanAt ? <p>Next clean planning deadline: {new Date(data.nextCleanAt).toLocaleString()}. An unspecified clean time uses the start of its local day.</p> : propertyId ? <p>No upcoming clean is currently scheduled.</p> : null}
+    {propertyId ? <StayPreparationPanel key={propertyId} propertyId={propertyId} isAdmin={isAdmin} items={data.items} refreshToken={data.reports.map(report => `${report.id}:${report.version}`).join(",")} /> : null}
     <section className="space-y-4"><h2 className="font-semibold">Reports and recorded actions</h2>
       {data.reports.map(report => <Need key={report.id} report={report} isAdmin={isAdmin} busy={busy} post={post} />)}
       {propertyId && !data.reports.length ? <p>No reports for this property.</p> : null}

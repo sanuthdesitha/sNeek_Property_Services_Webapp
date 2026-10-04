@@ -11,6 +11,7 @@
  * declare a count we fall back to the property maximum and say so.
  */
 import * as React from "react";
+import { stayNights } from "@/lib/inventory/stay-preparation-policy";
 import { Users, CalendarClock, User, Hash, BedDouble } from "lucide-react";
 import { ECard, ECardBody, EBadge } from "@/components/v2/ui/primitives";
 import type { JobReservationContext } from "@/lib/jobs/meta";
@@ -73,6 +74,8 @@ export function BookingCard({
             ) : null}
           </div>
         ) : null}
+
+        <p>Incoming stay: {stayNights(reservation) === null ? "Unknown nights" : `${stayNights(reservation)} nights (iCal dates)`}</p>
 
         {breakdown.length > 0 ? (
           <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{breakdown.join(" · ")}</p>

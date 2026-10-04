@@ -32,6 +32,9 @@ export interface JobServiceContext {
 }
 
 export interface JobReservationContext {
+  stayStartDate?: string;
+  stayEndDate?: string;
+  staySource?: "ICAL";
   guestName?: string;
   reservationCode?: string;
   guestPhone?: string;
@@ -341,6 +344,9 @@ function normalizeReservationContext(input: unknown): JobReservationContext | un
     if (value) (next as Record<string, string | number | undefined>)[key] = value;
   };
 
+  assignString("stayStartDate");
+  assignString("stayEndDate");
+  if (source.staySource === "ICAL") next.staySource = "ICAL";
   assignString("guestName");
   assignString("reservationCode");
   assignString("guestPhone");

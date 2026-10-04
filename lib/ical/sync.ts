@@ -1,5 +1,6 @@
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import ICAL from "ical.js";
+import { incomingStayDates, nextIncomingStay } from "./stay-dates";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { reserveJobNumber } from "@/lib/jobs/job-number";
@@ -57,6 +58,7 @@ type JobState = {
 };
 
 type ParsedFeedEvent = {
+  stayDates: ReturnType<typeof incomingStayDates>;
   uid: string;
   startDate: Date;
   endDate: Date;
@@ -249,8 +251,13 @@ function mergeReservationContextIntoInternalNotes(
   currentInternalNotes: string | null | undefined,
   reservationContext: JobReservationContext | undefined
 ) {
-  if (!reservationContext) return currentInternalNotes ?? undefined;
   const meta = parseJobInternalNotes(currentInternalNotes);
+  if (!reservationContext) {
+    if (!meta.reservationContext?.staySource) return currentInternalNotes ?? undefined;
+    // Keep legacy guest metadata, but never retain a cancelled incoming stay
+    // as a current forecast. Terminal jobs are excluded by the sync caller.
+    reservationContext = { ...meta.reservationContext, stayStartDate: undefined, stayEndDate: undefined, staySource: undefined };
+  }
   return (
     serializeJobInternalNotes({
       ...meta,
@@ -311,6 +318,7 @@ function parseFeedEvent(ev: ICAL.Event): ParsedFeedEvent | null {
   const geo = parseGeo((ev.component.getFirstPropertyValue("geo") as string | null | undefined) ?? null);
   return {
     uid: ev.uid,
+    stayDates: incomingStayDates(ev),
     startDate: icalDateToUtcDateOnly(ev.startDate),
     endDate: icalDateToUtcDateOnly(ev.endDate),
     summary: ev.summary ?? null,
@@ -698,8 +706,9 @@ async function syncTurnoverJobsForReservations(params: {
       ? toLocalTimeString(reservation.checkoutAtLocal) ?? params.property.defaultCheckoutTime
       : params.property.defaultCheckoutTime;
     const existingJob = existingByReservationId.get(reservation.id);
+    const nextIncoming = nextIncomingStay(params.sameDayCheckinsByDate, turnoverDateKey, value => value.reservationContext?.stayStartDate);
     const reservationContext =
-      incomingCheckin?.reservationContext ?? buildPropertyMaxGuestPreparationContext(params.property.maxGuestCount);
+      nextIncoming?.reservationContext ?? buildPropertyMaxGuestPreparationContext(params.property.maxGuestCount);
 
     if (!existingJob && params.syncOptions.verifyExistingJobConflicts) {
       const conflict = await db.job.findFirst({
@@ -1217,7 +1226,7 @@ export async function syncPropertyIcal(
       if (!existing || (time && (!existing.checkinTime || time < existing.checkinTime))) {
         sameDayCheckinsByDate.set(key, {
           checkinTime: time,
-          reservationContext: buildReservationContext({
+          reservationContext: { ...event.stayDates, ...buildReservationContext({
             summary: event.summary,
             reservationCode: event.reservationCode,
             guestPhone: event.guestPhone,
@@ -1231,7 +1240,7 @@ export async function syncPropertyIcal(
             geoLng: event.geoLng,
             checkinAtLocal: event.checkinAtLocal,
             checkoutAtLocal: event.checkoutAtLocal,
-          }),
+          }) },
         });
       }
     }

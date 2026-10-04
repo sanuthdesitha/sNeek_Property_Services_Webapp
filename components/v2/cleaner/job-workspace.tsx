@@ -1,4 +1,5 @@
 "use client";
+import { StayPreparationPanel } from "@/components/inventory/stay-preparation-panel";
 import { savedLaundrySignature, type SavedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
 import { parseLaundryBagCountInput } from "@/lib/laundry/bag-count";
 
@@ -1681,6 +1682,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         </EAlert>
       ) : null}
 
+      {job?.property?.inventoryEnabled && job?.propertyId ? <StayPreparationPanel key={job.id} jobId={job.id} propertyId={job.propertyId} refreshToken={job.updatedAt} /> : null}
       <StageNav api={api} />
 
       <div>

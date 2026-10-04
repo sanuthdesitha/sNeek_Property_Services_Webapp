@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { UrgentStockWorkspace } from "@/components/inventory/urgent-stock-workspace";
+vi.mock("@/components/inventory/stay-preparation-panel", () => ({ StayPreparationPanel: () => null }));
 const snapshot = { properties: [{ id: "p", name: "Fixture property" }], items: [{ itemId: "paper", item: { name: "Paper", unit: "roll" } }], reports: [], settings: null };
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 it("reports unknown count and purchase quantity as null and retains input and request identity through a retry", async () => {
