@@ -1,3 +1,5 @@
+import { resolveRouteRole } from "@/lib/auth/route-role";
+import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -32,7 +34,14 @@ const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
  */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireRole([...QA_ROLES]);
+    const session = await requireRole([...QA_ROLES]);
+    const role = resolveRouteRole(session.user, QA_ROLES);
+    if (role === Role.QA_INSPECTOR && !await db.qaAssignment.findFirst({
+      where: { jobId: params.id, status: { not: "CANCELLED" }, ...qaAssignmentOwnerWhere(session.user.id) },
+      select: { id: true },
+    })) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const now = new Date();
 
     // ── Base query: only columns that exist on EVERY deployed schema ──

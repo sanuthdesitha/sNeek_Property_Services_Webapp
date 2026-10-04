@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { NotificationChannel, NotificationStatus } from "@prisma/client";
@@ -242,6 +243,7 @@ export async function sendAdminAttentionSummary(options: SendAdminAttentionSumma
     await db.notification.create({
       data: {
         userId: admin.id,
+        externalId: mobilePendingMarker("account"),
         channel: NotificationChannel.PUSH,
         subject: notificationTemplate.webSubject,
         body: notificationTemplate.webBody,

@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { format } from "date-fns";
 import { JobStatus, NotificationChannel, NotificationStatus, Role } from "@prisma/client";
@@ -73,6 +74,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             data: {
               userId: assignment.userId,
               jobId: job.id,
+              externalId: mobilePendingMarker("jobs"),
               channel: NotificationChannel.PUSH,
               subject: "Unfinished job reminder",
               body: message,

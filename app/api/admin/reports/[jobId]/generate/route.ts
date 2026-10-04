@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -53,6 +54,7 @@ export async function POST(
     if (requiresAdminInitiation && report) {
       await db.notification.create({
         data: {
+          externalId: mobilePendingMarker("reports"),
           channel: NotificationChannel.PUSH,
           subject: "Report generated (manual client share required)",
           body: `Report ${params.jobId} generated. Use Share action to send to client.`,

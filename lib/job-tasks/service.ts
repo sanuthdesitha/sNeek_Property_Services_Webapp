@@ -4,6 +4,7 @@ import {
   NotificationChannel,
   NotificationStatus,
   type JobTask,
+  type Prisma,
 } from "@prisma/client";
 import { format } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
@@ -122,26 +123,31 @@ export async function syncAdminJobTasks(input: {
   propertyId: string;
   clientId?: string | null;
   actorUserId: string;
+  cancelTaskIds?: string[];
+  database?: Prisma.TransactionClient;
   tasks: Array<{
     id?: string | null;
     title: string;
     description?: string | null;
+    allowNotApplicable?: boolean;
     requiresPhoto?: boolean;
     requiresNote?: boolean;
   }>;
 }) {
-  const existing = await db.jobTask.findMany({
+  const database = input.database ?? db;
+  const existing = await database.jobTask.findMany({
     where: {
       jobId: input.jobId,
       source: "ADMIN",
       executionStatus: { not: "CANCELLED" },
     },
-    select: { id: true },
+    select: { id: true, executionStatus: true, metadata: true },
   });
   const existingIds = new Set(existing.map((row) => row.id));
   const nextIds = new Set<string>();
   /** Titles of tasks created in this sync — the only ones worth announcing. */
   const addedTitles: string[] = [];
+  const canonicalTasks: typeof input.tasks = [];
 
   for (const task of input.tasks) {
     const title = task.title.trim();
@@ -149,11 +155,14 @@ export async function syncAdminJobTasks(input: {
     const taskId = task.id && existingIds.has(task.id) ? task.id : null;
     if (taskId) {
       nextIds.add(taskId);
-      await db.jobTask.update({
+      canonicalTasks.push({ ...task, id: taskId });
+      if (existing.find((row) => row.id === taskId)?.executionStatus !== "OPEN") continue;
+      await database.jobTask.update({
         where: { id: taskId },
         data: {
           title,
           description: task.description?.trim() || null,
+          metadata: { ...((existing.find((row) => row.id === taskId)?.metadata as Record<string, unknown>) ?? {}), allowNotApplicable: task.allowNotApplicable === true } as Prisma.InputJsonObject,
           requiresPhoto: task.requiresPhoto === true,
           requiresNote: task.requiresNote === true,
           visibleToCleaner: true,
@@ -163,8 +172,9 @@ export async function syncAdminJobTasks(input: {
       continue;
     }
 
-    const created = await db.jobTask.create({
+    const created = await database.jobTask.create({
       data: {
+        ...(task.id ? { id: `admin-${input.jobId}-${task.id}` } : {}),
         jobId: input.jobId,
         propertyId: input.propertyId,
         clientId: input.clientId ?? null,
@@ -174,6 +184,7 @@ export async function syncAdminJobTasks(input: {
         visibleToCleaner: true,
         title,
         description: task.description?.trim() || null,
+        metadata: { allowNotApplicable: task.allowNotApplicable === true },
         requiresPhoto: task.requiresPhoto === true,
         requiresNote: task.requiresNote === true,
         requestedByUserId: input.actorUserId,
@@ -190,12 +201,13 @@ export async function syncAdminJobTasks(input: {
       select: { id: true },
     });
     nextIds.add(created.id);
+    canonicalTasks.push({ ...task, id: created.id });
     addedTitles.push(title);
   }
 
-  const toCancel = existing.filter((row) => !nextIds.has(row.id)).map((row) => row.id);
+  const toCancel = existing.filter((row) => row.executionStatus === "OPEN" && input.cancelTaskIds?.includes(row.id)).map((row) => row.id);
   if (toCancel.length > 0) {
-    await db.jobTask.updateMany({
+    await database.jobTask.updateMany({
       where: { id: { in: toCancel } },
       data: {
         executionStatus: "CANCELLED",
@@ -204,21 +216,11 @@ export async function syncAdminJobTasks(input: {
     });
   }
 
-  // Tell the cleaners who are actually going. Until now this function added
-  // work to someone's job and notified nobody — the extra task simply appeared
-  // in the app, so a cleaner who had already read their brief arrived without
-  // it. Only NEW tasks are announced; renaming an existing one is not news
-  // worth a push at 6am.
-  if (addedTitles.length > 0) {
-    await notifyJobTasksAdded(input.jobId, addedTitles).catch((err) => {
-      // Never let a notification failure undo tasks that were saved.
-      console.error("[job-tasks] added-notification failed", err);
-    });
-  }
+  return { addedTitles, canonicalTasks };
 }
 
 /** Announce newly added admin tasks to the job's current cleaners. */
-async function notifyJobTasksAdded(jobId: string, titles: string[]) {
+export async function notifyJobTasksAdded(jobId: string, titles: string[]) {
   const job = await db.job.findUnique({
     where: { id: jobId },
     select: {
@@ -768,8 +770,9 @@ export async function attachPendingCarryForwardTasksToJob(input: {
 export async function attachPendingAdminTasksToJob(input: {
   jobId: string;
   propertyId: string;
+  database?: Prisma.TransactionClient;
 }): Promise<{ attached: number }> {
-  const result = await db.jobTask.updateMany({
+  const result = await (input.database ?? db).jobTask.updateMany({
     where: {
       propertyId: input.propertyId,
       source: "ADMIN",
@@ -792,13 +795,15 @@ export async function applyCleanerJobTaskUpdates(input: {
   cleanerId: string;
   taskUpdates: Array<{
     id: string;
-    decision: "COMPLETED" | "NOT_COMPLETED";
+    decision: "COMPLETED" | "NOT_COMPLETED" | "NOT_APPLICABLE";
     note?: string;
     proofKeys?: string[];
   }>;
   baseUrl?: RequestLike;
-}) {
-  const job = await db.job.findUnique({
+}, options: { transaction?: Prisma.TransactionClient; afterCommit?: Array<() => Promise<unknown>> } = {}) {
+  if (options.transaction && !options.afterCommit) throw new Error("afterCommit is required with a transaction");
+  const database = options.transaction ?? db;
+  const job = await database.job.findUnique({
     where: { id: input.jobId },
     select: {
       id: true,
@@ -813,24 +818,30 @@ export async function applyCleanerJobTaskUpdates(input: {
 
   let carriedForwardCount = 0;
   for (const update of input.taskUpdates) {
-    const existing = await db.jobTask.findUnique({
+    const existing = await database.jobTask.findUnique({
       where: { id: update.id },
       include: { attachments: true },
     });
-    if (!existing || existing.jobId !== input.jobId) continue;
+    if (!existing || existing.jobId !== input.jobId || existing.executionStatus !== "OPEN") continue;
 
     const note = update.note?.trim() || null;
     const proofKeys = (update.proofKeys ?? []).filter((key) => key.trim().length > 0);
 
-    await db.jobTask.update({
+    const notApplicable = update.decision === "NOT_APPLICABLE";
+    const metadata = existing.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata) ? existing.metadata as Record<string, unknown> : {};
+    if (notApplicable && (metadata.allowNotApplicable !== true || !note || proofKeys.length === 0)) {
+      throw new Error("Not applicable requires office permission, a reason and photo proof.");
+    }
+    await database.jobTask.update({
       where: { id: update.id },
       data: {
-        executionStatus: update.decision,
-        completedAt: new Date(),
+        executionStatus: update.decision === "NOT_APPLICABLE" ? "CANCELLED" : update.decision,
+        ...(notApplicable ? { metadata: { ...metadata, disposition: "NOT_APPLICABLE", notApplicable: { reason: note, proofKeys, cleanerId: input.cleanerId, recordedAt: new Date().toISOString() } } as Prisma.InputJsonObject } : {}),
+        completedAt: update.decision === "COMPLETED" ? new Date() : null,
         events: {
           create: {
             actorUserId: input.cleanerId,
-            action: update.decision === "COMPLETED" ? "TASK_COMPLETED" : "TASK_NOT_COMPLETED",
+            action: notApplicable ? "TASK_NOT_APPLICABLE" : update.decision === "COMPLETED" ? "TASK_COMPLETED" : "TASK_NOT_COMPLETED",
             note,
             metadata: {
               proofCount: proofKeys.length,
@@ -841,7 +852,7 @@ export async function applyCleanerJobTaskUpdates(input: {
     });
 
     if (proofKeys.length > 0) {
-      await db.jobTaskAttachment.createMany({
+      await database.jobTaskAttachment.createMany({
         data: proofKeys.map((key) => ({
           taskId: update.id,
           uploadedByUserId: input.cleanerId,
@@ -849,13 +860,13 @@ export async function applyCleanerJobTaskUpdates(input: {
           kind: update.decision === "COMPLETED" ? "COMPLETION_PROOF" : "FAILURE_PROOF",
           url: publicUrl(key),
           s3Key: key,
-          label: update.decision === "COMPLETED" ? "Completion proof" : "Not completed proof",
+          label: notApplicable ? "Not applicable proof" : update.decision === "COMPLETED" ? "Completion proof" : "Not completed proof",
         })),
       });
     }
 
     if (update.decision === "NOT_COMPLETED") {
-      const nextJob = await db.job.findFirst({
+      const nextJob = await database.job.findFirst({
         where: {
           propertyId: input.propertyId,
           status: { notIn: FINISHED_JOB_STATUSES },
@@ -866,7 +877,7 @@ export async function applyCleanerJobTaskUpdates(input: {
         orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
       });
 
-      await db.jobTask.create({
+      await database.jobTask.create({
         data: {
           jobId: nextJob?.id ?? null,
           propertyId: input.propertyId,
@@ -883,6 +894,7 @@ export async function applyCleanerJobTaskUpdates(input: {
           approvedByUserId: input.cleanerId,
           approvedAt: new Date(),
           parentTaskId: existing.id,
+          metadata: { allowNotApplicable: metadata.allowNotApplicable === true },
           events: {
             create: {
               actorUserId: input.cleanerId,
@@ -894,6 +906,7 @@ export async function applyCleanerJobTaskUpdates(input: {
       });
       carriedForwardCount += 1;
 
+      const notify = async () => {
       const admins = await getAdminRecipients();
       const propertyLabel = `${job.property.name}${job.property.suburb ? ` (${job.property.suburb})` : ""}`;
       const jobReference = getJobReference(job);
@@ -919,6 +932,9 @@ export async function applyCleanerJobTaskUpdates(input: {
         },
         sms: `Not completed: ${existing.title} on ${jobReference}.`,
       });
+      };
+      if (options.afterCommit) options.afterCommit.push(notify);
+      else await notify();
     }
   }
 

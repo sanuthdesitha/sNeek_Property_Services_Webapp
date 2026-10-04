@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
@@ -34,6 +35,7 @@ async function notifyClientOfSkipDecision(jobId: string, approved: boolean) {
     data: recipients.map((user) => ({
       userId: user.id,
       jobId,
+      externalId: mobilePendingMarker("jobs"),
       channel: NotificationChannel.PUSH,
       subject: approved ? "Clean skipped" : "Skip request declined",
       body: approved

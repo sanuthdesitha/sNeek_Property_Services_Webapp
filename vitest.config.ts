@@ -14,7 +14,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      include: ["lib/**", "components/**", "app/**"],
+      include: ["lib/**", "components/**", "app/**", "workers/boss.ts"],
       exclude: ["**/*.test.*", "**/node_modules/**"],
     },
   },

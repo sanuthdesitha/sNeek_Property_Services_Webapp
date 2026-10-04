@@ -21,7 +21,7 @@ const draftItemSchema = z.object({
   status: z.nativeEnum(LaundryStatus),
   flagReason: z.nativeEnum(LaundryFlag).nullable(),
   flagNotes: z.string().nullable(),
-  scenario: z.enum(["BACK_TO_BACK", "MICRO_CYCLE", "COMPRESSED", "FALLBACK"]),
+  scenario: z.enum(["BACK_TO_BACK", "MICRO_CYCLE", "COMPRESSED", "FALLBACK", "KEY_LOST"]),
   linenBufferSets: z.number().int().min(0),
   operation: z.enum(["CREATE", "UPDATE"]).optional(),
   taskId: z.string().trim().min(1).nullable().optional(),
@@ -60,7 +60,8 @@ export async function POST(req: NextRequest) {
       const items = body.items ?? [];
       const applied = await applyLaundryPlanDraft(items);
       if (body.notifyLaundryAfterApproval) {
-        await notifyLaundryTeamsForApprovedSyncDraft(items as any);
+        const changedJobIds = new Set(applied.map(task => task.jobId));
+        await notifyLaundryTeamsForApprovedSyncDraft(items.filter(item => changedJobIds.has(item.jobId)) as any);
       }
       if (body.clearPendingSyncDraft) {
         await clearPendingLaundrySyncDraft();

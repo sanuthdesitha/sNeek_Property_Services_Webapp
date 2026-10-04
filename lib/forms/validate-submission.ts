@@ -1,4 +1,4 @@
-// Client-side submission validation for the v2 native form renderer.
+// Shared submission validation for the native renderer and submit endpoint.
 //
 // Surfaces the SAME required-field rules the submit endpoint enforces
 // (collectRequiredAnswerFields / collectRequiredUploadFields in ./visibility)
@@ -8,6 +8,7 @@
 //   - yes/no fields with `detailsWhenNo` needing a details note when "No"
 //
 // The server stays authoritative — this only mirrors it for inline UX.
+import { isUploadFieldType } from "./field-types";
 import {
   collectRequiredAnswerFields,
   collectRequiredUploadFields,
@@ -105,7 +106,9 @@ export function collectFormErrors(
     });
   }
 
-  // 3) Extra renderer-only rules: minPhotos shortfalls + yes/no details.
+  for (const error of collectUploadMinimumErrors(templateSchema, answers, uploadCounts, property, laundryReady, noPhoto)) push(error);
+
+  // 3) Additional answer rules.
   const sections = Array.isArray(templateSchema?.sections) ? templateSchema.sections : [];
   for (const section of sections) {
     if (!isTemplateNodeVisible(section, answers, property, laundryReady)) continue;
@@ -122,24 +125,6 @@ export function collectFormErrors(
       const type = typeof field.type === "string" ? field.type.toLowerCase() : "";
       const label =
         typeof field.label === "string" && field.label.trim() ? field.label.trim() : String(field.id);
-
-      // File minimum (independent of `required`). Applies to photo AND file
-      // fields — the builder exposes "Min files" for both, and only enforcing it
-      // for photos meant a document field's minimum was silently ignored.
-      if (type === "photo" || type === "file") {
-        const need = Math.max(0, Number(field.minPhotos ?? 0));
-        const have = uploadCounts[String(field.id)] ?? 0;
-        if (need > 0 && have < need && !hasNoPhotoWaiver(String(field.id))) {
-          const noun = type === "file" ? "file" : "photo";
-          push({
-            fieldId: String(field.id),
-            sectionId,
-            sectionLabel,
-            label,
-            message: `Add at least ${need} ${noun}${need === 1 ? "" : "s"} — ${have} added.`,
-          });
-        }
-      }
 
       // Numeric range. The builder lets an admin set min/max on number-ish
       // fields, and the input carries them as attributes, but a typed value
@@ -203,5 +188,33 @@ export function collectFormErrors(
     }
   }
 
+  return errors;
+}
+
+/** The same visible-field minimum applies before submission and on the server. */
+export function collectUploadMinimumErrors(
+  templateSchema: any,
+  answers: AnswerMap,
+  uploadCounts: UploadCounts,
+  property: Record<string, unknown>,
+  laundryReady?: boolean,
+  noPhoto?: { canUseNoPhoto: boolean; reasons: Record<string, { reasonCode: string } | undefined> }
+): FormFieldError[] {
+  const errors: FormFieldError[] = [];
+  for (const section of Array.isArray(templateSchema?.sections) ? templateSchema.sections : []) {
+    if (!isTemplateNodeVisible(section, answers, property, laundryReady)) continue;
+    for (const field of flattenFieldsOneLevel(section?.fields)) {
+      if (!field?.id || !isUploadFieldType(field.type) || !isFlattenedFieldVisible(field, answers, property, laundryReady)) continue;
+      const id = String(field.id);
+      const type = String(field.type).toLowerCase();
+      const need = Math.max(field.required ? 1 : 0, type === "video" ? 0 : Number(field.minPhotos ?? 0));
+      const have = uploadCounts[id] ?? 0;
+      // A waiver excuses a missing capture, never an incomplete uploaded set.
+      if (have === 0 && noPhoto?.canUseNoPhoto && noPhoto.reasons[id]) continue;
+      if (!(need > have)) continue;
+      errors.push({ fieldId: id, sectionId: section.id, sectionLabel: section.title || section.label,
+        label: field.label || id, message: `Add at least ${need} ${type === "photo" ? "photo" : "file"}${need === 1 ? "" : "s"} — ${have} added.` });
+    }
+  }
   return errors;
 }

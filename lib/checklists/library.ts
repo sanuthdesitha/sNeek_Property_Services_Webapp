@@ -9,17 +9,14 @@ import {
   STANDARD_MODULES,
   STANDARD_AIRBNB_ITEMS,
   SELF_INSPECTION_MODULE,
-  SELF_INSPECTION_REMOVED_ITEM_KEYS,
   MODULE_EVIDENCE_CATEGORY,
 } from "@/lib/checklists/catalog";
 import { FEATURE_DEFS, type AppliesWhenRule } from "@/lib/checklists/features";
 
 /**
  * Bump this whenever the in-code catalog / feature modules change in a way that
- * needs to reach already-seeded databases. `getChecklistLibrary` compares it to
- * the stored marker and re-runs the idempotent sync once per deploy when they
- * differ, so production libraries pick up new modules/rules without a manual
- * re-seed. (History: v1 = original catalog seed; v2 = feature modules + rule/
+ * needs to reach already-seeded databases. Administrators explicitly add
+ * missing standard items; reads never seed or overwrite existing library rows. (History: v1 = original catalog seed; v2 = feature modules + rule/
  * repeatBy sync onto existing rows; v3 = evidence frequency — rotational +
  * conditional evidence items, evidenceCategory backfill; v4 = final
  * self-inspection module — 14 required checkboxes composing last; v5 = prior
@@ -30,7 +27,6 @@ import { FEATURE_DEFS, type AppliesWhenRule } from "@/lib/checklists/features";
  * conditional mould pair).)
  */
 export const CATALOG_VERSION = "7";
-const LIBRARY_VERSION_KEY = "checklistLibraryVersion";
 
 /**
  * Checklist library service — the DB-backed catalog of checklist modules
@@ -76,48 +72,10 @@ export interface LibraryModule {
   items: LibraryItem[];
 }
 
-// ── Version-gated auto-sync ─────────────────────────────────────────────────
-// Callers only invoke the seed when the library is EMPTY, so an already-seeded
-// production DB would never receive new catalog/feature modules. We close that
-// gap here: every library read ensures the catalog is synced once per process
-// (and once per DB whenever CATALOG_VERSION advances), via idempotent upserts.
-
-let inProcessSyncedVersion: string | null = null;
-let syncInFlight: Promise<void> | null = null;
-
-async function ensureChecklistLibrarySynced(): Promise<void> {
-  if (inProcessSyncedVersion === CATALOG_VERSION) return;
-  if (syncInFlight) return syncInFlight;
-  const run = (async () => {
-    try {
-      const row = await db.appSetting.findUnique({ where: { key: LIBRARY_VERSION_KEY } }).catch(() => null);
-      const stored =
-        typeof row?.value === "string"
-          ? row.value
-          : row?.value && typeof row.value === "object" && "version" in (row.value as Record<string, unknown>)
-            ? String((row.value as Record<string, unknown>).version)
-            : null;
-      if (stored !== CATALOG_VERSION) {
-        await seedChecklistLibraryFromCatalog({ force: true });
-        await db.appSetting.upsert({
-          where: { key: LIBRARY_VERSION_KEY },
-          create: { key: LIBRARY_VERSION_KEY, value: CATALOG_VERSION as any },
-          update: { value: CATALOG_VERSION as any },
-        });
-      }
-      inProcessSyncedVersion = CATALOG_VERSION;
-    } finally {
-      syncInFlight = null;
-    }
-  })();
-  syncInFlight = run;
-  return run;
-}
+// Library reads are strictly read-only. Seed additions use the explicit admin action.
 
 export async function getChecklistLibrary(opts?: { includeInactive?: boolean }): Promise<LibraryModule[]> {
-  // Best-effort: keep the library current, but never fail a read if the sync
-  // hits a transient DB error — fall through to whatever is already stored.
-  await ensureChecklistLibrarySynced().catch(() => {});
+
   const modules = await db.checklistModule.findMany({
     where: opts?.includeInactive ? {} : { isActive: true },
     include: {
@@ -165,8 +123,8 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
   items: number;
   skipped: boolean;
 }> {
-  // Idempotent sync: create missing modules/items and refresh their rules /
-  // labels / repeatBy / job types on existing rows (keyed by stable key/slug).
+  // Explicit, additive initialization: create missing modules/items only.
+  // Existing titles, rules, frequencies and authored content are preserved.
   // Admin-authored custom modules (keys not in the catalog) are never touched,
   // and admin edits to instructions/media/field types are preserved (only set
   // on create). Safe to run against an already-seeded production library.
@@ -237,7 +195,7 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
       // Refresh canonical structure/rules on existing rows; leave isActive +
       // description (admin-editable) alone. This is how already-seeded DBs pick
       // up newly-added gating (appliesWhen) and per-room repetition (repeatBy).
-      update: { title, category, appliesWhen, repeatBy, sortOrder },
+      update: {},
       select: { id: true },
     });
     moduleCount += 1;
@@ -256,28 +214,14 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
           jobTypes: Array.from(agg.jobTypes),
           appliesWhen: (rule ?? null) as any,
           sortOrder: agg.sortOrder,
+          evidenceCategory: MODULE_EVIDENCE_CATEGORY[moduleKey] ?? null,
         },
-        update: {
-          // Refresh label, gating rule, job-type coverage and ordering from the
-          // catalog; preserve admin edits to instructions/media/field settings.
-          label: agg.label,
-          jobTypes: Array.from(agg.jobTypes),
-          appliesWhen: (rule ?? null) as any,
-          sortOrder: agg.sortOrder,
-        },
+        update: {},
       });
       itemCount += 1;
     }
 
-    // Backfill evidenceCategory on this module's items ONLY where still null, so
-    // admin edits are preserved. Rooms map by module key; other modules stay null.
-    const evidenceCategory = MODULE_EVIDENCE_CATEGORY[moduleKey];
-    if (evidenceCategory) {
-      await db.checklistModuleItem.updateMany({
-        where: { moduleId: moduleRow.id, evidenceCategory: null },
-        data: { evidenceCategory },
-      });
-    }
+
   }
 
   // ── Feature-gated add-on modules (pool, bbq, spa, balcony, pets, …) ────────
@@ -292,13 +236,7 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
         repeatBy: mod.repeatBy ?? null,
         sortOrder: mod.sortOrder,
       },
-      update: {
-        title: mod.title,
-        category: mod.category,
-        appliesWhen: mod.appliesWhen as any,
-        repeatBy: mod.repeatBy ?? null,
-        sortOrder: mod.sortOrder,
-      },
+      update: {},
       select: { id: true },
     });
     moduleCount += 1;
@@ -318,22 +256,12 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
           appliesWhen: null as any,
           sortOrder: sortIndex,
         },
-        update: {
-          label: item.label,
-          jobTypes: mod.jobTypes,
-          sortOrder: sortIndex,
-        },
+        update: {},
       });
       itemCount += 1;
     }
 
-    const featureEvidenceCategory = MODULE_EVIDENCE_CATEGORY[mod.key];
-    if (featureEvidenceCategory) {
-      await db.checklistModuleItem.updateMany({
-        where: { moduleId: moduleRow.id, evidenceCategory: null },
-        data: { evidenceCategory: featureEvidenceCategory },
-      });
-    }
+
   }
 
   // ── ROTATIONAL deep-detail items on existing room / balcony modules ────────
@@ -376,16 +304,7 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
           rotationEveryNCleans: item.rotationEveryNCleans,
           severity: item.severity,
         },
-        update: {
-          label: item.label,
-          fieldType: item.fieldType,
-          minPhotos: item.minPhotos,
-          stampTag: item.stampTag,
-          sortOrder: sortIndex,
-          frequency: "ROTATIONAL",
-          rotationEveryNCleans: item.rotationEveryNCleans,
-          severity: item.severity,
-        },
+        update: {},
       });
       itemCount += 1;
     }
@@ -431,18 +350,7 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
         },
         // Refresh canonical structure/rules/gating; leave admin-editable
         // instructions + media create-only (like the other seed loops).
-        update: {
-          label: item.label,
-          fieldType: "photo",
-          minPhotos: item.minPhotos,
-          required: true,
-          appliesWhen: (item.appliesWhen ?? null) as any,
-          jobTypes: item.jobTypes ?? [],
-          sortOrder: sortIndex,
-          frequency: "EVERY_CLEAN",
-          evidenceCategory: item.evidenceCategory ?? null,
-          severity: item.severity,
-        },
+        update: {},
       });
       itemCount += 1;
     }
@@ -465,13 +373,7 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
         repeatBy: mod.repeatBy ?? null,
         sortOrder: mod.sortOrder,
       },
-      update: {
-        title: mod.title,
-        category: mod.category,
-        appliesWhen: (mod.appliesWhen ?? null) as any,
-        repeatBy: mod.repeatBy ?? null,
-        sortOrder: mod.sortOrder,
-      },
+      update: {},
       select: { id: true },
     });
     moduleCount += 1;
@@ -511,20 +413,7 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
         },
         // Refresh canonical structure/gating on existing rows; instructions +
         // media stay create-only so admin edits survive (same rule as above).
-        update: {
-          label: item.label,
-          fieldType: item.fieldType,
-          required: item.required,
-          minPhotos: item.minPhotos ?? null,
-          stampTag: item.stampTag ?? null,
-          jobTypes: item.jobTypes ?? [],
-          appliesWhen: (item.appliesWhen ?? null) as any,
-          sortOrder: item.sortOrder,
-          evidenceCategory: item.evidenceCategory ?? null,
-          frequency: item.frequency ?? "EVERY_CLEAN",
-          conditionKey: item.conditionKey ?? null,
-          severity: item.severity,
-        },
+        update: {},
       });
       itemCount += 1;
     }
@@ -542,12 +431,7 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
         appliesWhen: null as any,
         sortOrder: mod.sortOrder,
       },
-      update: {
-        title: mod.title,
-        category: mod.category,
-        appliesWhen: null as any,
-        sortOrder: mod.sortOrder,
-      },
+      update: {},
       select: { id: true },
     });
     moduleCount += 1;
@@ -573,17 +457,7 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
           conditionKey: item.conditionKey,
           severity: item.severity,
         },
-        update: {
-          label: item.label,
-          fieldType: item.fieldType,
-          minPhotos: item.minPhotos,
-          stampTag: item.stampTag,
-          jobTypes: mod.jobTypes,
-          sortOrder: sortIndex,
-          frequency: "CONDITIONAL",
-          conditionKey: item.conditionKey,
-          severity: item.severity,
-        },
+        update: {},
       });
       itemCount += 1;
     }
@@ -603,12 +477,7 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
         appliesWhen: null as any,
         sortOrder: mod.sortOrder,
       },
-      update: {
-        title: mod.title,
-        category: mod.category,
-        appliesWhen: null as any,
-        sortOrder: mod.sortOrder,
-      },
+      update: {},
       select: { id: true },
     });
     moduleCount += 1;
@@ -631,27 +500,12 @@ export async function seedChecklistLibraryFromCatalog(_opts?: { force?: boolean 
           frequency: "EVERY_CLEAN",
           severity: item.severity,
         },
-        update: {
-          label: item.label,
-          fieldType: "checkbox",
-          required: true,
-          jobTypes: item.jobTypes,
-          sortOrder: sortIndex,
-          frequency: "EVERY_CLEAN",
-          severity: item.severity,
-        },
+        update: {},
       });
       itemCount += 1;
     }
 
-    // Remove items dropped from the catalog (e.g. the duplicate laundry-bag
-    // confirm) so regenerated templates stop including them. Past submissions
-    // are unaffected — they snapshot their schema.
-    if (SELF_INSPECTION_REMOVED_ITEM_KEYS.length > 0) {
-      await db.checklistModuleItem.deleteMany({
-        where: { moduleId: moduleRow.id, key: { in: SELF_INSPECTION_REMOVED_ITEM_KEYS } },
-      });
-    }
+
   }
 
   return { modules: moduleCount, items: itemCount, skipped: false };

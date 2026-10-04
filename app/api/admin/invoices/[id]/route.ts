@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ClientInvoiceStatus, Role } from "@prisma/client";
+import { ClientInvoiceStatus, Role, type Prisma } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getClientInvoice, releaseInvoiceConsumables } from "@/lib/billing/client-invoices";
@@ -11,6 +11,7 @@ import {
 import { calculateShoppingAwareInvoiceTotals } from "@/lib/billing/shopping-client-charges";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { assertStartedWorkReviewed, readStartedWorkReview } from "@/lib/billing/started-work-reconciliation";
 
 const lineUpdateSchema = z.object({
   id: z.string().cuid(),
@@ -94,9 +95,35 @@ export async function GET(
   }
 }
 
-export async function PATCH(
+export async function PATCH(req: NextRequest, context: { params: { id: string } }) {
+  const afterCommit: Array<() => Promise<unknown>> = [];
+  try {
+    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const response = await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${context.params.id} FOR UPDATE`;
+      // Existing nested line/total blocks share this one transaction.
+      const scoped = new Proxy(tx, { get(target, property) {
+        if (property === "$transaction") return async (fn: (client: Prisma.TransactionClient) => Promise<unknown>) => fn(tx);
+        return Reflect.get(target, property);
+      } }) as typeof db;
+      const result = await patchLockedInvoice(req, context, scoped, afterCommit);
+      if (result.status >= 400) throw result; // Roll back earlier line changes too.
+      return result;
+    });
+    for (const action of afterCommit) void action().catch(error => logger.error({ error }, "Invoice notification failed after commit"));
+    return response;
+  } catch (error) {
+    if (error instanceof NextResponse) return error;
+    const message = error instanceof Error ? error.message : "Could not update invoice.";
+    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 409 });
+  }
+}
+
+async function patchLockedInvoice(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
+  db: typeof import("@/lib/db").db,
+  afterCommit: Array<() => Promise<unknown>>,
 ) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
@@ -113,6 +140,23 @@ export async function PATCH(
     }
     if (body.addLine?.category.startsWith("SHOPPING_")) return NextResponse.json({ error: "Add shopping charges through the shopping run review so expenses and time are tracked once." }, { status: 400 });
 
+    const exportState = (existing.metadata as Record<string, unknown> | null)?.xeroExportState;
+    if (exportState === "PENDING") return NextResponse.json({ error: "Xero export is reserved or awaiting reconciliation. Retry the existing export before editing." }, { status: 409 });
+    const editsContent = Boolean(body.updateLines?.length || body.addLine || body.removeLineId || body.reorderLineIds?.length || body.gstEnabled !== undefined);
+    if (body.status === "APPROVED" || body.status === "SENT" || body.status === "PAID" || body.status === "PART_PAID" || body.recordPayment) {
+      if (editsContent && readStartedWorkReview(existing.metadata)) throw new Error("Save and review draft edits before performing a financial action.");
+      await assertStartedWorkReviewed(existing, db, body.status === "APPROVED" && !body.recordPayment);
+    }
+    if (existing.xeroInvoiceId && (editsContent || body.reverse || body.status === "VOID" || body.forceStatus)) {
+      return NextResponse.json({ error: "This invoice is in Xero. Reconcile a correction there before altering the issued document." }, { status: 409 });
+    }
+    if ((existing.paidAt || Number(existing.paidAmount ?? 0) > 0) && (editsContent || body.reverse || body.forceStatus || body.status === "VOID")) {
+      return NextResponse.json({ error: "This invoice has payment evidence. Use a reconciled correction; its payment history cannot be cleared." }, { status: 409 });
+    }
+
+    if (body.forceStatus && body.status && !canTransitionInvoice(existing.status, body.status)) {
+      return NextResponse.json({ error: "Financial lifecycle overrides are disabled. Use a reconciled correction." }, { status: 409 });
+    }
     let statusOverride: { from: string; to: string } | null = null;
     // Status changes must follow the allowed lifecycle graph, unless an ADMIN
     // has explicitly asked to override it. OPS_MANAGER may drive the invoice
@@ -334,19 +378,23 @@ export async function PATCH(
     // each was its own `metadata: {...existing, X}` spread, so a PATCH sending
     // both fields had the second spread overwrite the first (dropping data).
     const metadataChanged =
-      body.dueDate !== undefined || body.notes !== undefined || paymentLedger !== undefined;
+      body.dueDate !== undefined || body.notes !== undefined || paymentLedger !== undefined || (editsContent && Boolean(readStartedWorkReview(existing.metadata)));
     const mergedMetadata = metadataChanged
       ? {
           ...((existing.metadata as object) ?? {}),
           ...(body.dueDate !== undefined ? { dueDate: body.dueDate } : {}),
           ...(body.notes !== undefined ? { notes: body.notes } : {}),
           ...(paymentLedger !== undefined ? { payments: paymentLedger } : {}),
+          ...(editsContent && readStartedWorkReview(existing.metadata) ? { startedWorkReview: { ...readStartedWorkReview(existing.metadata)!, required: true } } : {}),
         }
       : undefined;
 
     // ── REVERSE ────────────────────────────────────────────────────────
     // Refused BEFORE anything is written, so a reversal that cannot happen
     // never half-applies alongside the line edits in the same request.
+    if (body.reverse && (existing.paidAt || Number(existing.paidAmount ?? 0) > 0 || existing.xeroInvoiceId)) {
+      return NextResponse.json({ error: "This invoice has payment or Xero evidence. Reconcile a correction before changing it; reversing here would erase its settlement summary." }, { status: 409 });
+    }
     if (body.reverse && !canReverseInvoice(existing.status)) {
       return NextResponse.json(
         { error: reverseRefusalReason(existing.status) ?? "This invoice cannot be reversed." },
@@ -414,19 +462,20 @@ export async function PATCH(
     // After the write, best-effort: the money is already recorded, and failing
     // the response over a mail error would tell the admin the payment did not
     // save when it did.
-    if (body.recordPayment) {
-      void sendClientPaymentReceipt({
+    const receiptPayment = body.recordPayment;
+    if (receiptPayment) {
+      afterCommit.push(() => sendClientPaymentReceipt({
         invoiceId: params.id,
-        amount: body.recordPayment.amount,
-        method: body.recordPayment.method,
-        paidDate: body.recordPayment.paidDate ? new Date(body.recordPayment.paidDate) : new Date(),
-        reference: body.recordPayment.reference ?? null,
+        amount: receiptPayment.amount,
+        method: receiptPayment.method,
+        paidDate: receiptPayment.paidDate ? new Date(receiptPayment.paidDate) : new Date(),
+        reference: receiptPayment.reference ?? null,
       }).catch((err) =>
         logger.error(
           { err, invoiceId: params.id },
           "[invoice] payment recorded but the client receipt could not be sent"
         )
-      );
+      ));
     }
 
     if (released) {
@@ -506,7 +555,16 @@ export async function DELETE(
 ) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    await db.clientInvoice.delete({ where: { id: params.id } });
+    await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${params.id} FOR UPDATE`;
+      const invoice = await tx.clientInvoice.findUnique({ where: { id: params.id } });
+      if (!invoice || invoice.status !== "DRAFT" || invoice.xeroInvoiceId || invoice.paidAt || Number(invoice.paidAmount ?? 0) > 0 ||
+          (invoice.metadata as Record<string, unknown> | null)?.xeroExportState === "PENDING") {
+        throw new Error("Only an unpaid, unexported draft may be deleted. Use a reconciled correction for issued invoices.");
+      }
+      await releaseInvoiceConsumables(tx, invoice.id);
+      await tx.clientInvoice.delete({ where: { id: params.id } });
+    });
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Could not delete invoice." }, { status: 400 });

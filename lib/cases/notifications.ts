@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { resolveAppUrl } from "@/lib/app-url";
@@ -63,6 +64,7 @@ async function notifyAdmins(input: {
         data: {
           userId: admin.id,
           jobId: input.caseItem.jobId ?? undefined,
+          externalId: mobilePendingMarker("cases"),
           channel: NotificationChannel.PUSH,
           subject: notificationTemplate.webSubject,
           body: notificationTemplate.webBody,
@@ -126,6 +128,7 @@ async function notifyClientIfVisible(input: {
         data: {
           userId: user.id,
           jobId: input.caseItem.jobId ?? undefined,
+          externalId: mobilePendingMarker("cases"),
           channel: NotificationChannel.PUSH,
           subject: notificationTemplate.webSubject,
           body: notificationTemplate.webBody,

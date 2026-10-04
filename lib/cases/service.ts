@@ -7,6 +7,7 @@ import { listDisputes, type DisputeRecord } from "@/lib/phase4/disputes";
 import { normalizeUnifiedCaseStatus, type UnifiedCaseStatus } from "@/lib/cases/status";
 import {
   autoCreateMaintenanceForDamageCase,
+  createDamageMaintenanceInTransaction,
   syncMaintenanceFromCase,
 } from "@/lib/cases/damage-maintenance-sync";
 import type { CaseState } from "@/lib/cases/lifecycle-fsm";
@@ -354,9 +355,9 @@ export async function listCases(filters: CaseListFilters = {}) {
   return sortCasesByType(rows).map(serializeCase);
 }
 
-export async function getCaseById(id: string) {
-  await ensureLegacyDisputesMigrated();
-  const row = await db.issueTicket.findUnique({
+export async function getCaseById(id: string, transaction?: Prisma.TransactionClient) {
+  if (!transaction) await ensureLegacyDisputesMigrated();
+  const row = await (transaction ?? db).issueTicket.findUnique({
     where: { id },
     include: {
       job: {
@@ -413,8 +414,9 @@ export async function createCase(input: {
     mimeType?: string | null;
     label?: string | null;
   }>;
-}) {
-  const created = await db.issueTicket.create({
+}, options: { transaction?: Prisma.TransactionClient; afterCommit?: Array<() => Promise<unknown>> } = {}) {
+  if (options.transaction && !options.afterCommit) throw new Error("Transactional case creation requires an after-commit queue");
+  const created = await (options.transaction ?? db).issueTicket.create({
     data: {
       title: input.title.trim().slice(0, 180),
       description: input.description?.trim() || null,
@@ -458,7 +460,7 @@ export async function createCase(input: {
   // CP-7 — a DAMAGE case is something physically broken, so raise the repair and
   // tell the client + admin. Post-commit and best-effort by contract: the case
   // is already saved, and a failed automation must never lose a damage report.
-  await autoCreateMaintenanceForDamageCase({
+  const maintenanceInput = {
     caseRow: {
       id: created.id,
       caseType: created.caseType,
@@ -468,6 +470,7 @@ export async function createCase(input: {
       description: created.description,
       severity: created.severity,
       status: created.status,
+      clientVisible: created.clientVisible,
     },
     reportedByUserId:
       input.comment?.authorUserId ??
@@ -476,9 +479,14 @@ export async function createCase(input: {
       "",
     jobId: created.jobId,
     photoKeys: (input.attachments ?? []).map((a) => a.s3Key).filter(Boolean),
-  });
+  };
+  if (options.transaction) await createDamageMaintenanceInTransaction(options.transaction, maintenanceInput);
+  const createMaintenance = () => autoCreateMaintenanceForDamageCase(maintenanceInput);
 
-  return getCaseById(created.id);
+  if (options.afterCommit) options.afterCommit.push(createMaintenance);
+  else await createMaintenance();
+
+  return getCaseById(created.id, options.transaction);
 }
 
 export async function updateCase(

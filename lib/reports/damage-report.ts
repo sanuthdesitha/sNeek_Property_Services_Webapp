@@ -33,7 +33,6 @@ import {
   type DamageInvestigation,
 } from "@/lib/damage/investigation";
 import { db } from "@/lib/db";
-import { ensureDamageReportVerification } from "@/lib/reports/verification";
 import { formatVerificationCode } from "@/lib/reports/verification-code";
 import { getAppSettings } from "@/lib/settings";
 
@@ -186,8 +185,12 @@ export async function buildDamageReportHtml(
   const settings = await getAppSettings();
   const companyName = String((settings as any)?.companyName ?? "sNeek Property Services");
 
-  const { code } = await ensureDamageReportVerification(reportId);
-  const reference = formatVerificationCode(code);
+  // Downloads are read-only. Verification is allocated by explicit report
+  // preparation, never by opening a document (including read-only test-as).
+  const verification = await db.reportVerification.findUnique({
+    where: { damageReportId: reportId }, select: { code: true },
+  });
+  const reference = verification ? formatVerificationCode(verification.code) : "";
 
   const totalCost = isAdmin
     ? vm.items.reduce((sum, item) => sum + (item.estimatedCost ?? 0), 0)
@@ -233,11 +236,11 @@ export async function buildDamageReportHtml(
       : ""
   }
 
-  <div class="verify">
+  ${reference ? `<div class="verify">
     Verify this report at <strong>/verify</strong> using code <code>${escapeHtml(reference)}</code>.
     The public check confirms this report exists and when it was issued; it does not
     reveal its contents.
-  </div>
+  </div>` : ""}
 </body></html>`;
 
   return { html, reference };

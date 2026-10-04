@@ -9,6 +9,7 @@
  * SMS provider is active. Native Estate styling only (--e-* tokens).
  */
 import * as React from "react";
+import { NotificationDispatchStatus } from "@/components/notifications/notification-dispatch-status";
 import { Bell } from "lucide-react";
 import type { AppSettings } from "@/lib/settings";
 import { toast } from "@/hooks/use-toast";
@@ -91,6 +92,7 @@ export function NotificationToolsSection(_: { isAdmin?: boolean } = {}) {
         </div>
       </ECardHeader>
       <ECardBody className="space-y-5">
+        <NotificationDispatchStatus />
         <div className="flex flex-wrap items-center gap-2">
           <EBadge tone="info" soft>
             Email provider: Resend

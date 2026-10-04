@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, QaAssignmentStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -5,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { decideInspectionStart } from "@/lib/qa/inspection-gate";
 import { sendWebPushToUser } from "@/lib/notifications/web-push";
 import { logger } from "@/lib/logger";
+import { pickUpQaAssignment } from "@/lib/qa/pickup";
 import { assertNotSelfInspection } from "@/lib/qa/self-review";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
@@ -62,35 +64,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: guardErr.message }, { status: 409 });
     }
 
-    const existing = await db.qaAssignment.findFirst({
-      where: {
-        jobId: params.id,
-        status: { in: [QaAssignmentStatus.OPEN, QaAssignmentStatus.ASSIGNED, QaAssignmentStatus.IN_PROGRESS] },
-        OR: [{ assignedToId: null }, { assignedToId: session.user.id }, { pickedUpById: session.user.id }],
-      },
-      orderBy: { createdAt: "asc" },
-    });
-    const assignment = existing
-      ? await db.qaAssignment.update({
-          where: { id: existing.id },
-          data: {
-            status: QaAssignmentStatus.IN_PROGRESS,
-            pickedUpById: session.user.id,
-            pickedUpAt: existing.pickedUpAt ?? new Date(),
-            // Only stamp on an early start; a normal pickup must not clear a
-            // reason recorded by an earlier early pickup of the same assignment.
-            ...(decision.earlyStartReason ? { earlyStartReason: decision.earlyStartReason } : {}),
-          },
-        })
-      : await db.qaAssignment.create({
-          data: {
-            jobId: params.id,
-            status: QaAssignmentStatus.IN_PROGRESS,
-            pickedUpById: session.user.id,
-            pickedUpAt: new Date(),
-            earlyStartReason: decision.earlyStartReason,
-          },
-        });
+    const { assignment, unchanged } = await pickUpQaAssignment({ jobId: params.id, userId: session.user.id, earlyStartReason: decision.earlyStartReason });
+    if (unchanged) return NextResponse.json(assignment);
 
     // Push the cleaner to finish their form. Best-effort: a failed nudge must
     // never fail the inspection the inspector just started.
@@ -104,6 +79,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
             data: cleanerIds.map((userId) => ({
               userId,
               jobId: job.id,
+              externalId: mobilePendingMarker("jobs"),
               channel: NotificationChannel.PUSH,
               subject: "Complete your job form",
               body: message,

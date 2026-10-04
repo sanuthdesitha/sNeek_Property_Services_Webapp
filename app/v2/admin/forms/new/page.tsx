@@ -6,7 +6,7 @@ export const metadata = { title: "New form template · Estate admin" };
 export const dynamic = "force-dynamic";
 
 export default async function EstateNewFormPage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  await requireRole([Role.ADMIN]);
   // NewFormLauncher supersedes the older builder/new-template.tsx: same blank
   // + seed paths, plus the starter blueprints and "copy an existing form".
   return <NewFormLauncher />;

@@ -1,3 +1,4 @@
+import { resolveRouteRole } from "@/lib/auth/route-role";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -232,7 +233,7 @@ export async function GET(req: NextRequest) {
 
     const page = Math.max(1, Math.floor(Number(searchParams.get("page") ?? "1")));
     const limit = Math.min(5000, Math.max(10, Math.floor(Number(searchParams.get("limit") ?? "50"))));
-    const role = session.user.role;
+    const role = resolveRouteRole(session.user, [Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER]);
     // Admins/ops get the paginated payload for the unified jobs list. The
     // legacy `statusGroup` param is still honoured for older callers, but is no
     // longer required — the page now filters by explicit `status` + date params.
@@ -272,7 +273,9 @@ export async function GET(req: NextRequest) {
     }
 
     const jobs = await db.job.findMany({ where, include: JOB_INCLUDE, orderBy });
-    return NextResponse.json(jobs.map(withTimingBadges));
+    return NextResponse.json(jobs
+      .filter((job) => role !== Role.CLEANER || !parseJobInternalNotes(job.internalNotes).isDraft)
+      .map(withTimingBadges));
   } catch (err: any) {
     let httpStatus = 500;
     if (err.message === "UNAUTHORIZED") httpStatus = 401;

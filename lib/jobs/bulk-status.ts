@@ -9,7 +9,7 @@ export const bulkStatusPreviewSchema = z.object({
 });
 export type BulkStatusPreview = z.infer<typeof bulkStatusPreviewSchema>;
 export function bulkStatusConsequences(status: JobStatus, assignmentCount: number) {
-  if (status === "COMPLETED") return ["Set completion time to the time this batch is applied (including already completed jobs)."];
+  if (status === "COMPLETED") return ["Preserve existing completion times; stamp now only for jobs without a completion time."];
   if (status === "UNASSIGNED") return ["Clear completion time.", `Remove ${assignmentCount} active cleaner assignment${assignmentCount === 1 ? "" : "s"}.`];
   return ["Keep completion time and active cleaner assignments unchanged."];
 }

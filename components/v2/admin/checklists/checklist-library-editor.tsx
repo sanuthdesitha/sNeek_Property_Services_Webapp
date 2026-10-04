@@ -125,6 +125,17 @@ export function EstateChecklistLibrary() {
     void load();
   }, [load]);
 
+  const addMissingStandardItems = async () => {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/admin/checklist-library/seed", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Could not add standard items.");
+      await load();
+    } catch (error: any) { setError(error.message); }
+    finally { setBusy(false); }
+  };
+
   const patchModule = async (moduleId: string, patch: Record<string, unknown>) => {
     const res = await fetch(`/api/admin/checklist-library/${moduleId}`, {
       method: "PATCH",
@@ -141,13 +152,13 @@ export function EstateChecklistLibrary() {
   };
 
   const deleteModule = async (credentials?: { pin?: string; password?: string }) => {
-    const module = deleteModuleTarget;
-    if (!module) return;
+    const checklistModule = deleteModuleTarget;
+    if (!checklistModule) return;
     setDeleting(true);
     try {
       // The library route takes no security payload of its own.
       await verifyAdminSecurity(credentials);
-      const res = await fetch(`/api/admin/checklist-library/${module.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/checklist-library/${checklistModule.id}`, { method: "DELETE" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError(body.error ?? "Delete failed.");
@@ -226,15 +237,15 @@ export function EstateChecklistLibrary() {
     }
   };
 
-  const createItem = async (module: LibraryModule, payload: Record<string, unknown>) => {
+  const createItem = async (checklistModule: LibraryModule, payload: Record<string, unknown>) => {
     setBusy(true);
     try {
       const label = String(payload.label ?? "").trim();
-      const key = `${module.key}.${label
+      const key = `${checklistModule.key}.${label
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "")}`.slice(0, 110);
-      const res = await fetch(`/api/admin/checklist-library/${module.id}/items`, {
+      const res = await fetch(`/api/admin/checklist-library/${checklistModule.id}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...payload, key }),
@@ -252,6 +263,10 @@ export function EstateChecklistLibrary() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <EButton disabled={busy} onClick={() => void addMissingStandardItems()}>Add missing standard items</EButton>
+        <p className="text-xs">Admin only. Existing edits and property forms are preserved.</p>
+      </div>
       {error ? (
         <EAlert tone="danger" title="Something went wrong">
           {error}
@@ -269,15 +284,15 @@ export function EstateChecklistLibrary() {
           description="Add a room, appliance, or outdoor module below to begin composing property checklists."
         />
       ) : (
-        modules.map((module) => {
-          const isOpen = expanded[module.id] === true;
+        modules.map((checklistModule) => {
+          const isOpen = expanded[checklistModule.id] === true;
           return (
-            <ECard key={module.id} className={module.isActive ? "" : "opacity-60"}>
+            <ECard key={checklistModule.id} className={checklistModule.isActive ? "" : "opacity-60"}>
               <div className="flex flex-wrap items-center gap-3 p-4">
                 <button
                   type="button"
                   className="text-[hsl(var(--e-muted-foreground))]"
-                  onClick={() => setExpanded((prev) => ({ ...prev, [module.id]: !isOpen }))}
+                  onClick={() => setExpanded((prev) => ({ ...prev, [checklistModule.id]: !isOpen }))}
                   aria-label={isOpen ? "Collapse module" : "Expand module"}
                 >
                   {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -285,26 +300,26 @@ export function EstateChecklistLibrary() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[0.9375rem] font-semibold text-[hsl(var(--e-foreground))]">
-                      {module.title}
+                      {checklistModule.title}
                     </span>
                     <EBadge tone="gold" soft>
-                      {module.category.toLowerCase()}
+                      {checklistModule.category.toLowerCase()}
                     </EBadge>
-                    <EBadge tone="neutral">{ruleLabel(module.appliesWhen, featureDefs)}</EBadge>
+                    <EBadge tone="neutral">{ruleLabel(checklistModule.appliesWhen, featureDefs)}</EBadge>
                   </div>
                   <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    {module.items.length} items · key {module.key}
+                    {checklistModule.items.length} items · key {checklistModule.key}
                   </p>
                 </div>
                 <ESelect
                   className="h-8 w-48 text-[0.8125rem]"
                   value={
-                    module.appliesWhen?.feature ??
-                    (module.appliesWhen?.propertyField === "hasBalcony" ? "__balcony" : "__always")
+                    checklistModule.appliesWhen?.feature ??
+                    (checklistModule.appliesWhen?.propertyField === "hasBalcony" ? "__balcony" : "__always")
                   }
                   onChange={(e) => {
                     const value = e.target.value;
-                    void patchModule(module.id, {
+                    void patchModule(checklistModule.id, {
                       appliesWhen:
                         value === "__always"
                           ? null
@@ -323,14 +338,14 @@ export function EstateChecklistLibrary() {
                   ))}
                 </ESelect>
                 <ESwitch
-                  checked={module.isActive}
-                  onCheckedChange={(checked) => void patchModule(module.id, { isActive: checked })}
+                  checked={checklistModule.isActive}
+                  onCheckedChange={(checked) => void patchModule(checklistModule.id, { isActive: checked })}
                 />
                 <EButton
                   size="icon"
                   variant="ghost"
                   className="h-8 w-8"
-                  onClick={() => setDeleteModuleTarget(module)}
+                  onClick={() => setDeleteModuleTarget(checklistModule)}
                   aria-label="Delete module"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -339,7 +354,7 @@ export function EstateChecklistLibrary() {
 
               {isOpen ? (
                 <div className="space-y-1 border-t border-[hsl(var(--e-border))] p-4">
-                  {module.items.map((item) => (
+                  {checklistModule.items.map((item) => (
                     <div
                       key={item.id}
                       className={`flex items-center gap-2 rounded-[var(--e-radius)] px-2 py-1.5 hover:bg-[hsl(var(--e-muted))] ${
@@ -349,7 +364,7 @@ export function EstateChecklistLibrary() {
                       <button
                         type="button"
                         className="min-w-0 flex-1 text-left"
-                        onClick={() => setEditingItem({ moduleId: module.id, item })}
+                        onClick={() => setEditingItem({ moduleId: checklistModule.id, item })}
                       >
                         <p className="truncate text-[0.875rem] text-[hsl(var(--e-foreground))]">{item.label}</p>
                         <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
@@ -374,7 +389,7 @@ export function EstateChecklistLibrary() {
                     size="sm"
                     variant="outline"
                     className="mt-2"
-                    onClick={() => setAddingItemTo(module)}
+                    onClick={() => setAddingItemTo(checklistModule)}
                   >
                     <Plus className="mr-1 h-3.5 w-3.5" /> Add item
                   </EButton>

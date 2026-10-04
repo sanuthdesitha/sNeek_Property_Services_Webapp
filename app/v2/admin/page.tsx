@@ -1,3 +1,5 @@
+import { STATUS_LABELS } from "@/lib/jobs/status-labels";
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import Link from "next/link";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -102,16 +104,17 @@ async function getTodayDispatch() {
     .findMany({
       where: { scheduledDate: { gte: todayStart, lt: todayEnd } },
       orderBy: [{ startTime: "asc" }, { scheduledDate: "asc" }],
-      take: 12,
       select: {
         id: true,
         jobType: true,
+        internalNotes: true,
         status: true,
         startTime: true,
         property: { select: { name: true, suburb: true } },
         assignments: { select: { user: { select: { name: true } } }, take: 1 },
       },
     })
+    .then((jobs) => jobs.filter((job) => !parseJobInternalNotes(job.internalNotes).isDraft).slice(0, 12))
     .catch(() => null);
 }
 
@@ -191,13 +194,14 @@ async function getLiveNow() {
 async function getTodayStatusCounts() {
   const { todayStart, todayEnd } = sydToday();
   try {
-    const grouped = await db.job.groupBy({
-      by: ["status"],
+    const jobs = await db.job.findMany({
       where: { scheduledDate: { gte: todayStart, lt: todayEnd } },
-      _count: { _all: true },
+      select: { status: true, internalNotes: true },
     });
     const map = new Map<JobStatus, number>();
-    for (const row of grouped) map.set(row.status, row._count._all);
+    for (const job of jobs) {
+      if (!parseJobInternalNotes(job.internalNotes).isDraft) map.set(job.status, (map.get(job.status) ?? 0) + 1);
+    }
     return map;
   } catch {
     return null;
@@ -228,16 +232,17 @@ async function getUpcomingJobs() {
         status: { in: ACTIVE_JOB_STATUSES },
       },
       orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
-      take: 6,
       select: {
         id: true,
         jobType: true,
+        internalNotes: true,
         status: true,
         startTime: true,
         scheduledDate: true,
         property: { select: { name: true, suburb: true } },
       },
     })
+    .then((jobs) => jobs.filter((job) => !parseJobInternalNotes(job.internalNotes).isDraft).slice(0, 6))
     .catch(() => null);
 }
 
@@ -280,15 +285,9 @@ export default async function AdminCommandPage() {
   const cleanersLiveNow = liveNow.enRouteJobs + liveNow.onSiteJobs;
 
   // Today jobs-by-status breakdown for the command summary strip.
-  const statusBreakdown: { status: JobStatus; label: string }[] = [
-    { status: JobStatus.UNASSIGNED, label: "Unassigned" },
-    { status: JobStatus.ASSIGNED, label: "Assigned" },
-    { status: JobStatus.EN_ROUTE, label: "En route" },
-    { status: JobStatus.IN_PROGRESS, label: "In progress" },
-    { status: JobStatus.SUBMITTED, label: "Submitted" },
-    { status: JobStatus.QA_REVIEW, label: "QA review" },
-    { status: JobStatus.COMPLETED, label: "Completed" },
-  ];
+  const statusBreakdown = Object.values(JobStatus).map((status) => ({
+    status, label: STATUS_LABELS[status] ?? titleCase(status),
+  }));
 
   // "Needs attention" — richer, sourced from the shared admin attention summary
   // so the count matches the rest of the app.
@@ -348,7 +347,7 @@ export default async function AdminCommandPage() {
       tone: "info",
       label: "Pay",
       text: `${attention.pendingPayRequests} cleaner pay request${attention.pendingPayRequests === 1 ? "" : "s"} pending`,
-      href: "/v2/admin/pay-adjustments",
+      href: "/v2/admin/approvals",
     });
   }
   if (invoicesOutstanding > 0) {
@@ -553,7 +552,7 @@ export default async function AdminCommandPage() {
                             <td className="px-3 py-2.5">{propLabel}</td>
                             <td className="px-3 py-2.5 text-[hsl(var(--e-text-secondary))]">{cleaner}</td>
                             <td className="px-3 py-2.5 text-[hsl(var(--e-text-secondary))]">{titleCase(job.jobType)}</td>
-                            <td className="px-3 py-2.5"><EBadge tone={statusTone(job.status)} soft>{titleCase(job.status)}</EBadge></td>
+                            <td className="px-3 py-2.5"><EBadge tone={statusTone(job.status)} soft>{STATUS_LABELS[job.status] ?? titleCase(job.status)}</EBadge></td>
                           </tr>
                         );
                       })}
@@ -629,7 +628,7 @@ export default async function AdminCommandPage() {
                       {job.startTime ? ` · ${job.startTime}` : ""} · {titleCase(job.jobType)}
                     </p>
                   </div>
-                  <EBadge tone={statusTone(job.status)} soft>{titleCase(job.status)}</EBadge>
+                  <EBadge tone={statusTone(job.status)} soft>{STATUS_LABELS[job.status] ?? titleCase(job.status)}</EBadge>
                 </Link>
               ))
             )}

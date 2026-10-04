@@ -10,10 +10,6 @@ import {
   renderCleanerInvoicePdf,
 } from "@/lib/cleaner/invoice";
 import {
-  markCleanerShoppingRunsInvoiced,
-  stampShoppingSettlementsForCleanerInvoice,
-} from "@/lib/inventory/shopping-runs";
-import {
   invoicePayeeMissingFields,
   invoicePayeeProfileHref,
 } from "@/lib/profile/completeness";
@@ -24,7 +20,7 @@ import {
   invoiceFileStem,
   requireInvoicePayeeSession,
 } from "@/lib/invoicing/access";
-import { issueInvoiceNumber } from "@/lib/billing/invoice-sequence";
+import { claimCleanerInvoice } from "@/lib/cleaner/invoice-claim";
 
 const schema = z.object({
   startDate: z.string().date().optional(),
@@ -39,9 +35,12 @@ const schema = z.object({
   // stamped, so they stay owed and appear on the next one.
   excludedAdjustmentIds: z.array(z.string().min(1)).max(500).optional(),
   confirmEmail: z.literal(true),
+  requestId: z.string().uuid().optional(),
 });
 
 export async function POST(req: NextRequest) {
+  let reservedId: string | null = null;
+  let reservedSnapshot: any = null;
   try {
     // CLEANER or QA_INSPECTOR. Everything below keys off session.user.id, so a
     // payee can only ever bill their OWN work — the widened role gate grants no
@@ -58,6 +57,7 @@ export async function POST(req: NextRequest) {
       jobComments: body.jobComments,
       jobHourOverrides: body.jobHourOverrides,
       excludeInvoicedJobs: true,
+      excludePaidJobs: true,
       excludedJobIds: body.excludedJobIds,
       excludedRunIds: body.excludedRunIds,
       excludedAdjustmentIds: body.excludedAdjustmentIds,
@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
       ...data.rows.map((r) => ({ kind: "CLEANING" as const, description: `${r.date} · ${r.property} · ${r.jobName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
       ...data.extraLineRows.map((r) => ({ kind: "CLEANING" as const, description: `Extra · ${r.date} · ${r.description}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
       ...data.qaInspectionRows.map((r) => ({ kind: "INSPECTION" as const, description: `QA inspection · ${r.date} · ${r.property}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
+      ...data.transportAllowanceRows.map((r) => ({ kind: "INSPECTION" as const, description: r.description, quantity: 1, unitAmount: r.amount })),
       ...data.expenseRows.map((r) => ({ kind: "CLEANING" as const, description: `Shopping reimbursement · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
       ...data.shoppingTimeRows.map((r) => ({ kind: "CLEANING" as const, description: `Shopping time · ${r.runName}`, quantity: 1, unitAmount: Number(r.amount ?? 0) })),
     ].filter((l) => Number.isFinite(l.unitAmount));
@@ -132,97 +133,19 @@ export async function POST(req: NextRequest) {
       // QA inspections billed here. Audit trail only — the double-pay guard is
       // the QaAssignment.includedInCleanerInvoiceId stamp written below, not this.
       qaAssignmentIds: data.includedQaAssignmentIds,
+      adjustmentIds: data.includedAdjustmentIds,
+      shoppingRunIds: Array.from(new Set([...data.expenseRows, ...data.shoppingTimeRows].map(row => row.runId))),
+      travelDays: data.claimableAllowanceDays,
     } as any;
 
-    // BUG 2 FIX — idempotency anchor. Previously the email was sent FIRST and the
-    // CleanerInvoiceSubmission snapshot created AFTER, with no guard, so a
-    // double-tap / two in-flight sends emailed accounts twice AND created two pay
-    // claims (double payment). We now create the snapshot BEFORE emailing, in a
-    // per-cleaner serialized transaction, and reject a rapid duplicate for the
-    // same period with a 409 before any email goes out. The row starts as
-    // "SENDING" and only flips to the terminal "SUBMITTED" once the email + the
-    // invoiced-marking both succeed; a failed send deletes the anchor so a
-    // legitimate retry can proceed.
-    let anchor: { id: string; invoiceNumber: string | null };
-    try {
-      anchor = await db.$transaction(async (tx) => {
-        // Transaction-scoped advisory lock keyed on the cleaner: serializes
-        // concurrent sends for THIS cleaner so the duplicate check + insert below
-        // are atomic (two simultaneous requests can't both pass the check).
-        // Released automatically when the tx ends. Use $executeRaw (not
-        // $queryRaw): pg_advisory_xact_lock() returns `void`, which $queryRaw
-        // tries to deserialize and fails ("Failed to deserialize column of type
-        // 'void'"), blocking every invoice send. We only need the side effect.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${session.user.id}))`;
-        // A row for the same cleaner + period created within the last 2 minutes
-        // means a send is in flight or just completed — treat this as the
-        // duplicate tap. periodStart is stable across taps; periodEnd defaults to
-        // "now" so we deliberately match on periodStart only. The 2-minute window
-        // also self-heals a stale "SENDING" row left by a crashed request.
-        const recent = await tx.cleanerInvoiceSubmission.findFirst({
-          where: {
-            cleanerId: session.user.id,
-            periodStart: data.start,
-            createdAt: { gte: new Date(Date.now() - 2 * 60_000) },
-          },
-          select: { id: true },
-        });
-        if (recent) {
-          throw new Error("__DUPLICATE_INVOICE_SEND__");
-        }
-        // Taken INSIDE the duplicate guard but before the row exists, so a send
-        // that is about to be rejected as a duplicate never consumes a number.
-        // The sequence is separate from the client one: these are different
-        // documents going to different people, and interleaving them would put a
-        // payee's invoice 8 beside a client's invoice 7 with nothing in common.
-        const invoiceNumber = await issueInvoiceNumber("CLEANER");
-
-        // CLAIM THE TRAVEL DAYS inside the same transaction that creates the
-        // invoice. The unique constraint on (inspectorId, day) is what makes a
-        // day payable once: if two sends race, or a day is split across two
-        // invoices, the second attempt collides and that day is simply not on
-        // the second invoice. createMany + skipDuplicates turns that collision
-        // into "already claimed" rather than a failed send.
-        if (Array.isArray(data.claimableAllowanceDays) && data.claimableAllowanceDays.length > 0) {
-          await tx.qaDayAllowance.createMany({
-            data: data.claimableAllowanceDays.map((day: string) => ({
-              inspectorId: session.user.id,
-              day: new Date(`${day}T00:00:00.000Z`),
-              amount: data.transportAllowanceRows.find((row) => row.day === day)?.amount ?? 0,
-            })),
-            skipDuplicates: true,
-          });
-        }
-
-        const created = await tx.cleanerInvoiceSubmission.create({
-          data: {
-            cleanerId: session.user.id,
-            invoiceNumber,
-            periodStart: data.start,
-            periodEnd: data.end,
-            hours: data.hours,
-            totalAmount: data.estimatedPay,
-            jobCount: data.rows.length,
-            status: "SENDING",
-            lineData,
-          },
-          select: { id: true, invoiceNumber: true },
-        });
-        return created;
-      });
-    } catch (guardErr: any) {
-      if (guardErr?.message === "__DUPLICATE_INVOICE_SEND__") {
-        return NextResponse.json(
-          {
-            error:
-              "An invoice for this period was just sent. Refresh to see it before sending again.",
-          },
-          { status: 409 }
-        );
-      }
-      throw guardErr;
+    const anchor = await claimCleanerInvoice({ cleanerId: session.user.id, requestId: body.requestId, data, lineData });
+    if (anchor.reused) {
+      return NextResponse.json({ ok: anchor.status === "SUBMITTED", invoiceId: anchor.id, status: anchor.status,
+        requiresReview: anchor.status !== "SUBMITTED", message: anchor.status === "SUBMITTED" ? "This invoice was already submitted." : "This invoice is reserved and delivery needs office review. Do not submit it again." });
     }
 
+    reservedId = anchor.id;
+    reservedSnapshot = { ...lineData, requestId: body.requestId ?? null };
     const html = buildCleanerInvoiceHtml(data, anchor.invoiceNumber);
     const pdf = await renderCleanerInvoicePdf(html);
     const fileName = `${invoiceFileStem(session.user.role)}-${session.user.id}-${data.start
@@ -250,129 +173,23 @@ export async function POST(req: NextRequest) {
     });
 
     if (!emailResult.ok) {
-      // Send failed — release the anchor so the cleaner can legitimately retry
-      // (and so the jobs aren't left marked-invoiced against a send that never
-      // reached accounts).
-      await db.cleanerInvoiceSubmission.delete({ where: { id: anchor.id } }).catch(() => {});
-      return NextResponse.json({ error: emailResult.error ?? "Failed to send invoice email." }, { status: 502 });
-    }
-
-    // Settle the SHOPPING this invoice billed — the fourth stream, and until now
-    // the only one settled by status alone. `estimatedPay` folds in both the
-    // out-of-pocket reimbursement and the approved shopping time, so an unstamped
-    // run was billed all over again by the next invoice AND payable a second time
-    // by a payroll run.
-    //
-    // Order matters: markCleanerShoppingRunsInvoiced runs FIRST because it is what
-    // guarantees a ShoppingSettlement row exists (a time-only run normally has
-    // none) — the stamping updateMany would otherwise match nothing and silently
-    // leave the money unguarded. Both steps share one transaction so a failure
-    // can't leave runs marked INVOICED but unstamped.
-    const invoicedRunIds = Array.from(
-      new Set([
-        ...data.expenseRows.map((row) => row.runId),
-        ...data.shoppingTimeRows.map((row) => row.runId),
-      ])
-    );
-    if (invoicedRunIds.length > 0) {
-      await db.$transaction(async (tx) => {
-        const ownedRunIds = await markCleanerShoppingRunsInvoiced(
-          { cleanerId: session.user.id, runIds: invoicedRunIds },
-          tx
-        );
-        await stampShoppingSettlementsForCleanerInvoice(
-          {
-            // Only runs the previous call confirmed this cleaner OWNS — that is
-            // where the ownership check lives, so nothing here can stamp someone
-            // else's money as paid to them.
-            ownedRunIds,
-            invoiceId: anchor.id,
-            // The amounts rendered on the PDF, frozen as-is — never a recomputation.
-            expense: data.expenseRows.map((row) => ({ runId: row.runId, amount: row.amount })),
-            time: data.shoppingTimeRows.map((row) => ({ runId: row.runId, amount: row.amount })),
-          },
-          tx
-        );
-      });
-    }
-
-    // Settle the approved pay adjustments this invoice billed. The stamp is the
-    // double-pay guard: a stamped row is no longer selectable by the next
-    // invoice (lib/finance/pay-adjustments.ts → isAdjustmentAvailableForInvoice),
-    // so re-running generation cannot bill it twice. Applied only after the
-    // email actually reached accounts — a failed send deletes the anchor above
-    // and stamps nothing, leaving the adjustments available for a retry.
-    // Conditioned on the stamp still being null so a concurrent invoice that
-    // already claimed a row cannot have it reassigned.
-    if (data.includedAdjustmentIds.length > 0) {
-      await db.cleanerPayAdjustment.updateMany({
-        where: {
-          id: { in: data.includedAdjustmentIds },
-          cleanerId: session.user.id,
-          includedInCleanerInvoiceId: null,
-        },
-        data: { includedInCleanerInvoiceId: anchor.id, includedInCleanerInvoiceAt: new Date() },
-      });
-    }
-
-    // Settle the QA inspections this invoice billed — the SAME discipline as the
-    // adjustments above, on the same rail. Three things happen atomically per
-    // row: the invoice stamp, its timestamp, and the FROZEN amount.
-    //
-    //  • The amount frozen is the exact number that was rendered on the PDF
-    //    (row.amount, already settlement-aware), never a recomputation — a later
-    //    rate/settings change must not retro-alter what accounts was billed.
-    //  • The guard requires BOTH stamps still null, so neither a concurrent
-    //    invoice nor a payroll run committed in between can be overwritten; the
-    //    loser of the race simply updates 0 rows and the inspection stays paid
-    //    exactly once.
-    //  • Applied only after the email actually reached accounts — a failed send
-    //    deletes the anchor above and stamps nothing, so a retry re-bills them.
-    if (data.includedQaAssignmentIds.length > 0) {
-      const settledAt = new Date();
-      for (const row of data.qaInspectionRows) {
-        await db.qaAssignment.updateMany({
-          where: {
-            id: row.assignmentId,
-            assignedToId: session.user.id,
-            includedInCleanerInvoiceId: null,
-            includedInPayrollRunId: null,
-          },
-          data: {
-            includedInCleanerInvoiceId: anchor.id,
-            includedInCleanerInvoiceAt: settledAt,
-            paySettledAmount: row.amount,
-          },
-        });
-      }
-    }
-
-    // Bind the claimed travel days to THIS invoice. The rows were created above
-    // to win the race; stamping them here is what makes them spent — and what
-    // lets a void hand them back, since the release keys off this column.
-    //
-    // Scoped to days with no invoice yet: a day claimed by an earlier invoice
-    // must not be re-pointed at this one.
-    if (Array.isArray(data.claimableAllowanceDays) && data.claimableAllowanceDays.length > 0) {
-      await db.qaDayAllowance.updateMany({
-        where: {
-          inspectorId: session.user.id,
-          day: { in: data.claimableAllowanceDays.map((day: string) => new Date(`${day}T00:00:00.000Z`)) },
-          includedInCleanerInvoiceId: null,
-          includedInPayrollRunId: null,
-        },
-        data: { includedInCleanerInvoiceId: anchor.id },
-      });
+      // Delivery failures can be ambiguous. Keep receipt AND claims for review;
+      // never release payable money or automatically repeat external delivery.
+      await db.cleanerInvoiceSubmission.updateMany({ where: { id: anchor.id, status: "SENDING" }, data: { lineData: { ...lineData, requestId: body.requestId ?? null, delivery: "REVIEW_REQUIRED" } } });
+      return NextResponse.json({ invoiceId: anchor.id, status: "SENDING", requiresReview: true,
+        error: "Invoice reserved; email delivery needs office review. Do not submit again." }, { status: 502 });
     }
 
     // Email + invoiced-marking succeeded → flip the anchor to its terminal state.
-    await db.cleanerInvoiceSubmission.update({
-      where: { id: anchor.id },
-      data: { status: "SUBMITTED" },
+    const finalized = await db.cleanerInvoiceSubmission.updateMany({
+      where: { id: anchor.id, status: "SENDING" },
+      data: { status: "SUBMITTED", lineData: { ...lineData, requestId: body.requestId ?? null, delivery: "SENT" } },
     });
 
+    if (finalized.count !== 1) throw new Error("Delivery state changed during review.");
     return NextResponse.json({
       ok: true,
+      invoiceId: anchor.id,
       hours: data.hours,
       estimatedPay: data.estimatedPay,
       sentTo: accountsEmail,
@@ -381,6 +198,12 @@ export async function POST(req: NextRequest) {
       qaInspectionTotal: data.qaInspectionTotal,
     });
   } catch (err: any) {
+    if (reservedId) {
+      await db.cleanerInvoiceSubmission.updateMany({ where: { id: reservedId, status: "SENDING" },
+        data: { lineData: { ...reservedSnapshot, delivery: "REVIEW_REQUIRED" } } }).catch(() => undefined);
+      return NextResponse.json({ invoiceId: reservedId, status: "SENDING", requiresReview: true,
+        error: "Invoice reserved; delivery needs office review. Do not submit again." }, { status: 502 });
+    }
     return NextResponse.json(
       { error: invoiceErrorMessage(err?.message) },
       { status: invoiceErrorStatus(err?.message) }

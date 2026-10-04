@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { JobStatus, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
@@ -72,6 +73,7 @@ export async function dispatchUnfinishedJobPushReminders(now = new Date()) {
           data: {
             userId: assignment.userId,
             jobId: job.id,
+            externalId: mobilePendingMarker("jobs"),
             channel: NotificationChannel.PUSH,
             subject: "Unfinished job reminder",
             body,

@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { notifyClientsShoppingCompleted } from "./client-shopping-notifications";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -49,6 +50,7 @@ async function notifyAdmins(input: {
         data: {
           userId: admin.id,
           jobId: input.jobId ?? undefined,
+          externalId: mobilePendingMarker("shopping"),
           channel: NotificationChannel.PUSH,
           subject: input.webSubject,
           body: input.webBody,

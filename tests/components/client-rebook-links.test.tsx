@@ -9,6 +9,7 @@ beforeEach(() => localStorage.clear());
 describe("client rebook links", () => {
   it.each([true, false])("shows a past completed rebook only when current booking permission is %s", (canBook) => {
     render(<ClientJobsBoard {...props} jobs={[job]} canBook={canBook} />);
+    fireEvent.click(screen.getByRole("button", { name: "All", exact: true }));
     const show = screen.queryByRole("button", { name: "Show (1)" });
     if (show) fireEvent.click(show);
     if (canBook) expect(screen.getByRole("link", { name: "Rebook" })).toHaveAttribute("href", "/v2/client/booking?rebook=old-job");
@@ -16,6 +17,7 @@ describe("client rebook links", () => {
   });
   it("does not offer unsupported past services for rebooking", () => {
     render(<ClientJobsBoard {...props} jobs={[{ ...job, jobType: "MAINTENANCE" }]} canBook />);
+    fireEvent.click(screen.getByRole("button", { name: "All", exact: true }));
     const show = screen.queryByRole("button", { name: "Show (1)" });
     if (show) fireEvent.click(show);
     expect(screen.queryByRole("link", { name: "Rebook" })).not.toBeInTheDocument();

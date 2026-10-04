@@ -28,7 +28,6 @@ import { compareCleanerJobsBySchedule } from "@/lib/jobs/schedule-order";
 import { googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { ImmediateAttentionPanel } from "@/components/shared/immediate-attention-panel";
 import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
-import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 import { getWorkforceDashboardPosts } from "@/lib/workforce/service";
 import { WorkforceDashboardPosts } from "@/components/workforce/dashboard-posts";
 import { formatAssignmentResponseLabel, formatJobStatusLabel } from "@/lib/jobs/assignment-workflow";
@@ -81,7 +80,6 @@ function isSameLocalDay(date: Date, now: Date) {
 
 export default async function CleanerDashboard() {
   const session = await requireRole([Role.CLEANER]);
-  await autoClockOutStaleTimeLogsForUser(session.user.id);
   const settings = await getAppSettings();
   const visibility = settings.cleanerPortalVisibility;
   const cleanerName =

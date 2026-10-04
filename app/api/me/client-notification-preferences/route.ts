@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { requireSession } from "@/lib/auth/session";
 import { z } from "zod";
-import { authOptions } from "@/lib/auth/auth-options";
 import { db } from "@/lib/db";
 
 const schema = z.object({
@@ -13,7 +12,7 @@ const schema = z.object({
 });
 
 async function getCurrentClientId() {
-  const session = await getServerSession(authOptions);
+  const session = await requireSession().catch(() => null);
   if (!session?.user?.id) return null;
   const user = await db.user.findUnique({
     where: { id: session.user.id },

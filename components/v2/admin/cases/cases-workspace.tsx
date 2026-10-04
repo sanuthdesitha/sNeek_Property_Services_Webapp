@@ -296,7 +296,7 @@ export function CasesWorkspace() {
     clientVisible: false,
     clientCanReply: true,
   });
-  const [commentDraft, setCommentDraft] = React.useState({ body: "", isInternal: false });
+  const [commentDraft, setCommentDraft] = React.useState({ body: "", isInternal: true });
   const [statusChangeDialog, setStatusChangeDialog] = React.useState<{
     caseId: string;
     nextStatus: CaseStatus;
@@ -514,7 +514,7 @@ export function CasesWorkspace() {
       const body = (await res.json().catch(() => ({}))) as CaseItem & { error?: string };
       if (!res.ok) throw new Error(body.error ?? "Could not add comment.");
       setSelected(body);
-      setCommentDraft({ body: "", isInternal: false });
+      setCommentDraft({ body: "", isInternal: true });
       await loadList();
       toast({ title: "Comment added" });
     } catch (error: any) {

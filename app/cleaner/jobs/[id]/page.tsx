@@ -772,10 +772,7 @@ export default function CleanerJobPage() {
       typeof body.updatedAt === "string" && body.updatedAt ? body.updatedAt : snapshot.updatedAt;
   }
 
-  async function clearSharedDraftState() {
-    lastKnownSharedDraftAtRef.current = null;
-    await fetch(`/api/cleaner/jobs/${jobId}/draft`, { method: "DELETE" }).catch(() => {});
-  }
+
 
   function isImageFileName(value: string) {
     return /\.(jpg|jpeg|png|webp|gif|bmp|svg)$/i.test(value);
@@ -1075,7 +1072,6 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     if (shouldDiscardLocalDraft(draft, body)) {
       clearDraftState();
       clearPendingSubmission();
-      void clearSharedDraftState();
       draft = null;
       showPopupNotification(
         "Previous progress cleared",
@@ -1251,9 +1247,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       const sharedDraft = await fetchSharedDraftState().catch(() => null);
       const localDraftUpdatedAt = typeof draft?.updatedAt === "string" ? draft.updatedAt : null;
       if (sharedDraft && sharedDraft.editorSessionId !== editorSessionIdRef.current) {
-        if (shouldDiscardLocalDraft(sharedDraft.state, body)) {
-          void clearSharedDraftState();
-        } else if (!localDraftUpdatedAt || sharedDraft.updatedAt > localDraftUpdatedAt) {
+        if (!shouldDiscardLocalDraft(sharedDraft.state, body) && (!localDraftUpdatedAt || sharedDraft.updatedAt > localDraftUpdatedAt)) {
           applyDraftSnapshot(
             {
               ...sharedDraft.state,
@@ -1290,7 +1284,6 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     }
     if (finishedState) clearDraftState();
     if (finishedState) clearPendingSubmission();
-    if (finishedState) void clearSharedDraftState();
     // Keep ops live-tracking alive for the whole active window: while driving
     // (EN_ROUTE, not paused/arrived) AND while the clean is underway
     // (IN_PROGRESS). Previously tracking stopped at arrival, so on-site cleaners
@@ -1488,7 +1481,6 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     const finishedState = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(payload.job.status ?? "");
     if (finishedState) {
       clearDraftState();
-      void clearSharedDraftState();
       return;
     }
     if (typeof window === "undefined") return;
@@ -1601,8 +1593,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       }
       if (lastKnownSharedDraftAtRef.current && draft.updatedAt <= lastKnownSharedDraftAtRef.current) return;
       if (shouldDiscardLocalDraft(draft.state, payload)) {
-        void clearSharedDraftState();
-        return;
+          return;
       }
 
       applyDraftSnapshot(
@@ -3279,10 +3270,13 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     clearPendingSubmission();
     showPopupNotification(
       fromQueue ? "Queued submission synced" : "Job submitted successfully",
-      fromQueue ? "Offline submission is now synced." : "Submission sent to admin."
+      body.stockCorrectionRequired
+        ? "Stock was already recorded for this clean. The office must review any stock correction."
+        : body.payRequestsAlreadyRecorded
+          ? "Existing extra-payment requests were kept. No duplicate request was created."
+          : fromQueue ? "Offline submission is now synced." : "Submission sent to admin."
     );
     clearDraftState();
-    void clearSharedDraftState();
     stopTicking();
     void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`, "check-out");
     router.push("/cleaner");
@@ -4793,7 +4787,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
               <div>
                 <p className="text-xs text-muted-foreground">Preparation guest count</p>
                 <p>
-                  {preparationGuestCount} guest{preparationGuestCount === 1 ? "" : "s"}
+                  Prepare for {preparationGuestCount} guest{preparationGuestCount === 1 ? "" : "s"}
                   {preparationSource === "PROPERTY_MAX" ? " · property max fallback" : ""}
                   {preparationSource !== "PROPERTY_MAX" && reservationContext.adults != null ? ` · ${reservationContext.adults} adults` : ""}
                   {preparationSource !== "PROPERTY_MAX" && reservationContext.children != null ? ` · ${reservationContext.children} children` : ""}
@@ -4804,7 +4798,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
             {preparationSource === "PROPERTY_MAX" ? (
               <div>
                 <p className="text-xs text-muted-foreground">Booking status</p>
-                <p>No same-day incoming booking linked. Prepare for maximum occupancy.</p>
+                <p>No same-day arrival or guest count available. Prepare for maximum occupancy.</p>
               </div>
             ) : null}
             {reservationContext.guestPhone ? <div><p className="text-xs text-muted-foreground">Guest phone</p><p>{reservationContext.guestPhone}</p></div> : null}
@@ -6232,7 +6226,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Need extra pay for this job? Fill the form below and tap "Add pay request". You can add more than one.
+                  Need extra pay for this job? Fill the form below and tap &quot;Add pay request&quot;. You can add more than one.
                 </p>
               )}
 
@@ -6423,7 +6417,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Found damage? Fill the form below and tap "Add damage item". Each item opens its own priority case for admin
+                  Found damage? Fill the form below and tap &quot;Add damage item&quot;. Each item opens its own priority case for admin
                   when you submit. You can add more than one.
                 </p>
               )}

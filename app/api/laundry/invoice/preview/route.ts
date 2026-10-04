@@ -5,7 +5,6 @@ import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
 import { getLaundryInvoiceData, getLaundryInvoiceTemplate, LaundryInvoicePeriod } from "@/lib/laundry/invoice";
 import { isLaundryModuleEnabled } from "@/lib/portal-access";
-import { logLaundryReportActivity } from "@/lib/laundry/report-history";
 import { parseReportFiltersFromSearch } from "@/lib/laundry/report-filters";
 import { resolveLaundryInvoiceScope } from "@/lib/laundry/teams";
 
@@ -64,12 +63,6 @@ export async function GET(req: NextRequest) {
       }),
       getLaundryInvoiceTemplate(session.user.id),
     ]);
-    await logLaundryReportActivity({
-      userId: session.user.id,
-      action: "PREVIEW",
-      data,
-      ipAddress: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
-    });
     return NextResponse.json({ data, template });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

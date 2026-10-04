@@ -170,7 +170,7 @@ export function PropertyJobsTab({ propertyId }: { propertyId: string }) {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile label="Total jobs" value={stats.total} hint={`${stats.completed} completed · ${stats.upcoming} upcoming`} />
           <StatTile label="Avg QA score" value={stats.avgQa != null ? `${stats.avgQa}%` : "—"} hint={stats.qaPassRate != null ? `${stats.qaPassRate}% pass rate` : "No QA yet"} />
-          <StatTile label="Open damage cases" value={stats.openIssues} hint={`${stats.maintenanceItems} maintenance items`} />
+          <StatTile label="Cases" value={stats.openIssues} hint={`${stats.maintenanceItems} maintenance items`} />
           <StatTile label="Last completed" value={stats.lastCompleted ? fmtDate(stats.lastCompleted, "dd MMM") : "—"} hint={`${stats.reports} reports · ${stats.skipped} skipped`} />
         </div>
       ) : null}

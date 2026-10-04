@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { format } from "date-fns";
 import { addDays, startOfDay } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -193,6 +194,7 @@ export async function notifyAutoSyncChanges(input: {
       await db.notification.create({
         data: {
           userId: admin.id,
+          externalId: mobilePendingMarker("ical"),
           channel: NotificationChannel.PUSH,
           subject,
           body: urgent

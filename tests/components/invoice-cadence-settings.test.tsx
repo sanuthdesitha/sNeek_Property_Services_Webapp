@@ -1,0 +1,28 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { InvoiceCadenceSettings } from '@/components/v2/admin/finance/invoice-cadence';
+const fetcher=vi.fn();
+const response=(body:unknown,ok=true)=>({ok,json:async()=>body});
+const initial={clients:[{id:'a',name:'Client A',invoicingCadence:'MONTHLY'},{id:'b',name:null,invoicingCadence:'WEEKLY'}],semimonthlyClientUserIds:['a']};
+beforeEach(()=>{vi.stubGlobal('fetch',fetcher);fetcher.mockReset();});
+afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+it('loads selected clients, edits both directions and saves draft-only settings',async()=>{
+ fetcher.mockResolvedValueOnce(response(initial));
+ let finish!: (value:unknown)=>void;fetcher.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ render(<InvoiceCadenceSettings/>);
+ expect(screen.getByRole('button')).toBeDisabled();
+ await waitFor(()=>expect(screen.getByRole('button')).toBeEnabled());
+ const boxes=screen.getAllByRole('checkbox');expect(boxes[0]).toBeChecked();expect(boxes[1]).not.toBeChecked();
+ expect(screen.getByText(/Unnamed client/)).toBeInTheDocument();
+ expect(screen.getByText(/16th \+ 1st, 8am Sydney \(draft only\)/)).toBeInTheDocument();
+ expect(screen.getByText(/previous half-month through the full final day/)).toHaveTextContent('Draft preparation does not approve cleaner pay or send, pay or export invoices.');
+ expect(fetcher).toHaveBeenCalledTimes(1);
+ fireEvent.click(boxes[0]);fireEvent.click(boxes[1]);fireEvent.click(screen.getByRole('button'));
+ expect(screen.getByRole('button',{name:'Saving…'})).toBeDisabled();expect(boxes[0]).toBeDisabled();
+ expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({semimonthlyClientUserIds:['b']});
+ finish(response({}));await screen.findByText(/No invoices were created or sent/);expect(screen.getByRole('button')).toBeEnabled();
+});
+it.each([['specific failure','specific failure'],['','Unable to load cadence.']])('displays loading failure %s',async(message,expected)=>{fetcher.mockResolvedValue(response({error:message},false));render(<InvoiceCadenceSettings/>);expect(await screen.findByRole('status')).toHaveTextContent(expected);expect(screen.getByRole('button')).toBeDisabled();});
+it.each([new Error('connection lost'),'unknown rejection'])('recovers the save control after %s',async error=>{fetcher.mockResolvedValueOnce(response(initial)).mockRejectedValueOnce(error);render(<InvoiceCadenceSettings/>);await waitFor(()=>expect(screen.getByRole('button')).toBeEnabled());fireEvent.click(screen.getByRole('button'));expect(await screen.findByRole('status')).toHaveTextContent(error instanceof Error?'connection lost':'Unable to save.');expect(screen.getByRole('button')).toBeEnabled();});
+it('shows server validation errors from save',async()=>{fetcher.mockResolvedValueOnce(response(initial)).mockResolvedValueOnce(response({error:'Choose only one login per account.'},false));render(<InvoiceCadenceSettings/>);await waitFor(()=>expect(screen.getByRole('button')).toBeEnabled());fireEvent.click(screen.getByRole('button'));expect(await screen.findByRole('status')).toHaveTextContent('Choose only one login per account.');});
+it.each([true,false])('ignores completed loading after unmount (success=%s)',async ok=>{let finish!:(value:unknown)=>void;fetcher.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));const view=render(<InvoiceCadenceSettings/>);view.unmount();finish(response(ok?initial:{error:'too late'},ok));await new Promise(resolve=>setTimeout(resolve,0));expect(screen.queryByRole('status')).toBeNull();});

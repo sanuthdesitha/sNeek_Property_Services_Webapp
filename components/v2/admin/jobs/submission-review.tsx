@@ -109,25 +109,37 @@ export function AccessMediaGallery({
   className?: string;
 }) {
   const [urlByKey, setUrlByKey] = useState<Record<string, string>>({});
-  const keySig = media.map((m) => m.s3Key).join("|");
+  const [accessError, setAccessError] = useState(false);
+  const [reload, setReload] = useState(0);
+  const keySig = JSON.stringify(Array.from(new Set(media.map((m) => m.s3Key).filter(Boolean))));
 
   useEffect(() => {
     let alive = true;
-    for (const m of media) {
-      const key = m.s3Key;
-      if (!key) continue;
-      fetch(`/api/uploads/access?key=${encodeURIComponent(key)}&jobId=${encodeURIComponent(jobId)}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((body) => {
-          if (alive && body?.url) setUrlByKey((prev) => ({ ...prev, [key]: body.url }));
-        })
-        .catch(() => {});
-    }
-    return () => {
-      alive = false;
+    let refreshVersion = 0;
+    const keys: string[] = JSON.parse(keySig);
+    setUrlByKey({});
+    const refresh = async () => {
+      const version = ++refreshVersion;
+      const results = await Promise.all(keys.map(async (key) => {
+        try {
+          const response = await fetch(`/api/uploads/access?key=${encodeURIComponent(key)}&jobId=${encodeURIComponent(jobId)}`);
+          if (!response.ok) throw new Error("Media access failed");
+          const body = await response.json();
+          if (typeof body.url !== "string" || !body.url) throw new Error("Missing media URL");
+          return [key, body.url] as const;
+        } catch { return null; }
+      }));
+      if (!alive || version !== refreshVersion) return;
+      setAccessError(results.some((result) => result === null));
+      setUrlByKey(Object.fromEntries(results.filter((result): result is readonly [string, string] => result !== null)));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keySig, jobId]);
+    void refresh();
+    // Access URLs last ten minutes; renew before expiry and after tab sleep.
+    const timer = window.setInterval(() => { void refresh(); }, 8 * 60_000);
+    const onFocus = () => { void refresh(); };
+    window.addEventListener("focus", onFocus);
+    return () => { alive = false; window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
+  }, [keySig, jobId, reload]);
 
   const items: MediaGalleryItem[] = media
     .map((m) => ({
@@ -138,7 +150,12 @@ export function AccessMediaGallery({
     }))
     .filter((it) => it.url.length > 0);
 
-  return <MediaGallery items={items} title={title ?? "Submission media"} className={className} />;
+  const reloadMedia = () => setReload((value) => value + 1);
+  return <>
+    {accessError ? <div role="alert" className="mb-2 text-sm">Some media could not be loaded. <button type="button" className="underline" onClick={reloadMedia}>Reload media</button></div> : null}
+    <MediaGallery items={items} title={title ?? "Submission media"} className={className} onReload={reloadMedia} />
+  </>;
+
 }
 
 /* ── Submission review card body ────────────────────────────────────────── */
@@ -172,8 +189,10 @@ export function SubmissionReview({
         const answers = sub.data && typeof sub.data === "object" ? sub.data : {};
         const sections = Array.isArray((sub.schema as any)?.sections) ? ((sub.schema as any).sections as any[]) : [];
         const reworkLabels: string[] = [];
+        const fieldLabels = new Map<string, string>();
         for (const section of sections) {
           for (const field of Array.isArray(section?.fields) ? section.fields : []) {
+            if (field?.id && field?.label) fieldLabels.set(String(field.id), String(field.label));
             if (flagged.has(String(field?.id))) reworkLabels.push(String(field?.label ?? field?.id));
           }
         }
@@ -226,7 +245,7 @@ export function SubmissionReview({
                   <p className="mb-1.5 text-[0.6875rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
                     Submission media
                   </p>
-                  <AccessMediaGallery media={sub.media} jobId={jobId} title="Submission media" />
+                  <AccessMediaGallery media={sub.media.map((item) => ({ ...item, label: fieldLabels.get(item.fieldId) ?? item.label }))} jobId={jobId} title="Submission media" />
 
                 </div>
               ) : null}
@@ -270,7 +289,7 @@ export function SubmissionReview({
                               {mediaForField.length > 0 ? (
                                 <div className="mt-2">
                                   <AccessMediaGallery
-                                    media={mediaForField}
+                                    media={mediaForField.map((item) => ({ ...item, label: fieldLabels.get(item.fieldId) ?? item.label }))}
                                     jobId={jobId}
                                     title={String(field.label ?? field.id ?? "Field media")}
                                     className="grid grid-cols-4 gap-2 sm:grid-cols-6"

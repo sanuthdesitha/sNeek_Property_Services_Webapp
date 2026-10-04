@@ -17,6 +17,8 @@ export interface FeatureDef {
 }
 
 export const FEATURE_DEFS: FeatureDef[] = [
+  { key: "plants", label: "Plants or artificial plants to dust", group: "GENERAL" },
+  { key: "livePlants", label: "Live plants requiring care checks", group: "GENERAL" },
   { key: "dishwasher", label: "Dishwasher", group: "KITCHEN", applianceTypes: ["DISHWASHER"], keywords: ["dishwasher"] },
   { key: "oven", label: "Oven / grill", group: "KITCHEN", applianceTypes: ["OVEN"], keywords: ["oven", "grill"] },
   { key: "microwave", label: "Microwave", group: "KITCHEN", applianceTypes: ["MICROWAVE"], keywords: ["microwave"] },

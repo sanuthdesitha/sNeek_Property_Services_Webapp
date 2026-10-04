@@ -30,6 +30,7 @@ import {
   ECardHeader,
   ECardTitle,
   EEmptyState,
+  EButton,
 } from "@/components/v2/ui/primitives";
 import { ESwitch } from "@/components/v2/admin/estate-kit";
 import type { TaskRequestRow } from "@/components/v2/admin/jobs/job-detail-reviews";
@@ -50,11 +51,31 @@ export function TaskEvidence({
 }) {
   const [included, setIncluded] = React.useState(includeInReport);
   const [saving, setSaving] = React.useState(false);
+  const [rebuildError, setRebuildError] = React.useState<string | null>(null);
+
+  async function rebuildReport() {
+    const response = await fetch(`/api/admin/reports/${jobId}/generate`, { method: "POST" });
+    if (!response.ok) throw new Error("The setting was saved, but the report could not be rebuilt. The existing report may still show the previous photos.");
+    setRebuildError(null);
+  }
+
+  async function retryRebuild() {
+    setSaving(true);
+    try {
+      await rebuildReport();
+      toast({ title: "Report rebuilt", description: "The saved task-photo setting now applies to the shared report." });
+    } catch {
+      setRebuildError("The setting is saved, but rebuilding still failed. Retry when report generation is available.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function setInclusion(next: boolean) {
     const previous = included;
     setIncluded(next);
     setSaving(true);
+    let settingSaved = false;
     try {
       const res = await fetch(`/api/admin/jobs/${jobId}`, {
         method: "PATCH",
@@ -62,11 +83,10 @@ export function TaskEvidence({
         body: JSON.stringify({ includeTaskPhotosInReport: next }),
       });
       if (!res.ok) throw new Error("Could not save that.");
+      settingSaved = true;
       // The report is stored, not rendered per download, so the setting
       // means nothing until it is rebuilt.
-      await fetch(`/api/admin/reports/${jobId}/generate`, { method: "POST" }).catch(
-        () => {}
-      );
+      await rebuildReport();
       toast({
         title: next
           ? "Task photos will appear in the report"
@@ -76,7 +96,8 @@ export function TaskEvidence({
     } catch (err: any) {
       // Put the switch back: leaving it on the new value would claim a
       // change the report does not have.
-      setIncluded(previous);
+      if (!settingSaved) setIncluded(previous);
+      if (settingSaved) setRebuildError("The setting was saved, but the report could not be rebuilt. The existing report may still show the previous photos.");
       toast({
         title: "Could not update the report",
         description: err?.message ?? "Try again.",
@@ -113,6 +134,12 @@ export function TaskEvidence({
         </ECardTitle>
       </ECardHeader>
       <ECardBody className="pt-0">
+        {rebuildError ? (
+          <div role="alert" className="mb-4 rounded border border-[hsl(var(--e-danger))] p-3 text-sm">
+            <p>{rebuildError}</p>
+            <EButton type="button" variant="outline" size="sm" disabled={saving} onClick={retryRebuild}>Retry report rebuild</EButton>
+          </div>
+        ) : null}
         {evidenced.length === 0 ? (
           <EEmptyState
             title="Nothing submitted yet"
@@ -140,13 +167,16 @@ export function TaskEvidence({
             {evidenced.map((task) => {
               const failed = task.proof?.some((p) => p.kind === "FAILURE_PROOF") ?? false;
               const done = task.executionStatus === "COMPLETED";
+              const notApplicable = task.completionDisposition === "NOT_APPLICABLE";
               return (
                 <li
                   key={task.id}
                   className="space-y-2 border-t border-[hsl(var(--e-border))] pt-3 first:border-0 first:pt-0"
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    {done ? (
+                    {notApplicable ? (
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-text-faint))]" />
+                    ) : done ? (
                       <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-success))]" />
                     ) : (
                       <XCircle className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-danger))]" />
@@ -159,7 +189,8 @@ export function TaskEvidence({
                         {task.source === "ADMIN" ? "Admin asked" : "Client asked"}
                       </EBadge>
                     ) : null}
-                    {failed && !done ? (
+                    {notApplicable ? <EBadge tone="neutral" soft>Not applicable</EBadge> : null}
+                    {failed && !done && !notApplicable ? (
                       <EBadge tone="danger" soft>
                         Not completed
                       </EBadge>

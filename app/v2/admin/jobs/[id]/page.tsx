@@ -1,3 +1,4 @@
+import { formatServiceDate } from "@/lib/time/service-date";
 import { PhotoReviewPanel } from "@/components/v2/qa/photo-review-panel";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -169,6 +170,7 @@ async function getJob(id: string) {
       select: {
         id: true,
         jobNumber: true,
+        updatedAt: true,
         jobType: true,
         status: true,
         scheduledDate: true,
@@ -373,6 +375,7 @@ async function getJob(id: string) {
             source: true,
             approvalStatus: true,
             executionStatus: true,
+            metadata: true,
             // Needed to name the items in the start-briefing acknowledgement
             // record below: resolveStartBriefingItems drops anything hidden
             // from cleaners, and without this flag it would name items the
@@ -523,10 +526,8 @@ export default async function AdminJobDetailPage({
     return rows;
   })();
 
-  const scheduledLabel = (() => {
-    const parsed = new Date(job.scheduledDate);
-    return Number.isNaN(parsed.getTime()) ? "Date not set" : format(parsed, "EEEE d MMMM yyyy");
-  })();
+  const scheduledLabel = formatServiceDate(job.scheduledDate, "EEEE d MMMM yyyy", "Date not set");
+
   const timeLabel = job.startTime
     ? `${job.startTime}${job.dueTime ? ` – ${job.dueTime}` : ""}${job.endTime ? ` (ended ${job.endTime})` : ""}`
     : "No time set";
@@ -541,7 +542,7 @@ export default async function AdminJobDetailPage({
     // What the cleaner wrote when marking it done, or explaining why they
     // could not. Events are newest-first, so this is the latest word.
     const completionEvent = task.events.find(
-      (e) => e.action === "TASK_COMPLETED" || e.action === "TASK_NOT_COMPLETED"
+      (e) => e.action === "TASK_COMPLETED" || e.action === "TASK_NOT_COMPLETED" || e.action === "TASK_NOT_APPLICABLE"
     );
     const isProof = (kind: string) =>
       kind === "COMPLETION_PROOF" || kind === "FAILURE_PROOF";
@@ -559,6 +560,7 @@ export default async function AdminJobDetailPage({
       source: String(task.source),
       completedAt: task.completedAt?.toISOString() ?? null,
       completionNote: completionEvent?.note ?? null,
+      completionDisposition: completionEvent?.action === "TASK_NOT_APPLICABLE" ? "NOT_APPLICABLE" : null,
       // Reference images stay separate from proof: one is what was asked
       // for, the other is what came back, and merging them would make an
       // unfinished task look evidenced.
@@ -640,6 +642,13 @@ export default async function AdminJobDetailPage({
   const manageSubmission = job.formSubmissions[0] ?? null;
   const manageJob = {
     id: job.id,
+    updatedAt: job.updatedAt.toISOString(),
+    jobTasks: job.jobTasks.map((task) => ({
+      id: task.id, source: task.source, executionStatus: task.executionStatus,
+      title: task.title, description: task.description,
+      requiresPhoto: task.requiresPhoto, requiresNote: task.requiresNote,
+      metadata: task.metadata,
+    })),
     jobNumber: job.jobNumber,
     jobType: job.jobType,
     status: job.status,

@@ -18,6 +18,10 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 import { sendWebPushToUser } from "@/lib/notifications/web-push";
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
+import { canDeliverNotification } from "@/lib/notifications/preferences";
+import { getAppSettings } from "@/lib/settings";
+import { isChannelAllowed } from "@/lib/notifications/audience-controls";
 
 const TZ = "Australia/Sydney";
 const PICKED_UP_STALE_MS = 24 * 60 * 60 * 1000;
@@ -126,11 +130,14 @@ export async function dispatchLaundryDriverNudges(now = new Date()) {
     select: { id: true, name: true },
   });
 
+  const settings = await getAppSettings();
   let nudged = 0;
   for (const driver of drivers) {
     const visible = tasks.filter((t) => propertyIsVisibleToLaundry(t.property, driver.id));
     const stale = selectStaleDriverTasks(visible, now);
     if (stale.length === 0) continue;
+    if (!isChannelAllowed(settings.notificationAudienceControls, "LAUNDRY", "push") ||
+      !await canDeliverNotification({ userId: driver.id, category: "laundry", channel: "WEB" })) continue;
 
     const body = `${stale.length} laundry task${stale.length === 1 ? "" : "s"} need${
       stale.length === 1 ? "s" : ""
@@ -138,6 +145,9 @@ export async function dispatchLaundryDriverNudges(now = new Date()) {
     try {
       await db.notification.create({
         data: {
+          // A stable primary key makes retries/concurrent schedulers no-ops.
+          id: `laundry-nudge:${todayKey.toISOString().slice(0, 10)}:${driver.id}`,
+          externalId: mobilePendingMarker("laundry"),
           userId: driver.id,
           channel: NotificationChannel.PUSH,
           subject: "Laundry catch-up",
@@ -154,6 +164,7 @@ export async function dispatchLaundryDriverNudges(now = new Date()) {
       });
       nudged += 1;
     } catch (err) {
+      if ((err as { code?: string })?.code === "P2002") continue;
       logger.error({ err, userId: driver.id }, "[laundry-reminders] driver nudge failed");
     }
   }

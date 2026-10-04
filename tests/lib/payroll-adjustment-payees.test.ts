@@ -6,13 +6,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * rectification), and including one approved AFTER its period closed.
  */
 
+const jobFindMany = vi.fn(async (_args?: any) => [] as any[]);
 const userFindMany = vi.fn(async (_args?: any) => [] as any[]);
 const adjFindMany = vi.fn(async (_args?: any) => [] as any[]);
 
 vi.mock("@/lib/db", () => ({
   db: {
     user: { findMany: userFindMany },
-    job: { findMany: vi.fn(async () => []) },
+    job: { findMany: jobFindMany },
     cleanerPayAdjustment: { findMany: adjFindMany },
     shoppingRun: { findMany: vi.fn(async () => []) },
     // QA inspection pay is the other rail getPayrollSummary now reads. These
@@ -57,6 +58,7 @@ async function run(input: Record<string, unknown> = {}) {
 
 describe("getPayrollSummary — adjustment payees", { timeout: 30000 }, () => {
   beforeEach(() => {
+    jobFindMany.mockReset();jobFindMany.mockResolvedValue([]);
     userFindMany.mockReset();
     adjFindMany.mockReset();
     adjFindMany.mockResolvedValue([]);
@@ -116,5 +118,11 @@ describe("getPayrollSummary — adjustment payees", { timeout: 30000 }, () => {
     expect(where.reviewedAt.gte).toBeInstanceOf(Date);
     expect(where.reviewedAt.lte).toBeInstanceOf(Date);
     expect(where.includedInPayrollRunId).toBeUndefined();
+  });
+
+  it("passes each job version through payroll money snapshots for later atomic claims",async()=>{
+    const version=new Date("2026-01-15T00:00:00Z");userFindMany.mockResolvedValue([CLEANER]);
+    jobFindMany.mockResolvedValue([{id:"job",updatedAt:version,jobNumber:"J1",jobType:"STANDARD_CLEAN",scheduledDate:version,completedAt:version,estimatedHours:2,internalNotes:null,isRework:false,property:{name:"House",suburb:null},assignments:[{userId:CLEANER.id,payRate:40}],timeLogs:[]}]);
+    const rows=await run({excludePaidJobs:true});expect(rows[0].jobs[0]).toMatchObject({id:"job",updatedAt:version});expect(rows[0].totals.jobGross).toBe(80);expect(jobFindMany.mock.calls[0][0].select.updatedAt).toBe(true);
   });
 });

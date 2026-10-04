@@ -2056,6 +2056,7 @@ export default function LaundryPage() {
                   ? "It will not change the live laundry calendar until you approve it. Approval applies the new dates and then notifies the relevant laundry team."
                   : "It will not appear in the live calendar until you approve it. Laundry-ready notifications still wait for the cleaner to submit and confirm bag placement."}
               </p>
+              <p className="mt-2 text-xs text-muted-foreground">The weekly scheduler calculates drafts only; it never approves this plan automatically. Collected, returned and suppressed tasks retain their recorded dates and evidence.</p>
               <p className="mt-2 text-xs text-muted-foreground">
                 Rule summary: pickup is always the day after the clean date, never on the same day as cleaning. If a next clean date is known, drop-off is set to the day before that clean (or earliest valid 24h drop when the gap is tight). If no next clean is known yet, the batch is returned quickly (next day) so linen is ready for late bookings.
               </p>

@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import {
   NotificationChannel,
@@ -111,7 +112,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       existing.includedInPayrollRunId ?? existing.includedInCleanerInvoiceId ?? null;
     if (
       alreadySettledBy &&
-      (Boolean(body.status) || body.approvedAmount !== undefined || body.requestedAmount !== undefined)
+      (Boolean(body.status) || body.approvedAmount !== undefined || body.requestedAmount !== undefined ||
+        body.type !== undefined || body.requestedHours !== undefined || body.requestedRate !== undefined ||
+        body.jobId !== undefined || body.propertyId !== undefined)
     ) {
       return NextResponse.json(
         {
@@ -213,7 +216,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     const updated = await db.cleanerPayAdjustment.update({
-      where: { id: params.id },
+      where: { id: params.id, updatedAt: existing.updatedAt,
+        ...(!alreadySettledBy ? { includedInPayrollRunId: null, includedInCleanerInvoiceId: null } : {}) },
       data: {
         ...(isReverseToPending
           ? {
@@ -321,6 +325,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         data: {
           userId: updated.cleaner.id,
           jobId: updated.job?.id ?? undefined,
+          externalId: mobilePendingMarker("billing"),
           channel: NotificationChannel.PUSH,
           subject: pushSubject,
           body: pushBody,
@@ -414,6 +419,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         data: {
           userId: updated.cleaner.id,
           jobId: updated.job?.id ?? undefined,
+          externalId: mobilePendingMarker("billing"),
           channel: NotificationChannel.PUSH,
           subject: `Extra payment request updated - ${propertyName}`,
           body: `An admin updated the details of your extra payment request for ${propertyName}. New requested amount: $${Number(

@@ -1,3 +1,4 @@
+import { dispatchNotificationOnce } from "@/lib/notifications/dispatch-once";
 import { format } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { Role } from "@prisma/client";
@@ -16,8 +17,8 @@ import { holdsRoleWhere } from "@/lib/auth/role-query";
  * goes out on every channel the cleaner has enabled (web push, email, SMS) via
  * the shared notification pipeline, which honours each cleaner's preferences.
  *
- * De-duped by the notification subject: once a cleaner has a reminder logged for
- * this job today, we don't send again — so repeated scheduler ticks are safe.
+ * A unique committed receipt per cleaner/job/local day claims the entire
+ * multi-channel attempt before delivery. Concurrent ticks cannot send twice.
  */
 
 const MORNING_HOUR = 6; // Sydney hour the morning reminder unlocks.
@@ -114,7 +115,9 @@ export async function dispatchCleanerDayReminders(now: Date = new Date()) {
         continue;
       }
 
-      await deliverNotificationToRecipients({
+      const attempted = await dispatchNotificationOnce({
+        event: "cleaner.day_reminder", day: dayKey, recipientId: cleaner.id, jobId: job.id,
+      }, async () => { await deliverNotificationToRecipients({
         recipients: [
           { id: cleaner.id, role: cleaner.role, email: cleaner.email, phone: cleaner.phone, name: cleaner.name },
         ],
@@ -124,8 +127,9 @@ export async function dispatchCleanerDayReminders(now: Date = new Date()) {
         url: "/cleaner/jobs",
         email: { subject, html: emailHtml, logBody: body },
         sms: smsBody,
-      });
-      sent += 1;
+      }); }, now);
+      if (attempted) sent += 1;
+      else skipped += 1;
     }
   }
 

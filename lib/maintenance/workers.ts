@@ -18,7 +18,6 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import {
   buildJobTaskDraftFromMaintenance,
-  shouldCreateJobTaskOnAttach,
   statusAfterRouting,
   visitFieldsToClear,
 } from "@/lib/maintenance/assignment-routing";
@@ -82,30 +81,34 @@ export async function assignMaintenanceItem(input: {
   assignedByUserId?: string | null;
 }) {
   return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`maintenance-assign:${input.itemId}`}))`;
     const item = await tx.propertyMaintenanceItem.findUnique({
       where: { id: input.itemId },
-      select: { status: true },
+      select: { status: true, assignedWorkerId: true, scheduledFor: true, shareAccess: true, contactPersonUserId: true },
     });
     if (!item) throw new Error("Maintenance item not found.");
+    const unchanged = item.assignedWorkerId === input.workerId
+      && (input.scheduledFor === undefined || (input.scheduledFor?.getTime() ?? null) === (item.scheduledFor?.getTime() ?? null))
+      && (input.shareAccess === undefined || input.shareAccess === item.shareAccess)
+      && (input.contactPersonUserId === undefined || input.contactPersonUserId === item.contactPersonUserId);
+    if (unchanged) return { ...await tx.propertyMaintenanceItem.findUniqueOrThrow({ where: { id: input.itemId } }), unchanged: true };
     const nextStatus =
       item.status === MaintenanceStatus.OPEN ? MaintenanceStatus.ACKNOWLEDGED : item.status;
     const updated = await tx.propertyMaintenanceItem.update({
       where: { id: input.itemId },
       data: {
         assignedWorkerId: input.workerId,
-        assignedAt: new Date(),
+        assignedAt: item.assignedWorkerId === input.workerId ? undefined : new Date(),
         assignedByUserId: input.assignedByUserId ?? null,
-        scheduledFor: input.scheduledFor ?? null,
-        shareAccess: input.shareAccess ?? false,
-        contactPersonUserId: input.contactPersonUserId ?? null,
+        scheduledFor: input.scheduledFor,
+        shareAccess: input.shareAccess,
+        contactPersonUserId: input.contactPersonUserId,
         status: nextStatus,
         // Re-arm the visit so a reassignment starts clean.
-        enRouteAt: null,
-        arrivedAt: null,
-        workStartedAt: null,
-        clockInAt: null,
-        clockOutAt: null,
-        outcome: null,
+        ...(item.assignedWorkerId !== input.workerId ? {
+          enRouteAt: null, arrivedAt: null, workStartedAt: null,
+          clockInAt: null, clockOutAt: null, outcome: null,
+        } : {}),
       },
     });
     await tx.propertyMaintenanceEvent.create({
@@ -117,7 +120,7 @@ export async function assignMaintenanceItem(input: {
         note: "Assigned to a maintenance worker.",
       },
     });
-    return updated;
+    return { ...updated, unchanged: false };
   });
 }
 
@@ -186,61 +189,36 @@ export async function attachMaintenanceItemToJob(input: {
   jobId: string;
   actorUserId?: string | null;
 }) {
-  const item = await db.propertyMaintenanceItem.findUnique({
-    where: { id: input.itemId },
-    select: {
-      id: true,
-      jobId: true,
-      propertyId: true,
-      title: true,
-      description: true,
-      source: true,
-      property: { select: { clientId: true } },
-    },
-  });
-  if (!item) throw new Error("Maintenance item not found.");
-
-  const creates = shouldCreateJobTaskOnAttach({
-    previousJobId: item.jobId,
-    nextJobId: input.jobId,
-  });
-
-  const updated = await db.propertyMaintenanceItem.update({
-    where: { id: input.itemId },
-    data: { jobId: input.jobId },
-  });
-
-  if (creates) {
-    const draft = buildJobTaskDraftFromMaintenance({
-      title: item.title,
-      description: item.description,
-      raisedByClient: item.source === MaintenanceSource.CLIENT,
+  return db.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`maintenance-task:${input.itemId}`}))`;
+    const item = await tx.propertyMaintenanceItem.findUnique({
+      where: { id: input.itemId }, include: { property: { select: { clientId: true } } },
     });
-    try {
-      await db.jobTask.create({
-        data: {
-          jobId: input.jobId,
-          propertyId: item.propertyId,
-          clientId: item.property?.clientId ?? null,
-          source: draft.source,
-          title: draft.title,
-          description: draft.description,
-          visibleToCleaner: draft.visibleToCleaner,
-          requiresPhoto: draft.requiresPhoto,
-          requiresNote: draft.requiresNote,
-          requestedByUserId: input.actorUserId ?? null,
-          metadata: { maintenanceItemId: item.id } as any,
-        },
-      });
-    } catch (err) {
-      logger.error(
-        { err, itemId: item.id, jobId: input.jobId },
-        "CP-8: could not auto-create the job task for an attached maintenance item"
-      );
+    if (!item) throw new Error("Maintenance item not found.");
+    const job = await tx.job.findUnique({ where: { id: input.jobId }, select: { propertyId: true, status: true } });
+    if (!job || job.propertyId !== item.propertyId) throw new Error("Choose a job for the same property.");
+    if (["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(job.status)) throw new Error("Choose a job that has not been submitted.");
+    const tasks = await tx.jobTask.findMany({
+      where: { metadata: { path: ["maintenanceItemId"], equals: item.id }, executionStatus: { not: "CANCELLED" } },
+    });
+    if (tasks.some(task => task.jobId !== input.jobId && task.executionStatus !== "OPEN")) {
+      throw new Error("This maintenance task already has work recorded. Review it before moving jobs.");
     }
-  }
-
-  return updated;
+    const existing = tasks.find(task => task.jobId === input.jobId);
+    await tx.jobTask.updateMany({
+      where: { id: { in: tasks.filter(task => task.jobId !== input.jobId && task.executionStatus === "OPEN").map(task => task.id) } },
+      data: { executionStatus: "CANCELLED" },
+    });
+    if (!existing) {
+      const draft = buildJobTaskDraftFromMaintenance({ title: item.title, description: item.description, raisedByClient: item.source === MaintenanceSource.CLIENT });
+      await tx.jobTask.create({ data: {
+        jobId: input.jobId, propertyId: item.propertyId, clientId: item.property?.clientId ?? null,
+        ...draft, requestedByUserId: input.actorUserId ?? null,
+        metadata: { maintenanceItemId: item.id },
+      } });
+    }
+    return tx.propertyMaintenanceItem.update({ where: { id: item.id }, data: { jobId: input.jobId } });
+  });
 }
 
 export async function recordMaintenancePing(input: {
@@ -329,11 +307,17 @@ export async function setMaintenanceVisitState(input: {
   }
 
   return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`maintenance-visit:${input.itemId}`}))`;
     const item = await tx.propertyMaintenanceItem.findUnique({
       where: { id: input.itemId },
-      select: { status: true, resolvedByUserId: true },
+      select: { status: true, resolvedByUserId: true, enRouteAt: true, arrivedAt: true, clockInAt: true, workStartedAt: true, clockOutAt: true, resolvedAt: true },
     });
     if (!item) throw new Error("Maintenance item not found.");
+    const field = ({ EN_ROUTE: "enRouteAt", ARRIVED: "arrivedAt", CLOCK_IN: "clockInAt", START: "workStartedAt", CLOCK_OUT: "clockOutAt", COMPLETE: "resolvedAt" } as const)[input.event];
+    if (item[field]) throw new Error("This visit step has already been recorded.");
+    if (item.status === MaintenanceStatus.RESOLVED || item.status === MaintenanceStatus.DISMISSED) throw new Error("Reopen the maintenance item before recording another visit.");
+    if ((input.event === "CLOCK_OUT" || input.event === "COMPLETE") && !item.clockInAt && !item.workStartedAt) throw new Error("Start the visit before completing it.");
+    if (input.event === "COMPLETE" && (!input.outcome || !input.finishPhotoKeys?.length)) throw new Error("Record the outcome and completion photo before completing the visit.");
 
     if (nextStatus) data.status = nextStatus;
     if (input.event === "COMPLETE" && input.userId) {

@@ -137,6 +137,7 @@ describe("generateClientInvoice — period basis decides the job window", () => 
     const create = vi.fn(async ({ data }) => ({ id: "invoice", ...data }));
     const updateMany = vi.fn(async () => ({ count: 501 }));
     dbMock.$transaction.mockImplementation(async fn => fn({
+      $executeRaw: vi.fn(async () => 1),
       clientInvoice: { create }, maintenanceItemAssignment: { updateMany },
     }));
 
@@ -146,8 +147,31 @@ describe("generateClientInvoice — period basis decides the job window", () => 
     expect(lines).toHaveLength(501);
     expect(lines.every((line: { lineTotal: number }) => line.lineTotal === 10)).toBe(true);
     expect(updateMany).toHaveBeenCalledWith({
-      where: { id: { in: eligible.map(row => row.id) } },
+      where: { id: { in: eligible.map(row => row.id) }, includedInClientInvoiceId: null, removedAt: null, payPayer: "CLIENT" },
       data: { includedInClientInvoiceId: "invoice", includedInClientInvoiceAt: expect.any(Date) },
     });
+  });
+
+  it("rechecks job claims after client lock and refuses a concurrently invoiced job before creating a draft", async () => {
+    dbMock.job.findMany.mockResolvedValue([{id:"job1",jobNumber:"J1",jobType:"STANDARD_CLEAN",propertyId:"property_1",property:{name:"House"},fixedPrice:50,scheduledDate:START,invoiceNote:null}]);
+    const events:string[]=[];const create=vi.fn();const findFirst=vi.fn(async()=>{events.push("recheck");return {id:"other-line"};});
+    dbMock.$transaction.mockImplementation(async fn=>{try{return await fn({$executeRaw:async()=>{events.push("lock");},clientInvoiceLine:{findFirst},clientInvoice:{create}});}catch(e){events.push("rollback");throw e;}});
+    await expect(generateClientInvoice({clientId:"client_1",completedOnly:true})).rejects.toThrow("invoiced by another request");
+    expect(events).toEqual(["lock","recheck","rollback"]);expect(create).not.toHaveBeenCalled();expect(findFirst).toHaveBeenCalledWith({where:{jobId:{in:["job1"]},invoice:{clientId:"client_1",status:{not:"VOID"}}},select:{id:true}});
+  });
+
+  it("creates a review-required draft for evidenced started work and labels older catch-up without double claiming",async()=>{
+    const ended=new Date("2026-07-31T13:59:59.999Z");
+    const row=(id:string,over:any={})=>({id,jobNumber:id,jobType:"STANDARD_CLEAN",propertyId:"property_1",property:{name:"House"},fixedPrice:50,scheduledDate:START,invoiceNote:"Agreed",status:"IN_PROGRESS",cleanSkipStatus:"NOT_SKIPPED",updatedAt:START,completedAt:null,timeLogs:[{startedAt:START,stoppedAt:null}],...over});
+    dbMock.job.findMany.mockResolvedValue([row("started"),row("old-completed",{status:"COMPLETED",completedAt:new Date("2026-06-01"),timeLogs:[]}),row("assigned",{status:"ASSIGNED",timeLogs:[]}),row("invalid",{timeLogs:[{startedAt:START,stoppedAt:new Date("2026-06-01") }]}),row("future",{timeLogs:[{startedAt:new Date("2026-08-02") }]}),row("claimed")]);
+    dbMock.clientInvoiceLine.findMany.mockResolvedValue([{jobId:"claimed"}]);
+    const create=vi.fn(async({data})=>({id:"invoice",...data}));
+    dbMock.$transaction.mockImplementation(async fn=>fn({$executeRaw:vi.fn(),$queryRaw:vi.fn(),job:{count:vi.fn(async()=>2)},clientInvoiceLine:{findFirst:vi.fn(async()=>null)},clientInvoice:{create}}));
+    const draft=await generateClientInvoice({clientId:"client_1",periodStart:START,periodEnd:ended,startedWork:true});
+    expect(draft.status).toBe("DRAFT");const data=create.mock.calls[0][0].data;
+    expect(data.lines.create.map((line:any)=>line.jobId)).toEqual(["started","old-completed"]);
+    expect(data.metadata.startedWorkReview).toMatchObject({required:true,pricingPolicy:"PROVISIONAL_AGREED_PRICE"});
+    expect(data.metadata.startedWorkReview.jobs).toEqual(expect.arrayContaining([expect.objectContaining({jobId:"started",unfinishedAtCutoff:true,agreedAmount:50}),expect.objectContaining({jobId:"old-completed",priorPeriodCarryover:true})]));
+    expect(data.lines.create[0].note).toContain("PROVISIONAL");expect(data.lines.create[1].note).toContain("Prior-period");
   });
 });

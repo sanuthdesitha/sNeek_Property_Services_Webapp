@@ -38,7 +38,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
+import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
@@ -161,6 +161,7 @@ export function JobManagePanel({
   const [internalNotes, setInternalNotes] = useState("");
   const [tagsText, setTagsText] = useState("");
   const [isDraft, setIsDraft] = useState(false);
+  const [cancelTaskIds, setCancelTaskIds] = useState<string[]>([]);
   const [specialTasks, setSpecialTasks] = useState<JobSpecialRequestTask[]>([]);
   const [notices, setNotices] = useState<JobNotice[]>([]);
   const [keyPickupLocation, setKeyPickupLocation] = useState("");
@@ -245,7 +246,9 @@ export function JobManagePanel({
     setInternalNotes(meta.internalNoteText ?? "");
     setTagsText(meta.tags.join(", "));
     setIsDraft(meta.isDraft);
-    setSpecialTasks(meta.specialRequestTasks.map((t) => ({ ...t })));
+    setCancelTaskIds([]);
+    const persisted = (job.jobTasks ?? []).filter((t: any) => t.source === "ADMIN" && t.executionStatus === "OPEN");
+    setSpecialTasks((job.jobTasks ?? []).some((t: any) => t.source === "ADMIN") ? persisted.map((t: any) => ({ id: t.id, title: t.title, description: t.description ?? "", requiresPhoto: t.requiresPhoto, requiresNote: t.requiresNote, allowNotApplicable: t.metadata?.allowNotApplicable === true })) : meta.specialRequestTasks.map((t) => ({ ...t })));
     setNotices(meta.notices.map((n) => ({ ...n })));
     setServiceContext(meta.serviceContext);
     setKeyPickupLocation(meta.serviceContext?.keyPickupLocation ?? "");
@@ -273,7 +276,7 @@ export function JobManagePanel({
     const res = await fetch(`/api/admin/jobs/${job.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, ...(job.updatedAt ? { expectedUpdatedAt: new Date(job.updatedAt).toISOString() } : {}) }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.message ?? body.error ?? "Could not update job.");
@@ -295,6 +298,7 @@ export function JobManagePanel({
           startTime: startTime || null,
           dueTime: dueTime || null,
           reason: reason || null,
+          ...(job.updatedAt ? { expectedUpdatedAt: new Date(job.updatedAt).toISOString() } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -313,7 +317,7 @@ export function JobManagePanel({
     try {
       await patchJob({
         endTime: endTime || undefined,
-        completedAt: completedAt ? `${completedAt}T00:00:00.000Z` : null,
+        ...(completedAt !== sydneyDateInput(job.completedAt) ? { completedAt: completedAt ? fromZonedTime(`${completedAt}T12:00:00`, TZ).toISOString() : null } : {}),
         earlyCheckin: rulePayload(earlyPreset, earlyTime),
         lateCheckout: rulePayload(latePreset, lateTime),
       });
@@ -376,8 +380,9 @@ export function JobManagePanel({
     setSavingScope(true);
     try {
       await patchJob({
-        notes: notes || undefined,
-        internalNotes: internalNotes || undefined,
+        notes,
+        internalNotes,
+        cancelTaskIds,
         isDraft,
         tags: tagsText.split(",").map((v) => v.trim()).filter(Boolean),
         // Merge onto the preserved serviceContext so other access keys survive
@@ -687,7 +692,7 @@ export function JobManagePanel({
                           </EField>
                           <EField
                             label="Fixed pay (AUD)"
-                            hint="A flat amount for this job — replaces hours × rate entirely, and the invoice prints it as Fixed. Blank = pay normally, 0 = pay nothing."
+                            hint="A flat amount for this job — replaces hours × rate entirely, and the invoice prints it as Fixed. Blank = normal base pay; 0 = zero base pay. Approved extras and transport still apply."
                           >
                             <EInput
                               type="number"
@@ -847,7 +852,7 @@ export function JobManagePanel({
                     onClick={() =>
                       setSpecialTasks((prev) => [
                         ...prev,
-                        { id: makeTaskId(), title: "", description: "", requiresPhoto: false, requiresNote: false },
+                        { id: makeTaskId(), title: "", description: "", requiresPhoto: true, requiresNote: false },
                       ])
                     }
                   >
@@ -874,7 +879,7 @@ export function JobManagePanel({
                             ariaLabel="Remove task"
                             confirmLabel="Remove?"
                             className="inline-flex h-8 shrink-0 items-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-2 text-[0.75rem] text-[hsl(var(--e-danger))]"
-                            onConfirm={() => setSpecialTasks((prev) => prev.filter((t) => t.id !== task.id))}
+                            onConfirm={() => { setCancelTaskIds((prev) => [...prev, task.id]); setSpecialTasks((prev) => prev.filter((t) => t.id !== task.id)); }}
                           >
                             <Trash2 className="h-4 w-4" />
                           </EConfirmButton>
@@ -888,6 +893,9 @@ export function JobManagePanel({
                           className="min-h-[3rem]"
                         />
                         <div className="flex flex-wrap gap-4">
+                          <ESwitch checked={task.allowNotApplicable === true}
+                            onCheckedChange={(v) => setSpecialTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, allowNotApplicable: v } : t))}
+                            label="Allow not applicable (reason + photo; no carry-forward)" />
                           <ESwitch
                             checked={task.requiresPhoto}
                             onCheckedChange={(v) =>

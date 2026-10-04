@@ -1,5 +1,8 @@
 import { PrismaClient, type Notification, type Role } from "@prisma/client";
 import { logger } from "@/lib/logger";
+import { getAppSettings, type NotificationCategory } from "@/lib/settings";
+import { getUserNotificationPreferences } from "./preferences";
+import { audienceForRole, isChannelAllowed } from "./audience-controls";
 import { isNotificationVisibleToRole, resolveNotificationHrefForRole } from "@/lib/notifications/feed";
 
 const EXPO_PUSH_API_URL =
@@ -80,6 +83,7 @@ async function sendExpoPushMessages(messages: Array<Record<string, unknown>>) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(messages),
+    signal: AbortSignal.timeout(15_000),
   });
 
   const body = await response.json().catch(() => null);
@@ -113,67 +117,42 @@ async function disableInvalidExpoTokens(prisma: PrismaClient, tokens: string[]) 
   });
 }
 
-export async function dispatchMobilePushForNotifications(
-  prisma: PrismaClient,
-  notifications: PushNotificationLike[]
-) {
-  const items = notifications.filter(
-    (item): item is PushNotificationLike & { userId: string } =>
-      typeof item.userId === "string" && item.userId.trim().length > 0
-  );
-  if (items.length === 0) return;
+export type MobilePushOutcome = "ACCEPTED" | "SKIPPED" | "FAILED" | "UNCERTAIN";
 
-  for (const notification of items) {
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: notification.userId },
-        select: { id: true, role: true },
-      });
-      if (!user) continue;
-      if (!isNotificationVisibleToRole(notification, user.role)) continue;
-
-      const devices = await prisma.userPushDevice.findMany({
-        where: { userId: user.id, isActive: true, provider: "expo" },
-        select: { token: true },
-      });
-      if (devices.length === 0) continue;
-
-      const message = messageForNotification(notification, user.role);
-      const messages = devices
-        .map((device) => device.token)
-        .filter(isExpoPushToken)
-        .map((token) => ({
-          to: token,
-          title: message.title,
-          body: message.body,
-          sound: "default",
-          priority: "high",
-          channelId: "default",
-          data: {
-            path: message.href,
-            url: message.url,
-            jobId: notification.jobId,
-            notificationId: notification.id,
-          },
-        }));
-
-      if (messages.length === 0) continue;
-
-      const results = await sendExpoPushMessages(messages);
-      const invalidTokens = results.flatMap((row: any, index: number) => {
-        const error = row?.details?.error ?? row?.error ?? "";
-        return error === "DeviceNotRegistered" ? [String(messages[index]?.to ?? "")] : [];
-      });
-      await disableInvalidExpoTokens(prisma, invalidTokens.filter(Boolean));
-    } catch (err) {
-      logger.error(
-        {
-          err,
-          userId: notification.userId,
-          notificationId: notification.id,
-        },
-        "Failed to dispatch mobile push notification"
-      );
-    }
+/** Called only after a committed notification has been durably claimed. */
+export async function deliverMobilePushNotification(
+  prisma: PrismaClient, notification: PushNotificationLike, category: NotificationCategory,
+): Promise<MobilePushOutcome> {
+  if (!notification.userId) return "SKIPPED";
+  let providerCalled = false;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: notification.userId }, select: { id: true, role: true, isActive: true },
+    });
+    if (!user?.isActive || !isNotificationVisibleToRole(notification, user.role)) return "SKIPPED";
+    const [settings, preferences] = await Promise.all([getAppSettings(), getUserNotificationPreferences(user.id)]);
+    if (!isChannelAllowed(settings.notificationAudienceControls, audienceForRole(user.role), "push")) return "SKIPPED";
+    if (!preferences[category]?.web) return "SKIPPED";
+    const devices = await prisma.userPushDevice.findMany({
+      where: { userId: user.id, isActive: true, provider: "expo" }, select: { token: true },
+    });
+    const message = messageForNotification(notification, user.role);
+    const messages = devices.map(device => device.token).filter(isExpoPushToken).map(token => ({
+      to: token, title: message.title, body: message.body, sound: "default", priority: "high", channelId: "default",
+      data: { path: message.href, url: message.url, jobId: notification.jobId, notificationId: notification.id },
+    }));
+    if (!messages.length) return "SKIPPED";
+    providerCalled = true;
+    const results = await sendExpoPushMessages(messages);
+    const invalidTokens = results.flatMap((row: any, index: number) =>
+      (row?.details?.error ?? row?.error) === "DeviceNotRegistered" ? [messages[index]?.to ?? ""] : []);
+    await disableInvalidExpoTokens(prisma, invalidTokens.filter(Boolean));
+    if (results.length !== messages.length) return "UNCERTAIN";
+    if (results.every((row: any) => row?.status === "ok" && typeof row.id === "string")) return "ACCEPTED";
+    // Partial acceptance cannot be safely retried as a whole notification.
+    return results.some((row: any) => row?.status === "ok") ? "UNCERTAIN" : "FAILED";
+  } catch (err) {
+    logger.error({ err, notificationId: notification.id }, "Mobile outbox delivery failed");
+    return providerCalled ? "UNCERTAIN" : "FAILED";
   }
 }

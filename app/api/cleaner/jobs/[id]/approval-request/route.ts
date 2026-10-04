@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, NotificationChannel, NotificationStatus, PayAdjustmentType, Role } from "@prisma/client";
 import { z } from "zod";
@@ -71,6 +72,7 @@ export async function POST(
         data: admins.map((recipient) => ({
           userId: recipient.id,
           jobId: job.id,
+          externalId: mobilePendingMarker("approvals"),
           channel: NotificationChannel.PUSH,
           subject: "Cleaner extra pay request",
           body: `${job.property.name}: ${body.title} (${(body.currency ?? "AUD").toUpperCase()} ${requestedAmount.toFixed(

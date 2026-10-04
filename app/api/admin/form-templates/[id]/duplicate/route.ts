@@ -22,7 +22,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    await requireRole([Role.ADMIN]);
 
     const source = await db.formTemplate.findUnique({ where: { id: params.id } });
     if (!source) {
@@ -54,6 +54,6 @@ export async function POST(
 
     return NextResponse.json({ template: copy }, { status: 201 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: err.message }, { status: err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400 });
   }
 }

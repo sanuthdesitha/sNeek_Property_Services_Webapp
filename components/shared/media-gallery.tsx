@@ -17,6 +17,7 @@ interface MediaGalleryProps {
   emptyText?: string;
   title?: string;
   className?: string;
+  onReload?: () => void;
 }
 
 /** File extension with any query string / hash stripped (presigned S3 URLs
@@ -58,9 +59,11 @@ export function MediaGallery({
   emptyText = "No media",
   title = "Image Preview",
   className = "grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5",
+  onReload,
 }: MediaGalleryProps) {
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
+  const [playbackError, setPlaybackError] = useState(false);
 
   // The carousel spans every viewable item (photos + videos), in order.
   const mediaItems = useMemo(() => items.filter(isViewable), [items]);
@@ -68,6 +71,7 @@ export function MediaGallery({
 
   const count = mediaItems.length;
   const current = count > 0 ? mediaItems[Math.min(index, count - 1)] : null;
+  useEffect(() => { setPlaybackError(false); }, [current?.id, current?.url, open]);
 
   const go = useCallback(
     (delta: number) => {
@@ -164,7 +168,7 @@ export function MediaGallery({
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-4xl" aria-describedby={undefined}>
           <DialogTitle className="flex items-center justify-between gap-2 text-sm">
             <span className="truncate">{current?.label || title}</span>
             {count > 1 ? <span className="shrink-0 text-xs font-normal text-muted-foreground tabular-nums">{Math.min(index, count - 1) + 1} / {count}</span> : null}
@@ -181,6 +185,7 @@ export function MediaGallery({
                   src={current.url}
                   controls
                   playsInline
+                  onError={() => setPlaybackError(true)}
                   className="mx-auto max-h-[70vh] w-auto max-w-full rounded-md object-contain"
                 />
               ) : (
@@ -213,6 +218,13 @@ export function MediaGallery({
               </>
             )}
           </div>
+          {playbackError && current ? (
+            <div role="alert" className="space-y-2 text-sm">
+              <p>This video could not be played. Reload the media or open the file in your device’s player.</p>
+              {onReload ? <Button type="button" variant="outline" onClick={onReload}>Reload media</Button> : null}
+              <Button variant="outline" asChild><a href={current.url} target="_blank" rel="noreferrer">Open video file</a></Button>
+            </div>
+          ) : null}
           {count > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-1 pt-2">
               {mediaItems.map((item, i) => (

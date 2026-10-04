@@ -57,6 +57,8 @@ interface LibraryModule {
 
 interface ItemSelection {
   enabled: boolean;
+  rotationEveryNCleans?: 3 | 4;
+  instructions?: string;
   jobTypes?: JobTypeValue[];
   requiresPhoto?: boolean;
 }
@@ -222,7 +224,7 @@ export function PropertyChecklistProfile({
 
   const setItemEnabled = (moduleKey: string, itemKey: string, enabled: boolean) => {
     setSelections((prev) => {
-      const module = prev.modules[moduleKey] ?? { enabled: false, items: {} };
+      const checklistModule = prev.modules[moduleKey] ?? { enabled: false, items: {} };
       // Ticking any item implies the module is on for this property. Unticking an
       // item leaves the module on (other items may still be selected).
       return {
@@ -230,9 +232,9 @@ export function PropertyChecklistProfile({
         modules: {
           ...prev.modules,
           [moduleKey]: {
-            ...module,
-            enabled: enabled ? true : module.enabled,
-            items: { ...module.items, [itemKey]: { ...module.items[itemKey], enabled } },
+            ...checklistModule,
+            enabled: enabled ? true : checklistModule.enabled,
+            items: { ...checklistModule.items, [itemKey]: { ...checklistModule.items[itemKey], enabled } },
           },
         },
       };
@@ -242,11 +244,11 @@ export function PropertyChecklistProfile({
 
   // Module header checkbox — turn every item in the module on/off at once (and
   // set the module-enabled flag to match).
-  const setModuleAllItems = (moduleKey: string, module: LibraryModule, enabled: boolean) => {
+  const setModuleAllItems = (moduleKey: string, checklistModule: LibraryModule, enabled: boolean) => {
     setSelections((prev) => {
       const current = prev.modules[moduleKey] ?? { enabled: false, items: {} };
       const items: Record<string, ItemSelection> = { ...current.items };
-      for (const item of module.items) {
+      for (const item of checklistModule.items) {
         items[item.key] = { ...items[item.key], enabled };
       }
       return {
@@ -257,17 +259,26 @@ export function PropertyChecklistProfile({
     setDirty(true);
   };
 
+  const setItemDetails = (moduleKey: string, itemKey: string, patch: Partial<ItemSelection>) => {
+    setSelections((prev) => {
+      const checklistModule = prev.modules[moduleKey] ?? { enabled: true, items: {} };
+      return { ...prev, modules: { ...prev.modules, [moduleKey]: { ...checklistModule,
+        items: { ...checklistModule.items, [itemKey]: { ...(checklistModule.items[itemKey] ?? { enabled: true }), ...patch } } } } };
+    });
+    setDirty(true);
+  };
+
   const setItemRequiresPhoto = (moduleKey: string, itemKey: string, requiresPhoto: boolean) => {
     setSelections((prev) => {
-      const module = prev.modules[moduleKey] ?? { enabled: true, items: {} };
-      const current = module.items[itemKey] ?? { enabled: true };
+      const checklistModule = prev.modules[moduleKey] ?? { enabled: true, items: {} };
+      const current = checklistModule.items[itemKey] ?? { enabled: true };
       return {
         ...prev,
         modules: {
           ...prev.modules,
           [moduleKey]: {
-            ...module,
-            items: { ...module.items, [itemKey]: { ...current, requiresPhoto } },
+            ...checklistModule,
+            items: { ...checklistModule.items, [itemKey]: { ...current, requiresPhoto } },
           },
         },
       };
@@ -282,8 +293,8 @@ export function PropertyChecklistProfile({
     jobType: JobTypeValue,
   ) => {
     setSelections((prev) => {
-      const module = prev.modules[moduleKey] ?? { enabled: true, items: {} };
-      const current = module.items[itemKey] ?? { enabled: true };
+      const checklistModule = prev.modules[moduleKey] ?? { enabled: true, items: {} };
+      const current = checklistModule.items[itemKey] ?? { enabled: true };
       // Effective job types = explicit override, else library default (empty = all).
       const allJobTypes = data?.jobTypes ?? [];
       const effective = current.jobTypes ?? (libraryJobTypes.length > 0 ? libraryJobTypes : allJobTypes);
@@ -295,8 +306,8 @@ export function PropertyChecklistProfile({
         modules: {
           ...prev.modules,
           [moduleKey]: {
-            ...module,
-            items: { ...module.items, [itemKey]: { ...current, jobTypes: next } },
+            ...checklistModule,
+            items: { ...checklistModule.items, [itemKey]: { ...current, jobTypes: next } },
           },
         },
       };
@@ -440,11 +451,11 @@ export function PropertyChecklistProfile({
     if (!data) return { modules: 0, items: 0 };
     let modules = 0;
     let items = 0;
-    for (const module of data.library) {
-      const sel = selections.modules[module.key];
+    for (const checklistModule of data.library) {
+      const sel = selections.modules[checklistModule.key];
       if (!sel?.enabled) continue;
       modules += 1;
-      for (const item of module.items) {
+      for (const item of checklistModule.items) {
         if (sel.items[item.key]?.enabled) items += 1;
       }
     }
@@ -603,13 +614,13 @@ export function PropertyChecklistProfile({
               </p>
             </ECardHeader>
             <ECardBody className="space-y-4 pt-0">
-              {data.library.map((module) => {
-                const moduleSel = selections.modules[module.key] ?? { enabled: false, items: {} };
-                const onCount = module.items.filter((item) => moduleSel.items[item.key]?.enabled).length;
-                const allOn = module.items.length > 0 && onCount === module.items.length;
+              {data.library.map((checklistModule) => {
+                const moduleSel = selections.modules[checklistModule.key] ?? { enabled: false, items: {} };
+                const onCount = checklistModule.items.filter((item) => moduleSel.items[item.key]?.enabled).length;
+                const allOn = checklistModule.items.length > 0 && onCount === checklistModule.items.length;
                 const someOn = onCount > 0 && !allOn;
                 return (
-                  <div key={module.key}>
+                  <div key={checklistModule.key}>
                     <label className="flex items-center gap-2 border-b border-[hsl(var(--e-border))] pb-1.5">
                       <input
                         type="checkbox"
@@ -618,17 +629,17 @@ export function PropertyChecklistProfile({
                         ref={(el) => {
                           if (el) el.indeterminate = someOn;
                         }}
-                        onChange={(e) => setModuleAllItems(module.key, module, e.target.checked)}
+                        onChange={(e) => setModuleAllItems(checklistModule.key, checklistModule, e.target.checked)}
                       />
-                      <span className="text-[0.8125rem] font-[600] tracking-[0.01em]">{module.title}</span>
+                      <span className="text-[0.8125rem] font-[600] tracking-[0.01em]">{checklistModule.title}</span>
                       <span className="ml-auto text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-                        {onCount}/{module.items.length}
+                        {onCount}/{checklistModule.items.length}
                       </span>
                     </label>
                     <div className="mt-1 space-y-0.5">
-                      {module.items.map((item) => {
+                      {checklistModule.items.map((item) => {
                         const itemSel = moduleSel.items[item.key] ?? { enabled: false };
-                        const itemId = `${module.key}:${item.key}`;
+                        const itemId = `${checklistModule.key}:${item.key}`;
                         const advOpen = expandedItems[itemId] === true;
                         const effectiveJobTypes =
                           itemSel.jobTypes ?? (item.jobTypes.length > 0 ? item.jobTypes : data.jobTypes);
@@ -643,7 +654,7 @@ export function PropertyChecklistProfile({
                                   type="checkbox"
                                   className={`${CHECKBOX_CLASS} mt-0.5`}
                                   checked={itemSel.enabled === true}
-                                  onChange={(e) => setItemEnabled(module.key, item.key, e.target.checked)}
+                                  onChange={(e) => setItemEnabled(checklistModule.key, item.key, e.target.checked)}
                                 />
                                 <span className="text-[0.8125rem] leading-snug">
                                   {item.label}
@@ -679,11 +690,24 @@ export function PropertyChecklistProfile({
                                     className={CHECKBOX_CLASS}
                                     checked={itemSel.requiresPhoto === true}
                                     onChange={(e) =>
-                                      setItemRequiresPhoto(module.key, item.key, e.target.checked)
+                                      setItemRequiresPhoto(checklistModule.key, item.key, e.target.checked)
                                     }
                                   />
                                   <Camera className="h-3 w-3" /> Photo required
                                 </label>
+                                <label className="block text-xs">Property-specific instructions
+                                  <textarea className="block w-full rounded border p-2" maxLength={2000}
+                                    value={itemSel.instructions ?? ""} placeholder={item.instructions ?? "Use library instructions"}
+                                    onChange={(e) => setItemDetails(checklistModule.key, item.key, { instructions: e.target.value })} />
+                                </label>
+                                {(item as any).frequency === "ROTATIONAL" ? (
+                                  <label className="block text-xs">Repeat after completed cleans
+                                    <select value={itemSel.rotationEveryNCleans ?? (item as any).rotationEveryNCleans ?? 4}
+                                      onChange={(e) => setItemDetails(checklistModule.key, item.key, { rotationEveryNCleans: Number(e.target.value) as 3 | 4 })}>
+                                      <option value={3}>Every 3 completed cleans</option><option value={4}>Every 4 completed cleans</option>
+                                    </select>
+                                  </label>
+                                ) : null}
                                 <div>
                                   <p className="mb-1 text-[0.625rem] uppercase tracking-[0.1em] text-[hsl(var(--e-text-faint))]">
                                     Included in services
@@ -697,7 +721,7 @@ export function PropertyChecklistProfile({
                                             key={jobType}
                                             type="button"
                                             onClick={() =>
-                                              toggleItemJobType(module.key, item.key, item.jobTypes, jobType)
+                                              toggleItemJobType(checklistModule.key, item.key, item.jobTypes, jobType)
                                             }
                                             className={`rounded-[var(--e-radius-pill)] border px-1.5 py-0.5 text-[0.625rem] ${
                                               on
@@ -788,9 +812,9 @@ export function PropertyChecklistProfile({
                     onChange={(event) => setNewItemModule(event.target.value)}
                   >
                     <option value="custom">Property-specific section</option>
-                    {data.library.map((module) => (
-                      <option key={module.key} value={module.key}>
-                        {module.title}
+                    {data.library.map((checklistModule) => (
+                      <option key={checklistModule.key} value={checklistModule.key}>
+                        {checklistModule.title}
                       </option>
                     ))}
                   </ESelect>

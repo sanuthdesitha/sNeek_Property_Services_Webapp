@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ role: vi.fn(), assignment: vi.fn(), submission: vi.fn(), settings: vi.fn(), appSettings: vi.fn(), reviews: vi.fn(), changeScore: vi.fn(), changeJob: vi.fn(), update: vi.fn(), upsert: vi.fn(), audit: vi.fn(), raw: vi.fn(), transaction: vi.fn(), rating: vi.fn() }));
+const m = vi.hoisted(() => ({ rotation: vi.fn(), role: vi.fn(), assignment: vi.fn(), submission: vi.fn(), settings: vi.fn(), appSettings: vi.fn(), reviews: vi.fn(), changeScore: vi.fn(), changeJob: vi.fn(), update: vi.fn(), upsert: vi.fn(), audit: vi.fn(), raw: vi.fn(), transaction: vi.fn(), rating: vi.fn() }));
+vi.mock("@/lib/accountability/rotation", () => ({ applyJobRotationCompletion: m.rotation }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.role }));
 vi.mock("@/lib/ai/vision-settings", () => ({ getVisionSettings: m.settings }));
 vi.mock("@/lib/ai/vision", () => ({ compareReferencePhotos: vi.fn() }));
@@ -47,4 +48,17 @@ it("a different authoritative QA review can receive its own first approved deduc
  tx.aiPhotoReview.findFirst.mockImplementation(async ({ where }: any) => where.decision.equals === "qa" ? { id: "previous-analysis" } : null);
  expect((await run({ ...approve, expectedReviewId: "new-qa" })).status).toBe(200);
  expect(m.changeScore.mock.calls[0][0].where.id).toBe("new-qa");
+});
+it("multi-role inspector acting as cleaner cannot bypass job assignment in GET or POST", async () => {
+ session = { user: { id: "inspector", role: "CLEANER", heldRoles: ["CLEANER", "QA_INSPECTOR"] } };
+ m.assignment.mockResolvedValue(null);
+ expect((await GET(new Request("http://local"), { params: { id: "other" } })).status).toBe(403);
+ expect((await run()).status).toBe(403);
+ expect(m.submission).not.toHaveBeenCalled(); expect(m.transaction).not.toHaveBeenCalled();
+});
+
+it("counts approved original-job rotation in the photo-review transaction", async () => {
+ submission.job.propertyId = "property";
+ const result = await run(); expect(result.status).toBe(200);
+ expect(m.rotation).toHaveBeenCalledWith(tx, { jobId: "job", propertyId: "property" });
 });

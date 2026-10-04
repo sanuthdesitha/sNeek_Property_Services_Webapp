@@ -62,7 +62,7 @@ function prettyType(jt: string) {
   return jt.replace(/_/g, " ");
 }
 
-export function EstateFormsList({ tab }: { tab: TabKey }) {
+export function EstateFormsList({ tab, canWrite = false }: { tab: TabKey; canWrite?: boolean }) {
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [countsByTemplate, setCountsByTemplate] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -319,11 +319,11 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
                   <BarChart3 className="mr-1.5 h-3.5 w-3.5" /> Stats
                 </Link>
               </EButton>
-              <EButton size="sm" asChild>
+              {canWrite && <EButton size="sm" asChild>
                 <Link href="/v2/admin/forms/new">
                   <Plus className="mr-1.5 h-3.5 w-3.5" /> New template
                 </Link>
-              </EButton>
+              </EButton>}
             </div>
           </div>
 
@@ -409,7 +409,7 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
                         {countsByTemplate[t.id] ?? 0}
                       </td>
                       <td className="px-4 py-2.5">
-                        <div className="flex items-center justify-end gap-1.5">
+                        {canWrite ? <div className="flex items-center justify-end gap-1.5">
                           <EButton size="sm" variant="outline" className="h-8 px-2" asChild>
                             <Link href={`/v2/admin/forms/${t.id}/edit`}>Edit</Link>
                           </EButton>
@@ -463,7 +463,7 @@ export function EstateFormsList({ tab }: { tab: TabKey }) {
                           >
                             <Trash2 className="h-3.5 w-3.5 text-[hsl(var(--e-danger))]" />
                           </EButton>
-                        </div>
+                        </div> : <span className="text-sm">Read only</span>}
                       </td>
                     </tr>
                   );

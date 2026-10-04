@@ -7,7 +7,7 @@ import { notifyCaseUpdated } from "@/lib/cases/notifications";
 
 const schema = z.object({
   body: z.string().trim().min(1).max(4000),
-  isInternal: z.boolean().optional(),
+  isInternal: z.boolean().default(true),
 });
 
 export async function POST(

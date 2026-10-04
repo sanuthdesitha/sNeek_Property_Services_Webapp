@@ -1,9 +1,11 @@
+import { resolveRouteRole } from "@/lib/auth/route-role";
 import { NextResponse } from "next/server";
 import { Prisma, Role } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
+import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
 import { photoSourceFingerprint, photoSubmissionInclude } from "@/lib/ai/photo-review";
 import { getVisionSettings } from "@/lib/ai/vision-settings";
 import { visionSettingsSchema } from "@/lib/ai/vision-settings-schema";
@@ -21,7 +23,10 @@ const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("approve"), analysisId: z.string().min(1), reason: z.string().trim().min(3).max(2000), findingIds: z.array(z.string()).min(1).max(200), expectedReviewId: z.string().min(1), expectedScore: z.number().finite().min(0).max(100) }),
 ]);
 async function authorize(jobId: string, tx: Pick<typeof db, "qaAssignment"> = db) {
-  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.QA_INSPECTOR]);
+  const authorized = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.QA_INSPECTOR]);
+  const session = { ...authorized, user: { ...authorized.user,
+    role: resolveRouteRole(authorized.user, [Role.ADMIN, Role.OPS_MANAGER, Role.QA_INSPECTOR]),
+  } };
   if (session.user.role === Role.QA_INSPECTOR && !await tx.qaAssignment.findFirst({ where: { jobId, status: { not: "CANCELLED" }, ...qaAssignmentOwnerWhere(session.user.id) }, select: { id: true } })) throw new ReviewError("FORBIDDEN");
   return session;
 }
@@ -117,6 +122,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         if (!changed.count) throw new ReviewError("The QA score changed. Refresh before applying.");
         const passed = rating === "EXCELLENT" || rating === "PASS";
         await tx.job.update({ where: { id: params.id }, data: { status: passed ? "COMPLETED" : "QA_REVIEW", completedAt: passed ? submission.job.completedAt ?? new Date() : null } });
+        if (passed) await applyJobRotationCompletion(tx, { jobId: params.id, propertyId: submission.job.propertyId });
         decision = { ...decision, findingIds: Array.from(new Set(body.findingIds)), deduction, scoreBefore: scoreReview.score, scoreAfter: score, qaReviewId: scoreReview.id };
       }
       const updated = await tx.aiPhotoReview.update({ where: { id: review.id }, data: { reviewedAt: new Date(), reviewedById: session.user.id, decision: decision as any } });

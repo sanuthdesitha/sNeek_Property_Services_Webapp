@@ -10,9 +10,7 @@ services:
     expose:
       - "3000"
     command: >
-      sh -lc "npx prisma migrate deploy &&
-      npm run admin:bootstrap &&
-      npm run start"
+      sh -lc "npm run start"
     environment:
       NODE_ENV: production
       NEXT_DIST_DIR: .next-prod

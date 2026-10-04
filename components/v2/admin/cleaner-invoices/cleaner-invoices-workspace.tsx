@@ -34,7 +34,7 @@ const CLEANER_PAY_METHOD_LABEL: Record<string, string> = Object.fromEntries(
   CLEANER_PAY_METHODS.map((m) => [m.value, m.label]),
 );
 
-type LineRow = { label?: string; description?: string; hours?: number; rate?: number; amount?: number; jobNumber?: string };
+type LineRow = { label?: string; description?: string; hours?: number; rate?: number; amount?: number; unitAmount?: number; quantity?: number; jobNumber?: string };
 type Submission = {
   id: string;
   /** From the CLEANER sequence. Null on everything submitted before numbering
@@ -49,7 +49,7 @@ type Submission = {
   hours: number;
   totalAmount: number;
   jobCount: number;
-  status: "SUBMITTED" | "CHANGES_REQUESTED" | "XERO_PUSHED" | "PAID_CLAIMED" | "PAID" | "VOID";
+  status: "XERO_EXPORTING" | "SENDING" | "SUBMITTED" | "CHANGES_REQUESTED" | "XERO_PUSHED" | "PAID_CLAIMED" | "PAID" | "VOID";
   xeroBillId: string | null;
   xeroExportedAt: string | null;
   lineData: any;
@@ -89,6 +89,8 @@ const STATUS_TONE: Record<Submission["status"], "info" | "success" | "gold" | "d
   // Warning, not danger: nothing is wrong with the system, the ball is simply
   // back with the payee — and it must not read like a settled/void invoice.
   CHANGES_REQUESTED: "warning",
+  SENDING: "warning",
+  XERO_EXPORTING: "warning",
   XERO_PUSHED: "gold",
   PAID_CLAIMED: "gold",
   PAID: "success",
@@ -97,6 +99,8 @@ const STATUS_TONE: Record<Submission["status"], "info" | "success" | "gold" | "d
 const STATUS_LABEL: Record<Submission["status"], string> = {
   SUBMITTED: "Submitted",
   CHANGES_REQUESTED: "Changes requested",
+  SENDING: "Delivery review",
+  XERO_EXPORTING: "Xero export pending",
   XERO_PUSHED: "In Xero",
   PAID_CLAIMED: "Payment claimed",
   PAID: "Paid",
@@ -159,6 +163,24 @@ export function CleanerInvoicesWorkspace() {
   const [payDate, setPayDate] = useState("");
   const [changesFor, setChangesFor] = useState<Submission | null>(null);
   const [changesNote, setChangesNote] = useState("");
+  const [deliveryFor, setDeliveryFor] = useState<Submission | null>(null);
+  const [deliveryEvidence, setDeliveryEvidence] = useState("");
+  async function resolveDelivery(resolution: "CONFIRMED_SENT" | "CONFIRMED_NOT_SENT") {
+    if (!deliveryFor || deliveryEvidence.trim().length < 10) return;
+    setBusyId(deliveryFor.id);
+    try {
+      const response = await fetch(`/api/admin/cleaner-invoices/${deliveryFor.id}/delivery-review`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resolution, evidenceNote: deliveryEvidence.trim() }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      setRows(previous => previous.map(row => row.id === deliveryFor.id ? { ...row, status: result.status } : row));
+      setDeliveryFor(null);
+      toast({ title: "Delivery review recorded", description: "No email was sent or retried." });
+    } catch (error) { toast({ title: "Review not saved", description: error instanceof Error ? error.message : "Refresh and try again.", variant: "destructive" }); }
+    finally { setBusyId(null); }
+  }
 
   function openPay(row: Submission) {
     setPayAmount(String(Number(row.totalAmount ?? 0).toFixed(2)));
@@ -491,17 +513,17 @@ export function CleanerInvoicesWorkspace() {
                     <EButton variant="ghost" size="sm" onClick={() => setDetail(r)} title="View lines">
                       <Eye className="h-4 w-4" />
                     </EButton>
-                    {!r.xeroBillId && r.status !== "VOID" ? (
+                    {!r.xeroBillId && (r.status === "SUBMITTED" || r.status === "XERO_EXPORTING") ? (
                       <EButton variant="outline" size="sm" disabled={busy} onClick={() => pushXero(r.id)}>
                         <Send className="h-3.5 w-3.5" /> Xero
                       </EButton>
                     ) : null}
-                    {r.status === "SUBMITTED" || r.status === "XERO_PUSHED" ? (
+                    {r.status === "SUBMITTED" || r.status === "XERO_PUSHED" || r.status === "PAID_CLAIMED" ? (
                       <EButton variant="outline" size="sm" disabled={busy} onClick={() => openPay(r)}>
                         <CheckCircle2 className="h-3.5 w-3.5" /> Paid
                       </EButton>
                     ) : null}
-                    {CHANGE_REQUEST_STATUSES.has(r.status) ? (
+                    {CHANGE_REQUEST_STATUSES.has(r.status) && !r.xeroBillId && !r.paidAt ? (
                       <EButton
                         variant="outline"
                         size="sm"
@@ -515,7 +537,8 @@ export function CleanerInvoicesWorkspace() {
                         <MessageSquareWarning className="h-3.5 w-3.5" /> Request changes
                       </EButton>
                     ) : null}
-                    {r.status !== "VOID" ? (
+                    {r.status === "SENDING" ? <EButton size="sm" variant="outline" onClick={() => { setDeliveryEvidence(""); setDeliveryFor(r); }}>Review delivery</EButton> : null}
+                    {r.status === "SUBMITTED" && !r.xeroBillId && !r.paidAt ? (
                       <EButton variant="outline" size="sm" disabled={busy} onClick={() => setConfirm({ kind: "void", row: r })}>
                         <Undo2 className="h-3.5 w-3.5" /> Reverse
                       </EButton>
@@ -523,7 +546,7 @@ export function CleanerInvoicesWorkspace() {
                     <EButton
                       variant="ghost"
                       size="sm"
-                      disabled={busy}
+                      disabled={busy || r.status === "SENDING" || r.status === "XERO_EXPORTING" || r.status === "PAID" || !!r.xeroBillId || !!r.paidAt}
                       onClick={() => setConfirm({ kind: "delete", row: r })}
                       title="Delete"
                     >
@@ -632,7 +655,7 @@ export function CleanerInvoicesWorkspace() {
                     <td className="px-4 py-2 text-[0.8125rem]">{l.description ?? l.label ?? l.jobNumber ?? "Line"}</td>
                     <td className="px-4 py-2 text-[0.8125rem]">{l.hours != null ? Number(l.hours).toFixed(2) : "—"}</td>
                     <td className="px-4 py-2 text-[0.8125rem]">{l.rate != null ? money(l.rate) : "—"}</td>
-                    <td className="px-4 py-2 text-right text-[0.8125rem]">{money(l.amount)}</td>
+                    <td className="px-4 py-2 text-right text-[0.8125rem]">{money(l.amount ?? (l.unitAmount != null ? l.unitAmount * (l.quantity ?? 1) : undefined))}</td>
                   </tr>
                 )
               )}
@@ -643,6 +666,17 @@ export function CleanerInvoicesWorkspace() {
           </div>
         </EModal>
       ) : null}
+
+      {deliveryFor ? <EModal open onClose={() => setDeliveryFor(null)} title="Review invoice delivery" size="md">
+        <div className="space-y-4">
+          <p className="text-sm">Check accounts&apos; received email and provider delivery evidence for this exact invoice. Its money is reserved. If delivery is uncertain, close this dialog and keep it reserved. Neither action sends an email.</p>
+          <EField label="Evidence checked and conclusion (required)"><ETextarea value={deliveryEvidence} onChange={event => setDeliveryEvidence(event.target.value)} placeholder="Reference the received invoice or provider evidence confirming it was not delivered." /></EField>
+          <div className="flex flex-wrap gap-2">
+            <EButton disabled={busyId === deliveryFor.id || deliveryEvidence.trim().length < 10} onClick={() => resolveDelivery("CONFIRMED_SENT")}>Confirmed received — keep invoice</EButton>
+            <EButton variant="outline" disabled={busyId === deliveryFor.id || deliveryEvidence.trim().length < 10} onClick={() => resolveDelivery("CONFIRMED_NOT_SENT")}>Confirmed not delivered — void and release</EButton>
+          </div>
+        </div>
+      </EModal> : null}
 
       {/* Reverse / delete confirm */}
       {confirm ? (

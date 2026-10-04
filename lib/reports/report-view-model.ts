@@ -500,9 +500,9 @@ function buildTasks(
           ? "Not completed"
           : decision === "COMPLETED"
             ? "Completed"
-            : decision.replace(/_/g, " ");
+            : decision === "NOT_APPLICABLE" ? "Not applicable" : decision.replace(/_/g, " ");
       statusTone = decision === "COMPLETED" ? "good" : decision === "NOT_COMPLETED" ? "bad" : "neutral";
-      if (decision === "NOT_COMPLETED") noteLabel = "Reason";
+      if (decision === "NOT_COMPLETED" || decision === "NOT_APPLICABLE") noteLabel = "Reason";
     }
 
     const metaParts: string[] = [];

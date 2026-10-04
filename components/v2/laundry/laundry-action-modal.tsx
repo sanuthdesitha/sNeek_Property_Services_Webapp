@@ -48,6 +48,7 @@ type FailedPickupMode = "RESCHEDULE" | "REQUEST_SKIP" | "REQUEST_DELETE";
 /** Structural task shape — matches the /api/laundry/week rows the boards hold. */
 export type ActionTask = {
   id: string;
+  updatedAt?: string | null;
   status: string;
   pickupDate: string;
   dropoffDate: string;
@@ -277,6 +278,7 @@ export function LaundryActionModal({
         return;
       }
       const payload: Record<string, unknown> = {
+        expectedUpdatedAt: task.updatedAt ?? undefined,
         confirm: true,
         notes: reason,
         bagCount: Math.round(n),
@@ -323,6 +325,7 @@ export function LaundryActionModal({
       const reason = failedReason.trim();
       if (!reason) return fail("Reason required", "Explain why the pickup failed.");
       const payload: Record<string, unknown> = {
+        expectedUpdatedAt: task.updatedAt ?? undefined,
         confirm: true,
         notes: notes.trim() || undefined,
         failedPickupReason: reason,
@@ -366,8 +369,11 @@ export function LaundryActionModal({
       return;
     }
 
+    if (action.startsWith("REVERT_") && !notes.trim()) return fail("Correction reason required");
+
     // ── PICKED_UP / RETURNED / REVERT_* → POST ──────────────────────────────
     const payload: Record<string, unknown> = {
+        expectedUpdatedAt: task.updatedAt ?? undefined,
       status: action,
       confirm: true,
       notes: notes.trim() || undefined,
@@ -651,7 +657,7 @@ export function LaundryActionModal({
         ) : null}
 
         {/* Notes + confirm */}
-        <EField label={action === "EDIT_COMPLETED" ? "Correction reason (required)" : "Notes (optional)"}>
+        <EField label={(action === "EDIT_COMPLETED" || action.startsWith("REVERT_")) ? "Correction reason (required)" : "Notes (optional)"}>
           <ETextarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

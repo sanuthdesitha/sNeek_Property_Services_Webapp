@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { attachPendingAdminTasksToJob } from "@/lib/job-tasks/service";
 
 const createSchema = z.object({
+  requestId: z.string().uuid().optional(),
+  allowNotApplicable: z.boolean().optional().default(false),
   title: z.string().min(1).max(300),
   description: z.string().max(2000).optional().nullable(),
-  requiresPhoto: z.boolean().optional().default(false),
+  requiresPhoto: z.boolean().optional().default(true),
   requiresNote: z.boolean().optional().default(false),
 });
 
@@ -61,8 +64,21 @@ export async function POST(
       return NextResponse.json({ error: "Property not found." }, { status: 404 });
     }
 
-    const task = await db.jobTask.create({
+    const task = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${params.id} FOR UPDATE`;
+    const taskId = body.requestId ? `property-task-${params.id}-${body.requestId}` : undefined;
+    if (taskId) {
+      const existing = await tx.jobTask.findUnique({ where: { id: taskId } });
+      if (existing) {
+        if (existing.title !== body.title.trim() || existing.description !== (body.description?.trim() || null) || existing.requiresPhoto !== body.requiresPhoto || existing.requiresNote !== body.requiresNote || ((existing.metadata as any)?.allowNotApplicable === true) !== body.allowNotApplicable) {
+          throw new Error("This request was already saved with different details. Reload the tasks before editing.");
+        }
+        return existing;
+      }
+    }
+    const task = await tx.jobTask.create({
       data: {
+        ...(taskId ? { id: taskId } : {}),
         propertyId: params.id,
         source: "ADMIN",
         approvalStatus: "AUTO_APPROVED",
@@ -70,27 +86,30 @@ export async function POST(
         visibleToCleaner: false,
         title: body.title.trim(),
         description: body.description?.trim() || null,
-        requiresPhoto: body.requiresPhoto ?? false,
+        metadata: { allowNotApplicable: body.allowNotApplicable },
+        requiresPhoto: body.requiresPhoto ?? true,
         requiresNote: body.requiresNote ?? false,
         requestedByUserId: session.user.id,
       },
     });
 
     // Attempt to immediately attach to the next upcoming job for this property
-    const nextJob = await db.job.findFirst({
+    const nextJob = await tx.job.findFirst({
       where: {
         propertyId: params.id,
         status: { notIn: ["COMPLETED", "INVOICED", "SUBMITTED", "QA_REVIEW"] },
-        scheduledDate: { gte: new Date() },
+        scheduledDate: { gte: fromZonedTime(`${formatInTimeZone(new Date(), "Australia/Sydney", "yyyy-MM-dd")}T00:00:00`, "Australia/Sydney") },
       },
       orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
       select: { id: true },
     });
 
     if (nextJob) {
-      await attachPendingAdminTasksToJob({ jobId: nextJob.id, propertyId: params.id });
+      await attachPendingAdminTasksToJob({ jobId: nextJob.id, propertyId: params.id, database: tx });
     }
 
+    return tx.jobTask.findUniqueOrThrow({ where: { id: task.id } });
+    });
     return NextResponse.json(task, { status: 201 });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

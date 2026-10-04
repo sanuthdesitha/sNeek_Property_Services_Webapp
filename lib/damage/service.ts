@@ -25,9 +25,10 @@
  * told was sent.
  */
 
-import { DamageReportStatus, type DamageSeverity } from "@prisma/client";
+import { DamageReportStatus, type DamageSeverity, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { createCase } from "@/lib/cases/service";
+import { ensureDamageReportVerification } from "@/lib/reports/verification";
 import { caseSeverityForDamage } from "@/lib/damage/severity";
 import { ensureFlattened } from "@/lib/qa/annotation-composite";
 import { isEmptyDamageItem, type DamageItemDraftInput } from "@/lib/damage/validation";
@@ -47,12 +48,18 @@ const REPORT_INCLUDE = {
  * Scoped to (job, cleaner, DRAFT): two cleaners on the same job each keep their
  * own report rather than overwriting one another's evidence.
  */
+export async function getDamageDraft(input: { jobId: string; userId: string }) {
+  return db.damageReport.findFirst({ where: { jobId: input.jobId, reportedById: input.userId, status: DamageReportStatus.DRAFT }, include: REPORT_INCLUDE, orderBy: { createdAt: "desc" } });
+}
+
 export async function getOrCreateDamageDraft(input: {
   jobId: string;
   propertyId: string;
   userId: string;
 }) {
-  const existing = await db.damageReport.findFirst({
+  return db.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`damage-draft:${input.jobId}:${input.userId}`}))`;
+    const existing = await tx.damageReport.findFirst({
     where: {
       jobId: input.jobId,
       reportedById: input.userId,
@@ -63,7 +70,7 @@ export async function getOrCreateDamageDraft(input: {
   });
   if (existing) return existing;
 
-  return db.damageReport.create({
+  return tx.damageReport.create({
     data: {
       jobId: input.jobId,
       propertyId: input.propertyId,
@@ -71,6 +78,7 @@ export async function getOrCreateDamageDraft(input: {
       status: DamageReportStatus.DRAFT,
     },
     include: REPORT_INCLUDE,
+  });
   });
 }
 
@@ -90,8 +98,10 @@ export async function saveDamageDraft(input: {
   reportId: string;
   userId: string;
   items: DamageItemDraftInput[];
-}) {
-  const report = await db.damageReport.findUnique({
+}, database?: Prisma.TransactionClient) {
+  const save = async (tx: Prisma.TransactionClient) => {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`damage-report:${input.reportId}`}))`;
+  const report = await tx.damageReport.findUnique({
     where: { id: input.reportId },
     select: { id: true, reportedById: true, status: true },
   });
@@ -105,16 +115,15 @@ export async function saveDamageDraft(input: {
   // open a SECOND case per damage — CP-7 would then raise duplicate repairs for
   // one fault. The form echoes the server id back as `clientId`, which is what
   // makes the match possible.
-  const existingCaseIds = new Map<string, string>();
-  const existingItems = await db.damageItem.findMany({
-    where: { reportId: input.reportId, caseId: { not: null } },
-    select: { id: true, caseId: true },
+  const existingCaseIds = new Map<string, { caseId: string | null; estimatedCost: number | null }>();
+  const existingItems = await tx.damageItem.findMany({
+    where: { reportId: input.reportId },
+    select: { id: true, caseId: true, estimatedCost: true },
   });
   for (const item of existingItems) {
-    if (item.caseId) existingCaseIds.set(item.id, item.caseId);
+    existingCaseIds.set(item.id, { caseId: item.caseId, estimatedCost: item.estimatedCost });
   }
 
-  return db.$transaction(async (tx) => {
     await tx.damageItem.deleteMany({ where: { reportId: input.reportId } });
 
     for (const item of input.items) {
@@ -122,13 +131,15 @@ export async function saveDamageDraft(input: {
       await tx.damageItem.create({
         data: {
           reportId: input.reportId,
-          caseId: carriedCaseId ?? null,
+          ...(item.clientId && existingCaseIds.has(item.clientId) ? { id: item.clientId } : {}),
+          caseId: carriedCaseId?.caseId ?? null,
+          estimatedCost: carriedCaseId?.estimatedCost ?? null,
           area: item.area,
           category: item.category,
           severity: item.severity,
           description: item.description,
           suspectedCause: item.suspectedCause,
-          // estimatedCost is intentionally never written here — admin-only.
+          // Carry only the server-owned estimate; cleaner input cannot set it.
           photos: {
             create: item.photos.map((photo) => ({
               s3Key: photo.s3Key,
@@ -146,7 +157,8 @@ export async function saveDamageDraft(input: {
       where: { id: input.reportId },
       include: REPORT_INCLUDE,
     });
-  });
+  };
+  return database ? save(database) : db.$transaction(save);
 }
 
 /**
@@ -213,8 +225,17 @@ async function openCasesForReport(input: {
   };
   userId: string;
 }) {
+  const afterCommit: Array<() => Promise<void>> = [];
+  await db.$transaction(async tx => {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`damage-cases:${input.report.id}`}))`;
   for (const item of input.report.items) {
-    if (item.caseId) continue;
+    const linked = await tx.damageItem.findUnique({ where: { id: item.id }, select: { caseId: true } });
+    if (!linked || linked.caseId) continue;
+    const recovered = await tx.issueTicket.findFirst({ where: { metadata: { path: ["damageItemId"], equals: item.id } }, select: { id: true } });
+    if (recovered) {
+      await tx.damageItem.update({ where: { id: item.id }, data: { caseId: recovered.id } });
+      continue;
+    }
 
     try {
       const title = `${item.category} — ${item.area}`.trim();
@@ -257,18 +278,21 @@ async function openCasesForReport(input: {
           // Prefer the flattened composite so the case carries the annotations.
           s3Key: photo.flatKey || photo.s3Key,
         })),
-      });
+      }, { transaction: tx, afterCommit });
 
       if (created) {
-        await db.damageItem.update({ where: { id: item.id }, data: { caseId: created.id } });
+        await tx.damageItem.update({ where: { id: item.id }, data: { caseId: created.id } });
       }
     } catch (error) {
       logger.error(
         { err: error, damageItemId: item.id, damageReportId: input.report.id },
-        "Damage case creation failed — the report itself is saved and re-running submit will retry this item"
+        "Damage case creation failed — submission must be retried to complete linked cases"
       );
+      throw error;
     }
   }
+  }, { timeout: 30000 });
+  for (const effect of afterCommit) await effect();
 }
 
 /**
@@ -284,32 +308,30 @@ export async function submitDamageReport(input: {
   userId: string;
   items: DamageItemDraftInput[];
 }) {
-  const populated = input.items.filter((item) => !isEmptyDamageItem(item));
-  if (populated.length === 0) throw new Error("DAMAGE_REPORT_EMPTY");
-
-  await saveDamageDraft({ reportId: input.reportId, userId: input.userId, items: populated });
-
-  // Before the cases are opened, so each case attaches the flattened composite
-  // rather than an un-marked original.
+  const submitted = await db.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`damage-report:${input.reportId}`}))`;
+    const prior = await tx.damageReport.findUnique({
+      where: { id: input.reportId },
+      include: { ...REPORT_INCLUDE, job: { select: { property: { select: { clientId: true } } } } },
+    });
+    if (!prior) throw new Error("DAMAGE_REPORT_NOT_FOUND");
+    if (prior.reportedById !== input.userId) throw new Error("FORBIDDEN");
+    if (prior.status !== DamageReportStatus.DRAFT) return prior;
+    const populated = input.items.filter(item => !isEmptyDamageItem(item));
+    if (!populated.length) throw new Error("DAMAGE_REPORT_EMPTY");
+    await saveDamageDraft({ ...input, items: populated }, tx);
+    return tx.damageReport.update({
+      where: { id: input.reportId },
+      data: { status: DamageReportStatus.SUBMITTED, submittedAt: new Date() },
+      include: { ...REPORT_INCLUDE, job: { select: { property: { select: { clientId: true } } } } },
+    });
+  });
+  await ensureDamageReportVerification(input.reportId);
   await flattenReportPhotos(input.reportId, input.userId);
-
-  const submitted = await db.damageReport.update({
-    where: { id: input.reportId },
-    data: {
-      status: DamageReportStatus.SUBMITTED,
-      submittedAt: new Date(),
-      // clientVisible stays false — D2's admin review is what reveals it.
-    },
-    include: {
-      ...REPORT_INCLUDE,
-      job: { select: { property: { select: { clientId: true } } } },
-    },
+  const refreshed = await db.damageReport.findUniqueOrThrow({
+    where: { id: submitted.id },
+    include: { ...REPORT_INCLUDE, job: { select: { property: { select: { clientId: true } } } } },
   });
-
-  await openCasesForReport({ report: submitted, userId: input.userId });
-
-  return db.damageReport.findUnique({
-    where: { id: input.reportId },
-    include: REPORT_INCLUDE,
-  });
+  await openCasesForReport({ report: refreshed, userId: input.userId });
+  return db.damageReport.findUnique({ where: { id: input.reportId }, include: REPORT_INCLUDE });
 }

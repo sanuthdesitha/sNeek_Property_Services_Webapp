@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { requireSession } from "@/lib/auth/session";
 import { z } from "zod";
-import { authOptions } from "@/lib/auth/auth-options";
 import { db } from "@/lib/db";
 import { checkGeofenceForPing } from "@/lib/gps/geofence";
 import { handleGeofenceDeparture } from "@/lib/gps/departure-clockout";
@@ -42,10 +41,13 @@ function pruneRateLimitMap(now: number) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
+  let session;
+  try {
+    session = await requireSession();
+  } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
 
   const userId = session.user.id;
   const now = new Date();

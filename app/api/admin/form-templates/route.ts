@@ -79,13 +79,13 @@ export async function GET(req: NextRequest) {
       templates.map((t) => ({ ...t, propertyScoped: scoped.has(t.id) || t.isJobScoped }))
     );
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: err.message }, { status: err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    await requireRole([Role.ADMIN]);
     const body = createTemplateSchema.parse(await req.json());
 
     // For the V1 flow: if a `kind` is provided, find the next version number
@@ -120,6 +120,6 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(template, { status: 201 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: err.message }, { status: err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400 });
   }
 }

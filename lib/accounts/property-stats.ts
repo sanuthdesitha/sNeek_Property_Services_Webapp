@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { summarizeCompletedHistory, completedServiceDate } from "./completed-history";
 
 export interface PropertyStats {
   propertyId: string;
@@ -22,7 +23,7 @@ export async function getPropertyStats(propertyId: string): Promise<PropertyStat
         id: true,
         scheduledDate: true,
         status: true,
-        updatedAt: true,
+        completedAt: true,
         assignments: { select: { userId: true } },
       },
     })
@@ -67,27 +68,7 @@ export async function getPropertyStats(propertyId: string): Promise<PropertyStat
   ]);
 
   const now = new Date();
-  const day30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const day90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-  const day365 = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-
-  const jobsLast30d = jobs.filter(
-    (j: any) => j.scheduledDate && new Date(j.scheduledDate) >= day30
-  ).length;
-  const jobsLast90d = jobs.filter(
-    (j: any) => j.scheduledDate && new Date(j.scheduledDate) >= day90
-  ).length;
-  const jobsLast365d = jobs.filter(
-    (j: any) => j.scheduledDate && new Date(j.scheduledDate) >= day365
-  ).length;
-
-  const lastJobAt = jobs.reduce<Date | null>((acc, j: any) => {
-    const completed = j.status === "COMPLETED" || j.status === "INVOICED" ? j.updatedAt : null;
-    const candidate = completed ?? j.scheduledDate;
-    if (!candidate) return acc;
-    const dt = new Date(candidate);
-    return !acc || dt > acc ? dt : acc;
-  }, null);
+  const { lastJobAt, jobsLast30d, jobsLast90d, jobsLast365d } = summarizeCompletedHistory(jobs, now);
 
   const lifetimeValue = (invoiceLines as any[]).reduce(
     (sum, line) => sum + Number(line.lineTotal || 0),
@@ -106,6 +87,7 @@ export async function getPropertyStats(propertyId: string): Promise<PropertyStat
 
   const cleanerIds = new Set<string>();
   for (const job of jobs as any[]) {
+    if (!completedServiceDate(job, now)) continue;
     for (const a of job.assignments ?? []) {
       if (a?.userId) cleanerIds.add(a.userId);
     }

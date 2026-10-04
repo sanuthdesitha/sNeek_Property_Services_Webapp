@@ -12,13 +12,16 @@ const mocks = vi.hoisted(() => ({
   report: vi.fn(), notify: vi.fn(), lifecycle: vi.fn(), automations: vi.fn(), qa: vi.fn(),
   clear: vi.fn(), lowStock: vi.fn(), unexpected: vi.fn(), templates: vi.fn(), anchor: vi.fn(), provision: vi.fn(),
   draft: vi.fn(), lock: vi.fn(), query: vi.fn(),
-  laundry: vi.fn(),
+  office: vi.fn(), officeNotice: vi.fn(), resolveIssue: vi.fn(), resolveTask: vi.fn(), clockApproval: vi.fn(), caseCreate: vi.fn(), caseNotify: vi.fn(), stockReceipt: vi.fn(), stockWrite: vi.fn(), laundry: vi.fn(), pay: vi.fn(), payExisting: vi.fn(), followupQueue: vi.fn(),
 }));
+vi.mock("@/lib/cleaner/submission-followups", () => ({ enqueueSubmissionFollowups: mocks.followupQueue,
+  processSubmissionFollowups: async () => { await mocks.qa("job"); await mocks.report("job"); return { reportReadySubmissionIds: ["submission"] }; } }));
 vi.mock("@/lib/db", () => ({ db: {
+  user: { findMany: mocks.office }, notification: { createMany: mocks.officeNotice },
   jobAssignment: { findFirst: mocks.assignment },
   job: { findUnique: mocks.job, updateMany: mocks.claim },
   formTemplate: { findUnique: mocks.template, findMany: mocks.templates, findFirst: mocks.anchor, create: mocks.provision },
-  timeLog: { findFirst: mocks.timeLog },
+  timeLog: { findFirst: mocks.timeLog, findMany: async () => [], update: mocks.update },
   $transaction: mocks.transaction,
 } }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
@@ -28,8 +31,8 @@ vi.mock("@/lib/job-tasks/service", () => ({ listCleanerJobTasks: mocks.tasks, ap
 vi.mock("@/lib/inventory/stock", () => ({ deductStockFromSubmission: mocks.unexpected, fireLowStockSideEffects: mocks.lowStock }));
 vi.mock("@/lib/reports/generator", () => ({ generateJobReport: mocks.report }));
 vi.mock("@/lib/s3", () => ({ publicUrl: (key: string) => `https://media.invalid/${key}` }));
-vi.mock("@/lib/cases/service", () => ({ createCase: mocks.unexpected }));
-vi.mock("@/lib/cases/notifications", () => ({ notifyCaseCreated: mocks.unexpected }));
+vi.mock("@/lib/cases/service", () => ({ createCase: mocks.caseCreate }));
+vi.mock("@/lib/cases/notifications", () => ({ notifyCaseCreated: mocks.caseNotify }));
 vi.mock("@/lib/laundry/cleaner-status", () => ({ applyCleanerLaundryStatusUpdate: mocks.laundry }));
 vi.mock("@/lib/cleaner/shared-job-draft", () => ({ clearSharedCleanerJobDraft: mocks.clear,
   getSharedCleanerJobDraft: mocks.draft, withSharedCleanerJobDraftLock: mocks.lock }));
@@ -87,6 +90,7 @@ beforeEach(() => {
     property: { name: "Test property", laundryEnabled: false, inventoryEnabled: false },
     internalNotes: serializeJobInternalNotes({ additionals: extras }),
   };
+  mocks.office.mockResolvedValue([]);
   mocks.role.mockResolvedValue({ user: { id: "cleaner", role: Role.CLEANER } });
   mocks.assignment.mockResolvedValue({ id: "assignment" });
   mocks.job.mockImplementation(async () => job);
@@ -95,7 +99,7 @@ beforeEach(() => {
   mocks.anchor.mockResolvedValue({ id: "template", isActive: false, serviceType: JobType.AIRBNB_TURNOVER, schema: {} });
   mocks.timeLog.mockResolvedValue(null);
   mocks.settings.mockResolvedValue({
-    noPhotoExemptCleanerIds: [],
+    autoClockOut: {}, noPhotoExemptCleanerIds: [],
     accountability: { requiredChecklistTicksBlockSubmit: true },
     finalCheckup: { enabled: false },
   });
@@ -109,10 +113,15 @@ beforeEach(() => {
     events.push("transaction");
     const result = await callback({
       $queryRaw: mocks.query,
-      user: { findUnique: async () => ({ isActive: true, role: Role.CLEANER, extraRoles: [] }) },
+      appSetting: { findUnique: mocks.stockReceipt, create: mocks.stockWrite, upsert: mocks.stockWrite },
+      stockTx: { findFirst: async () => null },
+      issueTicket: { updateMany: mocks.resolveIssue }, jobTask: { updateMany: mocks.resolveTask },
+      timeLogAdjustmentRequest: { create: mocks.clockApproval }, notification: { createMany: mocks.officeNotice },
+      user: { findMany: mocks.office, findUnique: async () => ({ isActive: true, role: Role.CLEANER, extraRoles: [] }) },
       jobAssignment: { findFirst: mocks.assignment },
       formTemplate: { findUnique: mocks.template, findMany: mocks.templates, findFirst: mocks.anchor, create: mocks.provision },
-      timeLog: { findFirst: mocks.timeLog },
+      timeLog: { findFirst: mocks.timeLog, findMany: async () => [], update: mocks.update },
+      cleanerPayAdjustment: { create: mocks.pay, findFirst: mocks.payExisting },
       formSubmission: { create: mocks.create }, submissionMedia: { createMany: mocks.media },
       job: { update: mocks.update, findUnique: mocks.job, updateMany: mocks.claim },
     });
@@ -259,7 +268,7 @@ describe("real cleaner submit form contract", () => {
     expect(stored.data.__templateVersion).toBe("template");
     expect(mocks.media.mock.calls[0][0].data).toEqual([expect.objectContaining({ fieldId: "photo", s3Key: "evidence.jpg", submissionId: "submission" })]);
     expect(mocks.report).toHaveBeenCalledWith("job");
-    expect(mocks.clear).toHaveBeenCalledWith("job");
+    expect(mocks.clear).toHaveBeenCalledWith("job", expect.objectContaining({ formSubmission: { create: mocks.create } }));
     expect(mocks.unexpected).not.toHaveBeenCalled();
     expect(mocks.settings).toHaveBeenCalledTimes(1);
     expect(mocks.provision).not.toHaveBeenCalled();
@@ -317,4 +326,148 @@ it.each(["forms/job/12345678-1234-4123-8123-123456789012/cleaner/photo.jpg", "fo
 it("still refuses genuinely empty required uploads even when an unrelated server receipt exists", async () => {
   mocks.draft.mockResolvedValue({ evidenceReceipts: { capture: { key: "photo.jpg", fieldId: "other" } } });
   const result = await submit({ note: "Done", uploads: {} }); expect(result.status).toBe(400); expect((await result.json()).error).toContain("Missing required uploads"); expectNoWrites();
+});
+
+
+it("rejects fewer distinct photos than the configured minimum before claiming submission", async () => {
+  mocks.template.mockResolvedValue({ id: "template", isActive: true, serviceType: JobType.AIRBNB_TURNOVER, schema: {
+    standardSections: false, sections: [{ id: "proof", fields: [{ id: "photos", type: "photo", minPhotos: 2 }] }],
+  } });
+  const response = await submit({ uploads: { photos: ["same.jpg", "same.jpg"] } });
+  expect(response.status).toBe(400);
+  expect((await response.json()).error).toContain("at least 2 photos");
+  expectNoWrites();
+});
+it("persists extra payment requests before the submission transaction commits", async () => {
+  mocks.pay.mockImplementation(async () => { events.push("pay"); return { id: "pay" }; });
+  const response = await submit({ note: "Done", uploads: { photo: ["evidence.jpg"] } }, "template", {
+    draftPayRequestPayload: { title: "Extra clean", type: "FIXED", requestedAmount: 20, cleanerNote: "Oven" },
+  });
+  expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+  expect(events.indexOf("pay")).toBeGreaterThan(events.indexOf("snapshot"));
+  expect(events.indexOf("pay")).toBeLessThan(events.indexOf("commit"));
+});
+it("does not acknowledge a submitted clean when its extra payment cannot be persisted", async () => {
+  mocks.pay.mockRejectedValue(new Error("Payment write failed"));
+  const response = await submit({ note: "Done", uploads: { photo: ["evidence.jpg"] } }, "template", {
+    draftPayRequestPayload: { title: "Extra clean", type: "FIXED", requestedAmount: 20, cleanerNote: "Oven" },
+  });
+  expect(response.status).toBe(400);
+  expect(events).not.toContain("commit");
+  expect(mocks.notify).not.toHaveBeenCalled();
+});
+
+it.each(["draft", "skipped"])("does not submit a %s job", async state => {
+  if (state === "draft") job.internalNotes = serializeJobInternalNotes({ isDraft: true });
+  else job.cleanSkipStatus = "SKIPPED";
+  const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] } });
+  expect(response.status).toBe(409);
+  expectNoWrites();
+});
+
+it("does not duplicate an extra payment repeated in legacy and multi-item payloads", async () => {
+  mocks.pay.mockResolvedValue({ id: "pay" });
+  const item = { title: "Oven", type: "FIXED", requestedAmount: 20, cleanerNote: "Detail clean" };
+  const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] } }, "template", {
+    draftPayRequestPayload: item, draftPayRequestItems: [item],
+  });
+  expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+  expect(mocks.pay).toHaveBeenCalledTimes(1);
+  expect(mocks.media.mock.calls[0][0].data[0].label).toBe("Evidence");
+});
+
+it("keeps an already-recorded extra request on a reopened form without creating another", async () => {
+  mocks.payExisting.mockResolvedValue({ id: "original" });
+  const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] } }, "template", {
+    draftPayRequestPayload: { title: "Oven", requestedAmount: 20 },
+  });
+  expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+  expect((await response.json()).payRequestsAlreadyRecorded).toBe(1);
+  expect(mocks.pay).not.toHaveBeenCalled();
+});
+
+it.each([
+  { allowed: false, note: "No plants", proofKeys: ["proof.jpg"], status: 400 },
+  { allowed: true, note: "", proofKeys: ["proof.jpg"], status: 400 },
+  { allowed: true, note: "No plants", proofKeys: [], requiresPhoto: false, status: 400 },
+  { allowed: true, note: "No plants", proofKeys: ["proof.jpg"], status: 200 },
+])("only allows admin-enabled not-applicable with reason and required proof (%j)", async example => {
+  mocks.tasks.mockResolvedValue([{ id: "task", title: "Plant care", source: "ADMIN", requiresPhoto: example.requiresPhoto ?? true, metadata: { allowNotApplicable: example.allowed } }]);
+  mocks.unexpected.mockResolvedValue({ carriedForwardCount: 0 });
+  const response = await submit({ note: "Done", uploads: { photo: ["evidence.jpg"] } }, "template", {
+    jobTasks: [{ id: "task", decision: "NOT_APPLICABLE", note: example.note, proofKeys: example.proofKeys }],
+  });
+  expect(response.status, JSON.stringify(await response.clone().json())).toBe(example.status);
+  if (example.status === 400) expectNoWrites();
+});
+it("commits a private damage case once before notifying after submission commit", async () => {
+ const item = { title: "Broken mirror", description: "Cracked", area: "Bedroom", severity: "HIGH", estimatedCost: 20, mediaKeys: ["damage.jpg"] };
+ mocks.caseCreate.mockImplementation(async () => { events.push("case"); return { id: "case" }; });
+ mocks.caseNotify.mockImplementation(async () => { events.push("case-notice"); });
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] } }, "template", { draftDamagePayload: item, draftDamageItems: [item] });
+ expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+ expect(mocks.caseCreate).toHaveBeenCalledTimes(1);
+ expect(mocks.caseCreate.mock.calls[0][0]).toMatchObject({ clientVisible: false, clientCanReply: false, attachments: [{ uploadedByUserId: "cleaner", s3Key: "damage.jpg" }] });
+ expect(mocks.caseCreate.mock.calls[0][1]).toMatchObject({ transaction: expect.any(Object), afterCommit: expect.any(Array) });
+ expect(events.indexOf("case")).toBeLessThan(events.indexOf("commit"));
+ expect(events.indexOf("case-notice")).toBeGreaterThan(events.indexOf("commit"));
+});
+it("does not report success or notify when the mandatory damage case fails", async () => {
+ mocks.caseCreate.mockRejectedValue(new Error("Case write failed"));
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] } }, "template", { draftDamageItems: [{ title: "Broken mirror" }] });
+ expect(response.status).toBe(400); expect(events).not.toContain("commit"); expect(mocks.caseNotify).not.toHaveBeenCalled();
+});
+it.each([false, true])("persists stock followup or explicit correction review with submission (existing=%s)", async existing => {
+ (job.property as any).inventoryEnabled = true;
+ mocks.stockReceipt.mockResolvedValue(existing ? { key: "existing" } : null);
+ const lowStockRows = [{ stockId: "soap-stock", itemId: "soap", onHand: 0 }];
+ mocks.unexpected.mockResolvedValue({ lowStockRows });
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] }, inventoryUsage: { soap: 2 } });
+ expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+ expect((await response.json()).stockCorrectionRequired).toBe(existing ? true : undefined);
+ expect(mocks.followupQueue.mock.calls[0][1]).toMatchObject({ propertyId: "property", submissionId: "submission", lowStockRows: existing ? [] : lowStockRows });
+ if (existing) expect(mocks.unexpected).not.toHaveBeenCalled();
+ else expect(mocks.unexpected).toHaveBeenCalledWith("property", "submission", { soap: 2 }, expect.any(Object));
+});
+it("closes resolved carry-forward work in both stores inside the submission transaction", async () => {
+ mocks.resolveIssue.mockImplementation(async () => { events.push("resolve-issue"); return { count: 1 }; });
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] }, carryForward: { resolvedTaskIds: ["task"], hasNew: false } });
+ expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+ expect(mocks.resolveIssue.mock.calls[0][0].where.job).toEqual({ propertyId: "property" });
+ expect(mocks.resolveTask.mock.calls[0][0]).toMatchObject({ where: { jobId: "job", source: "CARRY_FORWARD", executionStatus: "OPEN" }, data: { executionStatus: "COMPLETED" } });
+ expect(events.indexOf("resolve-issue")).toBeLessThan(events.indexOf("commit"));
+});
+it("queues clock-adjustment approval only alongside the submitted clean", async () => {
+ job.scheduledDate = new Date("2026-10-03");
+ mocks.timeLog.mockResolvedValue({ id: "clock", startedAt: new Date(Date.now() - 10 * 60_000) });
+ mocks.office.mockResolvedValue([{ id: "admin" }]);
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] } }, "template", { clockAdjustmentRequest: { requestedDurationM: 30, reason: "Missed clock in" } });
+ expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+ expect(mocks.clockApproval).toHaveBeenCalledTimes(1);
+ expect(mocks.officeNotice.mock.calls[0][0].data[0]).toMatchObject({ subject: "Clock adjustment approval needed", externalId: "mobile-outbox:pending:approvals" });
+});
+it("queues a jobs-category reclean notice after a rework submission commits", async () => {
+ job.isRework = true; mocks.office.mockResolvedValue([{ id: "reviewer" }]);
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] } });
+ expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+ expect(mocks.officeNotice.mock.calls.at(-1)?.[0].data[0]).toMatchObject({ subject: "Reclean submitted — ready to review", externalId: "mobile-outbox:pending:jobs" });
+});
+it("refuses not-applicable when task metadata does not grant an exemption", async () => {
+ mocks.tasks.mockResolvedValue([{ id: "task", title: "Required task", source: "ADMIN", metadata: null }]);
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] } }, "template", { jobTasks: [{ id: "task", decision: "NOT_APPLICABLE", note: "No access", proofKeys: ["proof.jpg"] }] });
+ expect(response.status).toBe(400); expectNoWrites();
+});
+it("keeps a readable fallback label for evidence keys outside named form fields", async () => {
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"], extra_detail: ["extra.jpg"] } });
+ expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+ expect(mocks.media.mock.calls[0][0].data.find((row: any) => row.s3Key === "extra.jpg").label).toBe("extra detail");
+});
+it("labels legacy admin-requested proof by the office task title and preserves completion", async () => {
+ job.internalNotes = serializeJobInternalNotes({ specialRequestTasks: [{ id: "legacy-task", title: "Clean balcony rail", description: "Wipe railing", requiresPhoto: true, requiresNote: true }] });
+ const proofFieldId = "__admin_requested_task_legacy-task_photo";
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"], [proofFieldId]: ["balcony.jpg"] }, __adminRequestedTasks: [{ id: "legacy-task", completed: true, note: "Rail cleaned" }] });
+ expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+ const media = mocks.media.mock.calls[0][0].data.find((row: any) => row.s3Key === "balcony.jpg");
+ expect(media.label).toBe("Clean balcony rail — proof");
+ expect(mocks.create.mock.calls[0][0].data.data.__adminRequestedTasks[0]).toMatchObject({ id: "legacy-task", completed: true, note: "Rail cleaned" });
 });

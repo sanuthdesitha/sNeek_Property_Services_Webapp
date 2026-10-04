@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Role, JobStatus } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
+import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
 import { db } from "@/lib/db";
 import { listQaOutcomeApprovals } from "@/lib/qa/outcome-approvals";
 import { awardLoyaltyForCompletedJob } from "@/lib/client/rewards";
@@ -46,15 +47,16 @@ export async function POST(req: NextRequest) {
     // rest of the batch — it is reported back as skipped instead.
     for (const jobId of Array.from(new Set(jobIds))) {
       try {
-        const job = await db.job.findUnique({
+        const applied = await db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Job" WHERE id = ${jobId} FOR UPDATE`;
+        const job = await tx.job.findUnique({
           where: { id: jobId },
-          select: { id: true, status: true, completedAt: true },
+          select: { id: true, propertyId: true, status: true, completedAt: true },
         });
         if (!job || job.status !== JobStatus.QA_REVIEW) {
-          skipped.push(jobId);
-          continue;
+          return false;
         }
-        await db.job.update({
+        await tx.job.update({
           where: { id: jobId },
           data: {
             status: JobStatus.COMPLETED,
@@ -63,7 +65,7 @@ export async function POST(req: NextRequest) {
             ...(job.completedAt ? {} : { completedAt: new Date() }),
           },
         });
-        await db.auditLog.create({
+        await tx.auditLog.create({
           data: {
             userId: session.user.id,
             jobId,
@@ -73,6 +75,10 @@ export async function POST(req: NextRequest) {
             after: { from: JobStatus.QA_REVIEW, to: JobStatus.COMPLETED } as any,
           },
         });
+        await applyJobRotationCompletion(tx, { jobId, propertyId: job.propertyId });
+        return true;
+        });
+        if (!applied) { skipped.push(jobId); continue; }
         // Approval Center history. Approving a QA outcome moves the job to
         // COMPLETED and unlocks invoicing — a terminal decision, which is why
         // the capability map marks this queue as not undoable.

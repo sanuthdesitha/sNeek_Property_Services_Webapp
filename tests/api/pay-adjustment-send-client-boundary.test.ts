@@ -1,0 +1,17 @@
+// @vitest-environment node
+import {beforeEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({role:vi.fn(),find:vi.fn(),users:vi.fn(),approvals:vi.fn(),create:vi.fn(),email:vi.fn(),notifications:vi.fn(),audit:vi.fn()}));
+vi.mock('@/lib/auth/session',()=>({requireRole:m.role}));
+vi.mock('@/lib/db',()=>({db:{cleanerPayAdjustment:{findUnique:m.find},user:{findMany:m.users},notification:{createMany:m.notifications},auditLog:{create:m.audit}}}));
+vi.mock('@/lib/commercial/client-approvals',()=>({createClientApproval:m.create,listClientApprovals:m.approvals,deleteClientApprovalById:vi.fn()}));
+vi.mock('@/lib/notifications/email',()=>({sendEmailDetailed:m.email}));
+vi.mock('@/lib/settings',()=>({getAppSettings:async()=>({companyName:'Test'})}));
+vi.mock('@/lib/app-url',()=>({resolveAppUrl:()=> 'http://local/client/approvals'}));
+import {POST} from '@/app/api/admin/pay-adjustments/[id]/send-to-client/route';
+let row:any;const request=()=>POST(new Request('http://local',{method:'POST',body:JSON.stringify({amount:25,title:'Extra cleaning'})}) as any,{params:{id:'pay'}});
+beforeEach(()=>{vi.resetAllMocks();row={id:'pay',cleanerId:'cleaner',requestedAmount:20,property:{id:'property',name:'House',clientId:'client',client:{email:'client@local'}}};m.role.mockResolvedValue({user:{id:'admin'}});m.find.mockImplementation(async()=>row);m.users.mockResolvedValue([{id:'client-user',email:'client@local'}]);m.approvals.mockResolvedValue([]);m.create.mockImplementation(async input=>({...input,id:'approval'}));m.email.mockResolvedValue({ok:true});});
+it.each([['UNAUTHORIZED',401],['FORBIDDEN',403]])('refuses %s before reading or notifying',async(message,status)=>{m.role.mockRejectedValue(new Error(String(message)));expect((await request()).status).toBe(status);expect(m.find).not.toHaveBeenCalled();expect(m.create).not.toHaveBeenCalled();expect(m.email).not.toHaveBeenCalled();});
+it('creates an attributed client approval and declares billing for every recipient rail',async()=>{expect((await request()).status).toBe(201);expect(m.role).toHaveBeenCalledWith(['ADMIN','OPS_MANAGER']);expect(m.create.mock.calls[0][0]).toMatchObject({clientId:'client',propertyId:'property',requestedByUserId:'admin',metadata:{source:'pay_adjustment',payAdjustmentId:'pay',recipientUserIds:['client-user']}});const notices=m.notifications.mock.calls.flatMap(([arg])=>arg.data);expect(notices.map(n=>n.userId)).toEqual(['client-user','admin','cleaner']);expect(notices.every(n=>n.externalId==='mobile-outbox:pending:billing')).toBe(true);expect(m.email).toHaveBeenCalledOnce();expect(m.audit).toHaveBeenCalledOnce();});
+it('refuses a duplicate pending client approval before any provider call',async()=>{m.approvals.mockResolvedValue([{status:'PENDING',metadata:{source:'pay_adjustment',payAdjustmentId:'pay'}}]);expect((await request()).status).toBe(409);expect(m.create).not.toHaveBeenCalled();expect(m.email).not.toHaveBeenCalled();});
+it('requires a client-linked property and recipient before creating approval',async()=>{row.property=null;expect((await request()).status).toBe(409);expect(m.create).not.toHaveBeenCalled();});
+it('provider failure does not falsely report successful completion',async()=>{m.email.mockRejectedValue(new Error('mail transport failed'));expect((await request()).status).toBe(400);expect(m.create).toHaveBeenCalledOnce();expect(m.audit).not.toHaveBeenCalled();expect(m.notifications).toHaveBeenCalledOnce();});

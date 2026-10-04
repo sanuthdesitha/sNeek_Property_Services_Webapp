@@ -198,6 +198,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: "You can't update this maintenance item." }, { status: 403 });
     }
 
+    if (body.attachJobId !== undefined && !canManage) {
+      return NextResponse.json({ error: "Only admins can attach maintenance to a job." }, { status: 403 });
+    }
+    const actionGroups = [wantsQuote, wantsCostDecision, wantsAssign, body.attachJobId !== undefined,
+      wantsStatus, wantsEdit, body.assignmentInstructions !== undefined].filter(Boolean).length;
+    if (actionGroups > 1) {
+      return NextResponse.json({ error: "Save one maintenance action at a time." }, { status: 400 });
+    }
+
     if (wantsQuote && body.quotedCost !== undefined) {
       await setMaintenanceQuote({ itemId: params.id, quotedCost: body.quotedCost, userId: session.user.id });
     }

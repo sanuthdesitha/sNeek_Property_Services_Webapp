@@ -10,23 +10,26 @@ import { db } from "@/lib/db";
 export async function ensureQaAssignmentForCompletedJob(jobId: string): Promise<void> {
   if (!jobId) return;
 
-  const existing = await db.qaAssignment.findFirst({
-    where: { jobId },
-    select: { id: true },
-  });
-  if (existing) return;
+  await db.$transaction(async tx => {
+    await tx.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${jobId} FOR UPDATE`;
+    const existing = await tx.qaAssignment.findFirst({
+      where: { jobId },
+      select: { id: true },
+    });
+    if (existing) return;
 
-  const job = await db.job.findUnique({
-    where: { id: jobId },
-    select: { id: true },
-  });
-  if (!job) return;
+    const job = await tx.job.findUnique({
+      where: { id: jobId },
+      select: { id: true },
+    });
+    if (!job) return;
 
-  await db.qaAssignment.create({
-    data: {
-      jobId,
-      status: "OPEN",
-    },
+    await tx.qaAssignment.create({
+      data: {
+        jobId,
+        status: "OPEN",
+      },
+    });
   });
 }
 

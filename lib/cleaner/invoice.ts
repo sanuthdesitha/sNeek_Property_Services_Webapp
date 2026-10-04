@@ -266,6 +266,7 @@ export interface CleanerInvoiceData {
    * bill them again.
    */
   includedAdjustmentIds: string[];
+  claimVersions?: { jobs: Record<string, string | undefined>; adjustments: Record<string, string | undefined>; qa: Record<string, string | undefined>; shopping: Record<string, string | undefined> };
   pendingAdjustmentCount: number;
   pendingAdjustmentAmount: number;
   companyName: string;
@@ -320,7 +321,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   const alreadyInvoicedJobIds: string[] = [];
   if (options.excludeInvoicedJobs) {
     const priorSubmissions = await db.cleanerInvoiceSubmission.findMany({
-      where: { cleanerId: options.userId, status: { not: "VOID" } },
+      where: { cleanerId: options.userId, status: { notIn: ["VOID", "CHANGES_REQUESTED"] } },
       select: { lineData: true },
     });
     for (const sub of priorSubmissions) {
@@ -455,6 +456,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     },
     select: {
       id: true,
+      updatedAt: true,
       jobId: true,
       title: true,
       status: true,
@@ -532,6 +534,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     },
     select: {
       id: true,
+      updatedAt: true,
       status: true,
       completedAt: true,
       onSiteMinutes: true,
@@ -606,6 +609,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
           await db.qaDayAllowance.findMany({
             where: {
               inspectorId: options.userId,
+              OR: [{ includedInPayrollRunId: { not: null } }, { includedInCleanerInvoiceId: { not: null } }],
               // A row belonging to THIS invoice is not "already claimed" — a
               // payee reopening their own draft must still see their travel.
               ...(options.includeInvoiceId
@@ -844,6 +848,12 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
   const shoppingTimeRuns = (await listCleanerApprovedShoppingTimeRuns(shoppingSelection)).filter(
     (run) => !excludedRunSet.has(run.id)
   );
+  const expenseRunVersions = new Map(shoppingExpenseRuns.map((run) => [run.id, run.updatedAt]));
+  for (const run of shoppingTimeRuns) {
+    if (expenseRunVersions.has(run.id) && expenseRunVersions.get(run.id) !== run.updatedAt) {
+      throw new Error("Shopping run changed while preparing this invoice. Refresh and review again.");
+    }
+  }
   const expenseRows = shoppingExpenseRuns.map((run) => ({
     runId: run.id,
     date: new Date(run.completedAt || run.updatedAt || run.createdAt).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" }),
@@ -975,6 +985,12 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     /** The days the send route must claim, so this travel cannot be paid twice. */
     claimableAllowanceDays: transportAllowanceRows.map((row) => row.day),
     includedQaAssignmentIds: qaInspectionRows.map((row) => row.assignmentId),
+    claimVersions: {
+      jobs: Object.fromEntries(payableJobs.map(row => [row.id, row.updatedAt?.toISOString()])),
+      adjustments: Object.fromEntries(settleableAdjustments.map(row => [row.id, row.updatedAt?.toISOString()])),
+      qa: Object.fromEntries(qaAssignmentRows.map(row => [row.id, row.updatedAt?.toISOString()])),
+      shopping: Object.fromEntries([...shoppingExpenseRuns, ...shoppingTimeRuns].map(row => [row.id, row.updatedAt])),
+    },
     includedAdjustmentIds: adjustmentSplit.includedRows
       .map((row) => row.id)
       .filter((id): id is string => typeof id === "string" && id.length > 0),

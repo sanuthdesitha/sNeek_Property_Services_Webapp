@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { JobStatus, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
@@ -125,6 +126,7 @@ export async function autoPauseStaleJobs(now = new Date()) {
             data: {
               userId: assignment.userId,
               jobId: job.id,
+              externalId: mobilePendingMarker("jobs"),
               channel: NotificationChannel.PUSH,
               subject: "Job auto-paused",
               body,

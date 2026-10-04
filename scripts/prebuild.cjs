@@ -58,8 +58,8 @@ function runGenerateSafely() {
 }
 
 runGenerateSafely();
-run("npm", ["run", "db:deploy"]);
-run("npm", ["run", "admin:bootstrap"]);
+// Schema deployment and account bootstrap are explicit maintenance operations.
+// Never mutate the database as an implicit build hook.
 
 if (process.env.RUN_PLAYWRIGHT_INSTALL_ON_BUILD === "1") {
   run("npm", ["run", "playwright:install"]);

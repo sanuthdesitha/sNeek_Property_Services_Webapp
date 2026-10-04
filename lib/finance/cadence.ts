@@ -1,7 +1,8 @@
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { addWeeks, addMonths, isBefore, getDay, getDate } from "date-fns";
 
-export type CadenceKind = "ON_COMPLETION" | "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "CUSTOM";
+export type CadenceKind = "ON_COMPLETION" | "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "SEMIMONTHLY" | "CUSTOM";
 
 export interface UserCadence {
   userId: string;
@@ -11,10 +12,34 @@ export interface UserCadence {
   lastInvoiceGeneratedAt: Date | null;
 }
 
+/** Closed Sydney half-month, released at 08:00 on the following 16th/1st.
+ * Construct wall-clock boundaries individually so DST never truncates a day. */
+export function getClosedSemimonthlyPeriod(now = new Date()) {
+  const [year, month, day] = formatInTimeZone(now, "Australia/Sydney", "yyyy-MM-dd").split("-").map(Number);
+  const previousMonth = new Date(Date.UTC(year, month - 1, 0));
+  const prefix = day >= 16 ? `${year}-${String(month).padStart(2, "0")}`
+    : `${previousMonth.getUTCFullYear()}-${String(previousMonth.getUTCMonth() + 1).padStart(2, "0")}`;
+  const firstDay = `${prefix}-${day >= 16 ? "01" : "16"}`;
+  const lastDay = `${prefix}-${day >= 16 ? "15" : String(previousMonth.getUTCDate())}`;
+  const releaseDay = `${year}-${String(month).padStart(2, "0")}-${day >= 16 ? "16" : "01"}`;
+  return {
+    periodStart: fromZonedTime(`${firstDay}T00:00:00.000`, "Australia/Sydney"),
+    periodEnd: fromZonedTime(`${lastDay}T23:59:59.999`, "Australia/Sydney"),
+    availableAt: fromZonedTime(`${releaseDay}T08:00:00.000`, "Australia/Sydney"),
+  };
+}
+
 /**
  * Returns true if this user is due an invoice generation today.
  */
 export function isInvoiceDueToday(cadence: UserCadence, now = new Date()): boolean {
+  if (cadence.cadence === "SEMIMONTHLY") {
+    const today = formatInTimeZone(now, "Australia/Sydney", "yyyy-MM-dd");
+    const day = Number(today.slice(-2));
+    if ((day !== 16 && day !== 1) || now < getClosedSemimonthlyPeriod(now).availableAt) return false;
+    return !cadence.lastInvoiceGeneratedAt ||
+      formatInTimeZone(cadence.lastInvoiceGeneratedAt, "Australia/Sydney", "yyyy-MM-dd") < today;
+  }
   /**
    * ON_COMPLETION USED TO RETURN FALSE, with a comment claiming invoices were
    * "generated job-by-job, not by schedule". No such job-by-job generator has
@@ -75,17 +100,27 @@ export function isInvoiceDueToday(cadence: UserCadence, now = new Date()): boole
  * Returns all users due an invoice generation today.
  */
 export async function listUsersDueForInvoicing(now = new Date()): Promise<UserCadence[]> {
+  // Opt-in configuration lives in existing JSON storage: no enum migration.
+  // { semimonthlyClientUserIds: string[] }; absent/empty means unchanged.
+  const config = await db.appSetting.findUnique({ where: { key: "finance-cadence" } });
+  const raw = (config?.value as { semimonthlyClientUserIds?: unknown } | null)?.semimonthlyClientUserIds;
+  const semimonthlyIds = new Set(Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : []);
   const users = await db.user.findMany({
     where: {
       // ON_COMPLETION included — it is the schema default and was excluded
       // here as well as in isInvoiceDueToday, so those clients were filtered
       // out before the rule that would have skipped them ever ran. Two guards
       // saying the same wrong thing is why nobody noticed.
-      invoicingCadence: { in: ["ON_COMPLETION", "WEEKLY", "FORTNIGHTLY", "MONTHLY"] },
+      role: "CLIENT",
+      OR: [
+        { invoicingCadence: { in: ["ON_COMPLETION", "WEEKLY", "FORTNIGHTLY", "MONTHLY"] } },
+        { id: { in: Array.from(semimonthlyIds) } },
+      ],
       isActive: true,
     },
     select: {
       id: true,
+      clientId: true,
       invoicingCadence: true,
       invoiceDayOfWeek: true,
       invoiceDayOfMonth: true,
@@ -93,10 +128,15 @@ export async function listUsersDueForInvoicing(now = new Date()): Promise<UserCa
     },
   } as any);
 
+  const semimonthlyClients = new Set((users as any[])
+    .filter(user => semimonthlyIds.has(user.id) && user.clientId).map(user => user.clientId));
+  const seenClients = new Set<string>();
   return (users as any[])
+    .filter(user => !semimonthlyClients.has(user.clientId) || semimonthlyIds.has(user.id))
+    .filter(user => { if (!user.clientId) return true; if (seenClients.has(user.clientId)) return false; seenClients.add(user.clientId); return true; })
     .map((u: any) => ({
       userId: u.id,
-      cadence: u.invoicingCadence as CadenceKind,
+      cadence: semimonthlyIds.has(u.id) ? "SEMIMONTHLY" as const : u.invoicingCadence as CadenceKind,
       invoiceDayOfWeek: u.invoiceDayOfWeek,
       invoiceDayOfMonth: u.invoiceDayOfMonth,
       lastInvoiceGeneratedAt: u.lastInvoiceGeneratedAt,

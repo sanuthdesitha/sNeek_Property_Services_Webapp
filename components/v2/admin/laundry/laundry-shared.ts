@@ -61,6 +61,8 @@ export const LAUNDRY_STATUS_OPTIONS: LaundryStatus[] = [
 /** Loose shape of a task from GET /api/laundry/week (all LaundryTask scalars + relations). */
 export type LaundryTaskDTO = {
   id: string;
+  propertyId?: string;
+  jobId?: string;
   status: string;
   pickupDate: string;
   dropoffDate: string;
@@ -91,7 +93,9 @@ export type LaundryTaskDTO = {
   confirmations?: Array<{
     id: string;
     photoUrl?: string | null;
-    laundryReady?: boolean | null;
+    laundryReady?: boolean;
+    confirmedByName?: string | null;
+    bagLocation?: string | null;
     notes?: string | null;
     createdAt?: string | null;
   }> | null;

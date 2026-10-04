@@ -291,6 +291,8 @@ export function FinanceNotificationsSection() {
         }
       />
 
+      <p className="text-sm text-[hsl(var(--e-text-secondary))]">Push preferences apply to events with a connected recipient delivery flow. Older finance template sends record push as unsupported. Saving push text alone does not enable delivery.</p>
+
       {error ? <EAlert tone="danger" title={error} /> : null}
 
       {templates.length === 0 ? (

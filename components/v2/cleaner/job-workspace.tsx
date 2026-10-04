@@ -149,9 +149,10 @@ interface JobTask {
   source: string;
   requiresPhoto?: boolean;
   requiresNote?: boolean;
+  metadata?: { allowNotApplicable?: boolean };
 }
 interface TaskDraft {
-  decision: "OPEN" | "COMPLETED" | "NOT_COMPLETED";
+  decision: "OPEN" | "COMPLETED" | "NOT_COMPLETED" | "NOT_APPLICABLE";
   note: string;
   proof: CapturedMedia[];
 }
@@ -369,7 +370,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
           if (!raw || typeof raw !== "object") continue;
           next[taskId] = {
             decision:
-              raw.decision === "COMPLETED" || raw.decision === "NOT_COMPLETED" ? raw.decision : "OPEN",
+              raw.decision === "COMPLETED" || raw.decision === "NOT_COMPLETED" || raw.decision === "NOT_APPLICABLE" ? raw.decision : "OPEN",
             note: typeof raw.note === "string" ? raw.note : "",
             proof: Array.isArray(raw.proof)
               ? (raw.proof.filter((m: any) => m && typeof m.key === "string") as CapturedMedia[])
@@ -1298,7 +1299,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         const d = taskDrafts[t.id] ?? { decision: "OPEN", note: "", proof: [] };
         return {
           id: t.id,
-          decision: (d.decision === "COMPLETED" ? "COMPLETED" : "NOT_COMPLETED") as "COMPLETED" | "NOT_COMPLETED",
+          decision: (d.decision === "OPEN" ? "NOT_COMPLETED" : d.decision) as "COMPLETED" | "NOT_COMPLETED" | "NOT_APPLICABLE",
           note: d.note,
           proofKeys: d.proof.map((m) => m.key),
         };
@@ -1367,9 +1368,6 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       draftTimerRef.current = null;
       clearCleanerLocalDraft(draftIdentity);
-      void fetch(`/api/cleaner/jobs/${jobId}/draft`, {
-        method: "DELETE", headers: { "X-Cleaner-Draft-Identity": draftIdentity },
-      }).catch(() => {});
       // Best-effort clock-out GPS after a successful submit.
       try {
         const gps = await getGps();
@@ -1377,7 +1375,11 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       } catch {
         /* GPS optional at clock-out */
       }
-      flash("success", "Job submitted. Thank you.");
+      flash("success", data.stockCorrectionRequired
+        ? "Job submitted. Stock was already recorded for this clean; the office must review any stock correction."
+        : data.payRequestsAlreadyRecorded
+          ? "Job submitted. Existing extra-payment requests were kept; no duplicate request was created."
+          : "Job submitted. Thank you.");
       await load();
       return data;
     } catch (e: any) {

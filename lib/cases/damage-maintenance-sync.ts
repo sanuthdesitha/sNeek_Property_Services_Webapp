@@ -1,6 +1,6 @@
 import "server-only";
 
-import { MaintenanceSource, Role } from "@prisma/client";
+import { MaintenanceSource, Role, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
@@ -123,7 +123,7 @@ async function notifyDamageMaintenance(input: {
  * No-op for cases that do not qualify, and for a case that already has one.
  */
 export async function autoCreateMaintenanceForDamageCase(input: {
-  caseRow: DamageCaseLike & { clientId?: string | null };
+  caseRow: DamageCaseLike & { clientId?: string | null; clientVisible?: boolean };
   reportedByUserId: string;
   jobId?: string | null;
   photoKeys?: string[];
@@ -146,15 +146,14 @@ export async function autoCreateMaintenanceForDamageCase(input: {
         caseId: input.caseRow.id,
         jobId: input.jobId?.trim() || undefined,
         reportedByUserId: input.reportedByUserId,
-        // The damage is the client's loss even when a cleaner spotted it, and
-        // CLIENT is the source that keeps it client-visible by default.
-        source: MaintenanceSource.CLIENT,
+        // A private damage review must not become public through its repair.
+        source: input.caseRow.clientVisible === true ? MaintenanceSource.CLIENT : MaintenanceSource.CLEANER,
         category: draft.category,
         title: draft.title,
         description: draft.description,
         priority: draft.priority,
         photoKeys: input.photoKeys && input.photoKeys.length > 0 ? (input.photoKeys as any) : undefined,
-        clientVisible: true,
+        clientVisible: input.caseRow.clientVisible === true,
       },
       select: { id: true },
     });
@@ -167,7 +166,7 @@ export async function autoCreateMaintenanceForDamageCase(input: {
       caseId: input.caseRow.id,
       itemId: created.id,
       propertyName: property?.name ?? "the property",
-      clientId: input.caseRow.clientId ?? property?.clientId ?? null,
+      clientId: input.caseRow.clientVisible === true ? input.caseRow.clientId ?? property?.clientId ?? null : null,
       title: draft.title,
       description: draft.description,
       severity: input.caseRow.severity ?? null,
@@ -230,4 +229,25 @@ export async function syncCaseFromMaintenance(input: {
   } catch (err) {
     logger.error({ err, itemId: input.itemId }, "CP-7: could not sync case from maintenance");
   }
+}
+
+
+/** Mandatory repair creation alongside a new transactional damage case. No
+ * communications here, and private damage must stay private in maintenance. */
+export async function createDamageMaintenanceInTransaction(tx: Prisma.TransactionClient, input: {
+  caseRow: DamageCaseLike & { clientVisible?: boolean }; reportedByUserId: string; jobId?: string | null; photoKeys?: string[];
+}): Promise<string | null> {
+  if (!shouldAutoCreateMaintenance(input.caseRow)) return null;
+  const existing = await tx.propertyMaintenanceItem.findFirst({ where: { caseId: input.caseRow.id }, select: { id: true } });
+  if (existing) return existing.id;
+  const draft = buildMaintenanceDraftFromCase(input.caseRow);
+  const item = await tx.propertyMaintenanceItem.create({ data: {
+    propertyId: String(input.caseRow.propertyId), caseId: input.caseRow.id,
+    jobId: input.jobId || undefined, reportedByUserId: input.reportedByUserId,
+    source: input.caseRow.clientVisible === true ? MaintenanceSource.CLIENT : MaintenanceSource.CLEANER,
+    category: draft.category, title: draft.title, description: draft.description, priority: draft.priority,
+    photoKeys: input.photoKeys?.length ? input.photoKeys : undefined,
+    clientVisible: input.caseRow.clientVisible === true,
+  }, select: { id: true } });
+  return item.id;
 }

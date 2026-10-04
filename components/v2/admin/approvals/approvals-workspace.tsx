@@ -437,7 +437,7 @@ function FalseConfirmationCard({
             </EButton>
             {row.jobId ? (
               <EButton size="sm" variant="ghost" asChild>
-                <Link href={`/v2/admin/jobs/${row.jobId}`}>View job</Link>
+                <Link href={`/v2/admin/jobs/${row.jobId}`}>{row.jobId ? "View job" : "View pay request"}</Link>
               </EButton>
             ) : null}
           </>
@@ -679,7 +679,7 @@ function AccountabilityPayCard({
           />
           {row.job?.id ? (
             <EButton size="sm" variant="ghost" asChild>
-              <Link href={`/v2/admin/jobs/${row.job.id}`}>View job</Link>
+              <Link href={`/v2/admin/jobs/${row.job.id}`}>{row.jobId ? "View job" : "View pay request"}</Link>
             </EButton>
           ) : null}
         </>
@@ -1008,7 +1008,7 @@ export function ApprovalsWorkspace() {
                       }
                     />
                     <EButton size="sm" variant="ghost" asChild>
-                      <Link href={`/v2/admin/jobs/${row.jobId}`}>View job</Link>
+                      <Link href={`/v2/admin/jobs/${row.jobId}`}>{row.jobId ? "View job" : "View pay request"}</Link>
                     </EButton>
                   </>
                 }
@@ -1057,7 +1057,7 @@ export function ApprovalsWorkspace() {
                   footer={`Requested ${fmt(row.requestedAt ?? row.createdAt)}`}
                   actions={
                     <EButton size="sm" variant="ghost" asChild>
-                      <Link href={row.jobId ? `/v2/admin/jobs/${row.jobId}` : "/v2/admin/payroll"}>View job</Link>
+                      <Link href={row.jobId ? `/v2/admin/jobs/${row.jobId}` : "/v2/admin/finance?tab=adjustments"}>{row.jobId ? "View job" : "View pay request"}</Link>
                     </EButton>
                   }
                 >
@@ -1163,7 +1163,7 @@ export function ApprovalsWorkspace() {
                   footer={`Requested ${fmt(row.createdAt)}`}
                   actions={
                     <EButton size="sm" variant="ghost" asChild>
-                      <Link href={`/v2/admin/jobs/${row.jobId}`}>View job</Link>
+                      <Link href={`/v2/admin/jobs/${row.jobId}`}>{row.jobId ? "View job" : "View pay request"}</Link>
                     </EButton>
                   }
                 >
@@ -1377,7 +1377,7 @@ export function ApprovalsWorkspace() {
                     </EButton>
                     {row.job?.id ? (
                       <EButton size="sm" variant="ghost" asChild>
-                        <Link href={`/v2/admin/jobs/${row.job.id}`}>View job</Link>
+                        <Link href={`/v2/admin/jobs/${row.job.id}`}>{row.jobId ? "View job" : "View pay request"}</Link>
                       </EButton>
                     ) : null}
                   </>
@@ -1458,7 +1458,7 @@ export function ApprovalsWorkspace() {
                       />
                       {row.jobId ? (
                         <EButton size="sm" variant="ghost" asChild>
-                          <Link href={`/v2/admin/jobs/${row.jobId}`}>View job</Link>
+                          <Link href={`/v2/admin/jobs/${row.jobId}`}>{row.jobId ? "View job" : "View pay request"}</Link>
                         </EButton>
                       ) : null}
                     </>
@@ -1608,7 +1608,7 @@ export function ApprovalsWorkspace() {
                       />
                       {row.jobId ? (
                         <EButton size="sm" variant="ghost" asChild>
-                          <Link href={`/v2/admin/jobs/${row.jobId}`}>View job</Link>
+                          <Link href={`/v2/admin/jobs/${row.jobId}`}>{row.jobId ? "View job" : "View pay request"}</Link>
                         </EButton>
                       ) : null}
                     </>
@@ -1689,7 +1689,7 @@ export function ApprovalsWorkspace() {
                     />
                     {row.jobId ? (
                       <EButton size="sm" variant="ghost" asChild>
-                        <Link href={`/v2/admin/jobs/${row.jobId}`}>View job</Link>
+                        <Link href={`/v2/admin/jobs/${row.jobId}`}>{row.jobId ? "View job" : "View pay request"}</Link>
                       </EButton>
                     ) : null}
                   </>
@@ -1843,7 +1843,7 @@ export function ApprovalsWorkspace() {
                         Approve — mark completed
                       </EButton>
                       <EButton size="sm" variant="ghost" asChild>
-                        <Link href={`/v2/admin/jobs/${row.id}`}>View job</Link>
+                        <Link href={`/v2/admin/jobs/${row.id}`}>{row.jobId ? "View job" : "View pay request"}</Link>
                       </EButton>
                     </>
                   }
@@ -1963,7 +1963,7 @@ export function ApprovalsWorkspace() {
                       }
                     />
                     <EButton size="sm" variant="ghost" asChild>
-                      <Link href={`/v2/admin/jobs/${row.id}`}>View job</Link>
+                      <Link href={`/v2/admin/jobs/${row.id}`}>{row.jobId ? "View job" : "View pay request"}</Link>
                     </EButton>
                   </>
                 }

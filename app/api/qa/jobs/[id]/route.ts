@@ -1,20 +1,19 @@
+import { applyQaToolEffect, qaEffectFingerprint } from "@/lib/qa/tool-effect";
 import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, QaAssignmentStatus, QaReworkSeverity, Role, StockRunStatus } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
-import { buildDefaultQaTemplateSchema, scoreQaSubmission, QA_TEMPLATE_VERSION } from "@/lib/qa/templates";
+import { scoreQaSubmission } from "@/lib/qa/templates";
 import { buildNoPhotoPenalties } from "@/lib/qa/no-photo-penalty";
 import {
   buildLaundryQaPenalties,
   resolvePickupReadinessFromConfirmations,
 } from "@/lib/laundry/pickup-readiness";
-import { generateJobReport } from "@/lib/reports/generator";
 import { resolveJobCleanHours } from "@/lib/properties/clean-hours";
 import { createCase } from "@/lib/cases/service";
 import { createQaReworkTransfer } from "@/lib/qa/rework-transfers";
 import { createReworkJobFromFailure } from "@/lib/qa/rework-jobs";
-import { generateQaTemplateFromChecklist } from "@/lib/qa/generate-from-checklist";
 import {
   compositeAnnotated,
   ensureFlattened,
@@ -51,6 +50,11 @@ import { canReopenInspection, reopenMoneyWarnings } from "@/lib/qa/reopen";
 import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
 import { collectReopenMoneyFacts } from "@/lib/qa/reopen-facts";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+
+import { enqueueQaReportFollowup, processQaReportFollowups } from "@/lib/qa/report-followups";
+import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
+import { resolveQaTemplate } from "@/lib/qa/template-resolution";
+import { requireQaSubmitAssignment } from "@/lib/qa/submit-access";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -202,86 +206,6 @@ const submitSchema = z.object({
   reopenedReviewId: z.string().trim().min(1).nullable().optional(),
 });
 
-async function resolveTemplate(jobId: string) {
-  const job = await db.job.findUnique({
-    where: { id: jobId },
-    select: { jobType: true, propertyId: true },
-  });
-  if (!job) return null;
-  const propertyTemplate = await db.qaFormTemplate.findFirst({
-    where: { propertyId: job.propertyId, serviceType: job.jobType, isActive: true },
-    orderBy: { version: "desc" },
-  });
-  if (propertyTemplate) return propertyTemplate;
-
-  // No property-specific QA form yet: derive one from the property's OWN
-  // cleaner checklist if it has one. A generic four-area template cannot fail
-  // the thing that actually went wrong on a property whose checklist has
-  // thirteen sections. Best-effort — any problem falls through to the default.
-  if (job.propertyId) {
-    try {
-      // A property's checklist is bound through the settings override map
-      // (propertyId → jobType → templateId), NOT a column on FormTemplate —
-      // there is no `FormTemplate.propertyId`.
-      const settings = await getAppSettings();
-      const overrideId = settings.propertyFormTemplateOverrides?.[job.propertyId]?.[job.jobType];
-      const checklist = overrideId
-        ? await db.formTemplate.findFirst({
-            where: { id: overrideId, isActive: true },
-            select: { id: true, schema: true },
-          })
-        : null;
-      const generated = generateQaTemplateFromChecklist(checklist?.schema as any);
-      if (checklist && generated) {
-        return await db.qaFormTemplate.create({
-          data: {
-            name: `QA — from checklist (${String(job.jobType).replace(/_/g, " ")})`,
-            serviceType: job.jobType,
-            propertyId: job.propertyId,
-            schema: generated.schema as any,
-            sourceFormTemplateId: checklist.id,
-            // Generated, but ADMIN-OWNED from here: never auto-rewritten.
-            isSystemManaged: false,
-          },
-        });
-      }
-    } catch {
-      /* fall through to the global default */
-    }
-  }
-
-  const globalTemplate = await db.qaFormTemplate.findFirst({
-    where: { propertyId: null, serviceType: job.jobType, isActive: true },
-    orderBy: { version: "desc" },
-  });
-  if (globalTemplate) {
-    // Auto-upgrade a SYSTEM-OWNED default to the latest area-based schema when
-    // it's stale.
-    //
-    // This used to decide ownership by matching the NAME ("Default QA - …"), so
-    // an admin who edited the default template in place without renaming it had
-    // their work silently overwritten the next time anyone opened a job. The
-    // flag is explicit and is only ever set by the system.
-    const schema = globalTemplate.schema as { version?: number } | null;
-    const stale =
-      !schema || typeof schema !== "object" || Number(schema.version ?? 0) < QA_TEMPLATE_VERSION;
-    if (globalTemplate.isSystemManaged && stale) {
-      return db.qaFormTemplate.update({
-        where: { id: globalTemplate.id },
-        data: { schema: buildDefaultQaTemplateSchema(job.jobType) as any },
-      });
-    }
-    return globalTemplate;
-  }
-  return db.qaFormTemplate.create({
-    data: {
-      name: `Default QA - ${String(job.jobType).replace(/_/g, " ")}`,
-      serviceType: job.jobType,
-      schema: buildDefaultQaTemplateSchema(job.jobType) as any,
-      isSystemManaged: true,
-    },
-  });
-}
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -337,7 +261,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
           },
         },
       }),
-      resolveTemplate(params.id),
+      resolveQaTemplate(params.id),
       db.qaAssignment.findFirst({
         where: {
           jobId: params.id,
@@ -359,7 +283,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     // ── VISIBILITY SCOPING — an inspector may not open a job whose ACTIVE
     //    assignment belongs to another inspector. Admin/ops are unaffected, as
     //    are unassigned (OPEN pool) assignments and jobs with no assignment.
-    if (session.user.role === Role.QA_INSPECTOR) {
+    if (!(session.user.heldRoles ?? [session.user.role]).some(role => role === Role.ADMIN || role === Role.OPS_MANAGER)) {
       const activeAssignments = await db.qaAssignment.findMany({
         where: {
           jobId: params.id,
@@ -369,9 +293,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       });
       const foreignAssignment = activeAssignments.some(
         (a) =>
-          a.assignedToId != null &&
-          a.assignedToId !== session.user.id &&
-          a.pickedUpById !== session.user.id
+          (a.assignedToId != null && a.assignedToId !== session.user.id) ||
+          (a.pickedUpById != null && a.pickedUpById !== session.user.id)
       );
       if (foreignAssignment) {
         return NextResponse.json(
@@ -754,12 +677,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const session = await requireRole([...QA_ROLES]);
     const body = submitSchema.parse(await req.json());
-    const template = await db.qaFormTemplate.findUnique({ where: { id: body.templateId } });
+    const authorizedAssignment = await requireQaSubmitAssignment({
+      jobId: params.id, userId: session.user.id,
+      roles: session.user.heldRoles ?? [session.user.role as Role],
+      assignmentId: body.assignmentId, amending: Boolean(body.reopenedReviewId),
+    });
+    body.assignmentId = authorizedAssignment.id;
+    const template = body.templateId === `preview:${params.id}`
+      ? await resolveQaTemplate(params.id, true)
+      : await db.qaFormTemplate.findUnique({ where: { id: body.templateId } });
     if (!template) return NextResponse.json({ error: "QA template not found." }, { status: 404 });
 
     const job = await db.job.findUnique({
       where: { id: params.id },
-      select: { id: true, status: true, propertyId: true, internalNotes: true, property: { select: { id: true, name: true, accessInfo: true } } },
+      select: { id: true, status: true, completedAt: true, propertyId: true, internalNotes: true, property: { select: { id: true, name: true, accessInfo: true } } },
     });
     if (!job) return NextResponse.json({ error: "QA job not found." }, { status: 404 });
 
@@ -898,6 +829,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // it's the cleaner's only evidence of what to fix. (Legacy flat `areas` have
     // no photo field and are exempt.)
     if (willCreateRework) {
+      if (!(rkPre?.flaggedAreas ?? []).length) {
+        return NextResponse.json({ error: "Add each flagged area with its QA photo before creating rework. Reload the current inspection form." }, { status: 400 });
+      }
       const missingPhotoArea = (rkPre?.flaggedAreas ?? []).find((a) => (a.photoKeys ?? []).length === 0);
       if (missingPhotoArea) {
         return NextResponse.json(
@@ -958,12 +892,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
+    let reworkTransferId: string | null = null;
+    let reworkJobId: string | null = null;
+    let reworkOffer: { assignmentId: string; status: string; expiresAt: string } | null = null;
+    let reworkBlockedReason: string | null = null;
+    const createdCaseIds: string[] = [];
+    let restockRunId: string | null = null;
+    let countRunId: string | null = null;
+    const afterQaCommit: Array<() => Promise<void>> = [];
     const created = await db.$transaction(async (tx) => {
       // Serialize concurrent submits for the same job — two near-simultaneous
       // requests (a double-tap) would both pass the pre-check above, so the
       // race is settled here: the lock queues the second request, and the
       // re-check behind it sees the first one's review.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.id}))`;
+      const [lockedJob] = await tx.$queryRaw<Array<{ status: JobStatus; completedAt: Date | null }>>`SELECT status, "completedAt" FROM "Job" WHERE id = ${params.id} FOR UPDATE`;
+      if (!lockedJob || !QA_INSPECTABLE.includes(lockedJob.status)) throw new Error("This job is no longer available for QA. Reload before submitting.");
+      await requireQaSubmitAssignment({ jobId: params.id, userId: session.user.id,
+        roles: session.user.heldRoles ?? [session.user.role as Role],
+        assignmentId: body.assignmentId, amending: Boolean(body.reopenedReviewId),
+      }, tx);
       if (!amendReview) {
         const dupe = await tx.qAReview.findFirst({
           where: { jobId: params.id, kind: "QA" },
@@ -1048,6 +996,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           },
         });
       }
+      const priorToolSubmission = amendReview ? await tx.qaFormSubmission.findFirst({ where: { qaReviewId: review.id }, orderBy: { createdAt: "desc" }, select: { data: true } }) : null;
+      const priorTools = ((priorToolSubmission?.data as any)?.[QA_TOOLS_DATA_KEY] ?? {}) as { damage?: Array<{ id?: string }>; nextClean?: unknown[]; restock?: unknown[]; inventoryCount?: unknown[] };
       const submission = await tx.qaFormSubmission.create({
         data: {
           jobId: params.id,
@@ -1073,11 +1023,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           where: {
             id: body.assignmentId,
             jobId: params.id,
-            OR: [
-              { assignedToId: null },
-              { assignedToId: session.user.id },
-              { pickedUpById: session.user.id },
-            ],
+            status: { in: [QaAssignmentStatus.ASSIGNED, QaAssignmentStatus.IN_PROGRESS] },
           },
           data: {
             status: QaAssignmentStatus.COMPLETED,
@@ -1101,9 +1047,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           // effectivePassed is false when a rework is being spawned, so the
           // original job stays in QA_REVIEW rather than closing as COMPLETED.
           status: effectivePassed ? JobStatus.COMPLETED : JobStatus.QA_REVIEW,
-          completedAt: effectivePassed ? new Date() : null,
+          completedAt: effectivePassed ? lockedJob.completedAt ?? new Date() : null,
         },
       });
+
+      if (effectivePassed) await applyJobRotationCompletion(tx, { jobId: params.id, propertyId: job.propertyId });
 
       await tx.auditLog.create({
         data: {
@@ -1215,177 +1163,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         });
       }
 
-      return { review, submission };
-    });
-
-    // ── Side effects (outside the QA transaction so a failure here never voids
-    //    the submission itself; each is best-effort and individually audited).
-
-    // DAMAGE REPORT → create a DAMAGE case per entry, linked to the job/property.
-    const createdCaseIds: string[] = [];
-    for (const entry of tools?.damage ?? []) {
-      if (!entry.description.trim() && !entry.area.trim()) continue;
-      try {
-        const c = await createCase({
-          title: `QA damage — ${entry.area || job.property?.name || "Property"}`.slice(0, 180),
-          description: [entry.description, entry.estimatedCost ? `Estimated cost: $${entry.estimatedCost}` : ""]
-            .filter(Boolean)
-            .join("\n\n"),
-          severity: entry.severity,
-          caseType: "DAMAGE",
-          source: "QA_INSPECTION",
-          jobId: params.id,
-          propertyId: job.propertyId,
-          comment: { authorUserId: session.user.id, body: `Logged from QA inspection.`, isInternal: true },
-          attachments: (entry.photoKeys ?? []).map((key) => ({
-            uploadedByUserId: session.user.id,
-            s3Key: key,
-            url: publicUrl(key),
-            label: "QA damage photo",
-          })),
-        });
-        if (c?.id) createdCaseIds.push(c.id);
-      } catch (err) {
-        console.error("[qa-submit] damage case create failed", err);
-      }
-    }
-
-    // NEXT-CLEAN ACTIONS → append to job internalNotes (preserving structured
-    // meta) and store a structured flag on the property's accessInfo JSON.
-    if ((tools?.nextClean ?? []).length > 0) {
-      try {
-        const meta = parseJobInternalNotes(job.internalNotes);
-        const lines = (tools?.nextClean ?? []).map((r) =>
-          r.kind === "DEEP_CLEAN_AREA"
-            ? `Next clean — deep clean ${r.area || "area"}: ${r.note}`
-            : `Next clean — special request: ${r.note}`
-        );
-        const appended = [meta.internalNoteText.trim(), ...lines].filter(Boolean).join("\n");
-        const accessInfo =
-          job.property?.accessInfo && typeof job.property.accessInfo === "object" && !Array.isArray(job.property.accessInfo)
-            ? (job.property.accessInfo as Record<string, unknown>)
-            : {};
-        const existingFlags = Array.isArray((accessInfo as any).qaNextClean) ? (accessInfo as any).qaNextClean : [];
-        await db.$transaction([
-          db.job.update({
-            where: { id: params.id },
-            data: { internalNotes: serializeJobInternalNotes({ ...meta, internalNoteText: appended }) },
-          }),
-          db.property.update({
-            where: { id: job.propertyId },
-            data: {
-              accessInfo: {
-                ...accessInfo,
-                qaNextClean: [
-                  ...existingFlags,
-                  ...(tools?.nextClean ?? []).map((r) => ({
-                    kind: r.kind,
-                    area: r.area ?? null,
-                    note: r.note,
-                    jobId: params.id,
-                    at: new Date().toISOString(),
-                  })),
-                ].slice(-25),
-              } as any,
-            },
-          }),
-        ]);
-      } catch (err) {
-        console.error("[qa-submit] next-clean persist failed", err);
-      }
-    }
-
-    // RESTOCK REQUEST → create a DRAFT StockRun pre-filled with the items.
-    let restockRunId: string | null = null;
-    const restockLines = (tools?.restock ?? []).filter((l) => l.quantity > 0);
-    if (restockLines.length > 0) {
-      try {
-        const stocks = await db.propertyStock.findMany({
-          where: { id: { in: restockLines.map((l) => l.propertyStockId) }, propertyId: job.propertyId },
-        });
-        const stockById = new Map(stocks.map((s) => [s.id, s]));
-        const validLines = restockLines.filter((l) => stockById.has(l.propertyStockId));
-        if (validLines.length > 0) {
-          const run = await db.stockRun.create({
-            data: {
-              propertyId: job.propertyId,
-              requestedByUserId: session.user.id,
-              title: `QA restock — ${job.property?.name ?? "Property"}`.slice(0, 200),
-              notes: `Flagged during QA inspection of job ${params.id}.`,
-              status: StockRunStatus.DRAFT,
-              requestedByAdmin: false,
-              lines: {
-                create: validLines.map((l) => {
-                  const stock = stockById.get(l.propertyStockId)!;
-                  return {
-                    propertyStockId: l.propertyStockId,
-                    expectedOnHand: stock.onHand,
-                    parLevel: stock.parLevel,
-                    reorderThreshold: stock.reorderThreshold,
-                    note: [l.note, `Restock qty: ${l.quantity}`].filter(Boolean).join(" · "),
-                  };
-                }),
-              },
-            },
-          });
-          restockRunId = run.id;
-        }
-      } catch (err) {
-        console.error("[qa-submit] restock run create failed", err);
-      }
-    }
-
-    // FULL INVENTORY COUNT → create a DRAFT StockRun carrying the inspector's
-    // counts (admin applies it from the inventory stock-count workflow).
-    let countRunId: string | null = null;
-    if ((tools?.inventoryCount ?? []).length > 0) {
-      try {
-        const ids = (tools?.inventoryCount ?? []).map((l) => l.propertyStockId);
-        const stocks = await db.propertyStock.findMany({
-          where: { id: { in: ids }, propertyId: job.propertyId },
-        });
-        const stockById = new Map(stocks.map((s) => [s.id, s]));
-        const validLines = (tools?.inventoryCount ?? []).filter((l) => stockById.has(l.propertyStockId));
-        if (validLines.length > 0) {
-          const run = await db.stockRun.create({
-            data: {
-              propertyId: job.propertyId,
-              requestedByUserId: session.user.id,
-              title: `QA inventory count — ${job.property?.name ?? "Property"}`.slice(0, 200),
-              notes: `Full count captured during QA inspection of job ${params.id}.`,
-              status: StockRunStatus.DRAFT,
-              requestedByAdmin: false,
-              lines: {
-                create: validLines.map((l) => {
-                  const stock = stockById.get(l.propertyStockId)!;
-                  return {
-                    propertyStockId: l.propertyStockId,
-                    expectedOnHand: stock.onHand,
-                    countedOnHand: l.countedOnHand,
-                    parLevel: stock.parLevel,
-                    reorderThreshold: stock.reorderThreshold,
-                    note: l.note || null,
-                  };
-                }),
-              },
-            },
-          });
-          countRunId = run.id;
-        }
-      } catch (err) {
-        console.error("[qa-submit] inventory count run create failed", err);
-      }
-    }
 
     // REWORK → on a failed clean, spin up a distinct rework JOB carrying the
     // flagged areas + QA photos (the cleaner gets a dynamic fix-checklist), and
     // wire the pay decision (same cleaner = no pay; different cleaner = paid +
     // deducted from the original). A legacy cleaner→QA pay/time transfer is still
     // recorded when the inspector explicitly moved minutes/$ to themselves.
-    let reworkTransferId: string | null = null;
-    let reworkJobId: string | null = null;
-    let reworkOffer: { assignmentId: string; status: string; expiresAt: string } | null = null;
-    let reworkBlockedReason: string | null = null;
     const rk = tools?.rework;
     // Honour the inspector's explicit rework toggle regardless of the numeric
     // pass/fail — if they enabled rework and flagged areas, they are requesting a
@@ -1398,8 +1181,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               id: a.id || `area-${i + 1}`,
               label: a.label,
               note: a.note,
-              photoKeys: a.photoKeys ?? [],
-              annotations: a.annotations,
+              photoKeys: (a.photoKeys ?? []).map(key => a.annotations?.[key]?.flatKey || key),
             }))
           : (rk.areas ?? []).map((label, i) => ({
               id: `area-${i + 1}`,
@@ -1409,13 +1191,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             }));
       // INVARIANT 1 — invoiceable ⇔ payee ≠ original cleaner. Checked before any
       // rework job/pay row is written (violations are audited + fatal).
-      const originalPrimary = await db.jobAssignment
+      const originalPrimary = await tx.jobAssignment
         .findFirst({
           where: { jobId: params.id, removedAt: null },
           orderBy: [{ isPrimary: "desc" }, { assignedAt: "asc" }],
           select: { userId: true },
         })
-        .catch(() => null);
+        ;
       await guardInvariant(
         () =>
           assertReworkInvoiceablePayee({
@@ -1431,9 +1213,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // may already be paid/started; duplicating it would double the money.
       const duplicateRework =
         amendReview &&
-        (await db.job
+        (await tx.job
           .count({ where: { reworkOfJobId: params.id, isRework: true } })
-          .catch(() => 0)) > 0;
+          ) > 0;
       if (duplicateRework) {
         reworkBlockedReason =
           "A rework job already exists for this inspection — the amendment did not create another. Manage the existing rework from the job list.";
@@ -1446,14 +1228,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             qaUserId: session.user.id,
             reason: rk.reason || "QA flagged rework.",
             areas: flagged,
-            sourceReviewId: created.review.id,
+            sourceReviewId: review.id,
             assignToCleanerId: rk.assignee === "OTHER" ? rk.payeeCleanerId ?? null : null,
             payAmount: rk.assignee === "OTHER" ? rk.payAmount : 0,
             allocatedHours: rk.allocatedHours ?? null,
             categorized: rk.categorized,
-          });
+          }, tx);
         } catch (err) {
-          console.error("[qa-submit] rework job create failed", err);
+          throw err;
         }
       }
 
@@ -1462,11 +1244,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       //     theirs) or declines (it returns to the QA decision).
       if (rk.decision === "OFFER_ORIGINAL" && reworkJobId && body.assignmentId) {
         try {
+          await tx.job.update({ where: { id: reworkJobId }, data: { status: JobStatus.OFFERED } });
+          await tx.jobAssignment.updateMany({ where: { jobId: reworkJobId, removedAt: null }, data: { responseStatus: "PENDING", respondedAt: null } });
           const offerWindow = buildOfferWindow(
             new Date(),
             settings.accountability.rectification.reworkOfferTtlMinutes
           );
-          await db.qaAssignment.updateMany({
+          await tx.qaAssignment.updateMany({
             where: { id: body.assignmentId, jobId: params.id },
             data: offerWindow,
           });
@@ -1477,17 +1261,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           };
           const offerCleanerId = originalPrimary?.userId ?? null;
           if (offerCleanerId) {
-            void notifyReworkOfferToCleaner({
-              jobId: reworkJobId,
+            const offeredJobId = reworkJobId;
+            const offeredAssignmentId = body.assignmentId;
+            afterQaCommit.push(async () => { await notifyReworkOfferToCleaner({
+              jobId: offeredJobId,
               cleanerId: offerCleanerId,
-              assignmentId: body.assignmentId,
+              assignmentId: offeredAssignmentId,
               propertyName: job.property?.name ?? null,
               reason: rk.reason || "QA flagged rework.",
               expiresAt: offerWindow.reworkOfferExpiresAt,
-            }).catch(console.error);
+            }); });
           }
         } catch (err) {
-          console.error("[qa-submit] rework offer create failed", err);
+          throw err;
         }
       }
 
@@ -1498,7 +1284,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       //     second claim for the same visit is refused (see duplicateRework).
       const duplicateTransfer =
         amendReview &&
-        (await db.qaReworkTransfer.count({ where: { jobId: params.id } }).catch(() => 0)) > 0;
+        (await tx.qaReworkTransfer.count({ where: { jobId: params.id } })) > 0;
       if (duplicateTransfer) {
         reworkBlockedReason =
           reworkBlockedReason ??
@@ -1525,15 +1311,193 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             minutesFromCleaner: rk.minutesFromCleaner,
             amountFromCleaner: rk.amountFromCleaner,
             affectsCleanerStats: rk.affectsCleanerStats,
-          });
+          }, { transaction: tx, afterCommit: afterQaCommit });
           reworkTransferId = transfer.id;
         } catch (err) {
-          console.error("[qa-submit] rework transfer create failed", err);
+          throw err;
         }
       }
     }
 
-    await generateJobReport(params.id).catch(() => null);
+
+    // DAMAGE REPORT → create a DAMAGE case per entry, linked to the job/property.
+    for (const entry of tools?.damage ?? []) {
+      if (!entry.description.trim() && !entry.area.trim()) continue;
+      try {
+        const caseId = await applyQaToolEffect(tx, params.id, `damage:${entry.id || qaEffectFingerprint(entry)}`, entry, async () => {
+        const c = await createCase({
+          title: `QA damage — ${entry.area || job.property?.name || "Property"}`.slice(0, 180),
+          description: [entry.description, entry.estimatedCost ? `Estimated cost: $${entry.estimatedCost}` : ""]
+            .filter(Boolean)
+            .join("\n\n"),
+          severity: entry.severity,
+          caseType: "DAMAGE",
+          source: "QA_INSPECTION",
+          clientVisible: false,
+          metadata: { qaJobId: params.id, qaDamageEntryId: entry.id || qaEffectFingerprint(entry) },
+          jobId: params.id,
+          propertyId: job.propertyId,
+          comment: { authorUserId: session.user.id, body: `Logged from QA inspection.`, isInternal: true },
+          attachments: (entry.photoKeys ?? []).map((key) => ({
+            uploadedByUserId: session.user.id,
+            s3Key: key,
+            url: publicUrl(key),
+            label: "QA damage photo",
+          })),
+        }, { transaction: tx, afterCommit: afterQaCommit });
+        if (!c?.id) throw new Error("QA damage case was not created");
+        return c.id;
+        }, (priorTools.damage ?? []).some(previous => entry.id ? previous.id === entry.id : qaEffectFingerprint(previous) === qaEffectFingerprint(entry)));
+        createdCaseIds.push(caseId);
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // NEXT-CLEAN ACTIONS → append to job internalNotes (preserving structured
+    // meta) and store a structured flag on the property's accessInfo JSON.
+    if ((tools?.nextClean ?? []).length > 0) {
+      try {
+        await applyQaToolEffect(tx, params.id, "next-clean", tools?.nextClean, async () => {
+        await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${job.propertyId} FOR UPDATE`;
+        const freshJob = await tx.job.findUniqueOrThrow({ where: { id: params.id }, select: { internalNotes: true } });
+        const freshProperty = await tx.property.findUniqueOrThrow({ where: { id: job.propertyId }, select: { accessInfo: true } });
+        const meta = parseJobInternalNotes(freshJob.internalNotes);
+        const lines = (tools?.nextClean ?? []).map((r) =>
+          r.kind === "DEEP_CLEAN_AREA"
+            ? `Next clean — deep clean ${r.area || "area"}: ${r.note}`
+            : `Next clean — special request: ${r.note}`
+        );
+        const appended = [meta.internalNoteText.trim(), ...lines].filter(Boolean).join("\n");
+        const accessInfo =
+          freshProperty.accessInfo && typeof freshProperty.accessInfo === "object" && !Array.isArray(freshProperty.accessInfo)
+            ? (freshProperty.accessInfo as Record<string, unknown>)
+            : {};
+        const existingFlags = Array.isArray((accessInfo as any).qaNextClean) ? (accessInfo as any).qaNextClean : [];
+        await tx.job.update({
+            where: { id: params.id },
+            data: { internalNotes: serializeJobInternalNotes({ ...meta, internalNoteText: appended }) },
+          });
+          await tx.property.update({
+            where: { id: job.propertyId },
+            data: {
+              accessInfo: {
+                ...accessInfo,
+                qaNextClean: [
+                  ...existingFlags,
+                  ...(tools?.nextClean ?? []).map((r) => ({
+                    kind: r.kind,
+                    area: r.area ?? null,
+                    note: r.note,
+                    jobId: params.id,
+                    at: new Date().toISOString(),
+                  })),
+                ].slice(-25),
+              } as any,
+            },
+          });
+        return true;
+        }, Boolean(priorTools.nextClean?.length));
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // RESTOCK REQUEST → create a DRAFT StockRun pre-filled with the items.
+    const restockLines = (tools?.restock ?? []).filter((l) => l.quantity > 0);
+    if (restockLines.length > 0) {
+      try {
+        restockRunId = await applyQaToolEffect(tx, params.id, "restock", restockLines, async () => {
+        const stocks = await tx.propertyStock.findMany({
+          where: { id: { in: restockLines.map((l) => l.propertyStockId) }, propertyId: job.propertyId },
+        });
+        const stockById = new Map(stocks.map((s) => [s.id, s]));
+        const validLines = restockLines.filter((l) => stockById.has(l.propertyStockId));
+        if (validLines.length !== restockLines.length) throw new Error("QA restock includes invalid property stock");
+        if (validLines.length > 0) {
+          const run = await tx.stockRun.create({
+            data: {
+              propertyId: job.propertyId,
+              requestedByUserId: session.user.id,
+              title: `QA restock — ${job.property?.name ?? "Property"}`.slice(0, 200),
+              notes: `Flagged during QA inspection of job ${params.id}.`,
+              status: StockRunStatus.DRAFT,
+              requestedByAdmin: false,
+              lines: {
+                create: validLines.map((l) => {
+                  const stock = stockById.get(l.propertyStockId)!;
+                  return {
+                    propertyStockId: l.propertyStockId,
+                    expectedOnHand: stock.onHand,
+                    parLevel: stock.parLevel,
+                    reorderThreshold: stock.reorderThreshold,
+                    note: [l.note, `Restock qty: ${l.quantity}`].filter(Boolean).join(" · "),
+                  };
+                }),
+              },
+            },
+          });
+          return run.id;
+        }
+        throw new Error("QA restock contains no valid property stock");
+        }, Boolean(priorTools.restock?.length));
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // FULL INVENTORY COUNT → create a DRAFT StockRun carrying the inspector's
+    // counts (admin applies it from the inventory stock-count workflow).
+    if ((tools?.inventoryCount ?? []).length > 0) {
+      try {
+        countRunId = await applyQaToolEffect(tx, params.id, "inventory-count", tools?.inventoryCount, async () => {
+        const ids = (tools?.inventoryCount ?? []).map((l) => l.propertyStockId);
+        const stocks = await tx.propertyStock.findMany({
+          where: { id: { in: ids }, propertyId: job.propertyId },
+        });
+        const stockById = new Map(stocks.map((s) => [s.id, s]));
+        const validLines = (tools?.inventoryCount ?? []).filter((l) => stockById.has(l.propertyStockId));
+        if (validLines.length !== (tools?.inventoryCount ?? []).length) throw new Error("QA count includes invalid property stock");
+        if (validLines.length > 0) {
+          const run = await tx.stockRun.create({
+            data: {
+              propertyId: job.propertyId,
+              requestedByUserId: session.user.id,
+              title: `QA inventory count — ${job.property?.name ?? "Property"}`.slice(0, 200),
+              notes: `Full count captured during QA inspection of job ${params.id}.`,
+              status: StockRunStatus.DRAFT,
+              requestedByAdmin: false,
+              lines: {
+                create: validLines.map((l) => {
+                  const stock = stockById.get(l.propertyStockId)!;
+                  return {
+                    propertyStockId: l.propertyStockId,
+                    expectedOnHand: stock.onHand,
+                    countedOnHand: l.countedOnHand,
+                    parLevel: stock.parLevel,
+                    reorderThreshold: stock.reorderThreshold,
+                    note: l.note || null,
+                  };
+                }),
+              },
+            },
+          });
+          return run.id;
+        }
+        throw new Error("QA count contains no valid property stock");
+        }, Boolean(priorTools.inventoryCount?.length));
+      } catch (err) {
+        throw err;
+      }
+    }
+
+
+      await enqueueQaReportFollowup(tx, { jobId: params.id, submissionId: submission.id });
+      return { review, submission };
+    }, { timeout: 30000 });
+    for (const effect of afterQaCommit) await effect().catch(console.error);
+
+    const reportFollowup = await processQaReportFollowups(new Date(), created.submission.id).catch(() => null);
 
     // ── ACCOUNTABILITY NOTIFICATIONS (Phase 8b). Fire-and-forget, post-commit:
     //    only when an accountability assessment was actually processed. Each helper
@@ -1610,6 +1574,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       reworkOffer,
       reworkBlockedReason,
       amended: Boolean(amendReview),
+      reportPending: !reportFollowup?.reportReadySubmissionIds.includes(created.submission.id),
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

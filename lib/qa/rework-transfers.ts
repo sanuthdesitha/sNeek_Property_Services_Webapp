@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 /**
  * Cleaner ↔ QA rework transfer service.
  *
@@ -25,6 +26,7 @@
  * notification + their job briefing.
  */
 import {
+  type Prisma,
   NotificationChannel,
   NotificationStatus,
   PayAdjustmentScope,
@@ -84,11 +86,13 @@ export async function createQaReworkTransfer(input: {
   minutesFromCleaner: number;
   amountFromCleaner: number;
   affectsCleanerStats: boolean;
-}) {
+}, options: { transaction?: Prisma.TransactionClient; afterCommit?: Array<() => Promise<void>> } = {}) {
+  if (options.transaction && !options.afterCommit) throw new Error("Transaction requires afterCommit callbacks.");
+  const database = options.transaction ?? db;
   const minutes = Math.max(0, Math.round(Number(input.minutesFromCleaner) || 0));
   const amount = Math.max(0, Number(input.amountFromCleaner) || 0);
 
-  const transfer = await db.qaReworkTransfer.create({
+  const transfer = await database.qaReworkTransfer.create({
     data: {
       jobId: input.jobId,
       assignmentId: input.assignmentId || undefined,
@@ -105,7 +109,7 @@ export async function createQaReworkTransfer(input: {
     include: QA_REWORK_INCLUDE,
   });
 
-  await db.auditLog.create({
+  await database.auditLog.create({
     data: {
       userId: input.qaUserId,
       jobId: input.jobId,
@@ -122,13 +126,15 @@ export async function createQaReworkTransfer(input: {
   });
 
   // Notify admins/ops there is a rework transfer awaiting approval.
-  await notifyAdminsByPush({
+  const notify = async () => { await notifyAdminsByPush({
     jobId: input.jobId,
     subject: "QA rework transfer awaiting approval",
     body: `${transfer.job.property?.name ?? "A job"}: ${severityLabel(transfer.severity)} rework flagged by ${
       transfer.qaUser.name ?? "QA"
     } — ${minutes} min / $${amount.toFixed(2)} proposed to move from ${transfer.cleaner.name ?? "the cleaner"}.`,
-  }).catch(() => undefined);
+  }).catch(() => undefined); };
+  if (options.transaction) options.afterCommit!.push(notify);
+  else await notify();
 
   return transfer;
 }
@@ -271,6 +277,7 @@ export async function reviewQaReworkTransfer(params: {
       data: {
         userId: existing.cleanerUserId,
         jobId: existing.jobId,
+        externalId: mobilePendingMarker("jobs"),
         channel: NotificationChannel.PUSH,
         subject:
           params.status === QaReworkTransferStatus.APPROVED

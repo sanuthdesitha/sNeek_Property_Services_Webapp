@@ -3,19 +3,14 @@ import { JobType, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { getChecklistLibrary, seedChecklistLibraryFromCatalog } from "@/lib/checklists/library";
+import { getChecklistLibrary } from "@/lib/checklists/library";
 import { FEATURE_DEFS } from "@/lib/checklists/features";
 
 /** GET — full library (modules + items) for the editor, plus feature defs. */
 export async function GET() {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    let modules = await getChecklistLibrary({ includeInactive: true });
-    // First visit: auto-seed from the in-code catalog so the library isn't empty.
-    if (modules.length === 0) {
-      await seedChecklistLibraryFromCatalog();
-      modules = await getChecklistLibrary({ includeInactive: true });
-    }
+    const modules = await getChecklistLibrary({ includeInactive: true });
     return NextResponse.json({
       modules,
       featureDefs: FEATURE_DEFS,
@@ -54,7 +49,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "A module with that key already exists." }, { status: 409 });
     }
     const maxOrder = await db.checklistModule.aggregate({ _max: { sortOrder: true } });
-    const module = await db.checklistModule.create({
+    const checklistModule = await db.checklistModule.create({
       data: {
         key: body.key,
         title: body.title,
@@ -69,11 +64,11 @@ export async function POST(req: NextRequest) {
         userId: session.user.id,
         action: "CHECKLIST_MODULE_CREATE",
         entity: "ChecklistModule",
-        entityId: module.id,
-        after: { key: module.key, title: module.title } as any,
+        entityId: checklistModule.id,
+        after: { key: checklistModule.key, title: checklistModule.title } as any,
       },
     });
-    return NextResponse.json(module, { status: 201 });
+    return NextResponse.json(checklistModule, { status: 201 });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

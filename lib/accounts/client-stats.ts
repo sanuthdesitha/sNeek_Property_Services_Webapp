@@ -1,4 +1,6 @@
 import { db } from "@/lib/db";
+import { summarizeCompletedHistory, completedServiceDate } from "./completed-history";
+import { OUTSTANDING_INVOICE_STATUSES, summarizeReceivables } from "@/lib/finance/receivables";
 
 export interface ClientStats {
   clientId: string;
@@ -70,7 +72,7 @@ export async function getClientExtras(clientId: string): Promise<ClientExtras> {
     db.job
       .findMany({
         where: { property: { clientId } },
-        select: { id: true, status: true, scheduledDate: true, updatedAt: true },
+        select: { id: true, status: true, scheduledDate: true, completedAt: true },
       })
       .catch(() => [] as any[]),
     db.cleanerPayAdjustment
@@ -127,7 +129,7 @@ export async function getClientExtras(clientId: string): Promise<ClientExtras> {
   }
   for (const j of jobs) {
     if (j.status !== "COMPLETED" && j.status !== "INVOICED") continue;
-    const when = j.updatedAt ?? j.scheduledDate;
+    const when = completedServiceDate(j);
     if (!when) continue;
     const dt = new Date(when);
     const b = idx.get(`${dt.getFullYear()}-${dt.getMonth()}`);
@@ -160,7 +162,7 @@ export async function getClientStats(clientId: string): Promise<ClientStats> {
     db.clientInvoice
       .findMany({
         where: { clientId },
-        select: { totalAmount: true, status: true, paidAt: true, sentAt: true, createdAt: true },
+        select: { totalAmount: true, paidAmount: true, status: true, paidAt: true, sentAt: true, createdAt: true },
       })
       .catch(() => [] as any[]),
     db.property.count({ where: { clientId } }).catch(() => 0),
@@ -169,7 +171,7 @@ export async function getClientStats(clientId: string): Promise<ClientStats> {
     db.job
       .findMany({
         where: { property: { clientId } },
-        select: { id: true, scheduledDate: true, status: true, updatedAt: true },
+        select: { id: true, scheduledDate: true, status: true, completedAt: true },
       })
       .catch(() => [] as any[]),
     db.jobFeedback
@@ -187,14 +189,10 @@ export async function getClientStats(clientId: string): Promise<ClientStats> {
   ]);
 
   const paid = invoices.filter((i: any) => i.status === "PAID");
-  const outstanding = invoices.filter(
-    (i: any) => i.status !== "PAID" && i.status !== "VOID" && i.status !== "DRAFT"
-  );
+  const outstanding = invoices.filter((invoice) =>
+    (OUTSTANDING_INVOICE_STATUSES as readonly string[]).includes(invoice.status));
   const totalSpend = paid.reduce((sum: number, i: any) => sum + Number(i.totalAmount || 0), 0);
-  const outstandingAmount = outstanding.reduce(
-    (sum: number, i: any) => sum + Number(i.totalAmount || 0),
-    0
-  );
+  const { outstandingAud: outstandingAmount } = summarizeReceivables(outstanding);
 
   const lastInvoiceAt = invoices.reduce<Date | null>((acc, i: any) => {
     const candidate = i.paidAt ?? i.sentAt ?? i.createdAt;
@@ -203,23 +201,7 @@ export async function getClientStats(clientId: string): Promise<ClientStats> {
     return !acc || dt > acc ? dt : acc;
   }, null);
 
-  const now = new Date();
-  const day30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const day90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-  const jobsLast30d = jobs.filter(
-    (j: any) => j.scheduledDate && new Date(j.scheduledDate) >= day30
-  ).length;
-  const jobsLast90d = jobs.filter(
-    (j: any) => j.scheduledDate && new Date(j.scheduledDate) >= day90
-  ).length;
-
-  const lastJobAt = jobs.reduce<Date | null>((acc, j: any) => {
-    const completed = j.status === "COMPLETED" || j.status === "INVOICED" ? j.updatedAt : null;
-    const candidate = completed ?? j.scheduledDate;
-    if (!candidate) return acc;
-    const dt = new Date(candidate);
-    return !acc || dt > acc ? dt : acc;
-  }, null);
+  const { lastJobAt, jobsLast30d, jobsLast90d } = summarizeCompletedHistory(jobs);
 
   const ratingsRaw = [
     ...feedback.map((f: any) => (typeof f.rating === "number" ? f.rating : null)),

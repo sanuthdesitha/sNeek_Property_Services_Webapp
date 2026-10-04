@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { addDays, format, startOfDay } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { JobStatus, LaundryStatus, NotificationChannel, NotificationStatus, Role } from "@prisma/client";
@@ -279,6 +280,7 @@ async function logPushNotification(userId: string, subject: string, body: string
   await db.notification.create({
     data: {
       userId,
+      externalId: mobilePendingMarker("jobs"),
       channel: NotificationChannel.PUSH,
       subject,
       body,

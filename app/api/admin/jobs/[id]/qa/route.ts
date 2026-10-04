@@ -14,6 +14,8 @@ import {
 } from "@/lib/cases/auto-case";
 import { recomputeJobQaOutcome } from "@/lib/qa/authority";
 import { getAdminReworkContext } from "@/lib/qa/admin-rework";
+import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
+import { assertNotSelfInspection } from "@/lib/qa/self-review";
 import { notifyQaResultToCleaner } from "@/lib/notifications/accountability";
 
 const qaSchema = z.object({
@@ -36,6 +38,7 @@ export async function POST(
       select: {
         id: true,
         status: true,
+        completedAt: true,
         propertyId: true,
         jobType: true,
         scheduledDate: true,
@@ -66,6 +69,7 @@ export async function POST(
       );
     }
 
+    await assertNotSelfInspection(db, { jobId: params.id, candidateUserId: session.user.id, isSelf: true });
     const passed = body.score >= settings.qaAutomation.failureThreshold;
 
     // CORE: the QA review + job status must always commit. A new review is
@@ -78,6 +82,8 @@ export async function POST(
       // Serialize concurrent saves for this job so a double-click's second
       // request queues behind the first and sees its review.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.id}))`;
+      const [lockedJob] = await tx.$queryRaw<Array<{ status: JobStatus; completedAt: Date | null }>>`SELECT status, "completedAt" FROM "Job" WHERE id = ${params.id} FOR UPDATE`;
+      if (!lockedJob || !QA_REVIEWABLE.includes(lockedJob.status)) throw new Error("This job is no longer available for QA. Reload before saving.");
       const recentDuplicate = await tx.qAReview.findFirst({
         where: {
           jobId: params.id,
@@ -104,14 +110,18 @@ export async function POST(
         },
       });
 
+      const inspection = await tx.qAReview.findFirst({ where: { jobId: params.id, kind: "QA" }, orderBy: { createdAt: "desc" }, select: { passed: true } });
+      const effectivePassed = inspection?.passed ?? passed;
       await tx.job.update({
         where: { id: params.id },
         data: {
-          status: passed ? JobStatus.COMPLETED : JobStatus.QA_REVIEW,
+          status: effectivePassed ? JobStatus.COMPLETED : JobStatus.QA_REVIEW,
           // Stamp the completion date used for payroll + invoice periods.
-          completedAt: passed ? new Date() : null,
+          completedAt: effectivePassed ? lockedJob.completedAt ?? new Date() : null,
         },
       });
+
+      if (effectivePassed) await applyJobRotationCompletion(tx, { jobId: params.id, propertyId: job.propertyId });
 
       await tx.auditLog.create({
         data: {

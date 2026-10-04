@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import ICAL from "ical.js";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
@@ -831,6 +832,7 @@ async function syncTurnoverJobsForReservations(params: {
           data: recipientIds.map((userId) => ({
             userId,
             jobId: updated.id,
+            externalId: mobilePendingMarker("jobs"),
             channel: NotificationChannel.PUSH,
             subject: "Shift cancelled — booking moved",
             body: `${params.property.name}: your shift on ${oldDateKey} was removed because the booking moved to ${newDateKey}. The job is now unassigned.`,
@@ -1010,6 +1012,7 @@ async function pruneVanishedReservationJobs(params: {
           await tx.notification.createMany({
             data: assignedUserIds.map((userId) => ({
               userId,
+              externalId: mobilePendingMarker("jobs"),
               channel: NotificationChannel.PUSH,
               subject: "Shift cancelled — booking removed",
               body: `${params.propertyName}: your shift on ${oldDateKey} was cancelled because the booking is no longer on the calendar. It has been removed from your schedule.`,

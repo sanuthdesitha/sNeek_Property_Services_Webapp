@@ -104,7 +104,7 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
   // is checked against BOTH rails: a run will not pick up an inspection a
   // cleaner invoice already billed, and vice versa.
   const includedQaAssignments = payableCleaners.flatMap((c) =>
-    (c.qaInspections ?? []).map((q) => ({ id: q.id, amount: q.amount }))
+    (c.qaInspections ?? []).map((q) => ({ id: q.id, amount: q.amount, updatedAt: q.updatedAt }))
   );
   const includedQaAssignmentIds = Array.from(new Set(includedQaAssignments.map((q) => q.id)));
 
@@ -145,6 +145,19 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
   // Atomic: the run, its payouts, and the job stamps all commit together (or not
   // at all) so a partial failure can't leave an inconsistent / re-payable state.
   const run = await db.$transaction(async (tx) => {
+    for (const cleanerId of [...cleanerIds].sort()) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${cleanerId}))`;
+    }
+    const invoiceClaims = await tx.cleanerInvoiceSubmission.findMany({
+      where: { cleanerId: { in: cleanerIds }, status: { notIn: ["VOID", "CHANGES_REQUESTED"] } },
+      select: { cleanerId: true, lineData: true },
+    });
+    for (const cleaner of payableCleaners) {
+      const invoiced = new Set(invoiceClaims.filter(row => row.cleanerId === cleaner.cleaner.id)
+        .flatMap(row => Array.isArray((row.lineData as any)?.jobIds) ? (row.lineData as any).jobIds as string[] : []));
+      if (cleaner.jobs.some(job => invoiced.has(job.id))) throw new Error("Some work is already reserved on a cleaner invoice. Reconcile before creating payroll.");
+    }
+
     const createdRun = await tx.payrollRun.create({
       data: {
         periodStart: new Date(`${input.periodStart}T00:00:00+10:00`),
@@ -172,7 +185,7 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
       // the reimbursement stays paid exactly once. Row-by-row because the frozen
       // figure differs per settlement.
       for (const row of includedSettlements) {
-        await tx.shoppingSettlement.updateMany({
+        const shoppingClaim = await tx.shoppingSettlement.updateMany({
           where: {
             id: row.settlementId,
             includedInPayrollRunId: null,
@@ -184,23 +197,26 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
             paySettledAmount: row.amount,
           },
         });
+        if (shoppingClaim.count !== 1) throw new Error("Shopping pay was already claimed. Refresh payroll.");
       }
     }
 
     if (includedJobIds.length > 0) {
       // Guard on payrollRunId: null so a concurrent run can't double-stamp.
-      await tx.job.updateMany({
-        where: { id: { in: includedJobIds }, payrollRunId: null },
+      const jobClaim = await tx.job.updateMany({
+        where: { id: { in: includedJobIds }, OR: payableCleaners.flatMap(cleaner => cleaner.jobs.map(job => ({ id: job.id, updatedAt: job.updatedAt }))), payrollRunId: null, status: { in: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] }, cleanSkipStatus: { not: "SKIPPED" } },
         data: { payrollRunId: createdRun.id },
       });
+      if (jobClaim.count !== includedJobIds.length) throw new Error("Job pay was already claimed. Refresh payroll.");
     }
 
     if (includedAdjustmentIds.length > 0) {
       // Same idempotency guard for approved pay adjustments.
-      await tx.cleanerPayAdjustment.updateMany({
-        where: { id: { in: includedAdjustmentIds }, includedInPayrollRunId: null },
+      const adjustmentClaim = await tx.cleanerPayAdjustment.updateMany({
+        where: { id: { in: includedAdjustmentIds }, OR: payableCleaners.flatMap(cleaner => cleaner.adjustments.map(row => ({ id: row.id, updatedAt: row.updatedAt }))), includedInPayrollRunId: null, includedInCleanerInvoiceId: null, status: "APPROVED" },
         data: { includedInPayrollRunId: createdRun.id },
       });
+      if (adjustmentClaim.count !== includedAdjustmentIds.length) throw new Error("Extra pay was already claimed. Refresh payroll.");
     }
 
     if (includedQaAssignmentIds.length > 0) {
@@ -209,9 +225,11 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
       // settings change can never retro-alter what this run paid. Guarded on
       // BOTH stamps being null so a concurrent run/invoice can't double-settle.
       for (const row of includedQaAssignments) {
-        await tx.qaAssignment.updateMany({
+        const qaClaim = await tx.qaAssignment.updateMany({
           where: {
             id: row.id,
+            updatedAt: row.updatedAt,
+            status: "COMPLETED",
             includedInPayrollRunId: null,
             includedInCleanerInvoiceId: null,
           },
@@ -221,6 +239,7 @@ export async function createPayrollRun(input: { periodStart: string; periodEnd: 
             paySettledAmount: row.amount,
           },
         });
+        if (qaClaim.count !== 1) throw new Error("Inspection pay was already claimed. Refresh payroll.");
       }
     }
 

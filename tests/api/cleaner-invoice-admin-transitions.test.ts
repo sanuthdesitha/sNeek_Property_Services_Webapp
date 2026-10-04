@@ -1,0 +1,24 @@
+// @vitest-environment node
+import {beforeEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({role:vi.fn(),find:vi.fn(),update:vi.fn(),remove:vi.fn(),jobs:vi.fn(),release:vi.fn(),audit:vi.fn(),lock:vi.fn(),tx:vi.fn()}));
+vi.mock('@/lib/auth/session',()=>({requireRole:m.role}));
+vi.mock('@/lib/logger',()=>({logger:{info:vi.fn(),error:vi.fn()}}));
+vi.mock('@/lib/cleaner/invoice-release',()=>({releaseCleanerInvoiceConsumables:m.release}));
+vi.mock('@/lib/db',()=>({db:{cleanerInvoiceSubmission:{findUnique:m.find},user:{findUnique:async()=>null},auditLog:{create:m.audit},$transaction:m.tx}}));
+import {PATCH,DELETE} from '@/app/api/admin/cleaner-invoices/[id]/route';
+const context={params:{id:'invoice'}};let current:any;let events:string[];
+const patch=(body:any)=>PATCH(new Request('http://local',{method:'PATCH',body:JSON.stringify(body)}) as any,context);
+const remove=()=>DELETE(new Request('http://local',{method:'DELETE'}) as any,context);
+beforeEach(()=>{vi.resetAllMocks();events=[];current={id:'invoice',cleanerId:'cleaner',status:'SUBMITTED',totalAmount:50,lineData:{jobIds:['job',42]},paidAt:null,paidAmount:null,xeroBillId:null};m.role.mockResolvedValue({user:{id:'admin'}});m.find.mockImplementation(async()=>({...current}));m.update.mockImplementation(async({data})=>{events.push('update');return {...current,...data};});m.jobs.mockImplementation(async()=>{events.push('paid-jobs');return {count:1};});m.release.mockResolvedValue({adjustments:1});m.tx.mockImplementation(async fn=>{try{const result=await fn({$executeRaw:m.lock,$queryRaw:m.lock,cleanerInvoiceSubmission:{findUnique:m.find,update:m.update,delete:m.remove},job:{updateMany:m.jobs}});events.push('commit');return result;}catch(e){events.push('rollback');throw e;}});});
+it('returns same state without releasing or mutating',async()=>{expect((await patch({status:'SUBMITTED'})).status).toBe(200);expect(m.tx).not.toHaveBeenCalled();});
+it('returns404 for missing invoice',async()=>{m.find.mockResolvedValue(null);expect((await patch({status:'VOID'})).status).toBe(404);expect((await remove()).status).toBe(404);});
+it.each(['VOID','CHANGES_REQUESTED','SENDING','XERO_EXPORTING','PAID'])('blocks changing protected %s',async status=>{current.status=status;expect((await patch({status:'SUBMITTED'})).status).toBe(409);expect(m.release).not.toHaveBeenCalled();});
+it.each([{paidAt:new Date()},{paidAmount:0},{xeroBillId:'remote'}])('preserves evidence %j',async fields=>{Object.assign(current,fields);expect((await patch({status:'VOID'})).status).toBe(409);expect((await remove()).status).toBe(409);});
+it('refuses forged export state',async()=>{expect((await patch({status:'XERO_PUSHED'})).status).toBe(409);});
+it('records payment and only valid job IDs atomically',async()=>{expect((await patch({status:'PAID',paymentMethod:'BANK_TRANSFER'})).status).toBe(200);expect(events).toEqual(['paid-jobs','update','commit']);expect(m.jobs.mock.calls[0][0].where.id.in).toEqual(['job']);expect(m.update.mock.calls[0][0].data).toMatchObject({paidAmount:50,paymentMethod:'BANK_TRANSFER'});expect(m.release).not.toHaveBeenCalled();});
+it('allows exported unpaid invoice to be marked paid',async()=>{current.xeroBillId='remote';current.lineData=null;expect((await patch({status:'PAID',paymentMethod:'XERO',paidAmount:45})).status).toBe(200);expect(m.jobs).not.toHaveBeenCalled();});
+it.each([{status:'PAID'},{xeroBillId:'new'},{paidAmount:0},{paidAt:new Date()},null])('rechecks money state under lock %j',async change=>{m.find.mockResolvedValueOnce({...current}).mockResolvedValueOnce(change?{...current,...change}:null);expect((await patch({status:'VOID'})).status).toBe(400);expect(m.release).not.toHaveBeenCalled();expect(events).toEqual(['rollback']);});
+it('releases send-back claims with a required correction note',async()=>{expect((await patch({status:'CHANGES_REQUESTED',changesNote:'Correct shopping total'})).status).toBe(200);expect(m.release).toHaveBeenCalledWith(expect.anything(),'invoice');expect(m.update.mock.calls[0][0].data.changesRequestedNote).toBe('Correct shopping total');expect(m.jobs).not.toHaveBeenCalled();});
+it('deletes unpaid submission and releases its claims in the transaction',async()=>{expect((await remove()).status).toBe(200);expect(m.remove).toHaveBeenCalledWith({where:{id:'invoice'}});expect(m.release).toHaveBeenCalledOnce();expect(m.jobs).not.toHaveBeenCalled();});
+it.each([{status:'PAID'},{xeroBillId:'remote'},{paidAmount:1},null])('refuses stale deletion after lock %j',async change=>{m.find.mockResolvedValueOnce({...current}).mockResolvedValueOnce(change?{...current,...change}:null);expect((await remove()).status).toBe(400);expect(m.remove).not.toHaveBeenCalled();expect(m.release).not.toHaveBeenCalled();});
+it.each(['SENDING','XERO_EXPORTING','PAID'])('refuses deleting %s',async status=>{current.status=status;expect((await remove()).status).toBe(409);});

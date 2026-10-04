@@ -1,3 +1,4 @@
+import { resolveRouteRole } from "@/lib/auth/route-role";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -5,17 +6,6 @@ import { Role } from "@prisma/client";
 import { getStoredJobReport } from "@/lib/reports/access";
 import { getJobReportPdfBuffer } from "@/lib/reports/pdf";
 import { getAppSettings } from "@/lib/settings";
-import { generateJobReport } from "@/lib/reports/generator";
-
-async function loadOrGenerateReport(jobId: string) {
-  let report = await getStoredJobReport(jobId);
-  if (report) return report;
-
-  await generateJobReport(jobId);
-  report = await getStoredJobReport(jobId);
-  return report;
-}
-
 export async function GET(
   req: NextRequest,
   { params }: { params: { jobId: string } }
@@ -24,20 +14,17 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     const format = searchParams.get("format");
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.CLIENT, Role.CLEANER]);
-    const [initialReport, settings] = await Promise.all([getStoredJobReport(params.jobId), getAppSettings()]);
-    let report = initialReport;
+    const role = resolveRouteRole(session.user, [Role.ADMIN, Role.OPS_MANAGER, Role.CLIENT, Role.CLEANER]);
+    const [report, settings] = await Promise.all([getStoredJobReport(params.jobId), getAppSettings()]);
     if (!report) {
-      report = await loadOrGenerateReport(params.jobId);
-      if (!report) {
-        return NextResponse.json(
-          { error: "Report is not available yet. Try again shortly." },
-          { status: 503 }
-        );
-      }
+      return NextResponse.json(
+        { error: "Report is not prepared. Ask an administrator to generate it using the report generation action.", code: "REPORT_GENERATION_REQUIRED" },
+        { status: 409 }
+      );
     }
 
     // Client role: enforce property ownership
-    if (session.user.role === Role.CLIENT) {
+    if (role === Role.CLIENT) {
       const user = await db.user.findUnique({
         where: { id: session.user.id },
         select: { clientId: true },
@@ -52,7 +39,7 @@ export async function GET(
       }
     }
 
-    if (session.user.role === Role.CLEANER) {
+    if (role === Role.CLEANER) {
       const assignment = await db.jobAssignment.findFirst({
         where: {
           jobId: params.jobId,
@@ -66,18 +53,10 @@ export async function GET(
       }
     }
 
-    if (session.user.role === Role.LAUNDRY && report.laundryVisible !== true) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
     if (format !== "html") {
       try {
-        let pdf = await getJobReportPdfBuffer(report, params.jobId);
-        if (!pdf) {
-          report = await loadOrGenerateReport(params.jobId);
-          pdf = report ? await getJobReportPdfBuffer(report, params.jobId) : null;
-        }
-
+        // Prefer the published snapshot; any PDF fallback is rendered in memory.
+        const pdf = await getJobReportPdfBuffer(report, params.jobId, { preferStored: true });
         if (!pdf) {
           return NextResponse.json(
             { error: "PDF report could not be generated for this job." },
@@ -112,7 +91,7 @@ export async function GET(
     }
     return NextResponse.json({ error: "Report not yet available" }, { status: 404 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: err.message }, { status: err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400 });
   }
 }
 

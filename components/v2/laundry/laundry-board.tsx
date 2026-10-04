@@ -1043,6 +1043,7 @@ function InlinePriceWeightEdit({ task, onSaved }: { task: BoardTask; onSaved: ()
 
   async function save() {
     const payload: Record<string, unknown> = {
+      expectedUpdatedAt: task.updatedAt ?? undefined,
       confirm: true,
       // The PATCH requires a correction reason (>= 3 chars) for the audit log.
       notes: "Inline price/weight correction from the tracking board.",
@@ -1197,7 +1198,7 @@ export function TrackingBoard({ canDelete = false }: BoardRoleProps) {
       }
       if (target.status === "CONFIRMED" || target.status === "PENDING") openAction(target, "PICKED_UP");
       else if (target.status === "PICKED_UP") openAction(target, "RETURNED");
-      else if (target.status === "DROPPED") openAction(target, "EDIT_COMPLETED");
+      else if (target.status === "DROPPED" && canDelete) openAction(target, "EDIT_COMPLETED");
       else {
         toast({
           title: "Task found",
@@ -1270,7 +1271,7 @@ export function TrackingBoard({ canDelete = false }: BoardRoleProps) {
             const bags = bagCountFor(t);
             const canPickup = ["PENDING", "CONFIRMED"].includes(t.status);
             const canDrop = t.status === "PICKED_UP";
-            const canRevert = ["PICKED_UP", "DROPPED"].includes(t.status);
+            const canRevert = canDelete && ["PICKED_UP", "DROPPED"].includes(t.status);
             const pendingRequest = pendingFailedPickupRequest(t);
             const droppedEarly = returnedEarly(t);
             const droppedMeta = parseNotes(eventConfirmation(t, "DROPPED")?.notes);
@@ -1411,7 +1412,7 @@ export function TrackingBoard({ canDelete = false }: BoardRoleProps) {
                           {t.supplier?.name ? ` · ${t.supplier.name}` : ""}
                         </p>
                       ) : null}
-                      {t.status === "DROPPED" ? (
+                      {canDelete && t.status === "DROPPED" ? (
                         <InlinePriceWeightEdit task={t} onSaved={() => void load({ silent: true })} />
                       ) : null}
                     </div>
@@ -1446,24 +1447,21 @@ export function TrackingBoard({ canDelete = false }: BoardRoleProps) {
                       </EButton>
                     ) : null}
 
-                    {t.status === "DROPPED" ? (
+                    {canDelete && t.status === "DROPPED" ? (
                       <EButton variant="outline" size="sm" disabled={submittingId === t.id} onClick={() => openAction(t, "EDIT_COMPLETED")}>
                         <FilePenLine className="h-3.5 w-3.5" />
                         Edit details
                       </EButton>
                     ) : null}
 
+                    {!canDelete && t.status === "DROPPED" ? <p className="text-xs">Ask the office to correct completed handoff details.</p> : null}
                     {canRevert ? (
                       <EButton
                         variant="ghost"
                         size="sm"
                         disabled={submittingId === t.id}
                         onClick={() =>
-                          void act(
-                            t,
-                            { status: t.status === "DROPPED" ? "REVERT_TO_PICKED_UP" : "REVERT_TO_CONFIRMED" },
-                            "Reverted"
-                          )
+                          openAction(t, t.status === "DROPPED" ? "REVERT_TO_PICKED_UP" : "REVERT_TO_CONFIRMED")
                         }
                       >
                         <RotateCcw className="h-3.5 w-3.5" />

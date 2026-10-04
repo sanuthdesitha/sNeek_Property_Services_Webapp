@@ -11,7 +11,7 @@ export default async function EstateFormsPage({
 }: {
   searchParams: { tab?: string };
 }) {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
   const tab = searchParams.tab === "checklists" ? "checklists" : "templates";
 
@@ -22,7 +22,7 @@ export default async function EstateFormsPage({
         title="Forms"
         description="Job form templates and the per-service checklists they are built from — publish what cleaners fill in on site."
       />
-      <EstateFormsList tab={tab} />
+      <EstateFormsList tab={tab} canWrite={(session.user.heldRoles ?? [session.user.role]).includes(Role.ADMIN)} />
     </div>
   );
 }

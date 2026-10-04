@@ -66,8 +66,8 @@ export interface ExpectedCleanerInvoice {
     submittedTotal: number;
     submittedJobCount: number;
     submittedAt: string;
-    /** submittedTotal − expectedTotal; ≈0 means it lines up. */
-    variance: number;
+    /** Null when current unsettled forecast cannot be compared to historical snapshots. */
+    variance: number | null;
     /** Expected jobs not represented in the submitted lines (forgot to add). */
     missingJobs: Array<{ jobId: string; jobName: string; date: string; amount: number }>;
   } | null;
@@ -85,15 +85,6 @@ export interface ExpectedInvoicesResult {
 
 function fmtDate(d: Date): string {
   return d.toISOString().slice(0, 10);
-}
-
-/** Loose match: does a submitted line describe this expected job? */
-function submissionCoversJob(
-  lines: Array<{ description?: string }>,
-  row: { jobName: string; date: string },
-): boolean {
-  const needleName = row.jobName.toLowerCase().trim();
-  return lines.some((l) => (l.description ?? "").toLowerCase().includes(needleName));
 }
 
 export async function getExpectedInvoicesForPeriod(opts: {
@@ -157,31 +148,33 @@ export async function getExpectedInvoicesForPeriod(opts: {
     }));
 
     // Pair with an already-submitted invoice overlapping this period, if any.
-    const submissionRow = await db.cleanerInvoiceSubmission.findFirst({
+    const submissionRows = await db.cleanerInvoiceSubmission.findMany({
       where: {
         cleanerId: cleaner.id,
+        status: { notIn: ["VOID", "CHANGES_REQUESTED", "SENDING"] },
         periodStart: { lte: data.end },
         periodEnd: { gte: data.start },
       },
       orderBy: { createdAt: "desc" },
     });
 
+    const submissionRow = submissionRows[0];
     let submission: ExpectedCleanerInvoice["submission"] = null;
     if (submissionRow) {
-      const lineData = (submissionRow.lineData ?? {}) as {
-        lines?: Array<{ description?: string }>;
-      };
-      const submittedLines = Array.isArray(lineData.lines) ? lineData.lines : [];
-      const missingJobs = rows
-        .filter((r) => !submissionCoversJob(submittedLines, r))
-        .map((r) => ({ jobId: r.jobId, jobName: r.jobName, date: r.date, amount: r.amount }));
+      const coveredIds = new Set(submissionRows.flatMap(row => {
+        const ids = (row.lineData as { jobIds?: unknown } | null)?.jobIds;
+        return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+      }));
+      const missingJobs = rows.filter(row => !coveredIds.has(row.jobId))
+        .map(row => ({ jobId: row.jobId, jobName: row.jobName, date: row.date, amount: row.amount }));
       submission = {
         id: submissionRow.id,
-        status: submissionRow.status,
-        submittedTotal: submissionRow.totalAmount,
-        submittedJobCount: submissionRow.jobCount,
+        status: submissionRows.length > 1 ? `MULTIPLE (${submissionRows.length})` : submissionRow.status,
+        submittedTotal: submissionRows.reduce((sum, row) => sum + row.totalAmount, 0),
+        submittedJobCount: coveredIds.size,
         submittedAt: submissionRow.createdAt.toISOString(),
-        variance: Number((submissionRow.totalAmount - data.estimatedPay).toFixed(2)),
+        // Current unpaid forecast is not a like-for-like historical snapshot.
+        variance: null,
         missingJobs,
       };
     }

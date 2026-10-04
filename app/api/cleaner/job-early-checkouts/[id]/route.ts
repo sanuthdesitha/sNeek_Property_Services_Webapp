@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
@@ -49,6 +50,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         data: admins.map((admin) => ({
           userId: admin.id,
           jobId: request.jobId,
+          externalId: mobilePendingMarker("approvals"),
           channel: NotificationChannel.PUSH,
           subject: "Timing update reviewed",
           body: `${session.user.name ?? session.user.email ?? "Cleaner"} ${body.decision === "APPROVE" ? "approved" : "declined"} the timing update for job ${request.jobId}.`,

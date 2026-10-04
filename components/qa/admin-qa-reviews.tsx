@@ -110,9 +110,11 @@ export function AdminQaReviews({ jobId }: { jobId: string }) {
       )
     )
       return;
+    const reason = window.prompt("Explain why QA must be reset (at least 10 characters). Existing financial records will block this operation; use Reopen for normal corrections.")?.trim();
+    if (!reason || reason.length < 10) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/admin/jobs/${jobId}/qa-reset`, { method: "POST" });
+      const res = await fetch(`/api/admin/jobs/${jobId}/qa-reset`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm: true, reason }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not reset QA.");
       const parts: string[] = [];

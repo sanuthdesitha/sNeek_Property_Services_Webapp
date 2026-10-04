@@ -1,3 +1,4 @@
+import { InvoiceCadenceSettings } from "@/components/v2/admin/finance/invoice-cadence";
 import { format } from "date-fns";
 import { Role } from "@prisma/client";
 import { Banknote, FileWarning, TrendingUp, Wallet } from "lucide-react";
@@ -103,7 +104,7 @@ export default async function AdminFinancePage({
           href="/v2/admin/finance?tab=overview"
         />
         <EKpiLink
-          label={`Outstanding · ${summary.outstandingCount} sent`}
+          label={`Outstanding · ${summary.outstandingCount} issued`}
           value={money(summary.outstandingReceivables)}
           icon={<FileWarning />}
           tone={summary.outstandingReceivables > 0 ? "warning" : "neutral"}
@@ -129,7 +130,7 @@ export default async function AdminFinancePage({
 
       <div className="min-w-0">
         {tab === "overview" && dashboardData ? <FinanceOverview data={dashboardData} /> : null}
-        {tab === "invoices" ? <EstateInvoices /> : null}
+        {tab === "invoices" ? <><InvoiceCadenceSettings /><EstateInvoices /></> : null}
         {tab === "payroll" && payrollData ? (
           <EstatePayroll runs={payrollData.runs} cleaners={payrollData.cleaners} />
         ) : null}

@@ -1,5 +1,7 @@
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { getOutstandingReceivables } from "@/lib/finance/receivables";
 import { db } from "@/lib/db";
-import { JobStatus, Role, QaAssignmentStatus, ClientInvoiceStatus, JobType } from "@prisma/client";
+import { JobStatus, Role, QaAssignmentStatus, JobType } from "@prisma/client";
 import { computeClientCharge, type ClientChargeRates } from "@/lib/finance/job-money";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
@@ -10,6 +12,7 @@ type RawJob = {
   jobType: JobType;
   propertyId: string;
   fixedPrice: number | null;
+  internalNotes?: string | null;
 };
 
 const COMPLETED_STATUSES: JobStatus[] = [
@@ -51,8 +54,10 @@ export async function getDashboardMetrics(options: { strict?: boolean } = {}) {
           jobType: true,
           propertyId: true,
           fixedPrice: true,
+          internalNotes: true,
         },
       })
+      .then((jobs) => jobs.filter((job) => !parseJobInternalNotes(job.internalNotes).isDraft))
       .catch(() => fallback([] as RawJob[])),
     db.user
       .count({ where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) } })
@@ -63,19 +68,11 @@ export async function getDashboardMetrics(options: { strict?: boolean } = {}) {
           job: { scheduledDate: { gte: tomorrowStart, lt: tomorrowEnd } },
           removedAt: null,
         },
-        select: { userId: true },
-        distinct: ["userId"],
+        select: { userId: true, job: { select: { internalNotes: true } } },
       })
+      .then((rows) => Array.from(new Set(rows.filter((row) => !parseJobInternalNotes(row.job?.internalNotes).isDraft).map((row) => row.userId))).map((userId) => ({ userId })))
       .catch(() => fallback([] as { userId: string }[])),
-    db.clientInvoice
-      .aggregate({
-        where: {
-          status: { in: [ClientInvoiceStatus.APPROVED, ClientInvoiceStatus.SENT] },
-        },
-        _sum: { totalAmount: true },
-        _count: { _all: true },
-      })
-      .catch(() => fallback(null)),
+    getOutstandingReceivables().catch(() => fallback(null)),
     db.qaAssignment
       .count({
         where: { status: { in: [QaAssignmentStatus.OPEN, QaAssignmentStatus.ASSIGNED] } },
@@ -180,8 +177,8 @@ export async function getDashboardMetrics(options: { strict?: boolean } = {}) {
       idle: Math.max(0, cleanersTotal - cleanersScheduledTomorrowIds.length),
     },
     invoices: {
-      outstandingCount: invoiceAgg?._count?._all ?? 0,
-      outstandingAud: invoiceAgg?._sum?.totalAmount ?? 0,
+      outstandingCount: invoiceAgg?.outstandingCount ?? 0,
+      outstandingAud: invoiceAgg?.outstandingAud ?? 0,
     },
     qaPending: pendingQa,
     lowStockCount,

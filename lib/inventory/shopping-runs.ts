@@ -1343,7 +1343,18 @@ function buildShoppingRunRecordFromDb(run: any): ShoppingRunRecord {
 }
 
 async function loadShoppingRunsFromDb(where?: Record<string, unknown>, client?: Pick<Prisma.TransactionClient, "shoppingRun">) {
-  if (!client) await ensureLegacyShoppingRunsMigrated();
+  // Reads never migrate legacy records. Fail closed rather than hide legacy
+  // money from expected invoices until an explicit migration has been completed.
+  if (!client) {
+    const legacy = await readLegacyStore();
+    if (legacy.runs.length) {
+      const imported = await db.shoppingRun.findMany({ where: { id: { in: legacy.runs.map(run => run.id) } }, select: { id: true } });
+      const ids = new Set(imported.map(run => run.id));
+      if (legacy.runs.some(run => !ids.has(run.id))) {
+        throw new Error("Legacy shopping records require explicit migration before finance totals can be calculated.");
+      }
+    }
+  }
   return (client ?? db).shoppingRun.findMany({
     where: where as any,
     include: {
@@ -1623,6 +1634,7 @@ export async function stampShoppingSettlementsForCleanerInvoice(
      */
     ownedRunIds: readonly string[];
     invoiceId: string;
+    requireAll?: boolean;
     expense?: readonly { runId: string; amount: number }[];
     time?: readonly { runId: string; amount: number }[];
   },
@@ -1630,8 +1642,11 @@ export async function stampShoppingSettlementsForCleanerInvoice(
 ) {
   const owned = new Set(input.ownedRunIds);
   const settledAt = new Date();
+  if (input.requireAll && [...(input.expense ?? []), ...(input.time ?? [])].some(row => !owned.has(row.runId))) {
+    throw new Error("Shopping ownership changed. Refresh before submitting.");
+  }
   for (const row of (input.expense ?? []).filter((row) => owned.has(row.runId))) {
-    await client.shoppingSettlement.updateMany({
+    const claim = await client.shoppingSettlement.updateMany({
       where: {
         shoppingRunId: row.runId,
         includedInPayrollRunId: null,
@@ -1644,9 +1659,10 @@ export async function stampShoppingSettlementsForCleanerInvoice(
         paySettledAmount: row.amount,
       },
     });
+    if (input.requireAll && (claim as { count: number }).count !== 1) throw new Error("Shopping pay was already claimed. Refresh before submitting.");
   }
   for (const row of (input.time ?? []).filter((row) => owned.has(row.runId))) {
-    await client.shoppingSettlement.updateMany({
+    const claim = await client.shoppingSettlement.updateMany({
       where: {
         shoppingRunId: row.runId,
         timeIncludedInPayrollRunId: null,
@@ -1658,6 +1674,7 @@ export async function stampShoppingSettlementsForCleanerInvoice(
         timePaySettledAmount: row.amount,
       },
     });
+    if (input.requireAll && (claim as { count: number }).count !== 1) throw new Error("Shopping pay was already claimed. Refresh before submitting.");
   }
 }
 
@@ -2286,10 +2303,10 @@ export async function markCleanerShoppingRunsInvoiced(
     cleanerId: string;
     runIds: string[];
   },
-  client: { shoppingRun: { update: (args: any) => Promise<unknown> } } = db
+  client: Pick<Prisma.TransactionClient, "shoppingRun"> = db
 ): Promise<string[]> {
   if (input.runIds.length === 0) return [];
-  const dbRuns = await loadShoppingRunsFromDb({ id: { in: input.runIds } });
+  const dbRuns = await loadShoppingRunsFromDb({ id: { in: input.runIds } }, client);
   const now = new Date().toISOString();
   const processed: string[] = [];
   for (const run of dbRuns) {

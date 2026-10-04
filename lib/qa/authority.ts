@@ -11,7 +11,8 @@
  * editing/deleting a score) call `recomputeJobQaOutcome` to re-derive the job's
  * status + completion stamp from the current authoritative review.
  */
-import { JobStatus } from "@prisma/client";
+import { JobStatus, type Prisma } from "@prisma/client";
+import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
 import { db } from "@/lib/db";
 
 export type QaReviewKind = "QA" | "ADMIN" | "AUTO";
@@ -28,8 +29,8 @@ type QaReviewRow = {
 };
 
 /** The single authoritative review for a job (highest kind, then most recent). */
-export async function getAuthoritativeQaReview(jobId: string): Promise<QaReviewRow | null> {
-  const reviews = await db.qAReview.findMany({
+export async function getAuthoritativeQaReview(jobId: string, database: Pick<Prisma.TransactionClient, "qAReview"> = db): Promise<QaReviewRow | null> {
+  const reviews = await database.qAReview.findMany({
     where: { jobId },
     orderBy: { createdAt: "desc" },
     select: { id: true, jobId: true, score: true, passed: true, kind: true, createdAt: true },
@@ -56,24 +57,28 @@ export async function recomputeJobQaOutcome(jobId: string): Promise<{
   passed: boolean;
   score: number;
 } | null> {
-  const job = await db.job.findUnique({
+  return db.$transaction(async (tx) => {
+  await tx.$queryRaw`SELECT id FROM "Job" WHERE id = ${jobId} FOR UPDATE`;
+  const job = await tx.job.findUnique({
     where: { id: jobId },
-    select: { id: true, status: true, completedAt: true },
+    select: { id: true, propertyId: true, status: true, completedAt: true },
   });
   if (!job) return null;
   if (job.status === JobStatus.INVOICED) return null;
 
-  const review = await getAuthoritativeQaReview(jobId);
+  const review = await getAuthoritativeQaReview(jobId, tx);
   if (!review) return null;
 
   const passed = review.passed;
   const status = passed ? JobStatus.COMPLETED : JobStatus.QA_REVIEW;
   const completedAt = passed ? job.completedAt ?? new Date() : null;
 
-  await db.job.update({
+  await tx.job.update({
     where: { id: jobId },
     data: { status, completedAt },
   });
 
+  if (passed) await applyJobRotationCompletion(tx, { jobId, propertyId: job.propertyId });
   return { status, passed, score: review.score };
+  });
 }

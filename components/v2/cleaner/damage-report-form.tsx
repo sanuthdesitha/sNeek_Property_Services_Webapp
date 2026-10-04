@@ -161,6 +161,8 @@ export function DamageReportForm({
   // Skips the autosave that would otherwise fire immediately after hydration
   // and write the draft straight back over itself.
   const hydrated = React.useRef(false);
+  const reportId = React.useRef<string | null>(null);
+  const savedItems = React.useRef("[]");
 
   React.useEffect(() => {
     let cancelled = false;
@@ -170,7 +172,9 @@ export function DamageReportForm({
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Could not load the damage report.");
         if (cancelled) return;
+        reportId.current = data.report?.id ?? null;
         const loaded = Array.isArray(data.report?.items) ? data.report.items.map(toFormItem) : [];
+        savedItems.current = JSON.stringify(loaded);
         setItems(loaded);
       } catch (err: any) {
         if (!cancelled) setError(err.message);
@@ -189,16 +193,19 @@ export function DamageReportForm({
   // Debounced autosave. Sends the whole list: the form owns it, and a dropped
   // partial write must never leave a draft the cleaner never saw.
   React.useEffect(() => {
-    if (!hydrated.current || submitted) return;
+    if (!hydrated.current || submitted || submitting || JSON.stringify(items) === savedItems.current) return;
     setSaveState("saving");
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(`/api/cleaner/jobs/${jobId}/damage`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items }),
+          body: JSON.stringify({ reportId: reportId.current ?? undefined, items }),
         });
         if (!res.ok) throw new Error("save failed");
+        const saved = await res.json();
+        reportId.current = saved.report?.id ?? reportId.current;
+        savedItems.current = JSON.stringify(items);
         setSaveState("saved");
       } catch {
         // Left on screen deliberately — a cleaner needs to know the evidence is
@@ -207,7 +214,7 @@ export function DamageReportForm({
       }
     }, AUTOSAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [items, jobId, submitted]);
+  }, [items, jobId, submitted, submitting]);
 
   function updateItem(clientId: string, patch: Partial<DamageItem>) {
     setItems((prev) =>
@@ -334,10 +341,19 @@ export function DamageReportForm({
 
     setSubmitting(true);
     try {
+      if (!reportId.current) {
+        const saved = await fetch(`/api/cleaner/jobs/${jobId}/damage`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: populated }),
+        });
+        const data = await saved.json();
+        if (!saved.ok || !data.report?.id) throw new Error("Save the draft before submitting.");
+        reportId.current = data.report.id;
+      }
       const res = await fetch(`/api/cleaner/jobs/${jobId}/damage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: populated }),
+        body: JSON.stringify({ reportId: reportId.current, items: populated }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Could not submit the damage report.");

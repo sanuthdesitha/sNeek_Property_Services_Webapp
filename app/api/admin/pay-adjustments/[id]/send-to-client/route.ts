@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
@@ -145,6 +146,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         data: recipients.map((recipient) => ({
           userId: recipient.id,
           jobId: payAdjustment.job?.id ?? undefined,
+          externalId: mobilePendingMarker("billing"),
           channel: NotificationChannel.PUSH,
           subject: "Approval required",
           body: `${sourceProperty.name}: ${created.title}`,
@@ -175,6 +177,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         {
           userId: session.user.id,
           jobId: payAdjustment.job?.id ?? undefined,
+          externalId: mobilePendingMarker("billing"),
           channel: NotificationChannel.PUSH,
           subject: "Pay request sent to client",
           body: `Sent ${created.currency} ${created.amount.toFixed(2)} for client approval.`,
@@ -184,6 +187,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         {
           userId: payAdjustment.cleanerId,
           jobId: payAdjustment.job?.id ?? undefined,
+          externalId: mobilePendingMarker("billing"),
           channel: NotificationChannel.PUSH,
           subject: "Pay request shared with client",
           body: `Admin sent a client approval request for ${sourceProperty.name}.`,

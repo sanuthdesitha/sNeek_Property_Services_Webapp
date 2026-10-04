@@ -1,5 +1,6 @@
 "use client";
 
+import { useSession } from "next-auth/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, format, startOfDay, startOfWeek } from "date-fns";
 import { AlertTriangle, Camera, CheckCircle2, ChevronDown, ChevronRight, Copy, FilePenLine, History, MapPin, Navigation, Shirt, Trash2, Truck, Undo2 } from "lucide-react";
@@ -339,6 +340,8 @@ function KeyPhotoCapture({
 }
 
 export default function LaundryPortal() {
+  const { data: session } = useSession();
+  const canCorrect = ["ADMIN", "OPS_MANAGER"].includes(session?.user?.role ?? "");
   const [tasks, setTasks] = useState<any[]>([]);
   const [historyTasks, setHistoryTasks] = useState<any[]>([]);
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -455,6 +458,10 @@ export default function LaundryPortal() {
   }, [receiptPhoto]);
 
   function openAction(task: any, type: ActionType) {
+    if ((type === "EDIT_COMPLETED" || type.startsWith("REVERT_")) && !canCorrect) {
+      toast({ title: "Office correction required", description: "Ask an administrator to correct completed handoff details." });
+      return;
+    }
     setActionTask(task);
     setActionType(type);
     const completion = getTaskCompletionDetails(task);
@@ -847,9 +854,14 @@ export default function LaundryPortal() {
       return;
     }
 
+    if (actionType.startsWith("REVERT_") && !actionNotes.trim()) {
+      toast({ title: "Correction reason required", variant: "destructive" });
+      return;
+    }
     const isEditCompleted = actionType === "EDIT_COMPLETED";
     if (isEditCompleted) {
       const payload: any = {
+        expectedUpdatedAt: actionTask.updatedAt ?? undefined,
         confirm: true,
         notes: actionNotes.trim(),
       };
@@ -955,6 +967,7 @@ export default function LaundryPortal() {
       }
 
       const payload: any = {
+        expectedUpdatedAt: actionTask.updatedAt ?? undefined,
         confirm: true,
         notes: actionNotes || undefined,
         failedPickupReason: reason,
@@ -1002,6 +1015,7 @@ export default function LaundryPortal() {
 
     const status = actionType;
     const payload: any = {
+        expectedUpdatedAt: actionTask.updatedAt ?? undefined,
       status,
       confirm: true,
       notes: actionNotes || undefined,
@@ -1387,7 +1401,7 @@ export default function LaundryPortal() {
           </div>
           <div>
             <p className="font-semibold text-foreground">2. Mark picked up → returned</p>
-            <p className="mt-1">Tap "Mark Picked Up" once you have the bags. When dropped off, tap "Mark Returned" with photo and cost details.</p>
+            <p className="mt-1">Tap &quot;Mark Picked Up&quot; once you have the bags. When dropped off, tap &quot;Mark Returned&quot; with photo and cost details.</p>
           </div>
           <div>
             <p className="font-semibold text-foreground">3. Returned tab tracks costs</p>
@@ -1626,7 +1640,7 @@ export default function LaundryPortal() {
                         ) : task.status === "PICKED_UP" ? (
                           <Button size="sm" variant="outline" onClick={() => openAction(task, "RETURNED")}>Return</Button>
                         ) : task.status === "DROPPED" ? (
-                          <Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>Edit</Button>
+                          canCorrect && (<Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>Edit</Button>)
                         ) : null}
                       </div>
                     </CardContent>
@@ -1785,22 +1799,22 @@ export default function LaundryPortal() {
                         </Button>
                       )}
                       {task.status === "PICKED_UP" && (
-                        <Button size="sm" variant="ghost" onClick={() => openAction(task, "REVERT_TO_CONFIRMED")}>
+                        canCorrect && (<Button size="sm" variant="ghost" onClick={() => openAction(task, "REVERT_TO_CONFIRMED")}>
                           <Undo2 className="mr-1 h-4 w-4" />
                           Revert
-                        </Button>
+                        </Button>)
                       )}
                       {task.status === "DROPPED" && (
-                        <Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>
+                        canCorrect && (<Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>
                           <FilePenLine className="mr-1 h-4 w-4" />
                           Edit details
-                        </Button>
+                        </Button>)
                       )}
                       {task.status === "DROPPED" && (
-                        <Button size="sm" variant="ghost" onClick={() => openAction(task, "REVERT_TO_PICKED_UP")}>
+                        canCorrect && (<Button size="sm" variant="ghost" onClick={() => openAction(task, "REVERT_TO_PICKED_UP")}>
                           <Undo2 className="mr-1 h-4 w-4" />
                           Revert Return
-                        </Button>
+                        </Button>)
                       )}
                     </div>
 
@@ -1858,10 +1872,10 @@ export default function LaundryPortal() {
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-2">
                         <Badge variant="success">Returned</Badge>
-                        <Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>
+                        {canCorrect && (<Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>
                           <FilePenLine className="mr-1 h-3.5 w-3.5" />
                           Edit
-                        </Button>
+                        </Button>)}
                       </div>
                     </div>
                   </CardContent>
@@ -1963,10 +1977,10 @@ export default function LaundryPortal() {
                       )}
                       {task.status === "DROPPED" ? (
                         <div className="mt-3">
-                          <Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>
+                          {canCorrect && (<Button size="sm" variant="outline" onClick={() => openAction(task, "EDIT_COMPLETED")}>
                             <FilePenLine className="mr-1 h-4 w-4" />
                             Edit completed details
-                          </Button>
+                          </Button>)}
                         </div>
                       ) : null}
                     </>
@@ -2479,7 +2493,7 @@ export default function LaundryPortal() {
             )}
 
             <div className="space-y-1.5">
-              <Label>{actionType === "EDIT_COMPLETED" ? "Correction reason (required)" : "Notes (optional)"}</Label>
+              <Label>{(actionType === "EDIT_COMPLETED" || actionType?.startsWith("REVERT_")) ? "Correction reason (required)" : "Notes (optional)"}</Label>
               <Textarea
                 value={actionNotes}
                 onChange={(e) => setActionNotes(e.target.value)}

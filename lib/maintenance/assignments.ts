@@ -157,6 +157,8 @@ export async function setItemAssignees(input: {
           assignedAt: now,
           assignedById: input.assignedByUserId ?? null,
           notifiedAt: null,
+          acceptedAt: null, declinedAt: null, declineReason: null,
+          completedAt: null, completionNote: null, completionPhotoKeys: [],
         },
       });
     }

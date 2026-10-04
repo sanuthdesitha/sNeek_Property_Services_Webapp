@@ -26,7 +26,10 @@ export async function POST(req: NextRequest, { params }: { params: { assignmentI
     const session = await requireRole([Role.CLEANER]);
     const { accept } = bodySchema.parse(await req.json());
 
-    const assignment = await db.qaAssignment.findUnique({
+    const afterCommit: Array<() => Promise<unknown>> = [];
+    const result = await db.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rework-offer:${params.assignmentId}`}))`;
+    let assignment = await tx.qaAssignment.findUnique({
       where: { id: params.assignmentId },
       select: {
         id: true,
@@ -38,9 +41,11 @@ export async function POST(req: NextRequest, { params }: { params: { assignmentI
     });
     if (!assignment) return NextResponse.json({ error: "Rework offer not found." }, { status: 404 });
 
+    const offerJobId = assignment.jobId;
+    await tx.$queryRaw`SELECT id FROM "Job" WHERE id = ${assignment.jobId} FOR UPDATE`;
     // The offer belongs to the cleaner who did the ORIGINAL job.
-    const originalPrimary = await db.jobAssignment.findFirst({
-      where: { jobId: assignment.jobId, removedAt: null },
+    const originalPrimary = await tx.jobAssignment.findFirst({
+      where: { jobId: offerJobId, removedAt: null },
       orderBy: [{ isPrimary: "desc" }, { assignedAt: "asc" }],
       select: { userId: true },
     });
@@ -48,12 +53,14 @@ export async function POST(req: NextRequest, { params }: { params: { assignmentI
       return NextResponse.json({ error: "This rework offer is not yours." }, { status: 403 });
     }
 
+    assignment = await tx.qaAssignment.findUnique({ where: { id: params.assignmentId }, select: { id: true, jobId: true, reworkOfferStatus: true, reworkOfferedAt: true, reworkOfferExpiresAt: true } });
+    if (!assignment) throw new Error("Rework offer no longer exists");
     const now = new Date();
     const status = effectiveOfferStatus(assignment, now);
     if (status !== "OFFERED") {
       // Persist a lapsed offer so the board stops showing it as open.
       if (status === "EXPIRED" && assignment.reworkOfferStatus === "OFFERED") {
-        await db.qaAssignment
+        await tx.qaAssignment
           .update({ where: { id: assignment.id }, data: { reworkOfferStatus: "EXPIRED" } })
           .catch(() => undefined);
       }
@@ -63,22 +70,28 @@ export async function POST(req: NextRequest, { params }: { params: { assignmentI
       );
     }
 
-    const reworkJob = await db.job.findFirst({
+    const reworkJob = await tx.job.findFirst({
       where: { isRework: true, reworkOfJobId: assignment.jobId, status: { not: JobStatus.INVOICED } },
       orderBy: { createdAt: "desc" },
-      select: { id: true, reworkPayAmount: true, reworkPayeeCleanerId: true, reworkDeductFromCleanerId: true },
+      select: { id: true, status: true, reworkPayAmount: true, reworkPayeeCleanerId: true, reworkDeductFromCleanerId: true },
     });
 
+    if (!reworkJob || reworkJob.status !== JobStatus.OFFERED) throw new Error("This offer has no pending rework job. Ask QA to review it.");
+    const [freshRework] = await tx.$queryRaw<Array<{ status: JobStatus }>>`SELECT status FROM "Job" WHERE id = ${reworkJob.id} FOR UPDATE`;
+    if (!freshRework || freshRework.status !== JobStatus.OFFERED) throw new Error("Rework job is no longer awaiting this offer");
+
     if (!accept) {
-      await db.qaAssignment.update({
+      await tx.jobAssignment.updateMany({ where: { jobId: reworkJob.id, userId: session.user.id, removedAt: null }, data: { removedAt: now, responseStatus: JobAssignmentResponseStatus.DECLINED, respondedAt: now } });
+      await tx.job.update({ where: { id: reworkJob.id }, data: { status: JobStatus.UNASSIGNED } });
+      await tx.qaAssignment.update({
         where: { id: assignment.id },
         data: { reworkOfferStatus: "DECLINED" },
       });
-      await db.auditLog
+      await tx.auditLog
         .create({
           data: {
             userId: session.user.id,
-            jobId: assignment.jobId,
+            jobId: offerJobId,
             action: "QA_REWORK_OFFER_DECLINED",
             entity: "QaAssignment",
             entityId: assignment.id,
@@ -86,11 +99,11 @@ export async function POST(req: NextRequest, { params }: { params: { assignmentI
           },
         })
         .catch(() => undefined);
-      void notifyAdminsByPush({
-        jobId: assignment.jobId,
+      afterCommit.push(() => notifyAdminsByPush({
+        jobId: offerJobId,
         subject: "Rework offer declined",
         body: "The original cleaner declined the rework offer — QA needs to reassign it.",
-      }).catch(() => undefined);
+      }));
       return NextResponse.json({ ok: true, status: "DECLINED" });
     }
 
@@ -105,13 +118,13 @@ export async function POST(req: NextRequest, { params }: { params: { assignmentI
         }),
       {
         actorUserId: session.user.id,
-        jobId: assignment.jobId,
+        jobId: offerJobId,
         entity: "QaAssignment",
         entityId: assignment.id,
       }
     );
 
-    await db.$transaction(async (tx) => {
+    {
       await tx.qaAssignment.update({
         where: { id: assignment.id },
         data: { reworkOfferStatus: "ACCEPTED" },
@@ -148,22 +161,25 @@ export async function POST(req: NextRequest, { params }: { params: { assignmentI
       await tx.auditLog.create({
         data: {
           userId: session.user.id,
-          jobId: assignment.jobId,
+          jobId: offerJobId,
           action: "QA_REWORK_OFFER_ACCEPTED",
           entity: "QaAssignment",
           entityId: assignment.id,
           after: { reworkJobId: reworkJob?.id ?? null } as any,
         },
       });
-    });
+    }
 
-    void notifyAdminsByPush({
-      jobId: assignment.jobId,
+    afterCommit.push(() => notifyAdminsByPush({
+      jobId: offerJobId,
       subject: "Rework offer accepted",
       body: "The original cleaner accepted the rework — no pay and no deduction apply.",
-    }).catch(() => undefined);
+    }));
 
-    return NextResponse.json({ ok: true, status: "ACCEPTED", reworkJobId: reworkJob?.id ?? null });
+    return NextResponse.json({ ok: true, status: "ACCEPTED", reworkJobId: reworkJob.id });
+    });
+    for (const effect of afterCommit) await effect().catch(() => undefined);
+    return result;
   } catch (err: any) {
     const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err?.message ?? "Could not record your response." }, { status });

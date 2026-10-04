@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import {
   getOrCreateDamageDraft,
+  getDamageDraft,
   saveDamageDraft,
   submitDamageReport,
 } from "@/lib/damage/service";
@@ -17,7 +18,7 @@ import { publicUrl } from "@/lib/s3";
 /**
  * The cleaner's damage report for one job.
  *
- *   GET  — the open draft, created on first open, with items and photos.
+ *   GET  — the existing open draft, without provisioning, with items and photos.
  *   PUT  — autosave. Called on every edit, so it must be cheap and forgiving.
  *   POST — submit: one DAMAGE case per item, CP-7 raises the repairs.
  *
@@ -100,9 +101,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   try {
     const session = await requireRole([Role.CLEANER]);
     const job = await requireAssignedJob(params.id, session.user.id);
-    const report = await getOrCreateDamageDraft({
+    const report = await getDamageDraft({
       jobId: job.id,
-      propertyId: job.propertyId,
       userId: session.user.id,
     });
     return NextResponse.json({ report: serializeReport(report) });
@@ -127,11 +127,10 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     // Resolve the draft here rather than trusting a client-supplied report id:
     // it keeps autosave idempotent on a fresh form and stops one cleaner
     // autosaving over another's report.
-    const draft = await getOrCreateDamageDraft({
-      jobId: job.id,
-      propertyId: job.propertyId,
-      userId: session.user.id,
-    });
+    const draft = body.reportId
+      ? await db.damageReport.findFirst({ where: { id: body.reportId, jobId: job.id, reportedById: session.user.id }, select: { id: true } })
+      : await getOrCreateDamageDraft({ jobId: job.id, propertyId: job.propertyId, userId: session.user.id });
+    if (!draft) throw new Error("DAMAGE_REPORT_NOT_FOUND");
 
     const report = await saveDamageDraft({
       reportId: draft.id,
@@ -157,11 +156,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
     const body = submitDamageReportSchema.parse(payload);
 
-    const draft = await getOrCreateDamageDraft({
-      jobId: job.id,
-      propertyId: job.propertyId,
-      userId: session.user.id,
+    const draft = await db.damageReport.findFirst({
+      where: { id: body.reportId, jobId: job.id, reportedById: session.user.id },
+      select: { id: true },
     });
+    if (!draft) throw new Error("DAMAGE_REPORT_NOT_FOUND");
 
     const report = await submitDamageReport({
       reportId: draft.id,

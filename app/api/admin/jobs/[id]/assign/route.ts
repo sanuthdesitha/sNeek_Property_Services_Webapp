@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -69,6 +70,9 @@ export async function POST(
     });
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    }
+    if (userIds.length > 0 && parseJobInternalNotes(job.internalNotes).isDraft) {
+      return NextResponse.json({ error: "Publish this draft job before assigning cleaners." }, { status: 409 });
     }
     // Skipped cleans must never be dispatched. Allow clearing assignees (empty list)
     // so an admin can still tidy up, but block assigning cleaners to a skipped job.
@@ -249,6 +253,7 @@ export async function POST(
         data: {
           userId,
           jobId: job.id,
+          externalId: mobilePendingMarker("jobs"),
           channel: NotificationChannel.PUSH,
           subject: notificationTemplate.webSubject || subject,
           body: notificationTemplate.webBody,
@@ -332,6 +337,7 @@ export async function POST(
           .map((recipient) => ({
             userId: recipient.userId,
             jobId: job.id,
+            externalId: mobilePendingMarker("jobs"),
             channel: NotificationChannel.PUSH,
             subject: `${companyName}: Rule alert`,
             body: renderNotificationTemplate(settings, "jobAssigned", {

@@ -63,6 +63,7 @@ export function BookingCard({
         {guests != null ? (
           <div className="flex items-baseline gap-2">
             <Users className="h-5 w-5 self-center text-[hsl(var(--e-gold))]" />
+            <span className="text-[0.9375rem] font-[550]">Prepare for</span>
             <span className="text-[1.75rem] font-[650] leading-none tabular-nums">{guests}</span>
             <span className="text-[0.9375rem] font-[550]">{guests === 1 ? "guest" : "guests"}</span>
             {fromPropertyMax ? (

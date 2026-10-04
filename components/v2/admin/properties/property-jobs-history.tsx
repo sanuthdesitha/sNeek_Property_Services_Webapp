@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { downloadFromApi } from "@/lib/client/download";
+import { STATUS_LABELS } from "@/lib/jobs/status-labels";
+import { formatServiceDate } from "@/lib/time/service-date";
 import { jobDetailTabHref } from "@/lib/jobs/detail-tabs";
 import {
   EBadge,
@@ -234,7 +236,7 @@ export function PropertyJobsHistory({ propertyId }: { propertyId: string }) {
                       className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]"
                     >
                       <td className="px-3 py-2.5 tabular-nums whitespace-nowrap">
-                        {j.scheduledDate ? new Date(j.scheduledDate).toLocaleDateString("en-AU") : "—"}
+                        {formatServiceDate(j.scheduledDate)}
                         {j.startTime ? (
                           <span className="text-[hsl(var(--e-text-faint))]"> · {j.startTime}</span>
                         ) : null}
@@ -250,7 +252,7 @@ export function PropertyJobsHistory({ propertyId }: { propertyId: string }) {
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <EBadge tone={STATUS_TONE[j.status] ?? "neutral"} soft>
-                          {titleCase(j.status)}
+                          {STATUS_LABELS[j.status] ?? titleCase(j.status)}
                         </EBadge>
                         {j.skipped ? (
                           <EBadge tone="danger" soft className="ml-1">
@@ -267,7 +269,7 @@ export function PropertyJobsHistory({ propertyId }: { propertyId: string }) {
                           ) : null}
                           {j.issueCount > 0 ? (
                             <EBadge tone="danger" soft>
-                              {j.issueCount} damage
+                              {j.issueCount} {j.issueCount === 1 ? "case" : "cases"}
                             </EBadge>
                           ) : null}
                           {j.maintenanceCount > 0 ? (

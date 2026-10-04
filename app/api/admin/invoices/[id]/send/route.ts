@@ -7,6 +7,7 @@ import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profi
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { db } from "@/lib/db";
+import { assertStartedWorkReviewed } from "@/lib/billing/started-work-reconciliation";
 
 export async function POST(
   req: NextRequest,
@@ -18,6 +19,8 @@ export async function POST(
     if (!invoice) {
       return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
     }
+
+    await assertStartedWorkReviewed(invoice, db);
 
     // PAID and VOID are terminal, and this route was ignoring that — it set
     // SENT unconditionally. So sending a voided invoice moved it back to SENT,

@@ -3,7 +3,7 @@ import { JobType, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { CATALOG_VERSION, getChecklistLibrary, seedChecklistLibraryFromCatalog } from "@/lib/checklists/library";
+import { CATALOG_VERSION, getChecklistLibrary } from "@/lib/checklists/library";
 import {
   buildDefaultSelections,
   composeFormSchema,
@@ -40,11 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const property = await loadPropertyForRules(params.id);
     if (!property) return NextResponse.json({ error: "Property not found." }, { status: 404 });
 
-    let library = await getChecklistLibrary();
-    if (library.length === 0) {
-      await seedChecklistLibraryFromCatalog();
-      library = await getChecklistLibrary();
-    }
+    const library = await getChecklistLibrary();
 
     const defaults = buildDefaultSelections(library, property);
     // Freeze auto-propagation: a saved profile's stored selections are

@@ -29,7 +29,7 @@ export async function GET(
     if (!template) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(template);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: err.message }, { status: err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400 });
   }
 }
 
@@ -38,7 +38,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    await requireRole([Role.ADMIN]);
     const { expectedUpdatedAt, ...body } = updateTemplateSchema.parse(await req.json());
 
     // OPTIMISTIC CONCURRENCY. `schema` is replaced wholesale, so a save from a
@@ -68,11 +68,10 @@ export async function PATCH(
       }
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const template = await db.formTemplate.update({ where: { id: params.id }, data: body as any });
     return NextResponse.json(template);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: err.message }, { status: err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400 });
   }
 }
 

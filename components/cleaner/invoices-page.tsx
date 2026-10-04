@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -260,32 +260,41 @@ export function CleanerInvoicesPage() {
     [previewPdfUrl]
   );
 
+  const invoiceRequestId = useRef<string | null>(null);
+
   async function sendInvoice() {
     setInvoiceSending(true);
+    invoiceRequestId.current ??= crypto.randomUUID();
+    try {
     const res = await fetch("/api/cleaner/invoice/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...buildInvoicePayload(),
         confirmEmail: true,
+        requestId: invoiceRequestId.current,
       }),
     });
     const body = await res.json().catch(() => ({}));
     setInvoiceSending(false);
-    if (!res.ok) {
-      toast({ title: "Invoice failed", description: body.error ?? "Could not send invoice.", variant: "destructive" });
+    if (!res.ok || body.requiresReview) {
+      toast({ title: body.requiresReview ? "Invoice needs office review" : "Invoice failed", description: body.error ?? body.message ?? "Could not send invoice.", variant: "destructive" });
       return;
     }
+    invoiceRequestId.current = null;
     setEmailReviewOpen(false);
     toast({
-      title: "Invoice sent",
-      description: `Sent to ${body.sentTo}. Paid Hours: ${Number(body.hours ?? 0).toFixed(2)}, Est: ${money(body.estimatedPay)}`,
+      title: "Invoice submitted",
+      description: body.message ?? `Sent to ${body.sentTo}. Paid Hours: ${Number(body.hours ?? 0).toFixed(2)}, Est: ${money(body.estimatedPay)}`,
     });
     // Invoiced jobs are now excluded — refresh the preview + the submitted list.
     setExcludedJobIds([]);
     setExcludedRunIds([]);
     void loadInvoicePreview();
     void loadSubmissions();
+    } catch {
+      toast({ title: "Delivery status unknown", description: "Review submitted invoices before retrying. The same request will not be sent twice.", variant: "destructive" });
+    } finally { setInvoiceSending(false); }
   }
 
   async function previewInvoicePdf() {

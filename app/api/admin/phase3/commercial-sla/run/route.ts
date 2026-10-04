@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
       await db.notification.create({
         data: {
           userId: session.user.id,
+          externalId: mobilePendingMarker("jobs"),
           channel: NotificationChannel.PUSH,
           subject: "Commercial SLA breach scan complete",
           body: `Detected ${result.breaches.length} breach(es).${issuesCreated > 0 ? ` Created ${issuesCreated} issue ticket(s).` : ""}`,

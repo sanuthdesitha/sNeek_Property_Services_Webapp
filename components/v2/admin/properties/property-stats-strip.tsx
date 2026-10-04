@@ -8,7 +8,7 @@
  * arrive as ISO strings over JSON so they are re-parsed here.
  */
 import { useEffect, useState } from "react";
-import { format } from "date-fns";
+import { formatServiceDate } from "@/lib/time/service-date";
 import { ECard, ECardBody, ECardHeader, ECardTitle } from "@/components/v2/ui/primitives";
 
 interface PropertyStatsDto {
@@ -37,9 +37,7 @@ function StatCell({ label, value, hint }: { label: string; value: React.ReactNod
 }
 
 function fmtDate(value: string | null) {
-  if (!value) return "—";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? "—" : format(d, "d MMM");
+  return formatServiceDate(value, "d MMM yyyy");
 }
 
 export function PropertyStatsStrip({ propertyId }: { propertyId: string }) {
@@ -87,9 +85,9 @@ export function PropertyStatsStrip({ propertyId }: { propertyId: string }) {
           <>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <StatCell label="Total jobs" value={stats.totalJobs} />
-              <StatCell label="Last 30d" value={stats.jobsLast30d} />
-              <StatCell label="Last 90d" value={stats.jobsLast90d} />
-              <StatCell label="Last 365d" value={stats.jobsLast365d} />
+              <StatCell label="Completed · 30d" value={stats.jobsLast30d} />
+              <StatCell label="Completed · 90d" value={stats.jobsLast90d} />
+              <StatCell label="Completed · 365d" value={stats.jobsLast365d} />
               <StatCell
                 label="Lifetime value"
                 value={`$${(stats.lifetimeValue ?? 0).toLocaleString("en-AU", {

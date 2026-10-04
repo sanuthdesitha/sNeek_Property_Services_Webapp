@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
 
 /**
  * Rotational-evidence scheduling for ROTATIONAL checklist items.
@@ -190,4 +191,35 @@ export async function applyRotationCompletion(
       update: { cleansSinceDone: { increment: 1 } },
     });
   }
+}
+
+/** Count the first approved completion of a standard clean, never a draft,
+ * submission attempt, rework or repeat QA approval. Caller owns the transaction. */
+export async function applyJobRotationCompletion(
+  tx: import("@prisma/client").Prisma.TransactionClient,
+  input: { jobId: string; propertyId: string }
+): Promise<void> {
+  // Serialize this property without upgrading QA's existing Property FOR SHARE
+  // row lock (concurrent lock upgrades can deadlock across different jobs).
+  await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${`rotation:${input.propertyId}`}, 0))`;
+  const receiptKey = `rotation_progress_v1:${input.jobId}`;
+  if (await tx.appSetting.findUnique({ where: { key: receiptKey } })) return;
+  const job = await tx.job.findUnique({ where: { id: input.jobId }, select: { isRework: true, status: true, internalNotes: true } });
+  if (!job || job.isRework || parseJobInternalNotes(job.internalNotes).isDraft || !["COMPLETED", "INVOICED"].includes(job.status)) return;
+  const submission = await tx.formSubmission.findFirst({
+    where: { jobId: input.jobId }, orderBy: { createdAt: "desc" }, select: { data: true },
+  });
+  const data = submission?.data as Record<string, any> | undefined;
+  if (!data) return;
+  const media: Record<string, string[]> = {};
+  for (const [fieldId, value] of Object.entries(data.uploads ?? {})) {
+    media[fieldId] = typeof value === "string" ? [value] : Array.isArray(value) ? value.filter((key): key is string => typeof key === "string" && Boolean(key.trim())) : [];
+  }
+  const visibleSections = data.__templateSchema?.sections;
+  const fullSections = data.__rotationSections ?? visibleSections;
+  const { allRotationalItemKeys } = deriveRotationalCompletion(fullSections, {}, {});
+  const { completedItemKeys } = deriveRotationalCompletion(visibleSections, data, media);
+  if (allRotationalItemKeys.length === 0) return;
+  await applyRotationCompletion(tx, { ...input, allRotationalItemKeys, completedItemKeys });
+  await tx.appSetting.create({ data: { key: receiptKey, value: { jobId: input.jobId, countedAt: new Date().toISOString() } } });
 }

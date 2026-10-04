@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
-import { getServerSession } from "next-auth";
+import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
-import { authOptions } from "@/lib/auth/auth-options";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -34,9 +33,12 @@ const sseState = globalRef.__sneekSseLiveLocations;
  *  - Single cleanup function called on abort OR lifetime timeout
  */
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (session?.user?.role !== Role.ADMIN && session?.user?.role !== Role.OPS_MANAGER) {
-    return new Response("Forbidden", { status: 403 });
+  let session;
+  try {
+    session = await requireRole(["ADMIN", "OPS_MANAGER"]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "FORBIDDEN";
+    return new Response(message, { status: message === "UNAUTHORIZED" ? 401 : 403 });
   }
 
   if (sseState.active >= MAX_CONNECTIONS) {
@@ -91,6 +93,14 @@ export async function GET(req: NextRequest) {
       pollTimer = setInterval(async () => {
         if (closed) return;
         try {
+          // A long-lived stream must stop as soon as office access is revoked.
+          const actor = await db.user.findUnique({
+            where: { id: session.user.id }, select: { isActive: true, role: true },
+          });
+          if (!actor?.isActive || (actor.role !== Role.ADMIN && actor.role !== Role.OPS_MANAGER)) {
+            cleanup();
+            return;
+          }
           const pings = await db.cleanerLocationPing.findMany({
             where: { timestamp: { gt: lastTs } },
             orderBy: { timestamp: "asc" },

@@ -1,3 +1,7 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
+import { persistSubmissionPayRequestOnce } from "@/lib/cleaner/submission-pay";
+import { deductJobStockOnce } from "@/lib/cleaner/submission-stock";
+import { enqueueSubmissionFollowups, processSubmissionFollowups } from "@/lib/cleaner/submission-followups";
 import { enqueuePhotoReview } from "@/lib/ai/photo-review";
 import { enqueuePropertyModelTraining } from "@/lib/ai/property-model-training";
 import { destinationOf, evidenceSubmissionChanged } from "@/lib/cleaner/evidence-destination";
@@ -6,8 +10,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
 import { submitJobSchema } from "@/lib/validations/job";
-import { deductStockFromSubmission, fireLowStockSideEffects } from "@/lib/inventory/stock";
-import { generateJobReport } from "@/lib/reports/generator";
+import { deductStockFromSubmission } from "@/lib/inventory/stock";
 import { publicUrl } from "@/lib/s3";
 import { resolveAppUrl } from "@/lib/app-url";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
@@ -25,7 +28,8 @@ import {
 import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { clearSharedCleanerJobDraft, getSharedCleanerJobDraft, withSharedCleanerJobDraftLock } from "@/lib/cleaner/shared-job-draft";
-import { collectRequiredAnswerFields, collectRequiredUploadFields } from "@/lib/forms/visibility";
+import { collectRequiredAnswerFields, collectRequiredUploadFields, flattenFieldsOneLevel } from "@/lib/forms/visibility";
+import { collectUploadMinimumErrors } from "@/lib/forms/validate-submission";
 import { sanitizeNoPhotoReasons } from "@/lib/forms/no-photo-reasons";
 import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form";
 import { jobFormRevision } from "@/lib/forms/job-form-revision";
@@ -34,10 +38,7 @@ import { applyCleanerJobTaskUpdates, listCleanerJobTasks } from "@/lib/job-tasks
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { queueClientPostJobAutomations } from "@/lib/notifications/client-automation";
-import { tryEnsureQaAssignmentForCompletedJob } from "@/lib/qa/auto-assignment";
-import { applyRotationCompletion, deriveRotationalCompletion } from "@/lib/accountability/rotation";
 import { SELF_INSPECTION_MODULE_KEY } from "@/lib/checklists/catalog";
-import { isTaxableCategory } from "@/lib/finance/pay-categories";
 import {
   JobStatus,
   MediaType,
@@ -63,7 +64,7 @@ function extractUploads(data: Record<string, unknown>): Record<string, string[]>
         .map((item) => item.trim())
         .filter(Boolean);
       if (keys.length > 0) {
-        normalized[fieldId] = keys;
+        normalized[fieldId] = Array.from(new Set(keys));
       }
     }
   }
@@ -202,6 +203,10 @@ export async function POST(
     });
     if (!job) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
+    if (job.cleanSkipStatus === "SKIPPED") return NextResponse.json({ error: "This clean has been skipped." }, { status: 409 });
+    if (parseJobInternalNotes(job.internalNotes).isDraft) {
+      return NextResponse.json({ error: "This job is a draft. Admin must publish it before submission." }, { status: 409 });
     }
     const pendingContinuationRequests = await listContinuationRequests({
       jobId: params.id,
@@ -427,6 +432,18 @@ export async function POST(
         { status: 400 }
       );
     }
+    const uploadMinimumErrors = collectUploadMinimumErrors(
+      effectiveSchema, answers,
+      Object.fromEntries(Object.entries(uploads).map(([fieldId, keys]) => [fieldId, new Set(keys).size])),
+      formProperty, legacyReady, { canUseNoPhoto, reasons: noPhotoReasons }
+    );
+    if (uploadMinimumErrors.length > 0) {
+      return NextResponse.json({
+        error: uploadMinimumErrors.map(field => `${field.label}: ${field.message}`).join("; "),
+        missingUploadFields: uploadMinimumErrors.map(field => ({ ...field, id: field.fieldId })),
+      }, { status: 400 });
+    }
+
     // Enforce ALL required answerable fields (text, number, select, radio,
     // yes/no, rating, signature, etc.) — not just signatures. Upload fields are
     // skipped inside the collector (validated above). Previously only signatures
@@ -541,6 +558,16 @@ export async function POST(
       const proofKeys = Array.isArray(update.proofKeys)
         ? update.proofKeys.filter((key) => typeof key === "string" && key.trim().length > 0)
         : [];
+      if (update.decision === "NOT_APPLICABLE") {
+        const metadata = task.metadata && typeof task.metadata === "object" && !Array.isArray(task.metadata)
+          ? task.metadata as Record<string, unknown> : {};
+        if (metadata.allowNotApplicable !== true) {
+          return NextResponse.json({ error: `This task cannot be marked not applicable: ${task.title}` }, { status: 400 });
+        }
+        if (!note || proofKeys.length === 0) {
+          return NextResponse.json({ error: `Explain why this task is not applicable and attach photo proof: ${task.title}` }, { status: 400 });
+        }
+      }
       if (update.decision === "COMPLETED") {
         if (task.requiresNote && !note) {
           return NextResponse.json(
@@ -624,6 +651,7 @@ export async function POST(
 
     // Media, stock, clock and laundry persist atomically with the final receipt.
     const inventoryUsage = sanitizeInventoryUsage(body.data as Record<string, unknown>);
+    let stockCorrectionRequired = false;
     const { submission, lowStockRows } = await (async (tx: Prisma.TransactionClient) => {
         const created = await tx.formSubmission.create({
           data: {
@@ -633,10 +661,18 @@ export async function POST(
             data: {
               ...(body.data as Record<string, unknown>),
               __templateSchema: effectiveSchema,
+              __rotationSections: effectiveForm.fullRotationSections,
               __templateVersion: template.id,
               __formRevision: resolvedFormRevision,
               __adminRequestedTasks: adminRequestedTasks,
               __jobTasks: unifiedTaskSnapshot,
+              // Preserve the requests alongside the immutable submission for
+              // reconciliation even when a downstream delivery fails.
+              __submissionRequests: {
+                damageItems: body.draftDamageItems ?? [], damage: body.draftDamagePayload ?? null,
+                payItems: body.draftPayRequestItems ?? [], pay: body.draftPayRequestPayload ?? null,
+                carryForward,
+              },
               // Controlled system key: the server-sanctioned waivers only —
               // whatever the client sent under this key is overridden.
               __noPhotoReasons:
@@ -679,6 +715,14 @@ export async function POST(
         }
 
         if (Object.keys(mediaUploads).length > 0) {
+          const mediaLabels = new Map<string, string>();
+          for (const section of (effectiveSchema as any)?.sections ?? []) {
+            for (const field of flattenFieldsOneLevel(section.fields)) {
+              if (typeof field.id === "string" && typeof field.label === "string" && field.label.trim()) mediaLabels.set(field.id, field.label.trim());
+            }
+          }
+          for (const task of unifiedTaskSnapshot) mediaLabels.set(task.proofFieldId, `${task.title} — proof`);
+          for (const task of adminRequestedTasks) mediaLabels.set(task.photoFieldId, `${task.title} — proof`);
           const mediaRows = Object.entries(mediaUploads).flatMap(([fieldId, keys]) =>
             keys.map((key) => ({
               submissionId: created.id,
@@ -686,7 +730,7 @@ export async function POST(
               mediaType: inferMediaType(fieldId, key),
               url: publicUrl(key),
               s3Key: key,
-              label: fieldId.replace(/_/g, " "),
+              label: mediaLabels.get(fieldId) ?? fieldId.replace(/_/g, " "),
             }))
           );
           await tx.submissionMedia.createMany({ data: mediaRows });
@@ -697,12 +741,11 @@ export async function POST(
 
         let low: Awaited<ReturnType<typeof deductStockFromSubmission>>["lowStockRows"] = [];
         if (inventoryUsage && job.property.inventoryEnabled) {
-          ({ lowStockRows: low } = await deductStockFromSubmission(
-            job.propertyId,
-            created.id,
-            inventoryUsage,
-            tx
-          ));
+          const stockResult = await deductJobStockOnce(tx, {
+            jobId: job.id, propertyId: job.propertyId, submissionId: created.id, usage: inventoryUsage,
+          });
+          low = stockResult.lowStockRows;
+          stockCorrectionRequired = stockResult.stockCorrectionRequired;
         }
 
         // Clear the "form pending after early clock-out" park flag inside the
@@ -771,6 +814,7 @@ export async function POST(
               data: adminUsers.map((admin) => ({
                 userId: admin.id,
                 jobId: job.id,
+                externalId: mobilePendingMarker("approvals"),
                 channel: "PUSH",
                 subject: "Clock adjustment approval needed",
                 body: `${job.property.name}: ${session.user.name ?? session.user.email ?? "Cleaner"} requested a clock adjustment review.`,
@@ -786,45 +830,93 @@ export async function POST(
         return { submission: created, lowStockRows: low };
       })(db);
 
-    // This callback runs only after the submission and receipt have committed.
-    afterCommit.push(async () => {
-    const db = globalDb;
+    // Pay requests: same dual shape. Each committed request becomes a PENDING
+    // CleanerPayAdjustment that lands in the admin pay-adjustments queue.
+    const payRequestItems = [
+      ...(Array.isArray(body.draftPayRequestItems) ? body.draftPayRequestItems : []),
+      ...(body.draftPayRequestPayload ? [body.draftPayRequestPayload] : []),
+    ].filter((item) => item && item.requestedAmount != null && Number(item.requestedAmount) > 0)
+      .filter((item, index, items) => items.findIndex(candidate => JSON.stringify(candidate) === JSON.stringify(item)) === index);
 
-    // Low-stock notifications + auto-restock: best-effort, post-commit (guarded
-    // internally so they never throw into this handler).
-    await fireLowStockSideEffects(job.propertyId, lowStockRows);
-
-    // Rotational-evidence state (Accountability Phase 3): reset completed
-    // rotational items to 0 and advance the rest. Kept OUT of the critical
-    // transaction and best-effort by design — a counter hiccup must never strand
-    // or roll back an otherwise-good submit.
-    try {
-      const { completedItemKeys, allRotationalItemKeys } = deriveRotationalCompletion(
-        (effectiveSchema as any)?.sections,
-        answers,
-        uploads
-      );
-      if (allRotationalItemKeys.length > 0) {
-        await db.$transaction((tx) =>
-          applyRotationCompletion(tx, {
-            propertyId: job.propertyId,
-            jobId: job.id,
-            completedItemKeys,
-            allRotationalItemKeys,
-          })
-        );
-      }
-    } catch (rotationErr) {
-      console.error("[rotation] state update failed", rotationErr);
+    // Money requests are part of the submission transaction: never acknowledge
+    // a submitted clean while silently dropping a requested payment.
+    let payRequestsAlreadyRecorded = 0;
+    for (const payRequest of payRequestItems) {
+      const created = await persistSubmissionPayRequestOnce(db, { jobId: job.id, propertyId: job.propertyId,
+        cleanerId: session.user.id, request: payRequest });
+      if (!created) payRequestsAlreadyRecorded += 1;
     }
+
+
+    // Damage items: accept both the new multi-item array and the legacy single
+    // payload, dedupe, and open one DAMAGE case per committed item. Nothing the
+    // cleaner added in the form is dropped.
+    const damageItems = [
+      ...(Array.isArray(body.draftDamageItems) ? body.draftDamageItems : []),
+      ...(body.draftDamagePayload ? [body.draftDamagePayload] : []),
+    ].filter((item) => item && typeof item.title === "string" && item.title.trim().length > 0)
+      .filter((item, index, items) => items.findIndex(candidate => JSON.stringify(candidate) === JSON.stringify(item)) === index);
+
+    // Persist damage with the clean; maintenance and notifications run after commit.
+    for (const damage of damageItems) {
+      {
+        const damageTitle = (damage.title ?? "").trim();
+        if (!damageTitle) continue;
+        const damageArea = damage.area?.trim();
+        const damageBody = [
+          damageArea ? `Area / room: ${damageArea}` : "",
+          damage.description?.trim() || "",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+        const createdCase = await createCase({
+          title: `Damage: ${damageTitle}`,
+          description: damageBody,
+          severity: damage.severity ?? "HIGH",
+          status: "OPEN",
+          caseType: "DAMAGE",
+          source: "CLEANER_SUBMIT",
+          jobId: job.id,
+          clientId: job.property.clientId,
+          propertyId: job.propertyId,
+          // Hidden until an admin review releases it. The client also reads
+          // damage through the cases workspace, so leaving this true would let
+          // damage reach them the moment a cleaner submitted — around the
+          // report-level gate entirely (D1).
+          clientVisible: false,
+          clientCanReply: false,
+          metadata: {
+            estimatedCost: damage.estimatedCost ?? null,
+            area: damageArea || null,
+            tags: ["damage", "submission"],
+          },
+          comment: {
+            authorUserId: session.user.id,
+            body: damageBody || damageTitle,
+            isInternal: false,
+          },
+          attachments: (damage.mediaKeys ?? []).map((key) => ({
+            uploadedByUserId: session.user.id,
+            s3Key: key,
+          })),
+        }, { transaction: db, afterCommit });
+        if (createdCase) {
+          afterCommit.push(() => notifyCaseCreated({
+            caseItem: createdCase,
+            actorLabel: session.user.name || session.user.email || "Cleaner",
+          }));
+        }
+      }
+    }
+
 
     // Carry-forward → the NEXT clean at this property. New flags become
     // CARRY_FORWARD JobTask rows (unified task system, mirroring
     // applyCleanerJobTaskUpdates) so they surface in the next job's checklist;
     // incoming carry-forward tasks the cleaner resolved are closed on both the
-    // unified and legacy stores. All best-effort — never block the submission.
+    // unified and legacy stores in the same transaction.
     if (carryForward) {
-      try {
+      {
         if (carryForward.resolvedTaskIds.length > 0) {
           await db.issueTicket.updateMany({
             where: {
@@ -903,119 +995,12 @@ export async function POST(
             });
           }
         }
-      } catch (carryErr) {
-        console.error("[carry-forward] persist failed", carryErr);
       }
     }
 
-    // Damage items: accept both the new multi-item array and the legacy single
-    // payload, dedupe, and open one DAMAGE case per committed item. Nothing the
-    // cleaner added in the form is dropped.
-    const damageItems = [
-      ...(Array.isArray(body.draftDamageItems) ? body.draftDamageItems : []),
-      ...(body.draftDamagePayload ? [body.draftDamagePayload] : []),
-    ].filter((item) => item && typeof item.title === "string" && item.title.trim().length > 0);
-
-    // Post-commit, guarded — each case is opened independently so one failure
-    // doesn't drop the rest, and none can strand the recorded clean.
-    for (const damage of damageItems) {
-      try {
-        const damageTitle = (damage.title ?? "").trim();
-        if (!damageTitle) continue;
-        const damageArea = damage.area?.trim();
-        const damageBody = [
-          damageArea ? `Area / room: ${damageArea}` : "",
-          damage.description?.trim() || "",
-        ]
-          .filter(Boolean)
-          .join("\n\n");
-        const createdCase = await createCase({
-          title: `Damage: ${damageTitle}`,
-          description: damageBody,
-          severity: damage.severity ?? "HIGH",
-          status: "OPEN",
-          caseType: "DAMAGE",
-          source: "CLEANER_SUBMIT",
-          jobId: job.id,
-          clientId: job.property.clientId,
-          propertyId: job.propertyId,
-          // Hidden until an admin review releases it. The client also reads
-          // damage through the cases workspace, so leaving this true would let
-          // damage reach them the moment a cleaner submitted — around the
-          // report-level gate entirely (D1).
-          clientVisible: false,
-          clientCanReply: false,
-          metadata: {
-            estimatedCost: damage.estimatedCost ?? null,
-            area: damageArea || null,
-            tags: ["damage", "submission"],
-          },
-          comment: {
-            authorUserId: session.user.id,
-            body: damageBody || damageTitle,
-            isInternal: false,
-          },
-          attachments: (damage.mediaKeys ?? []).map((key) => ({
-            uploadedByUserId: session.user.id,
-            s3Key: key,
-          })),
-        });
-        if (createdCase) {
-          await notifyCaseCreated({
-            caseItem: createdCase,
-            actorLabel: session.user.name || session.user.email || "Cleaner",
-          });
-        }
-      } catch (damageErr) {
-        console.error("[damage] case creation failed", damageErr);
-      }
-    }
-
-    // Pay requests: same dual shape. Each committed request becomes a PENDING
-    // CleanerPayAdjustment that lands in the admin pay-adjustments queue.
-    const payRequestItems = [
-      ...(Array.isArray(body.draftPayRequestItems) ? body.draftPayRequestItems : []),
-      ...(body.draftPayRequestPayload ? [body.draftPayRequestPayload] : []),
-    ].filter((item) => item && item.requestedAmount != null && Number(item.requestedAmount) > 0);
-
-    // Post-commit, guarded — one failed pay request must not drop the others or
-    // strand the recorded clean.
-    for (const payRequest of payRequestItems) {
-      try {
-        await db.cleanerPayAdjustment.create({
-          data: {
-            jobId: job.id,
-            propertyId: job.propertyId,
-            cleanerId: session.user.id,
-            scope: "JOB",
-            title: payRequest.title?.trim() || "Extra payment request",
-            type: payRequest.type === "HOURLY" ? "HOURLY" : "FIXED",
-            requestedHours:
-              payRequest.requestedHours != null ? Number(payRequest.requestedHours) : null,
-            requestedRate:
-              payRequest.requestedRate != null ? Number(payRequest.requestedRate) : null,
-            requestedAmount: Number(payRequest.requestedAmount),
-            cleanerNote: payRequest.cleanerNote?.trim() || payRequest.title?.trim() || null,
-            attachmentKeys:
-              payRequest.mediaKeys && payRequest.mediaKeys.length > 0
-                ? (payRequest.mediaKeys as any)
-                : undefined,
-            // Parking and receipts are money back, not money earned. Derived
-            // from the category rather than trusted from the client so the
-            // pair can never disagree on the resulting invoice.
-            category: payRequest.category ?? "SERVICE",
-            taxable: isTaxableCategory(payRequest.category),
-          },
-        });
-      } catch (payErr) {
-        console.error("[pay-request] persist failed", payErr);
-      }
-    }
-
-    // Post-commit, guarded.
+    // Task decisions and any carry-forward rows are part of this submission.
     if (unifiedJobTasks.length > 0) {
-      try {
-        await applyCleanerJobTaskUpdates({
+      await applyCleanerJobTaskUpdates({
           jobId: job.id,
           propertyId: job.propertyId,
           clientId: job.property.clientId,
@@ -1027,16 +1012,22 @@ export async function POST(
             proofKeys: task.proofKeys ?? [],
           })),
           baseUrl: req,
-        });
-      } catch (taskErr) {
-        console.error("[job-tasks] update failed", taskErr);
-      }
+        }, { transaction: db, afterCommit });
     }
+
+
+    await clearSharedCleanerJobDraft(params.id, db);
+    await enqueueSubmissionFollowups(db, { jobId: job.id, submissionId: submission.id, propertyId: job.propertyId, lowStockRows });
+
+    // This callback runs only after the submission and receipt have committed.
+    afterCommit.push(async () => {
+    const db = globalDb;
+
 
     // QA: as soon as the cleaner submits, open a QA assignment so an
     // inspector / ops / admin can claim it from the queue. Idempotent +
     // best-effort (never block submission on QA scaffolding failures).
-    await tryEnsureQaAssignmentForCompletedJob(params.id);
+    const followups = await processSubmissionFollowups(new Date(), submission.id);
 
     // Reclean summary: when a REWORK job is resubmitted, notify the QA who
     // flagged it (+ admins/ops) so they can review before vs after. Best-effort.
@@ -1061,6 +1052,7 @@ export async function POST(
             data: Array.from(recipients).map((userId) => ({
               userId,
               jobId: job.id,
+              externalId: mobilePendingMarker("jobs"),
               channel: NotificationChannel.PUSH,
               subject: "Reclean submitted — ready to review",
               body: `${job.property.name}: the cleaner re-did ${afterAreas} flagged area(s) and uploaded after photos/videos. Review the before vs after.`,
@@ -1082,16 +1074,13 @@ export async function POST(
     // exists. The "clean complete" email already fires via sendClientJobNotification
     // above, so we deliberately do NOT fire JOB_COMPLETED here (would duplicate) —
     // REPORT_READY is the new, distinct notification. Best-effort auto send.
-    generateJobReport(params.id)
-      .then(() =>
-        sendLifecycleEmail({ jobId: params.id, stage: "REPORT_READY", mode: "auto" })
-      )
-      .catch(console.error);
-    await clearSharedCleanerJobDraft(params.id);
+    if (followups.reportReadySubmissionIds.includes(submission.id)) {
+      await sendLifecycleEmail({ jobId: params.id, stage: "REPORT_READY", mode: "auto" });
+    }
 
-    return NextResponse.json({ ok: true, submissionId: submission.id });
+    return NextResponse.json({ ok: true, submissionId: submission.id, ...(stockCorrectionRequired ? { stockCorrectionRequired: true } : {}), ...(payRequestsAlreadyRecorded ? { payRequestsAlreadyRecorded } : {}) });
     });
-    return NextResponse.json({ ok: true, submissionId: submission.id });
+    return NextResponse.json({ ok: true, submissionId: submission.id, ...(stockCorrectionRequired ? { stockCorrectionRequired: true } : {}), ...(payRequestsAlreadyRecorded ? { payRequestsAlreadyRecorded } : {}) });
     };
     const response = await run();
     return { status: response.status, body: await response.json() };

@@ -185,3 +185,9 @@ describe("getCleanerInvoiceData — shopping settlement", { timeout: 30000 }, ()
     expect(data.shoppingTimeRows[0].runId).toBe("run1");
   });
 });
+
+it("rejects a reimbursement changed between expense and time snapshot reads", async () => {
+  listExpenseRuns.mockResolvedValue([run({ totals: { actualTotalCost: 40 } })]);
+  listTimeRuns.mockResolvedValue([run({ updatedAt: "2026-01-15T00:00:01.000Z", totals: { actualTotalCost: 90 } })]);
+  await expect(build()).rejects.toThrow("Shopping run changed while preparing this invoice");
+});

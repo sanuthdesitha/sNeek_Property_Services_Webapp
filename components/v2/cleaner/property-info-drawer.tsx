@@ -215,13 +215,10 @@ function NextGuestBlock({ nextGuest }: { nextGuest?: CleanerNextGuest | null }) 
             Arrives {arrival}
           </p>
         ) : null}
-        {nextGuest.guestCountLabel ? (
-          <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            {nextGuest.guestCountLabel}
-          </p>
-        ) : nextGuest.preparationGuestCount != null ? (
+        {nextGuest.preparationGuestCount != null ? (
           <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
             Prepare for {nextGuest.preparationGuestCount}
+            {nextGuest.guestCountLabel ? ` · ${nextGuest.guestCountLabel}` : ""}
           </p>
         ) : null}
         {nextGuest.phone ? (

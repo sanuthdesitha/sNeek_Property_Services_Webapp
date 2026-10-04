@@ -132,7 +132,7 @@ export async function reconcileExpiredNotificationLeases(now = new Date()) {
   }
 }
 
-/** Invoked by the existing dedicated worker and its web fallback. */
+/** Invoked by the dedicated worker; never by page rendering. */
 export async function dispatchNotificationIntents(now = new Date()) {
   await reconcileExpiredNotificationLeases(now);
   const due = await db.notificationIntent.findMany({ where: { transport: { in: ["INBOX", ...enabledIntentProviderTransports()] }, status: { in: ["QUEUED", "RETRY_WAIT"] }, nextAttemptAt: { lte: now } }, orderBy: [{ nextAttemptAt: "asc" }, { id: "asc" }], take: 25 });

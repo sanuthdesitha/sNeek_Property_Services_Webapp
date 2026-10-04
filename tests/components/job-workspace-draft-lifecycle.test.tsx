@@ -149,7 +149,8 @@ async function submit() {
   currentStatus = "SUBMITTED";
   await act(async () => { submitResponse.resolve(json({ ok: true, submissionId: "submission" })); });
   expect(device.gps).toHaveBeenCalledTimes(1);
-  expect(calls("/draft", "DELETE")).toHaveLength(1);
+  // Shared cleanup belongs to the submit transaction, never a delayed browser DELETE.
+  expect(calls("/draft", "DELETE")).toHaveLength(0);
 }
 
 describe("real JobWorkspace draft lifecycle", () => {
@@ -288,7 +289,7 @@ describe("real JobWorkspace draft lifecycle", () => {
     expect(patches[0].body.state.answers.note).toBe("current actor");
     await respond(0);
     await submit();
-    expect(calls("/draft", "DELETE")[0][1].headers).toMatchObject({ "X-Cleaner-Draft-Identity": identity });
+    expect(calls("/draft", "DELETE")).toHaveLength(0);
     expect(localStorage.getItem(legacy)).toContain("legacy private");
   });
 
@@ -561,4 +562,38 @@ describe("workspace acknowledged upload restoration", () => {
       expect(screen.getByText("An upload is still running. Wait for it to finish before submitting.")).toBeInTheDocument();
     } finally { finish(); }
   });
+});
+describe("submission correction notices preserve draft ownership", () => {
+ it.each([
+   [{ stockCorrectionRequired: true }, "Stock was already recorded"],
+   [{ payRequestsAlreadyRecorded: 1 }, "Existing extra-payment requests were kept"],
+ ])("shows explicit office correction outcome without a delayed shared draft delete (%j)", async (result, message) => {
+   await mount(); edit("complete");
+   fireEvent.click(screen.getByRole("button", { name: "Submit fixture" })); await act(async () => {});
+   currentStatus = "SUBMITTED";
+   await act(async () => { submitResponse.resolve(json({ ok: true, submissionId: "submission", ...result })); });
+   await act(async () => { gpsResponse.resolve({ lat: -33, lng: 151, accuracy: 5 }); });
+   expect(screen.getByText(new RegExp(String(message)))).toBeInTheDocument();
+   await advance(3000); expect(calls("/draft", "DELETE")).toHaveLength(0); expect(patches).toHaveLength(0);
+ });
+ it("restores optional not-applicable evidence and preserves the decision in explicit submission", async () => {
+   const payload = form("IN_PROGRESS") as any;
+   payload.jobTasks = [{ id: "optional", title: "Plants", source: "ADMIN", approvalStatus: "APPROVED", executionStatus: "OPEN", visibleToCleaner: true, metadata: { allowNotApplicable: true } }];
+   formResponses.push(Promise.resolve(json(payload)));
+   localStorage.setItem(mirrorKey, localEnvelope({ taskDrafts: { optional: { decision: "NOT_APPLICABLE", note: "No plants here", proof: [{ key: "proof.jpg", url: "/proof.jpg", kind: "image" }] } } }));
+   await mount();
+   expect(latestApi.taskDrafts.optional.decision).toBe("NOT_APPLICABLE");
+   fireEvent.click(screen.getByRole("button", { name: "Submit fixture" })); await act(async () => {});
+   expect(JSON.parse(String(calls("/submit", "POST")[0][1].body)).jobTasks).toEqual([{ id: "optional", decision: "NOT_APPLICABLE", note: "No plants here", proofKeys: ["proof.jpg"] }]);
+ });
+});
+it("restores an unrecognized saved task decision as open and submits it as not completed", async () => {
+ const payload = form("IN_PROGRESS") as any;
+ payload.jobTasks = [{ id: "pending", title: "Check plants", source: "ADMIN", approvalStatus: "APPROVED", executionStatus: "OPEN", visibleToCleaner: true }];
+ formResponses.push(Promise.resolve(json(payload)));
+ localStorage.setItem(mirrorKey, localEnvelope({ taskDrafts: { pending: { decision: "OLD_INVALID", note: "Could not access", proof: [] } } }));
+ await mount(); expect(latestApi.taskDrafts.pending.decision).toBe("OPEN");
+ expect(calls("/submit", "POST")).toHaveLength(0);
+ fireEvent.click(screen.getByRole("button", { name: "Submit fixture" })); await act(async () => {});
+ expect(JSON.parse(String(calls("/submit", "POST")[0][1].body)).jobTasks[0]).toMatchObject({ id: "pending", decision: "NOT_COMPLETED", note: "Could not access" });
 });

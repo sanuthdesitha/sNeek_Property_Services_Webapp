@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "./mobile-outbox-marker";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { canDeliverNotification } from "@/lib/notifications/preferences";
@@ -134,6 +135,7 @@ async function createWebNotification(input: DeliveryInput, recipient: Recipient)
       userId: recipient.id,
       jobId: input.jobId ?? null,
       channel: NotificationChannel.PUSH,
+      externalId: mobilePendingMarker(input.category),
       subject: input.web.subject,
       body: input.web.body,
       status: NotificationStatus.SENT,

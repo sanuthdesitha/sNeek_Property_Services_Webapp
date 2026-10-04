@@ -1,8 +1,10 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { Role, MaintenanceOutcome, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { syncCaseFromMaintenance } from "@/lib/cases/damage-maintenance-sync";
 import { getWorkerForUser, setMaintenanceVisitState, userIsAssignedWorker } from "@/lib/maintenance/workers";
 
 const schema = z.object({
@@ -45,6 +47,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       userId: session.user.id,
     });
 
+    if (body.event === "COMPLETE" || body.event === "START" || body.event === "CLOCK_IN" || body.event === "EN_ROUTE") {
+      await syncCaseFromMaintenance({ itemId: params.id, status: item.status });
+    }
+
     // Keep the contact person + admins/ops in the loop on every transition.
     try {
       const detail = await db.propertyMaintenanceItem.findUnique({
@@ -68,6 +74,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         await db.notification.createMany({
           data: Array.from(recipients).map((userId) => ({
             userId,
+            externalId: mobilePendingMarker("cases"),
             channel: NotificationChannel.PUSH,
             subject: `Maintenance: ${label}`,
             body: `${detail?.assignedWorker?.name ?? "Worker"} — ${detail?.property?.name ?? "property"}: ${detail?.title ?? "job"}${body.event === "COMPLETE" && body.outcome ? ` (${body.outcome.replace(/_/g, " ").toLowerCase()})` : ""}`,

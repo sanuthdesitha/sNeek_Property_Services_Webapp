@@ -2,9 +2,10 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { applyBulkStatus, previewBulkStatus } from "@/lib/jobs/bulk-status-store";
 import { Prisma } from "@prisma/client";
-const m = vi.hoisted(() => ({ read: vi.fn(), update: vi.fn(), assignments: vi.fn(), audit: vi.fn(), lock: vi.fn(), transaction: vi.fn() }));
+const m = vi.hoisted(() => ({ rotation: vi.fn(), read: vi.fn(), update: vi.fn(), assignments: vi.fn(), audit: vi.fn(), lock: vi.fn(), transaction: vi.fn() }));
+vi.mock("@/lib/accountability/rotation", () => ({ applyJobRotationCompletion: m.rotation }));
 vi.mock("@/lib/db", () => ({ db: { job: { findMany: m.read }, $transaction: m.transaction } }));
-const row = (id = "a", status = "ASSIGNED") => ({ id, jobNumber: `JOB-${id}`, scheduledDate: new Date("2026-09-09T00:00:00Z"), status, updatedAt: new Date("2026-09-10T00:00:00Z"), completedAt: null, property: { name: `Property ${id}` }, assignments: [{ id: `${id}-assignment`, userId: "cleaner", isPrimary: true, responseStatus: "ACCEPTED" }] });
+const row = (id = "a", status = "ASSIGNED") => ({ id, propertyId: "p", jobNumber: `JOB-${id}`, scheduledDate: new Date("2026-09-09T00:00:00Z"), status, updatedAt: new Date("2026-09-10T00:00:00Z"), completedAt: null, property: { name: `Property ${id}` }, assignments: [{ id: `${id}-assignment`, userId: "cleaner", isPrimary: true, responseStatus: "ACCEPTED" }] });
 beforeEach(() => {
   vi.resetAllMocks(); m.read.mockResolvedValue([row()]); m.update.mockResolvedValue({ count: 1 });
   m.transaction.mockImplementation(async callback => callback({ $queryRaw: m.lock, job: { findMany: m.read, updateMany: m.update }, jobAssignment: { updateMany: m.assignments }, auditLog: { create: m.audit } }));
@@ -43,7 +44,7 @@ it.each([previewBulkStatus, (value: unknown) => applyBulkStatus("admin", value)]
   m.read.mockResolvedValue([]); await expect(run(input)).rejects.toMatchObject({ status: 404 });
 });
 it("preserves completion stamping and other status semantics", async () => {
-  const completed = { ...input, status: "COMPLETED" }; expect((await previewBulkStatus(completed)).rows[0].consequences[0]).toContain("including already completed");
+  const completed = { ...input, status: "COMPLETED" }; expect((await previewBulkStatus(completed)).rows[0].consequences[0]).toContain("Preserve existing");
   await applyBulkStatus("admin", completed); expect(m.update.mock.calls[0][0].data.completedAt).toBeInstanceOf(Date); expect(m.assignments).not.toHaveBeenCalled();
   expect((await previewBulkStatus({ ...input, status: "IN_PROGRESS" })).rows[0].consequences).toEqual(["Keep completion time and active cleaner assignments unchanged."]);
   await applyBulkStatus("admin", { ...input, status: "IN_PROGRESS" }); expect(m.update.mock.calls[1][0].data).toEqual({ status: "IN_PROGRESS" });
@@ -55,4 +56,12 @@ it("fails a compare-and-set mismatch and propagates audit failures without succe
 it("deduplicates selection and hashes deterministic row order", async () => {
   m.read.mockResolvedValue([row("b"), row("a")]); const first = await previewBulkStatus({ ...input, jobIds: ["b", "a", "a"] });
   m.read.mockResolvedValue([row("a"), row("b")]); const second = await previewBulkStatus({ ...input, jobIds: ["a", "b"] }); expect(first.reviewToken).toBe(second.reviewToken);
+});
+
+it("counts rotation in transaction and preserves an existing completion timestamp", async () => {
+  const completedAt = new Date("2026-08-01T12:34:00Z");
+  m.read.mockResolvedValue([{ ...row("a", "COMPLETED"), completedAt }]);
+  await applyBulkStatus("admin", { ...input, status: "COMPLETED" });
+  expect(m.update.mock.calls[0][0].data.completedAt).toEqual(completedAt);
+  expect(m.rotation).toHaveBeenCalledWith(expect.objectContaining({ job: expect.any(Object) }), { jobId: "a", propertyId: "p" });
 });

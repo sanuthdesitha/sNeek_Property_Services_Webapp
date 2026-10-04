@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
@@ -108,6 +109,7 @@ export async function POST(
         data: admins.map((admin) => ({
           userId: admin.id,
           jobId: params.id,
+          externalId: mobilePendingMarker("approvals"),
           channel: NotificationChannel.PUSH,
           subject: "Continuation request pending",
           body: `Job ${params.id} requires continuation approval.`,

@@ -16,6 +16,8 @@
  *   POST  /api/admin/invoices/[id]/xero-push
  *   GET   /api/admin/invoices/[id]/pdf              (view / download)
  */
+import { StartedWorkReviewPanel } from "./started-work-review";
+import type { StartedWorkReview } from "@/lib/billing/started-work-reconciliation";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import {
@@ -162,7 +164,9 @@ type FullInvoice = {
   paymentReference?: string | null;
   paidDate?: string | null;
   paidAt?: string | null;
-  metadata?: { payments?: PaymentLedgerEntry[] } | null;
+  updatedAt: string;
+  startedWorkStatus?: { requiresReview: boolean; changedJobIds: string[]; error?: string } | null;
+  metadata?: { payments?: PaymentLedgerEntry[]; startedWorkReview?: StartedWorkReview } | null;
 };
 
 const STATUS_TONE: Record<InvoiceStatus, "warning" | "info" | "primary" | "success" | "neutral" | "gold"> = {
@@ -1121,6 +1125,11 @@ export function EstateInvoices() {
           </p>
         ) : (
           <div className="space-y-5">
+            {editInvoice.metadata?.startedWorkReview ? <StartedWorkReviewPanel invoiceId={editInvoice.id} status={editInvoice.status} updatedAt={editInvoice.updatedAt} review={editInvoice.metadata.startedWorkReview} inspection={editInvoice.startedWorkStatus} onUpdated={async () => {
+              const fresh = await fetch(`/api/admin/invoices/${editInvoice.id}`);
+              if (!fresh.ok) throw new Error("Review saved, but invoice reload failed. Reopen it before continuing.");
+              setEditInvoice(await fresh.json()); await load();
+            }} /> : null}
             {editInvoice.totalsMismatch ? (
               <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger)/0.08)] p-3 text-[0.8125rem] font-medium text-[hsl(var(--e-danger))]">
                 This invoice&rsquo;s stored total does not match its line items. Do not send it —

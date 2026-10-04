@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Cormorant_Garamond, Fraunces } from "next/font/google";
-import { kickWebScheduledOps } from "@/lib/ops/web-scheduler";
 import "./globals.css";
 import { Providers } from "./providers";
 import { getServerSession } from "next-auth";
@@ -83,8 +82,6 @@ export const viewport: Viewport = {
 export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  kickWebScheduledOps();
-
   // Resolve user's persisted theme preference for SSR. For "system" we default
   // to light on the server and let the pre-hydration script swap to dark if the
   // OS prefers dark — this prevents a flash-of-wrong-theme.

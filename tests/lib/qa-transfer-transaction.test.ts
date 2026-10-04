@@ -1,0 +1,19 @@
+// @vitest-environment node
+import { beforeEach,expect,it,vi } from "vitest";
+const m=vi.hoisted(()=>({create:vi.fn(),audit:vi.fn(),notify:vi.fn(),find:vi.fn(),transaction:vi.fn(),outcome:vi.fn()}));
+vi.mock("@/lib/db",()=>({db:{qaReworkTransfer:{create:m.create,findUnique:m.find},auditLog:{create:m.audit},$transaction:m.transaction}}));
+vi.mock("@/lib/notifications/admin-alerts",()=>({notifyAdminsByPush:m.notify}));
+vi.mock("@/lib/notifications/pay-adjustments",()=>({notifyPayAdjustmentOutcome:m.outcome}));
+import {createQaReworkTransfer,reviewQaReworkTransfer} from "@/lib/qa/rework-transfers";
+const input={jobId:"j",qaUserId:"qa",cleanerUserId:"cleaner",severity:"MAJOR" as const,reason:"  Missed room  ",areas:["Kitchen"],minutesFromCleaner:10.4,amountFromCleaner:25,affectsCleanerStats:true};
+beforeEach(()=>{vi.resetAllMocks();m.create.mockResolvedValue({id:"transfer",severity:"MAJOR",job:{property:{name:"Home"}},qaUser:{name:"Inspector"},cleaner:{name:"Cleaner"}});m.notify.mockResolvedValue(undefined);m.outcome.mockResolvedValue(undefined);});
+it("transaction requires explicit postcommit queue before any writes",async()=>{await expect(createQaReworkTransfer(input,{transaction:{} as any})).rejects.toThrow(/afterCommit/);expect(m.create).not.toHaveBeenCalled();});
+it("pay transfer and audit use caller transaction; notification is deferred",async()=>{const afterCommit:Array<()=>Promise<void>>=[];const tx:any={qaReworkTransfer:{create:m.create},auditLog:{create:m.audit}};expect(await createQaReworkTransfer(input,{transaction:tx,afterCommit})).toMatchObject({id:"transfer"});expect(m.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({reason:"Missed room",minutesFromCleaner:10,status:"PENDING"})}));expect(m.audit).toHaveBeenCalled();expect(m.notify).not.toHaveBeenCalled();await afterCommit[0]();expect(m.notify).toHaveBeenCalledTimes(1);});
+it("failed audit cannot queue a notification for uncommitted transfer",async()=>{const afterCommit:Array<()=>Promise<void>>=[];m.audit.mockRejectedValue(new Error("audit failed"));await expect(createQaReworkTransfer(input,{transaction:{qaReworkTransfer:{create:m.create},auditLog:{create:m.audit}} as any,afterCommit})).rejects.toThrow("audit failed");expect(afterCommit).toHaveLength(0);expect(m.notify).not.toHaveBeenCalled();});
+it("standalone transfer clamps negative values and tolerates delivery failure",async()=>{m.notify.mockRejectedValue(new Error("offline"));await expect(createQaReworkTransfer({...input,minutesFromCleaner:-4,amountFromCleaner:-1,areas:[]})).resolves.toMatchObject({id:"transfer"});expect(m.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({minutesFromCleaner:0,amountFromCleaner:0,areas:undefined})}));});
+
+it("approval creates matching debit/credit and categorized cleaner inbox notice in one transaction",async()=>{
+ m.find.mockResolvedValue({id:"transfer",status:"PENDING",jobId:"j",cleanerUserId:"cleaner",qaUserId:"qa",minutesFromCleaner:0,amountFromCleaner:25,severity:"MAJOR",reason:"Missed room",job:{property:{id:"p",name:"Home"}}});
+ const adjustments=vi.fn();const inbox=vi.fn();const update=vi.fn();m.transaction.mockImplementation(async fn=>fn({cleanerPayAdjustment:{create:adjustments},qaReworkTransfer:{update},notification:{create:inbox},auditLog:{create:m.audit}}));
+ await reviewQaReworkTransfer({id:"transfer",reviewerUserId:"admin",status:"APPROVED"});expect(adjustments).toHaveBeenCalledTimes(2);expect(adjustments.mock.calls.map(([arg])=>[arg.data.cleanerId,arg.data.approvedAmount])).toEqual([["cleaner",-25],["qa",25]]);expect(inbox).toHaveBeenCalledWith({data:expect.objectContaining({userId:"cleaner",externalId:expect.stringContaining("jobs"),status:"SENT",subject:"QA rework recorded on your job"})});expect(update).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({status:"APPROVED",reviewedById:"admin"})}));
+});

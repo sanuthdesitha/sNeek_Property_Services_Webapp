@@ -1,13 +1,14 @@
 import React from "react";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { serializeJobInternalNotes } from "@/lib/jobs/meta";
 import AdminCommandPage from "@/app/v2/admin/page";
 
 const mocks = vi.hoisted(() => ({
   jobs: vi.fn(), statuses: vi.fn(), pings: vi.fn(), timers: vi.fn(), laundry: vi.fn(), metrics: vi.fn(), attention: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ db: {
-  job: { findMany: mocks.jobs, groupBy: mocks.statuses },
+  job: { findMany: (args: any) => args.select?.status && !args.select?.id ? mocks.statuses(args) : mocks.jobs(args) },
   cleanerLocationPing: { findMany: mocks.pings }, timeLog: { findMany: mocks.timers },
   laundryTask: { count: mocks.laundry },
 } }));
@@ -38,8 +39,8 @@ describe("admin command trustworthy results", () => {
       expect(screen.queryByText(/private database diagnostic/)).toBeNull();
     },
   );
-  it("uses complete grouped counts even with an empty dispatch preview", async () => {
-    mocks.statuses.mockResolvedValue([{ status: "UNASSIGNED", _count: { _all: 41 } }]);
+  it("uses complete published-job counts even with an empty dispatch preview", async () => {
+    mocks.statuses.mockResolvedValue(Array.from({ length: 41 }, () => ({ status: "UNASSIGNED", internalNotes: null })));
     render(await AdminCommandPage());
     expect(screen.getByText("41 jobs today have no cleaner")).toBeVisible();
     expect(mocks.metrics).toHaveBeenCalledWith({ strict: true });
@@ -88,8 +89,16 @@ it("makes missing-rate exclusions explicit in both revenue summaries", async () 
 });
 it("surfaces non-today unassigned work and non-overdue cases", async () => {
   mocks.attention.mockResolvedValue({ attentionCount: 8, unassignedJobs: 5, openCases: 3, overdueCases: 1 });
-  mocks.statuses.mockResolvedValue([{ status: "UNASSIGNED", _count: { _all: 2 } }]);
+  mocks.statuses.mockResolvedValue(Array.from({ length: 2 }, () => ({ status: "UNASSIGNED", internalNotes: null })));
   render(await AdminCommandPage());
   expect(screen.getByText("3 unassigned jobs outside today's schedule")).toBeVisible();
   expect(screen.getByText("2 open cases without an overdue deadline to review")).toBeVisible();
+});
+
+
+it("excludes draft status counts and retains every supported job status", async () => {
+  mocks.statuses.mockResolvedValue([{status:"UNASSIGNED",internalNotes:serializeJobInternalNotes({isDraft:true})},{status:"WAITING_CONTINUATION_APPROVAL",internalNotes:null}]);
+  render(await AdminCommandPage());
+  expect(screen.queryByText(/jobs today have no cleaner/)).toBeNull();
+  expect(screen.getAllByText("Waiting approval").length).toBeGreaterThan(0);
 });

@@ -153,7 +153,7 @@ async function refreshXeroToken(conn: { id: string; refreshToken: string }): Pro
 /**
  * Make an authenticated Xero API request.
  */
-async function xeroRequest<T>(method: string, path: string, tenantId: string, body?: unknown): Promise<T> {
+async function xeroRequest<T>(method: string, path: string, tenantId: string, body?: unknown, idempotencyKey?: string): Promise<T> {
   const tokenData = await getXeroToken();
   if (!tokenData) throw new Error("No active Xero connection");
 
@@ -164,6 +164,7 @@ async function xeroRequest<T>(method: string, path: string, tenantId: string, bo
       "Xero-tenant-id": tenantId,
       "Content-Type": "application/json",
       Accept: "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -393,6 +394,7 @@ export async function syncXeroContact(input: {
  * Push a client invoice to Xero as a DRAFT invoice.
  */
 export async function pushClientInvoiceToXero(input: {
+  idempotencyKey?: string;
   invoiceNumber: string;
   clientName: string;
   clientEmail: string;
@@ -452,7 +454,7 @@ export async function pushClientInvoiceToXero(input: {
     ...(input.reference ? { Reference: input.reference } : {}),
   };
 
-  const result = await xeroRequest("PUT", "/api.xro/2.0/Invoices", tokenData.tenantId, { Invoices: [invoice] });
+  const result = await xeroRequest("PUT", "/api.xro/2.0/Invoices", tokenData.tenantId, { Invoices: [invoice] }, input.idempotencyKey);
 
   const invoices = (result as { Invoices?: Array<{ InvoiceID: string }> })?.Invoices;
   if (!invoices?.[0]?.InvoiceID) throw new Error("Failed to create Xero invoice");
@@ -464,6 +466,7 @@ export async function pushClientInvoiceToXero(input: {
  * Push a cleaner bill to Xero as an ACCPAY bill.
  */
 export async function pushCleanerBillToXero(input: {
+  idempotencyKey?: string;
   cleanerName: string;
   cleanerEmail: string;
   cleanerPhone?: string;
@@ -508,7 +511,7 @@ export async function pushCleanerBillToXero(input: {
     ...(input.reference ? { Reference: input.reference } : {}),
   };
 
-  const result = await xeroRequest("PUT", "/api.xro/2.0/Invoices", tokenData.tenantId, { Invoices: [bill] });
+  const result = await xeroRequest("PUT", "/api.xro/2.0/Invoices", tokenData.tenantId, { Invoices: [bill] }, input.idempotencyKey);
 
   const invoices = (result as { Invoices?: Array<{ InvoiceID: string }> })?.Invoices;
   if (!invoices?.[0]?.InvoiceID) throw new Error("Failed to create Xero bill");

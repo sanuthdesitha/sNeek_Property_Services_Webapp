@@ -66,6 +66,7 @@ export type TaskRequestRow = {
   completedAt?: string | null;
   /** What the cleaner wrote when finishing, or explaining why they could not. */
   completionNote?: string | null;
+  completionDisposition?: "NOT_APPLICABLE" | null;
   /** Reference images supplied WITH the request. */
   attachments: { id: string; url: string; s3Key: string; label: string | null; mediaType: string }[];
   /** Evidence the cleaner uploaded on completion. */
@@ -151,7 +152,7 @@ export function TaskRequestReviews({ jobId, tasks }: { jobId: string; tasks: Tas
                 >
                   {statusWords(task.approvalStatus)}
                 </EBadge>
-                <EBadge tone="neutral" soft>{statusWords(task.executionStatus)}</EBadge>
+                <EBadge tone="neutral" soft>{task.completionDisposition === "NOT_APPLICABLE" ? "Not applicable" : statusWords(task.executionStatus)}</EBadge>
                 {task.requiresPhoto ? <EBadge tone="info" soft>Photo proof</EBadge> : null}
                 {task.requiresNote ? <EBadge tone="info" soft>Cleaner note</EBadge> : null}
               </div>

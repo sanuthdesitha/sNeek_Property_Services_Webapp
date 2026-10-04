@@ -108,6 +108,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       skipped: shaped.filter((j) => j.skipped).length,
       avgQa,
       qaPassRate,
+      caseCount: shaped.reduce((sum, j) => sum + j.issueCount, 0),
+      // Kept for older clients; label is total cases, not open damage cases.
       openIssues: shaped.reduce((sum, j) => sum + j.issueCount, 0),
       maintenanceItems: shaped.reduce((sum, j) => sum + j.maintenanceCount, 0),
       reports: shaped.filter((j) => j.hasReport).length,

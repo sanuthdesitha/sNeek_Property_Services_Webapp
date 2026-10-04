@@ -22,7 +22,6 @@ import { DailyBriefing } from "@/components/v2/cleaner/daily-briefing";
 import { CleanerCoachingCard } from "@/components/v2/cleaner/coaching-card";
 import { CleanerQaFeedbackCard } from "@/components/v2/cleaner/qa-feedback-card";
 import { getCleanerImmediateAttention } from "@/lib/dashboard/immediate-attention";
-import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
@@ -152,7 +151,6 @@ export default async function CleanerTodayPage() {
   const session = await requireRole([Role.CLEANER]);
   // Same safety net as the v1 dashboard: close out any clock left running
   // overnight before computing today's numbers.
-  await autoClockOutStaleTimeLogsForUser(session.user.id).catch(() => {});
   const cleanerName =
     session.user.name?.trim()?.split(" ")[0] ||
     session.user.email?.split("@")[0] ||

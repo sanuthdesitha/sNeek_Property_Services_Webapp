@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildCleanerGuestSummary,
+  cleanerPreparationContext,
   buildGuestCountLabel,
   buildGuestSummary,
   extractCountry,
@@ -124,5 +125,46 @@ describe("buildCleanerGuestSummary", () => {
       reservationCode: "HMABC123",
     });
     expect(s.hasAnything).toBe(false);
+  });
+});
+
+
+describe("cleaner preparation fallback", () => {
+  it.each([["JacksonP3", 4], ["Jackson P9", 4], ["Jackson Property-11", 7],
+    ["Jackson P7", 6], ["Jackson Property-4", 6], ["Jackson P12", 6]] as const)(
+    "%s uses maximum %i without a same-day arrival, overriding stale counts", (name, maximum) => {
+      const ctx = Object.freeze({ ...INCOMING });
+      const result = cleanerPreparationContext(ctx, { sameDayCheckin: false, property: { name } });
+      expect(result.preparationGuestCount).toBe(maximum);
+      expect(result.preparationSource).toBe("PROPERTY_MAX");
+      expect(result.adults).toBeUndefined();
+      expect(ctx).toEqual(INCOMING);
+      expect(buildCleanerGuestSummary(result).hasAnything).toBe(true);
+    },
+  );
+  it("keeps an actual arrival count even above the configured maximum", () => {
+    expect(cleanerPreparationContext({ ...INCOMING, preparationGuestCount: 8 }, {
+      sameDayCheckin: true, property: { name: "Jackson P3" },
+    }).preparationGuestCount).toBe(8);
+  });
+  it("derives an available arrival count from iCal demographics", () => {
+    expect(cleanerPreparationContext({ adults: 2, children: 1, infants: 1 }, {
+      sameDayCheckin: true, property: { name: "Jackson P11" },
+    })).toMatchObject({ preparationGuestCount: 4, preparationSource: "INCOMING_BOOKING" });
+  });
+  it.each([undefined, { guestName: "Incoming" }, { preparationGuestCount: 0 },
+    { preparationGuestCount: 4, preparationSource: "PROPERTY_MAX" as const }])(
+    "uses the corrected maximum for an arrival without an actual count", context => {
+      const result = cleanerPreparationContext(context, { sameDayCheckin: true, property: { name: "Jackson P11" } });
+      expect(result.preparationGuestCount).toBe(7);
+      expect(result.preparationSource).toBe("PROPERTY_MAX");
+      expect(buildCleanerGuestSummary(result).hasAnything).toBe(true);
+    },
+  );
+  it("uses unrelated properties' own maximum, never Jackson's default", () => {
+    expect(cleanerPreparationContext(undefined, { property: { name: "Commercial P11" } }).preparationGuestCount).toBeUndefined();
+    expect(cleanerPreparationContext(undefined, { property: { name: "Other P7", accessInfo: { maxGuestCount: "12" } } }).preparationGuestCount).toBe(12);
+    expect(cleanerPreparationContext(undefined, { property: { name: "Jackson Office", accessInfo: { maxGuestCount: -1 } } }).preparationGuestCount).toBeUndefined();
+    expect(cleanerPreparationContext({ preparationGuestCount: 5, preparationSource: "PROPERTY_MAX" }, { property: {} }).preparationGuestCount).toBe(5);
   });
 });

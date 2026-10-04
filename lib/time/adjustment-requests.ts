@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NotificationChannel, NotificationStatus, TimeAdjustmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
@@ -174,6 +175,7 @@ export async function reviewTimeAdjustmentRequest(params: {
       data: {
         userId: existing.cleanerId,
         jobId: existing.jobId,
+        externalId: mobilePendingMarker("jobs"),
         channel: NotificationChannel.PUSH,
         subject:
           params.status === TimeAdjustmentStatus.APPROVED

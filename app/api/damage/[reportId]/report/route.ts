@@ -1,3 +1,4 @@
+import { resolveRouteRole } from "@/lib/auth/route-role";
 import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -33,7 +34,7 @@ export async function GET(req: Request, { params }: { params: { reportId: string
 
     let audience: DamageAudience = "ADMIN";
 
-    if (session.user.role === Role.CLIENT) {
+    if (resolveRouteRole(session.user, [Role.ADMIN, Role.OPS_MANAGER, Role.CLIENT]) === Role.CLIENT) {
       audience = "CLIENT";
       const user = await db.user.findUnique({
         where: { id: session.user.id },

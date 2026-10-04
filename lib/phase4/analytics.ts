@@ -5,6 +5,7 @@ import { getBranchById, listBranches, resolveBranchPropertyIds } from "@/lib/pha
 import { suggestAutoAssignment } from "@/lib/ops/dispatch";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
+import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 
 function parseDateOnly(value?: string | null, endOfDay = false) {
@@ -330,13 +331,22 @@ export async function applyReschedule(input: {
   dueTime?: string | null;
   userId: string;
   reason?: string | null;
+  expectedUpdatedAt?: string;
 }) {
   const date = parseDateOnly(input.date);
   if (!date) throw new Error("Invalid date.");
   const job = await db.job.findUnique({ where: { id: input.jobId } });
   if (!job) throw new Error("Job not found.");
-  const meta = parseJobInternalNotes(job.internalNotes);
-  const updated = await db.job.update({
+  if (input.expectedUpdatedAt && new Date(input.expectedUpdatedAt).getTime() !== job.updatedAt.getTime()) throw new Error("This job changed. Reload before rescheduling.");
+  const startTime = input.startTime !== undefined ? input.startTime || null : job.startTime;
+  const dueTime = input.dueTime !== undefined ? input.dueTime || null : job.dueTime;
+  const validTime = (value: string | null) => !value || /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+  if (!validTime(startTime) || !validTime(dueTime) || (startTime && dueTime && dueTime < startTime)) throw new Error("Enter a valid start and finish window.");
+  if (job.scheduledDate.getTime() === date.getTime() && job.startTime === startTime && job.dueTime === dueTime) return job;
+  const updated = await db.$transaction(async (tx) => {
+  const guarded = await tx.job.updateMany({ where: { id: job.id, updatedAt: job.updatedAt }, data: { manuallyRescheduledAt: new Date() } });
+  if (guarded.count !== 1) throw new Error("This job changed. Reload before rescheduling.");
+  const updated = await tx.job.update({
     where: { id: input.jobId },
     data: {
       scheduledDate: date,
@@ -363,7 +373,7 @@ export async function applyReschedule(input: {
       rescheduledBy: input.userId,
     },
   });
-  await db.auditLog.create({
+  await tx.auditLog.create({
     data: {
       userId: input.userId,
       jobId: job.id,
@@ -384,13 +394,25 @@ export async function applyReschedule(input: {
     },
   });
 
+  return updated;
+  });
+
   // Notify the client of the new schedule — but only when the date or start/
   // finish time actually moved. Best-effort auto send (gated + never throws).
   const scheduleChanged =
     job.scheduledDate?.getTime() !== updated.scheduledDate?.getTime() ||
     (job.startTime ?? "") !== (updated.startTime ?? "") ||
     (job.dueTime ?? "") !== (updated.dueTime ?? "");
-  if (scheduleChanged) {
+  const finished = ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"].includes(job.status);
+  if (scheduleChanged && !finished && !parseJobInternalNotes(job.internalNotes).isDraft) {
+    const assigned = await db.jobAssignment.findMany({ where: { jobId: job.id, removedAt: null },
+      include: { user: { select: { id: true, role: true, name: true, email: true, phone: true, isActive: true } } } });
+    const recipients = assigned.map((row) => row.user).filter((user) => user.isActive);
+    const schedule = `${input.date}${updated.startTime ? ` at ${updated.startTime}` : ""}${updated.dueTime ? `, finish by ${updated.dueTime}` : ""}`;
+    if (recipients.length) await deliverNotificationToRecipients({ recipients, category: "jobs", jobId: job.id,
+      web: { subject: "Job rescheduled", body: `The job is now scheduled for ${schedule}. Open the job to review.` },
+      email: { subject: "Job rescheduled", html: `<p>The job is now scheduled for ${schedule}. Open the job to review.</p>` },
+      sms: `Job rescheduled: ${schedule}. Open the job to review.` }).catch(() => {});
     await sendLifecycleEmail({
       jobId: updated.id,
       stage: "SCHEDULE_UPDATED",

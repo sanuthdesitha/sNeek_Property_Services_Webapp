@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, QaAssignmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { z } from "zod";
 
 /**
  * Reset a job's QA and re-request an inspection. Clears any existing QA reviews
@@ -10,9 +11,10 @@ import { db } from "@/lib/db";
  * queue for a fresh inspection. Works whether or not a review already exists.
  * INVOICED jobs are locked and cannot be reset.
  */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const confirmation = z.object({ confirm: z.literal(true), reason: z.string().trim().min(10).max(2000) }).parse(await req.json());
 
     const job = await db.job.findUnique({
       where: { id: params.id },
@@ -29,6 +31,19 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     let skippedPaidDeductions = 0;
     let startedReworksRemaining = 0;
     await db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.id}))`;
+      await tx.$queryRaw`SELECT id FROM "Job" WHERE id = ${params.id} OR "reworkOfJobId" = ${params.id} ORDER BY id FOR UPDATE`;
+      const relatedJobs = await tx.job.findMany({ where: { OR: [{ id: params.id }, { reworkOfJobId: params.id }] }, select: { id: true, status: true, payrollRunId: true, cleanerPaidAt: true, invoiceLines: { select: { id: true }, take: 1 } } });
+      const ids = relatedJobs.map(row => row.id);
+      const [adjustments, transfers, cleanerClaim] = await Promise.all([
+        tx.cleanerPayAdjustment.count({ where: { jobId: { in: ids } } }),
+        tx.qaReworkTransfer.count({ where: { jobId: { in: ids } } }),
+        tx.cleanerInvoiceSubmission.findFirst({ where: { status: { notIn: ["VOID", "CHANGES_REQUESTED"] }, OR: ids.map(id => ({ lineData: { path: ["jobIds"], array_contains: [id] } })) }, select: { id: true } }),
+      ]);
+      if (adjustments || transfers || cleanerClaim || relatedJobs.some(row => row.payrollRunId || row.cleanerPaidAt || row.invoiceLines.length > 0 || row.status === JobStatus.INVOICED)) {
+        throw new Error("QA reset is blocked by financial records. Reopen the inspection and review the existing pay decisions instead.");
+      }
+
       const reviews = await tx.qAReview.findMany({ where: { jobId: params.id }, select: { id: true } });
       const reviewIds = reviews.map((r) => r.id);
       if (reviewIds.length > 0) {
@@ -133,6 +148,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           entity: "Job",
           entityId: params.id,
           after: {
+            reason: confirmation.reason,
             deletedReviews,
             cancelledReworks,
             startedReworksRemaining,

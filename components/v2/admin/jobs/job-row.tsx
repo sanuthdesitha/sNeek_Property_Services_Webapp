@@ -17,19 +17,8 @@ const TZ = "Australia/Sydney";
 
 export type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
 
-export const STATUS_LABELS: Record<string, string> = {
-  UNASSIGNED: "Unassigned",
-  OFFERED: "Awaiting confirmation",
-  ASSIGNED: "Assigned",
-  EN_ROUTE: "On the way",
-  IN_PROGRESS: "In progress",
-  PAUSED: "Paused",
-  WAITING_CONTINUATION_APPROVAL: "Waiting approval",
-  SUBMITTED: "Submitted",
-  QA_REVIEW: "QA review",
-  COMPLETED: "Completed",
-  INVOICED: "Invoiced",
-};
+import { STATUS_LABELS } from "@/lib/jobs/status-labels";
+export { STATUS_LABELS };
 
 export const STATUS_TONES: Record<string, Tone> = {
   UNASSIGNED: "warning",

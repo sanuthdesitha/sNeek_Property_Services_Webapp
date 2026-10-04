@@ -47,7 +47,7 @@ describe("releaseCleanerInvoiceConsumables", () => {
 
     expect(qaAssignment.updateMany).toHaveBeenCalledWith({
       where: { includedInCleanerInvoiceId: "sub-1" },
-      data: { includedInCleanerInvoiceId: null },
+      data: { includedInCleanerInvoiceId: null, includedInCleanerInvoiceAt: null },
     });
   });
 
@@ -57,7 +57,7 @@ describe("releaseCleanerInvoiceConsumables", () => {
 
     expect(shoppingSettlement.updateMany).toHaveBeenCalledWith({
       where: { includedInCleanerInvoiceId: "sub-1" },
-      data: { includedInCleanerInvoiceId: null },
+      data: { includedInCleanerInvoiceId: null, includedInCleanerInvoiceAt: null },
     });
   });
 
@@ -78,9 +78,7 @@ describe("releaseCleanerInvoiceConsumables", () => {
     await releaseCleanerInvoiceConsumables(tx, "sub-2");
 
     for (const model of [cleanerPayAdjustment, qaAssignment, shoppingSettlement, qaDayAllowance]) {
-      expect(model.updateMany.mock.calls[0][0].where).toEqual({
-        includedInCleanerInvoiceId: "sub-2",
-      });
+      expect(model.updateMany.mock.calls.some(([call]) => JSON.stringify(call.where) === JSON.stringify({ includedInCleanerInvoiceId: "sub-2" }))).toBe(true);
     }
   });
 
@@ -90,6 +88,7 @@ describe("releaseCleanerInvoiceConsumables", () => {
       adjustments: 2,
       qaInspections: 1,
       shoppingSettlements: 3,
+      shoppingTimeSettlements: 3,
       travelDays: 2,
     });
   });
@@ -100,6 +99,7 @@ describe("releaseCleanerInvoiceConsumables", () => {
       adjustments: 0,
       qaInspections: 0,
       shoppingSettlements: 0,
+      shoppingTimeSettlements: 0,
       travelDays: 0,
     });
   });
@@ -110,8 +110,34 @@ describe("releaseCleanerInvoiceConsumables", () => {
     const { tx, cleanerPayAdjustment, qaAssignment, shoppingSettlement, qaDayAllowance } = stubTx();
     await releaseCleanerInvoiceConsumables(tx, "sub-1");
     expect(cleanerPayAdjustment.updateMany).toHaveBeenCalledTimes(1);
-    expect(qaAssignment.updateMany).toHaveBeenCalledTimes(1);
-    expect(shoppingSettlement.updateMany).toHaveBeenCalledTimes(1);
+    expect(qaAssignment.updateMany).toHaveBeenCalledTimes(2);
+    expect(shoppingSettlement.updateMany).toHaveBeenCalledTimes(4);
     expect(qaDayAllowance.updateMany).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("independent settlement release", () => {
+  it("releases shopping time and clears only this invoice's unpayrolled frozen amounts", async () => {
+    const { tx, shoppingSettlement, qaAssignment } = stubTx();
+    await releaseCleanerInvoiceConsumables(tx, "invoice-a");
+    expect(shoppingSettlement.updateMany).toHaveBeenCalledWith({
+      where: { timeIncludedInCleanerInvoiceId: "invoice-a", timeIncludedInPayrollRunId: null },
+      data: { timePaySettledAmount: null },
+    });
+    expect(shoppingSettlement.updateMany).toHaveBeenCalledWith({
+      where: { timeIncludedInCleanerInvoiceId: "invoice-a" },
+      data: { timeIncludedInCleanerInvoiceId: null, timeIncludedInCleanerInvoiceAt: null },
+    });
+    for (const model of [shoppingSettlement, qaAssignment]) {
+      expect(model.updateMany).toHaveBeenCalledWith({
+        where: { includedInCleanerInvoiceId: "invoice-a", includedInPayrollRunId: null },
+        data: { paySettledAmount: null },
+      });
+      for (const [call] of model.updateMany.mock.calls) {
+        expect(call.data).not.toHaveProperty("includedInPayrollRunId");
+        expect(call.data).not.toHaveProperty("timeIncludedInPayrollRunId");
+      }
+    }
   });
 });

@@ -149,7 +149,7 @@ export function JobExtrasPanel({
       toast({
         title: "Extra added",
         description: `New total ${money(body.fixedPrice)} · ${
-          body.emailed ? "client emailed" : "client email not sent (no recipient / provider off)"
+          body.emailed ? "client emailed" : "saved without sending a client email"
         }`,
       });
       setPick("");
@@ -185,7 +185,7 @@ export function JobExtrasPanel({
       toast({
         title: "Extra removed",
         description: `New total ${money(body.fixedPrice)} · ${
-          body.emailed ? "client emailed" : "client email not sent"
+          body.emailed ? "client emailed" : "saved without sending a client email"
         }`,
       });
       setRemoveTarget(null);
@@ -305,7 +305,7 @@ export function JobExtrasPanel({
                 disabled={busy}
               />
             </EField>
-            <EField label="Note to the client (optional, included in the email)">
+            <EField label="Internal change note (optional)">
               <EInput value={note} onChange={(e) => setNote(e.target.value)} disabled={busy} />
             </EField>
             <div className="flex justify-end">
@@ -317,8 +317,7 @@ export function JobExtrasPanel({
           </>
         ) : null}
         <p className="flex items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-          <Mail className="h-3.5 w-3.5" /> The client is emailed automatically about every change here,
-          including the updated total.
+          <Mail className="h-3.5 w-3.5" /> Changes and the updated total are saved without sending a client email.
         </p>
       </div>
 
@@ -328,7 +327,7 @@ export function JobExtrasPanel({
         title="Remove this extra"
         description={
           removeTarget
-            ? `Removing "${removeTarget.label}" drops it off the cleaner's checklist, lowers the client's fixed price and emails them the new total. Enter your PIN or password to continue.`
+            ? `Removing "${removeTarget.label}" drops it off the cleaner's checklist, lowers the client's fixed price. No client email is sent. Enter your PIN or password to continue.`
             : undefined
         }
         confirmLabel="Remove extra"

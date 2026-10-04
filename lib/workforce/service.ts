@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 ﻿import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
 import { Prisma, Role } from "@prisma/client";
@@ -228,9 +229,9 @@ function questionWeight(question: LearningQuestion) {
 
 function flattenQuestions(schema: LearningSchema) {
   const questions: Array<{ module: LearningModule; question: LearningQuestion }> = [];
-  for (const module of schema.modules) {
-    for (const question of module.questions ?? []) {
-      questions.push({ module, question });
+  for (const learningModule of schema.modules) {
+    for (const question of learningModule.questions ?? []) {
+      questions.push({ module: learningModule, question });
     }
   }
   return questions;
@@ -801,6 +802,7 @@ async function dispatchWorkforcePostNotifications(postId: string) {
     await db.notification.createMany({
       data: recipientIds.map((userId) => ({
         userId,
+        externalId: mobilePendingMarker("account"),
         channel: "PUSH",
         subject: post.type === "RECOGNITION" ? "Team recognition" : "Team update",
         body: `${post.title} - ${summarizeText(post.body, 120)}`,
@@ -1065,6 +1067,7 @@ export async function createChatMessage(input: {
     await db.notification.createMany({
       data: notifyIds.map((userId) => ({
         userId,
+        externalId: mobilePendingMarker("account"),
         channel: "PUSH",
         subject: `Chat: ${channel.name}`,
         body: summarizeText(message.body, 120),
@@ -1774,6 +1777,7 @@ export async function createStaffDocumentRequest(input: {
   await db.notification.create({
     data: {
       userId: request.userId,
+      externalId: mobilePendingMarker("account"),
       channel: "PUSH",
       subject: "Document requested",
       body: `${request.requestedBy.name ?? "Admin"} requested ${request.title}.`,
@@ -1881,6 +1885,7 @@ export async function runDocumentExpiryCheck(now = new Date()) {
       await db.notification.createMany({
         data: admins.map((admin) => ({
           userId: admin.id,
+          externalId: mobilePendingMarker("account"),
           channel: "PUSH",
           subject,
           body,
@@ -2273,6 +2278,7 @@ export async function sendRecognition(input: {
   await db.notification.create({
     data: {
       userId: input.userId,
+      externalId: mobilePendingMarker("account"),
       channel: "PUSH",
       subject: "Recognition received",
       body: `${recognition.sentBy.name ?? "Admin"} sent you recognition: ${recognition.title}`,
@@ -2927,6 +2933,7 @@ export async function submitHiringApplication(input: {
     await db.notification.createMany({
       data: admins.map((admin) => ({
         userId: admin.id,
+        externalId: mobilePendingMarker("account"),
         channel: "PUSH",
         subject: "New hiring application",
         body: `${input.fullName.trim()} applied for ${position.title}`,

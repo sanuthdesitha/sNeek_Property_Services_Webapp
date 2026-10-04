@@ -1,3 +1,5 @@
+import { Role } from "@prisma/client";
+import { requireRole } from "@/lib/auth/session";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { FormBuilder } from "@/components/forms/form-builder";
@@ -11,6 +13,7 @@ export default async function FormEditPage({
 }: {
   params: { id: string };
 }) {
+  await requireRole([Role.ADMIN]);
   const template = await db.formTemplate.findUnique({
     where: { id: params.id },
     select: {

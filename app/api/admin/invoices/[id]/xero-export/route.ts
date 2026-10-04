@@ -3,6 +3,7 @@ import { ClientInvoiceStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { buildClientInvoiceXeroCsv, getClientInvoice } from "@/lib/billing/client-invoices";
 import { db } from "@/lib/db";
+import { assertStartedWorkReviewed } from "@/lib/billing/started-work-reconciliation";
 
 export async function POST(
   _req: NextRequest,
@@ -24,6 +25,7 @@ export async function POST(
         { status: 409 }
       );
     }
+    await assertStartedWorkReviewed(invoice, db);
     const csv = await buildClientInvoiceXeroCsv(invoice);
     await db.clientInvoice.update({
       where: { id: invoice.id },

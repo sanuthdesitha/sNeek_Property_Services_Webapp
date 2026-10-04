@@ -16,6 +16,8 @@ import { EXCEPTION_DEFS, REPORTED_EXCEPTIONS_FIELD_ID } from "@/lib/checklists/c
  */
 export interface ComposeOptions {
   rotationDue?: Record<string, boolean>;
+  /** Published templates retain the complete catalogue; runtime filters it. */
+  includeRotational?: boolean;
   activeConditionKeys?: string[];
 }
 
@@ -36,6 +38,8 @@ function exceptionLabel(conditionKey: string): string {
 
 export interface ProfileItemSelection {
   enabled: boolean;
+  rotationEveryNCleans?: 3 | 4;
+  instructions?: string;
   /** Optional per-item override of which job types include it (default = library). */
   jobTypes?: JobType[];
   /** When true, the cleaner must attach a proof photo for this task before submit. */
@@ -85,6 +89,8 @@ export function sanitizeSelections(raw: unknown): ProfileSelections {
             : undefined;
           items[itemKey] = {
             enabled: item.enabled === true,
+            ...(item.rotationEveryNCleans === 3 || item.rotationEveryNCleans === 4 ? { rotationEveryNCleans: item.rotationEveryNCleans } : {}),
+            ...(typeof item.instructions === "string" && item.instructions.trim() ? { instructions: item.instructions.trim().slice(0, 2000) } : {}),
             ...(jobTypes ? { jobTypes } : {}),
             ...(item.requiresPhoto === true ? { requiresPhoto: true } : {}),
           };
@@ -131,14 +137,16 @@ export function buildDefaultSelections(
   property: PropertyForRules
 ): ProfileSelections {
   const selections: ProfileSelections = { modules: {}, customItems: [] };
-  for (const module of library) {
-    const moduleApplies = ruleApplies(module.appliesWhen, property);
+  for (const checklistModule of library) {
+    const moduleApplies = ruleApplies(checklistModule.appliesWhen, property);
     const items: Record<string, ProfileItemSelection> = {};
-    for (const item of module.items) {
-      const itemApplies = ruleApplies(item.appliesWhen, property);
+    for (const item of checklistModule.items) {
+      const plantRule = item.key === "ev.living.plants-watered" ? { feature: "livePlants" }
+        : item.key === "ev.living.plants-dusted" || item.key === "living.rot_plant_dusting" ? { feature: "plants" } : null;
+      const itemApplies = ruleApplies(plantRule ?? item.appliesWhen, property);
       items[item.key] = { enabled: moduleApplies && itemApplies && item.defaultOn };
     }
-    selections.modules[module.key] = { enabled: moduleApplies, items };
+    selections.modules[checklistModule.key] = { enabled: moduleApplies, items };
   }
   return selections;
 }
@@ -397,6 +405,7 @@ function libraryItemField(
     // self-describing (the cleaner-submit route derives rotational completion
     // from ROTATIONAL fields). EVERY_CLEAN fields stay byte-identical to before.
     ...(frequency && frequency !== "EVERY_CLEAN" ? { frequency } : {}),
+    ...(frequency === "ROTATIONAL" ? { rotationEveryNCleans: item.rotationEveryNCleans ?? 4 } : {}),
     ...(item.imageUrl || item.videoUrl
       ? {
           references: [
@@ -484,46 +493,50 @@ export function composeFormSchema(
   const rotationDue = options?.rotationDue;
   const activeConditionKeys = options?.activeConditionKeys;
 
-  for (const module of library) {
-    const moduleSel = selections.modules[module.key];
+  for (const checklistModule of library) {
+    const moduleSel = selections.modules[checklistModule.key];
     if (!moduleSel?.enabled) continue;
 
-    const repeatCount = repeatCountFor(module.repeatBy, property);
-    const unitLabel = module.repeatBy === "bathrooms" ? "Bathroom" : "Bedroom";
+    const repeatCount = repeatCountFor(checklistModule.repeatBy, property);
+    const unitLabel = checklistModule.repeatBy === "bathrooms" ? "Bathroom" : "Bedroom";
 
     for (let n = 1; n <= repeatCount; n++) {
       const repeated = repeatCount > 1;
       // Keep field ids identical to today for the single (non-repeated) case so
       // existing properties/templates are unaffected; only suffix on repeats.
-      const idSuffix = repeated ? `__${module.repeatBy === "bathrooms" ? "bath" : "bed"}${n}` : "";
+      const idSuffix = repeated ? `__${checklistModule.repeatBy === "bathrooms" ? "bath" : "bed"}${n}` : "";
       const fields: unknown[] = [];
-      for (const item of module.items) {
+      for (const item of checklistModule.items) {
         const itemSel = moduleSel.items[item.key];
         if (!itemSel?.enabled) continue;
+        if (item.key === "ev.living.plants-watered" && (!property || !ruleApplies({ feature: "livePlants" }, property))) continue;
+        if ((item.key === "ev.living.plants-dusted" || item.key === "living.rot_plant_dusting") && (!property || !ruleApplies({ feature: "plants" }, property))) continue;
         if (!itemIncludesJobType(item.jobTypes, itemSel.jobTypes, jobType)) continue;
         // ROTATIONAL items only appear when the due-map says so. No map (preview
         // / legacy / static-template callers) → excluded so they aren't spammed.
         const frequency = (item as any).frequency ?? "EVERY_CLEAN";
-        if (frequency === "ROTATIONAL" && rotationDue?.[item.key] !== true) continue;
+        if (frequency === "ROTATIONAL" && !options?.includeRotational && rotationDue?.[item.key] !== true) continue;
         fields.push(
-          libraryItemField(item, itemSel.requiresPhoto === true, idSuffix, { activeConditionKeys })
+          libraryItemField({ ...item,
+            ...(item.key === "ev.living.plants-watered" ? { label: "Live plant care checked", instructions: "Check the soil and follow the property's plant-care instructions. Water only when appropriate; never water artificial plants. Photograph the plant and soil condition even when no water is needed." } : {}),
+            ...(itemSel.instructions ? { instructions: itemSel.instructions } : {}), ...(itemSel.rotationEveryNCleans ? { rotationEveryNCleans: itemSel.rotationEveryNCleans } : {}) }, itemSel.requiresPhoto === true, idSuffix, { activeConditionKeys })
         );
       }
       // Custom items attached to this module — only on the first block so they
       // aren't duplicated across repeated rooms.
       if (n === 1) {
         for (const custom of selections.customItems) {
-          if (custom.moduleKey !== module.key) continue;
+          if (custom.moduleKey !== checklistModule.key) continue;
           if (custom.jobTypes && custom.jobTypes.length > 0 && !custom.jobTypes.includes(jobType)) continue;
           fields.push(customItemField(custom));
         }
       }
       if (fields.length === 0) continue;
-      emittedCustomModuleKeys.add(module.key);
+      emittedCustomModuleKeys.add(checklistModule.key);
       sections.push({
-        id: repeated ? `${module.key}-${n}` : module.key,
-        title: repeated ? `${unitLabel} ${n}` : module.title,
-        description: module.description || undefined,
+        id: repeated ? `${checklistModule.key}-${n}` : checklistModule.key,
+        title: repeated ? `${unitLabel} ${n}` : checklistModule.title,
+        description: checklistModule.description || undefined,
         fields,
       });
     }
@@ -599,8 +612,9 @@ export async function generatePropertyTemplates(params: {
   if (!profile) throw new Error("No checklist profile saved for this property yet.");
 
   const library = await getChecklistLibrary();
-  const defaults = buildDefaultSelections(library, property);
-  const selections = mergeSelections(defaults, sanitizeSelections(profile.selections));
+  // Publish exactly the reviewed property selections. Adding new standard
+  // content is a separate explicit profile-sync action, never a side effect.
+  const selections = sanitizeSelections(profile.selections);
 
   const previousIds =
     profile.generatedTemplateIds && typeof profile.generatedTemplateIds === "object"
@@ -609,7 +623,7 @@ export async function generatePropertyTemplates(params: {
   const generated: Partial<Record<JobType, string>> = {};
 
   for (const jobType of params.jobTypes) {
-    const schema = composeFormSchema(library, selections, jobType, property);
+    const schema = composeFormSchema(library, selections, jobType, property, { includeRotational: true });
     if (schema.sections.length === 0) continue;
     const previousId = previousIds[jobType];
     const previous = previousId

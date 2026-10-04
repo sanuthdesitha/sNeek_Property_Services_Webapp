@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { JobType } from "@prisma/client";
-const mocks = vi.hoisted(() => ({ templates: vi.fn(), anchor: vi.fn(), create: vi.fn() }));
+const mocks = vi.hoisted(() => ({ templates: vi.fn(), anchor: vi.fn(), create: vi.fn(), rotation: vi.fn() }));
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/db", () => ({ db: { formTemplate: { findMany: mocks.templates, findFirst: mocks.anchor, create: mocks.create } } }));
+vi.mock("@/lib/db", () => ({ db: { propertyRotationState: { findMany: mocks.rotation }, formTemplate: { findMany: mocks.templates, findFirst: mocks.anchor, create: mocks.create } } }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: vi.fn(() => { throw Error("Unexpected settings access"); }) }));
 vi.mock("@/lib/qa/annotation-composite", () => ({ compositeAnnotated: vi.fn(() => { throw Error("Unexpected provider access"); }) }));
 import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form";
@@ -95,4 +95,26 @@ describe("resolveEffectiveJobForm", () => {
     expect(mocks.anchor).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
   });
+});
+
+
+it("filters not-due rotation fields while retaining the full catalogue without writes", async () => {
+  const sections = [{ id: "room", fields: [
+    { id: "weekly", type: "photo", required: true, frequency: "ROTATIONAL", rotationEveryNCleans: 3 },
+    { id: "normal", type: "photo", required: true },
+  ] }];
+  mocks.templates.mockResolvedValue([row("global", { schema: { standardSections: false, sections } })]);
+  mocks.rotation.mockResolvedValue([{ itemKey: "weekly", cleansSinceDone: 0 }]);
+  const result = await resolveEffectiveJobForm(job, {});
+  expect(result.fullRotationSections[0].fields.map((field: any) => field.id)).toContain("weekly");
+  expect((result.template?.schema as any).sections[0].fields.map((field: any) => field.id)).not.toContain("weekly");
+  expect(mocks.create).not.toHaveBeenCalled();
+  mocks.rotation.mockResolvedValue([{ itemKey: "weekly", cleansSinceDone: 2 }]);
+  const due = await resolveEffectiveJobForm(job, {});
+  expect((due.template?.schema as any).sections[0].fields.map((field: any) => field.id)).toContain("weekly");
+});
+it("fails closed when rotational state cannot be read on the caller transaction", async () => {
+ mocks.templates.mockResolvedValue([row("global", { schema: { standardSections: false, sections: [{ id: "room", fields: [{ id: "weekly", type: "photo", frequency: "ROTATIONAL", rotationEveryNCleans: 3 }] }] } })]);
+ await expect(resolveEffectiveJobForm(job, {}, { database: { formTemplate: { findMany: mocks.templates } } as any })).rejects.toThrow("Rotation state reader is unavailable");
+ expect(mocks.rotation).not.toHaveBeenCalled(); expect(mocks.create).not.toHaveBeenCalled();
 });

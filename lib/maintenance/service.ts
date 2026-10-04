@@ -247,8 +247,9 @@ export async function updateMaintenanceStatus(
       select: { id: true, status: true },
     });
 
-    // Even no-op transitions record a touch event so the history is honest.
+    // Repeated requests preserve the original resolution evidence.
     for (const row of current) {
+      if (row.status === input.status) continue;
       await tx.propertyMaintenanceItem.update({
         where: { id: row.id },
         data: {

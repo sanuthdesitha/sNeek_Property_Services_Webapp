@@ -1,6 +1,6 @@
 import "server-only";
 import type { PrismaClient as PrismaClientType } from "@prisma/client";
-import { dispatchMobilePushForNotifications } from "@/lib/notifications/mobile-push";
+import { markMobileOutboxRows } from "@/lib/notifications/mobile-outbox-marker";
 import { canUseNodePrisma, getDatabaseUrl, isEdgeLikeRuntime } from "@/lib/database-runtime";
 
 const { PrismaClient } = require("@prisma/client") as typeof import("@prisma/client");
@@ -62,42 +62,12 @@ function registerNotificationMiddleware(prisma: PrismaClientType) {
   }
 
   prisma.$use(async (params, next) => {
-    const result = await next(params);
-
-    if (params.model !== "Notification") {
-      return result;
+    // Only annotate the inserted row. It commits/rolls back with its domain
+    // transaction. A dedicated worker dispatches committed rows afterward.
+    if (params.model === "Notification" && ["create", "createMany"].includes(params.action)) {
+      params.args.data = markMobileOutboxRows(params.args.data);
     }
-
-    if (params.action === "create") {
-      // Only PUSH rows go to the phone — matching the createMany branch below.
-      // Without this, every EMAIL log row (including ones whose email was
-      // correctly SUPPRESSED by the user's preferences) still buzzed their
-      // phone: a duplicate for delivered mail, a preference bypass for
-      // suppressed mail.
-      if ((result as any)?.channel === "PUSH") {
-        await dispatchMobilePushForNotifications(prisma as any, [result]);
-      }
-      return result;
-    }
-
-    if (params.action === "createMany") {
-      const data = Array.isArray(params.args?.data) ? params.args.data : [params.args?.data];
-      const pushRows = data
-        .filter((row: any) => row?.channel === "PUSH" && typeof row?.userId === "string")
-        .map((row: any) => ({
-          id: `createMany:${row.userId}:${row.jobId ?? "none"}:${row.subject ?? ""}:${row.body ?? ""}`,
-          userId: row.userId,
-          jobId: row.jobId ?? null,
-          subject: row.subject ?? null,
-          body: String(row.body ?? ""),
-        }));
-
-      if (pushRows.length > 0) {
-        await dispatchMobilePushForNotifications(prisma as any, pushRows);
-      }
-    }
-
-    return result;
+    return next(params);
   });
 
   globalForPrisma.prismaHasNotificationMiddleware = true;

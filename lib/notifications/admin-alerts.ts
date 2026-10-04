@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
@@ -30,6 +31,7 @@ export async function notifyAdminsByPush(input: {
     data: admins.map((admin) => ({
       userId: admin.id,
       jobId: input.jobId ?? undefined,
+      externalId: mobilePendingMarker("account"),
       channel: NotificationChannel.PUSH,
       subject: input.subject,
       body: input.body,

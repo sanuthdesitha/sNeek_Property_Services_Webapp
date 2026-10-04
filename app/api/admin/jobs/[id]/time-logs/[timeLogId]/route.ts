@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
@@ -123,6 +124,7 @@ export async function PATCH(
         data: {
           userId: log.userId,
           jobId: log.jobId,
+          externalId: mobilePendingMarker("jobs"),
           channel: NotificationChannel.PUSH,
           subject: "Clock times updated by admin",
           body: `${log.job.jobNumber}: An admin amended your recorded clock times${

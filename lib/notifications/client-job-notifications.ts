@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { db } from "@/lib/db";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
@@ -160,6 +161,7 @@ async function logPushNotification(input: { recipientUserId: string; jobId: stri
     data: {
       userId: input.recipientUserId,
       jobId: input.jobId,
+      externalId: mobilePendingMarker("jobs"),
       channel: NotificationChannel.PUSH,
       subject: input.subject,
       body: input.body,

@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { getDashboardMetrics } from "@/lib/admin/dashboard";
 const mocks = vi.hoisted(() => ({ jobs: vi.fn(), users: vi.fn(), assignments: vi.fn(), invoices: vi.fn(),
   qa: vi.fn(), feedback: vi.fn(), pings: vi.fn(), grouped: vi.fn(), stock: vi.fn(), rates: vi.fn(), prices: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: {
   job: { findMany: mocks.jobs }, user: { count: mocks.users },
   jobAssignment: { findMany: mocks.assignments, groupBy: mocks.grouped },
-  clientInvoice: { aggregate: mocks.invoices }, qaAssignment: { count: mocks.qa },
+  clientInvoice: { findMany: mocks.invoices }, qaAssignment: { count: mocks.qa },
   jobFeedback: { findMany: mocks.feedback }, cleanerLocationPing: { findMany: mocks.pings },
   propertyStock: { findMany: mocks.stock }, propertyClientRate: { findMany: mocks.rates }, priceBook: { findMany: mocks.prices },
 } }));
@@ -13,7 +14,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   for (const key of ["jobs", "assignments", "feedback", "pings", "grouped", "stock", "rates", "prices"] as const) mocks[key].mockResolvedValue([]);
   mocks.users.mockResolvedValue(0); mocks.qa.mockResolvedValue(0);
-  mocks.invoices.mockResolvedValue({ _count: { _all: 0 }, _sum: { totalAmount: 0 } });
+  mocks.invoices.mockResolvedValue([]);
 });
 afterEach(() => vi.useRealTimers());
 describe("dashboard metrics read contracts", () => {
@@ -57,4 +58,15 @@ it.each(["2026-10-04T01:00:00Z", "2026-04-05T01:00:00Z"])("keeps weekly schedule
   } finally {
     if (original === undefined) delete process.env.TZ; else process.env.TZ = original;
   }
+});
+
+
+it("excludes drafts from workload and tomorrow assignments without losing a cleaner's published job", async () => {
+  const draft=serializeJobInternalNotes({isDraft:true});
+  mocks.jobs.mockResolvedValue([{id:"d",status:"UNASSIGNED",internalNotes:draft},{id:"p",status:"ASSIGNED",internalNotes:null}]);
+  mocks.users.mockResolvedValue(3);
+  mocks.assignments.mockResolvedValue([{userId:"c1",job:{internalNotes:draft}},{userId:"c1",job:{internalNotes:null}},{userId:"c2",job:{internalNotes:draft}}]);
+  const result=await getDashboardMetrics({strict:true});
+  expect(result.today).toMatchObject({total:1,remaining:1});
+  expect(result.tomorrow).toEqual({scheduled:1,total:3,idle:2});
 });

@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NotificationChannel, NotificationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
@@ -55,19 +56,21 @@ export async function autoClockOutStaleTimeLogsForUser(userId: string) {
     const stoppedAt = cutoff > log.startedAt ? cutoff : now;
     const durationM = Math.max(0, Math.round((stoppedAt.getTime() - log.startedAt.getTime()) / 60000));
 
-    await db.$transaction([
-      db.timeLog.update({
-        where: { id: log.id },
+    const closed = await db.$transaction(async (tx) => {
+      const claimed = await tx.timeLog.updateMany({
+        where: { id: log.id, stoppedAt: null },
         data: {
           stoppedAt,
           durationM,
           notes: [log.notes, "Auto clocked out by system"].filter(Boolean).join(" | "),
         },
-      }),
-      db.notification.create({
+      });
+      if (claimed.count !== 1) return false;
+      await tx.notification.create({
         data: {
           userId,
           jobId: log.jobId,
+          externalId: mobilePendingMarker("jobs"),
           channel: NotificationChannel.PUSH,
           subject: "Auto clocked out",
           body: `${log.job.jobNumber || log.job.id}: ${log.job.property.name} was automatically clocked out at ${stoppedAt.toLocaleTimeString("en-AU", {
@@ -77,8 +80,8 @@ export async function autoClockOutStaleTimeLogsForUser(userId: string) {
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },
-      }),
-      db.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: {
           userId,
           jobId: log.jobId,
@@ -90,9 +93,10 @@ export async function autoClockOutStaleTimeLogsForUser(userId: string) {
             durationM,
           } as any,
         },
-      }),
-    ]);
-    changed += 1;
+      });
+      return true;
+    });
+    if (closed) changed += 1;
   }
 
   return changed;

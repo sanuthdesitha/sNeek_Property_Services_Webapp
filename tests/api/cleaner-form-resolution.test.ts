@@ -151,3 +151,36 @@ describe("real form read resolution", () => {
     expect(mocks.create).not.toHaveBeenCalled();
   });
 });
+
+
+it("does not clock out a cleaner or provision templates during a form read", async () => {
+  mocks.role.mockResolvedValue({ user: { id: "cleaner", role: Role.CLEANER } });
+  job.assignments = [{ userId: "cleaner", user: { name: "Cleaner" } }];
+  job.isRework = true; job.reworkAreas = [{ id: "room", label: "Room", photoKeys: [] }];
+  await read();
+  expect(mocks.clockout).not.toHaveBeenCalled();
+  expect(mocks.create).not.toHaveBeenCalled();
+});
+
+
+it.each([false, true])("projects missing-count preparation for cleaners (same-day %s) without rewriting notes", async sameDayCheckin => {
+  job.property.name = "Jackson Property-11";
+  job.property.accessInfo = { maxGuestCount: 4 };
+  job.sameDayCheckin = sameDayCheckin;
+  const originalNotes = job.internalNotes;
+  const { response, body } = await read();
+  expect(response.status).toBe(200);
+  expect(body.jobMeta.reservationContext).toMatchObject({ preparationGuestCount: 7, preparationSource: "PROPERTY_MAX" });
+  expect(body.nextGuest).toMatchObject({ preparationGuestCount: 7, preparationIsFallback: true });
+  expect(job.internalNotes).toBe(originalNotes);
+  expect(body.finalCheckup.items).toEqual([]);
+});
+
+it("returns the real arrival count in both cleaner projections", async () => {
+  job.property.name = "JacksonP3";
+  job.sameDayCheckin = true;
+  job.internalNotes = serializeJobInternalNotes({ reservationContext: { preparationGuestCount: 5, preparationSource: "INCOMING_BOOKING" } });
+  const { body } = await read();
+  expect(body.jobMeta.reservationContext.preparationGuestCount).toBe(5);
+  expect(body.nextGuest.preparationGuestCount).toBe(5);
+});

@@ -8,6 +8,7 @@ const schema = z.object({
   date: z.string().date(),
   startTime: z.string().trim().max(5).optional().nullable(),
   dueTime: z.string().trim().max(5).optional().nullable(),
+  expectedUpdatedAt: z.string().datetime().optional(),
   reason: z.string().trim().max(1200).optional().nullable(),
 });
 
@@ -21,10 +22,11 @@ export async function POST(
     const updated = await applyReschedule({
       jobId: params.jobId,
       date: body.date,
-      startTime: body.startTime ?? undefined,
-      dueTime: body.dueTime ?? undefined,
+      startTime: body.startTime,
+      dueTime: body.dueTime,
       reason: body.reason ?? null,
       userId: session.user.id,
+      expectedUpdatedAt: body.expectedUpdatedAt,
     });
     return NextResponse.json(updated);
   } catch (err: any) {

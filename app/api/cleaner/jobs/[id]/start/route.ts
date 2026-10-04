@@ -1,3 +1,5 @@
+import { hasUnacceptedOriginalReworkOffer } from "@/lib/cleaner/rework-offer-guard";
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
@@ -77,6 +79,7 @@ export async function POST(
         scheduledDate: true,
         jobType: true,
         isRework: true,
+        reworkOfJobId: true,
         internalNotes: true,
         property: {
           select: {
@@ -90,6 +93,12 @@ export async function POST(
     });
     if (!job) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    }
+    if (await hasUnacceptedOriginalReworkOffer(db, job, session.user.id)) {
+      return NextResponse.json({ error: "Answer the QA rework offer before starting or changing this assignment.", code: "REWORK_OFFER_RESPONSE_REQUIRED" }, { status: 409 });
+    }
+    if (parseJobInternalNotes(job.internalNotes).isDraft) {
+      return NextResponse.json({ error: "This job is a draft. Admin must publish it before work can start." }, { status: 409 });
     }
     if (job.cleanSkipStatus === "SKIPPED") return NextResponse.json({ error: "This clean has been skipped." }, { status: 409 });
 
@@ -220,6 +229,8 @@ export async function POST(
       }
     }
 
+    let latestInternalNotes = job.internalNotes;
+
     // ── Start briefing gate (R2) ──────────────────────────────────────────────
     // What the cleaner must have READ before the clock starts: late-checkout /
     // early-checkin rules, admin and approved-client tasks, the job note. The
@@ -288,20 +299,20 @@ export async function POST(
 
       // Persist the acknowledgement alongside the other start evidence.
       if (incomingAck) {
+        latestInternalNotes = serializeJobInternalNotes({
+          ...briefingMeta,
+          startBriefingAcks: {
+            ...((briefingMeta as any).startBriefingAcks ?? {}),
+            [session.user.id]: incomingAck,
+          },
+        } as any) ?? null;
         await db.job
           .update({
             where: { id: params.id },
             data: {
-              internalNotes: serializeJobInternalNotes({
-                ...briefingMeta,
-                startBriefingAcks: {
-                  ...((briefingMeta as any).startBriefingAcks ?? {}),
-                  [session.user.id]: incomingAck,
-                },
-              } as any),
+              internalNotes: latestInternalNotes,
             },
-          })
-          .catch(() => undefined);
+          });
       }
     }
 
@@ -419,7 +430,7 @@ export async function POST(
     // the original record).
     if (requireStartConfirmation && isFirstStartForCleaner) {
       const confirmedAt = new Date().toISOString();
-      const meta = parseJobInternalNotes(job.internalNotes);
+      const meta = parseJobInternalNotes(latestInternalNotes);
       const nextNotes = serializeJobInternalNotes({
         ...meta,
         internalNoteText: meta.internalNoteText,
@@ -469,6 +480,7 @@ export async function POST(
           data: adminUsers.map((admin) => ({
             userId: admin.id,
             jobId: job.id,
+            externalId: mobilePendingMarker("jobs"),
             channel: NotificationChannel.PUSH,
             subject: "Future job started early",
             body: `${actorName} started ${job.jobType.replace(/_/g, " ")} at ${propertyName} on ${todayLocalDate} (scheduled ${scheduledLocalDate}, ${timezone}).`,

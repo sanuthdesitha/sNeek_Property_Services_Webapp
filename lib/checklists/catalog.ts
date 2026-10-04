@@ -3046,9 +3046,9 @@ export const MANDATORY_EVIDENCE_ITEMS: MandatoryEvidenceItem[] = [
   {
     moduleKey: "living",
     key: "ev.living.plants-watered",
-    label: "Live plants watered",
+    label: "Live plant care checked",
     instructions:
-      "Photograph the live plants after watering so it is recorded they were tended this clean.",
+      "Check the soil and follow the property plant-care instructions. Water only when appropriate. Photograph the plant and soil condition even when watering is not needed.",
     fieldType: "photo",
     minPhotos: 1,
     stampTag: "after",

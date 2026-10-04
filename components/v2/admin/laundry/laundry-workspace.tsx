@@ -42,6 +42,7 @@ import { LaundryEditDialog } from "./laundry-edit-dialog";
 import { LaundryLive } from "./laundry-live";
 import { LaundryReports } from "./laundry-reports";
 import { LaundryNewRun } from "./laundry-new-run";
+import { LaundryInvestigation } from "./laundry-investigation";
 import {
   buildTaskMedia,
   isCompleted,
@@ -53,7 +54,7 @@ import {
 
 const TZ = "Australia/Sydney";
 
-type TabKey = "today" | "live" | "completed" | "reports" | "suppliers";
+type TabKey = "investigate" | "today" | "live" | "completed" | "reports" | "suppliers";
 
 function propertyLine(task: LaundryTaskDTO) {
   const name = task.property?.name ?? "Property";
@@ -306,6 +307,7 @@ export function LaundryWorkspace() {
 
   const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode; count?: number }> = [
     { key: "today", label: "Today", icon: <ClipboardList className="h-3.5 w-3.5" />, count: todayTasks.length },
+    { key: "investigate", label: "Investigate property", icon: <ClipboardList className="h-3.5 w-3.5" /> },
     { key: "live", label: "Live", icon: <Radio className="h-3.5 w-3.5" /> },
     { key: "completed", label: "Completed", icon: <PackageCheck className="h-3.5 w-3.5" />, count: completedTasks.length },
     { key: "reports", label: "Reports", icon: <Scale className="h-3.5 w-3.5" /> },
@@ -363,6 +365,8 @@ export function LaundryWorkspace() {
           )}
         </div>
       ) : null}
+
+      {tab === "investigate" ? <LaundryInvestigation initialTasks={tasks} /> : null}
 
       {tab === "live" ? <LaundryLive /> : null}
 

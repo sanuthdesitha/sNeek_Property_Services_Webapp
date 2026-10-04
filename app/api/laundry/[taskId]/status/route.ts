@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { z } from "zod";
-import { Role } from "@prisma/client";
+import { Role, Prisma } from "@prisma/client";
 import { publicUrl } from "@/lib/s3";
 import { startOfDay } from "date-fns";
 import { getAppSettings } from "@/lib/settings";
@@ -21,6 +21,7 @@ const schema = z.object({
     "FAILED_PICKUP_REQUEST",
   ]),
   confirm: z.boolean().optional(),
+  expectedUpdatedAt: z.string().datetime().optional(),
   bagCount: z.number().int().min(1).max(50).optional(),
   quantityBaselineId: z.string().max(200).nullable().optional(),
   discrepancyReason: z.string().trim().max(2000).optional(),
@@ -46,6 +47,7 @@ const schema = z.object({
 
 const editCompletedSchema = z.object({
   confirm: z.literal(true),
+  expectedUpdatedAt: z.string().datetime().optional(),
   bagCount: z.number().int().min(1).max(50).optional(),
   loadWeightKg: z.number().min(0).max(500).optional(),
   pickupPhotoKey: z.string().trim().optional(),
@@ -94,6 +96,27 @@ async function markActiveRouteStopComplete(taskId: string, kind: "PICKUP" | "DRO
   }
 }
 
+/** Commit state and its evidence together, rejecting a stale screen or retry. */
+async function mutateLaundrySnapshot<T>(
+  task: { id: string; propertyId: string; updatedAt: Date; status: string },
+  actor: { id: string; role: Role },
+  write: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "LaundryTask" WHERE "id" = ${task.id} FOR UPDATE`;
+    const current = await tx.laundryTask.findUnique({ where: { id: task.id } });
+    if (!current || current.updatedAt.getTime() !== task.updatedAt.getTime() || current.status !== task.status) {
+      throw new FailedPickupError(409, "Laundry record changed. Refresh and review it before saving again.");
+    }
+    await tx.$queryRaw`SELECT "id" FROM "Property" WHERE "id" = ${current.propertyId} FOR SHARE`;
+    const property = await tx.property.findUnique({ where: { id: current.propertyId } });
+    if (actor.role === Role.LAUNDRY && !propertyIsVisibleToLaundry(property, actor.id)) {
+      throw new FailedPickupError(403, "This laundry task is no longer available to you.");
+    }
+    return write(tx);
+  });
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { taskId: string } }
@@ -104,6 +127,7 @@ export async function POST(
     const {
       status,
       confirm,
+      expectedUpdatedAt,
       notes,
       bagCount,
       quantityBaselineId,
@@ -143,6 +167,10 @@ export async function POST(
       return NextResponse.json({ error: "You cannot access this property's laundry schedule." }, { status: 403 });
     }
 
+    if (expectedUpdatedAt && existing.updatedAt.getTime() !== new Date(expectedUpdatedAt).getTime()) {
+      return NextResponse.json({ error: "Laundry record changed. Refresh before saving." }, { status: 409 });
+    }
+
     if (nextStatus === "PICKED_UP" && !["CONFIRMED", "PENDING"].includes(existing.status)) {
       return NextResponse.json(
         { error: `Cannot mark PICKED_UP from status ${existing.status}` },
@@ -165,11 +193,19 @@ export async function POST(
       );
     }
 
+    if (nextStatus.startsWith("REVERT_") && session.user.role === Role.LAUNDRY) {
+      return NextResponse.json({ error: "Ask an administrator to correct a completed handoff." }, { status: 403 });
+    }
+    if (nextStatus.startsWith("REVERT_") && !notes?.trim()) {
+      return NextResponse.json({ error: "A correction reason is required." }, { status: 400 });
+    }
+
     if (nextStatus === "REVERT_TO_CONFIRMED") {
       if (!["PICKED_UP", "DROPPED"].includes(existing.status)) {
         return NextResponse.json({ error: "Can only revert from PICKED_UP/DROPPED." }, { status: 400 });
       }
-      const task = await db.laundryTask.update({
+      const task = await mutateLaundrySnapshot(existing, session.user, async (tx) => {
+        const updated = await tx.laundryTask.update({
         where: { id: params.taskId },
         data: {
           status: "CONFIRMED",
@@ -178,13 +214,15 @@ export async function POST(
           flagNotes: notes || undefined,
         },
       });
-      await db.laundryConfirmation.create({
+      await tx.laundryConfirmation.create({
         data: {
           laundryTaskId: params.taskId,
           confirmedById: session.user.id,
           laundryReady: true,
           notes: JSON.stringify({ event: "REVERT_TO_CONFIRMED", notes: notes || "" }),
         },
+      });
+        return updated;
       });
       return NextResponse.json(task);
     }
@@ -193,7 +231,8 @@ export async function POST(
       if (existing.status !== "DROPPED") {
         return NextResponse.json({ error: "Can only revert to PICKED_UP from DROPPED." }, { status: 400 });
       }
-      const task = await db.laundryTask.update({
+      const task = await mutateLaundrySnapshot(existing, session.user, async (tx) => {
+        const updated = await tx.laundryTask.update({
         where: { id: params.taskId },
         data: {
           status: "PICKED_UP",
@@ -201,13 +240,15 @@ export async function POST(
           flagNotes: notes || undefined,
         },
       });
-      await db.laundryConfirmation.create({
+      await tx.laundryConfirmation.create({
         data: {
           laundryTaskId: params.taskId,
           confirmedById: session.user.id,
           laundryReady: true,
           notes: JSON.stringify({ event: "REVERT_TO_PICKED_UP", notes: notes || "" }),
         },
+      });
+        return updated;
       });
       return NextResponse.json(task);
     }
@@ -254,12 +295,13 @@ export async function POST(
     }
     if (notes) data.flagNotes = notes;
 
-    const task = await db.laundryTask.update({
+    const task = await mutateLaundrySnapshot(existing, session.user, async (tx) => {
+      const updated = await tx.laundryTask.update({
       where: { id: params.taskId },
       data,
     });
 
-    await db.laundryConfirmation.create({
+    await tx.laundryConfirmation.create({
       data: {
         laundryTaskId: params.taskId,
         confirmedById: session.user.id,
@@ -284,6 +326,9 @@ export async function POST(
       },
     });
 
+      return updated;
+    });
+
     await markActiveRouteStopComplete(params.taskId, "DROP");
 
     return NextResponse.json(task);
@@ -299,7 +344,7 @@ export async function PATCH(
   { params }: { params: { taskId: string } }
 ) {
   try {
-    const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = editCompletedSchema.parse(await req.json().catch(() => ({})));
 
     const task = await db.laundryTask.findUnique({
@@ -316,6 +361,9 @@ export async function PATCH(
     // belonging to another team (was missing on this edit path).
     if (session.user.role === Role.LAUNDRY && !propertyIsVisibleToLaundry(task.property, session.user.id)) {
       return NextResponse.json({ error: "You don't have access to that property." }, { status: 403 });
+    }
+    if (body.expectedUpdatedAt && task.updatedAt.getTime() !== new Date(body.expectedUpdatedAt).getTime()) {
+      return NextResponse.json({ error: "Laundry record changed. Refresh before saving." }, { status: 409 });
     }
     if (task.status !== "DROPPED") {
       return NextResponse.json({ error: "Only returned laundry tasks can be edited." }, { status: 409 });
@@ -395,7 +443,7 @@ export async function PATCH(
       editedById: session.user.id,
     };
 
-    await db.$transaction(async (tx) => {
+    await mutateLaundrySnapshot(task, session.user, async (tx) => {
       await tx.laundryTask.update({
         where: { id: params.taskId },
         data: {

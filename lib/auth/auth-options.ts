@@ -55,14 +55,6 @@ function sameNormalizedOrigin(url: string, baseUrl: string) {
   }
 }
 
-function getBootstrapAdminConfig() {
-  const email = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase() || "";
-  const password = process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || "";
-  const name = process.env.BOOTSTRAP_ADMIN_NAME?.trim() || "Admin User";
-  if (!email || !password) return null;
-  return { email, password, name };
-}
-
 function shouldUseSecureCookies(baseUrl?: string) {
   const candidate = (baseUrl || getConfiguredAuthBaseUrl()).trim();
   if (!candidate) return false;
@@ -139,39 +131,9 @@ export function createAuthOptions(baseUrl?: string): NextAuthOptions {
           // Brute-force lockout (survives serverless restarts via appSetting).
           const lock = await ensureNotLockedOut(loginKey(email));
           if (!lock.ok) throw new Error(lock.message);
-          const bootstrapAdmin = getBootstrapAdminConfig();
-
-          if (bootstrapAdmin && email === bootstrapAdmin.email && credentials.password === bootstrapAdmin.password) {
-            await clearFailedAttempts(loginKey(email));
-            const passwordHash = await bcrypt.hash(bootstrapAdmin.password, 10);
-            const user = await db.user.upsert({
-              where: { email },
-              create: {
-                email,
-                name: bootstrapAdmin.name,
-                role: Role.ADMIN,
-                isActive: true,
-                emailVerified: new Date(),
-                passwordHash,
-              },
-              update: {
-                name: bootstrapAdmin.name,
-                role: Role.ADMIN,
-                isActive: true,
-                emailVerified: new Date(),
-                passwordHash,
-              },
-            });
-
-            return {
-              id: user.id,
-              email: user.email,
-              name: user.name,
-              image: user.image,
-              role: user.role,
-            };
-          }
-
+          // Bootstrap credentials provision accounts only through the explicit
+          // bootstrap script. Login must never promote/reactivate a user, reset
+          // their password, or bypass their configured second factor.
           const user = await db.user.findUnique({
             where: { email },
           });

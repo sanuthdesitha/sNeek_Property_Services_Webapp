@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
@@ -60,6 +61,7 @@ export async function PATCH(
       data: {
         userId: decided.requestedByUserId,
         jobId: decided.jobId,
+        externalId: mobilePendingMarker("jobs"),
         channel: NotificationChannel.PUSH,
         subject:
           decided.status === "APPROVED"

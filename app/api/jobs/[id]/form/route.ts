@@ -7,7 +7,7 @@ import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { getJobTimingHighlights, parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
-import { buildCleanerGuestSummary } from "@/lib/jobs/guest-summary";
+import { buildCleanerGuestSummary, cleanerPreparationContext } from "@/lib/jobs/guest-summary";
 import {
   guestSummaryFromReservation,
   resolveFinalCheckupItems,
@@ -18,7 +18,6 @@ import { sumAdjustments } from "@/lib/finance/pay-adjustments";
 import { getApprovedContinuationProgressSnapshot } from "@/lib/jobs/continuation-requests";
 import { getJobStartReminders } from "@/lib/accountability/patterns";
 import { inferInventoryLocationFromCategory } from "@/lib/inventory/locations";
-import { autoClockOutStaleTimeLogsForUser } from "@/lib/time/auto-clockout";
 import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogSeconds } from "@/lib/time/log-duration";
 import { attachPendingCarryForwardTasksToJob, listCleanerJobTasks } from "@/lib/job-tasks/service";
@@ -42,9 +41,6 @@ export async function GET(
 ) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER]);
-    if (session.user.role === Role.CLEANER) {
-      await autoClockOutStaleTimeLogsForUser(session.user.id);
-    }
     // Fetched before the job query so the client-contact relation can be
     // conditionally selected: cleaners only ever load the client's name/phone
     // when the "show client contact to cleaners" toggle is on. Email is never
@@ -213,7 +209,7 @@ export async function GET(
     // Every consumer (this route, the progress estimator, the builder's impact
     // panel) uses that one function, so "the admin edited a different row than
     // the job renders" can be diagnosed instead of guessed at.
-    const effectiveForm = await resolveEffectiveJobForm(job, settings, { provisionReworkAnchor: true });
+    const effectiveForm = await resolveEffectiveJobForm(job, settings);
     const { configuredPropertyTemplateId, templateSource } = effectiveForm;
 
     let inventoryStock: any[] = [];
@@ -434,7 +430,8 @@ export async function GET(
     // operationally useful extras (country, arrival time, headcount). The
     // builder nulls the guest's email, profile link and reservation code —
     // none of that helps clean a property.
-    const nextGuestSummary = buildCleanerGuestSummary(jobMeta.reservationContext);
+    const preparationContext = cleanerPreparationContext(jobMeta.reservationContext, job);
+    const nextGuestSummary = buildCleanerGuestSummary(preparationContext);
     const nextGuest = nextGuestSummary.hasAnything ? nextGuestSummary : null;
 
     // Final check-up (R7): resolve the acknowledgement items server-side so the
@@ -527,7 +524,7 @@ export async function GET(
       nfcArrival,
       contact,
       nextGuest,
-      jobMeta,
+      jobMeta: { ...jobMeta, reservationContext: preparationContext },
       jobTasks,
       jobTimingHighlights,
       /** Same labels as jobTimingHighlights (R6c) — explicit name for the v2 UI. */

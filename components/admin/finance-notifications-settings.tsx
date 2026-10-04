@@ -333,6 +333,7 @@ export function FinanceNotificationsSettings() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Finance Notifications</CardTitle>
+              <p className="text-sm text-muted-foreground">Push preferences apply only to events with a connected recipient delivery flow. Older finance template sends record push as unsupported. Saving push text does not enable delivery.</p>
               <CardDescription>
                 Manage notification templates and channel preferences for all finance events.
               </CardDescription>

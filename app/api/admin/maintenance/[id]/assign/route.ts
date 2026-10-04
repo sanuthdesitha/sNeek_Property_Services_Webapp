@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { Role, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { z } from "zod";
@@ -25,6 +26,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       assignedByUserId: session.user.id,
     });
 
+    if (item.unchanged) return NextResponse.json({ ok: true, item, unchanged: true });
+
     // Notify the worker (if they have a portal login).
     const worker = await db.maintenanceWorker.findUnique({
       where: { id: body.workerId },
@@ -38,6 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       await db.notification.create({
         data: {
           userId: worker.userId,
+          externalId: mobilePendingMarker("cases"),
           channel: NotificationChannel.PUSH,
           subject: "New maintenance job assigned",
           body: `${detail?.property?.name ?? "A property"}: ${detail?.title ?? "Repair job"}`,

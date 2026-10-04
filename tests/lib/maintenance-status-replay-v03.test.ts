@@ -1,0 +1,6 @@
+// @vitest-environment node
+import {expect,it,vi} from "vitest";
+const m=vi.hoisted(()=>({rows:vi.fn(),update:vi.fn(),event:vi.fn(),sync:vi.fn()}));
+vi.mock("@/lib/db",()=>({db:{$transaction:async(fn:any)=>fn({propertyMaintenanceItem:{findMany:m.rows,update:m.update},propertyMaintenanceEvent:{create:m.event}})}}));vi.mock("@/lib/cases/damage-maintenance-sync",()=>({syncCaseFromMaintenance:m.sync}));
+import {updateMaintenanceStatus} from "@/lib/maintenance/service";
+it("replayed resolution preserves evidence while other open items transition and linked cases synchronize",async()=>{m.rows.mockResolvedValue([{id:"resolved",status:"RESOLVED"},{id:"open",status:"OPEN"}]);await updateMaintenanceStatus({ids:["resolved","open","resolved"],status:"RESOLVED",userId:"admin",resolutionNote:"Repair checked"});expect(m.update).toHaveBeenCalledTimes(1);expect(m.update).toHaveBeenCalledWith({where:{id:"open"},data:expect.objectContaining({status:"RESOLVED",resolvedAt:expect.any(Date),resolvedByUserId:"admin",resolutionNote:"Repair checked"})});expect(m.event).toHaveBeenCalledTimes(1);expect(m.sync.mock.calls).toEqual([[{itemId:"resolved",status:"RESOLVED"}],[{itemId:"open",status:"RESOLVED"}]]);});

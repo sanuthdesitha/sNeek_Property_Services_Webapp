@@ -236,3 +236,22 @@ describe("buildDefaultSelections — sofaBedCount gt rule", () => {
     expect(sel.modules.sofabed.enabled).toBe(false);
   });
 });
+
+describe("property-specific rotation and plant care", () => {
+  it("publishes complete catalogue with property cadence/instructions", () => {
+    const library = [stubModule("living", [stubItem({ key: "detail", frequency: "ROTATIONAL", rotationEveryNCleans: 4 })])];
+    const selections = selectionsFor(library);
+    selections.modules.living.items.detail = { enabled: true, rotationEveryNCleans: 3, instructions: "Only use dry cloth." };
+    const schema = composeFormSchema(library as any, selections, JOB, undefined, { includeRotational: true });
+    expect(findField(schema, "detail")).toMatchObject({ rotationEveryNCleans: 3, instructions: "Only use dry cloth." });
+  });
+  it("requires explicit live-plant feature and supports no-water-needed evidence", () => {
+    const library = [stubModule("living", [stubItem({ key: "ev.living.plants-watered", fieldType: "photo", required: true })])];
+    const selections = selectionsFor(library);
+    const absent = composeFormSchema(library as any, selections, JOB, { features: {} } as any);
+    expect(findField(absent, "ev.living.plants-watered")).toBeUndefined();
+    const present = composeFormSchema(library as any, selections, JOB, { features: { livePlants: true } } as any);
+    expect(findField(present, "ev.living.plants-watered")).toMatchObject({ label: "Live plant care checked", required: true });
+    expect(findField(present, "ev.living.plants-watered").instructions).toContain("no water is needed");
+  });
+});

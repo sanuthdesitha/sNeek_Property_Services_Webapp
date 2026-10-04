@@ -80,7 +80,7 @@ async function getNextTurnoverCleanDate(job: PlannerJob, database: Prisma.Transa
   return nextJob ? normalizeDate(nextJob.scheduledDate) : null;
 }
 
-function isLaundryTaskCompleted(task: NonNullable<PlannerJobWithLaundry["laundryTask"]>) {
+function isLaundryTaskCompleted(task: { status: LaundryStatus; pickedUpAt?: Date | null; droppedAt?: Date | null }) {
   return (
     task.status === LaundryStatus.PICKED_UP ||
     task.status === LaundryStatus.DROPPED ||
@@ -359,21 +359,24 @@ export async function refreshLaundrySyncDraftForProperty(options: {
 export async function applyLaundryPlanDraft(items: LaundryPlanDraftItem[]) {
   if (items.length === 0) return [];
 
-  // Which of these jobs already have a task, and in what state? The upsert
-  // below must not reset a status a human owns — most importantly
-  // SKIPPED_PICKUP, which is how a task is removed from the boards. Without
-  // this the very next weekly plan run would resurrect every deleted set.
-  const existingTasks = await db.laundryTask.findMany({
-    where: { jobId: { in: items.map((item) => item.jobId) } },
-    select: { jobId: true, status: true },
-  });
-  const existingByJobId = new Map(existingTasks.map((task) => [task.jobId, task]));
-
   const applied = await db.$transaction(async (tx) => {
     const rows = [];
     for (const item of items) {
-      const current = existingByJobId.get(item.jobId);
+      // Serialize plan approval with task creation and every human state change.
+      await tx.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${item.jobId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "LaundryTask" WHERE "jobId" = ${item.jobId} FOR UPDATE`;
+      const current = await tx.laundryTask.findUnique({ where: { jobId: item.jobId }, include: { confirmations: { select: { id: true } } } });
+      // Completed/suppressed evidence and dates are not planner-owned.
+      if (current && (isLaundryTaskCompleted(current) || current.status === LaundryStatus.SKIPPED_PICKUP || (current.status === LaundryStatus.FLAGGED && current.confirmations.length > 0))) {
+        continue;
+      }
       const keepHumanStatus = current != null && !canPlannerOverrideStatus(current);
+      const pickupDate = new Date(item.pickupDate);
+      const dropoffDate = new Date(item.dropoffDate);
+      if (current && current.pickupDate?.getTime() === pickupDate.getTime() && current.dropoffDate?.getTime() === dropoffDate.getTime() &&
+        (keepHumanStatus || (current.status === item.status && (current.flagReason ?? null) === (item.flagReason ?? null) && (current.flagNotes ?? null) === (item.flagNotes ?? null)))) {
+        continue; // Re-approving the same plan must not re-notify the team.
+      }
       const row = await tx.laundryTask.upsert({
         where: { jobId: item.jobId },
         update: {
@@ -386,7 +389,6 @@ export async function applyLaundryPlanDraft(items: LaundryPlanDraftItem[]) {
                 flagReason: item.flagReason,
                 flagNotes: item.flagNotes,
               }),
-          notifyLaundry: false,
         },
         create: {
           jobId: item.jobId,

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
 import { loadavg, totalmem, freemem, cpus, platform } from "os";
 import { readFile } from "node:fs/promises";
-import { authOptions } from "@/lib/auth/auth-options";
 import { db } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -79,9 +78,11 @@ type PgSlowQueryRow = {
 };
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (session?.user?.role !== Role.ADMIN) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  try {
+    await requireRole(["ADMIN"]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "FORBIDDEN";
+    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 403 });
   }
 
   // --- OS / hypervisor signals -----------------------------------------

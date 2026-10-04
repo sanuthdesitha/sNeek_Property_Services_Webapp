@@ -35,9 +35,26 @@ export async function releaseCleanerInvoiceConsumables(
   adjustments: number;
   qaInspections: number;
   shoppingSettlements: number;
+  shoppingTimeSettlements: number;
   travelDays: number;
 }> {
-  const [adjustments, qaInspections, shoppingSettlements, travelDays] = await Promise.all([
+  // Remove a frozen amount only when this invoice owns it and payroll does not.
+  // Clear the stamp separately so legacy dual-rail records retain payroll evidence.
+  await Promise.all([
+    tx.qaAssignment.updateMany({
+      where: { includedInCleanerInvoiceId: submissionId, includedInPayrollRunId: null },
+      data: { paySettledAmount: null },
+    }),
+    tx.shoppingSettlement.updateMany({
+      where: { includedInCleanerInvoiceId: submissionId, includedInPayrollRunId: null },
+      data: { paySettledAmount: null },
+    }),
+    tx.shoppingSettlement.updateMany({
+      where: { timeIncludedInCleanerInvoiceId: submissionId, timeIncludedInPayrollRunId: null },
+      data: { timePaySettledAmount: null },
+    }),
+  ]);
+  const [adjustments, qaInspections, shoppingSettlements, shoppingTimeSettlements, travelDays] = await Promise.all([
     tx.cleanerPayAdjustment.updateMany({
       where: { includedInCleanerInvoiceId: submissionId },
       // Both columns, so a released adjustment does not read as having been
@@ -46,11 +63,15 @@ export async function releaseCleanerInvoiceConsumables(
     }),
     tx.qaAssignment.updateMany({
       where: { includedInCleanerInvoiceId: submissionId },
-      data: { includedInCleanerInvoiceId: null },
+      data: { includedInCleanerInvoiceId: null, includedInCleanerInvoiceAt: null },
     }),
     tx.shoppingSettlement.updateMany({
       where: { includedInCleanerInvoiceId: submissionId },
-      data: { includedInCleanerInvoiceId: null },
+      data: { includedInCleanerInvoiceId: null, includedInCleanerInvoiceAt: null },
+    }),
+    tx.shoppingSettlement.updateMany({
+      where: { timeIncludedInCleanerInvoiceId: submissionId },
+      data: { timeIncludedInCleanerInvoiceId: null, timeIncludedInCleanerInvoiceAt: null },
     }),
     // Travel days go back in the pot too. A voided invoice that kept its claim
     // would leave the inspector unable to bill a day they genuinely worked, and
@@ -66,6 +87,7 @@ export async function releaseCleanerInvoiceConsumables(
     adjustments: adjustments.count,
     qaInspections: qaInspections.count,
     shoppingSettlements: shoppingSettlements.count,
+    shoppingTimeSettlements: shoppingTimeSettlements.count,
     travelDays: travelDays.count,
   };
 }

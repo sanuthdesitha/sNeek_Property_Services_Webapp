@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { JobStatus, NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { fromZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
@@ -167,6 +168,7 @@ export async function runSlaEscalation(now = new Date()) {
             data: adminUsers.map((admin) => ({
               userId: admin.id,
               jobId: job.id,
+              externalId: mobilePendingMarker("jobs"),
               channel: NotificationChannel.PUSH,
               subject: "SLA breach",
               body: `${job.property.name} (${job.property.suburb}) overdue by ${minsOverdue} mins.`,

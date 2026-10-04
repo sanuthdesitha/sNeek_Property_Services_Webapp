@@ -1,3 +1,4 @@
+import { resolveRouteRole } from "@/lib/auth/route-role";
 import { NextRequest, NextResponse } from "next/server";
 import { QaAssignmentStatus, Role } from "@prisma/client";
 import { z } from "zod";
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const eligibility = canReopenInspection({
       actorUserId: session.user.id,
-      actorRole: String(session.user.role),
+      actorRole: resolveRouteRole(session.user, QA_ROLES),
       assignment: {
         status: String(assignment.status),
         assignedToId: assignment.assignedToId,

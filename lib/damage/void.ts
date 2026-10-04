@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 /**
  * D4 — voiding a damage submission.
  *
@@ -92,6 +93,9 @@ export async function voidDamageReport(input: VoidDamageReportInput) {
   const clearing = input.mode === DamageVoidMode.CLEAR_AND_REDO;
 
   const result = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`damage-report:${report.id}`}))`;
+    const current = await tx.damageReport.findUnique({ where: { id: report.id }, select: { status: true } });
+    if (!current || current.status === DamageReportStatus.DRAFT) throw new Error("DAMAGE_REPORT_NOT_SUBMITTED");
     const voidRecord = await tx.damageReportVoid.create({
       data: {
         reportId: report.id,
@@ -159,6 +163,9 @@ export async function voidDamageReport(input: VoidDamageReportInput) {
       data: {
         userId: report.reportedById,
         jobId: report.jobId,
+        status: "SENT",
+        sentAt: new Date(),
+        externalId: mobilePendingMarker("cases"),
         channel: NotificationChannel.PUSH,
         subject: "A damage report was sent back to you",
         body: clearing

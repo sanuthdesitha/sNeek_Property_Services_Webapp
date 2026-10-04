@@ -19,7 +19,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  *  • CANCELLED / not-yet-completed inspections are never paid.
  */
 
-const jobFindMany = vi.fn(async () => [] as any[]);
+const priorInvoices = vi.fn(async (_args?: any) => [] as any[]);
+const allowanceDays = vi.fn(async (_args?: any) => [] as any[]);
+const jobFindMany = vi.fn(async (_args?: any) => [] as any[]);
 const adjFindMany = vi.fn(async (_args?: any) => [] as any[]);
 const qaFindMany = vi.fn(async (_args?: any) => [] as any[]);
 
@@ -43,7 +45,8 @@ vi.mock("@/lib/db", () => ({
     },
     job: { findMany: jobFindMany },
     cleanerPayAdjustment: { findMany: adjFindMany },
-    cleanerInvoiceSubmission: { findMany: vi.fn(async () => []) },
+    cleanerInvoiceSubmission: { findMany: priorInvoices },
+    qaDayAllowance: { findMany: allowanceDays },
     qaAssignment: { findMany: qaFindMany },
     timeLog: { findMany: vi.fn(async () => []) },
   },
@@ -350,5 +353,20 @@ describe("cleaner invoice — QA inspection pay", { timeout: 30000 }, () => {
     const html = buildCleanerInvoiceHtml(await build({ showHours: false }));
     expect(html).toContain("Hourly — $50.00/hr");
     expect(html).not.toContain("2.00h");
+  });
+
+  it("only excludes jobs from live invoices so voided/send-back work can return",async()=>{
+    priorInvoices.mockResolvedValue([{lineData:{jobIds:["old-job"]}}]);
+    await build({excludeInvoicedJobs:true});
+    expect(priorInvoices.mock.calls.at(-1)?.[0].where).toEqual({cleanerId:"u1",status:{notIn:["VOID","CHANGES_REQUESTED"]}});
+    expect(jobFindMany.mock.calls[0][0].where.id.notIn).toContain("old-job");
+  });
+  it("uses only active travel claims and keeps this invoice's own day when reviewing",async()=>{
+    const {getAppSettings}=await import("@/lib/settings");
+    vi.mocked(getAppSettings).mockResolvedValueOnce({companyName:"Test",cleanerJobHourlyRates:{},qaPay:{defaultMode:"HOURLY",defaultHourlyRate:30,defaultHoursPerInspection:1,transportAllowancePerDay:5}} as any);
+    qaFindMany.mockResolvedValue([inspection()]);allowanceDays.mockResolvedValue([]);
+    const data=await build({includeInvoiceId:"own-invoice"});
+    expect(allowanceDays.mock.calls.at(-1)?.[0].where).toEqual({inspectorId:"u1",OR:[{includedInPayrollRunId:{not:null}},{includedInCleanerInvoiceId:{not:null}}],NOT:{includedInCleanerInvoiceId:"own-invoice"}});
+    expect(data.transportAllowanceRows).toHaveLength(1);expect(data.transportAllowanceRows[0].amount).toBe(5);
   });
 });

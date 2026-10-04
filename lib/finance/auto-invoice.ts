@@ -1,12 +1,12 @@
 import { db } from "@/lib/db";
-import { sendEmailDetailed } from "@/lib/notifications/email";
 import { generateClientInvoice } from "@/lib/billing/client-invoices";
 import { logger } from "@/lib/logger";
+import { getClosedSemimonthlyPeriod, type CadenceKind } from "@/lib/finance/cadence";
 
 /**
  * Generate an invoice for a user covering all uninvoiced completed jobs / shopping
  * settlements for their associated Client since their lastInvoiceGeneratedAt
- * (or all-time if null), then email the client a notification.
+ * (or all-time if null), as a draft for office review. Never sends to the client.
  *
  * For CLIENT-role users only. Cleaner payroll runs are handled separately by the
  * existing PayrollRun flow.
@@ -17,7 +17,8 @@ import { logger } from "@/lib/logger";
  * cadence checkpoint.
  */
 export async function generateInvoiceForUser(
-  userId: string
+  userId: string,
+  options: { cadence?: CadenceKind; now?: Date } = {},
 ): Promise<{ invoiceId: string | null; reason: string }> {
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -59,19 +60,22 @@ export async function generateInvoiceForUser(
   }
   if (!client) return { invoiceId: null, reason: "No matching Client record" };
 
+  const now = options.now ?? new Date();
+  const closedPeriod = options.cadence === "SEMIMONTHLY" ? getClosedSemimonthlyPeriod(now) : null;
+  if (closedPeriod && now < closedPeriod.availableAt) return { invoiceId: null, reason: "The prior half-month is not released for preparation yet." };
   const sinceDate = user.lastInvoiceGeneratedAt ?? null;
-  const now = new Date();
 
   let invoice: { id: string; invoiceNumber: string; totalAmount: number } | null = null;
   try {
     invoice = (await generateClientInvoice({
       clientId: client.id,
-      periodStart: sinceDate,
-      periodEnd: now,
+      periodStart: closedPeriod?.periodStart ?? sinceDate,
+      periodEnd: closedPeriod?.periodEnd ?? now,
       // "On completion" means finished work only. Every other cadence bills a
       // period, where an admin may legitimately want work still in progress on
       // it; this one is the client saying "bill me when it is done".
-      completedOnly: user.invoicingCadence === "ON_COMPLETION",
+      completedOnly: !closedPeriod,
+      ...(closedPeriod ? { startedWork: true } : {}),
     })) as any;
   } catch (err: any) {
     // generateClientInvoice throws on "no billable jobs" or "missing rates" —
@@ -91,22 +95,7 @@ export async function generateInvoiceForUser(
 
   if (!invoice) return { invoiceId: null, reason: "Invoice creation failed" };
 
-  // Email the client a notification that an invoice has been generated.
-  if (user.email) {
-    await sendEmailDetailed({ kind: "auto_invoice",
-      to: user.email,
-      subject: `Your invoice ${invoice.invoiceNumber} from sNeek Property Services`,
-      html: `<p>Hi ${user.name ?? "there"},</p>
-<p>Your latest invoice <strong>${invoice.invoiceNumber}</strong> is ready, total <strong>$${invoice.totalAmount.toFixed(2)}</strong>.</p>
-<p>You can review it in your client portal under Billing.</p>
-<p>Thanks,<br/>sNeek Property Services</p>`,
-      transactional: true,
-    }).catch((e) => {
-      logger.warn({ err: e, userId, invoiceId: invoice?.id }, "[auto-invoice] email send failed");
-      return null;
-    });
-  }
-
+  // Scheduled generation prepares a DRAFT for office review; never notify a client before issue.
   await (db as any).user.update({
     where: { id: userId },
     data: { lastInvoiceGeneratedAt: now },

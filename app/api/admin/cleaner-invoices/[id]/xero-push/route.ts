@@ -22,6 +22,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     if (!sub) return NextResponse.json({ error: "Submission not found." }, { status: 404 });
     if (sub.xeroBillId) return NextResponse.json({ error: "This invoice is already in Xero." }, { status: 409 });
 
+    if (!["SUBMITTED", "XERO_EXPORTING"].includes(sub.status) || sub.paidAt || sub.paidAmount != null) {
+      return NextResponse.json({ error: "Only an unpaid submitted invoice can be exported. Resolve payment/correction records first." }, { status: 409 });
+    }
+
     const data = (sub.lineData ?? {}) as any;
     const contact = (data.contact ?? {}) as Record<string, any>;
     const lines = Array.isArray(data.lines) ? data.lines : [];
@@ -47,7 +51,18 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     );
     const payeeLabel = payeeKindLabel(payeeKind);
 
+    await db.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sub.cleanerId}))`;
+      await tx.$queryRaw`SELECT "id" FROM "CleanerInvoiceSubmission" WHERE "id" = ${sub.id} FOR UPDATE`;
+      const current = await tx.cleanerInvoiceSubmission.findUnique({ where: { id: sub.id } });
+      if (!current || !["SUBMITTED", "XERO_EXPORTING"].includes(current.status) || current.xeroBillId || current.paidAt || current.paidAmount != null) {
+        throw new Error("Invoice changed before export. Refresh and review it.");
+      }
+      await tx.cleanerInvoiceSubmission.update({ where: { id: sub.id }, data: { status: "XERO_EXPORTING" } });
+    });
+
     const result = await pushCleanerBillToXero({
+      idempotencyKey: `cleaner-invoice-${sub.id}`,
       cleanerName: contact.name || cleaner?.name || payeeLabel,
       cleanerEmail: contact.email || cleaner?.email || "no-reply@sneekops.com.au",
       cleanerPhone: contact.phone || cleaner?.phone || undefined,

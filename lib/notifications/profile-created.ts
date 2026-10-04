@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
@@ -64,6 +65,7 @@ export async function notifyAdminsOfNewProfile(input: {
       await db.notification.create({
         data: {
           userId: admin.id,
+          externalId: mobilePendingMarker("account"),
           channel: NotificationChannel.PUSH,
           subject: notificationTemplate.webSubject,
           body: notificationTemplate.webBody,

@@ -538,3 +538,8 @@ describe("renderEstateReport", () => {
     expect(html).not.toContain("<h2>Quality inspection</h2>");
   });
 });
+
+it("presents not-applicable Scope tasks as neutral with reason and retained proof", () => {
+ const vm = buildReportViewModel({ job: makeJob(), submission: makeSubmission({ data: { __jobTasks: [{ title: "Water plants", decision: "NOT_APPLICABLE", note: "No live plants here", proofFieldId: "plant_proof" }] }, media: [{ id: "plant", fieldId: "plant_proof", mediaType: "PHOTO", url: "https://example.invalid/proof.jpg", s3Key: "proof" }] }), localDate: "3 October 2026" });
+ expect(vm.jobTasks[0]).toMatchObject({ statusLabel: "Not applicable", statusTone: "neutral", noteLabel: "Reason", note: "No live plants here" });
+});

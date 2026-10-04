@@ -3,7 +3,7 @@ import { JobType, Prisma, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { getChecklistLibrary, seedChecklistLibraryFromCatalog } from "@/lib/checklists/library";
+import { getChecklistLibrary } from "@/lib/checklists/library";
 import { buildDefaultSelections, mergeSelections, sanitizeSelections } from "@/lib/checklists/compose";
 import { FEATURE_DEFS, featuresFromAppliances, sanitizeFeatures } from "@/lib/checklists/features";
 import { readAdminOverrides, readFormMeta } from "@/lib/onboarding/form-meta";
@@ -60,11 +60,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const survey = await loadSurvey(params.id);
     if (!survey) return NextResponse.json({ error: "Survey not found." }, { status: 404 });
 
-    let library = await getChecklistLibrary();
-    if (library.length === 0) {
-      await seedChecklistLibraryFromCatalog();
-      library = await getChecklistLibrary();
-    }
+    const library = await getChecklistLibrary();
 
     const meta = readFormMeta(survey.adminOverrides);
     const scenarios = (meta.scenarios ?? {}) as Record<string, unknown>;

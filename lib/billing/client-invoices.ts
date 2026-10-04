@@ -2,6 +2,8 @@ import { ClientInvoiceStatus, JobStatus, JobType, Prisma } from "@prisma/client"
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
+import { startedWorkPeriodWhere, snapshotStartedWork, hasStartedWorkEvidence } from "./started-work-review";
+import { inspectStartedWorkReview } from "./started-work-reconciliation";
 import { logger } from "@/lib/logger";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
 import { publicUrl } from "@/lib/s3";
@@ -161,7 +163,10 @@ export async function generateClientInvoice(input: {
    * every other line on it questioned.
    */
   completedOnly?: boolean;
+  /** Closed-period started work, provisional agreed price and mandatory office review. */
+  startedWork?: boolean;
 }) {
+  if (input.startedWork && (!input.periodStart || !input.periodEnd)) throw new Error("Started-work preparation requires a closed period.");
   const [client, rates, existingInvoiced, settings, priceBook] = await Promise.all([
     db.client.findUnique({ where: { id: input.clientId }, select: { id: true, name: true, email: true } }),
     db.propertyClientRate.findMany({
@@ -203,12 +208,14 @@ export async function generateClientInvoice(input: {
         clientId: input.clientId,
         ...(input.propertyId ? { id: input.propertyId } : {}),
       },
-      ...(input.completedOnly
+      ...(input.startedWork
+        ? startedWorkPeriodWhere(input.periodStart!, input.periodEnd!)
+        : input.completedOnly
         ? { status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] } }
         : { AND: [{ OR: [{ status: { in: BILLABLE_JOB_STATUSES } }, { timeLogs: { some: {} } }] }] }),
       // Skipped cleans ("don't clean this turnover") are never billed.
       cleanSkipStatus: { not: "SKIPPED" },
-      ...(input.periodStart || input.periodEnd
+      ...(!input.startedWork && (input.periodStart || input.periodEnd)
         ? input.periodBasis === "SCHEDULED"
           ? {
               // Measured against the very date each line prints, so a generated
@@ -240,12 +247,14 @@ export async function generateClientInvoice(input: {
     },
     include: {
       property: { select: { id: true, name: true, suburb: true } },
+      ...(input.startedWork ? { timeLogs: { where: { startedAt: { lte: input.periodEnd! } }, select: { startedAt: true, stoppedAt: true }, orderBy: { startedAt: "asc" as const } } } : {}),
     },
     orderBy: [{ scheduledDate: "asc" }],
   });
 
-  const unInvoicedJobs = jobs.filter((job) => !invoicedJobIds.has(job.id));
-  const alreadyInvoicedJobCount = jobs.length - unInvoicedJobs.length;
+  const eligibleJobs = input.startedWork ? jobs.filter(job => hasStartedWorkEvidence(job, input.periodEnd!)) : jobs;
+  const unInvoicedJobs = eligibleJobs.filter((job) => !invoicedJobIds.has(job.id));
+  const alreadyInvoicedJobCount = eligibleJobs.length - unInvoicedJobs.length;
 
   // Canonical client charge per job (fixed job price → property rate → job-type
   // price). Compute once and reuse for both the missing-rate guard and the lines,
@@ -286,7 +295,10 @@ export async function generateClientInvoice(input: {
         jobId: job.id,
         shoppingRunId: null,
         description,
-        note: job.invoiceNote?.trim() || null,
+        note: input.startedWork ? [job.invoiceNote?.trim(),
+          snapshotStartedWork(job, input.periodStart!, input.periodEnd!).unfinishedAtCutoff ? "PROVISIONAL agreed client price: unfinished at period cutoff; office review required." : null,
+          snapshotStartedWork(job, input.periodStart!, input.periodEnd!).priorPeriodCarryover ? "Prior-period uninvoiced work carried forward for review." : null,
+        ].filter(Boolean).join("\n") || null : job.invoiceNote?.trim() || null,
         quantity: 1,
         unitPrice: lineTotal,
         lineTotal,
@@ -481,6 +493,20 @@ export async function generateClientInvoice(input: {
   // settlements in one transaction, so a crash can't leave settlements billable
   // again or produce an invoice with orphaned consumption.
   const invoice = await db.$transaction(async (tx) => {
+    // Serialize job claims by client, then recheck the snapshot after waiting.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`client-invoice:${client.id}`}))`;
+    const jobIds = lines.map(line => line.jobId).filter((id): id is string => Boolean(id));
+    if (jobIds.length && await tx.clientInvoiceLine.findFirst({ where: {
+      jobId: { in: jobIds }, invoice: { clientId: client.id, status: { not: ClientInvoiceStatus.VOID } },
+    }, select: { id: true } })) {
+      throw new Error("Some work was invoiced by another request. Refresh before generating again.");
+    }
+
+    if (input.startedWork && jobIds.length) {
+      for (const id of [...jobIds].sort()) await tx.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${id} FOR UPDATE`;
+      const unchanged = await tx.job.count({ where: { id: { in: jobIds }, OR: unInvoicedJobs.map(job => ({ id: job.id, updatedAt: job.updatedAt })) } });
+      if (unchanged !== jobIds.length) throw new Error("Started work changed while preparing the draft. Refresh before trying again.");
+    }
     const runIds = Array.from(new Set([...shoppingLines.map(line => line.shoppingRunId), ...billedCharges.map(charge => charge.shoppingRunId)])).sort();
     for (const runId of runIds) await tx.$queryRaw`SELECT "id" FROM "ShoppingRun" WHERE "id" = ${runId} FOR UPDATE`;
     const created = await tx.clientInvoice.create({
@@ -496,6 +522,11 @@ export async function generateClientInvoice(input: {
       gstEnabled: gstFlag,
       metadata: {
         source: "job-rate-generator",
+        ...(input.startedWork ? { startedWorkReview: {
+          version: 1, required: true, pricingPolicy: "PROVISIONAL_AGREED_PRICE",
+          periodStart: input.periodStart!.toISOString(), periodEnd: input.periodEnd!.toISOString(), preparedAt: new Date().toISOString(),
+          jobs: unInvoicedJobs.map(job => ({ ...snapshotStartedWork(job, input.periodStart!, input.periodEnd!), agreedAmount: chargeByJob.get(job.id)!.amount })),
+        } } : {}),
         shoppingRunCount: new Set([...shoppingLines.map(line => line.shoppingRunId), ...billedCharges.map(charge => charge.shoppingRunId)]).size,
         maintenanceCount: maintenanceLines.length,
         generationSummary: { includedJobCount: lines.length, alreadyInvoicedJobCount },
@@ -543,10 +574,11 @@ export async function generateClientInvoice(input: {
     // billable again, and the second invoice would look every bit as legitimate
     // as the first. The only person who would notice is the client.
     if (maintenanceLines.length > 0) {
-      await tx.maintenanceItemAssignment.updateMany({
-        where: { id: { in: maintenanceLines.map((line) => line.assignmentId) } },
+      const maintenanceClaim = await tx.maintenanceItemAssignment.updateMany({
+        where: { id: { in: maintenanceLines.map((line) => line.assignmentId) }, includedInClientInvoiceId: null, removedAt: null, payPayer: "CLIENT" },
         data: { includedInClientInvoiceId: created.id, includedInClientInvoiceAt: new Date() },
       });
+      if (maintenanceClaim.count !== maintenanceLines.length) throw new Error("Maintenance billing changed while generating. Refresh before retrying.");
     }
 
     return created;
@@ -649,7 +681,8 @@ export async function getClientInvoice(invoiceId: string) {
     );
   }
 
-  return { ...invoice, totalsMismatch };
+  const startedWorkStatus = await inspectStartedWorkReview(invoice, db);
+  return { ...invoice, totalsMismatch, startedWorkStatus };
 }
 
 /** Make a logo value loadable by the server-side PDF renderer: absolute URLs /

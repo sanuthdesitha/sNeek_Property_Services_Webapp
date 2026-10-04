@@ -66,7 +66,7 @@ type ExpectedSubmission = {
   submittedTotal: number;
   submittedJobCount: number;
   submittedAt: string;
-  variance: number;
+  variance: number | null;
   missingJobs: Array<{ jobId: string; jobName: string; date: string; amount: number }>;
 };
 type ExpectedCleaner = {
@@ -146,8 +146,8 @@ function employmentLabel(t: string | null) {
 }
 
 /** Variance is "material" (worth admin's eye) at ≥ $1 either way. */
-function varianceOff(v: number) {
-  return Math.abs(v) >= 1;
+function varianceOff(v: number | null) {
+  return v == null || Math.abs(v) >= 1;
 }
 
 /* ── Period presets ─────────────────────────────────────────────────────── */
@@ -519,7 +519,7 @@ function SubmissionBlock({ submission }: { submission: ExpectedSubmission | null
   const off = varianceOff(submission.variance);
   const hasMissing = submission.missingJobs.length > 0;
   const tone: "success" | "warning" = off || hasMissing ? "warning" : "success";
-  const variancePrefix = submission.variance > 0 ? "+" : "";
+  const variancePrefix = (submission.variance ?? 0) > 0 ? "+" : "";
 
   return (
     <EAlert
@@ -530,9 +530,9 @@ function SubmissionBlock({ submission }: { submission: ExpectedSubmission | null
           Submitted {money(submission.submittedTotal)} · {submission.submittedJobCount} job
           {submission.submittedJobCount === 1 ? "" : "s"}
           <EBadge tone={tone === "success" ? "success" : "warning"} soft>
-            {tone === "success"
+            {submission.variance == null ? "Manual reconciliation required" : tone === "success"
               ? "Lines up with expected"
-              : `Variance ${variancePrefix}${money(submission.variance)} vs expected`}
+              : `Variance ${variancePrefix}${money(submission.variance ?? 0)} vs expected`}
           </EBadge>
         </span>
       }
@@ -580,7 +580,7 @@ function JobLines({ rows }: { rows: ExpectedRow[] }) {
   if (rows.length === 0) {
     return (
       <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-        No job lines — this cleaner's expected total comes from expenses / shopping time only.
+        No job lines — this cleaner&apos;s expected total comes from expenses / shopping time only.
       </p>
     );
   }

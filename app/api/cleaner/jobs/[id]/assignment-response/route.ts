@@ -1,3 +1,4 @@
+import { hasUnacceptedOriginalReworkOffer } from "@/lib/cleaner/rework-offer-guard";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
@@ -5,6 +6,7 @@ import {
   JobStatus,
   Role,
 } from "@prisma/client";
+import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { requireRole } from "@/lib/auth/session";
 import { ActionReceiptError, withCleanerAction } from "@/lib/cleaner/action-receipt";
 import { getAppSettings } from "@/lib/settings";
@@ -63,6 +65,8 @@ export async function POST(
           id: true,
           jobNumber: true,
           jobType: true,
+          internalNotes: true,
+          reworkOfJobId: true,
           status: true,
           scheduledDate: true,
           startTime: true,
@@ -121,6 +125,12 @@ export async function POST(
     }
     if (!assignment) {
       return NextResponse.json({ error: "You are not actively assigned to this job." }, { status: 403 });
+    }
+    if (await hasUnacceptedOriginalReworkOffer(db, job, session.user.id)) {
+      return NextResponse.json({ error: "Answer the QA rework offer before starting or changing this assignment.", code: "REWORK_OFFER_RESPONSE_REQUIRED" }, { status: 409 });
+    }
+    if (parseJobInternalNotes(job.internalNotes).isDraft) {
+      return NextResponse.json({ error: "This job is a draft. Admin must publish it before an offer can be accepted." }, { status: 409 });
     }
     if (FINISHED_STATUSES.has(job.status)) {
       return NextResponse.json({ error: "This job is already finished." }, { status: 400 });

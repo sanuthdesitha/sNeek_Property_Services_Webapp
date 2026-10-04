@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Role } from "@prisma/client";
@@ -77,6 +78,7 @@ export async function POST(
           data: {
             userId: cleaner.id,
             jobId: job.id,
+            externalId: mobilePendingMarker("jobs"),
             channel: NotificationChannel.PUSH,
             subject: `${companyName}: New job offer (${jobReference})`,
             body: notificationTemplate.webBody,

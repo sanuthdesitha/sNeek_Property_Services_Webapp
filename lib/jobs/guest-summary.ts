@@ -90,6 +90,41 @@ export function buildGuestCountLabel(input: {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+/** Read-only cleaner preparation projection; never persist this over booking data. */
+export function cleanerPreparationContext(
+  context: JobReservationContext | null | undefined,
+  job: { sameDayCheckin?: boolean | null; property: { name?: string | null; accessInfo?: unknown } },
+): JobReservationContext {
+  const ctx = context ?? {};
+  const positiveCount = (value: unknown): number | undefined => {
+    const n = typeof value === "number" || typeof value === "string" ? Number(value) : NaN;
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  };
+  const actualCount = ctx.preparationSource !== "PROPERTY_MAX"
+    ? positiveCount(ctx.preparationGuestCount) ?? positiveCount(
+        (ctx.adults ?? 0) + (ctx.children ?? 0) + (ctx.infants ?? 0),
+      )
+    : undefined;
+  if (job.sameDayCheckin && actualCount != null) {
+    return { ...ctx, preparationGuestCount: actualCount, preparationSource: "INCOMING_BOOKING" };
+  }
+  // Require the Jackson name, not a bare P-number belonging to another client.
+  const jackson = /^Jackson[\s_-]*(?:Property|P)[\s_-]*0*([1-9]\d*)$/i.exec(job.property.name?.trim() ?? "");
+  const access = job.property.accessInfo;
+  const configuredMax = access && typeof access === "object" && "maxGuestCount" in access
+    ? positiveCount(access.maxGuestCount) : undefined;
+  const number = jackson ? Number(jackson[1]) : null;
+  const maximum = number != null
+    ? number === 3 || number === 9 ? 4 : number === 11 ? 7 : 6
+    : configuredMax ?? (ctx.preparationSource === "PROPERTY_MAX" ? positiveCount(ctx.preparationGuestCount) : undefined);
+  return {
+    ...ctx,
+    adults: undefined, children: undefined, infants: undefined,
+    preparationGuestCount: maximum,
+    preparationSource: maximum != null ? "PROPERTY_MAX" : undefined,
+  };
+}
+
 export function buildGuestSummary(context?: JobReservationContext | null): GuestSummary {
   const ctx = context ?? {};
   const origin = cleanText(ctx.locationText);
@@ -144,7 +179,8 @@ export function buildCleanerGuestSummary(context?: JobReservationContext | null)
       trimmed.origin ||
       trimmed.phoneLabel ||
       trimmed.checkinAtLocal ||
-      trimmed.guestCountLabel
+      trimmed.guestCountLabel ||
+      trimmed.preparationGuestCount
   );
   return trimmed;
 }

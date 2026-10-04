@@ -3,6 +3,7 @@ import { isShoppingDisbursement, shoppingXeroMapping } from "@/lib/finance/shopp
 import { ClientInvoiceStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { assertStartedWorkReviewed } from "@/lib/billing/started-work-reconciliation";
 import { pushClientInvoiceToXero } from "@/lib/xero/client";
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 
@@ -13,7 +14,6 @@ function isoDate(d: Date) {
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const reqBody = await req.json().catch(() => ({}));
 
     const [invoice, integrations] = await Promise.all([
       db.clientInvoice.findUnique({
@@ -52,8 +52,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // Idempotency: pushClientInvoiceToXero CREATES a new Xero invoice, so a
     // second push (double-click, retry) would duplicate it. Refuse to re-push an
-    // already-exported invoice unless the caller explicitly forces it.
-    if (invoice.xeroInvoiceId && reqBody?.force !== true) {
+    // already-exported invoice; retries must never bypass that protection.
+    if (invoice.xeroInvoiceId) {
       return NextResponse.json({
         ok: true,
         alreadyPushed: true,
@@ -88,18 +88,35 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return desc;
     };
 
-    const result = await pushClientInvoiceToXero({
-      invoiceNumber: invoice.invoiceNumber,
-      clientName: invoice.client.name || "Unknown Client",
-      clientEmail: invoice.client.email || integrations.xero.contactFallbackEmail || "no-reply@sneekops.com.au",
-      clientXeroContactId: invoice.client.xeroContactId ?? undefined,
-      lineItems: invoice.lines.map((line) => ({
+    const lineItems = invoice.lines.map((line) => ({
         description: buildDescription(line),
         quantity: line.quantity,
         unitAmount: line.unitPrice,
         ...shoppingXeroMapping(line.category, integrations.xero, taxType),
         itemCode: isShoppingDisbursement(line.category) ? undefined : itemCodeFor(line),
-      })),
+      }));
+    // Reserve a durable export intent under the same row lock as invoice edits.
+    // Failures leave PENDING; retry reuses the document's provider key.
+    const reserved = await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${invoice.id} FOR UPDATE`;
+      const current = await tx.clientInvoice.findUnique({ where: { id: invoice.id } });
+      if (!current || current.status === ClientInvoiceStatus.VOID) throw new Error("Invoice is no longer exportable.");
+      await assertStartedWorkReviewed({ ...invoice, metadata: current.metadata }, tx);
+      if (current.xeroInvoiceId) return current.xeroInvoiceId;
+      if (current.updatedAt?.getTime() !== invoice.updatedAt?.getTime()) throw new Error("Invoice changed before export. Refresh and retry.");
+      const metadata = current.metadata && typeof current.metadata === "object" && !Array.isArray(current.metadata) ? current.metadata : {};
+      await tx.clientInvoice.update({ where: { id: current.id }, data: { metadata: { ...metadata, xeroExportState: "PENDING" } } });
+      return null;
+    });
+    if (reserved) return NextResponse.json({ ok: true, alreadyPushed: true, xeroInvoiceId: reserved });
+
+    const result = await pushClientInvoiceToXero({
+      idempotencyKey: `client-invoice-${invoice.id}`,
+      invoiceNumber: invoice.invoiceNumber,
+      clientName: invoice.client.name || "Unknown Client",
+      clientEmail: invoice.client.email || integrations.xero.contactFallbackEmail || "no-reply@sneekops.com.au",
+      clientXeroContactId: invoice.client.xeroContactId ?? undefined,
+      lineItems,
       date: isoDate(invoice.createdAt),
       reference,
       gstEnabled: invoice.gstEnabled,
@@ -107,9 +124,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // Persist the Xero invoice id + export time, and remember the contact id so
     // future pushes reuse the same Xero contact instead of creating duplicates.
-    await db.clientInvoice.update({
-      where: { id: invoice.id },
-      data: { xeroInvoiceId: result.xeroInvoiceId, xeroExportedAt: new Date() },
+    await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${invoice.id} FOR UPDATE`;
+      const current = await tx.clientInvoice.findUnique({ where: { id: invoice.id } });
+      const metadata = current?.metadata && typeof current.metadata === "object" && !Array.isArray(current.metadata) ? current.metadata : {};
+      await tx.clientInvoice.update({ where: { id: invoice.id }, data: { xeroInvoiceId: result.xeroInvoiceId, xeroExportedAt: new Date(), metadata: { ...metadata, xeroExportState: "EXPORTED" } } });
     });
     if (!invoice.client.xeroContactId && result.contactId) {
       await db.client.update({

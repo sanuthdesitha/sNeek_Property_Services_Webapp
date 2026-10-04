@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { JobStatus, Role } from "@prisma/client";
-import { authOptions } from "@/lib/auth/auth-options";
-import { getServerSession } from "next-auth";
+import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { sydneyDayEndInclusive, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { haversine, DEFAULT_GEOFENCE_RADIUS_M } from "@/lib/gps/distance";
@@ -48,9 +47,11 @@ type ActiveJobInfo = {
  * so the UI can clearly distinguish a genuinely live dot from a stale one.
  */
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (session?.user?.role !== Role.ADMIN && session?.user?.role !== Role.OPS_MANAGER) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  try {
+    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "FORBIDDEN";
+    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 403 });
   }
 
   const now = Date.now();

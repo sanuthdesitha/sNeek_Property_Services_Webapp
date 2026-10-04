@@ -100,7 +100,11 @@ export function LaundryNewRun({ onApplied }: { onApplied: () => void }) {
         <div className="space-y-4">
           <p className="inline-flex items-center gap-2 text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
             <Sparkles className="h-4 w-4 text-[hsl(var(--e-gold-ink))]" />
-            Draft plan generated from this week&apos;s turnover jobs. Review, then approve to add the tasks.
+            Draft plan generated from this week&apos;s turnover jobs. Review, then approve to add or update eligible tasks.
+          </p>
+
+          <p className="text-sm text-[hsl(var(--e-text-secondary))]">
+            The weekly scheduler only calculates a draft; it does not approve tasks. Approving here updates the calendar without sending laundry-ready notifications. Those follow the cleaner&apos;s ready confirmation. Existing collected, returned and suppressed tasks keep their recorded dates and evidence.
           </p>
 
           {draft.length === 0 ? (

@@ -23,3 +23,16 @@ it("does not invent an expected baseline or require discrepancy proof for legacy
 it("does not silently round a fractional actual count", () => {
   const view = setup(false); fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "1.4" } }); view.submit(); expect(view.fetch).not.toHaveBeenCalled();
 });
+it("requires a correction reason before an administrative undo", async () => {
+  const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ id: "task", status: "PICKED_UP" }) }));
+  vi.stubGlobal("fetch", fetch);
+  const onDone = vi.fn();
+  render(<LaundryActionModal task={{ id: "task", status: "DROPPED", pickupDate: "2026-09-13", dropoffDate: "2026-09-16" }} action="REVERT_TO_PICKED_UP" dropoffOptions={[]} suppliers={[]} config={{ showPickupPhoto: false, requireDropoffPhoto: false, requireEarlyDropoffReason: false, showCostTracking: false }} onClose={vi.fn()} onDone={onDone} />);
+  expect(screen.getByText("Correction reason (required)")).toBeVisible();
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm", exact: true }));
+  expect(fetch).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Returned against wrong task" } });
+  fireEvent.click(screen.getByRole("button", { name: "Confirm", exact: true }));
+  await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
+});

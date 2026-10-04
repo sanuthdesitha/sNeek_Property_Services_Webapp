@@ -199,7 +199,7 @@ async function main() {
   logger.info("pg-boss started");
 
   if (jobEnabled("ical-sync")) {
-    await boss.schedule("ical-sync", "0 */4 * * *", {});
+    await boss.schedule("ical-sync", "0 */4 * * *", {}, { tz: TZ });
     await boss.work("ical-sync", safeHandler("ical-sync", async () => {
       logger.info("Running iCal sync");
       await syncAllIcal();
@@ -207,21 +207,45 @@ async function main() {
   }
 
   if (jobEnabled("reminder-dispatch")) {
-    await boss.schedule("reminder-dispatch", "*/30 * * * *", {});
+    await boss.schedule("reminder-dispatch", "*/30 * * * *", {}, { tz: TZ });
     await boss.work<{ jobId?: string }>("reminder-dispatch", safeHandler("reminder-dispatch", async () => {
       await dispatchJobReminders({ reminderType: "ALL" });
     }));
   }
 
   if (jobEnabled("job-task-auto-approve")) {
-    await boss.schedule("job-task-auto-approve", "0 * * * *", {});
+    await boss.schedule("job-task-auto-approve", "0 * * * *", {}, { tz: TZ });
     await boss.work("job-task-auto-approve", safeHandler("job-task-auto-approve", async () => {
       await autoApprovePendingClientJobTasks(new Date());
     }));
   }
 
+  if (jobEnabled("mobile-notification-dispatch")) {
+    await boss.schedule("mobile-notification-dispatch", "* * * * *", {}, { tz: TZ });
+    await boss.work("mobile-notification-dispatch", safeHandler("mobile-notification-dispatch", async () => {
+      const { dispatchMobileOutbox } = await import("@/lib/notifications/mobile-outbox");
+      await dispatchMobileOutbox();
+    }));
+  }
+
+  if (jobEnabled("submission-followup-dispatch")) {
+    await boss.schedule("submission-followup-dispatch", "*/5 * * * *", {}, { tz: TZ });
+    await boss.work("submission-followup-dispatch", safeHandler("submission-followup-dispatch", async () => {
+      const { processSubmissionFollowups } = await import("@/lib/cleaner/submission-followups");
+      await processSubmissionFollowups();
+    }));
+  }
+
+  if (jobEnabled("qa-report-followup-dispatch")) {
+    await boss.schedule("qa-report-followup-dispatch", "*/5 * * * *", {}, { tz: TZ });
+    await boss.work("qa-report-followup-dispatch", safeHandler("qa-report-followup-dispatch", async () => {
+      const { processQaReportFollowups } = await import("@/lib/qa/report-followups");
+      await processQaReportFollowups();
+    }));
+  }
+
   if (jobEnabled("notification-intent-dispatch")) {
-    await boss.schedule("notification-intent-dispatch", "*/5 * * * *", {});
+    await boss.schedule("notification-intent-dispatch", "*/5 * * * *", {}, { tz: TZ });
     await boss.work("notification-intent-dispatch", safeHandler("notification-intent-dispatch", async () => {
       const { dispatchNotificationIntents } = await import("@/lib/notifications/intent-store");
       await dispatchNotificationIntents(new Date());
@@ -229,7 +253,7 @@ async function main() {
   }
 
   if (jobEnabled("case-follow-up")) {
-    await boss.schedule("case-follow-up", "0 */4 * * *", {});
+    await boss.schedule("case-follow-up", "0 */4 * * *", {}, { tz: TZ });
     await boss.work("case-follow-up", safeHandler("case-follow-up", async () => {
       const result = await sendStaleCaseFollowUps(new Date());
       if (result.alertedCases > 0) {
@@ -239,7 +263,7 @@ async function main() {
   }
 
   if (jobEnabled("weekly-laundry-plan")) {
-    await boss.schedule("weekly-laundry-plan", "0 9 * * 1", {});
+    await boss.schedule("weekly-laundry-plan", "0 9 * * 1", {}, { tz: TZ });
     await boss.work("weekly-laundry-plan", safeHandler("weekly-laundry-plan", async () => {
       logger.info("Preparing weekly laundry draft");
       const now = toZonedTime(new Date(), TZ);
@@ -253,14 +277,14 @@ async function main() {
   }
 
   if (jobEnabled("stock-alerts")) {
-    await boss.schedule("stock-alerts", "0 */2 * * *", {});
+    await boss.schedule("stock-alerts", "0 */2 * * *", {}, { tz: TZ });
     await boss.work("stock-alerts", safeHandler("stock-alerts", async () => {
       await sendStockAlerts();
     }));
   }
 
   if (jobEnabled("admin-attention-summary")) {
-    await boss.schedule("admin-attention-summary", "0 * * * *", {});
+    await boss.schedule("admin-attention-summary", "0 * * * *", {}, { tz: TZ });
     await boss.work("admin-attention-summary", safeHandler("admin-attention-summary", async () => {
       const result = await sendAdminAttentionSummary({ now: new Date() });
       if (result.skipped?.length) return;
@@ -269,7 +293,7 @@ async function main() {
   }
 
   if (jobEnabled("tomorrow-prep-dispatch")) {
-    await boss.schedule("tomorrow-prep-dispatch", "0 */2 * * *", {});
+    await boss.schedule("tomorrow-prep-dispatch", "0 */2 * * *", {}, { tz: TZ });
     await boss.work("tomorrow-prep-dispatch", safeHandler("tomorrow-prep-dispatch", async () => {
       const result = await dispatchTomorrowPrepSummaries(new Date());
       if ("skipped" in result) return;
@@ -278,7 +302,7 @@ async function main() {
   }
 
   if (jobEnabled("workforce-post-dispatch")) {
-    await boss.schedule("workforce-post-dispatch", "0 * * * *", {});
+    await boss.schedule("workforce-post-dispatch", "0 * * * *", {}, { tz: TZ });
     await boss.work("workforce-post-dispatch", safeHandler("workforce-post-dispatch", async () => {
       const result = await dispatchScheduledWorkforcePosts(new Date());
       if (result.dispatched > 0) {
@@ -288,7 +312,7 @@ async function main() {
   }
 
   if (jobEnabled("email-campaign-dispatch")) {
-    await boss.schedule("email-campaign-dispatch", "0 * * * *", {});
+    await boss.schedule("email-campaign-dispatch", "*/5 * * * *", {}, { tz: TZ });
     await boss.work("email-campaign-dispatch", safeHandler("email-campaign-dispatch", async () => {
       const result = await dispatchScheduledEmailCampaigns(new Date());
       if (result.campaigns > 0) {
@@ -299,7 +323,7 @@ async function main() {
 
   // Marketing engine v1 — multi-channel campaign dispatcher
   if (jobEnabled("marketing-campaign-dispatch")) {
-    await boss.schedule("marketing-campaign-dispatch", "0 * * * *", {});
+    await boss.schedule("marketing-campaign-dispatch", "*/5 * * * *", {}, { tz: TZ });
     await boss.work("marketing-campaign-dispatch", safeHandler("marketing-campaign-dispatch", async () => {
       const { dispatchDueCampaigns } = await import("@/lib/marketing/campaign-sender");
       const result = await dispatchDueCampaigns(new Date());
@@ -310,7 +334,7 @@ async function main() {
   }
 
   if (jobEnabled("sla-escalation")) {
-    await boss.schedule("sla-escalation", "0 * * * *", {});
+    await boss.schedule("sla-escalation", "0 * * * *", {}, { tz: TZ });
     await boss.work("sla-escalation", safeHandler("sla-escalation", async () => {
       const result = await runSlaEscalation(new Date());
       if (result.warned > 0 || result.escalated > 0) {
@@ -320,7 +344,7 @@ async function main() {
   }
 
   if (jobEnabled("safety-checkin-alerts")) {
-    await boss.schedule("safety-checkin-alerts", "*/30 * * * *", {});
+    await boss.schedule("safety-checkin-alerts", "*/30 * * * *", {}, { tz: TZ });
     await boss.work("safety-checkin-alerts", safeHandler("safety-checkin-alerts", async () => {
       const result = await runSafetyCheckinAlerts(new Date());
       if (result.alerted > 0) {
@@ -330,7 +354,7 @@ async function main() {
   }
 
   if (jobEnabled("recurring-job-generate")) {
-    await boss.schedule("recurring-job-generate", "5 3 * * *", {});
+    await boss.schedule("recurring-job-generate", "5 3 * * *", {}, { tz: TZ });
     await boss.work("recurring-job-generate", safeHandler("recurring-job-generate", async () => {
       const settings = await getAppSettings();
       if (!settings.recurringJobs.enabled) return;
@@ -346,7 +370,7 @@ async function main() {
   }
 
   if (jobEnabled("document-expiry-check")) {
-    await boss.schedule("document-expiry-check", "0 8 * * 1", {});
+    await boss.schedule("document-expiry-check", "0 8 * * 1", {}, { tz: TZ });
     await boss.work("document-expiry-check", safeHandler("document-expiry-check", async () => {
       const result = await runDocumentExpiryCheck(new Date());
       if (result.warned > 0 || result.expired > 0) {
@@ -355,19 +379,35 @@ async function main() {
     }));
   }
 
+  // Owner scheduling queue only: no dated Job, assignment, charge or client notice.
+  if (jobEnabled("deep-clean-planning")) {
+    await boss.schedule("deep-clean-planning", "15 8 * * *", {}, { tz: TZ });
+    await boss.work("deep-clean-planning", safeHandler("deep-clean-planning", async () => {
+      const { planDueDeepCleanDrafts } = await import("@/lib/properties/deep-clean-planning");
+      const now = new Date();
+      let cursor: string | undefined;
+      do {
+        const result = await planDueDeepCleanDrafts({ now, ...(cursor ? { cursor } : {}) });
+        if (result.created || result.invalid || result.errors) logger.info(result, "[deep-clean-planning] owner review queue updated");
+        cursor = result.nextCursor ?? undefined;
+      } while (cursor);
+    }));
+  }
+
   // Daily auto-invoice generation
   if (jobEnabled("daily-invoice-generation")) {
-    await boss.schedule("daily-invoice-generation", "0 8 * * *", {});
+    await boss.schedule("daily-invoice-generation", "0 8 * * *", {}, { tz: TZ });
     await boss.work("daily-invoice-generation", safeHandler("daily-invoice-generation", async () => {
       const { listUsersDueForInvoicing } = await import("@/lib/finance/cadence");
       const { generateInvoiceForUser } = await import("@/lib/finance/auto-invoice");
-      const due = await listUsersDueForInvoicing();
+      const now = new Date();
+      const due = await listUsersDueForInvoicing(now);
       if (due.length === 0) return;
       logger.info({ count: due.length }, "[daily-invoice-generation] users due");
       let generated = 0;
       for (const u of due) {
         try {
-          const result = await generateInvoiceForUser(u.userId);
+          const result = await generateInvoiceForUser(u.userId, { cadence: u.cadence, now });
           if (result.invoiceId) generated++;
         } catch (err) {
           logger.error({ err, userId: u.userId }, "[daily-invoice-generation] failed");
@@ -378,7 +418,7 @@ async function main() {
   }
 
   if (jobEnabled("recognition-check")) {
-    await boss.schedule("recognition-check", "0 9 * * 0", {});
+    await boss.schedule("recognition-check", "0 9 * * 0", {}, { tz: TZ });
     await boss.work("recognition-check", safeHandler("recognition-check", async () => {
       const result = await runRecognitionCheck(new Date());
       if (result.created > 0) {
@@ -391,7 +431,7 @@ async function main() {
   // Offset to 20:30 so it doesn't pile onto the 03:00/07:00/08:00 nightly cluster.
   // All output is PENDING pay-adjustment proposals (manager approves before payroll).
   if (jobEnabled("accountability-nightly")) {
-    await boss.schedule("accountability-nightly", "30 20 * * *", {});
+    await boss.schedule("accountability-nightly", "30 20 * * *", {}, { tz: TZ });
     await boss.work("accountability-nightly", safeHandler("accountability-nightly", async () => {
       const result = await runAccountabilityNightly({ now: new Date() });
       if (result.streakProposals > 0 || result.monthlyProposals > 0) {
@@ -419,7 +459,7 @@ async function main() {
   }
 
   if (jobEnabled("daily-ops-briefing")) {
-    await boss.schedule("daily-ops-briefing", "0 7 * * *", {});
+    await boss.schedule("daily-ops-briefing", "0 7 * * *", {}, { tz: TZ });
     await boss.work("daily-ops-briefing", safeHandler("daily-ops-briefing", async () => {
       const result = await sendDailyOpsBriefing(new Date());
       if ((result.sent ?? 0) > 0) {
@@ -448,7 +488,7 @@ async function main() {
   }
 
   if (jobEnabled("google-reviews-refresh")) {
-    await boss.schedule("google-reviews-refresh", "0 3 * * 1", {});
+    await boss.schedule("google-reviews-refresh", "0 3 * * *", {}, { tz: TZ });
     await boss.work("google-reviews-refresh", safeHandler("google-reviews-refresh", async () => {
       const payload = await refreshGoogleReviewsCache();
       if (payload) {
@@ -459,7 +499,7 @@ async function main() {
 
   // Clean up stale location pings (keep 7 days)
   if (jobEnabled("location-pings-cleanup")) {
-    await boss.schedule("location-pings-cleanup", "0 3 * * *", {});
+    await boss.schedule("location-pings-cleanup", "0 3 * * *", {}, { tz: TZ });
     await boss.work("location-pings-cleanup", safeHandler("location-pings-cleanup", async () => {
       const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const result = await db.cleanerLocationPing.deleteMany({
@@ -489,7 +529,7 @@ async function main() {
   // interval-based rather than hour-pinned, the cron approximates its cadence.
 
   if (jobEnabled("cleaner-day-reminder")) {
-    await boss.schedule("cleaner-day-reminder", "*/30 * * * *", {});
+    await boss.schedule("cleaner-day-reminder", "*/30 * * * *", {}, { tz: TZ });
     await boss.work("cleaner-day-reminder", safeHandler("cleaner-day-reminder", async () => {
       // The dispatcher gates on 6AM / within-2h and de-dupes internally, so
       // running every half hour fires once per cleaner per job per day.
@@ -497,15 +537,24 @@ async function main() {
     }));
   }
 
+  if (jobEnabled("auto-clockout-sweep")) {
+    await boss.schedule("auto-clockout-sweep", "*/5 * * * *", {}, { tz: TZ });
+    await boss.work("auto-clockout-sweep", safeHandler("auto-clockout-sweep", async () => {
+      const { autoClockOutStaleTimeLogsForUser } = await import("@/lib/time/auto-clockout");
+      const users = await db.timeLog.findMany({ where: { stoppedAt: null }, distinct: ["userId"], select: { userId: true } });
+      for (const user of users) await autoClockOutStaleTimeLogsForUser(user.userId);
+    }));
+  }
+
   if (jobEnabled("stale-en-route-sweep")) {
-    await boss.schedule("stale-en-route-sweep", "*/30 * * * *", {});
+    await boss.schedule("stale-en-route-sweep", "*/30 * * * *", {}, { tz: TZ });
     await boss.work("stale-en-route-sweep", safeHandler("stale-en-route-sweep", async () => {
       await sweepStaleEnRouteJobs(new Date());
     }));
   }
 
   if (jobEnabled("auto-pause-stale-jobs")) {
-    await boss.schedule("auto-pause-stale-jobs", "*/30 * * * *", {});
+    await boss.schedule("auto-pause-stale-jobs", "*/30 * * * *", {}, { tz: TZ });
     await boss.work("auto-pause-stale-jobs", safeHandler("auto-pause-stale-jobs", async () => {
       await autoPauseStaleJobs(new Date());
     }));
@@ -515,28 +564,28 @@ async function main() {
   // somebody who is already on site and has forgotten — an hourly sweep would
   // find them halfway through the clean.
   if (jobEnabled("missed-clock-in-sweep")) {
-    await boss.schedule("missed-clock-in-sweep", "*/10 * * * *", {});
+    await boss.schedule("missed-clock-in-sweep", "*/10 * * * *", {}, { tz: TZ });
     await boss.work("missed-clock-in-sweep", safeHandler("missed-clock-in-sweep", async () => {
       await runMissedClockInSweep(new Date());
     }));
   }
 
   if (jobEnabled("pending-pay-approval-reminder")) {
-    await boss.schedule("pending-pay-approval-reminder", "0 9 * * *", {});
+    await boss.schedule("pending-pay-approval-reminder", "0 9 * * *", {}, { tz: TZ });
     await boss.work("pending-pay-approval-reminder", safeHandler("pending-pay-approval-reminder", async () => {
       await sendPendingPayApprovalReminders({ now: new Date() });
     }));
   }
 
   if (jobEnabled("unfinished-job-push-reminder")) {
-    await boss.schedule("unfinished-job-push-reminder", "0 17 * * *", {});
+    await boss.schedule("unfinished-job-push-reminder", "0 17 * * *", {}, { tz: TZ });
     await boss.work("unfinished-job-push-reminder", safeHandler("unfinished-job-push-reminder", async () => {
       await dispatchUnfinishedJobPushReminders(new Date());
     }));
   }
 
   if (jobEnabled("laundry-driver-nudge")) {
-    await boss.schedule("laundry-driver-nudge", "0 15 * * *", {});
+    await boss.schedule("laundry-driver-nudge", "0 15 * * *", {}, { tz: TZ });
     await boss.work("laundry-driver-nudge", safeHandler("laundry-driver-nudge", async () => {
       await dispatchLaundryDriverNudges(new Date());
     }));
@@ -547,7 +596,7 @@ async function main() {
   // asked for — a cleaner knows their own visa expires; the business finding
   // out before it rosters them onto work they may no longer do is the point.
   if (jobEnabled("credential-expiry-check")) {
-    await boss.schedule("credential-expiry-check", "0 9 * * 1", {});
+    await boss.schedule("credential-expiry-check", "0 9 * * 1", {}, { tz: TZ });
     await boss.work("credential-expiry-check", safeHandler("credential-expiry-check", async () => {
       const result = await runCredentialExpiryCheck(new Date());
       if (result.flagged > 0 || result.expired > 0) {
@@ -560,7 +609,7 @@ async function main() {
   // worker's startup cost where it already was.
 
   if (jobEnabled("timing-rule-reconcile")) {
-    await boss.schedule("timing-rule-reconcile", "*/30 * * * *", {});
+    await boss.schedule("timing-rule-reconcile", "*/30 * * * *", {}, { tz: TZ });
     await boss.work("timing-rule-reconcile", safeHandler("timing-rule-reconcile", async () => {
       const { runTimingRuleReconcileIfPending } = await import("@/lib/ops/timing-rule-reconcile");
       await runTimingRuleReconcileIfPending(new Date());
@@ -570,17 +619,17 @@ async function main() {
   // Closes out submitted jobs nobody inspected. Without it a clean sits in
   // QA_REVIEW indefinitely, which also holds up the cleaner being paid for it.
   if (jobEnabled("ai-photo-review")) {
-    await boss.schedule("ai-photo-review", "*/5 * * * *", {});
+    await boss.schedule("ai-photo-review", "*/5 * * * *", {}, { tz: TZ });
     await boss.work("ai-photo-review", safeHandler("ai-photo-review", async () => { const { processPhotoReviewQueue } = await import("@/lib/ai/photo-review"); await processPhotoReviewQueue(); }));
   }
 
   if (jobEnabled("ai-property-model-training")) {
-    await boss.schedule("ai-property-model-training", "*/5 * * * *", {});
+    await boss.schedule("ai-property-model-training", "*/5 * * * *", {}, { tz: TZ });
     await boss.work("ai-property-model-training", safeHandler("ai-property-model-training", async () => { const { processPropertyModelTrainingQueue } = await import("@/lib/ai/property-model-training"); await processPropertyModelTrainingQueue(); }));
   }
 
   if (jobEnabled("qa-auto-score")) {
-    await boss.schedule("qa-auto-score", "0 * * * *", {});
+    await boss.schedule("qa-auto-score", "0 * * * *", {}, { tz: TZ });
     await boss.work("qa-auto-score", safeHandler("qa-auto-score", async () => {
       const { runQaAutoScoreSweep } = await import("@/lib/qa/auto-score");
       await runQaAutoScoreSweep({ now: new Date() });
@@ -588,7 +637,7 @@ async function main() {
   }
 
   if (jobEnabled("cleaner-property-stats")) {
-    await boss.schedule("cleaner-property-stats", "0 2 * * *", {});
+    await boss.schedule("cleaner-property-stats", "0 2 * * *", {}, { tz: TZ });
     await boss.work("cleaner-property-stats", safeHandler("cleaner-property-stats", async () => {
       const { rebuildCleanerPropertyStats } = await import("@/lib/qa/cleaner-property-stats");
       const result = await rebuildCleanerPropertyStats(new Date());
@@ -596,6 +645,8 @@ async function main() {
     }));
   }
 
+  const { startWorkerHeartbeat } = await import("@/lib/ops/worker-heartbeat");
+  await startWorkerHeartbeat(!DISABLED_JOBS.has("mobile-notification-dispatch"));
   logger.info("All workers registered. Listening for jobs.");
 }
 

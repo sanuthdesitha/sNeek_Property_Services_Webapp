@@ -38,7 +38,8 @@ const attachmentSchema = z.object({
 });
 
 const specialRequestTaskSchema = z.object({
-  id: z.string().trim().min(1).max(80).optional(),
+  allowNotApplicable: z.boolean().optional(),
+  id: z.string().trim().min(1).max(200).optional(),
   title: z.string().trim().min(1).max(160),
   description: z.string().trim().max(2000).optional(),
   requiresPhoto: z.boolean().optional(),
@@ -214,7 +215,7 @@ export const submitJobSchema = z.object({
     .array(
       z.object({
         id: z.string().trim().min(1),
-        decision: z.enum(["COMPLETED", "NOT_COMPLETED"]),
+        decision: z.enum(["COMPLETED", "NOT_COMPLETED", "NOT_APPLICABLE"]),
         note: z.string().trim().max(4000).optional(),
         proofKeys: z.array(z.string().trim().min(1)).max(20).optional(),
       })

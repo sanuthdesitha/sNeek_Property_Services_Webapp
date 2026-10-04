@@ -49,6 +49,7 @@ export const damageItemDraftSchema = z.object({
 });
 
 export const saveDamageDraftSchema = z.object({
+  reportId: z.string().trim().min(1).optional(),
   items: z.array(damageItemDraftSchema).max(MAX_ITEMS_PER_REPORT).default([]),
 });
 
@@ -71,6 +72,7 @@ export const damageItemSubmitSchema = damageItemDraftSchema.extend({
 });
 
 export const submitDamageReportSchema = z.object({
+  reportId: z.string().trim().min(1, "Save the draft before submitting."),
   items: z
     .array(damageItemSubmitSchema)
     .min(1, "Add at least one damaged item before submitting")

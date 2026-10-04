@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { canActAs } from "@/lib/auth/roles";
 import { JobStatus, PayAdjustmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -33,7 +35,8 @@ async function safeMetrics(userId: string): Promise<PerformanceMetrics> {
 }
 
 export default async function CleanersHubPage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const canViewAddresses = canActAs(session.user.heldRoles ?? [session.user.role], [Role.ADMIN]);
 
   const cleaners = await db.user.findMany({
     where: { role: Role.CLEANER },
@@ -105,5 +108,5 @@ export default async function CleanersHubPage() {
     };
   });
 
-  return <CleanersHub rows={rows} />;
+  return <div className="space-y-4">{canViewAddresses ? <Link href="/v2/admin/cleaners/addresses" className="underline">Cleaner addresses for route planning</Link> : null}<CleanersHub rows={rows} /></div>;
 }

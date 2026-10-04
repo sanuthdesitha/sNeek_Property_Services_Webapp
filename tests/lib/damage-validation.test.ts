@@ -69,7 +69,7 @@ describe("estimatedCost is never accepted from a cleaner", () => {
   });
 
   it("strips it from a submitted report", () => {
-    const parsed = submitDamageReportSchema.parse({
+    const parsed = submitDamageReportSchema.parse({ reportId: "report-1",
       items: [{ ...completeItem, estimatedCost: 950 }],
     });
     expect(parsed.items[0]).not.toHaveProperty("estimatedCost");
@@ -78,44 +78,44 @@ describe("estimatedCost is never accepted from a cleaner", () => {
 
 describe("submitDamageReportSchema", () => {
   it("accepts a complete item", () => {
-    const parsed = submitDamageReportSchema.parse({ items: [completeItem] });
+    const parsed = submitDamageReportSchema.parse({ reportId: "report-1", items: [completeItem] });
     expect(parsed.items).toHaveLength(1);
     expect(parsed.items[0].severity).toBe(DamageSeverity.MAJOR);
   });
 
   it("requires at least one item", () => {
-    expect(() => submitDamageReportSchema.parse({ items: [] })).toThrow(
+    expect(() => submitDamageReportSchema.parse({ reportId: "report-1", items: [] })).toThrow(
       /at least one damaged item/i
     );
   });
 
   it("requires at least one photo per item", () => {
     expect(() =>
-      submitDamageReportSchema.parse({ items: [{ ...completeItem, photos: [] }] })
+      submitDamageReportSchema.parse({ reportId: "report-1", items: [{ ...completeItem, photos: [] }] })
     ).toThrow(/at least one photo/i);
   });
 
   it("requires an area", () => {
     expect(() =>
-      submitDamageReportSchema.parse({ items: [{ ...completeItem, area: "   " }] })
+      submitDamageReportSchema.parse({ reportId: "report-1", items: [{ ...completeItem, area: "   " }] })
     ).toThrow(/room or area/i);
   });
 
   it("requires a category", () => {
     expect(() =>
-      submitDamageReportSchema.parse({ items: [{ ...completeItem, category: "" }] })
+      submitDamageReportSchema.parse({ reportId: "report-1", items: [{ ...completeItem, category: "" }] })
     ).toThrow(/what was damaged/i);
   });
 
   it("rejects a one-word description", () => {
     // "Broken" tells an admin nothing and cannot support a claim.
     expect(() =>
-      submitDamageReportSchema.parse({ items: [{ ...completeItem, description: "Broken" }] })
+      submitDamageReportSchema.parse({ reportId: "report-1", items: [{ ...completeItem, description: "Broken" }] })
     ).toThrow(/at least a sentence/i);
   });
 
   it("accepts several items in one submission", () => {
-    const parsed = submitDamageReportSchema.parse({
+    const parsed = submitDamageReportSchema.parse({ reportId: "report-1",
       items: [completeItem, { ...completeItem, area: "Bathroom", category: "Mirror" }],
     });
     expect(parsed.items).toHaveLength(2);

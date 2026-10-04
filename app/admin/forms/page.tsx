@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { format } from "date-fns";
 import { Plus, Save, FileText, Download, RefreshCcw, Copy, Trash2, BarChart3, ListChecks } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -103,6 +104,7 @@ function cloneSubmissionData(input: any) {
 }
 
 export default function FormsPage() {
+  const { data: session } = useSession();
   const [templates, setTemplates] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -492,6 +494,10 @@ export default function FormsPage() {
 
   if (loading) {
     return <div className="py-10 text-sm text-muted-foreground">Loading form templates...</div>;
+  }
+
+  if (session?.user?.role !== "ADMIN" && session?.user?.primaryRole !== "ADMIN") {
+    return <Link href="/v2/admin/forms">View form templates and submissions</Link>;
   }
 
   return (

@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import {
@@ -11,7 +12,7 @@ import {
 import { notifyRestockRunCreated } from "@/lib/notifications/accountability";
 
 /** A stock row that has fallen to/below its reorder threshold in a submission. */
-type LowStockRow = {
+export type LowStockRow = {
   stockId: string;
   itemId: string;
   itemName: string;
@@ -40,6 +41,10 @@ async function deductOneItem(
   itemId: string,
   qty: number
 ): Promise<LowStockRow | null> {
+  // Different jobs can consume the same property stock concurrently. Lock the
+  // row for both full and shortfall paths so the ledger records only what this
+  // transaction actually removes.
+  await client.$queryRaw`SELECT "id" FROM "PropertyStock" WHERE "propertyId" = ${propertyId} AND "itemId" = ${itemId} FOR UPDATE`;
   const stock = await client.propertyStock.findUnique({
     where: { propertyId_itemId: { propertyId, itemId } },
     include: { item: true },
@@ -132,6 +137,7 @@ async function fireLowStockSideEffects(
         await db.notification.createMany({
           data: admins.map((admin) => ({
             userId: admin.id,
+            externalId: mobilePendingMarker("shopping"),
             channel: NotificationChannel.PUSH,
             subject: "Low stock alert",
             body: `${row.itemName} is low at this property (${row.onHand} remaining).`,
@@ -148,7 +154,8 @@ async function fireLowStockSideEffects(
   // Auto-restock: fold every low item into an open shopping run for the
   // property's client (reuse the earliest non-completed run, else create one).
   try {
-    await upsertAutoShoppingRun(propertyId, lowStockRows);
+    const result = await db.$transaction(tx => reconcileLowStockShoppingRun(tx, propertyId, lowStockRows));
+    if (result.createdNew) await notifyRestockRunCreated({ runId: result.runId, propertyName: result.propertyName, itemCount: lowStockRows.length });
   } catch (err) {
     logger.error({ err, propertyId }, "Auto shopping run upsert failed (non-fatal)");
   }
@@ -177,7 +184,7 @@ export async function deductStockFromSubmission(
 ): Promise<{ lowStockRows: LowStockRow[] }> {
   const lowStockRows: LowStockRow[] = [];
 
-  for (const [itemId, qty] of Object.entries(usageMap)) {
+  for (const [itemId, qty] of Object.entries(usageMap).sort(([a], [b]) => a.localeCompare(b))) {
     if (qty <= 0) continue;
     const low = tx
       ? // Caller-owned tx: run directly on it (outer tx provides atomicity).
@@ -205,12 +212,12 @@ export { fireLowStockSideEffects };
  * Existing lines are raised (never lowered); a brand-new run also fires an admin
  * alert. Returns nothing — best-effort, called inside a try/catch.
  */
-async function upsertAutoShoppingRun(propertyId: string, lowRows: LowStockRow[]): Promise<void> {
-  const property = await db.property.findUnique({
+async function upsertAutoShoppingRun(propertyId: string, lowRows: LowStockRow[], database: StockClient = db, notify = true) {
+  const property = await database.property.findUnique({
     where: { id: propertyId },
     select: { id: true, name: true, clientId: true },
   });
-  if (!property) return;
+  if (!property) throw new Error("LOW_STOCK_PROPERTY_MISSING");
 
   // The earliest non-completed status is DRAFT — reuse any open run for this
   // client so low items keep accumulating onto one shopping trip.
@@ -218,7 +225,7 @@ async function upsertAutoShoppingRun(propertyId: string, lowRows: LowStockRow[])
     ShoppingRunStatus.DRAFT,
     ShoppingRunStatus.ACTIVE,
   ];
-  let run = await db.shoppingRun.findFirst({
+  let run = await database.shoppingRun.findFirst({
     where: { clientId: property.clientId, status: { in: OPEN_STATUSES } },
     orderBy: { createdAt: "desc" },
     select: { id: true },
@@ -227,13 +234,13 @@ async function upsertAutoShoppingRun(propertyId: string, lowRows: LowStockRow[])
   let createdNew = false;
   if (!run) {
     // ShoppingRun.ownerUserId is required — fall back to a system admin/ops user.
-    const owner = await db.user.findFirst({
+    const owner = await database.user.findFirst({
       where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true },
       orderBy: { createdAt: "asc" },
       select: { id: true },
     });
-    if (!owner) return; // no one to own the run — skip gracefully
-    run = await db.shoppingRun.create({
+    if (!owner) throw new Error("LOW_STOCK_OWNER_MISSING");
+    run = await database.shoppingRun.create({
       data: {
         ownerUserId: owner.id,
         clientId: property.clientId,
@@ -248,7 +255,7 @@ async function upsertAutoShoppingRun(propertyId: string, lowRows: LowStockRow[])
 
   // Existing lines for this run + property so we upsert (raise) instead of
   // duplicating. Match on itemId when present, else on itemName.
-  const existingLines = await db.shoppingRunLine.findMany({
+  const existingLines = await database.shoppingRunLine.findMany({
     where: { shoppingRunId: run.id, propertyId },
     select: { id: true, itemId: true, itemName: true, plannedQty: true },
   });
@@ -261,13 +268,13 @@ async function upsertAutoShoppingRun(propertyId: string, lowRows: LowStockRow[])
     if (match) {
       // Raise the planned quantity only if the new need is greater.
       if (needed > match.plannedQty) {
-        await db.shoppingRunLine.update({
+        await database.shoppingRunLine.update({
           where: { id: match.id },
           data: { plannedQty: needed },
         });
       }
     } else {
-      await db.shoppingRunLine.create({
+      await database.shoppingRunLine.create({
         data: {
           shoppingRunId: run.id,
           propertyId,
@@ -285,13 +292,23 @@ async function upsertAutoShoppingRun(propertyId: string, lowRows: LowStockRow[])
 
   // Only alert admins when a brand-new run was created (an extension of an
   // existing run is silent — admins already know about the open run).
-  if (createdNew) {
+  if (createdNew && notify) {
     void notifyRestockRunCreated({
       runId: run.id,
       propertyName: property.name,
       itemCount: lowRows.length,
     }).catch((err) => logger.error({ err }, "notifyRestockRunCreated failed"));
   }
+  return { runId: run.id, propertyName: property.name, createdNew };
+}
+
+/** Reconcile shopping under a client-level lock; no external delivery in tx. */
+export async function reconcileLowStockShoppingRun(tx: Prisma.TransactionClient, propertyId: string, rows: LowStockRow[]) {
+  const property = await tx.property.findUnique({ where: { id: propertyId }, select: { clientId: true } });
+  if (!property) throw new Error("LOW_STOCK_PROPERTY_MISSING");
+  const lock = `low_stock_shopping:${property.clientId ?? "unassigned"}`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lock}))`;
+  return upsertAutoShoppingRun(propertyId, rows, tx, false);
 }
 
 /** Apply a manual restock: bump on-hand for each line and log a RESTOCKED tx.

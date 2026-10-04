@@ -62,6 +62,8 @@ import {
   type AddItemDefaults,
   type InventoryCatalogItem,
 } from "./property-inventory-add";
+import { PropertyDeepCleanPlanning } from "./property-deep-clean-planning";
+import { PropertyCadenceLedger } from "./property-cadence-ledger";
 import { PropertyJobsHistory } from "./property-jobs-history";
 import { PropertyStatsStrip } from "./property-stats-strip";
 import { PropertyBillingRates } from "./property-billing-rates";
@@ -240,7 +242,8 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
   const [pendingTasks, setPendingTasks] = useState<any[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [addTaskOpen, setAddTaskOpen] = useState(false);
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", requiresPhoto: false, requiresNote: false });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", requiresPhoto: true, requiresNote: false, allowNotApplicable: false });
+  const [taskRequestId, setTaskRequestId] = useState<string | null>(null);
   const [savingTask, setSavingTask] = useState(false);
   const [cancellingTaskId, setCancellingTaskId] = useState<string | null>(null);
 
@@ -520,11 +523,15 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
   async function addTask() {
     if (!taskForm.title.trim()) return;
     setSavingTask(true);
+    const requestId = taskRequestId ?? crypto.randomUUID();
+    setTaskRequestId(requestId);
     try {
       const res = await fetch(`/api/admin/properties/${propertyId}/pending-tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          requestId,
+          allowNotApplicable: taskForm.allowNotApplicable,
           title: taskForm.title.trim(),
           description: taskForm.description.trim() || undefined,
           requiresPhoto: taskForm.requiresPhoto,
@@ -536,7 +543,8 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
         toast({ title: "Failed to add task", description: err.error ?? "Unknown error", variant: "destructive" });
         return;
       }
-      setTaskForm({ title: "", description: "", requiresPhoto: false, requiresNote: false });
+      setTaskRequestId(null);
+      setTaskForm({ title: "", description: "", requiresPhoto: true, requiresNote: false, allowNotApplicable: false });
       setAddTaskOpen(false);
       await loadPendingTasks();
       toast({ title: "Task added", description: "Will attach to the next upcoming job for this property." });
@@ -882,9 +890,9 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
                         className="mt-0.5 accent-[hsl(var(--e-primary))]"
                       />
                       <span className="min-w-0">
-                        <span className="font-[550]">Laundry access is the same as the cleaner's</span>
+                        <span className="font-[550]">Laundry access is the same as the cleaner&apos;s</span>
                         <span className="block text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-                          Laundry then sees the cleaner's access steps as well as any laundry-only ones.
+                          Laundry then sees the cleaner&apos;s access steps as well as any laundry-only ones.
                         </span>
                       </span>
                     </label>
@@ -1072,7 +1080,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       ) : null}
 
       {/* JOBS & HISTORY — chips, report downloads, forms deep links, quick links */}
-      {tab === "jobs" ? <PropertyJobsHistory propertyId={propertyId} /> : null}
+      {tab === "jobs" ? <div className="space-y-4"><PropertyDeepCleanPlanning propertyId={propertyId} /><PropertyCadenceLedger propertyId={propertyId} /><PropertyJobsHistory propertyId={propertyId} /></div> : null}
 
       {/* ACCESS GUIDE */}
       {tab === "access" ? (
@@ -1269,6 +1277,9 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
             />
           </EField>
           <div className="flex flex-wrap gap-4">
+            <ESwitch checked={taskForm.allowNotApplicable}
+              onCheckedChange={(v) => setTaskForm((p) => ({ ...p, allowNotApplicable: v }))}
+              label="Allow not applicable (reason + photo; no carry-forward)" />
             <ESwitch
               checked={taskForm.requiresPhoto}
               onCheckedChange={(v) => setTaskForm((p) => ({ ...p, requiresPhoto: v }))}

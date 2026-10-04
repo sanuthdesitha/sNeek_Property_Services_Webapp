@@ -50,6 +50,7 @@ export interface JobReservationContext {
 }
 
 export interface JobSpecialRequestTask {
+  allowNotApplicable?: boolean;
   id: string;
   title: string;
   description?: string;
@@ -431,6 +432,7 @@ function normalizeSpecialRequestTasks(input: unknown): JobSpecialRequestTask[] {
         description: rawDescription || undefined,
         requiresPhoto: item.requiresPhoto === true,
         requiresNote: item.requiresNote === true,
+        ...(item.allowNotApplicable === true ? { allowNotApplicable: true } : {}),
       });
     });
   return tasks;

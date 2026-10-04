@@ -109,12 +109,16 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
                     >
                       Not done
                     </TaskChip>
+                    {t.metadata?.allowNotApplicable === true ? (
+                      <TaskChip active={d.decision === "NOT_APPLICABLE"} disabled={locked}
+                        onClick={() => api.setTask(t.id, { decision: "NOT_APPLICABLE" })}>Not applicable</TaskChip>
+                    ) : null}
                   </div>
                   {d.decision !== "OPEN" ? (
                     <div className="mt-3 space-y-2">
                       <ETextarea
                         placeholder={
-                          d.decision === "NOT_COMPLETED"
+                          d.decision === "NOT_APPLICABLE" ? "Why it does not apply (reason and photo required; no carry-forward)" : d.decision === "NOT_COMPLETED"
                             ? "Reason it wasn't done (required)"
                             : t.requiresNote
                               ? "Add a note (required)"
@@ -124,10 +128,10 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
                         disabled={locked}
                         onChange={(e) => api.setTask(t.id, { note: e.target.value })}
                       />
-                      {t.requiresPhoto || d.decision === "COMPLETED" ? (
+                      {t.requiresPhoto || d.decision === "COMPLETED" || d.decision === "NOT_APPLICABLE" ? (
                         <div>
                           <p className="mb-1 flex items-center gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                            <Camera className="h-3.5 w-3.5" /> Proof photo{t.requiresPhoto ? " (required)" : ""}
+                            <Camera className="h-3.5 w-3.5" /> Proof photo{t.requiresPhoto || d.decision === "NOT_APPLICABLE" ? " (required)" : ""}
                           </p>
                           <MediaCapture
                             evidenceDestination={{ type: "jobTask", taskId: t.id }}

@@ -44,6 +44,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         removedAt: true,
         acceptedAt: true,
         completedAt: true,
+        declinedAt: true,
         payAmount: true,
         item: { select: { id: true, title: true, property: { select: { name: true } } } },
       },
@@ -69,20 +70,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (assignment.completedAt) {
         return NextResponse.json({ error: "That work is already done." }, { status: 409 });
       }
-      await db.maintenanceItemAssignment.update({
-        where: { id: assignment.id },
+      if (assignment.acceptedAt) return NextResponse.json({ ok: true, acceptedAt: assignment.acceptedAt });
+      const accepted = await db.maintenanceItemAssignment.updateMany({
+        where: { id: assignment.id, removedAt: null, completedAt: null, acceptedAt: null },
         // Clearing declinedAt matters: someone who declined and then changed
         // their mind must not stay listed as having refused.
         data: { acceptedAt: now, declinedAt: null, declineReason: null },
       });
+      if (!accepted.count) return NextResponse.json({ error: "This assignment changed while you accepted it. Reload before trying again." }, { status: 409 });
       return NextResponse.json({ ok: true, acceptedAt: now });
     }
 
     if (body.action === "DECLINE") {
-      await db.maintenanceItemAssignment.update({
-        where: { id: assignment.id },
+      if (assignment.completedAt) return NextResponse.json({ error: "That work is already done." }, { status: 409 });
+      const changed = await db.maintenanceItemAssignment.updateMany({
+        where: { id: assignment.id, removedAt: null, completedAt: null, declinedAt: null },
         data: { declinedAt: now, acceptedAt: null, declineReason: body.note?.trim() || null },
       });
+      if (!changed.count) return NextResponse.json({ ok: true, unchanged: true });
       // The office has to find out, quickly — a declined job nobody is told
       // about is a job that silently does not happen.
       await notifyOffice({
@@ -103,14 +108,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           { status: 409 }
         );
       }
-      await db.maintenanceItemAssignment.update({
-        where: { id: assignment.id },
+      const changed = await db.maintenanceItemAssignment.updateMany({
+        where: { id: assignment.id, removedAt: null, completedAt: null, acceptedAt: { not: null } },
         data: {
           completedAt: now,
           completionNote: body.note?.trim() || null,
           ...(body.photoKeys?.length ? { completionPhotoKeys: body.photoKeys } : {}),
         },
       });
+      if (!changed.count) return NextResponse.json({ ok: true, unchanged: true });
       await notifyOffice({
         subject: `Maintenance completed — ${assignment.item.title}`,
         body: `${actorName} finished ${assignment.item.title} at ${propertyName}.${
@@ -128,8 +134,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         { status: 400 }
       );
     }
-    await db.maintenanceItemAssignment.update({
-      where: { id: assignment.id },
+    const payChange = await db.maintenanceItemAssignment.updateMany({
+      where: { id: assignment.id, removedAt: null, OR: [
+        { payChangeStatus: null }, { payChangeStatus: { not: "PENDING" } },
+        { payChangeAmount: null }, { payChangeAmount: { not: amount } },
+        ...(body.note?.trim() ? [{ payChangeReason: null }, { payChangeReason: { not: body.note.trim() } }] : [{ payChangeReason: { not: null } }]),
+      ] },
       data: {
         payChangeAmount: amount,
         payChangeReason: body.note?.trim() || null,
@@ -139,6 +149,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         payChangeAt: now,
       },
     });
+    if (payChange.count === 0) return NextResponse.json({ ok: true, payChangeStatus: "PENDING", unchanged: true });
     await notifyOffice({
       subject: `Price change requested — ${assignment.item.title}`,
       body: `${actorName} asked for $${amount.toFixed(2)} on ${assignment.item.title} (currently ${

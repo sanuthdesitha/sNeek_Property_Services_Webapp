@@ -9,7 +9,6 @@ const hasStorageConfig = Boolean(
     process.env.AWS_ACCESS_KEY_ID &&
     process.env.AWS_SECRET_ACCESS_KEY
 );
-const hasPublicStorageConfig = Boolean(hasStorageConfig && process.env.S3_PUBLIC_BASE_URL);
 
 const PDF_IMAGE_MAX_DIMENSION = Number(process.env.PDF_IMAGE_MAX_DIMENSION ?? 1024);
 const PDF_IMAGE_QUALITY = Number(process.env.PDF_IMAGE_QUALITY ?? 75);
@@ -210,8 +209,8 @@ async function renderPdfFromHtmlImpl(
   }
 }
 
-async function loadStoredPdfFromBucket(jobId: string): Promise<Buffer | null> {
-  if (!hasStorageConfig || !process.env.S3_BUCKET_NAME) {
+async function loadStoredPdfFromBucket(key: string | null): Promise<Buffer | null> {
+  if (!key || !hasStorageConfig || !process.env.S3_BUCKET_NAME) {
     return null;
   }
 
@@ -219,7 +218,7 @@ async function loadStoredPdfFromBucket(jobId: string): Promise<Buffer | null> {
     const object = await s3
       .getObject({
         Bucket: process.env.S3_BUCKET_NAME,
-        Key: `reports/${jobId}/report.pdf`,
+        Key: key,
       })
       .promise();
 
@@ -244,20 +243,20 @@ async function loadStoredPdfFromUrl(pdfUrl: string): Promise<Buffer | null> {
   }
 }
 
-async function refreshStoredJobReportPdf(jobId: string, pdf: Buffer) {
-  if (!hasPublicStorageConfig || !process.env.S3_BUCKET_NAME) return;
+/** Read exactly the PDF belonging to the published snapshot. Never fall back
+ * from a versioned HTML-only report to an older fixed-key PDF. Legacy reports
+ * with a stored pdfUrl remain compatible. */
+export function storedJobReportPdfKey(report: { pdfUrl: string | null }, jobId: string): string | null {
+  if (!report.pdfUrl) return null;
   try {
-    await s3
-      .putObject({
-        Bucket: process.env.S3_BUCKET_NAME,
-        Key: `reports/${jobId}/report.pdf`,
-        Body: pdf,
-        ContentType: "application/pdf",
-      })
-      .promise();
-  } catch (err) {
-    logger.warn({ err, jobId }, "Failed to refresh stored job report PDF");
-  }
+    const path = new URL(report.pdfUrl).pathname;
+    const prefix = `/reports/${jobId}/`;
+    const start = path.indexOf(prefix);
+    if (start < 0) return null;
+    const key = path.slice(start + 1);
+    const tail = key.slice(prefix.length - 1);
+    return tail === "report.pdf" || /^[a-zA-Z0-9-]+\/report\.pdf$/.test(tail) ? key : null;
+  } catch { return null; }
 }
 
 export async function getJobReportPdfBuffer(
@@ -268,14 +267,13 @@ export async function getJobReportPdfBuffer(
   if (report.htmlContent && !options.preferStored) {
     try {
       const rendered = await renderPdfFromHtml(report.htmlContent, "job report PDF generation");
-      await refreshStoredJobReportPdf(jobId, rendered);
       return rendered;
     } catch (err) {
       logger.warn({ err, jobId }, "Fresh job report PDF render failed; falling back to stored PDF");
     }
   }
 
-  const storedFromBucket = await loadStoredPdfFromBucket(jobId);
+  const storedFromBucket = await loadStoredPdfFromBucket(storedJobReportPdfKey(report, jobId));
   if (storedFromBucket) return storedFromBucket;
 
   if (report.pdfUrl) {

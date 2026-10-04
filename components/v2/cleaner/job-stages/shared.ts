@@ -31,10 +31,11 @@ export interface JobTask {
   source: string;
   requiresPhoto?: boolean;
   requiresNote?: boolean;
+  metadata?: { allowNotApplicable?: boolean };
 }
 
 export interface TaskDraft {
-  decision: "OPEN" | "COMPLETED" | "NOT_COMPLETED";
+  decision: "OPEN" | "COMPLETED" | "NOT_COMPLETED" | "NOT_APPLICABLE";
   note: string;
   proof: CapturedMedia[];
 }

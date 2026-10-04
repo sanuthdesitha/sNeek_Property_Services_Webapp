@@ -21,7 +21,7 @@
  */
 import { randomUUID } from "crypto";
 import sharp from "sharp";
-import { JobStatus, JobAssignmentResponseStatus, JobType, PayAdjustmentScope, PayAdjustmentStatus, PayAdjustmentType } from "@prisma/client";
+import { JobStatus, JobAssignmentResponseStatus, JobType, PayAdjustmentScope, PayAdjustmentStatus, PayAdjustmentType, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { FormSchema } from "@/lib/forms/types";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
@@ -212,10 +212,10 @@ export async function findReworkFormTemplate(jobType: JobType, database: Pick<ty
   });
 }
 
-export async function ensureReworkFormTemplate(jobType: JobType) {
-  const existing = await findReworkFormTemplate(jobType);
+export async function ensureReworkFormTemplate(jobType: JobType, database: Pick<typeof db, "formTemplate"> = db) {
+  const existing = await findReworkFormTemplate(jobType, database);
   if (existing) return existing;
-  return db.formTemplate.create({
+  return database.formTemplate.create({
     data: {
       name: "Rework checklist",
       serviceType: jobType,
@@ -227,8 +227,8 @@ export async function ensureReworkFormTemplate(jobType: JobType) {
 }
 
 /** The original (pre-rework) primary cleaner for a job, if any. */
-async function getOriginalPrimaryCleanerId(originalJobId: string): Promise<string | null> {
-  const assignment = await db.jobAssignment.findFirst({
+async function getOriginalPrimaryCleanerId(originalJobId: string, database: Pick<typeof db, "jobAssignment"> = db): Promise<string | null> {
+  const assignment = await database.jobAssignment.findFirst({
     where: { jobId: originalJobId, removedAt: null },
     orderBy: [{ isPrimary: "desc" }, { assignedAt: "asc" }],
     select: { userId: true },
@@ -260,8 +260,11 @@ export interface CreateReworkJobInput {
  * cleaner, snapshots the flagged areas, and wires the pay decision via the
  * canonical custom-payout map. Returns the rework job id.
  */
-export async function createReworkJobFromFailure(input: CreateReworkJobInput): Promise<string> {
-  const original = await db.job.findUnique({
+export async function createReworkJobFromFailure(input: CreateReworkJobInput, transaction?: Prisma.TransactionClient): Promise<string> {
+  if (!transaction) return db.$transaction(tx => createReworkJobFromFailure(input, tx), { timeout: 30000 });
+  const database = transaction;
+  await database.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rework:${input.originalJobId}`}))`;
+  const original = await database.job.findUnique({
     where: { id: input.originalJobId },
     select: {
       id: true,
@@ -274,9 +277,10 @@ export async function createReworkJobFromFailure(input: CreateReworkJobInput): P
     },
   });
   if (!original) throw new Error("Original job not found for rework.");
+  await ensureReworkFormTemplate(original.jobType, database);
 
   // Dedupe: never spin up a second open rework for the same source job.
-  const existingRework = await db.job.findFirst({
+  const existingRework = await database.job.findFirst({
     where: {
       isRework: true,
       reworkOfJobId: input.originalJobId,
@@ -286,7 +290,7 @@ export async function createReworkJobFromFailure(input: CreateReworkJobInput): P
   });
   if (existingRework) return existingRework.id;
 
-  const originalCleanerId = await getOriginalPrimaryCleanerId(input.originalJobId);
+  const originalCleanerId = await getOriginalPrimaryCleanerId(input.originalJobId, database);
   const assignCleanerId = input.assignToCleanerId ?? originalCleanerId;
   const isDifferentCleaner = Boolean(
     assignCleanerId && originalCleanerId && assignCleanerId !== originalCleanerId
@@ -346,7 +350,7 @@ export async function createReworkJobFromFailure(input: CreateReworkJobInput): P
     })
   );
 
-  const reworkJobId = await db.$transaction(async (tx) => {
+  const create = async (tx: Prisma.TransactionClient) => {
     const jobNumber = await reserveJobNumber(tx);
     const job = await tx.job.create({
       data: {
@@ -407,7 +411,8 @@ export async function createReworkJobFromFailure(input: CreateReworkJobInput): P
     });
 
     return job.id;
-  });
+  };
+  const reworkJobId = await create(database);
 
   // Apply the cross-cleaner deduction once, at creation, when a different cleaner
   // is taking it on for pay.
@@ -415,7 +420,7 @@ export async function createReworkJobFromFailure(input: CreateReworkJobInput): P
     await applyReworkDeduction({
       reworkJobId,
       reviewerUserId: input.qaUserId,
-    });
+    }, database);
   }
 
   return reworkJobId;
@@ -428,8 +433,11 @@ export async function createReworkJobFromFailure(input: CreateReworkJobInput): P
 export async function applyReworkDeduction(params: {
   reworkJobId: string;
   reviewerUserId: string;
-}): Promise<void> {
-  const rework = await db.job.findUnique({
+}, transaction?: Prisma.TransactionClient): Promise<void> {
+  if (!transaction) return db.$transaction(tx => applyReworkDeduction(params, tx));
+  const database = transaction;
+  await database.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rework-deduction:${params.reworkJobId}`}))`;
+  const rework = await database.job.findUnique({
     where: { id: params.reworkJobId },
     select: {
       id: true,
@@ -459,7 +467,7 @@ export async function applyReworkDeduction(params: {
   // NOT set reworkDeductionApplied (that flag now means "APPROVED / applied to
   // payroll", not merely "created"), so the flag guard above won't catch it —
   // this does.
-  const existingDeduction = await db.cleanerPayAdjustment.findFirst({
+  const existingDeduction = await database.cleanerPayAdjustment.findFirst({
     where: { source: "REWORK_DEDUCTION", sourceKey },
     select: { id: true },
   });
@@ -496,7 +504,8 @@ export async function applyReworkDeduction(params: {
     }
   );
 
-  await db.$transaction(async (tx) => {
+  const tx = database;
+  {
     await tx.cleanerPayAdjustment.create({
       data: {
         jobId: rework.reworkOfJobId!,
@@ -525,7 +534,7 @@ export async function applyReworkDeduction(params: {
         data: { reworkDeductionApplied: true },
       });
     }
-  });
+  }
 }
 
 /**

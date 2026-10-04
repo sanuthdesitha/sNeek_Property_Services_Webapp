@@ -198,7 +198,7 @@ export function PropertyAccessFields({ value, onChange, addressParts, laundryTea
             placeholder="Select laundry users for this property"
           />
           <p className="text-xs text-muted-foreground">
-            If empty, all active laundry users can see this property's laundry schedule.
+            If empty, all active laundry users can see this property&apos;s laundry schedule and are eligible for its notifications. Selecting members limits both to that team.
           </p>
         </div>
       ) : null}

@@ -63,14 +63,18 @@ export function FormsQaCentre({
 
   React.useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setDamage([]);
     (async () => {
       try {
         const res = await fetch(`/api/admin/jobs/${jobId}/damage-reports`);
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || "Could not load damage reports.");
-        if (!cancelled) setDamage(Array.isArray(data.reports) ? data.reports : []);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || "Could not load damage reports.");
+        if (!Array.isArray(data?.reports)) throw new Error("Could not load damage reports.");
+        if (!cancelled) setDamage(data.reports);
       } catch (err: any) {
-        if (!cancelled) setError(err.message);
+        if (!cancelled) setError(err?.message || "Could not load damage reports.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -146,9 +150,9 @@ export function FormsQaCentre({
 
           {error ? <EAlert tone="danger">{error}</EAlert> : null}
 
-          {!loading && damage.length === 0 ? (
+          {!loading && !error && damage.length === 0 ? (
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              No damage reported on this job.
+              No formal damage reports on this job. Check Cases for separately recorded issues.
             </p>
           ) : null}
 

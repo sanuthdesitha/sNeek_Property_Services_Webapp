@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import {
   JobAssignmentResponseStatus,
@@ -168,6 +169,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId: cleaner.id,
           jobId: line.job.id,
+          externalId: mobilePendingMarker("jobs"),
           channel: NotificationChannel.PUSH,
           subject: `${companyName}: New job offer (${line.jobReference})`,
           body: notificationTemplate.webBody,

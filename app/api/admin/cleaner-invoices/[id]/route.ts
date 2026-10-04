@@ -46,6 +46,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = patchSchema.parse(await req.json().catch(() => ({})));
 
+    const current = await db.cleanerInvoiceSubmission.findUnique({ where: { id: params.id } });
+    if (!current) return NextResponse.json({ error: "Submission not found." }, { status: 404 });
+    if (current.status === body.status) return NextResponse.json({ ok: true, status: current.status });
+    if (current.status === "VOID" || current.status === "CHANGES_REQUESTED" || current.status === "SENDING" || current.status === "XERO_EXPORTING" ||
+        current.status === "PAID" || current.paidAt || current.paidAmount != null ||
+        (current.xeroBillId && body.status !== "PAID") || body.status === "XERO_PUSHED") {
+      return NextResponse.json({ error: "This change would alter settled, exported or released work. Use a reconciled correction instead." }, { status: 409 });
+    }
+
     // Record payment settlement on PAID; clear it when reversed/re-opened.
     let paymentData: {
       paidAt: Date | null;
@@ -100,6 +109,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // billed on two live submissions.
     let released: Awaited<ReturnType<typeof releaseCleanerInvoiceConsumables>> | null = null;
     const updated = await db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${current.cleanerId}))`;
+      await tx.$queryRaw`SELECT "id" FROM "CleanerInvoiceSubmission" WHERE "id" = ${params.id} FOR UPDATE`;
+      const locked = await tx.cleanerInvoiceSubmission.findUnique({ where: { id: params.id } });
+      if (!locked || locked.status !== current.status || locked.xeroBillId !== current.xeroBillId ||
+          locked.paidAmount !== current.paidAmount || Boolean(locked.paidAt) !== Boolean(current.paidAt)) {
+        throw new Error("Invoice changed while reviewing. Refresh before applying a decision.");
+      }
+      const jobIds = Array.isArray((locked.lineData as any)?.jobIds)
+        ? ((locked.lineData as any).jobIds as string[]).filter(id => typeof id === "string") : [];
+      if (body.status === "PAID" && jobIds.length) {
+        await tx.job.updateMany({ where: { id: { in: jobIds } }, data: { cleanerPaidAt: new Date() } });
+      }
+
       // Both a void and a send-back hand the work back. The difference is
       // intent, not mechanics: a void ends this invoice, a send-back asks for a
       // better one — and neither is any use to the payee if the items stay
@@ -129,19 +151,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         { submissionId: params.id, ...(released as object) },
         "[cleaner-invoice] voided; the payee's items are billable again"
       );
-    }
-
-    // Stamp / clear the covered jobs so they show as paid to the cleaner (and,
-    // when reversed, become re-invoiceable). jobIds are snapshotted at send time.
-    const jobIds = Array.isArray((updated.lineData as any)?.jobIds)
-      ? ((updated.lineData as any).jobIds as string[]).filter((x) => typeof x === "string")
-      : [];
-    if (jobIds.length) {
-      if (body.status === "PAID") {
-        await db.job.updateMany({ where: { id: { in: jobIds } }, data: { cleanerPaidAt: new Date() } });
-      } else if (releasesPayeeWork(body.status)) {
-        await db.job.updateMany({ where: { id: { in: jobIds } }, data: { cleanerPaidAt: null } });
-      }
     }
 
     // TELL THE PAYEE. A send-back they never hear about is just an invoice that
@@ -200,7 +209,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const existing = await db.cleanerInvoiceSubmission.findUnique({ where: { id: params.id } });
     if (!existing) return NextResponse.json({ error: "Submission not found." }, { status: 404 });
-    if (existing.xeroBillId) {
+    if (existing.xeroBillId || existing.status === "PAID" || existing.paidAt || existing.paidAmount != null || existing.status === "SENDING" || existing.status === "XERO_EXPORTING") {
       return NextResponse.json(
         { error: "This invoice is already in Xero. Void it in Xero before deleting." },
         { status: 409 }
@@ -216,10 +225,14 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     // it. Deleting is the more dangerous of the two: the row is gone, so there
     // is nothing left to trace the stranded stamps back to.
     const deleteReleased = await db.$transaction(async (tx) => {
-      const counts = await releaseCleanerInvoiceConsumables(tx, params.id);
-      if (delJobIds.length) {
-        await tx.job.updateMany({ where: { id: { in: delJobIds } }, data: { cleanerPaidAt: null } });
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.cleanerId}))`;
+      await tx.$queryRaw`SELECT "id" FROM "CleanerInvoiceSubmission" WHERE "id" = ${params.id} FOR UPDATE`;
+      const locked = await tx.cleanerInvoiceSubmission.findUnique({ where: { id: params.id } });
+      if (!locked || locked.status !== existing.status || locked.xeroBillId || locked.paidAt || locked.paidAmount != null) {
+        throw new Error("Invoice changed or has payment evidence. Refresh before deleting.");
       }
+
+      const counts = await releaseCleanerInvoiceConsumables(tx, params.id);
       await tx.cleanerInvoiceSubmission.delete({ where: { id: params.id } });
       return counts;
     });

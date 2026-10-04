@@ -13,13 +13,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  */
 
 const userFindMany = vi.fn(async (_args?: any) => [] as any[]);
-const submissionFindFirst = vi.fn(async () => null);
+const submissionFindMany = vi.fn(async () => [] as any[]);
 const getCleanerInvoiceData = vi.fn(async (_opts: any) => emptyInvoice());
 
 vi.mock("@/lib/db", () => ({
   db: {
     user: { findMany: (a: any) => userFindMany(a) },
-    cleanerInvoiceSubmission: { findFirst: () => submissionFindFirst() },
+    cleanerInvoiceSubmission: { findMany: () => submissionFindMany() },
   },
 }));
 vi.mock("@/lib/cleaner/invoice", () => ({
@@ -57,8 +57,8 @@ beforeEach(() => {
   userFindMany.mockImplementation(async () => []);
   getCleanerInvoiceData.mockReset();
   getCleanerInvoiceData.mockImplementation(async () => emptyInvoice());
-  submissionFindFirst.mockReset();
-  submissionFindFirst.mockImplementation(async () => null);
+  submissionFindMany.mockReset();
+  submissionFindMany.mockImplementation(async () => []);
 });
 
 describe("expected invoices — payee set", () => {
@@ -123,4 +123,16 @@ describe("expected invoices — payee set", () => {
       expect(call[0].excludePaidJobs).toBe(true);
     }
   });
+});
+
+it("matches stable job IDs across all live submissions and never claims a live forecast is a snapshot match", async () => {
+  userFindMany.mockResolvedValue([{ id: "cleaner", name: "Test", email: "test@example.test", role: "CLEANER" }]);
+  getCleanerInvoiceData.mockResolvedValue(emptyInvoice({ estimatedPay: 50, rows: [
+    { jobId: "job-1", jobName: "Same property", date: "2026-07-01", amount: 25 },
+    { jobId: "job-2", jobName: "Same property", date: "2026-07-02", amount: 25 },
+  ] }));
+  submissionFindMany.mockResolvedValue([{ id: "sub-1", status: "SUBMITTED", totalAmount: 25, createdAt: new Date(), lineData: { jobIds: ["job-1"], lines: [{ description: "Same property" }] } }]);
+  const result = await getExpectedInvoicesForPeriod({});
+  expect(result.cleaners[0].submission?.missingJobs.map(row => row.jobId)).toEqual(["job-2"]);
+  expect(result.cleaners[0].submission?.variance).toBeNull();
 });

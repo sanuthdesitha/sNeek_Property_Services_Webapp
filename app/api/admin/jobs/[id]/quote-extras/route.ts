@@ -23,8 +23,8 @@ import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profi
  * Every change appends/removes Additionals in the SAME meta shape the cleaner
  * form reads, bumps the job's fixedPrice (seeded from the source quote's total
  * when null), updates invoiceNote, writes an AuditLog with before/after price,
- * and emails the client a branded "Your booking has been updated" note that
- * ALWAYS states the new total — these are confirmed changes to their job.
+ * and sends no email by default. An explicit notifyClient request can send
+ * the reviewed new total; ordinary saves remain silent.
  */
 
 const addSchema = z.object({
@@ -39,6 +39,7 @@ const postSchema = z
     add: z.array(addSchema).optional(),
     removeLabels: z.array(z.string().trim().min(1)).optional(),
     note: z.string().trim().optional(),
+    notifyClient: z.boolean().default(false),
   })
   .refine((b) => (b.add?.length ?? 0) > 0 || (b.removeLabels?.length ?? 0) > 0, {
     message: "Provide extras to add or labels to remove.",
@@ -46,6 +47,7 @@ const postSchema = z
 
 const deleteSchema = z.object({
   removeLabels: z.array(z.string().trim().min(1)).min(1),
+  notifyClient: z.boolean().default(false),
 });
 
 function escapeHtml(value: unknown) {
@@ -126,7 +128,7 @@ export async function GET(
 
 async function applyExtrasChange(
   jobId: string,
-  input: { add?: z.infer<typeof addSchema>[]; removeLabels?: string[]; note?: string },
+  input: { add?: z.infer<typeof addSchema>[]; removeLabels?: string[]; note?: string; notifyClient?: boolean },
   actorUserId: string
 ) {
   const { job, quote } = await loadJobWithQuote(jobId);
@@ -167,7 +169,10 @@ async function applyExtrasChange(
   const added: Array<{ id: string; label: string; exGstPrice: number; grossPrice: number }> = [];
   for (const item of input.add ?? []) {
     let id = item.id && item.id.trim() ? item.id.trim() : "";
-    if (!id || usedIds.has(id)) {
+    if ((id && usedIds.has(id)) || additionals.some(extra => extra.label.trim().toLowerCase() === item.label.trim().toLowerCase())) {
+      return NextResponse.json({ error: "This extra already exists. Refresh and review it before retrying." }, { status: 409 });
+    }
+    if (!id) {
       const base = id || item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "extra";
       let n = 1;
       id = base;
@@ -203,8 +208,8 @@ async function applyExtrasChange(
     .filter(Boolean)
     .join("\n");
 
-  await db.job.update({
-    where: { id: job.id },
+  const saved = await db.job.updateMany({
+    where: { id: job.id, internalNotes: job.internalNotes, fixedPrice: job.fixedPrice, invoiceNote: job.invoiceNote },
     data: {
       fixedPrice: afterPrice,
       invoiceNote: invoiceNote || null,
@@ -216,6 +221,8 @@ async function applyExtrasChange(
         }) ?? null,
     },
   });
+
+  if (saved.count !== 1) return NextResponse.json({ error: "Job changed while saving. Refresh before retrying." }, { status: 409 });
 
   await db.auditLog.create({
     data: {
@@ -249,7 +256,7 @@ async function applyExtrasChange(
       : [];
 
   let emailed = false;
-  if (recipients.length > 0) {
+  if (input.notifyClient === true && recipients.length > 0) {
     const clientName = client?.name ?? quote?.lead?.name ?? "there";
     const dateLabel = new Date(job.scheduledDate).toLocaleDateString("en-AU", {
       day: "numeric",
@@ -345,7 +352,7 @@ export async function DELETE(
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = deleteSchema.parse(await req.json());
-    return await applyExtrasChange(params.id, { removeLabels: body.removeLabels }, session.user.id);
+    return await applyExtrasChange(params.id, { removeLabels: body.removeLabels, notifyClient: body.notifyClient }, session.user.id);
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

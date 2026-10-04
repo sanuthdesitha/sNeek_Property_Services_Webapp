@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
@@ -147,6 +148,7 @@ export async function POST(req: NextRequest) {
       await db.notification.createMany({
         data: recipients.map((recipient) => ({
           userId: recipient.id,
+          externalId: mobilePendingMarker("approvals"),
           channel: NotificationChannel.PUSH,
           subject: "Approval required",
           body: `${client.name}: ${created.title}`,

@@ -1,3 +1,4 @@
+import { resolveRouteRole } from "@/lib/auth/route-role";
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     // Access control. QA/ops/admin always allowed. The assigned cleaner may view
     // their own job's QA report (their rework feedback).
-    const role = session.user.role as Role;
+    const role = resolveRouteRole(session.user, QA_ROLES);
     // The MODE IS DERIVED FROM THE SESSION, never from a query param — a caller
     // must not be able to ask for the internal variant, which carries pay
     // clawbacks, damage cost estimates and the inspector's private notes.

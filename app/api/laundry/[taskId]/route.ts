@@ -1,3 +1,4 @@
+import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { LaundryStatus, Role } from "@prisma/client";
@@ -45,6 +46,7 @@ async function notifyAdmins(subject: string, body: string, jobId: string | null,
     data: recipients.map((user) => ({
       userId: user.id,
       jobId,
+      externalId: mobilePendingMarker("laundry"),
       channel: "PUSH",
       subject,
       body,

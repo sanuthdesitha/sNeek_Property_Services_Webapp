@@ -1,13 +1,14 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { JobStatus, Prisma } from "@prisma/client";
+import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
 import { db } from "@/lib/db";
 import { bulkStatusConsequences, bulkStatusInputSchema } from "./bulk-status";
 
 export class BulkStatusError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
-const select = { id: true, jobNumber: true, scheduledDate: true, status: true, updatedAt: true, completedAt: true, property: { select: { name: true } },
+const select = { id: true, propertyId: true, jobNumber: true, scheduledDate: true, status: true, updatedAt: true, completedAt: true, property: { select: { name: true } },
   assignments: { where: { removedAt: null }, orderBy: { id: "asc" as const }, select: { id: true, userId: true, isPrimary: true, responseStatus: true } } } satisfies Prisma.JobSelect;
 type Row = Prisma.JobGetPayload<{ select: typeof select }>;
 function input(value: unknown) {
@@ -43,9 +44,10 @@ export async function applyBulkStatus(actorId: string, value: unknown) {
       const now = new Date();
       for (const job of rows) {
         const changed = await tx.job.updateMany({ where: { id: job.id, status: job.status, updatedAt: job.updatedAt }, data: {
-          status: body.status, ...(body.status === "COMPLETED" ? { completedAt: now } : {}), ...(body.status === "UNASSIGNED" ? { completedAt: null } : {}),
+          status: body.status, ...(body.status === "COMPLETED" ? { completedAt: job.completedAt ?? now } : {}), ...(body.status === "UNASSIGNED" ? { completedAt: null } : {}),
         } });
         if (changed.count !== 1) throw new BulkStatusError(409, "The batch was not applied: a job changed. Refresh the preview.");
+        if (body.status === "COMPLETED") await applyJobRotationCompletion(tx, { jobId: job.id, propertyId: job.propertyId });
         if (body.status === "UNASSIGNED") await tx.jobAssignment.updateMany({ where: { jobId: job.id, removedAt: null }, data: { removedAt: now, isPrimary: false } });
         await tx.auditLog.create({ data: { userId: actorId, jobId: job.id, action: "BULK_UPDATE_JOB_STATUS", entity: "Job", entityId: job.id,
           before: { status: job.status }, after: { status: body.status } } });

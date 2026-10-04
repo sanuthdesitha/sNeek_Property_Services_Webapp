@@ -46,6 +46,7 @@ export async function getPayrollSummary(input: {
       },
       select: {
         id: true,
+        updatedAt: true,
         jobNumber: true,
         jobType: true,
         scheduledDate: true,
@@ -81,10 +82,11 @@ export async function getPayrollSummary(input: {
         status: PayAdjustmentStatus.APPROVED,
         // When building a committable run, never re-include an adjustment already
         // paid by a prior run (idempotency).
-        ...(input.excludePaidJobs ? { includedInPayrollRunId: null } : {}),
+        ...(input.excludePaidJobs ? { includedInPayrollRunId: null, includedInCleanerInvoiceId: null } : {}),
       },
       select: {
         id: true,
+        updatedAt: true,
         cleanerId: true,
         title: true,
         requestedAmount: true,
@@ -157,6 +159,7 @@ export async function getPayrollSummary(input: {
       },
       select: {
         id: true,
+        updatedAt: true,
         assignedToId: true,
         // Required by qaAssignmentPayeeId — a self-picked-up inspection carries
         // its payee here and nowhere else.
@@ -297,6 +300,7 @@ export async function getPayrollSummary(input: {
 
       return [{
         id: job.id,
+        updatedAt: job.updatedAt,
         jobNumber: job.jobNumber,
         propertyName: job.property.name,
         suburb: job.property.suburb,
@@ -316,6 +320,7 @@ export async function getPayrollSummary(input: {
       .filter((row) => row.cleanerId === cleaner.id)
       .map((row) => ({
         id: row.id,
+        updatedAt: row.updatedAt,
         label: row.title || row.property?.name || "Approved adjustment",
         reviewedAt: row.reviewedAt,
         // Signed — deductions are stored negative and must stay negative.
@@ -339,6 +344,7 @@ export async function getPayrollSummary(input: {
         });
         return {
           id: row.id,
+          updatedAt: row.updatedAt,
           jobId: row.job?.id ?? null,
           jobNumber: row.job?.jobNumber ?? null,
           propertyName: row.job?.property?.name ?? "Inspection",

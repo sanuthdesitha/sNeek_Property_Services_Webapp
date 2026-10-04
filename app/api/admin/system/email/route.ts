@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/auth-options";
+import { requireRole } from "@/lib/auth/session";
 import { listSuppressed } from "@/lib/email/suppression";
 import { db } from "@/lib/db";
 
 export async function GET(_req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  if (role !== "ADMIN" && role !== "OPS_MANAGER") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  try {
+    await requireRole(["ADMIN", "OPS_MANAGER"]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "FORBIDDEN";
+    return NextResponse.json({ error: message }, { status: message === "UNAUTHORIZED" ? 401 : 403 });
   }
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);

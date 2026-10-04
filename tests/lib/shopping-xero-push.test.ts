@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 const m = vi.hoisted(() => ({ invoice: vi.fn(), push: vi.fn(), update: vi.fn(), settings: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: async () => ({ id: "admin", role: "ADMIN" }) }));
-vi.mock("@/lib/db", () => ({ db: { clientInvoice: { findUnique: m.invoice, update: m.update }, client: { update: vi.fn() } } }));
+vi.mock("@/lib/db", () => ({ db: { clientInvoice: { findUnique: m.invoice, update: m.update }, client: { update: vi.fn() }, $transaction: async (fn: any) => fn({ $queryRaw: vi.fn(), clientInvoice: { findUnique: m.invoice, update: m.update } }) } }));
 vi.mock("@/lib/xero/client", () => ({ pushClientInvoiceToXero: m.push }));
 vi.mock("@/lib/phase3/integrations", () => ({ getPhase3IntegrationsSettings: m.settings }));
 import { POST } from "@/app/api/admin/invoices/[id]/xero-push/route";
@@ -27,3 +27,24 @@ it("exports the reviewed shopping-time amount without fractional-hour rounding",
  expect((await request()).status).toBe(200);
  expect(m.push.mock.calls[0][0].lineItems[0]).toMatchObject({ quantity: 1, unitAmount: 1.67 });
 });
+it("reuses one provider idempotency key after remote success but local persistence failure", async () => {
+ let failed = false; m.update.mockImplementation(async ({ data }) => { if (data.xeroInvoiceId && !failed) { failed = true; throw new Error("database unavailable after provider success"); } return {}; });
+ expect((await request()).status).toBe(400);
+ expect((await request()).status).toBe(200);
+ expect(m.push).toHaveBeenCalledTimes(2);
+ expect(m.push.mock.calls.map(([payload]) => payload.idempotencyKey)).toEqual(["client-invoice-invoice", "client-invoice-invoice"]);
+});
+it("uses the same provider key for concurrent first requests", async () => {
+ const responses = await Promise.all([request(), request()]);
+ expect(responses.map(response => response.status)).toEqual([200, 200]);
+ expect(new Set(m.push.mock.calls.map(([payload]) => payload.idempotencyKey)).size).toBe(1);
+});
+it("does not permit force to create a second exported invoice", async () => {
+ invoice.xeroInvoiceId = "existing-xero";
+ const response = await POST(new NextRequest("http://localhost/api/admin/invoices/invoice/xero-push", { method: "POST", body: JSON.stringify({ force: true }) }), { params: { id: "invoice" } });
+ expect(response.status).toBe(200); expect(m.push).not.toHaveBeenCalled(); expect(m.update).not.toHaveBeenCalled();
+});
+it("never exports a void invoice", async () => {
+ invoice.status = "VOID"; expect((await request()).status).toBe(409); expect(m.push).not.toHaveBeenCalled();
+});
+it('blocks unresolved started-work export before provider reservation',async()=>{invoice.metadata={startedWorkReview:{version:1,required:true,periodStart:'2026-10-01',periodEnd:'2026-10-15',jobs:[]}};expect((await request()).status).toBe(400);expect(m.update).not.toHaveBeenCalled();expect(m.push).not.toHaveBeenCalled();});

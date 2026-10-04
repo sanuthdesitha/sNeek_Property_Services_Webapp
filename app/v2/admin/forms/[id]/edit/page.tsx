@@ -10,7 +10,7 @@ export const metadata = { title: "Edit form template · Estate admin" };
 export const dynamic = "force-dynamic";
 
 export default async function EstateFormEditPage({ params }: { params: { id: string } }) {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  await requireRole([Role.ADMIN]);
 
   const template = await db.formTemplate.findUnique({
     where: { id: params.id },

@@ -17,9 +17,12 @@ import { getJobReference } from "@/lib/jobs/job-number";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
-import { syncAdminJobTasks } from "@/lib/job-tasks/service";
+import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
+import { syncAdminJobTasks, notifyJobTasksAdded } from "@/lib/job-tasks/service";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { isRestartTransition, startArtifactResetFields } from "@/lib/jobs/job-reset";
+
+import { assertJobCanBeDeleted, JOB_DELETE_FINANCIAL_CONFLICT } from "@/lib/jobs/delete-financial-guard";
 
 const CONTINUATION_KEY = "job_continuation_requests_v1";
 const FINISHED_JOB_STATUSES = new Set<JobStatus>([
@@ -158,9 +161,9 @@ export async function PATCH(
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const parsed = updateJobSchema
-      .extend({ confirmCompletedReset: z.boolean().optional() })
+      .extend({ confirmCompletedReset: z.boolean().optional(), expectedUpdatedAt: z.string().datetime().optional(), cancelTaskIds: z.array(z.string().min(1)).max(200).optional() })
       .parse(await req.json());
-    const { confirmCompletedReset, ...body } = parsed;
+    const { confirmCompletedReset, expectedUpdatedAt, cancelTaskIds, ...body } = parsed;
     const current = await db.job.findUnique({
       where: { id: params.id },
       select: {
@@ -174,6 +177,7 @@ export async function PATCH(
         dueTime: true,
         scheduledDate: true,
         completedAt: true,
+        updatedAt: true,
         property: { select: { name: true, suburb: true, clientId: true } },
         assignments: {
           where: { removedAt: null },
@@ -185,6 +189,9 @@ export async function PATCH(
     });
     if (!current) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    }
+    if (expectedUpdatedAt && new Date(expectedUpdatedAt).getTime() !== current.updatedAt.getTime()) {
+      return NextResponse.json({ error: "This job changed. Reload before saving." }, { status: 409 });
     }
     if (
       body.status === JobStatus.UNASSIGNED &&
@@ -265,6 +272,7 @@ export async function PATCH(
             id: task.id?.trim() || `admin-task-${index + 1}`,
             title: task.title.trim(),
             description: task.description?.trim() || undefined,
+            allowNotApplicable: task.allowNotApplicable === true,
             requiresPhoto: task.requiresPhoto === true,
             requiresNote: task.requiresNote === true,
           })) ?? currentMeta.specialRequestTasks,
@@ -277,7 +285,8 @@ export async function PATCH(
       });
     }
     const shouldApplyTiming =
-      hasMetaFields || body.startTime !== undefined || body.dueTime !== undefined;
+      body.earlyCheckin !== undefined || body.lateCheckout !== undefined ||
+      body.startTime !== undefined || body.dueTime !== undefined;
     if (shouldApplyTiming) {
       const timing = applyJobTimingRules({
         startTime: body.startTime ?? current.startTime,
@@ -285,13 +294,18 @@ export async function PATCH(
         earlyCheckin: nextEarlyCheckin,
         lateCheckout: nextLateCheckout,
       });
+      if (timing.hadConflict) {
+        return NextResponse.json({ error: "Finish time cannot be before start time. Adjust the turnaround rules." }, { status: 400 });
+      }
       const priority = classifyPriorityFromTimingRule(nextEarlyCheckin);
       data.startTime = timing.startTime ?? null;
       data.dueTime = timing.dueTime ?? null;
-      data.priorityBucket = priority.priorityBucket;
-      data.priorityReason = priority.priorityReason;
-      data.sameDayCheckin = priority.sameDayCheckin;
-      data.sameDayCheckinTime = priority.sameDayCheckinTime;
+      if (body.earlyCheckin !== undefined) {
+        data.priorityBucket = priority.priorityBucket;
+        data.priorityReason = priority.priorityReason;
+        data.sameDayCheckin = priority.sameDayCheckin;
+        data.sameDayCheckinTime = priority.sameDayCheckinTime;
+      }
     }
     // ── Restart transition ────────────────────────────────────────────────────
     // Moving a started (or finished) job back to a pre-start status makes it
@@ -306,6 +320,7 @@ export async function PATCH(
       Object.assign(data, startArtifactResetFields());
     }
 
+    delete data.includeTaskPhotosInReport;
     delete data.isDraft;
     delete data.tags;
     delete data.attachments;
@@ -320,23 +335,46 @@ export async function PATCH(
     delete data.serviceContext;
     delete data.reservationContext;
 
-    let job;
-    if (body.status === JobStatus.UNASSIGNED) {
-      job = await db.$transaction(async (tx) => {
+    // A conditional update locks the job revision before reconciling tasks.
+    // Job, task and audit writes commit together; notifications run afterwards.
+    const committed = await db.$transaction(async (tx) => {
+      const changed = await tx.job.updateMany({
+        where: { id: params.id, updatedAt: current.updatedAt },
+        data,
+      });
+      if (changed.count !== 1) throw new Error("JOB_EDIT_CONFLICT");
+      if (body.status === JobStatus.UNASSIGNED) {
         await tx.jobAssignment.updateMany({
           where: { jobId: params.id, removedAt: null },
           data: { removedAt: new Date(), isPrimary: false },
         });
-        return tx.job.update({
-          where: { id: params.id },
-          data,
+      }
+      const tasks = body.specialRequestTasks !== undefined || cancelTaskIds?.length
+        ? await syncAdminJobTasks({ jobId: current.id, propertyId: current.propertyId,
+            clientId: current.property?.clientId ?? null, actorUserId: session.user.id,
+            tasks: body.specialRequestTasks ?? [], cancelTaskIds, database: tx })
+        : { addedTitles: [], canonicalTasks: [] };
+      if (body.specialRequestTasks !== undefined) {
+        data.internalNotes = serializeJobInternalNotes({
+          ...parseJobInternalNotes(String(data.internalNotes ?? current.internalNotes ?? "")),
+          specialRequestTasks: tasks.canonicalTasks.map((task) => ({
+            id: task.id!, title: task.title, description: task.description ?? undefined,
+            allowNotApplicable: task.allowNotApplicable === true,
+            requiresPhoto: task.requiresPhoto === true, requiresNote: task.requiresNote === true,
+          })),
         });
-      });
-    } else {
-      job = await db.job.update({
-        where: { id: params.id },
-        data,
-      });
+        await tx.job.update({ where: { id: params.id }, data: { internalNotes: data.internalNotes as string } });
+      }
+      await tx.auditLog.create({ data: { userId: session.user.id, jobId: params.id,
+        action: "UPDATE_JOB", entity: "Job", entityId: params.id,
+        after: { ...data, ...(cancelTaskIds?.length ? { cancelledTaskIds: cancelTaskIds } : {}), ...(restartTransition ? { restartTransition: { from: current.status, to: body.status, clearedStartArtifacts: true } } : {}) } as any } });
+      if (body.status === JobStatus.COMPLETED) await applyJobRotationCompletion(tx, { jobId: current.id, propertyId: current.propertyId });
+      const job = await tx.job.findUniqueOrThrow({ where: { id: params.id } });
+      return { job, addedTitles: tasks.addedTitles };
+    });
+    const job = committed.job;
+    if (committed.addedTitles.length) {
+      await notifyJobTasksAdded(job.id, committed.addedTitles).catch(() => {});
     }
 
     const refreshed = await db.job.findUnique({
@@ -355,32 +393,7 @@ export async function PATCH(
       },
     });
 
-    await db.auditLog.create({
-      data: {
-        userId: session.user.id,
-        jobId: params.id,
-        action: "UPDATE_JOB",
-        entity: "Job",
-        entityId: params.id,
-        after: {
-          ...data,
-          ...(restartTransition
-            ? { restartTransition: { from: current.status, to: body.status, clearedStartArtifacts: true } }
-            : {}),
-        } as any,
-      },
-    });
-
-    if (body.specialRequestTasks !== undefined && refreshed) {
-      await syncAdminJobTasks({
-        jobId: refreshed.id,
-        propertyId: refreshed.propertyId,
-        clientId: refreshed.property?.clientId ?? null,
-        actorUserId: session.user.id,
-        tasks: body.specialRequestTasks,
-      });
-    }
-
+    try {
     if (refreshed) {
       const previousMeta = parseJobInternalNotes(current.internalNotes);
       const nextMeta = parseJobInternalNotes(refreshed.internalNotes);
@@ -503,26 +516,26 @@ export async function PATCH(
       }
     }
 
+    } catch {
+      // The edit is committed. Delivery failure must not invite a duplicate retry.
+      console.error("[job-update] notification delivery failed after commit");
+    }
     return NextResponse.json(job);
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    const status = err.message === "JOB_EDIT_CONFLICT" ? 409 : err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: getValidationErrorMessage(err, "Could not update job.") }, { status });
   }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN]);
     const body = await req.json().catch(() => ({}));
     await verifySensitiveAction(session.user.id, body?.security);
     const jobId = params.id;
 
-    const existing = await db.job.findUnique({ where: { id: jobId }, select: { id: true } });
-    if (!existing) {
-      return NextResponse.json({ error: "Job not found" }, { status: 404 });
-    }
-
     await db.$transaction(async (tx) => {
+      await assertJobCanBeDeleted(tx, jobId);
       await tx.stockTx.deleteMany({ where: { submission: { jobId } } });
       await tx.submissionMedia.deleteMany({ where: { submission: { jobId } } });
       await tx.formSubmission.deleteMany({ where: { jobId } });
@@ -545,21 +558,24 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       await tx.laundryTask.deleteMany({ where: { jobId } });
       await tx.auditLog.deleteMany({ where: { jobId } });
       await tx.job.delete({ where: { id: jobId } });
-    });
-
-    await db.auditLog.create({
-      data: {
-        userId: session.user.id,
-        action: "DELETE_JOB",
-        entity: "Job",
-        entityId: jobId,
-      },
+      await tx.auditLog.create({
+        data: {
+          userId: session.user.id,
+          action: "DELETE_JOB",
+          entity: "Job",
+          entityId: jobId,
+        },
+      });
     });
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     const status =
-      err.message === "UNAUTHORIZED"
+      err.message === JOB_DELETE_FINANCIAL_CONFLICT
+        ? 409
+        : err.message === "JOB_NOT_FOUND"
+          ? 404
+          : err.message === "UNAUTHORIZED"
         ? 401
         : err.message === "FORBIDDEN"
           ? 403

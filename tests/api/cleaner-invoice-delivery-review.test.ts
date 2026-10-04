@@ -1,0 +1,23 @@
+// @vitest-environment node
+import { beforeEach, expect, it, vi } from "vitest";
+const m = vi.hoisted(() => ({ find: vi.fn(), update: vi.fn(), audit: vi.fn(), release: vi.fn(), role: vi.fn() }));
+vi.mock("@/lib/auth/session", () => ({ requireRole: m.role }));
+vi.mock("@/lib/cleaner/invoice-release", () => ({ releaseCleanerInvoiceConsumables: m.release }));
+vi.mock("@/lib/db", () => ({ db: { cleanerInvoiceSubmission: { findUnique: m.find }, $transaction: async (fn: any) => fn({ $executeRaw: vi.fn(), $queryRaw: vi.fn(), cleanerInvoiceSubmission: { findUnique: m.find, update: m.update }, auditLog: { create: m.audit } }) } }));
+import { POST } from "@/app/api/admin/cleaner-invoices/[id]/delivery-review/route";
+let invoice: any;
+const request = (resolution = "CONFIRMED_SENT", evidenceNote = "Accounts confirmed receipt of this invoice.") => POST(new Request("http://local/review", { method: "POST", body: JSON.stringify({ resolution, evidenceNote }) }) as any, { params: { id: "invoice" } });
+beforeEach(() => { vi.resetAllMocks(); invoice = { id: "invoice", cleanerId: "cleaner", status: "SENDING", createdAt: new Date(), lineData: { jobIds: ["job"], delivery: "REVIEW_REQUIRED" } }; m.find.mockImplementation(async () => ({ ...invoice })); m.role.mockResolvedValue({ user: { id: "admin" } }); });
+it("confirmed delivery retains claims and records evidence without sending", async () => { expect((await request()).status).toBe(200); expect(m.update.mock.calls[0][0].data).toMatchObject({ status: "SUBMITTED", lineData: { deliveryEvidenceNote: expect.any(String), jobIds: ["job"] } }); expect(m.release).not.toHaveBeenCalled(); expect(m.audit).toHaveBeenCalledOnce(); });
+it("confirmed nondelivery releases and voids in the same transaction", async () => { expect((await request("CONFIRMED_NOT_SENT")).status).toBe(200); expect(m.release).toHaveBeenCalledOnce(); expect(m.update.mock.calls[0][0].data.status).toBe("VOID"); });
+it("refuses evidence-free decisions", async () => { expect((await request("CONFIRMED_NOT_SENT", "guess")).status).toBe(409); expect(m.update).not.toHaveBeenCalled(); });
+it("does not interrupt an active delivery attempt", async () => { invoice.lineData.delivery = "PENDING"; expect((await request()).status).toBe(409); expect(m.update).not.toHaveBeenCalled(); });
+it("permits explicit evidence review of an abandoned attempt after ten minutes", async () => { invoice.lineData.delivery = "PENDING"; invoice.createdAt = new Date(Date.now() - 11 * 60_000); expect((await request()).status).toBe(200); });
+it.each(["SUBMITTED", "PAID", "VOID", "XERO_EXPORTING"])("cannot release %s work", async status => { invoice.status = status; expect((await request("CONFIRMED_NOT_SENT")).status).toBe(409); expect(m.release).not.toHaveBeenCalled(); });
+it("rechecks changed state inside transaction", async () => { m.find.mockResolvedValueOnce({ cleanerId: "cleaner" }).mockResolvedValueOnce({ ...invoice, paidAt: new Date() }); expect((await request("CONFIRMED_NOT_SENT")).status).toBe(409); expect(m.release).not.toHaveBeenCalled(); });
+it.each([['UNAUTHORIZED',401],['FORBIDDEN',403]])('refuses %s reviewers', async (message,status) => { m.role.mockRejectedValue(new Error(String(message))); expect((await request()).status).toBe(status); expect(m.update).not.toHaveBeenCalled(); });
+it('handles unexpected non-Error rejection safely', async () => {m.role.mockRejectedValue(null); expect(await (await request()).json()).toEqual({error:'Delivery review failed.'});});
+it('returns missing invoice before locking',async()=>{m.find.mockResolvedValue(null);expect((await request()).status).toBe(404);});
+it('rejects disappearance under lock',async()=>{m.find.mockResolvedValueOnce(invoice).mockResolvedValueOnce(null);expect((await request()).status).toBe(409);});
+it.each([{xeroBillId:'bill'},{paidAmount:0}])('retains claims when money evidence exists %j',async fields=>{Object.assign(invoice,fields);expect((await request('CONFIRMED_NOT_SENT')).status).toBe(409);expect(m.release).not.toHaveBeenCalled();});
+it.each([null,[], 'legacy'])('reviews abandoned legacy snapshot %j without spreading invalid content',async snapshot=>{invoice.lineData=snapshot;invoice.createdAt=new Date(0);expect((await request()).status).toBe(200);expect(m.update.mock.calls[0][0].data.lineData.delivery).toBe('CONFIRMED_SENT');});

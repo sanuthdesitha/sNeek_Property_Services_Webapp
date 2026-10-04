@@ -1,3 +1,4 @@
+import { withReportGeneration } from "./generation-lease";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
@@ -267,7 +268,7 @@ function buildAdminRequestedTasksHtml(submission: any): { html: string; usedMedi
   };
 }
 
-function buildUnifiedJobTasksHtml(
+export function buildUnifiedJobTasksHtml(
   submission: any,
   includePhotos: boolean
 ): { html: string; usedMediaIds: Set<string> } {
@@ -301,7 +302,7 @@ function buildUnifiedJobTasksHtml(
           ? "Not completed"
           : decision === "COMPLETED"
             ? "Completed"
-            : decision.replace(/_/g, " ");
+            : decision === "NOT_APPLICABLE" ? "Not applicable" : decision.replace(/_/g, " ");
       return `
         <tr>
           <td style="padding:10px;border-bottom:1px solid #bfdbfe;vertical-align:top;">
@@ -318,13 +319,13 @@ function buildUnifiedJobTasksHtml(
           </td>
           <td style="padding:10px;border-bottom:1px solid #bfdbfe;vertical-align:top;">
             <span style="display:inline-block;padding:4px 10px;border-radius:9999px;background:${
-              decision === "NOT_COMPLETED" ? "#fee2e2" : "#dcfce7"
-            };color:${decision === "NOT_COMPLETED" ? "#991b1b" : "#166534"};font-size:12px;font-weight:600;">
+              decision === "NOT_COMPLETED" ? "#fee2e2" : decision === "COMPLETED" ? "#dcfce7" : "#f1f5f9"
+            };color:${decision === "NOT_COMPLETED" ? "#991b1b" : decision === "COMPLETED" ? "#166534" : "#475569"};font-size:12px;font-weight:600;">
               ${escapeHtml(decisionLabel)}
             </span>
             ${
               note
-                ? `<div style="margin-top:8px;font-size:12px;color:#111827;"><strong>${decision === "NOT_COMPLETED" ? "Reason" : "Cleaner note"}:</strong> ${escapeHtml(note)}</div>`
+                ? `<div style="margin-top:8px;font-size:12px;color:#111827;"><strong>${(decision === "NOT_COMPLETED" || decision === "NOT_APPLICABLE") ? "Reason" : "Cleaner note"}:</strong> ${escapeHtml(note)}</div>`
                 : ""
             }
           </td>
@@ -531,6 +532,7 @@ function buildQaSummaryHtml(
 
 /** Generate and store a job report HTML + PDF. */
 export async function generateJobReport(jobId: string, themeId?: string | null): Promise<void> {
+  return withReportGeneration(jobId, async ({ storageId, publish }) => {
   const job = await db.job.findUnique({
     where: { id: jobId },
     include: {
@@ -605,7 +607,7 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
 
   const html = buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme, verification });
 
-  const htmlKey = `reports/${jobId}/report.html`;
+  const htmlKey = `reports/${jobId}/${storageId}/report.html`;
   let storedHtmlKey: string | null = null;
   if (s3Enabled) {
     try {
@@ -630,7 +632,7 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
     const pdfBuffer = await renderPdfFromHtml(html, "job report PDF generation");
 
     if (s3Enabled) {
-      const pdfKey = `reports/${jobId}/report.pdf`;
+      const pdfKey = `reports/${jobId}/${storageId}/report.pdf`;
       await s3
         .putObject({
           Bucket: process.env.S3_BUCKET_NAME!,
@@ -646,7 +648,8 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
     logger.error({ err, jobId }, "PDF generation failed; storing HTML only");
   }
 
-  await db.report.upsert({
+  await publish(job.updatedAt, async tx => {
+  await tx.report.upsert({
     where: { jobId },
     create: {
       jobId,
@@ -664,7 +667,9 @@ export async function generateJobReport(jobId: string, themeId?: string | null):
     },
   });
 
+  });
   logger.info({ jobId, pdfUrl }, "Job report generated");
+  });
 }
 
 function buildReportHtml({ job, submission, qa, qaSubmission, localDate, settings, theme, verification }: any): string {
