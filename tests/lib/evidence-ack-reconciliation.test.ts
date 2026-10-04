@@ -65,10 +65,10 @@ it("fetches server evidence only after taking the capture lock and repairs ackno
 });
 it("never revives a removal completed before the nonblocking capture lock was acquired",async()=>{
   Object.defineProperty(navigator,"locks",{configurable:true,value:{request:async(_key:string,_options:any,fn:any)=>{record.status="detached";return fn({})}}});
-  const result=await checkSubmissionEvidence(scope);expect(result.reconciled).toEqual([]);expect(record.status).toBe("detached");expect(fetcher).not.toHaveBeenCalled();
+  const result=await checkSubmissionEvidence(scope);expect(result.reconciled).toEqual([]);expect(record.status).toBe("detached");expect(fetcher).toHaveBeenCalledOnce();
 });it("does not turn unavailable device backup into a submission blocker after authorized server verification",async()=>{
   m.list.mockRejectedValue(new Error("Device storage denied"));const result=await checkSubmissionEvidence(scope);
-  expect(result).toEqual({records:[],reconciled:[],activeCaptureIds:[]});expect(fetcher).toHaveBeenCalledOnce();expect(m.put).not.toHaveBeenCalled();
+  expect(result.records).toEqual([]);expect(result.activeCaptureIds).toEqual([]);expect(result.reconciled).toHaveLength(1);expect(projectReconciledEvidence({uploads:{}},result.reconciled,scope).state.uploads.photo[0].key).toBe(media.key);expect(fetcher).toHaveBeenCalledOnce();expect(m.put).not.toHaveBeenCalled();
 });
 it("still rejects an unauthorized server check when device backup cannot be read",async()=>{
   m.list.mockRejectedValue(new Error("Device storage denied"));fetcher.mockResolvedValue(new Response(JSON.stringify({error:"Not assigned"}),{status:403}));await expect(checkSubmissionEvidence(scope)).rejects.toThrow("Not assigned");
@@ -90,4 +90,52 @@ it("keeps fresh per-lock reads for compatibility recovery that can wait",async()
   const other={...record,id:"other",receipt:{...media,key:"forms/job/other/cleaner/photo.jpg"} as any};const rows=[record,other];
   m.list.mockResolvedValue(rows);m.get.mockImplementation(async(id:string)=>rows.find(row=>row.id===id));m.put.mockResolvedValue(undefined);
   await reconcileEvidenceAcknowledgementsWithChanges(scope);expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+it("restores a confirmed upload after single-tab autosave and journal loss, then submits without the evidence conflict", async () => {
+  const { reconcileEvidenceState, evidenceSubmissionChanged } = await import("@/lib/cleaner/evidence-destination");
+  // Attachment POST was durable; an older local autosave/rehydration omitted its callback.
+  draft.state = reconcileEvidenceState({ answers: { note: "Keep notes" }, uploads: {} }, draft.state, draft.evidenceReceipts);
+  m.list.mockResolvedValue([]);
+  const current = { answers: { note: "Keep notes" }, uploads: {} };
+  const checked = await checkSubmissionEvidence(scope);
+  const repaired = projectReconciledEvidence(current, checked.reconciled, scope);
+  const keys = Object.fromEntries(Object.entries(repaired.state.uploads).map(([field, rows]: [string, any]) => [field, rows.map((row: any) => row.key)]));
+  expect(evidenceSubmissionChanged(draft.evidenceReceipts, keys, [], {})).toBe(false);
+  expect(repaired.changed).toBe(true);
+  expect(repaired.state.answers).toEqual(current.answers);
+  expect(projectReconciledEvidence(repaired.state, (await checkSubmissionEvidence(scope)).reconciled, scope).changed).toBe(false);
+});
+
+it.each([{type:"formField",fieldId:"photo"},{type:"jobTask",taskId:"task"},{type:"laundry"},{type:"carryForwardNew"},{type:"bulkPool"}])("restores server-only shared-job evidence at $type without creating device records", async destination => {
+  const {setDestinationMedia,destinationMedia}=await import("@/lib/cleaner/evidence-destination");
+  m.list.mockResolvedValue([]);
+  draft.evidenceReceipts.capture={...draft.evidenceReceipts.capture,draftIdentity:"assigned-co-cleaner",destination};
+  draft.state=setDestinationMedia({},destination as any,[media]);
+  const current={answers:{note:"Keep"},signature:{url:"existing-signature"},taskDrafts:{task:{decision:"DONE",note:"Keep task"}},laundry:{outcome:"READY_FOR_PICKUP"},carryForward:{newTaskNotes:"Keep issue"}};
+  const result=projectReconciledEvidence(current,(await checkSubmissionEvidence(scope)).reconciled,scope);
+  expect(destinationMedia(result.state,destination as any)).toEqual([media]);
+  expect(result.state.signature).toBe(current.signature);expect(result.state.answers).toBe(current.answers);
+  expect(result.state.taskDrafts.task.note).toBe("Keep task");expect(result.state.laundry.outcome).toBe("READY_FOR_PICKUP");expect(result.state.carryForward.newTaskNotes).toBe("Keep issue");
+  expect(m.put).not.toHaveBeenCalled();
+});
+it("keeps the final conflict check effective for another tab's move, then repairs on retry",async()=>{
+  const {evidenceSubmissionChanged}=await import("@/lib/cleaner/evidence-destination");
+  m.list.mockResolvedValue([]);
+  const ready=projectReconciledEvidence({uploads:{}},(await checkSubmissionEvidence(scope)).reconciled,scope).state;
+  draft.evidenceReceipts.capture={...draft.evidenceReceipts.capture,destination:{type:"formField",fieldId:"bedroom"},fieldId:"bedroom",version:1};draft.state.uploads={bedroom:[media]};
+  expect(evidenceSubmissionChanged(draft.evidenceReceipts,{photo:ready.uploads.photo.map((row:any)=>row.key)},[],{})).toBe(true);
+  const retry=projectReconciledEvidence(ready,(await checkSubmissionEvidence(scope)).reconciled,scope);
+  expect(retry.changed).toBe(true);expect(retry.state.uploads.photo).toEqual([]);expect(retry.state.uploads.bedroom).toEqual([media]);
+  expect(evidenceSubmissionChanged(draft.evidenceReceipts,{photo:[],bedroom:[media.key]},[],{})).toBe(false);
+  expect(projectReconciledEvidence(retry.state,(await checkSubmissionEvidence(scope)).reconciled,scope).changed).toBe(false);
+});
+it("restores server-confirmed removal after refresh without restoring the removed photo",async()=>{
+  m.list.mockResolvedValue([]);draft.evidenceReceipts.capture.detached=true;draft.state.uploads={};
+  const result=projectReconciledEvidence({uploads:{photo:[media]}},(await checkSubmissionEvidence(scope)).reconciled,scope);
+  expect(result.state.uploads.photo).toEqual([]);expect(result.changed).toBe(true);expect(m.put).not.toHaveBeenCalled();
+});
+it("fails closed on unauthorized reads even with an empty local journal",async()=>{
+  m.list.mockResolvedValue([]);fetcher.mockResolvedValue(new Response(JSON.stringify({error:"Not assigned"}),{status:403}));
+  await expect(checkSubmissionEvidence(scope)).rejects.toThrow("Not assigned");expect(m.put).not.toHaveBeenCalled();
 });

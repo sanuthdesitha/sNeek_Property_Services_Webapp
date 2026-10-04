@@ -164,13 +164,12 @@ export async function processEvidence(record: EvidenceRecord, scope: EvidenceSco
 }
 
 /** Repair a lost device ACK only from the authorized server receipt and its saved media. */
-async function reconcileEvidence(scope: EvidenceScope, nonblocking: boolean): Promise<{ records: EvidenceRecord[]; reconciled: EvidenceRecord[]; activeCaptureIds: string[] }> {
+async function reconcileEvidence(scope: EvidenceScope, nonblocking: boolean, onServerDraft?: (draft: any) => void): Promise<{ records: EvidenceRecord[]; reconciled: EvidenceRecord[]; activeCaptureIds: string[] }> {
   // Nonblocking checks run behind the job gate: read once, only after a capture
   // lock is available. Blocking recovery must refresh after each potential wait.
   let draftPromise: ReturnType<typeof readServerEvidenceDraft> | undefined;
-  const readDraft = () => nonblocking
-    ? (draftPromise ??= readServerEvidenceDraft(scope))
-    : readServerEvidenceDraft(scope);
+  const fetchDraft = () => readServerEvidenceDraft(scope).then(draft => { onServerDraft?.(draft); return draft; });
+  const readDraft = () => nonblocking ? (draftPromise ??= fetchDraft()) : fetchDraft();
   let records: EvidenceRecord[];
   try { records = await listEvidence(); }
   catch (error) {
@@ -228,7 +227,8 @@ export async function reconcileEvidenceAcknowledgements(scope: EvidenceScope): P
 }
 
 /** Project only records confirmed by this server reconciliation, never all cached attachments. */
-export function projectReconciledEvidence(state: Record<string, any>, reconciled: EvidenceRecord[], scope: EvidenceScope): { state: Record<string, any>; changed: boolean } {
+type EvidenceProjection = EvidenceScope & Pick<EvidenceRecord, "id" | "fieldId" | "status" | "destination" | "receipt" | "allocation">;
+export function projectReconciledEvidence(state: Record<string, any>, reconciled: EvidenceProjection[], scope: EvidenceScope): { state: Record<string, any>; changed: boolean } {
   let next = state;
   for (const record of reconciled) {
     if (!sameEvidenceScope(record, scope) || !["attached", "detached"].includes(record.status)) continue;
@@ -270,7 +270,35 @@ export async function withEvidenceSubmissionLock<T>(scope: EvidenceScope, callba
   });
 }
 /** Failed or abandoned records are retained; only a live capture lock blocks. */
-export function checkSubmissionEvidence(scope: EvidenceScope) { return reconcileEvidence(scope, true); }
+export async function checkSubmissionEvidence(scope: EvidenceScope) {
+  let serverDraft: any; let serverChecked = false;
+  const result = await reconcileEvidence(scope, true, draft => { serverDraft = draft; serverChecked = true; });
+  if (result.activeCaptureIds.length) return result;
+  // The authorized job draft owns acknowledged attachments, not this device's
+  // IndexedDB journal. A lost journal or stale autosave must not strand a photo
+  // behind EVIDENCE_CHANGED forever. Reuse the fresh read taken under a capture
+  // lock when available; otherwise the caller still holds the job submit lock.
+  if (!serverChecked) serverDraft = await readServerEvidenceDraft(scope);
+  const reconciled = new Map<string, EvidenceProjection>(result.reconciled.map(record => [record.id, record]));
+  const detachedLocally = new Set(result.records.filter(record => sameEvidenceScope(record, scope) && record.status === "detached").map(record => record.id));
+  for (const [id, raw] of Object.entries(serverDraft?.evidenceReceipts ?? {})) {
+    const saved = raw as any;
+    if (!saved || typeof saved.key !== "string" || typeof saved.fieldId !== "string" || detachedLocally.has(id)) continue;
+    const destination = evidenceDestinationSchema.safeParse(saved.destination ?? { type: "formField", fieldId: saved.fieldId });
+    if (!destination.success) continue;
+    if (saved.detached === true) {
+      reconciled.set(id, { ...scope, id, fieldId: saved.fieldId, destination: destination.data, status: "detached", allocation: { key: saved.key, uploadId: "server-confirmed-removal" } });
+      continue;
+    }
+    if (saved.detached !== undefined && saved.detached !== false) continue;
+    const media = destinationMedia(serverDraft.state ?? {}, destination.data).find(item => item?.key === saved.key);
+    if (!media || !["image", "video", "file"].includes(media.kind) || typeof media.url !== "string" ||
+      !(media.url.startsWith("/") && !media.url.startsWith("//") || /^https?:\/\//i.test(media.url))) continue;
+    // Projection only: do not fabricate a local capture/blob or change authorship.
+    reconciled.set(id, { ...scope, id, fieldId: saved.fieldId, destination: destination.data, status: "attached", receipt: { key: media.key, url: media.url, kind: media.kind, name: media.name } });
+  }
+  return { ...result, reconciled: Array.from(reconciled.values()) };
+}
 export async function reconcileEvidenceAcknowledgementsWithChanges(scope: EvidenceScope): Promise<{ records: EvidenceRecord[]; reconciled: EvidenceRecord[] }> {
   const {records,reconciled} = await reconcileEvidence(scope, false); return {records,reconciled};
 }
