@@ -1,3 +1,4 @@
+import { captureOperationsLayout } from "./operations-layout";
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -35,6 +36,7 @@ test("retains Admin and Cleaner tabs, isolates real session/role requests, and r
   const manager = await context.newPage();
   await manager.goto(`${origin}/accounts`);
   await expect(manager.getByLabel("Email", { exact: true })).toHaveValue(`${owner}@example.invalid`);
+  await captureOperationsLayout(manager,"account-enrollment");
   await manager.getByLabel("Password", { exact: true }).fill(password);
   await manager.getByRole("button", { name: "Verify account", exact: true }).click();
   await expect(manager.getByText("Verify your other account")).toBeVisible();
@@ -47,6 +49,7 @@ test("retains Admin and Cleaner tabs, isolates real session/role requests, and r
   const cleanerLink = manager.getByRole("link", { name: "Open Cleaner", exact: true });
   await expect(adminLink).toBeVisible(); await expect(cleanerLink).toBeVisible();
   const adminPath = (await adminLink.getAttribute("href"))!, cleanerPath = (await cleanerLink.getAttribute("href"))!;
+  await captureOperationsLayout(manager,"account-linked");
   await manager.screenshot({ path: "/tmp/sneek-retained-account-manager.png", fullPage: true });
   const adminTab = await context.newPage(), cleanerTab = await context.newPage();
   const direct = await context.request.get(`${origin}/api/auth/retained/validate?context=${cleanerPath.split("/")[2]}`);

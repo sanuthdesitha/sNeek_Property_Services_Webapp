@@ -12,8 +12,9 @@
  */
 import * as React from "react";
 import { stayNights } from "@/lib/inventory/stay-preparation-policy";
-import { Users, CalendarClock, User, Hash, BedDouble } from "lucide-react";
+import { Users, CalendarClock, User, Hash, BedDouble, ChevronDown } from "lucide-react";
 import { ECard, ECardBody, EBadge } from "@/components/v2/ui/primitives";
+import { StayPreparationPanel } from "@/components/inventory/stay-preparation-panel";
 import type { JobReservationContext } from "@/lib/jobs/meta";
 
 export function BookingCard({
@@ -21,6 +22,7 @@ export function BookingCard({
   sofaBedCount,
   checkoutTime,
   checkinTime,
+  preparation,
 }: {
   reservation: JobReservationContext | null | undefined;
   sofaBedCount?: number | null;
@@ -28,8 +30,13 @@ export function BookingCard({
   checkoutTime?: string | null;
   /** Property default check-in (guests arrive — the hard deadline). */
   checkinTime?: string | null;
+  preparation?: { propertyId: string; jobId: string; refreshToken?: string };
 }) {
-  if (!reservation || Object.keys(reservation).length === 0) return null;
+  const [preparationOpen, setPreparationOpen] = React.useState(false);
+  const preparationId = React.useId();
+  const showPreparationError = React.useCallback(() => setPreparationOpen(true), []);
+  if ((!reservation || Object.keys(reservation).length === 0) && !preparation) return null;
+  reservation = reservation ?? {};
 
   const guests = reservation.preparationGuestCount;
   const fromPropertyMax = reservation.preparationSource === "PROPERTY_MAX";
@@ -62,7 +69,7 @@ export function BookingCard({
         </div>
 
         {guests != null ? (
-          <div className="flex items-baseline gap-2">
+          <div className="flex flex-wrap items-baseline gap-2">
             <Users className="h-5 w-5 self-center text-[hsl(var(--e-gold))]" />
             <span className="text-[0.9375rem] font-[550]">Prepare for</span>
             <span className="text-[1.75rem] font-[650] leading-none tabular-nums">{guests}</span>
@@ -73,9 +80,9 @@ export function BookingCard({
               </EBadge>
             ) : null}
           </div>
-        ) : null}
+        ) : <p className="font-medium">Guest count unknown — confirm with the office.</p>}
 
-        <p>Incoming stay: {stayNights(reservation) === null ? "Unknown nights" : `${stayNights(reservation)} nights (iCal dates)`}</p>
+        {!preparation ? <p>Incoming stay: {stayNights(reservation) === null ? "Unknown nights" : `${stayNights(reservation)} nights (iCal dates)`}</p> : null}
 
         {breakdown.length > 0 ? (
           <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{breakdown.join(" · ")}</p>
@@ -86,6 +93,18 @@ export function BookingCard({
             <BedDouble className="h-3.5 w-3.5 shrink-0" /> {sofaBedHint}
           </p>
         ) : null}
+
+        {preparation ? <section className="border-t border-[hsl(var(--e-border))] pt-2">
+          <button type="button" aria-expanded={preparationOpen} aria-controls={preparationId}
+            onClick={() => setPreparationOpen(open => !open)}
+            className="flex min-h-11 w-full items-center justify-between gap-3 rounded-[var(--e-radius)] px-1 py-3 text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]">
+            Incoming stay preparation
+            <ChevronDown aria-hidden className={`h-5 w-5 shrink-0 transition-transform motion-reduce:transition-none ${preparationOpen ? "rotate-180" : ""}`} />
+          </button>
+          <div id={preparationId} hidden={!preparationOpen} className="pt-3">
+            <StayPreparationPanel {...preparation} embedded onError={showPreparationError} />
+          </div>
+        </section> : null}
 
         <dl className="grid gap-1.5 border-t border-[hsl(var(--e-border))] pt-3 text-[0.8125rem]">
           {checkout || checkin ? (

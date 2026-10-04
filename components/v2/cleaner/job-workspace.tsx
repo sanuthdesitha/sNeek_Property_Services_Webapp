@@ -1,5 +1,5 @@
 "use client";
-import { StayPreparationPanel } from "@/components/inventory/stay-preparation-panel";
+import { OperationsButton } from "@/components/operations/ui";
 import { savedLaundrySignature, type SavedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
 import { parseLaundryBagCountInput } from "@/lib/laundry/bag-count";
 
@@ -1682,8 +1682,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         </EAlert>
       ) : null}
 
-      {job?.property?.inventoryEnabled && job?.propertyId ? <StayPreparationPanel key={job.id} jobId={job.id} propertyId={job.propertyId} refreshToken={job.updatedAt} /> : null}
-      {job?.laundryTask?.id ? <a className="underline" href={`/linen-bags?taskId=${encodeURIComponent(job.laundryTask.id)}`}>Record or review individual linen bags</a> : null}
+      {job?.laundryTask?.id ? <OperationsButton asChild variant="outline" className="my-2"><a href={`/linen-bags?taskId=${encodeURIComponent(job.laundryTask.id)}`}>Record or review individual linen bags</a></OperationsButton> : null}
       <StageNav api={api} />
 
       <div>

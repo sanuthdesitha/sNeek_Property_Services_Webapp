@@ -1,3 +1,4 @@
+import { captureOperationsLayout } from "./operations-layout";
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -33,9 +34,9 @@ test.afterAll(async () => {
 test("admin reviews independent rates, applies once, reverts, and cannot change invoiced work; cleaner is isolated", async ({ browser }) => {
  const context = await browser.newContext();
  await context.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
- async function login(ctx: any, id: string) { const csrf = await (await ctx.request.get(`${origin}/api/auth/csrf`)).json(); await ctx.request.post(`${origin}/api/auth/callback/credentials`, { form: { email: `${id}@example.invalid`, password, csrfToken: csrf.csrfToken, json: "true", callbackUrl: `${origin}/admin/settings/holiday-rates` } }); }
+ async function login(ctx: any, id: string) { const csrf = await (await ctx.request.get(`${origin}/api/auth/csrf`)).json(); await ctx.request.post(`${origin}/api/auth/callback/credentials`, { form: { email: `${id}@example.invalid`, password, csrfToken: csrf.csrfToken, json: "true", callbackUrl: `${origin}/v2/admin/settings/holiday-rates` } }); }
  await login(context, admin);
- const page = await context.newPage(); await page.goto(`${origin}/admin/settings/holiday-rates?jobId=${job}`);
+ const page = await context.newPage(); await page.goto(`${origin}/v2/admin/settings/holiday-rates?jobId=${job}`);
  await page.getByLabel("Reason for changes or job review").fill("Reviewed Jackson Labour Day rates");
  await page.getByRole("button", { name: "Preview holiday rates", exact: true }).click();
  await expect(page.getByText(/Client normal base/)).toContainText("$150.00");
@@ -65,5 +66,6 @@ test("admin reviews independent rates, applies once, reverts, and cannot change 
  const outsider = await browser.newContext(); await login(outsider, cleaner);
  expect((await outsider.request.get(`${origin}/api/admin/holiday-rates?jobId=${job}`)).status()).toBe(403);
  await page.screenshot({ path: "/workspace/device-checkpoint/holiday-browser.png", fullPage: true });
+ await captureOperationsLayout(page,"holiday");
  await outsider.close(); await context.close();
 });

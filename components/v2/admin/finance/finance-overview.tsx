@@ -1,4 +1,5 @@
 "use client";
+import { OperationsButton } from "@/components/operations/ui";
 
 /**
  * ESTATE finance overview — v2-native replacement for the v1
@@ -122,7 +123,7 @@ export function FinanceOverview({ data }: { data: FinanceOverviewData }) {
         />
       </div>
 
-      <a href="/turnover-profit" className="underline">Review profit for an individual turnover</a>
+      <OperationsButton asChild variant="outline" className="my-2"><a href="/turnover-profit">Review profit for an individual turnover</a></OperationsButton>
       <BreakdownList eyebrow="Trend" title="Revenue by month" rows={data.revenueByMonth} />
     </div>
   );

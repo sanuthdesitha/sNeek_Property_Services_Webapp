@@ -1,3 +1,4 @@
+import { captureOperationsLayout } from "./operations-layout";
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -39,7 +40,7 @@ test("cleaner reports unknown supply, records open stages, confirms actual count
   await page.getByRole("combobox", { name: "Item", exact: true }).selectOption(item);
   await page.getByLabel("What is needed and why?").fill("Paper needed, actual quantity unknown");
   await page.getByRole("button", { name: "Save report", exact: true }).click();
-  const card = page.locator("article"); await expect(card).toContainText("Browser paper — Reported");
+  const card = page.locator("article").filter({ has: page.getByRole("heading", { name: /Browser paper —/ }) }); await expect(card).toContainText("Browser paper — Reported");
   await expect(card).toContainText("Reported count: unknown");
   expect((await db.propertyStock.findUniqueOrThrow({ where: { propertyId_itemId: { propertyId: property, itemId: item } } })).onHand).toBe(10);
   for (const [value, label] of [["ACKNOWLEDGED", "Acknowledged"], ["ORDERED", "Order recorded"], ["DELIVERED", "Delivery recorded"]]) {
@@ -60,6 +61,7 @@ test("cleaner reports unknown supply, records open stages, confirms actual count
   expect((await db.propertyStock.findUniqueOrThrow({ where: { propertyId_itemId: { propertyId: property, itemId: item } } })).onHand).toBe(12);
   await card.getByRole("button", { name: "View history" }).click(); await expect(card.locator("li")).toHaveCount(5);
   await page.screenshot({ path: "/tmp/sneek-urgent-stock-browser.png", fullPage: true });
+ await captureOperationsLayout(page,"stock");
   await db.jobAssignment.updateMany({ where: { jobId: job }, data: { removedAt: new Date() } });
   expect((await context.request.get(`${origin}/api/inventory/urgent-stock?propertyId=${property}`)).status()).toBe(403);
   expect(await page.evaluate(async () => (await fetch("/api/inventory/urgent-stock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "settings", enabled: true, intervalHours: 1, maxReminders: 1, beforeNextCleanHours: 1 }) })).status)).toBe(403);

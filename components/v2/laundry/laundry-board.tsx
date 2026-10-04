@@ -1,4 +1,5 @@
 "use client";
+import { OperationsButton } from "@/components/operations/ui";
 
 /**
  * Estate laundry live board + tracking — the single source of truth for the v2
@@ -626,7 +627,7 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
 
   return (
     <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
-      <a className="underline" href="/linen-bags">Individual bag custody</a>
+      <OperationsButton asChild variant="outline" className="my-2"><a href="/linen-bags">Individual bag custody</a></OperationsButton>
       <div className="flex flex-wrap items-center justify-between gap-2">
         {control}
         <RefreshButton loading={loading} onClick={() => void load()} />
@@ -798,7 +799,7 @@ export function RunsBoard({ canDelete = false }: BoardRoleProps) {
 
   return (
     <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
-      <a className="underline" href="/linen-bags">Individual bag custody</a>
+      <OperationsButton asChild variant="outline" className="my-2"><a href="/linen-bags">Individual bag custody</a></OperationsButton>
       <div className="flex flex-wrap items-center justify-between gap-2">
         {control}
         <RefreshButton loading={loading} onClick={() => void load()} />
@@ -1238,7 +1239,7 @@ export function TrackingBoard({ canDelete = false }: BoardRoleProps) {
 
   return (
     <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
-      <a className="underline" href="/linen-bags">Individual bag custody</a>
+      <OperationsButton asChild variant="outline" className="my-2"><a href="/linen-bags">Individual bag custody</a></OperationsButton>
       <div className="flex flex-wrap items-center justify-between gap-2">
         {control}
         <div className="flex flex-wrap items-center justify-end gap-2">

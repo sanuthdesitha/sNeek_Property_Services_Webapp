@@ -1,3 +1,4 @@
+import { captureOperationsLayout } from "./operations-layout";
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -44,6 +45,10 @@ test.afterAll(async () => {
 test("bag custody and audited profit remain distinct from delivery and cash",async({browser})=>{
  async function login(user:string){const context=await browser.newContext();await context.route("**/*",route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());const csrf=await(await context.request.get(`${origin}/api/auth/csrf`)).json();await context.request.post(`${origin}/api/auth/callback/credentials`,{form:{email:`${user}@example.invalid`,password,csrfToken:csrf.csrfToken,json:"true",callbackUrl:`${origin}/linen-bags`}});return context;}
  const context=await login(admin);const page=await context.newPage();await page.goto(`${origin}/linen-bags?taskId=${task}`);await page.getByLabel("Physical bag ID",{exact:true}).fill("BROWSER-BAG-"+task);await page.getByLabel("Observed at (your local time)",{exact:true}).fill(new Date(Date.now()-60000).toISOString().slice(0,16));await page.getByLabel("Holder or location (write Unknown if uncertain)",{exact:true}).fill("Fixture cupboard");await page.getByLabel("Observation note / evidence reference",{exact:true}).fill("Physical label checked, contents unknown");await page.getByRole("button",{name:"Record bag observation"}).click();await expect(page.getByText("Item count: Unknown.",{exact:false})).toBeVisible();expect((await db.laundryTask.findUnique({where:{id:task}}))?.status).toBe("PENDING");await page.screenshot({path:"/workspace/final-release/bag-custody.png",fullPage:true});await page.pdf({path:"/workspace/final-release/bag-custody.pdf",format:"A4"});
+ await expect(page.getByText(/Recorded by administrator/)).toBeVisible();
+ await expect(page.getByText(/ADMIN_RECORDED/)).toHaveCount(0);
+ await captureOperationsLayout(page,"linen");
  await page.goto(`${origin}/turnover-profit?jobId=${job}`);await expect(page.getByText("Profit on documented accrual basis: Unknown")).toBeVisible();for(const key of ["CLEANER","LAUNDRY","SUPPLIES","OTHER"]){await page.getByLabel(`${key} amount`,{exact:true}).fill(key==="CLEANER"?"40":"0");await page.getByLabel(`${key} reference`,{exact:true}).fill("Fixture document review; explicit amount confirmed");}await page.getByRole("checkbox").check();await page.getByRole("button",{name:"Save audited cost review"}).click();await expect(page.getByText("Profit on documented accrual basis: $60.00")).toBeVisible();await expect(page.getByText("Cash specifically attributable to this turnover: Unknown")).toBeVisible();await page.screenshot({path:"/workspace/final-release/turnover-profit.png",fullPage:true});
+ await captureOperationsLayout(page,"profit");
  const restricted=await login(cleaner);const response=await restricted.request.get(`${origin}/api/admin/turnover-profit?jobId=${job}`);expect(response.status()).toBe(403);await restricted.close();await context.close();
 });

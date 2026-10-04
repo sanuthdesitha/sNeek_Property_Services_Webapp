@@ -1,3 +1,4 @@
+import { captureOperationsLayout } from "./operations-layout";
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -59,5 +60,8 @@ test("office captures memory, configures inspection with paid time, and keeps un
  await expect(page.getByText(/Last inspected: Unknown/)).toBeVisible();
  expect((await context.request.post(`${origin}/api/property-care`, { headers: { origin: "https://other.invalid" }, data: { action: "plan", propertyId: property } })).status()).toBe(403);
  await page.screenshot({ path: "/workspace/device-checkpoint/care-browser.png", fullPage: true });
+ await expect(page.getByText(/Inspection due: Initial inspection needed/)).toBeVisible();
+ await expect(page.getByText(/INITIAL_INSPECTION/)).toHaveCount(0);
+ await captureOperationsLayout(page,"care");
  await context.close();
 });

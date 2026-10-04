@@ -1,5 +1,10 @@
 # Design tokens — source of truth
 
+This table documents the **legacy global theme**. Estate/v2 screens use
+`app/v2/estate.css` and `components/v2/ui/primitives.tsx` instead. For operational
+features, follow [operational UI rules](operational-ui.md). Do not copy the legacy
+palette into an Estate screen.
+
 Tokens are CSS custom properties declared in `app/globals.css`. This document is the human-readable mirror. If they disagree, fix the document — the CSS is law.
 
 ## Surface and text (light)

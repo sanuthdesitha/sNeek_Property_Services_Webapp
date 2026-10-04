@@ -30,6 +30,10 @@ Live app stays on :3000; redesign preview on :3010; same DB, same login.
 
 ## Structure
 
+Operational feature screens follow [the operational UI rules](../../docs/style/operational-ui.md)
+and reuse the shared Estate primitives. Standalone operational routes outside `/v2`
+use the scoped `OperationsPage` wrapper; embedded panels keep their surrounding portal.
+
 - `estate.css` — the full Estate token sheet (light/Obsidian dark/public/per-portal accents)
 - `layout.tsx` — mounts `[data-skin="estate"]`, imports estate.css
 - `showcase/` — living style guide (the M1 review surface)

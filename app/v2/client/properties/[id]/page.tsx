@@ -1,3 +1,4 @@
+import { OperationsButton } from "@/components/operations/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
@@ -184,7 +185,7 @@ export default async function EstateClientPropertyDetailPage({
 
   return (
     <div className="space-y-8">
-      <Link className="underline" href={`/property-care?propertyId=${params.id}`}>Planned and completed property care</Link>
+      <OperationsButton asChild variant="outline" className="my-2"><Link href={`/property-care?propertyId=${params.id}`}>Planned and completed property care</Link></OperationsButton>
       <div className="space-y-4">
         <EButton asChild variant="ghost" size="sm">
           <Link href="/v2/client/properties">

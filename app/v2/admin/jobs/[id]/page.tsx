@@ -1,3 +1,4 @@
+import { OperationsButton } from "@/components/operations/ui";
 import { formatServiceDate } from "@/lib/time/service-date";
 import { PhotoReviewPanel } from "@/components/v2/qa/photo-review-panel";
 import Link from "next/link";
@@ -843,7 +844,7 @@ export default async function AdminJobDetailPage({
 
   return (
     <div className="space-y-6">
-      <a className="inline-block rounded border p-2" href={`/admin/settings/holiday-rates?jobId=${job.id}`}>Review public holiday rates</a>
+      <OperationsButton asChild variant="outline" className="my-2"><a href={`/v2/admin/settings/holiday-rates?jobId=${job.id}`}>Review public holiday rates</a></OperationsButton>
       <div className="flex items-center gap-2">
         <EButton asChild variant="ghost" size="icon"><Link href="/v2/admin/jobs" aria-label="Back to jobs board"><ArrowLeft className="h-4 w-4" /></Link></EButton>
         <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Jobs · {job.jobNumber}</span>

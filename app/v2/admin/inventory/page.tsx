@@ -1,3 +1,4 @@
+import { OperationsButton } from "@/components/operations/ui";
 import Link from "next/link";
 import { Role } from "@prisma/client";
 import {
@@ -216,7 +217,7 @@ export default async function EstateInventoryPage({
 
   return (
     <div className="space-y-6">
-      <a href="/urgent-stock" className="inline-block rounded border p-2 font-medium">Report or review urgent stock</a>
+      <OperationsButton asChild variant="outline" className="my-2"><a href="/urgent-stock">Report or review urgent stock</a></OperationsButton>
       <EPageHeader
         eyebrow="Commercial"
         title="Inventory & supplies"

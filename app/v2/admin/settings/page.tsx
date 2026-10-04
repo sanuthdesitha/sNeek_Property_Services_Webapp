@@ -1,3 +1,4 @@
+import { OperationsButton } from "@/components/operations/ui";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -146,7 +147,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
 
   return (
     <div className="space-y-6">
-      <a className="inline-block rounded border p-2" href="/admin/settings/holiday-rates">Public holiday rates</a>
+      <OperationsButton asChild variant="outline" className="my-2"><a href="/v2/admin/settings/holiday-rates">Public holiday rates</a></OperationsButton>
       <EPageHeader
         eyebrow="Configuration"
         title="Settings"

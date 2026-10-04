@@ -34,3 +34,16 @@ it("does not expose a switch for an expired retained account", async () => {
  await screen.findByText(/Expired or removed/);
  expect(screen.queryByRole("link", { name: "Open Cleaner" })).toBeNull();
 });
+
+it("shows loading before deciding whether sign-in is needed, and offers retry after a failed read", async () => {
+ let finish!: (response: Response) => void;
+ (fetch as any).mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
+ render(<AccountsPage />);
+ expect(screen.getByRole("status")).toHaveTextContent("Loading your accounts");
+ expect(screen.queryByRole("link", { name: /Sign in to link/ })).toBeNull();
+ finish(new Response(JSON.stringify({ error: "Accounts temporarily unavailable" }), { status: 503 }));
+ expect(await screen.findByRole("alert")).toHaveTextContent("Accounts temporarily unavailable");
+ fireEvent.click(screen.getByRole("button", { name: "Retry loading accounts" }));
+ expect(await screen.findByLabelText("Email")).toHaveValue("admin@example.invalid");
+ expect(screen.queryByRole("alert")).toBeNull();
+});

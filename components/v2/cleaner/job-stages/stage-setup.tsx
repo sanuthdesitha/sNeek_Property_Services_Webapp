@@ -64,6 +64,7 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
       {/* Guest count / booking details from the iCal sync — first thing the
           cleaner needs to know when setting the property up. */}
       <BookingCard
+        preparation={api.property?.inventoryEnabled && api.job?.propertyId ? { propertyId: api.job.propertyId, jobId: api.job.id, refreshToken: api.job.updatedAt } : undefined}
         reservation={api.payload?.jobMeta?.reservationContext}
         sofaBedCount={api.property?.sofaBedCount}
         checkoutTime={api.property?.defaultCheckoutTime}

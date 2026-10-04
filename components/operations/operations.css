@@ -1,0 +1,39 @@
+/* Local bridge for native forms in operational panels. No global portal overrides. */
+.ops-page { min-height: 100vh; background: hsl(var(--e-background)); color: hsl(var(--e-foreground)); }
+.ops-content { color-scheme: light; color: hsl(var(--e-foreground, var(--foreground))); font-size: .9375rem; line-height: 1.6; overflow-wrap: anywhere; }
+.ops-content > *, .ops-content form > *, .ops-content fieldset { min-width: 0; }
+.ops-content :where(p) { color: hsl(var(--e-text-secondary, var(--muted-foreground))); }
+.ops-content :where(h2, h3, legend) { color: hsl(var(--e-foreground, var(--foreground))); font-weight: 600; }
+.ops-content h2 { font-size: 1.125rem; }
+.ops-content :where(label) { display: block; font-size: .875rem; font-weight: 500; }
+.ops-content :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea), .ops-field {
+  display: block; box-sizing: border-box; width: 100%; max-width: 100%; min-height: 44px;
+  margin-top: .375rem; padding: .625rem .75rem;
+  border: 1px solid hsl(var(--e-border-strong, var(--border)));
+  border-radius: var(--e-radius, .5rem);
+  background: hsl(var(--e-surface, var(--background))); color: hsl(var(--e-foreground, var(--foreground)));
+  font: inherit; font-weight: 400; font-size: 1rem;
+}
+.ops-content :where(textarea) { min-height: 96px; resize: vertical; }
+.ops-content :where(input[type="checkbox"], input[type="radio"]) { width: 1.125rem; height: 1.125rem; margin: .25rem .4rem .25rem 0; vertical-align: middle; accent-color: hsl(var(--e-accent-portal, var(--primary))); }
+.ops-content :where(label:has(input[type="checkbox"]), label:has(input[type="radio"])) { min-height: 44px; padding-block: .5rem; }
+.ops-content :where(input, select, textarea, summary, a):focus-visible { outline: 2px solid hsl(var(--e-ring, var(--ring))); outline-offset: 3px; }
+.ops-content :where(input, select, textarea):disabled { opacity: .6; cursor: not-allowed; }
+.ops-card { padding: 1rem; border: 1px solid hsl(var(--e-border, var(--border))); border-radius: var(--e-radius-lg, .75rem); background: hsl(var(--e-surface, var(--background))); }
+.ops-content :where(details > summary) { cursor: pointer; min-height: 44px; padding-block: .5rem; font-weight: 600; }
+.ops-content :where(details[open] > summary) { margin-bottom: .75rem; }
+.ops-content :where(a:not([class*="inline-flex"])) { color: hsl(var(--e-accent-portal, var(--primary))); text-underline-offset: 3px; }
+.ops-content :where(fieldset) { border-color: hsl(var(--e-border, var(--border))); }
+.ops-content :where(article + article) { margin-top: .75rem; }
+.ops-content .ops-inset { background: hsl(var(--e-muted, var(--muted))); border-radius: var(--e-radius, .5rem); padding: 1rem; }
+.ops-table-scroll { max-width: 100%; overflow-x: auto; }
+.ops-content table { width: 100%; text-align: left; border-collapse: collapse; font-size: .875rem; }
+.ops-content :where(th, td) { padding: .75rem; border-bottom: 1px solid hsl(var(--e-border, var(--border))); vertical-align: top; }
+.ops-content th { background: hsl(var(--e-muted, var(--muted))); font-weight: 600; }
+.ops-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.ops-form-grid { display: grid; gap: 1rem; }
+@media (min-width: 640px) { .ops-card { padding: 1.5rem; } .ops-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ops-form-grid > :is(h2, h3, p, fieldset, button, div, section) { grid-column: 1 / -1; } }
+@media print { .ops-page { min-height: auto; background: white; color: black; } .ops-content { max-width: none; padding: 0; font-size: 11pt; } .ops-card { box-shadow: none; break-inside: avoid; } }
+
+/* Native date icons, menus and checkboxes follow Estate Obsidian too. */
+.dark .ops-content, [data-mode="dark"] .ops-content, .ops-content[data-mode="dark"] { color-scheme: dark; }

@@ -1,4 +1,5 @@
 "use client";
+import { OperationsButton } from "@/components/operations/ui";
 
 /**
  * ONE PERSON, MORE THAN ONE JOB — the control that changes which one.
@@ -86,11 +87,11 @@ export function RoleSwitcher() {
     }
   }
 
-  if (!state || !state.canSwitch) return <a className="mb-3 block text-sm underline" href="/accounts">Accounts</a>;
+  if (!state || !state.canSwitch) return <OperationsButton asChild variant="ghost" className="my-2 w-full justify-start text-[hsl(var(--e-sidebar-fg))] hover:bg-[hsl(var(--e-sidebar-active))] hover:text-[hsl(var(--e-sidebar-fg))]"><a href="/accounts">Accounts</a></OperationsButton>;
 
   return (
     <div className="mb-3">
-      <a className="mb-2 block text-sm underline" href="/accounts">Accounts</a>
+      <OperationsButton asChild variant="ghost" className="my-2 w-full justify-start text-[hsl(var(--e-sidebar-fg))] hover:bg-[hsl(var(--e-sidebar-active))] hover:text-[hsl(var(--e-sidebar-fg))]"><a href="/accounts">Accounts</a></OperationsButton>
       <p className="mb-1.5 inline-flex items-center gap-1.5 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-sidebar-fg))]/50">
         <UserCog className="h-3 w-3" aria-hidden />
         Working as

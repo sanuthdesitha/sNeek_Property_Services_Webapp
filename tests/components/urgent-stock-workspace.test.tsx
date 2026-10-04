@@ -14,12 +14,13 @@ it("reports unknown count and purchase quantity as null and retains input and re
  fireEvent.change(await screen.findByLabelText("Item"), { target: { value: "paper" } });
  fireEvent.change(screen.getByLabelText("What is needed and why?"), { target: { value: "Paper is needed; quantity unknown" } });
  fireEvent.click(screen.getByRole("button", { name: "Save report" }));
- await screen.findByText("Temporary failure");
+ expect(await screen.findByRole("alert")).toHaveTextContent("Temporary failure");
  expect(screen.getByLabelText("What is needed and why?")).toHaveValue("Paper is needed; quantity unknown");
  expect(writes[0]).toMatchObject({ propertyId: "p", itemId: "paper", observedCount: null, observedAt: null, purchaseQuantity: null });
  fail = false; fireEvent.click(screen.getByRole("button", { name: "Save report" }));
  await waitFor(() => expect(writes).toHaveLength(2)); expect(writes[1].requestId).toBe(writes[0].requestId);
  await waitFor(() => expect(screen.getByLabelText("What is needed and why?")).toHaveValue(""));
+ expect(screen.getByRole("status")).toHaveTextContent("Stock update recorded.");
  expect(screen.queryByText("Administrator reminders")).toBeNull();
 });
 it("does not offer administrator resolution or imply an acknowledged need is closed", async () => {
