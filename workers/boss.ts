@@ -31,6 +31,7 @@ import { generateRecurringJobs } from "@/lib/ops/recurring";
 import { runSafetyCheckinAlerts } from "@/lib/ops/safety-checkins";
 import { runSlaEscalation } from "@/lib/ops/sla";
 import { sendStockAlerts } from "@/lib/ops/stock-alerts";
+import { dispatchUrgentStockReminders } from "@/lib/inventory/urgent-stock";
 import { dispatchTomorrowPrepSummaries } from "@/lib/ops/tomorrow-prep";
 import { dispatchScheduledEmailCampaigns } from "@/lib/marketing/email-campaigns";
 import { refreshGoogleReviewsCache } from "@/lib/public-site/google-reviews";
@@ -280,6 +281,13 @@ async function main() {
     await boss.schedule("stock-alerts", "0 */2 * * *", {}, { tz: TZ });
     await boss.work("stock-alerts", safeHandler("stock-alerts", async () => {
       await sendStockAlerts();
+    }));
+  }
+
+  if (jobEnabled("urgent-stock-reminders")) {
+    await boss.schedule("urgent-stock-reminders", "0 * * * *", {}, { tz: TZ });
+    await boss.work("urgent-stock-reminders", safeHandler("urgent-stock-reminders", async () => {
+      await dispatchUrgentStockReminders();
     }));
   }
 

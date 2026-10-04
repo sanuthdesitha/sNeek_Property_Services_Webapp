@@ -216,6 +216,7 @@ export default async function EstateInventoryPage({
 
   return (
     <div className="space-y-6">
+      <a href="/urgent-stock" className="inline-block rounded border p-2 font-medium">Report or review urgent stock</a>
       <EPageHeader
         eyebrow="Commercial"
         title="Inventory & supplies"

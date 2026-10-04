@@ -96,6 +96,7 @@ export default async function CleanerSuppliesPage({
 
   return (
     <div className="space-y-6">
+      <a href="/urgent-stock" className="inline-block rounded border p-2 font-medium">Report or review urgent stock</a>
       <EPageHeader eyebrow="Inventory" title="Supplies" description={description} />
 
       {myScanTasks.length > 0 ? (

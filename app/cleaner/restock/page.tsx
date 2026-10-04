@@ -6,5 +6,5 @@ export const dynamic = "force-dynamic";
 
 export default async function CleanerRestockPage() {
   await requireRole([Role.CLEANER, Role.ADMIN, Role.OPS_MANAGER]);
-  return <CleanerRestockClient />;
+  return <><a href="/urgent-stock" className="m-4 inline-block rounded border p-2 font-medium">Report or review urgent stock</a><CleanerRestockClient /></>;
 }

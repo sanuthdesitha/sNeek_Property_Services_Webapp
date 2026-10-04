@@ -93,6 +93,12 @@ const withPWA = withPWAInit({
     runtimeCaching: [
       ...retainedCacheRules,
       {
+        urlPattern: ({ sameOrigin, url: { pathname } }) => sameOrigin &&
+          (pathname === "/urgent-stock" || pathname === "/api/inventory/urgent-stock"),
+        handler: "NetworkOnly",
+        method: "GET",
+      },
+      {
         urlPattern: /^\/api\/cleaner\/jobs/i,
         handler: "NetworkFirst",
         method: "GET",
