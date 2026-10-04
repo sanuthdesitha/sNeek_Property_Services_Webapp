@@ -1,3 +1,4 @@
+import { savedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
 import { isDeviceStatusField, isDeviceAnswerComplete, incompleteDeviceExceptions } from "@/lib/forms/device-status";
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { persistSubmissionPayRequestOnce } from "@/lib/cleaner/submission-pay";
@@ -200,7 +201,7 @@ export async function POST(
 
     const job = await db.job.findUnique({
       where: { id: params.id },
-      include: { property: true },
+      include: { property: true, laundryTask: { include: { confirmations: true } } },
     });
     if (!job) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
@@ -225,7 +226,6 @@ export async function POST(
 
     const uploads = extractUploads(body.data as Record<string, unknown>);
     const laundryPhotoKey = uploads["laundry_photo"]?.[0];
-    const bagLocation = body.bagLocation?.trim();
     const carryForward = sanitizeCarryForward(body.data as Record<string, unknown>);
     // Laundry only exists on Airbnb turnovers. Rework/reclean jobs (and
     // laundry-disabled properties) never create a laundry booking or record a
@@ -233,11 +233,17 @@ export async function POST(
     // lib/laundry/eligibility.ts (also used by the laundry-status route + the
     // v2 cleaner workspace).
     const laundrySuppressed = !isLaundryUpdateEligible(job, job.property);
-    const { outcome: rawLaundryOutcome, legacyReady: rawLegacyReady } = normalizeLaundrySubmission(body);
-    const laundryOutcome = laundrySuppressed ? undefined : rawLaundryOutcome;
-    const legacyReady = laundrySuppressed ? undefined : rawLegacyReady;
-    const laundrySkipReasonCode = laundrySuppressed ? undefined : body.laundrySkipReasonCode?.trim();
-    const laundrySkipReasonNote = laundrySuppressed ? undefined : body.laundrySkipReasonNote?.trim();
+    const { outcome: rawLaundryOutcome } = normalizeLaundrySubmission(body);
+    // The workspace omits an unchanged update already sent to laundry, but
+    // still includes its photo. Resolve that omission from committed history
+    // under the action's job lock; it is not a new readiness update.
+    const retainedLaundry = !laundrySuppressed && rawLaundryOutcome === undefined
+      ? savedCleanerLaundryUpdate(job.laundryTask?.confirmations ?? []) : null;
+    const laundryOutcome = laundrySuppressed ? undefined : rawLaundryOutcome ?? retainedLaundry?.outcome;
+    const legacyReady = laundrySuppressed ? undefined : laundryOutcome === "READY_FOR_PICKUP";
+    const bagLocation = retainedLaundry?.bagLocation ?? body.bagLocation?.trim();
+    const laundrySkipReasonCode = laundrySuppressed || laundryOutcome === "READY_FOR_PICKUP" ? undefined : retainedLaundry?.skipCode ?? body.laundrySkipReasonCode?.trim();
+    const laundrySkipReasonNote = laundrySuppressed || laundryOutcome === "READY_FOR_PICKUP" ? undefined : retainedLaundry?.skipNote ?? body.laundrySkipReasonNote?.trim();
 
     const lockedStatuses: JobStatus[] = [
       JobStatus.SUBMITTED,
@@ -640,7 +646,8 @@ export async function POST(
           (destination.type === "carryForwardNew" && (!carryForward?.hasNew || !carryForward.newTaskNotes.length)) ||
           (destination.type === "jobTask" && (!currentTaskIds?.has(destination.taskId) || !unifiedTaskSnapshot.some(task => task.id === destination.taskId && task.proofKeys.includes(receipt.key))));
       });
-      const staleEvidence = unusedEvidence || evidenceSubmissionChanged(receipts, uploads, submittedUnifiedTaskUpdates, carryForward?.taskPhotoKeys ?? {});
+      const retainedLaundryChanged = retainedLaundry?.outcome === "READY_FOR_PICKUP" && retainedLaundry.photoKey !== laundryPhotoKey;
+      const staleEvidence = retainedLaundryChanged || unusedEvidence || evidenceSubmissionChanged(receipts, uploads, submittedUnifiedTaskUpdates, carryForward?.taskPhotoKeys ?? {});
       if (staleEvidence) return { count: -1 };
       return tx.job.updateMany(claimInput);
     }, db);
@@ -759,7 +766,7 @@ export async function POST(
           data: { status: JobStatus.SUBMITTED, formPendingAfterClockOut: false },
         });
 
-    if (laundryOutcome !== undefined) {
+    if (laundryOutcome !== undefined && !retainedLaundry) {
       await applyCleanerLaundryStatusUpdate({ jobId: job.id, cleanerId: session.user.id, laundryOutcome, bagLocation,
         laundryBagCount: body.laundryBagCount, laundryPhotoKey, laundrySkipReasonCode, laundrySkipReasonNote,
         source: "FINAL_SUBMISSION", portalUrl: resolveAppUrl("/laundry", req) }, { transaction: tx, afterCommit: deliveryAfterCommit });

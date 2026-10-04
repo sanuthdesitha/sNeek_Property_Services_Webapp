@@ -132,6 +132,49 @@ beforeEach(() => {
 });
 
 describe("real cleaner submit form contract", () => {
+  it("submits unchanged early laundry evidence without replaying its update or losing the signature", async () => {
+    (job.property as any).laundryEnabled = true;
+    job.laundryTask = { confirmations: [{ id: "early", createdAt: new Date(),
+      notes: JSON.stringify({ source: "EARLY_UPDATE", laundryOutcome: "READY_FOR_PICKUP", bagCount: 3, unit: "bags" }),
+      bagLocation: "Shelf", s3Key: "laundry.jpg", photoUrl: "https://media.invalid/laundry.jpg" }] };
+    mocks.draft.mockResolvedValue({ evidenceReceipts: { capture: { key: "laundry.jpg", fieldId: "laundry_photo", destination: { type: "laundry" } } } });
+    const response = await submit({ note: "Done", signature: "data:image/png;base64,kept", uploads: { photo: ["evidence.jpg"], laundry_photo: ["laundry.jpg"] } });
+    expect(response.status, JSON.stringify(await response.json())).toBe(200);
+    expect(mocks.laundry).not.toHaveBeenCalled();
+    expect(mocks.create.mock.calls[0][0].data).toMatchObject({ laundryOutcome: "READY_FOR_PICKUP", bagLocation: "Shelf", laundrySkipReasonCode: undefined, data: { signature: "data:image/png;base64,kept" } });
+    expect(mocks.media.mock.calls[0][0].data).toEqual(expect.arrayContaining([expect.objectContaining({ s3Key: "laundry.jpg" })]));
+  });
+
+  it.each(["photo-replaced", "readiness-corrected", "photo-detached"])("still rejects a stale retained laundry handoff: %s", async change => {
+    (job.property as any).laundryEnabled = true;
+    const confirmation = { id: "early", createdAt: new Date(),
+      notes: JSON.stringify({ source: "EARLY_UPDATE", laundryOutcome: change === "readiness-corrected" ? "NOT_READY" : "READY_FOR_PICKUP", reasonCode: "LINEN_STILL_WASHING" }),
+      bagLocation: "Shelf", s3Key: change === "photo-replaced" ? "replacement.jpg" : "laundry.jpg" };
+    job.laundryTask = { confirmations: [confirmation] };
+    mocks.draft.mockResolvedValue({ evidenceReceipts: { capture: { key: "laundry.jpg", fieldId: "laundry_photo", destination: { type: "laundry" }, detached: change === "photo-detached" } } });
+    const response = await submit({ note: "Done", uploads: { photo: ["evidence.jpg"], laundry_photo: ["laundry.jpg"] } });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "EVIDENCE_CHANGED" });
+    expectNoWrites(); expect(mocks.laundry).not.toHaveBeenCalled();
+  });
+  it("does not infer laundry readiness from a draft or photo without committed confirmation", async () => {
+    (job.property as any).laundryEnabled = true;
+    mocks.draft.mockResolvedValue({ state: { laundry: { outcome: "READY_FOR_PICKUP" } }, evidenceReceipts: { capture: { key: "laundry.jpg", fieldId: "laundry_photo", destination: { type: "laundry" } } } });
+    const response = await submit({ note: "Done", uploads: { photo: ["evidence.jpg"], laundry_photo: ["laundry.jpg"] } });
+    expect(response.status).toBe(409); expectNoWrites();
+  });
+  it("uses the latest explicit cleaner correction despite later driver observations", async () => {
+    (job.property as any).laundryEnabled = true;
+    job.laundryTask = { confirmations: [
+      { id: "driver", createdAt: new Date("2026-10-04T03:00:00Z"), notes: "Picked up", bagLocation: null, s3Key: null },
+      { id: "correction", createdAt: new Date("2026-10-04T02:00:00Z"), notes: JSON.stringify({ source: "EARLY_UPDATE", laundryOutcome: "NO_PICKUP_REQUIRED", reasonCode: "NO_USED_LINEN" }), bagLocation: null, s3Key: null },
+      { id: "old", createdAt: new Date("2026-10-04T01:00:00Z"), notes: JSON.stringify({ source: "EARLY_UPDATE", laundryOutcome: "READY_FOR_PICKUP" }), bagLocation: "Old location", s3Key: "old.jpg" },
+    ] };
+    const response = await submit({ note: "Done", uploads: { photo: ["evidence.jpg"] } });
+    expect(response.status, JSON.stringify(await response.json())).toBe(200);
+    expect(mocks.create.mock.calls[0][0].data).toMatchObject({ laundryOutcome: "NO_PICKUP_REQUIRED", laundrySkipReasonCode: "NO_USED_LINEN" });
+    expect(mocks.laundry).not.toHaveBeenCalled();
+  });
   it("writes an explicit ready bag count through the same final-submission transaction", async () => {
     (job.property as any).laundryEnabled = true;
     mocks.laundry.mockResolvedValue({ ok: true });
