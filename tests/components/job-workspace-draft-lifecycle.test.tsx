@@ -666,3 +666,12 @@ it("restores an unrecognized saved task decision as open and submits it as not c
  fireEvent.click(screen.getByRole("button", { name: "Submit fixture" })); await act(async () => {});
  expect(JSON.parse(String(calls("/submit", "POST")[0][1].body)).jobTasks[0]).toMatchObject({ id: "pending", decision: "NOT_COMPLETED", note: "Could not access" });
 });
+
+it("applies server removal records before restoring a stale local bulk pool", async () => {
+  const key = "forms/old-job/capture/cleaner/photo.jpg";
+  window.localStorage.setItem(mirrorKey, localEnvelope({ bulkPool: [{ key, kind: "image", url: "/photo.jpg" }] }));
+  readDraft = async () => json({ draft: { ...draftEnvelope().draft, evidenceReceipts: { capture: { key, fieldId: "bulkPool", destination: { type: "bulkPool" }, formRevision: "old", draftIdentity: "old", detached: true } }, state: { bulkPool: [] } } });
+  render(<JobWorkspace jobId="job" draftIdentity={identity} />);
+  await act(async () => {});
+  expect(latestApi.bulkPool).toEqual([]);
+});

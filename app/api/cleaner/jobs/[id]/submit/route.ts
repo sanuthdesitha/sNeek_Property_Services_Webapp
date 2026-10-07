@@ -1,3 +1,4 @@
+import { belongsToAnotherJob } from "@/lib/cleaner/evidence-review";
 import { savedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
 import { isDeviceStatusField, isDeviceAnswerComplete, incompleteDeviceExceptions } from "@/lib/forms/device-status";
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
@@ -227,6 +228,13 @@ export async function POST(
     const uploads = extractUploads(body.data as Record<string, unknown>);
     const laundryPhotoKey = uploads["laundry_photo"]?.[0];
     const carryForward = sanitizeCarryForward(body.data as Record<string, unknown>);
+    const submittedKeys = [
+      ...Object.values(uploads).flat(),
+      ...(body.jobTasks ?? []).flatMap(task => task.proofKeys ?? []),
+      ...Object.values(carryForward?.taskPhotoKeys ?? {}).flat(),
+    ];
+    if (submittedKeys.some(key => belongsToAnotherJob(key, params.id))) return NextResponse.json({ code: "FOREIGN_DRAFT_REFERENCE",
+      error: "Evidence stored under another job cannot be submitted as this job's proof. Discard the wrong draft reference or ask the office to review it." }, { status: 409 });
     // Laundry only exists on Airbnb turnovers. Rework/reclean jobs (and
     // laundry-disabled properties) never create a laundry booking or record a
     // laundry update — they reuse the original clean's linen. Shared predicate:

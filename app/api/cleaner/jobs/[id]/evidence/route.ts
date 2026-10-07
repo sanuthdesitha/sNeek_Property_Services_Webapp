@@ -1,3 +1,5 @@
+import { canCleanerDiscardReference } from "@/lib/cleaner/evidence-review";
+import { saveDraftReferenceDiscard } from "@/lib/cleaner/evidence-review-service";
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { Role, JobStatus } from "@prisma/client";
@@ -161,7 +163,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.CLEANER]);
-    const body = z.object({ cancelPending: z.boolean().optional(), key: z.string().min(1).max(1000).optional(), captureId: z.string().uuid().optional(), templateId: z.string().min(1).optional(), formRevision: z.string().min(1) }).refine(value => value.cancelPending ? Boolean(value.captureId && value.templateId) : Boolean(value.key)).parse(await req.json());
+    const body = z.object({ discardReference: z.boolean().optional(), reason: z.string().trim().min(10).max(1000).optional(), cancelPending: z.boolean().optional(), key: z.string().min(1).max(1000).optional(), captureId: z.string().uuid().optional(), templateId: z.string().min(1).optional(), formRevision: z.string().min(1) }).refine(value => value.cancelPending ? Boolean(value.captureId && value.templateId) : Boolean(value.key)).parse(await req.json());
     const identity = cleanerDraftIdentity(session, params.id);
     if (req.headers.get("X-Cleaner-Draft-Identity") !== identity) return json({ error: "Account changed. Reload this job." }, 409);
     return await withSharedCleanerJobDraftLock(params.id, async tx => {
@@ -172,6 +174,16 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       const job = await tx.job.findUnique({ where: { id: params.id }, select: { status: true } });
       if (!job || ([JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED] as JobStatus[]).includes(job.status)) return json({ error: "This job is finished." }, 409);
       const existing = await getSharedCleanerJobDraft(params.id, tx);
+      if (body.discardReference) {
+        if (body.cancelPending || !body.key || !body.reason) return json({ error: "Explain why this reference does not belong to the draft." }, 400);
+        const entries = Object.values(existing?.evidenceReceipts ?? {}).filter(receipt => receipt.key === body.key);
+        if (entries.length && entries.every(receipt => receipt.detached)) return json({ ok: true, key: body.key, discardedReference: true });
+        if (!canCleanerDiscardReference(existing, body.key, params.id, session.user.id)) return json({ error: "Office review is needed. Ask the office to open this job's Forms & report → Draft evidence review." }, 409);
+        await saveDraftReferenceDiscard(tx, params.id, existing, { key: body.key, reason: body.reason,
+          actorId: session.impersonation?.actorId ?? session.user.id, actorName: session.user.name ?? "Cleaner", effectiveUserId: session.user.id,
+          formRevision: body.formRevision, draftIdentity: identity, office: false });
+        return json({ ok: true, key: body.key, discardedReference: true });
+      }
       if (body.cancelPending && body.captureId) {
         if (!body.templateId) return json({ error: "Current form is required to cancel a capture." }, 400);
         const fullJob = await tx.job.findUnique({ where: { id: params.id }, include: { property: true } });
@@ -208,7 +220,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         return json({ ok: true, captureId: body.captureId, detached: true });
       }
       const entries = Object.entries(existing?.evidenceReceipts ?? {}).filter(([, receipt]) => receipt.key === body.key);
-      if (!existing) return json({ error: "Saved evidence was not found. Refresh before removing it." }, 409);
+      if (!existing) return json({ code: "EVIDENCE_CONTEXT_MISMATCH", canDiscardReference: canCleanerDiscardReference(null, body.key!, params.id, session.user.id), error: "Saved evidence was not found. Refresh or discard an unrelated draft reference." }, 409);
       if (!entries.length) {
         // Older bulk uploads have no receipt. Persist a tombstone so a stale
         // autosave or device restore cannot union the removed photo back in.
@@ -216,7 +228,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         const parts = key.split("/");
         const owned = (parts.length === 3 && parts[0] === "forms" && parts[1] === session.user.id)
           || (parts.length === 4 && parts[0] === "jobs" && parts[1] === params.id && parts[2] === session.user.id);
-        if (!owned || /[\\\u0000-\u0020\u007f]/.test(key) || parts.some(part => !part || part === "." || part === "..")) return json({ error: "Invalid evidence ownership." }, 403);
+        if (!owned || /[\\\u0000-\u0020\u007f]/.test(key) || parts.some(part => !part || part === "." || part === "..")) return json({ code: "EVIDENCE_CONTEXT_MISMATCH", canDiscardReference: canCleanerDiscardReference(existing, key, params.id, session.user.id), error: "This is not an owned upload for this job. Discard only the wrong draft reference, or ask the office to review it." }, 403);
         const pool = destinationMedia(existing.state, { type: "bulkPool" });
         const elsewhere = existing.state;
         const otherMedia = [
@@ -232,7 +244,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         }, tx);
         return json({ ok: true, key });
       }
-      if (entries.some(([, receipt]) => receipt.draftIdentity !== identity || receipt.formRevision !== body.formRevision)) return json({ error: "This evidence belongs to another capture context. Ask the office to review it." }, 409);
+      if (entries.some(([, receipt]) => receipt.draftIdentity !== identity || receipt.formRevision !== body.formRevision)) return json({ code: "EVIDENCE_CONTEXT_MISMATCH", canDiscardReference: canCleanerDiscardReference(existing, body.key!, params.id, session.user.id), error: "This photo has a different capture context. If it does not belong here, discard only its draft reference. Otherwise ask the office to open Forms & report → Draft evidence review." }, 409);
       const receipts = { ...existing.evidenceReceipts };
       for (const [id, receipt] of entries) {
         receipts[id] = { ...receipt, detached: true };

@@ -328,3 +328,16 @@ describe("shared draft atomicity (simulated transactions)", () => {
     expect(rows.get(key("job"))?.state.taskDrafts).toEqual({ task: { proof: [] } });
   });
 });
+
+it("rejects a newly introduced foreign-job photo instead of contaminating the saved draft", async () => {
+  rows.set(key("job"), record());
+  const response = await patch("a", { bulkPool: [{ key: "forms/another-job/capture/cleaner/photo.jpg", kind: "image" }] });
+  expect(response.status).toBe(409); expect(await response.json()).toMatchObject({ code: "FOREIGN_DRAFT_REFERENCE" });
+  expect(rows.get(key("job"))!.state).toEqual(record().state);
+});
+it("removal tombstones override foreign photos restored by stale autosave", async () => {
+  const foreignKey = "forms/another-job/capture/cleaner/photo.jpg";
+  rows.set(key("job"), { ...record(), evidenceReceipts: { capture: { key: foreignKey, fieldId: "bulkPool", formRevision: "old", draftIdentity: "old", detached: true } } });
+  expect((await patch("a", { bulkPool: [{ key: foreignKey, kind: "image" }] })).status).toBe(200);
+  expect(rows.get(key("job"))!.state.bulkPool).toEqual([]);
+});

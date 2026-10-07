@@ -99,6 +99,7 @@ export function BulkPhotoAssign({
 }) {
   const evidenceScope = useEvidenceScope();
   const [moving, setMoving] = React.useState(false);
+  const [blockedRemoval, setBlockedRemoval] = React.useState<{ key: string; scope: string } | null>(null);
   const [selected, setSelected] = React.useState<string[]>([]);
   const [activeFieldId, setActiveFieldId] = React.useState<string | null>(null);
   const [hideAssigned, setHideAssigned] = React.useState(false);
@@ -119,6 +120,9 @@ export function BulkPhotoAssign({
   const scopeKey = JSON.stringify([open, evidenceScope, fields.map(field => field.id)]);
   const scopeKeyRef = React.useRef(scopeKey); scopeKeyRef.current = scopeKey;
   const fieldsRef = React.useRef(fields); fieldsRef.current = fields;
+  const uploadScopeKey = JSON.stringify(evidenceScope);
+  const uploadScopeRef = React.useRef(uploadScopeKey); uploadScopeRef.current = uploadScopeKey;
+  React.useEffect(() => { setPending([]); setBlockedRemoval(null); }, [uploadScopeKey]);
   React.useEffect(() => {
     ++requestRef.current.id; requestRef.current.controller?.abort();
     stopApplyingRef.current = true;
@@ -307,6 +311,7 @@ export function BulkPhotoAssign({
       if (evidenceScope) {
         const result = await prepareAndUploadFiles(items.map(item => item.file), { folder, stamp, source: items[0]?.source ?? "gallery",
           evidence: { ...evidenceScope, fieldId: "bulkPool", destination: { type: "bulkPool" } } });
+        if (uploadScopeRef.current !== JSON.stringify(evidenceScope)) return;
         setPool(addToPool({ pool: poolRef.current, uploads: uploadsRef.current }, result.results).pool);
         setPending([]);
         if (result.failedCount) setUploadNote("Some originals need recovery. Use Device evidence recovery on the job.");
@@ -399,23 +404,32 @@ export function BulkPhotoAssign({
   }
 
   const selectedAssignedCount = selected.filter((k) => assignedBy[k]).length;
-  async function removePhotos(keys: string[]) {
+  async function removePhotos(keys: string[], discardReference = false) {
     if (!evidenceScope || movingRef.current || analysing || pending.some(item => item.status === "uploading") || !keys.length) return;
-    if (!window.confirm(`Remove ${keys.length === 1 ? "this photo" : `${keys.length} photos`} from this draft? Original files will be kept.`)) return;
+    if (!window.confirm(discardReference
+      ? "Confirm this photo does not belong to this job. Discard only its reference from this draft? The original photo, its capture details and other jobs will stay unchanged. This does not approve it as evidence."
+      : `Remove ${keys.length === 1 ? "this photo" : `${keys.length} photos`} from this draft? Original files will be kept.`)) return;
     const startedScope = scopeKey;
     setUploadNote(null);
     movingRef.current = true; setMoving(true);
     try {
       for (const key of keys) {
         if (scopeKeyRef.current !== startedScope) break;
-        await removeEvidence(evidenceScope, key);
+        await removeEvidence(evidenceScope, key, discardReference ? "Cleaner confirmed this photo does not belong to this job draft." : undefined);
         if (scopeKeyRef.current !== startedScope) break;
         const next = { pool: poolRef.current.filter(media => media.key !== key), uploads: Object.fromEntries(Object.entries(uploadsRef.current).map(([field, media]) => [field, media.filter(item => item.key !== key)])) };
         poolRef.current = next.pool; uploadsRef.current = next.uploads; commit(next);
         setSelected(current => current.filter(item => item !== key));
         setProposals(current => current.filter(item => item.key !== key));
+        setBlockedRemoval(null);
       }
-    } catch (error) { setUploadNote(error instanceof Error ? error.message : "Removal failed."); }
+    } catch (error) {
+      if (scopeKeyRef.current === startedScope) {
+        setUploadNote(error instanceof Error ? error.message : "Removal failed.");
+        const mismatch = error as { key?: string; canDiscardReference?: boolean };
+        setBlockedRemoval(mismatch.canDiscardReference && mismatch.key ? { key: mismatch.key, scope: startedScope } : null);
+      }
+    }
     finally { movingRef.current = false; setMoving(false); }
   }
   const sections = React.useMemo(() => {
@@ -645,6 +659,10 @@ export function BulkPhotoAssign({
 
       {/* Sticky action footer */}
       <div className="border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-3">
+        {blockedRemoval?.scope === scopeKey ? <div role="status" className="mb-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 text-sm">
+          <p>This photo has a different capture context. Discard it only if it does not belong to this job. The original and other jobs stay unchanged.</p>
+          <EButton type="button" variant="outline" className="mt-2 min-h-11 h-auto whitespace-normal" disabled={moving} onClick={() => void removePhotos([blockedRemoval.key], true)}>Discard wrong draft reference</EButton>
+        </div> : null}
         <div className="flex items-center justify-between gap-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
           <span className="tabular-nums">
             {selected.length} selected

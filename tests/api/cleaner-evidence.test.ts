@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({ role: vi.fn(), assignment: vi.fn(), job: vi.fn(), lock: vi.fn(),
-  read: vi.fn(), save: vi.fn(), form: vi.fn(), revision: vi.fn(), tasks: vi.fn(), settings: vi.fn(), head: vi.fn(), query: vi.fn() }));
+  read: vi.fn(), save: vi.fn(), form: vi.fn(), revision: vi.fn(), tasks: vi.fn(), settings: vi.fn(), head: vi.fn(), query: vi.fn(), audit: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: { jobAssignment: { findFirst: mocks.assignment } } }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
 vi.mock("@/lib/cleaner/shared-job-draft", () => ({ withSharedCleanerJobDraftLock: mocks.lock, getSharedCleanerJobDraft: mocks.read, saveSharedCleanerJobDraft: mocks.save }));
@@ -27,7 +27,7 @@ function request(patch: Record<string, unknown> = {}, actor = identity, method =
 let draft: any; let tx: any; let events: string[];
 beforeEach(() => {
   vi.resetAllMocks(); draft = null; events = [];
-  tx = { jobAssignment: { findFirst: mocks.assignment }, job: { findUnique: mocks.job }, $queryRaw: mocks.query };
+  tx = { jobAssignment: { findFirst: mocks.assignment }, job: { findUnique: mocks.job }, $queryRaw: mocks.query, auditLog: { create: mocks.audit } };
   mocks.role.mockResolvedValue(session); mocks.assignment.mockResolvedValue({ id: "assignment" });
   mocks.job.mockResolvedValue({ id: "job", propertyId: "property", jobType: "DEEP_CLEAN", isRework: false, status: "IN_PROGRESS", property: {} });
   mocks.lock.mockImplementation(async (_job, callback) => { events.push("lock"); return callback(tx); });
@@ -248,4 +248,27 @@ describe("legacy bulk draft removal", () => {
     draft.state.uploads = { photo: [draft.state.bulkPool[0]] };
     expect((await DELETE(request({ key }, identity, "DELETE"), context)).status).toBe(409); expect(mocks.save).not.toHaveBeenCalled();
   });
+});
+
+it("offers and audits explicit foreign draft-reference discard without altering source capture provenance", async () => {
+  const foreignKey = "forms/source-job/old-capture/other-cleaner/photo.jpg";
+  const original = { key: foreignKey, fieldId: "bulkPool", destination: { type: "bulkPool" }, draftIdentity: "original", formRevision: "old", version: 7 };
+  draft = { updatedAt: "2020-01-01", updatedByUserId: "cleaner", updatedByName: "Cleaner", editorSessionId: "old", state: { bulkPool: [{ key: foreignKey, kind: "image" }] }, evidenceReceipts: { old: original } };
+  const denied = await DELETE(request({ key: foreignKey }, identity, "DELETE"), context);
+  expect(denied.status).toBe(409); expect(await denied.json()).toMatchObject({ canDiscardReference: true }); expect(mocks.save).not.toHaveBeenCalled();
+  const response = await DELETE(request({ key: foreignKey, discardReference: true, reason: "This reference belongs to another job" }, identity, "DELETE"), context);
+  expect(response.status).toBe(200); expect(draft.state.bulkPool).toEqual([]); expect(draft.evidenceReceipts.old).toMatchObject({ ...original, detached: true });
+  expect(mocks.audit).toHaveBeenCalledWith({ data: expect.objectContaining({ jobId: "job", action: "CLEANER_DISCARD_DRAFT_REFERENCE", userId: "cleaner" }) }); expect(mocks.head).not.toHaveBeenCalled();
+  expect((await DELETE(request({ key: foreignKey, discardReference: true, reason: "This reference belongs to another job" }, identity, "DELETE"), context)).status).toBe(200); expect(mocks.audit).toHaveBeenCalledTimes(1);
+});
+it("does not let a cleaner override a co-cleaner's valid same-job bulk evidence", async () => {
+  const otherKey = "forms/job/other-capture/other/photo.jpg";
+  draft = { state: { bulkPool: [{ key: otherKey, kind: "image" }] }, evidenceReceipts: { other: { key: otherKey, fieldId: "bulkPool", destination: { type: "bulkPool" }, draftIdentity: "other", formRevision: revision } } };
+  expect((await DELETE(request({ key: otherKey, discardReference: true, reason: "I want to remove another user's photo" }, identity, "DELETE"), context)).status).toBe(409);
+  expect(mocks.save).not.toHaveBeenCalled(); expect(mocks.audit).not.toHaveBeenCalled();
+});
+it("audits a local-only wrong-job reference so stale recovery cannot later save it", async () => {
+  const foreignKey = "jobs/old-job/cleaner/old.jpg";
+  expect((await DELETE(request({ key: foreignKey, discardReference: true, reason: "Wrong job recovered from old device draft" }, identity, "DELETE"), context)).status).toBe(200);
+  expect(Object.values(draft.evidenceReceipts)[0]).toMatchObject({ key: foreignKey, detached: true }); expect(mocks.audit).toHaveBeenCalledTimes(1);
 });

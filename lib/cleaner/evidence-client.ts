@@ -23,13 +23,15 @@ export async function cancelPendingEvidence(record: EvidenceRecord, scope: Evide
     return key;
   });
 }
-export async function removeEvidence(scope: EvidenceScope, key: string) {
+export async function removeEvidence(scope: EvidenceScope, key: string, discardReason?: string) {
   if (!navigator.locks?.request) throw new Error("This browser cannot safely coordinate evidence recovery.");
   const id = key.split("/")[2] ?? key;
   await navigator.locks.request(`cleaner-evidence:${id}`, async () => {
-    const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/evidence`, { method: "DELETE", headers: { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": scope.draftIdentity }, body: JSON.stringify({ key, formRevision: scope.formRevision }) });
+    const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/evidence`, { method: "DELETE", headers: { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": scope.draftIdentity }, body: JSON.stringify({ key, formRevision: scope.formRevision, ...(discardReason ? { discardReference: true, reason: discardReason } : {}) }) });
     const body = await response.json();
-    if (!response.ok || body.ok !== true || body.key !== key) throw new Error(body.error || "Removal was not confirmed.");
+    if (!response.ok || body.ok !== true || body.key !== key || (discardReason && body.discardedReference !== true)) {
+      throw Object.assign(new Error(body.error || "Removal was not confirmed."), { key, canDiscardReference: body.code === "EVIDENCE_CONTEXT_MISMATCH" && body.canDiscardReference === true });
+    }
     const record = await getEvidence(id);
     if (record && sameEvidenceScope(record, scope)) await putEvidence({ ...record, status: "detached" });
   });

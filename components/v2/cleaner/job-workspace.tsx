@@ -1,4 +1,5 @@
 "use client";
+import { reconcileEvidenceState } from "@/lib/cleaner/evidence-destination";
 import { OperationsButton } from "@/components/operations/ui";
 import { savedLaundrySignature, type SavedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
 import { parseLaundryBagCountInput } from "@/lib/laundry/bag-count";
@@ -526,7 +527,9 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
 
           const serverState = envelope?.state as Record<string, any> | undefined;
 
-          const merged = serverState && localState ? mergeDraftStates(serverState, localState) : serverState ?? localState;
+          const recovered = serverState && localState ? mergeDraftStates(serverState, localState) : serverState ?? localState;
+          // Server removals and destinations win over stale device recovery.
+          const merged = recovered && envelope?.evidenceReceipts ? reconcileEvidenceState(recovered, serverState ?? {}, envelope.evidenceReceipts) : recovered;
           if (merged) {
             restoreDraftState(merged);
             setDraftInfo({

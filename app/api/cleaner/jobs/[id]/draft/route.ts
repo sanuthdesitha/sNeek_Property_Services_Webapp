@@ -1,3 +1,4 @@
+import { belongsToAnotherJob, draftEvidenceLocations } from "@/lib/cleaner/evidence-review";
 import { reconcileEvidenceState } from "@/lib/cleaner/evidence-destination";
 import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, Prisma, Role } from "@prisma/client";
@@ -113,6 +114,11 @@ export async function PATCH(
       // Generic autosave is not an explicit evidence detach operation. Preserve
       // acknowledged attachments when a stale same-editor snapshot arrives.
       if (existing?.evidenceReceipts) mergedState = reconcileEvidenceState(mergedState, existing.state, existing.evidenceReceipts);
+
+      const priorKeys = new Set(draftEvidenceLocations(existing?.state ?? {}).map(item => item.media.key));
+      if (draftEvidenceLocations(mergedState).some(item => belongsToAnotherJob(item.media.key, params.id) && !priorKeys.has(item.media.key))) {
+        return json({ code: "FOREIGN_DRAFT_REFERENCE", error: "A recovered photo belongs to another job. Discard its wrong draft reference in Bulk photos, or ask the office to review it." }, 409);
+      }
 
       await saveSharedCleanerJobDraft(params.id, {
         ...(existing?.evidenceReceipts ? { evidenceReceipts: existing.evidenceReceipts } : {}),

@@ -562,3 +562,8 @@ it("records work completion and missing photo evidence separately without invent
  expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
  expect(mocks.create.mock.calls[0][0].data.data.__jobTasks[0]).toMatchObject({ decision: "COMPLETED", proofKeys: [], missingPhotoReason: "Camera failed after inspection" });
 });
+
+it("rejects evidence from another job without submitting or modifying records", async () => {
+  const response = await submit({ uploads: { photo: ["forms/another-job/capture/cleaner/photo.jpg"] } });
+  expect(response.status).toBe(409); expect(await response.json()).toMatchObject({ code: "FOREIGN_DRAFT_REFERENCE" }); expectNoWrites();
+});

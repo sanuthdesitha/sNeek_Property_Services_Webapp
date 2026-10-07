@@ -1,3 +1,4 @@
+import { DraftEvidenceReview } from "@/components/v2/admin/jobs/draft-evidence-review";
 import { OperationsButton } from "@/components/operations/ui";
 import { formatServiceDate } from "@/lib/time/service-date";
 import { PhotoReviewPanel } from "@/components/v2/qa/photo-review-panel";
@@ -1343,6 +1344,7 @@ export default async function AdminJobDetailPage({
       {/* ── Forms & report ───────────────────────────────────────────────── */}
       {tab === "forms" ? (
       <div className="space-y-4">
+        <DraftEvidenceReview jobId={job.id} />
         {/* Report actions — download, client visibility, share (v1 parity) */}
         <ReportActions
           jobId={job.id}

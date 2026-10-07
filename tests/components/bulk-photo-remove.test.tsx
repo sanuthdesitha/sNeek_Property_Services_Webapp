@@ -65,3 +65,19 @@ it("keeps only failed selections after a partially successful batch and safely r
   await waitFor(() => expect(screen.getByTestId("pool").textContent).toBe(""));
   expect(mocks.remove.mock.calls.map(call => call[1])).toEqual(["one", "two", "two"]);
 });
+
+it("requires a separate confirmation to discard a wrong capture reference", async () => {
+  mocks.remove.mockRejectedValueOnce(Object.assign(new Error("Different capture context"), { key: "one", canDiscardReference: true }));
+  render(<Harness />); fireEvent.click(screen.getByRole("button", { name: "Remove one from draft" }));
+  const discard = await screen.findByRole("button", { name: "Discard wrong draft reference" });
+  vi.mocked(window.confirm).mockReturnValueOnce(false); fireEvent.click(discard); expect(mocks.remove).toHaveBeenCalledTimes(1);
+  fireEvent.click(discard); await waitFor(() => expect(screen.getByTestId("pool").textContent).toBe("two"));
+  expect(mocks.remove.mock.calls[1][2]).toContain("does not belong to this job");
+});
+it("does not copy a late upload into a different job/account context", async () => {
+  let resolve!: (value: any) => void; mocks.upload.mockImplementation(() => new Promise(r => { resolve = r; }));
+  const view = render(<Harness />); fireEvent.change(screen.getByLabelText("Choose photos"), { target: { files: [new File(["fixture"], "old.jpg", { type: "image/jpeg" })] } });
+  view.rerender(<Harness currentScope={{ ...scope, jobId: "other-job", draftIdentity: "other" }} />);
+  await act(async () => resolve({ results: [photo("old-job-upload")], failedCount: 0 }));
+  expect(screen.getByTestId("pool").textContent).toBe("one,two"); expect(screen.getByRole("button", { name: "Remove one from draft" })).toBeEnabled();
+});

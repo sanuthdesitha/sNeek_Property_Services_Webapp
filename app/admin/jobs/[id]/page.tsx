@@ -2510,6 +2510,7 @@ export default function JobDetailPage() {
 
         {/* ─────────────── FORMS & REPORT ─────────────── */}
         <TabsContent value="forms" className="space-y-4">
+          <Card><CardContent className="pt-6"><a href={`/v2/admin/jobs/${job.id}?tab=forms#draft-evidence-review`} className="inline-flex min-h-11 items-center font-medium underline">Review and resolve draft evidence conflicts</a><p className="mt-2 text-sm text-muted-foreground">Inspect original provenance and audit an office override without changing submitted photos.</p></CardContent></Card>
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Report actions</CardTitle>
