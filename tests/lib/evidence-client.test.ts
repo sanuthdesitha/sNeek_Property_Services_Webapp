@@ -182,3 +182,9 @@ it("keeps the exclusive job lock throughout asynchronous submission",async()=>{
   const result=withEvidenceSubmissionLock(scope,async()=>{expect(held).toBe(true);await pending;expect(held).toBe(true);return "saved"});
   await Promise.resolve();expect(held).toBe(true);release();expect(await result).toBe("saved");expect(held).toBe(false);
 });
+it("rejects a removal acknowledgement for another photo and retains the original", async () => {
+  const { removeEvidence } = await import("@/lib/cleaner/evidence-client");
+  fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, key: "other.jpg" })));
+  await expect(removeEvidence(scope, receipt.key)).rejects.toThrow("not confirmed");
+  expect(store.put).not.toHaveBeenCalled(); expect(saved.blob).toBe(record.blob);
+});

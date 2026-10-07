@@ -71,3 +71,28 @@ for (const width of [320, 390, 1440]) test(`uploaded batch is reviewed, strictly
   await page.getByRole("button", { name: "Choose section", exact: true }).first().click(); await expect(page.getByText("Move 1 photo to…")).toBeVisible();
   await page.getByRole("button", { name: "Close picker" }).click(); await ui.fits();
 });
+
+for (const width of [320, 390, 1440]) test(`draft photo removal is accessible and recoverable at ${width}px`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height: 780 });
+  let removals = 0;
+  await page.route("http://localhost:3999/**", async route => {
+    if (route.request().url().endsWith("/evidence")) {
+      expect(route.request().method()).toBe("DELETE");
+      const { key } = route.request().postDataJSON(); removals++;
+      return removals === 1 ? route.fulfill({ status: 503, json: { error: "Connection interrupted. Retry removal." } }) : route.fulfill({ json: { ok: true, key } });
+    }
+    return route.fulfill({ contentType: "text/html", body: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>' });
+  });
+  await page.goto("http://localhost:3999/bulk"); await page.addStyleTag({ content: css }); await page.addScriptTag({ content: bundle });
+  const ui = new BulkPhotos(page); await ui.upload();
+  const remove = page.getByRole("button", { name: "Remove one.jpg from draft", exact: true });
+  await remove.scrollIntoViewIfNeeded(); const box = await remove.boundingBox();
+  expect(box!.height).toBeGreaterThanOrEqual(44); expect(box!.width).toBeGreaterThanOrEqual(44);
+  await ui.fits(); await page.screenshot({ path: info.outputPath(`bulk-remove-${width}.png`), fullPage: true });
+  page.once("dialog", dialog => dialog.dismiss()); await remove.click(); expect(removals).toBe(0);
+  page.once("dialog", dialog => dialog.accept()); await remove.click(); await expect(page.getByRole("alert")).toContainText("Connection interrupted");
+  await expect(page.getByText("Unassigned: 6")).toBeVisible();
+  await remove.focus(); page.once("dialog", dialog => dialog.accept()); await page.keyboard.press("Enter");
+  await expect(page.getByText("Unassigned: 5")).toBeVisible(); await expect(remove).toHaveCount(0);
+  expect(removals).toBe(2); await ui.fits();
+});

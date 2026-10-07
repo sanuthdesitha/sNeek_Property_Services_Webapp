@@ -29,7 +29,7 @@ export async function removeEvidence(scope: EvidenceScope, key: string) {
   await navigator.locks.request(`cleaner-evidence:${id}`, async () => {
     const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/evidence`, { method: "DELETE", headers: { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": scope.draftIdentity }, body: JSON.stringify({ key, formRevision: scope.formRevision }) });
     const body = await response.json();
-    if (!response.ok || body.ok !== true) throw new Error(body.error || "Removal was not confirmed.");
+    if (!response.ok || body.ok !== true || body.key !== key) throw new Error(body.error || "Removal was not confirmed.");
     const record = await getEvidence(id);
     if (record && sameEvidenceScope(record, scope)) await putEvidence({ ...record, status: "detached" });
   });

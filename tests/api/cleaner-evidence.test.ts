@@ -149,9 +149,9 @@ describe("evidence attachment acknowledgement", () => {
     mocks.head.mockResolvedValue({ ContentLength: 123, ContentType: "video/mp4" });
     expect((await POST(request(), context)).status).toBe(409); expect(mocks.save).not.toHaveBeenCalled();
   });
-  it("legacy detach is list-only and database failure is not reported as a bad request", async () => {
+  it("missing saved evidence is rejected and database failure is not reported as a bad request", async () => {
     const response = await DELETE(request({}, identity, "DELETE"), context);
-    expect(response.status).toBe(200); expect(mocks.save).not.toHaveBeenCalled();
+    expect(response.status).toBe(409); expect(mocks.save).not.toHaveBeenCalled();
     expect(mocks.query.mock.calls.map(([sql]) => sql.join("?").match(/FROM "([^"]+)"/)?.[1])).toEqual(["Job", "JobAssignment"]);
     mocks.read.mockRejectedValue(new Error("database unavailable"));
     expect((await DELETE(request({}, identity, "DELETE"), context)).status).toBe(500);
@@ -218,4 +218,34 @@ it("acknowledges generic-MIME video only in a video-compatible destination", asy
 });
 it.each(["text/html", "image/svg+xml", "application/pdf"])("never treats explicit incompatible %s as a photo from its filename", async ContentType => {
   mocks.head.mockResolvedValue({ ContentLength: 123, ContentType }); expect((await POST(request(), context)).status).toBe(409); expect(mocks.save).not.toHaveBeenCalled();
+});
+
+describe("legacy bulk draft removal", () => {
+  function legacy(key = "forms/cleaner/old.jpg") {
+    draft = { updatedAt: new Date().toISOString(), updatedByUserId: "cleaner", updatedByName: "Cleaner", editorSessionId: "test", state: { bulkPool: [{ key, kind: "image", url: "/fixture.jpg" }, { key: "forms/other/keep.jpg", kind: "image" }], answers: { note: "keep" } } };
+    return key;
+  }
+  it("persists an idempotent tombstone and prevents stale refresh/autosave resurrection", async () => {
+    const key = legacy(); const stale = structuredClone(draft.state);
+    expect((await DELETE(request({ key }, identity, "DELETE"), context)).status).toBe(200);
+    expect(draft.state.bulkPool.map((m: any) => m.key)).toEqual(["forms/other/keep.jpg"]);
+    expect(Object.values(draft.evidenceReceipts)[0]).toMatchObject({ key, detached: true, draftIdentity: identity });
+    const { reconcileEvidenceState } = await import("@/lib/cleaner/evidence-destination");
+    expect(reconcileEvidenceState(stale, draft.state, draft.evidenceReceipts).bulkPool).toEqual(draft.state.bulkPool);
+    expect((await DELETE(request({ key }, identity, "DELETE"), context)).status).toBe(200);
+    expect(Object.keys(draft.evidenceReceipts)).toHaveLength(1); expect(mocks.head).not.toHaveBeenCalled();
+    expect(draft.state.answers).toEqual({ note: "keep" });
+  });
+  it.each(["forms/other/old.jpg", "jobs/other/cleaner/old.jpg", "forms/cleaner/..", "forms/cleaner/bad\\name.jpg"])("rejects unowned/invalid key %s", async key => {
+    legacy(key); expect((await DELETE(request({ key }, identity, "DELETE"), context)).status).toBe(403); expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it.each(["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"])("preserves evidence on %s jobs", async status => {
+    const key = legacy(); mocks.job.mockResolvedValue({ status }); expect((await DELETE(request({ key }, identity, "DELETE"), context)).status).toBe(409); expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it("rejects missing assignment and photos already filed elsewhere", async () => {
+    const key = legacy(); mocks.assignment.mockResolvedValueOnce(null);
+    expect((await DELETE(request({ key }, identity, "DELETE"), context)).status).toBe(403);
+    draft.state.uploads = { photo: [draft.state.bulkPool[0]] };
+    expect((await DELETE(request({ key }, identity, "DELETE"), context)).status).toBe(409); expect(mocks.save).not.toHaveBeenCalled();
+  });
 });

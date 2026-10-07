@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { Role, JobStatus } from "@prisma/client";
 import { z } from "zod";
@@ -207,7 +208,30 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         return json({ ok: true, captureId: body.captureId, detached: true });
       }
       const entries = Object.entries(existing?.evidenceReceipts ?? {}).filter(([, receipt]) => receipt.key === body.key);
-      if (!entries.length || !existing) return json({ ok: true, key: body.key }); // Legacy list-only removal.
+      if (!existing) return json({ error: "Saved evidence was not found. Refresh before removing it." }, 409);
+      if (!entries.length) {
+        // Older bulk uploads have no receipt. Persist a tombstone so a stale
+        // autosave or device restore cannot union the removed photo back in.
+        const key = body.key!;
+        const parts = key.split("/");
+        const owned = (parts.length === 3 && parts[0] === "forms" && parts[1] === session.user.id)
+          || (parts.length === 4 && parts[0] === "jobs" && parts[1] === params.id && parts[2] === session.user.id);
+        if (!owned || /[\\\u0000-\u0020\u007f]/.test(key) || parts.some(part => !part || part === "." || part === "..")) return json({ error: "Invalid evidence ownership." }, 403);
+        const pool = destinationMedia(existing.state, { type: "bulkPool" });
+        const elsewhere = existing.state;
+        const otherMedia = [
+          ...Object.keys((elsewhere.uploads ?? {}) as object).map(fieldId => destinationMedia(elsewhere, { type: "formField", fieldId })),
+          ...Object.keys((elsewhere.taskDrafts ?? {}) as object).map(taskId => destinationMedia(elsewhere, { type: "jobTask", taskId })),
+          destinationMedia(elsewhere, { type: "laundry" }), destinationMedia(elsewhere, { type: "carryForwardNew" }),
+        ].flat();
+        if (!pool.some(media => media.key === key && media.kind === "image") || otherMedia.some(media => media.key === key)) return json({ error: "This photo must be saved only in the unassigned pool. Refresh before removing it." }, 409);
+        await saveSharedCleanerJobDraft(params.id, { ...existing,
+          updatedAt: new Date().toISOString(),
+          evidenceReceipts: { ...existing.evidenceReceipts, [randomUUID()]: { key, fieldId: "bulkPool", destination: { type: "bulkPool" }, formRevision: body.formRevision, draftIdentity: identity, detached: true } },
+          state: removeEvidenceKeys(existing.state, new Set([key])),
+        }, tx);
+        return json({ ok: true, key });
+      }
       if (entries.some(([, receipt]) => receipt.draftIdentity !== identity || receipt.formRevision !== body.formRevision)) return json({ error: "This evidence belongs to another capture context. Ask the office to review it." }, 409);
       const receipts = { ...existing.evidenceReceipts };
       for (const [id, receipt] of entries) {

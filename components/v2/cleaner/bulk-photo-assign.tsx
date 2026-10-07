@@ -30,6 +30,7 @@ import {
   Loader2,
   RotateCcw,
   Undo2,
+  Trash2,
   X,
 } from "lucide-react";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
@@ -333,7 +334,7 @@ export function BulkPhotoAssign({
   );
 
   function queueFiles(files: FileList | null, source: CaptureSource) {
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0 || movingRef.current) return;
     setUploadNote(null);
     const items: PendingUpload[] = Array.from(files).map((file, i) => ({
       id: `${Date.now().toString(36)}-${i}-${Math.random().toString(36).slice(2, 7)}`,
@@ -347,6 +348,7 @@ export function BulkPhotoAssign({
   }
 
   function retry(item: PendingUpload) {
+    if (movingRef.current) return;
     setPending((prev) => prev.map((p) => (p.id === item.id ? { ...p, status: "uploading" } : p)));
     void runUpload([{ ...item, status: "uploading" }]);
   }
@@ -397,16 +399,22 @@ export function BulkPhotoAssign({
   }
 
   const selectedAssignedCount = selected.filter((k) => assignedBy[k]).length;
-  async function removeSelected() {
-    if (!evidenceScope || movingRef.current) return;
+  async function removePhotos(keys: string[]) {
+    if (!evidenceScope || movingRef.current || analysing || pending.some(item => item.status === "uploading") || !keys.length) return;
+    if (!window.confirm(`Remove ${keys.length === 1 ? "this photo" : `${keys.length} photos`} from this draft? Original files will be kept.`)) return;
+    const startedScope = scopeKey;
+    setUploadNote(null);
     movingRef.current = true; setMoving(true);
     try {
-      for (const key of selected) {
+      for (const key of keys) {
+        if (scopeKeyRef.current !== startedScope) break;
         await removeEvidence(evidenceScope, key);
+        if (scopeKeyRef.current !== startedScope) break;
         const next = { pool: poolRef.current.filter(media => media.key !== key), uploads: Object.fromEntries(Object.entries(uploadsRef.current).map(([field, media]) => [field, media.filter(item => item.key !== key)])) };
         poolRef.current = next.pool; uploadsRef.current = next.uploads; commit(next);
+        setSelected(current => current.filter(item => item !== key));
+        setProposals(current => current.filter(item => item.key !== key));
       }
-      setSelected([]);
     } catch (error) { setUploadNote(error instanceof Error ? error.message : "Removal failed."); }
     finally { movingRef.current = false; setMoving(false); }
   }
@@ -441,7 +449,7 @@ export function BulkPhotoAssign({
         <button
           type="button"
           onClick={onClose}
-          disabled={applying}
+          disabled={moving}
           aria-label="Close bulk photos"
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))]"
         >
@@ -495,7 +503,7 @@ export function BulkPhotoAssign({
             </div>
           ) : null}
           {uploadNote ? (
-            <p className="text-[0.75rem] text-[hsl(var(--e-danger))]">{uploadNote}</p>
+            <p role="alert" className="text-[0.75rem] text-[hsl(var(--e-danger))]">{uploadNote}</p>
           ) : null}
         </section>
 
@@ -554,40 +562,52 @@ export function BulkPhotoAssign({
                 const isSelected = selectedSet.has(media.key);
                 const label = fieldId ? fieldById.get(fieldId)?.label ?? fieldId : null;
                 return (
-                  <button
-                    key={media.key}
-                    type="button"
-                    onClick={() => toggle(media.key)}
-                    aria-pressed={isSelected}
-                    className={cn(
-                      "relative aspect-square overflow-hidden rounded-[var(--e-radius-sm)] border bg-[hsl(var(--e-surface-sunken))]",
-                      isSelected
-                        ? "border-[hsl(var(--e-gold))] ring-2 ring-[hsl(var(--e-gold))]"
-                        : "border-[hsl(var(--e-border))]"
-                    )}
-                  >
-                    {media.kind === "video" ? (
-                      <video src={media.url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
-                    ) : (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={media.url}
-                        alt={media.name || "photo"}
-                        loading="lazy"
-                        className={cn("h-full w-full object-cover", fieldId ? "opacity-40 grayscale" : null)}
-                      />
-                    )}
-                    {isSelected ? (
-                      <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[hsl(var(--e-gold))] text-[hsl(var(--e-gold-foreground))]">
-                        <Check className="h-3 w-3" />
-                      </span>
+                  <div key={media.key} className="min-w-0 space-y-1">
+                    <button
+                      disabled={moving}
+                      type="button"
+                      onClick={() => toggle(media.key)}
+                      aria-pressed={isSelected}
+                      className={cn(
+                        "relative w-full aspect-square overflow-hidden rounded-[var(--e-radius-sm)] border bg-[hsl(var(--e-surface-sunken))]",
+                        isSelected
+                          ? "border-[hsl(var(--e-gold))] ring-2 ring-[hsl(var(--e-gold))]"
+                          : "border-[hsl(var(--e-border))]"
+                      )}
+                    >
+                      {media.kind === "video" ? (
+                        <video src={media.url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={media.url}
+                          alt={media.name || "photo"}
+                          loading="lazy"
+                          className={cn("h-full w-full object-cover", fieldId ? "opacity-40 grayscale" : null)}
+                        />
+                      )}
+                      {isSelected ? (
+                        <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[hsl(var(--e-gold))] text-[hsl(var(--e-gold-foreground))]">
+                          <Check className="h-3 w-3" />
+                        </span>
+                      ) : null}
+                      {label ? (
+                        <span className="absolute inset-x-0 bottom-0 line-clamp-1 bg-[hsl(var(--e-background)/0.8)] px-1 py-0.5 text-[0.5625rem] font-[600]">
+                          {label}
+                        </span>
+                      ) : null}
+                    </button>
+                    {evidenceScope ? (
+                      <EButton type="button" variant="ghost" size="sm"
+                        className="min-h-11 w-full text-[hsl(var(--e-danger))]"
+                        aria-label={`Remove ${media.name || "photo"} from draft`}
+                        disabled={moving || analysing || pending.some(item => item.status === "uploading")}
+                        onClick={() => void removePhotos([media.key])}
+                      >
+                        <Trash2 aria-hidden="true" className="h-4 w-4 shrink-0" /> Remove
+                      </EButton>
                     ) : null}
-                    {label ? (
-                      <span className="absolute inset-x-0 bottom-0 line-clamp-1 bg-[hsl(var(--e-background)/0.8)] px-1 py-0.5 text-[0.5625rem] font-[600]">
-                        {label}
-                      </span>
-                    ) : null}
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -663,10 +683,18 @@ export function BulkPhotoAssign({
           >
             <Undo2 className="h-4 w-4" /> Unassign
           </EButton>
-          <EButton variant="outline" size="sm" onClick={onClose} disabled={applying}>
+          <EButton variant="outline" size="sm" onClick={onClose} disabled={moving}>
             Done
           </EButton>
-          {evidenceScope ? <EButton variant="ghost" size="sm" disabled={moving || !selected.length} onClick={() => void removeSelected()}>Remove selected; keep originals</EButton> : null}
+          {evidenceScope ? (
+            <EButton type="button" variant="ghost" size="sm"
+              className="min-h-11 text-[hsl(var(--e-danger))]"
+              disabled={moving || analysing || pending.some(item => item.status === "uploading") || !selected.length}
+              onClick={() => void removePhotos(selected)}
+            >
+              <Trash2 aria-hidden="true" className="h-4 w-4" /> Remove selected
+            </EButton>
+          ) : null}
         </div>
       </div>
 
