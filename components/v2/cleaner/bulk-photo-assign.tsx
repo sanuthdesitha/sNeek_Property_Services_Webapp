@@ -122,7 +122,7 @@ export function BulkPhotoAssign({
   const fieldsRef = React.useRef(fields); fieldsRef.current = fields;
   const uploadScopeKey = JSON.stringify(evidenceScope);
   const uploadScopeRef = React.useRef(uploadScopeKey); uploadScopeRef.current = uploadScopeKey;
-  React.useEffect(() => { setPending([]); setBlockedRemoval(null); }, [uploadScopeKey]);
+  React.useEffect(() => { setPending([]); setBlockedRemoval(null); setSelected([]); }, [uploadScopeKey]);
   React.useEffect(() => {
     ++requestRef.current.id; requestRef.current.controller?.abort();
     stopApplyingRef.current = true;
@@ -160,6 +160,11 @@ export function BulkPhotoAssign({
   }, [pool, uploads, fields]);
 
   const visible = hideAssigned ? gallery.filter((g) => g.fieldId === null) : gallery;
+  React.useEffect(() => {
+    const available = new Set(gallery.filter(item => !hideAssigned || !item.fieldId).map(item => item.media.key));
+    setSelected(current => current.filter(key => available.has(key)));
+    setBlockedRemoval(current => current && available.has(current.key) ? current : null);
+  }, [gallery, hideAssigned]);
   const unassignedCount = pool.length;
   const selectedSet = React.useMemo(() => new Set(selected), [selected]);
 
@@ -400,21 +405,26 @@ export function BulkPhotoAssign({
   }
 
   function toggle(key: string) {
+    setBlockedRemoval(current => current?.key === key ? null : current);
     setSelected((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
   }
 
   const selectedAssignedCount = selected.filter((k) => assignedBy[k]).length;
   async function removePhotos(keys: string[], discardReference = false) {
     if (!evidenceScope || movingRef.current || analysing || pending.some(item => item.status === "uploading") || !keys.length) return;
+    keys = Array.from(new Set(keys)).filter(key => visible.some(item => item.media.key === key));
+    if (!keys.length) return;
     if (!window.confirm(discardReference
       ? "Confirm this photo does not belong to this job. Discard only its reference from this draft? The original photo, its capture details and other jobs will stay unchanged. This does not approve it as evidence."
       : `Remove ${keys.length === 1 ? "this photo" : `${keys.length} photos`} from this draft? Original files will be kept.`)) return;
     const startedScope = scopeKey;
     setUploadNote(null);
     movingRef.current = true; setMoving(true);
+    let completed = 0;
     try {
       for (const key of keys) {
         if (scopeKeyRef.current !== startedScope) break;
+        if (!poolRef.current.some(item => item.key === key) && !Object.values(uploadsRef.current).some(items => items.some(item => item.key === key))) continue;
         await removeEvidence(evidenceScope, key, discardReference ? "Cleaner confirmed this photo does not belong to this job draft." : undefined);
         if (scopeKeyRef.current !== startedScope) break;
         const next = { pool: poolRef.current.filter(media => media.key !== key), uploads: Object.fromEntries(Object.entries(uploadsRef.current).map(([field, media]) => [field, media.filter(item => item.key !== key)])) };
@@ -422,10 +432,11 @@ export function BulkPhotoAssign({
         setSelected(current => current.filter(item => item !== key));
         setProposals(current => current.filter(item => item.key !== key));
         setBlockedRemoval(null);
+        completed++;
       }
     } catch (error) {
       if (scopeKeyRef.current === startedScope) {
-        setUploadNote(error instanceof Error ? error.message : "Removal failed.");
+        setUploadNote(`${completed} of ${keys.length} removed. ${error instanceof Error ? error.message : "Removal failed."} Remaining photos were not processed.`);
         const mismatch = error as { key?: string; canDiscardReference?: boolean };
         setBlockedRemoval(mismatch.canDiscardReference && mismatch.key ? { key: mismatch.key, scope: startedScope } : null);
       }
@@ -557,7 +568,8 @@ export function BulkPhotoAssign({
               <input
                 type="checkbox"
                 checked={hideAssigned}
-                onChange={(e) => setHideAssigned(e.target.checked)}
+                disabled={moving}
+                onChange={(e) => { setHideAssigned(e.target.checked); setSelected([]); setBlockedRemoval(null); }}
                 className="h-3.5 w-3.5"
               />
               Hide assigned
@@ -577,13 +589,13 @@ export function BulkPhotoAssign({
                 const label = fieldId ? fieldById.get(fieldId)?.label ?? fieldId : null;
                 return (
                   <div key={media.key} className="min-w-0 space-y-1">
-                    <button
-                      disabled={moving}
-                      type="button"
-                      onClick={() => toggle(media.key)}
-                      aria-pressed={isSelected}
+                    <a
+                      href={media.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Preview ${media.name || "photo"}`}
                       className={cn(
-                        "relative w-full aspect-square overflow-hidden rounded-[var(--e-radius-sm)] border bg-[hsl(var(--e-surface-sunken))]",
+                        "relative block w-full aspect-square overflow-hidden rounded-[var(--e-radius-sm)] border bg-[hsl(var(--e-surface-sunken))]",
                         isSelected
                           ? "border-[hsl(var(--e-gold))] ring-2 ring-[hsl(var(--e-gold))]"
                           : "border-[hsl(var(--e-border))]"
@@ -610,17 +622,11 @@ export function BulkPhotoAssign({
                           {label}
                         </span>
                       ) : null}
-                    </button>
-                    {evidenceScope ? (
-                      <EButton type="button" variant="ghost" size="sm"
-                        className="min-h-11 w-full text-[hsl(var(--e-danger))]"
-                        aria-label={`Remove ${media.name || "photo"} from draft`}
-                        disabled={moving || analysing || pending.some(item => item.status === "uploading")}
-                        onClick={() => void removePhotos([media.key])}
-                      >
-                        <Trash2 aria-hidden="true" className="h-4 w-4 shrink-0" /> Remove
-                      </EButton>
-                    ) : null}
+                    </a>
+                    <label className="flex min-h-11 cursor-pointer items-center justify-center gap-2 text-xs">
+                      <input type="checkbox" aria-label={`Select ${media.name || "photo"}`} checked={isSelected} disabled={moving} onChange={() => toggle(media.key)} className="h-4 w-4" />
+                      Select
+                    </label>
                   </div>
                 );
               })}
@@ -669,8 +675,8 @@ export function BulkPhotoAssign({
             {selectedAssignedCount > 0 ? ` · ${selectedAssignedCount} already filed` : ""}
           </span>
           {selected.length > 0 ? (
-            <button type="button" onClick={() => setSelected([])} className="underline-offset-2 hover:underline">
-              Clear
+            <button type="button" disabled={moving} onClick={() => { setSelected([]); setBlockedRemoval(null); }} className="min-h-11 px-2 underline-offset-2 hover:underline">
+              Clear selection
             </button>
           ) : null}
         </div>

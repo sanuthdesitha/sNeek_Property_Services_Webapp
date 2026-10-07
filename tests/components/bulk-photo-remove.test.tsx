@@ -11,19 +11,19 @@ const photo = (key: string) => ({ key, url: `/${key}.jpg`, kind: "image" as cons
 function Harness({ currentScope = scope }: { currentScope?: typeof scope | null }) {
   const [pool, setPool] = React.useState([photo("one"), photo("two")]);
   const [uploads, setUploads] = React.useState({});
-  return <EvidenceContext.Provider value={currentScope}><button onClick={() => setPool(current => [...current, photo("new")])}>Concurrent upload</button><output data-testid="pool">{pool.map(item => item.key).join(",")}</output><BulkPhotoAssign open onClose={vi.fn()} pool={pool} setPool={setPool} uploads={uploads} setUploads={setUploads} fields={[]} /></EvidenceContext.Provider>;
+  return <EvidenceContext.Provider value={currentScope}><button onClick={() => setPool(current => [...current, photo("new")])}>Concurrent upload</button><button onClick={() => setPool(current => current.filter(item => item.key !== "one"))}>External removal</button><output data-testid="pool">{pool.map(item => item.key).join(",")}</output><BulkPhotoAssign open onClose={vi.fn()} pool={pool} setPool={setPool} uploads={uploads} setUploads={setUploads} fields={[]} /></EvidenceContext.Provider>;
 }
 beforeEach(() => { vi.resetAllMocks(); mocks.remove.mockResolvedValue(undefined); vi.spyOn(window, "confirm").mockReturnValue(true); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
-it("offers an accessible per-photo control and cancel leaves the draft intact", () => {
+it("offers accessible selection and a separate preview and cancel leaves the draft intact", () => {
   vi.mocked(window.confirm).mockReturnValue(false); render(<Harness />);
-  const button = screen.getByRole("button", { name: "Remove one from draft" });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select one" })); const button = screen.getByRole("button", { name: "Remove selected" });
   expect(button.className).toContain("min-h-11"); fireEvent.click(button);
   expect(mocks.remove).not.toHaveBeenCalled(); expect(screen.getByTestId("pool")).toHaveTextContent("one,two");
 });
 it("waits for acknowledgement, ignores repeated clicks and preserves concurrent photos", async () => {
   let resolve!: () => void; mocks.remove.mockImplementation(() => new Promise<void>(r => { resolve = r; }));
-  render(<Harness />); const button = screen.getByRole("button", { name: "Remove one from draft" });
+  render(<Harness />); fireEvent.click(screen.getByRole("checkbox", { name: "Select one" })); const button = screen.getByRole("button", { name: "Remove selected" });
   fireEvent.click(button); fireEvent.click(button); expect(mocks.remove).toHaveBeenCalledTimes(1);
   expect(screen.getByTestId("pool")).toHaveTextContent("one,two");
   fireEvent.click(screen.getByText("Concurrent upload")); await act(async () => resolve());
@@ -31,24 +31,24 @@ it("waits for acknowledgement, ignores repeated clicks and preserves concurrent 
 });
 it("keeps the photo on failure and allows retry", async () => {
   mocks.remove.mockRejectedValueOnce(new Error("Offline. Retry.")); render(<Harness />);
-  fireEvent.click(screen.getByRole("button", { name: "Remove one from draft" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select one" })); fireEvent.click(screen.getByRole("button", { name: "Remove selected" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Offline. Retry.");
   expect(screen.getByTestId("pool")).toHaveTextContent("one,two");
-  fireEvent.click(screen.getByRole("button", { name: "Remove one from draft" }));
+  fireEvent.click(screen.getByRole("button", { name: "Remove selected" }));
   await waitFor(() => expect(screen.getByTestId("pool").textContent).toBe("two"));
 });
 it("does not mutate a changed account context after an in-flight response", async () => {
   let resolve!: () => void; mocks.remove.mockImplementation(() => new Promise<void>(r => { resolve = r; }));
-  const view = render(<Harness />); fireEvent.click(screen.getByRole("button", { name: "Remove one from draft" }));
+  const view = render(<Harness />); fireEvent.click(screen.getByRole("checkbox", { name: "Select one" })); fireEvent.click(screen.getByRole("button", { name: "Remove selected" }));
   view.rerender(<Harness currentScope={{ ...scope, draftIdentity: "other" }} />);
   await act(async () => resolve()); expect(screen.getByTestId("pool")).toHaveTextContent("one,two");
 });
 it("disables removal during upload and preserves the new upload", async () => {
   let resolve!: (value: any) => void; mocks.upload.mockImplementation(() => new Promise(r => { resolve = r; }));
-  render(<Harness />); fireEvent.change(screen.getByLabelText("Choose photos"), { target: { files: [new File(["fixture"], "new.jpg", { type: "image/jpeg" })] } });
-  expect(screen.getByRole("button", { name: "Remove one from draft" })).toBeDisabled();
+  render(<Harness />); fireEvent.click(screen.getByRole("checkbox", { name: "Select one" })); fireEvent.change(screen.getByLabelText("Choose photos"), { target: { files: [new File(["fixture"], "new.jpg", { type: "image/jpeg" })] } });
+  expect(screen.getByRole("button", { name: "Remove selected" })).toBeDisabled();
   await act(async () => resolve({ results: [photo("new")], failedCount: 0 }));
-  expect(screen.getByRole("button", { name: "Remove one from draft" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Remove selected" })).toBeEnabled();
   expect(screen.getByTestId("pool")).toHaveTextContent("one,two,new");
 });
 it("hides removal without an active evidence scope", () => { render(<Harness currentScope={null} />); expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull(); });
@@ -56,10 +56,10 @@ it("hides removal without an active evidence scope", () => { render(<Harness cur
 it("keeps only failed selections after a partially successful batch and safely retries", async () => {
   mocks.remove.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("Retry second photo"));
   render(<Harness />);
-  fireEvent.click(screen.getByRole("button", { name: "one", exact: true }));
-  fireEvent.click(screen.getByRole("button", { name: "two", exact: true }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select one" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select two" }));
   fireEvent.click(screen.getByRole("button", { name: "Remove selected" }));
-  await screen.findByText("Retry second photo");
+  await screen.findByText(/Retry second photo/);
   expect(screen.getByTestId("pool").textContent).toBe("two"); expect(screen.getByText("1 selected")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Remove selected" }));
   await waitFor(() => expect(screen.getByTestId("pool").textContent).toBe(""));
@@ -68,7 +68,7 @@ it("keeps only failed selections after a partially successful batch and safely r
 
 it("requires a separate confirmation to discard a wrong capture reference", async () => {
   mocks.remove.mockRejectedValueOnce(Object.assign(new Error("Different capture context"), { key: "one", canDiscardReference: true }));
-  render(<Harness />); fireEvent.click(screen.getByRole("button", { name: "Remove one from draft" }));
+  render(<Harness />); fireEvent.click(screen.getByRole("checkbox", { name: "Select one" })); fireEvent.click(screen.getByRole("button", { name: "Remove selected" }));
   const discard = await screen.findByRole("button", { name: "Discard wrong draft reference" });
   vi.mocked(window.confirm).mockReturnValueOnce(false); fireEvent.click(discard); expect(mocks.remove).toHaveBeenCalledTimes(1);
   fireEvent.click(discard); await waitFor(() => expect(screen.getByTestId("pool").textContent).toBe("two"));
@@ -76,8 +76,28 @@ it("requires a separate confirmation to discard a wrong capture reference", asyn
 });
 it("does not copy a late upload into a different job/account context", async () => {
   let resolve!: (value: any) => void; mocks.upload.mockImplementation(() => new Promise(r => { resolve = r; }));
-  const view = render(<Harness />); fireEvent.change(screen.getByLabelText("Choose photos"), { target: { files: [new File(["fixture"], "old.jpg", { type: "image/jpeg" })] } });
+  const view = render(<Harness />); fireEvent.click(screen.getByRole("checkbox", { name: "Select one" })); fireEvent.change(screen.getByLabelText("Choose photos"), { target: { files: [new File(["fixture"], "old.jpg", { type: "image/jpeg" })] } });
   view.rerender(<Harness currentScope={{ ...scope, jobId: "other-job", draftIdentity: "other" }} />);
   await act(async () => resolve({ results: [photo("old-job-upload")], failedCount: 0 }));
-  expect(screen.getByTestId("pool").textContent).toBe("one,two"); expect(screen.getByRole("button", { name: "Remove one from draft" })).toBeEnabled();
+  expect(screen.getByTestId("pool").textContent).toBe("one,two"); expect(screen.getByRole("button", { name: "Remove selected" })).toBeDisabled();
+});
+
+it("preview is separate, clear and scope changes reset selection", () => {
+ const view = render(<Harness />);
+ expect(screen.getByRole("link", { name: "Preview one" })).toHaveAttribute("href", "/one.jpg");
+ expect(screen.queryByRole("button", { name: "Remove one from draft" })).toBeNull();
+ fireEvent.click(screen.getByRole("checkbox", { name: "Select one" }));
+ fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+ expect(screen.getByRole("checkbox", { name: "Select one" })).not.toBeChecked();
+ fireEvent.click(screen.getByRole("checkbox", { name: "Select one" }));
+ view.rerender(<Harness currentScope={{ ...scope, jobId: "other" }} />);
+ expect(screen.getByRole("checkbox", { name: "Select one" })).not.toBeChecked();
+});
+
+it("drops a stale selection when refreshed data removes the reference", async () => {
+ render(<Harness />);
+ fireEvent.click(screen.getByRole("checkbox", { name: "Select one" }));
+ fireEvent.click(screen.getByRole("button", { name: "External removal" }));
+ await waitFor(()=>expect(screen.getByRole("button", { name: "Remove selected" })).toBeDisabled());
+ expect(mocks.remove).not.toHaveBeenCalled();
 });

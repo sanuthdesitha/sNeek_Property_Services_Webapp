@@ -66,7 +66,7 @@ for (const width of [320, 390, 1440]) test(`uploaded batch is reviewed, strictly
   await page.screenshot({ path: info.outputPath(`bulk-review-${width}.png`), fullPage: true });
   await page.getByRole("button", { name: "Accept 1 high-confidence suggestion" }).click();
   await expect(page.getByText("Unassigned: 5")).toBeVisible(); expect(moves).toHaveLength(1); expect(moves[0].move.version).toBe(0);
-  await page.getByRole("button", { name: /one.jpg Kitchen bench/ }).click(); await page.getByRole("button", { name: "Unassign", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Select one.jpg" }).click(); await page.getByRole("button", { name: "Unassign", exact: true }).click();
   await expect(page.getByText("Unassigned: 6")).toBeVisible(); expect(moves).toHaveLength(2); expect(moves[1].destination.type).toBe("bulkPool"); await ui.fits();
   await page.getByRole("button", { name: "Choose section", exact: true }).first().click(); await expect(page.getByText("Move 1 photo to…")).toBeVisible();
   await page.getByRole("button", { name: "Close picker" }).click(); await ui.fits();
@@ -79,20 +79,25 @@ for (const width of [320, 390, 1440]) test(`draft photo removal is accessible an
     if (route.request().url().endsWith("/evidence")) {
       expect(route.request().method()).toBe("DELETE");
       const { key } = route.request().postDataJSON(); removals++;
-      return removals === 1 ? route.fulfill({ status: 503, json: { error: "Connection interrupted. Retry removal." } }) : route.fulfill({ json: { ok: true, key } });
+      return removals === 2 ? route.fulfill({ status: 503, json: { error: "Connection interrupted. Retry removal." } }) : route.fulfill({ json: { ok: true, key } });
     }
     return route.fulfill({ contentType: "text/html", body: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>' });
   });
   await page.goto("http://localhost:3999/bulk"); await page.addStyleTag({ content: css }); await page.addScriptTag({ content: bundle });
   const ui = new BulkPhotos(page); await ui.upload();
-  const remove = page.getByRole("button", { name: "Remove one.jpg from draft", exact: true });
+  await page.getByRole("checkbox", { name: "Select one.jpg" }).check();
+  await page.getByRole("checkbox", { name: "Select two.jpg" }).check();
+  expect((await page.getByRole("checkbox", { name: "Select one.jpg" }).locator("..").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await expect(page.getByRole("link", { name: "Preview one.jpg" })).toHaveAttribute("target", "_blank");
+  const remove = page.getByRole("button", { name: "Remove selected", exact: true });
   await remove.scrollIntoViewIfNeeded(); const box = await remove.boundingBox();
   expect(box!.height).toBeGreaterThanOrEqual(44); expect(box!.width).toBeGreaterThanOrEqual(44);
   await ui.fits(); await page.screenshot({ path: info.outputPath(`bulk-remove-${width}.png`), fullPage: true });
   page.once("dialog", dialog => dialog.dismiss()); await remove.click(); expect(removals).toBe(0);
   page.once("dialog", dialog => dialog.accept()); await remove.click(); await expect(page.getByRole("alert")).toContainText("Connection interrupted");
-  await expect(page.getByText("Unassigned: 6")).toBeVisible();
+  await expect(page.getByText("Unassigned: 5")).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Select two.jpg" })).toBeChecked();
   await remove.focus(); page.once("dialog", dialog => dialog.accept()); await page.keyboard.press("Enter");
-  await expect(page.getByText("Unassigned: 5")).toBeVisible(); await expect(remove).toHaveCount(0);
-  expect(removals).toBe(2); await ui.fits();
+  await expect(page.getByText("Unassigned: 4")).toBeVisible(); await expect(remove).toBeDisabled();
+  expect(removals).toBe(3); await ui.fits();
 });

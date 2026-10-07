@@ -82,13 +82,13 @@ it("waits for confirmed draft save, proposes only unassigned receipts, and expli
   await waitFor(() => expect(state().uploads.kitchen.map((row: any) => row.key)).toEqual(["one"]));
   expect(mocks.move).toHaveBeenCalledWith(scope, media("one"), { type: "bulkPool" }, { type: "formField", fieldId: "kitchen" }, { captureId: "capture-one", version: 2 });
   expect(state().uploads.bathroom.map((row: any) => row.key)).toEqual(["manual"]); expect(state().pool.map((row: any) => row.key)).toEqual(["two"]);
-  fireEvent.click(screen.getByRole("button", { name: /Photo one Kitchen photos/ })); fireEvent.click(screen.getByRole("button", { name: "Unassign" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select Photo one" })); fireEvent.click(screen.getByRole("button", { name: "Unassign" }));
   await waitFor(() => expect(state().pool.map((row: any) => row.key)).toContain("one"));
 });
 it("does not overwrite a manual assignment made while analysis is running", async () => {
   const pending = deferred<Response>(); fetcher.mockImplementation((url: string) => url.endsWith("/draft") ? Promise.resolve(json(draft())) : pending.promise); render(<Harness />);
   fireEvent.click(screen.getByRole("button", { name: "Auto assign", exact: true })); await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
-  fireEvent.click(screen.getByRole("button", { name: "Photo one", exact: true })); fireEvent.click(screen.getByRole("button", { name: /Assign 1 to Kitchen photos/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Select Photo one", exact: true })); fireEvent.click(screen.getByRole("button", { name: /Assign 1 to Kitchen photos/ }));
   await waitFor(() => expect(state().uploads.kitchen).toHaveLength(1)); await act(async () => pending.resolve(json(response())));
   expect(screen.queryByText("Bench and sink visible")).not.toBeInTheDocument(); expect(mocks.move).toHaveBeenCalledTimes(1);
 });
