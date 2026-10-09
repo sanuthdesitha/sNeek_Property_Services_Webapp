@@ -94,6 +94,12 @@ const withPWA = withPWAInit({
       ...retainedCacheRules,
       {
         urlPattern: ({ sameOrigin, url: { pathname } }) => sameOrigin &&
+          (pathname === "/manifest.json" || pathname === "/favicon.ico" || pathname === "/icon" || pathname.startsWith("/icons/")),
+        handler: "NetworkOnly",
+        method: "GET",
+      },
+      {
+        urlPattern: ({ sameOrigin, url: { pathname } }) => sameOrigin &&
           (pathname === "/urgent-stock" || pathname === "/api/inventory/urgent-stock"),
         handler: "NetworkOnly",
         method: "GET",

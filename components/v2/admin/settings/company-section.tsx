@@ -236,7 +236,7 @@ export function CompanySection({ initial, readOnly }: { initial: CompanySettings
         <div className="grid gap-6 lg:grid-cols-2">
           <EField
             label="Logo — for light backgrounds"
-            hint="Your coloured/dark artwork. Used on quotes, invoices, checklists, reports and email headers (all white/ivory)."
+            hint="Your coloured/dark artwork. Also used for browser tabs and Android/Apple home-screen icons. Square artwork gives the clearest icon. Save changes before installing; an existing shortcut may need to be removed and added again."
           >
             {logoTile("logo")}
           </EField>

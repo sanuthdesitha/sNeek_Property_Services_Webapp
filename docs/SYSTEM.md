@@ -148,6 +148,8 @@ All tunable behaviour lives in one JSON blob per key in the `AppSetting` table (
 
 Notable groups on the `AppSettings` interface:
 
+**Browser and installed-app branding (2026-10).** The saved light-background Company & brand logo now supplies `/favicon.ico`, `/icon`, the versioned `/icons/{size}` PNG routes and a dynamic `/manifest.json`. Root metadata supplies a dedicated 180px Apple touch icon; Android receives 192/512px regular icons plus a separate 512px maskable icon with safe padding. The manifest identity/start URL remains `/`, and its name follows the company name. Branding changes version the icon URLs. Manifest/icon routes bypass service-worker runtime caching; generated icons revalidate after five minutes. Failed asset reads return the bundled logo without caching the failure. Existing phone shortcuts may require removal and re-addition. No migration or new branding field is needed.
+
 - **Identity/branding**: `companyName`, `companyPhone`, `logoUrl` / `logoDarkBgUrl` / `reportLogoUrl`, `timezone`, `portalTheme`, `websiteContent` (the whole public site's copy), `defaultPortalVersion` (A1).
 - **`accountability`** — the cleaner quality system: `scoring` (minor/major/critical deductions, score floor, band thresholds), `bonuses` (quality-streak and monthly-ranking amounts and eligibility minima), `rectification` (time-banded deduction amounts, manager-review threshold, rework-offer TTL), admin-defined `issueCategories`, pattern-detection windows, `requireJobStartConfirmation`, `selfInspectionBlocksSubmit`.
 - **`autoClockOut`** — `enabled`, `stopAtEstimatedDuration` (legacy cut-off, default false — the timer runs past the estimate), `graceMinutes`, `fallbackAtMidnight`, `maxJobLengthHours`, and **`geofenceExit` (2026-07, default true)** — the kill-switch for GPS departure auto clock-out (A8).
@@ -1593,6 +1595,8 @@ Property access appears in Set up only; setup reference images appear in Get the
 Effective Jackson Airbnb turnover forms add required Ring/Minut charging proof, reusing an unconditional existing device check where possible. Otherwise a charging outcome requires either proof or an absent/unable-to-charge explanation. Augmentation follows rotational filtering so every clean has its charging checks. The established Jackson property-name convention determines applicability; Jackson P3's owner-confirmed Ring removal remains excluded. Reworks and historical submissions are unchanged. Shared finite status animations extend to cleaner, client and laundry surfaces; reduced-motion settings remain respected.
 
 ## Change Log
+
+- **2026-10-09 (brand icons):** Connected the saved company logo to browser favicons, Android install icons and Apple touch icons, with dynamic manifest metadata, bounded image conversion and versioned URLs.
 
 - **2026-10-09 (cleaner refinement):** Added same-account multi-device receipt sync, popup photo selection/preview, concurrent acknowledged assignment, audited older-form recovery, compact cleaner briefing/route, scoped stage memory, in-job urgent stock and Jackson charging evidence. See the review record for verification and remaining limits.
 

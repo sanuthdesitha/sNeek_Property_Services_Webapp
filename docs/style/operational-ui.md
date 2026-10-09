@@ -196,3 +196,5 @@ Keep persistent view administration behind the page-heading three-dot menu → V
 - Show one authoritative laundry update. Put property access only in Setup and property setup references in Travel and Setup. Keep the cleaner dashboard route compact; the route page owns the full itinerary.
 - Charging checks require proof for a positive outcome and an explanation for an exception. Resolve current applicability before validation; never infer completed work from missing evidence.
 - Use shared SVG status icons with finite motion and reduced-motion support. Dates use the organization timezone. Restored stages must still respect current workflow gates.
+
+Browser/install icons use the existing Company & brand light-background logo. Keep the manifest identity stable; version image URLs when saved branding changes. Generate actual square PNGs with an opaque background, preserve artwork proportions and reserve Android maskable safe space. Do not offer duplicate favicon/mobile-logo settings for the same brand identity. Existing installed shortcuts may retain an old icon until the user re-adds them.

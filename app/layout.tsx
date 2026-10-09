@@ -1,4 +1,5 @@
 /* eslint-disable @next/next/no-sync-scripts -- Account transport must bind before hydration starts requests. */
+import { appIconUrl, getAppBrand } from "@/lib/branding/app-icons";
 import { retainedContextId } from "@/lib/auth/retained-context";
 import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
@@ -56,7 +57,9 @@ const fontEstateSerif = Fraunces({
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://sneekproservices.com.au";
 
-export const metadata: Metadata = {
+export async function generateMetadata(): Promise<Metadata> {
+  const brand = await getAppBrand().catch(() => ({ name: "sNeek Property Services", logo: "", version: "default" }));
+  return {
   metadataBase: new URL(SITE_URL),
   title: {
     default: "sNeek Property Services",
@@ -65,17 +68,13 @@ export const metadata: Metadata = {
   description: "Professional cleaning, Airbnb turnovers, property reports, laundry coordination, and practical property support across Sydney.",
   manifest: "/manifest.json",
   icons: {
-    icon: [
-      { url: "/favicon.ico", type: "image/png", sizes: "192x192" },
-      { url: "/icon", type: "image/svg+xml", sizes: "any" },
-      { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
-      { url: "/icon-512.png", type: "image/png", sizes: "512x512" },
-    ],
-    apple: [{ url: "/icon-192.png", type: "image/png", sizes: "192x192" }],
-    shortcut: [{ url: "/favicon.ico", type: "image/png", sizes: "192x192" }],
+    icon: [{ url: appIconUrl(brand, 32), type: "image/png", sizes: "32x32" }],
+    apple: [{ url: appIconUrl(brand, 180), type: "image/png", sizes: "180x180" }],
+    shortcut: [{ url: appIconUrl(brand, 32), type: "image/png", sizes: "32x32" }],
   },
-  appleWebApp: { capable: true, statusBarStyle: "default", title: "sNeek Property Services" },
-};
+  appleWebApp: { capable: true, statusBarStyle: "default", title: brand.name },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: "#0284c7",
