@@ -41,32 +41,35 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
     const now = new Date();
     let durationM: number | null = null;
+    let clockOut: { timeLogId: string; stoppedAt: string } | null = null;
     if (openLog) {
       durationM = Math.max(0, Math.round((now.getTime() - openLog.startedAt.getTime()) / 60_000));
-      await tx.timeLog.update({ where: { id: openLog.id }, data: { stoppedAt: now, durationM } });
+      const closed = await tx.timeLog.updateMany({ where: { id: openLog.id, stoppedAt: null }, data: { stoppedAt: now, durationM } });
+      if (closed.count === 1) clockOut = { timeLogId: openLog.id, stoppedAt: now.toISOString() };
+      else durationM = null;
     }
 
-    if (!openLog && current.formPendingAfterClockOut) return { status: 200, body: { ok: true, durationM, alreadyStopped: true } };
+    if (!clockOut && current.formPendingAfterClockOut) return { status: 200, body: { ok: true, durationM, clockOut: null, alreadyStopped: true } };
 
     await tx.job.update({
       where: { id: params.id },
       // PAUSED + a "form pending" flag: clocked out, but NOT completed until the
       // form is submitted. The job won't be billed/QA'd until then.
-      data: { status: JobStatus.PAUSED, formPendingAfterClockOut: true, clockedOutEarlyAt: now },
+      data: { status: JobStatus.PAUSED, formPendingAfterClockOut: true, ...(clockOut ? { clockedOutEarlyAt: now } : {}) },
     });
 
     await tx.auditLog.create({
       data: {
         userId: session.user.id,
         jobId: params.id,
-        action: "CLOCK_OUT_EARLY",
+        action: clockOut ? "CLOCK_OUT_EARLY" : "FORM_PENDING_AFTER_CLOCK_OUT",
         entity: "Job",
         entityId: params.id,
         after: { durationM, formPending: true } as any,
       },
     });
 
-    return { status: 200, body: { ok: true, durationM } };
+    return { status: 200, body: { ok: true, durationM, clockOut, alreadyStopped: !clockOut } };
     });
     return NextResponse.json(result.body, { status: result.status });
   } catch (err: any) {

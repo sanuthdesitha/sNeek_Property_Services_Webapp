@@ -387,7 +387,7 @@ export default async function AdminCommandPage() {
   const recentFeedback = metrics?.recentFeedback ?? [];
 
   return (
-    <div className="space-y-8">
+    <div className="min-w-0 space-y-8 break-words">
       <LivePageRefresh />
       {/* Greeting header */}
       <header className="e-rise">
@@ -402,7 +402,7 @@ export default async function AdminCommandPage() {
       </header>
 
       {/* KPI row */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <EStatCard
           label="Jobs today"
           value={String(jobsTotal)}
@@ -434,9 +434,9 @@ export default async function AdminCommandPage() {
       </section>
 
       {/* Live-now band + today status breakdown */}
-      <section className="grid gap-4 lg:grid-cols-3">
-        <ECard className="lg:col-span-1">
-          <ECardHeader className="flex-row items-center justify-between">
+      <section className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-3">
+        <ECard className="min-w-0 lg:col-span-1">
+          <ECardHeader className="flex-row flex-wrap items-center justify-between gap-3">
             <ECardTitle className="flex items-center gap-2">
               <Radio className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> On shift now
             </ECardTitle>
@@ -459,7 +459,7 @@ export default async function AdminCommandPage() {
           </ECardBody>
         </ECard>
 
-        <ECard className="lg:col-span-2">
+        <ECard className="min-w-0 lg:col-span-2">
           <ECardHeader>
             <ECardTitle className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Today by status
@@ -488,11 +488,11 @@ export default async function AdminCommandPage() {
         </ECard>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Attention queue */}
-        <section className="lg:col-span-1">
+        <section className="min-w-0 lg:col-span-1">
           <ECard>
-            <ECardHeader className="flex-row items-center justify-between">
+            <ECardHeader className="flex-row flex-wrap items-center justify-between gap-3">
               <ECardTitle className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-warning))]" /> Needs attention
               </ECardTitle>
@@ -522,9 +522,9 @@ export default async function AdminCommandPage() {
         </section>
 
         {/* Today's dispatch */}
-        <section className="lg:col-span-2">
+        <section className="min-w-0 lg:col-span-2">
           <ECard>
-            <ECardHeader className="flex-row items-center justify-between">
+            <ECardHeader className="flex-row flex-wrap items-center justify-between gap-3">
               <ECardTitle>Today&apos;s dispatch</ECardTitle>
               <div className="flex gap-2">
                 <EButton asChild variant="outline" size="sm"><Link href="/v2/admin/ops/map"><MapPin className="h-3.5 w-3.5" /> Map</Link></EButton>
@@ -568,7 +568,7 @@ export default async function AdminCommandPage() {
       </div>
 
       {/* Money · Laundry · Upcoming · Recent activity */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Money snapshot */}
         <ECard>
           <ECardHeader>
@@ -607,7 +607,7 @@ export default async function AdminCommandPage() {
 
         {/* Upcoming (next 6 days) */}
         <ECard>
-          <ECardHeader className="flex-row items-center justify-between">
+          <ECardHeader className="flex-row flex-wrap items-center justify-between gap-3">
             <ECardTitle className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Upcoming
             </ECardTitle>

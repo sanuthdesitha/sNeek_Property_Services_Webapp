@@ -26,8 +26,8 @@ export async function POST(
     // lib/jobs/clock. A second tap on the property's NFC tag does exactly
     // the same thing, and the two must not drift apart.
     const result = await withCleanerAction({ session, jobId: params.id, action: "stop", requestId: _req.headers.get("X-Cleaner-Action-Id"), draftIdentity: _req.headers.get("X-Cleaner-Draft-Identity"), body: {} }, async tx => {
-      const { stopped, durationM } = await clockOutCleaner({ jobId: params.id, userId: session.user.id, tx });
-      return { status: 200, body: { ok: true, durationM, alreadyStopped: !stopped } };
+      const { stopped, durationM, clockOut } = await clockOutCleaner({ jobId: params.id, userId: session.user.id, tx });
+      return { status: 200, body: { ok: true, durationM, clockOut: clockOut ?? null, alreadyStopped: !stopped } };
     });
     return NextResponse.json(result.body, { status: result.status });
   } catch (err: any) {

@@ -109,14 +109,16 @@ export async function handleGeofenceDeparture(
 
   const durationM = Math.max(0, Math.round((now.getTime() - openLog.startedAt.getTime()) / 60_000));
 
-  await db.timeLog.update({
-    where: { id: openLog.id },
+  const closed = await db.timeLog.updateMany({
+    where: { id: openLog.id, stoppedAt: null },
     data: {
       stoppedAt: now,
       durationM,
       notes: [openLog.notes, "Auto clocked out — left job site (GPS)"].filter(Boolean).join(" | "),
     },
   });
+
+  if (closed.count !== 1) return { confirmed: true, departedAtStamped, clockedOut: false };
 
   // Pause the job ONLY when no other assignee still has an open timer on it —
   // a teammate still working keeps the job IN_PROGRESS. Same forward-status

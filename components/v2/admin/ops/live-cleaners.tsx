@@ -140,7 +140,7 @@ export function LiveCleaners({ mapDate }: { mapDate: string }) {
 
   return (
     <ECard>
-      <ECardHeader className="flex-row items-start justify-between gap-3">
+      <ECardHeader className="flex-row flex-wrap items-start justify-between gap-3">
         <div>
           <ECardTitle className="flex items-center gap-2">
             <RadioTower

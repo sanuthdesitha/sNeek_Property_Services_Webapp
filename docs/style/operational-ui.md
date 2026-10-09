@@ -198,3 +198,5 @@ Keep persistent view administration behind the page-heading three-dot menu → V
 - Use shared SVG status icons with finite motion and reduced-motion support. Dates use the organization timezone. Restored stages must still respect current workflow gates.
 
 Browser/install icons use the existing Company & brand light-background logo. Keep the manifest identity stable; version image URLs when saved branding changes. Generate actual square PNGs with an opaque background, preserve artwork proportions and reserve Android maskable safe space. Do not offer duplicate favicon/mobile-logo settings for the same brand identity. Existing installed shortcuts may retain an old icon until the user re-adds them.
+
+Mobile grid panels must use an explicit shrinkable base track (`grid-cols-1`) and `min-w-0` on spanning children. Wrap card-header actions. Keep wide tables scrollable inside their panel; verify actual panel bounds at phone widths, since page-level overflow clipping can hide broken layouts.

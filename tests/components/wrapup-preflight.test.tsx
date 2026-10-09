@@ -9,7 +9,7 @@ vi.mock("@/components/v2/cleaner/use-submission-preflight", () => ({ useSubmissi
 vi.mock("@/components/v2/cleaner/media-capture", () => ({ MediaCapture: () => null }));
 afterEach(() => { cleanup(); checks.blockers = []; });
 function api(patch: Partial<WorkspaceApi> = {}): WorkspaceApi {
-  return { locked: false, status: "IN_PROGRESS", laundryEnabled: false, schema: null, answers: {}, uploads: {}, property: {}, jobTasks: [], taskDrafts: {}, allTasksDecided: true,
+  return { timeState: { isRunning: true, completedSeconds: 0 }, locked: false, status: "IN_PROGRESS", laundryEnabled: false, schema: null, answers: {}, uploads: {}, property: {}, jobTasks: [], taskDrafts: {}, allTasksDecided: true,
     busy: null, addressLine: "Test property", jobId: "job", carryHasNew: false, finalCheckupItems: [], bulkPool: [], laundryPhoto: [], carryPhotos: [], carryNotes: [],
     requestSubmit: vi.fn(), setActiveStage: vi.fn(), ...patch } as unknown as WorkspaceApi;
 }
@@ -63,4 +63,13 @@ describe("wrap-up preflight panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit & clock out" }));
     expect(model.requestSubmit).toHaveBeenCalledOnce();
   });
+});
+
+it("submits only the form after the server clock is stopped", () => {
+  const model = api({ timeState: { isRunning: false, completedSeconds: 3600 } });
+  render(<StageWrapup api={model} />);
+  expect(screen.queryByRole("button", { name: "Submit & clock out" })).not.toBeInTheDocument();
+  expect(screen.getByText(/keeps your recorded clock-out unchanged/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Submit form" }));
+  expect(model.requestSubmit).toHaveBeenCalledOnce();
 });

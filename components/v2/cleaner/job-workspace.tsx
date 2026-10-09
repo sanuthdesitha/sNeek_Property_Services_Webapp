@@ -1157,14 +1157,14 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     let actionError: unknown;
     setBusy("clockout-early");
     try {
-      await onlineAction.post(`/api/cleaner/jobs/${jobId}/clock-out-early`, {}, draftIdentity);
-      try {
+      const data = await onlineAction.post(`/api/cleaner/jobs/${jobId}/clock-out-early`, {}, draftIdentity);
+      if (data.clockOut?.timeLogId) try {
         const gps = await getGps();
-        await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng });
+        await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng, timeLogId: data.clockOut.timeLogId });
       } catch {
         /* GPS optional */
       }
-      flash("success", "Clocked out. Come back any time to finish the form — the job isn't complete until it's submitted.");
+      flash("success", `${data.clockOut ? "Clocked out." : "Your clock is already stopped."} Come back any time to finish the form — the job isn't complete until it's submitted.`);
       await load();
     } catch (e: any) {
       actionError = e;
@@ -1413,10 +1413,11 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
       draftTimerRef.current = null;
       clearCleanerLocalDraft(draftIdentity);
-      // Best-effort clock-out GPS after a successful submit.
-      try {
+      // Only the server can confirm this submission actually stopped a clock.
+      // A stale tab or a delayed form must not request a new checkout location.
+      if (data.clockOut?.timeLogId) try {
         const gps = await getGps();
-        await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng });
+        await post(`/api/cleaner/jobs/${jobId}/gps-checkout`, { lat: gps.lat, lng: gps.lng, timeLogId: data.clockOut.timeLogId });
       } catch {
         /* GPS optional at clock-out */
       }

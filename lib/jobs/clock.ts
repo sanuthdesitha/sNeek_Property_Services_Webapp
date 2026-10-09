@@ -19,6 +19,7 @@ export interface ClockOutResult {
   stopped: boolean;
   /** Minutes recorded on the log that was closed. */
   durationM: number;
+  clockOut?: { timeLogId: string; stoppedAt: string };
 }
 
 export async function clockOutCleaner(input: {
@@ -45,10 +46,12 @@ export async function clockOutCleaner(input: {
     Math.round((now.getTime() - openLog.startedAt.getTime()) / 60_000)
   );
 
-  await client.timeLog.update({
-    where: { id: openLog.id },
+  const closed = await client.timeLog.updateMany({
+    where: { id: openLog.id, stoppedAt: null },
     data: { stoppedAt: now, durationM },
   });
+
+  if (closed.count !== 1) return { stopped: false, durationM: 0 };
 
   // Only move an actively-running job back — never drag one that has advanced
   // to SUBMITTED/QA_REVIEW/COMPLETED/INVOICED. A stale open log, or another
@@ -62,5 +65,5 @@ export async function clockOutCleaner(input: {
     data: { status: JobStatus.PAUSED },
   });
 
-  return { stopped: true, durationM };
+  return { stopped: true, durationM, clockOut: { timeLogId: openLog.id, stoppedAt: now.toISOString() } };
 }

@@ -113,6 +113,17 @@ test("owner Jobs loads real records and retries a temporary error without losing
       }),
     ).toHaveCount(0);
   }
+  await context.addCookies([{ name: "sneek.portal-version", value: "v2", domain: "127.0.0.1", path: "/" }]);
+  for (const href of ["/v2/admin", "/v2/admin/ops"]) for (const width of [390, 1280]) for (const theme of ["light", "dark"]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ colorScheme: theme as "light" | "dark" });
+    await page.goto(href);
+    await page.evaluate(dark => { document.querySelectorAll(".dark").forEach(node => node.classList.remove("dark")); document.documentElement.classList.toggle("dark", dark); }, theme === "dark");
+    await expect(page.getByRole("heading", { name: href.endsWith("ops") ? "Operations" : "Operations command", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => Array.from(document.querySelectorAll('main section, main [class*="rounded-[var(--e-radius-lg)]"]')).every(node => node.getBoundingClientRect().right <= innerWidth + 1))).toBe(true);
+    await page.screenshot({ path: info.outputPath(`${href.includes("ops") ? "live-ops" : "dashboard"}-${width}-${theme}.png`), fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
   let fail = true;
   await page.route("**/api/jobs?*", (route) =>
     fail

@@ -267,7 +267,7 @@ export default async function V2AdminOpsPage() {
     "flex items-center justify-between gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-3 transition-colors hover:bg-[hsl(var(--e-muted))]";
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6 break-words">
       <EPageHeader
         eyebrow="Operations"
         title="Operations"
@@ -281,13 +281,13 @@ export default async function V2AdminOpsPage() {
         }
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {summaryCards.map((c) => (
           <EStatCard key={c.label} label={c.label} value={c.value} delta={c.delta} deltaTone="neutral" icon={c.icon} />
         ))}
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2">
         {/* Dispatch blockers */}
         <ECard>
           <ECardHeader>
@@ -365,7 +365,7 @@ export default async function V2AdminOpsPage() {
         </ECard>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-3">
         {/* New leads */}
         <ECard>
           <ECardHeader>

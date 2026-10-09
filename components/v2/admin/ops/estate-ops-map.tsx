@@ -499,7 +499,7 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
   return (
     <div className="space-y-3">
       {snapshotFailed && <p role="status" className="text-sm text-[hsl(var(--e-warning))]">Location refresh failed. Showing last received positions; retrying automatically.</p>}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         {/* ── Map ─────────────────────────────────────────────────────── */}
         <div className="relative">
           {!mapReady ? (

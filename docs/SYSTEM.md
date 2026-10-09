@@ -610,6 +610,8 @@ The cleaner job workspace is `components/v2/cleaner/job-workspace.tsx` (page: `a
 
 #### Clock in/out, time logs, auto clock-out
 
+Late form submissions preserve existing clock-out times and GPS. Wrap-up shows “Submit form” when the clock is stopped. Stop, early-stop and submit return a clock segment receipt only when they close an open TimeLog; classic and v2 clients capture optional checkout GPS only with that receipt. The GPS endpoint rechecks assignment, latest owned segment and a 120-second capture window, locks the job, and preserves the first location for that segment. Its timestamp is the actual stop time. Delayed/capped historical stops deliberately do not acquire a new location. Manual, submission and geofence clock closers use conditional updates to avoid overwriting a stop recorded concurrently. No schema migration is required.
+
 `TimeLog` rows record each work segment (`startedAt`, `stoppedAt`, `durationM`); a raw-SQL **partial unique index** enforces at most one open log per `(jobId, userId)` (migration `20260703120000_timelog_open_unique` — deliberately not a Prisma `@@unique`, which would block re-clock-in). `POST …/start` opens a log and sets `IN_PROGRESS`; `POST …/stop` closes it and moves the job to `PAUSED` unless a teammate still has an open timer. Cleaners can request time corrections via `TimeLogAdjustmentRequest` (admin-reviewed).
 
 Auto clock-out has two rails:
@@ -1601,6 +1603,8 @@ Effective Jackson Airbnb turnover forms add required Ring/Minut charging proof, 
 **Live API authorization and Admin rights (2026-10).** Protected API handlers authorize locally through `requireRole`/`requireSession` or audited wrappers, including live account/role validation, impersonation identity and OPS feature enforcement. Middleware supplies trusted path/method headers but no longer repeats API authorization via an HTTP session callback. Effective ADMIN and accounts holding ADMIN have full feature access independently of manager packs or policy-store availability; this never gives an impersonated target the actor’s owner rights. Revoked/inactive accounts remain unauthorized. Read-only impersonation, retained identity validation and route-specific sensitive-action checks remain enforced. Page navigation and retained-account resolution still use the trusted `NEXTAUTH_URL_INTERNAL` transport (the standard runner defaults to loopback at its Next port); those callbacks reject redirects and time out after five seconds. The Estate Jobs error card distinguishes session, permission, service and malformed-payload failures.
 
 ## Change Log
+
+- **2026-10-09 (clock preservation and mobile panels):** Bound optional checkout GPS to newly closed clock segments; protected existing times/coordinates against late form submission and concurrent requests. Stopped-clock wrap-up shows “Submit form”. Dashboard and Live Ops use shrinkable single-column mobile grids and wrapping card headers.
 
 - **2026-10-09 (Admin availability):** Removed redundant API HTTP permission checks after auditing local route guards; made ADMIN exemption from manager feature packs explicit and tested a fully unreachable callback.
 

@@ -511,7 +511,7 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
             </p>
           ) : null}
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            Submitting sends the form + checklist for QA and records your clock-out.
+            {api.timeState?.isRunning ? "Submitting sends the form + checklist for QA and records your clock-out." : "Your clock is already stopped. Submitting sends the form + checklist for QA and keeps your recorded clock-out unchanged."}
             {api.finalCheckupItems.length > 0
               ? ` A quick final check-up (${api.finalCheckupItems.length} item${
                   api.finalCheckupItems.length === 1 ? "" : "s"
@@ -525,7 +525,7 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
             onClick={() => api.requestSubmit()}
           >
             {busy === "submit" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            Submit &amp; clock out
+            {api.timeState?.isRunning ? "Submit & clock out" : "Submit form"}
           </EButton>
 
           {/* Tappable validation rows */}

@@ -2117,13 +2117,14 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     }
   }
 
-  async function sendGpsSnapshot(path: string, kind: "check-in" | "check-out" = "check-in") {
+  async function sendGpsSnapshot(path: string, kind: "check-in" | "check-out" = "check-in", timeLogId?: string) {
+    if (kind === "check-out" && !timeLogId) return;
     try {
       const fix = await getAccuratePosition();
       const res = await fetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy }),
+        body: JSON.stringify({ lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, timeLogId }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return;
@@ -2519,7 +2520,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
       return;
     }
     await load();
-    void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`, "check-out");
+    void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`, "check-out", body.clockOut?.timeLogId);
     setConfirmOnSite(false);
     setConfirmChecklist(false);
     showPopupNotification("Timer stopped", "You can now start another assigned job.");
@@ -2540,7 +2541,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
         return;
       }
       await load();
-      void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`, "check-out");
+      void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`, "check-out", body.clockOut?.timeLogId);
       showPopupNotification("Clocked out", "Come back any time to finish the form. This job isn't complete until the form is submitted.");
     } finally {
       setClockingOutEarly(false);
@@ -3280,7 +3281,7 @@ function clockLimitSourceLabel(value: string | null | undefined) {
     );
     clearDraftState();
     stopTicking();
-    void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`, "check-out");
+    void sendGpsSnapshot(`/api/cleaner/jobs/${params.id}/gps-checkout`, "check-out", body.clockOut?.timeLogId);
     router.push("/cleaner");
     return true;
   }

@@ -671,7 +671,7 @@ export async function POST(
     // Media, stock, clock and laundry persist atomically with the final receipt.
     const inventoryUsage = sanitizeInventoryUsage(body.data as Record<string, unknown>);
     let stockCorrectionRequired = false;
-    const { submission, lowStockRows } = await (async (tx: Prisma.TransactionClient) => {
+    const { submission, lowStockRows, clockOut } = await (async (tx: Prisma.TransactionClient) => {
         const created = await tx.formSubmission.create({
           data: {
             jobId: params.id,
@@ -779,6 +779,7 @@ export async function POST(
         laundryBagCount: body.laundryBagCount, laundryPhotoKey, laundrySkipReasonCode, laundrySkipReasonNote,
         source: "FINAL_SUBMISSION", portalUrl: resolveAppUrl("/laundry", req) }, { transaction: tx, afterCommit: deliveryAfterCommit });
     }
+    let clockOut: { timeLogId: string; stoppedAt: string } | null = null;
     if (openLog) {
       const review = buildClockReview({
         job: {
@@ -794,15 +795,17 @@ export async function POST(
       const stoppedAt = review.suggestedStoppedAt;
       const durationM = review.cappedRunningDurationMinutes;
 
-      await db.timeLog.update({
-        where: { id: openLog.id },
+      const closedClock = await db.timeLog.updateMany({
+        where: { id: openLog.id, stoppedAt: null },
         data: {
           stoppedAt,
           durationM,
         },
       });
 
-      if (body.clockAdjustmentRequest) {
+      if (closedClock.count === 1) clockOut = { timeLogId: openLog.id, stoppedAt: stoppedAt.toISOString() };
+
+      if (closedClock.count === 1 && body.clockAdjustmentRequest) {
         const requestedDurationM = Number(body.clockAdjustmentRequest.requestedDurationM);
         if (Number.isFinite(requestedDurationM) && requestedDurationM > 0) {
           const requestedCurrentSegmentMinutes = Math.max(
@@ -846,7 +849,7 @@ export async function POST(
       }
     }
 
-        return { submission: created, lowStockRows: low };
+        return { submission: created, lowStockRows: low, clockOut };
       })(db);
 
     // Pay requests: same dual shape. Each committed request becomes a PENDING
@@ -1098,9 +1101,9 @@ export async function POST(
       await sendLifecycleEmail({ jobId: params.id, stage: "REPORT_READY", mode: "auto" });
     }
 
-    return NextResponse.json({ ok: true, submissionId: submission.id, ...(stockCorrectionRequired ? { stockCorrectionRequired: true } : {}), ...(payRequestsAlreadyRecorded ? { payRequestsAlreadyRecorded } : {}) });
+    return NextResponse.json({ ok: true, submissionId: submission.id, clockOut, ...(stockCorrectionRequired ? { stockCorrectionRequired: true } : {}), ...(payRequestsAlreadyRecorded ? { payRequestsAlreadyRecorded } : {}) });
     });
-    return NextResponse.json({ ok: true, submissionId: submission.id, ...(stockCorrectionRequired ? { stockCorrectionRequired: true } : {}), ...(payRequestsAlreadyRecorded ? { payRequestsAlreadyRecorded } : {}) });
+    return NextResponse.json({ ok: true, submissionId: submission.id, clockOut, ...(stockCorrectionRequired ? { stockCorrectionRequired: true } : {}), ...(payRequestsAlreadyRecorded ? { payRequestsAlreadyRecorded } : {}) });
     };
     const response = await run();
     return { status: response.status, body: await response.json() };

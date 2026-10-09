@@ -6,7 +6,7 @@ import { JobStatus, JobType, Role } from "@prisma/client";
 vi.mock("@/lib/ai/property-model-training", () => ({ enqueuePropertyModelTraining: vi.fn().mockResolvedValue(false) }));
 
 const mocks = vi.hoisted(() => ({
-  role: vi.fn(), assignment: vi.fn(), job: vi.fn(), template: vi.fn(), timeLog: vi.fn(),
+  role: vi.fn(), assignment: vi.fn(), job: vi.fn(), template: vi.fn(), timeLog: vi.fn(), closeClock: vi.fn(),
   claim: vi.fn(), transaction: vi.fn(), create: vi.fn(), media: vi.fn(), update: vi.fn(),
   settings: vi.fn(), continuation: vi.fn(), tasks: vi.fn(),
   report: vi.fn(), notify: vi.fn(), lifecycle: vi.fn(), automations: vi.fn(), qa: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock("@/lib/db", () => ({ db: {
   jobAssignment: { findFirst: mocks.assignment },
   job: { findUnique: mocks.job, updateMany: mocks.claim },
   formTemplate: { findUnique: mocks.template, findMany: mocks.templates, findFirst: mocks.anchor, create: mocks.provision },
-  timeLog: { findFirst: mocks.timeLog, findMany: async () => [], update: mocks.update },
+  timeLog: { findFirst: mocks.timeLog, findMany: async () => [], update: mocks.update, updateMany: mocks.closeClock },
   $transaction: mocks.transaction,
 } }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.role }));
@@ -98,6 +98,7 @@ beforeEach(() => {
   mocks.templates.mockImplementation(async () => { const value = await mocks.template(); return value ? [value] : []; });
   mocks.anchor.mockResolvedValue({ id: "template", isActive: false, serviceType: JobType.AIRBNB_TURNOVER, schema: {} });
   mocks.timeLog.mockResolvedValue(null);
+  mocks.closeClock.mockResolvedValue({ count: 1 });
   mocks.settings.mockResolvedValue({
     autoClockOut: {}, noPhotoExemptCleanerIds: [],
     accountability: { requiredChecklistTicksBlockSubmit: true },
@@ -120,7 +121,7 @@ beforeEach(() => {
       user: { findMany: mocks.office, findUnique: async () => ({ isActive: true, role: Role.CLEANER, extraRoles: [] }) },
       jobAssignment: { findFirst: mocks.assignment },
       formTemplate: { findUnique: mocks.template, findMany: mocks.templates, findFirst: mocks.anchor, create: mocks.provision },
-      timeLog: { findFirst: mocks.timeLog, findMany: async () => [], update: mocks.update },
+      timeLog: { findFirst: mocks.timeLog, findMany: async () => [], update: mocks.update, updateMany: mocks.closeClock },
       cleanerPayAdjustment: { create: mocks.pay, findFirst: mocks.payExisting },
       formSubmission: { create: mocks.create }, submissionMedia: { createMany: mocks.media },
       job: { update: mocks.update, findUnique: mocks.job, updateMany: mocks.claim },
@@ -293,7 +294,7 @@ describe("real cleaner submit form contract", () => {
       __templateSchema: { sections: [] }, // Client cannot replace server snapshot.
     });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, submissionId: "submission" });
+    expect(await response.json()).toEqual({ ok: true, submissionId: "submission", clockOut: null });
     expect(events).toEqual(["transaction", "claim", "snapshot", "commit"]);
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(enqueuePropertyModelTraining).toHaveBeenCalledWith("property", expect.objectContaining({ formSubmission: { create: mocks.create }, submissionMedia: { createMany: mocks.media } }));
@@ -566,4 +567,26 @@ it("records work completion and missing photo evidence separately without invent
 it("rejects evidence from another job without submitting or modifying records", async () => {
   const response = await submit({ uploads: { photo: ["forms/another-job/capture/cleaner/photo.jpg"] } });
   expect(response.status).toBe(409); expect(await response.json()).toMatchObject({ code: "FOREIGN_DRAFT_REFERENCE" }); expectNoWrites();
+});
+
+it("submits a later form without stopping the clock again", async () => {
+ job.status = JobStatus.PAUSED; job.formPendingAfterClockOut = true;
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] } });
+ expect(response.status).toBe(200);
+ expect((await response.json()).clockOut).toBeNull();
+ expect(mocks.closeClock).not.toHaveBeenCalled();
+ for (const [args] of mocks.claim.mock.calls) {
+   expect(args.data).not.toHaveProperty("gpsCheckOutAt");
+   expect(args.data).not.toHaveProperty("gpsCheckOutLat");
+ }
+});
+it.each([1, 0])("only returns a GPS clock receipt when this submit closes the clock (count %s)", async (count) => {
+ mocks.timeLog.mockResolvedValue({ id: "clock", startedAt: new Date(Date.now() - 600_000) });
+ mocks.closeClock.mockResolvedValue({ count });
+ const response = await submit({ note: "Done", uploads: { photo: ["proof.jpg"] } });
+ expect(response.status).toBe(200);
+ const body = await response.json();
+ expect(mocks.closeClock.mock.calls[0][0].where).toEqual({ id: "clock", stoppedAt: null });
+ if (count) expect(body.clockOut).toMatchObject({ timeLogId: "clock" });
+ else expect(body.clockOut).toBeNull();
 });
