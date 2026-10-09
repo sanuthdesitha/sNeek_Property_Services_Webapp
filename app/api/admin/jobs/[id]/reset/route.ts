@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, LaundryStatus, QaAssignmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { verifySensitiveAction, type SensitiveActionCredentials } from "@/lib/security/admin-verification";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { getJobReference } from "@/lib/jobs/job-number";
 import {
@@ -104,7 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Anything that destroys records requires a PIN/password, same bar as the
     // full reset and delete actions. A status-only reset does not.
     if (plan.destructive) {
-      await verifySensitiveAction(session.user.id, (body?.security ?? null) as any);
+      await verifySensitiveAction(session.user.id, body?.security as SensitiveActionCredentials | undefined, "jobs.reset");
     }
 
     // Cleaners to notify (captured BEFORE any unassign runs).

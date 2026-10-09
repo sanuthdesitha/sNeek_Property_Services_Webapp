@@ -1,0 +1,22 @@
+import { act, cleanup, render } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+const m = vi.hoisted(() => ({ toast: vi.fn(), update: vi.fn(), dismiss: vi.fn() }));
+vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: m.toast }) }));
+import { GlobalRequestProgress } from "@/components/shared/global-request-progress";
+beforeEach(() => { vi.useFakeTimers(); vi.resetAllMocks(); m.toast.mockReturnValue({ id: "request", update: m.update, dismiss: m.dismiss }); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+it("keeps a long-running request visible and does not call HTTP failure a success", async () => {
+  let finish!: (response: Response) => void;
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { finish = resolve; })));
+  render(<GlobalRequestProgress />);
+  const request = window.fetch("/api/reports/generate", { method: "POST" });
+  await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+  expect(m.toast).toHaveBeenCalledWith(expect.objectContaining({ duration: Infinity }));
+  expect(m.dismiss).not.toHaveBeenCalled();
+  await act(async () => { finish(new Response("Denied", { status: 403 })); await request; });
+  expect(m.update).toHaveBeenLastCalledWith(expect.objectContaining({ variant: "destructive" }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
+  expect(m.dismiss).not.toHaveBeenCalled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(m.dismiss).toHaveBeenCalledOnce();
+});

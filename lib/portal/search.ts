@@ -1,3 +1,4 @@
+import { getOpsAccess } from "@/lib/rbac/ops-access";
 import "server-only";
 import { ClientInvoiceStatus, Prisma, QaAssignmentStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -123,11 +124,13 @@ export async function searchPortal(rawQuery: string): Promise<{ groups: PortalSe
       row.property.name, `/v2/laundry/tracking#task-${encodeURIComponent(row.id)}`, row.property.suburb)) }] };
   }
   if (role === Role.ADMIN || role === Role.OPS_MANAGER) {
-    return { groups: await Promise.all([
-      jobs({}, query, "admin"),
-      // Matches the existing list's includeOneOff=1 scope (still active only).
-      properties({ isActive: true }, query, "admin"), people(query), invoices({}, query, "admin"),
-    ]) };
+    const levels = await getOpsAccess(session.user);
+    const searches: Promise<PortalSearchGroup>[] = [];
+    if (!levels || levels.jobs !== "off") searches.push(jobs({}, query, "admin"));
+    if (!levels || levels.properties !== "off") searches.push(properties({ isActive: true }, query, "admin"));
+    if (!levels || levels.accounts !== "off") searches.push(people(query));
+    if (!levels || levels.finance !== "off") searches.push(invoices({}, query, "admin"));
+    return { groups: await Promise.all(searches) };
   }
   if (role === Role.CLIENT || role === Role.VA) {
     const settings = await searchSettings();

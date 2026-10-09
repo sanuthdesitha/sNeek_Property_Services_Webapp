@@ -6,7 +6,7 @@ import postcss from "postcss";
 import tailwind from "tailwindcss";
 let bundle: string, css: string;
 test.beforeAll(async () => {
- bundle=(await build({entryPoints:[path.resolve("e2e/cleaner/fixtures/job-clean-ui-entry.tsx")],bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",define:{"process.env":"{}","process.env.NODE_ENV":'"test"'},alias:{"@":process.cwd()}})).outputFiles[0].text;
+ bundle=(await build({entryPoints:[path.resolve("e2e/cleaner/fixtures/job-clean-ui-entry.tsx")],bundle:true,loader:{".css":"empty"},write:false,format:"iife",platform:"browser",jsx:"automatic",define:{"process.env":"{}","process.env.NODE_ENV":'"test"'},alias:{"@":process.cwd()}})).outputFiles[0].text;
  css=(await postcss([tailwind({config:path.resolve("tailwind.config.ts")})]).process(await fs.readFile("app/globals.css","utf8"),{from:"app/globals.css"})).css+await fs.readFile("app/v2/estate.css","utf8");
 });
 for(const width of [320,390,1440]) test(`cleaning fields remain usable without the top summary at ${width}px`,async({page},info)=>{

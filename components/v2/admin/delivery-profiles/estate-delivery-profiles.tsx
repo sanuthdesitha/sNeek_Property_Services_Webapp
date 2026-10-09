@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Estate-native client delivery profiles editor. Same endpoint + payload the v1
  * DeliveryProfilesWorkspace uses:
@@ -57,7 +59,7 @@ export function EstateDeliveryProfiles() {
   const [drafts, setDrafts] = React.useState<Record<string, DraftRow>>({});
   const [loading, setLoading] = React.useState(true);
   const [savingId, setSavingId] = React.useState<string | null>(null);
-  const [query, setQuery] = React.useState("");
+  const [query, setQuery] = useRestorableState("estate-delivery-profiles:query", "");
 
   const load = React.useCallback(async () => {
     setLoading(true);

@@ -1,5 +1,6 @@
 "use client";
-import { OperationsButton } from "@/components/operations/ui";
+import { TurnoverProfit } from "@/components/operations/turnover-profit";
+import { OperationsDisclosure } from "@/components/operations/ui";
 
 /**
  * ESTATE finance overview — v2-native replacement for the v1
@@ -83,7 +84,7 @@ function BreakdownList({
   );
 }
 
-export function FinanceOverview({ data }: { data: FinanceOverviewData }) {
+export function FinanceOverview({ data, canReviewCosts = false }: { data: FinanceOverviewData; canReviewCosts?: boolean }) {
   const m = data.metrics;
   return (
     <div className="space-y-6">
@@ -123,7 +124,7 @@ export function FinanceOverview({ data }: { data: FinanceOverviewData }) {
         />
       </div>
 
-      <OperationsButton asChild variant="outline" className="my-2"><a href="/turnover-profit">Review profit for an individual turnover</a></OperationsButton>
+      {canReviewCosts ? <OperationsDisclosure title="Review profit for an individual turnover"><TurnoverProfit panel /></OperationsDisclosure> : null}
       <BreakdownList eyebrow="Trend" title="Revenue by month" rows={data.revenueByMonth} />
     </div>
   );

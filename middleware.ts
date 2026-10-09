@@ -1,3 +1,4 @@
+import { canUseOpsPath, opsRequestFeature, type OpsLevels } from "@/lib/rbac/ops-catalog";
 import { withAuth } from "next-auth/middleware";
 import type { NextRequestWithAuth } from "next-auth/middleware";
 import { NextRequest, NextResponse, type NextFetchEvent } from "next/server";
@@ -53,6 +54,15 @@ async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?
     }
 
     if (pathname.startsWith("/api")) {
+      // API authorization must also cover legacy handlers and their status codes.
+      // The session-validation endpoints are unclassified, preventing recursion.
+      if (token && opsRequestFeature(pathname + req.nextUrl.search) !== null && !pathname.startsWith("/api/admin/impersonate")) {
+        const validation = req.retainedValidation ?? await validateActiveSession(req);
+        if (validation.valid !== true) return applySecurityHeaders(NextResponse.json({ error: validation.valid === false ? "UNAUTHORIZED" : "Permissions are temporarily unavailable." }, { status: validation.valid === false ? 401 : 503 }));
+        if (validation.opsAccess && !canUseOpsPath(validation.opsAccess, pathname + req.nextUrl.search, req.method)) {
+          return applySecurityHeaders(NextResponse.json({ error: "This feature or action is disabled in your operations-manager permissions.", code: "OPS_FEATURE_FORBIDDEN" }, { status: 403 }));
+        }
+      }
       return applySecurityHeaders(NextResponse.next());
     }
 
@@ -92,6 +102,12 @@ async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?
       role = validation.role ?? role;
       heldRoles = validation.heldRoles ?? (role ? [role] : undefined);
       houseLook = validation.defaultPortalVersion;
+      if (validation.valid === "indeterminate" && role === Role.OPS_MANAGER) {
+        return applySecurityHeaders(new NextResponse("Permissions are temporarily unavailable. Please retry.", { status: 503 }));
+      }
+      if (validation.opsAccess && !canUseOpsPath(validation.opsAccess, pathname + req.nextUrl.search, req.method)) {
+        return applySecurityHeaders(NextResponse.redirect(new URL("/v2/admin/access-denied", req.url)));
+      }
 
       const isForcePasswordPage = pathname === "/force-password-reset";
       // v2-context users get the Estate onboarding; v1 keeps the classic one.
@@ -309,6 +325,10 @@ const normalMiddleware = withAuth(portalMiddleware, {
 export default async function middleware(original: NextRequest, event: NextFetchEvent) {
   const headers = new Headers(original.headers);
   headers.delete("x-sneek-retained-context");
+  // Overwrite client-supplied metadata before any server authorization reads it.
+  const logicalPath = readAccountPath(original.nextUrl.pathname)?.pathname ?? original.nextUrl.pathname;
+  headers.set("x-sneek-request-path", logicalPath + original.nextUrl.search);
+  headers.set("x-sneek-request-method", original.method);
   // nextUrl may contain the server's bind address (0.0.0.0) behind a proxy.
   // Browser referrers and redirects use the public host, as NextAuth does.
   const publicHost = headers.get("x-forwarded-host")?.split(",")[0]?.trim() || headers.get("host") || original.nextUrl.host;
@@ -452,7 +472,7 @@ async function validateActiveSession(req: NextRequestWithAuth) {
     });
 
     if (!response.ok) {
-      return { valid: false as const, role: undefined, heldRoles: undefined };
+      return { valid: false as const, role: undefined, heldRoles: undefined, opsAccess: null };
     }
 
     const data = (await response.json()) as {
@@ -462,9 +482,11 @@ async function validateActiveSession(req: NextRequestWithAuth) {
       requiresPasswordReset?: boolean;
       requiresOnboarding?: boolean;
       defaultPortalVersion?: PortalVersion;
+      opsAccess?: OpsLevels | null;
     };
     return {
       valid: data.valid === true,
+      opsAccess: data.opsAccess ?? null,
       role: data.role as Role | undefined,
       heldRoles: Array.isArray(data.heldRoles) ? (data.heldRoles as Role[]) : undefined,
       requiresPasswordReset: data.requiresPasswordReset === true,
@@ -476,6 +498,7 @@ async function validateActiveSession(req: NextRequestWithAuth) {
   } catch {
     return {
       valid: "indeterminate" as const,
+      opsAccess: null,
       role: req.nextauth.token?.role as Role | undefined,
       // No extra roles known on a failed call. Falling back to the token's
       // single role is the safe direction: it can only ever grant LESS than the

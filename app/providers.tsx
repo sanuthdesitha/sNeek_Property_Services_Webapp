@@ -1,5 +1,6 @@
 "use client";
 
+import { OpsAccessProvider } from "@/components/shared/ops-access-provider";
 import { SessionProvider } from "next-auth/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -67,7 +68,7 @@ export function Providers({ children, accountContext = null }: { children: React
     <SessionProvider>
       <QueryClientProvider client={queryClient}>
         <ReturnSync onHardSync={() => setHardRefreshKey((current) => current + 1)} />
-        <div key={hardRefreshKey}>{children}</div>
+        <OpsAccessProvider><div key={hardRefreshKey}>{children}</div></OpsAccessProvider>
         <GlobalRequestProgress />
         <LiveNotifications />
         {!accountContext ? <><NativeDevicePushRegistration /><WebPushSubscriber /></> : null}

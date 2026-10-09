@@ -83,12 +83,11 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
     }
 
     const recordFix = async (
-      coords: { lat: number; lng: number; accuracy: number | null; heading?: number | null; speed?: number | null },
+      coords: { lat: number; lng: number; accuracy: number | null; heading?: number | null; speed?: number | null; timestamp: string },
     ) => {
       if (cancelled) return;
-      // Only watchPosition comes through here. The heartbeat below enqueues
-      // directly on purpose — it exists to re-emit a position that has NOT
-      // changed, which is exactly what this throttle is built to suppress.
+      // Throttle repeated watch callbacks. Heartbeat measurements below are
+      // obtained independently with maximumAge: 0.
       const previous = lastCoordsRef.current;
       if (previous) {
         const sinceMs = Date.now() - lastEnqueueAtRef.current;
@@ -107,7 +106,7 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
           accuracy: coords.accuracy ?? undefined,
           heading: coords.heading ?? undefined,
           speed: coords.speed ?? undefined,
-          timestamp: new Date().toISOString(),
+          timestamp: coords.timestamp,
         });
       } catch {
         // IndexedDB unavailable / quota exceeded — best-effort.
@@ -124,7 +123,7 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           accuracy: pos.coords.accuracy ?? null,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date(pos.timestamp).toISOString(),
         };
         setLastFix(fix);
         void recordFix({
@@ -133,6 +132,7 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
           accuracy: pos.coords.accuracy ?? null,
           heading: pos.coords.heading,
           speed: pos.coords.speed,
+          timestamp: new Date(pos.timestamp).toISOString(),
         });
       },
       () => {},
@@ -147,7 +147,7 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           accuracy: pos.coords.accuracy ?? null,
-          timestamp: new Date().toISOString(),
+          timestamp: new Date(pos.timestamp).toISOString(),
         };
         setLastFix(fix);
         await recordFix({
@@ -156,6 +156,7 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
           accuracy: pos.coords.accuracy ?? null,
           heading: pos.coords.heading,
           speed: pos.coords.speed,
+          timestamp: new Date(pos.timestamp).toISOString(),
         });
       },
       (err) => {
@@ -246,35 +247,34 @@ export function useGpsTracker({ jobId, enabled = true }: UseGpsTrackerOpts) {
     };
   }, [active, enabled, scope, jobId]);
 
-  // Heartbeat: while enabled, re-emit the last known coordinates if the watch
-  // hasn't produced anything recently (stationary cleaner). This keeps the
-  // admin live map "fresh" for the whole active-job window even when the phone
-  // isn't moving. It piggybacks on the same IndexedDB queue + flusher.
+  // A heartbeat requests a new fix. Re-stamping old coordinates as "now"
+  // makes a lost signal look live and can misplace a moving cleaner indefinitely.
   useEffect(() => {
-    if (!active) return;
+    if (!active || !navigator.geolocation) return;
     let cancelled = false;
-    const beat = setInterval(async () => {
-      if (cancelled) return;
-      const coords = lastCoordsRef.current;
-      if (!coords) return;
-      if (Date.now() - lastEnqueueAtRef.current < HEARTBEAT_INTERVAL_MS) return;
-      lastEnqueueAtRef.current = Date.now();
-      try {
-        await enqueuePing({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          jobId,
-          scope: scope!,
-          lat: coords.lat,
-          lng: coords.lng,
-          accuracy: coords.accuracy ?? undefined,
-          timestamp: new Date().toISOString(),
-        });
-      } catch {
-        // best-effort
-      }
+    let pending = false;
+    const beat = setInterval(() => {
+      if (cancelled || pending || Date.now() - lastEnqueueAtRef.current < HEARTBEAT_INTERVAL_MS) return;
+      pending = true;
+      navigator.geolocation.getCurrentPosition(async position => {
+        pending = false;
+        if (cancelled) return;
+        const fix = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          timestamp: new Date(position.timestamp).toISOString(),
+        };
+        setLastFix(fix);
+        lastCoordsRef.current = fix;
+        lastEnqueueAtRef.current = Date.now();
+        try {
+          await enqueuePing({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, jobId, scope: scope!, ...fix });
+        } catch { /* Offline queue unavailable; the next genuine fix retries. */ }
+      }, () => { pending = false; }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 });
     }, HEARTBEAT_INTERVAL_MS);
     return () => { cancelled = true; clearInterval(beat); };
-  }, [active, enabled, jobId, scope]);
+  }, [active, jobId, scope]);
 
   return { permission, lastFix };
 }

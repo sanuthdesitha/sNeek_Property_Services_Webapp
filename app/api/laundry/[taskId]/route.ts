@@ -1,3 +1,4 @@
+import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -33,6 +34,7 @@ import {
 const deleteSchema = z.object({
   mode: z.enum(["SUPPRESS", "PERMANENT"]).default("SUPPRESS"),
   force: z.boolean().optional(),
+  security: z.object({ pin: z.string().optional(), password: z.string().optional() }).optional(),
   reason: z.string().trim().max(2000).optional(),
 });
 
@@ -61,7 +63,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { taskId: s
     // LAUNDRY is allowed through requireRole so the refusal below can be a
     // helpful "use the approval request instead" rather than a bare 403.
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.LAUNDRY]);
-    const { mode, force, reason } = deleteSchema.parse(await req.json().catch(() => ({})));
+    const { mode, force, reason, security } = deleteSchema.parse(await req.json().catch(() => ({})));
 
     const existing = await db.laundryTask.findUnique({
       where: { id: params.taskId },
@@ -74,10 +76,14 @@ export async function DELETE(req: NextRequest, { params }: { params: { taskId: s
       return NextResponse.json({ error: "Laundry task not found." }, { status: 404 });
     }
 
+    const protectedRemoval = mode === "PERMANENT" || force === true;
+    if (protectedRemoval) await verifySensitiveAction(session.user.id, security, "laundry.delete");
+
     const decision = evaluateLaundryDelete({
       role: session.user.role,
       task: existing,
       force,
+      delegated: session.user.role === Role.OPS_MANAGER && protectedRemoval,
     });
     if (!decision.ok) {
       return NextResponse.json(

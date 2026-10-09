@@ -10,7 +10,7 @@ vi.mock("@/lib/security/admin-verification", () => ({ verifySensitiveAction: vi.
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
 vi.mock("@/lib/notifications/delivery", () => ({ deliverNotificationToRecipients: vi.fn() }));
 vi.mock("@/lib/notifications/lifecycle", () => ({ sendLifecycleEmail: vi.fn() }));
-import { PATCH } from "@/app/api/admin/jobs/[id]/route";
+import { GET, PATCH } from "@/app/api/admin/jobs/[id]/route";
 const timestamp = "2026-10-01T00:00:00.000Z";
 let job: any;
 beforeEach(() => { vi.resetAllMocks(); job = { id: "j", propertyId: "p", status: "COMPLETED", internalNotes: null, updatedAt: new Date(timestamp), completedAt: new Date(timestamp), scheduledDate: new Date(timestamp), startTime: "10:00", dueTime: "14:00", property: { clientId: "c", name: "Property" }, assignments: [] }; m.auth.mockResolvedValue({ user: { id: "admin" } }); m.read.mockResolvedValue(job); m.end.mockResolvedValue(job); m.updateMany.mockResolvedValue({ count: 1 }); m.sync.mockResolvedValue({ addedTitles: [], canonicalTasks: [] }); m.notify.mockResolvedValue(undefined); });
@@ -63,4 +63,16 @@ it("notification failure after commit returns success rather than inviting a dup
 });
 it.each([["UNAUTHORIZED",401],["FORBIDDEN",403]])("authorization denies %s before any mutation", async (message,status) => {
  m.auth.mockRejectedValue(new Error(String(message))); expect((await patch({ fixedPrice: 10 })).status).toBe(status); expect(m.updateMany).not.toHaveBeenCalled();
+});
+
+
+it.each([
+  { role: "ADMIN", primaryRole: "ADMIN", allowed: true },
+  { role: "OPS_MANAGER", primaryRole: "OPS_MANAGER", allowed: false },
+  { role: "OPS_MANAGER", primaryRole: "ADMIN", allowed: false },
+])("job rate navigation follows the effective role: %j", async ({ role, primaryRole, allowed }) => {
+  m.auth.mockResolvedValue({ user: { id: "actor", role, primaryRole } });
+  const response = await GET(new NextRequest("http://localhost/api/admin/jobs/j"), { params: { id: "j" } });
+  expect(response.status).toBe(200);
+  expect((await response.json()).capabilities).toEqual({ reviewHolidayRates: allowed });
 });

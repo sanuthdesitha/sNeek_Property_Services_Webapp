@@ -5,7 +5,10 @@ import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 const origin = process.env.SNEEK_TEST_SERVER_ORIGIN, database = process.env.SNEEK_TEST_DATABASE_URL;
 test.skip(!origin || !database, "Requires isolated fixture server and database");
+// Includes multiple portal journeys plus desktop/mobile light/dark captures.
+test.setTimeout(90_000);
 const [admin, cleaner, client, property, job] = Array.from({ length: 5 }, () => randomUUID());
+const clientUser = randomUUID();
 const password = "Care-fixture-password-27!";
 let db: PrismaClient;
 test.beforeAll(async () => {
@@ -14,6 +17,7 @@ test.beforeAll(async () => {
   const passwordHash = await bcrypt.hash(password, 4);
   await db.user.createMany({ data: [{ id: admin, email: `${admin}@example.invalid`, role: "ADMIN", passwordHash }, { id: cleaner, email: `${cleaner}@example.invalid`, role: "CLEANER", hourlyRate: 40, passwordHash }] });
   await db.client.create({ data: { id: client, name: "Jackson" } });
+  await db.user.create({ data: { id: clientUser, clientId: client, role: "CLIENT", email: `${clientUser}@example.invalid`, passwordHash } });
   await db.property.create({ data: { id: property, name: "Browser fixture property", clientId: client, address: "Fixture", suburb: "Fixture", inventoryEnabled: true } });
   await db.propertyClientRate.create({ data: { propertyId: property, jobType: "AIRBNB_TURNOVER", baseCharge: 100 } });
   await db.job.create({ data: { id: job, jobNumber: job, propertyId: property, jobType: "AIRBNB_TURNOVER", status: "ASSIGNED", scheduledDate: new Date(Date.now() + 2 * 86400000), startTime: "09:00", endTime: "11:00", estimatedHours: 2, assignments: { create: { userId: cleaner, payRate: 40, responseStatus: "ACCEPTED" } } } });
@@ -28,7 +32,7 @@ test.afterAll(async () => {
   await db.propertyClientRate.deleteMany({ where: { propertyId: property } });
   await db.jobTask.deleteMany({ where: { propertyId: property } });
   await db.jobAssignment.deleteMany({ where: { jobId: job } }); await db.job.delete({ where: { id: job } });
-  await db.property.delete({ where: { id: property } }); await db.client.delete({ where: { id: client } });
+  await db.property.delete({ where: { id: property } }); await db.user.delete({ where: { id: clientUser } }); await db.client.delete({ where: { id: client } });
   await db.user.deleteMany({ where: { id: { in: [admin, cleaner] } } }); await db.$disconnect();
 });
 
@@ -63,5 +67,27 @@ test("office captures memory, configures inspection with paid time, and keeps un
  await expect(page.getByText(/Inspection due: Initial inspection needed/)).toBeVisible();
  await expect(page.getByText(/INITIAL_INSPECTION/)).toHaveCount(0);
  await captureOperationsLayout(page,"care");
+ await page.goto(`${origin}/v2/admin/properties/${property}`);
+ await page.getByRole("button", { name: /Jobs & history/ }).click();
+ await page.getByRole("button", { name: "Property memory and care", exact: true }).click();
+ await expect(page.getByLabel("Property memory note")).toBeVisible({ timeout: 20_000 });
+ await page.getByLabel("Property memory note").fill("Keep this draft while collapsed");
+ await page.getByRole("button", { name: "Property memory and care", exact: true }).click();
+ await page.getByRole("button", { name: "Property memory and care", exact: true }).click();
+ await expect(page.getByLabel("Property memory note")).toHaveValue("Keep this draft while collapsed");
+ await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+ await captureOperationsLayout(page,"care-integrated");
  await context.close();
+ const clientContext = await browser.newContext();
+ await clientContext.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+ const clientCsrf = await (await clientContext.request.get(`${origin}/api/auth/csrf`)).json();
+ await clientContext.request.post(`${origin}/api/auth/callback/credentials`, { form: { email: `${clientUser}@example.invalid`, password, csrfToken: clientCsrf.csrfToken, json: "true" } });
+ const clientPage = await clientContext.newPage();
+ await clientPage.goto(`${origin}/v2/client/properties/${property}`);
+ await clientPage.getByRole("button", { name: "Planned and completed property care", exact: true }).click();
+ await expect(clientPage.getByRole("heading", { name: "Work reported complete — evidence missing", exact: true })).toBeVisible({ timeout: 20_000 });
+ await expect(clientPage.getByLabel("Reason for this change")).toHaveCount(0);
+ await expect(clientPage.getByText("Curtain in bedroom requires gentle care")).toHaveCount(0);
+ await expect(clientPage.getByRole("heading", { level: 1 })).toHaveCount(1);
+ await clientContext.close();
 });

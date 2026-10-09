@@ -1,3 +1,5 @@
+import { getOpsAccess } from "@/lib/rbac/ops-access";
+import { canUseOpsPath } from "@/lib/rbac/ops-catalog";
 import { NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
@@ -98,6 +100,11 @@ export async function GET(req: NextRequest) {
             where: { id: session.user.id }, select: { isActive: true, role: true },
           });
           if (!actor?.isActive || (actor.role !== Role.ADMIN && actor.role !== Role.OPS_MANAGER)) {
+            cleanup();
+            return;
+          }
+          const access = await getOpsAccess({ id: session.user.id, role: actor.role });
+          if (access && !canUseOpsPath(access, "/api/admin/ops/live-locations/stream", "GET")) {
             cleanup();
             return;
           }

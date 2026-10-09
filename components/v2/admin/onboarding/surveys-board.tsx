@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE onboarding surveys board — v2-native port of the v1 admin onboarding
  * list (app/admin/onboarding/page.tsx): the property onboarding surveys with
@@ -61,8 +63,8 @@ type SurveyRow = {
 export function OnboardingSurveysBoard() {
   const [surveys, setSurveys] = React.useState<SurveyRow[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [search, setSearch] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState("all");
+  const [search, setSearch] = useRestorableState("surveys-board:search", "");
+  const [statusFilter, setStatusFilter] = useRestorableState("surveys-board:statusFilter", "all");
   const [deleteId, setDeleteId] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState(false);
 

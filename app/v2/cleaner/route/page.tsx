@@ -124,7 +124,7 @@ async function loadTodayStops(userId: string): Promise<{ stops: Stop[]; isoDate:
   return { stops, isoDate };
 }
 
-export default async function V2CleanerRoutePage() {
+export default async function V2CleanerRoutePage({ searchParams }: { searchParams?: { jobId?: string } }) {
   let session;
   try {
     session = await requireRole([Role.CLEANER, Role.ADMIN, Role.OPS_MANAGER]);
@@ -158,6 +158,7 @@ export default async function V2CleanerRoutePage() {
         description="Your live en-route surface with a GPS heartbeat, or the full timeline with navigation deep links."
       />
       <RouteDriving
+        preferredJobId={searchParams?.jobId}
         initialDate={isoDate}
         initialStops={stops}
         userId={session.user.id}

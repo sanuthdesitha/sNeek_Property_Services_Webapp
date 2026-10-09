@@ -27,38 +27,44 @@ import {
 
 export function useRestorableState<T>(
   key: string,
-  initial: T
+  initial: T,
 ): [T, React.Dispatch<React.SetStateAction<T>>, () => void] {
   const pathname = usePathname() ?? "";
 
-  // The first render must match the server's, or React logs a hydration
-  // mismatch and discards the restored value anyway. So the stored value is
-  // applied in an effect, one paint later.
   const [value, setValue] = React.useState<T>(initial);
-  const restored = React.useRef(false);
+  const initialRef = React.useRef(initial);
+  initialRef.current = initial;
+  const identity = `${pathname}:${key}`;
+  const current = React.useRef(value);
 
   React.useEffect(() => {
-    if (restored.current) return;
-    restored.current = true;
     const stored = readRestorable<unknown>(pathname, key);
-    if (stored !== undefined) setValue((current) => mergeRestorable(current, stored));
-  }, [pathname, key]);
+    const next = mergeRestorable(initialRef.current, stored);
+    current.current = next;
+    setValue(next);
+  }, [identity, pathname, key]);
 
-  React.useEffect(() => {
-    // Nothing is written before the restore runs, or the initial value would
-    // overwrite what we are about to read.
-    if (!restored.current) return;
-    writeRestorable(pathname, key, value);
-  }, [pathname, key, value]);
+  const update = React.useCallback<React.Dispatch<React.SetStateAction<T>>>(
+    (action) => {
+      const next =
+        typeof action === "function"
+          ? (action as (previous: T) => T)(current.current)
+          : action;
+      current.current = next;
+      // Write at the interaction, before an immediate navigation can unmount us.
+      writeRestorable(pathname, key, next);
+      setValue(next);
+    },
+    [pathname, key],
+  );
 
   const reset = React.useCallback(() => {
-    setValue(initial);
     clearRestorablePath(pathname);
-    // The restored flag stays set, so the write effect persists this reset
-    // rather than letting the old value come back on the next visit.
-  }, [initial, pathname]);
+    current.current = initialRef.current;
+    setValue(initialRef.current);
+  }, [pathname]);
 
-  return [value, setValue, reset];
+  return [value, update, reset];
 }
 
 /**
@@ -71,11 +77,12 @@ export function useRestorableState<T>(
  */
 export function useRestorableScroll(key: string, ready: boolean): void {
   const pathname = usePathname() ?? "";
-  const restored = React.useRef(false);
+  const restored = React.useRef<string | null>(null);
 
   React.useEffect(() => {
-    if (!ready || restored.current) return;
-    restored.current = true;
+    const identity = `${pathname}:${key}`;
+    if (!ready || restored.current === identity) return;
+    restored.current = identity;
     const stored = readRestorable<number>(pathname, `${key}:scroll`);
     if (typeof stored === "number" && stored > 0) {
       // rAF so the browser has laid the list out; a synchronous scroll here

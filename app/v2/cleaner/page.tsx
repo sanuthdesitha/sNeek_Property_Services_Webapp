@@ -1,3 +1,5 @@
+import { LivePageRefresh } from "@/components/shared/live-page-refresh";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
 import Link from "next/link";
 import { sydneyTodayKey, addDaysToKey } from "@/lib/time/sydney-range";
 import { isCleanerShiftOffer, SHIFT_ROUTE_STATUSES } from "@/lib/cleaner/shift";
@@ -220,6 +222,7 @@ export default async function CleanerTodayPage() {
 
   return (
     <div className="space-y-6">
+      <LivePageRefresh />
       <header className="e-rise">
         <EEyebrow>{dateLine}</EEyebrow>
         <h1 className="e-display-md mt-1">
@@ -277,7 +280,7 @@ export default async function CleanerTodayPage() {
                         </span>
                       ) : null}
                     </span>
-                    <EBadge tone={isOffered ? "warning" : statusTone(j.status)} soft>
+                    <JobStatusIcon status={isOffered ? "OFFERED" : j.status} /><EBadge tone={isOffered ? "warning" : statusTone(j.status)} soft>
                       {isOffered ? "Offer awaiting your response" : titleCase(j.status)}
                     </EBadge>
                   </div>

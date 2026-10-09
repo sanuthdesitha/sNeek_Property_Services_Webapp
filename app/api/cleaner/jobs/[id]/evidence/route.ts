@@ -131,10 +131,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
       if (known) {
         if (known.detached) return json({ error: "This attachment was explicitly removed. Keep the original for review." }, 409);
-        if (known.key !== body.key || known.formRevision !== revision || known.draftIdentity !== identity) return json({ error: "Evidence receipt conflict. Keep the file for review." }, 409);
+        if (known.key !== body.key || (known.formRevision !== revision && !body.move) || known.draftIdentity !== identity) return json({ error: "Evidence receipt conflict. Keep the file for review." }, 409);
         const same = destinationKey(destinationOf(known)) === destinationKey(target);
         if (!body.move && !same) return json({ error: "Evidence moved in another tab. Reload its current destination." }, 409);
-        if (!body.move || (same && (known.version ?? 0) === body.move.version + 1)) return json({ ok: true, captureId: body.captureId, key: body.key, media: verifiedMedia, destination: target, version: known.version ?? 0 });
+        if (!body.move || (same && known.formRevision === revision && (known.version ?? 0) === body.move.version + 1)) return json({ ok: true, captureId: body.captureId, key: body.key, media: verifiedMedia, destination: target, version: known.version ?? 0 });
         if ((known.version ?? 0) !== body.move.version || destinationKey(destinationOf(known)) !== destinationKey(body.move.from)) return json({ error: "Evidence changed in another tab. Reload before moving it." }, 409);
         if (![destinationOf(known).type, target.type].every(type => type === "bulkPool" || type === "formField")) return json({ error: "Evidence cannot move between these destinations." }, 409);
       }
@@ -143,11 +143,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const movedState = removeEvidenceKeys(state, new Set([body.key]));
       const media = unionMedia(destinationMedia(movedState, target), [verifiedMedia]);
       if (Number(destination.maxFiles) > 0 && media.length > Number(destination.maxFiles)) return json({ error: "This field already has its maximum files. Keep this file for review." }, 409);
+      if (known && known.formRevision !== revision) {
+        await tx.auditLog.create({ data: { userId: session.user.id, jobId: params.id, entity: "CleanerDraftEvidence", entityId: body.key, action: "EVIDENCE_BINDING_REVALIDATED", before: { formRevision: known.formRevision, destination: destinationOf(known) }, after: { formRevision: revision, destination: target, originalRetained: true } } });
+      }
       const updatedAt = new Date().toISOString();
       await saveSharedCleanerJobDraft(params.id, {
         updatedAt, updatedByUserId: session.user.id, updatedByName: session.user.name ?? "Cleaner",
         editorSessionId: existing?.editorSessionId ?? `evidence:${body.captureId}`,
-        evidenceReceipts: { ...receipts, [body.captureId]: { key: body.key, fieldId: body.fieldId, destination: target, version: known ? (known.version ?? 0) + 1 : 0, formRevision: revision, draftIdentity: identity } },
+        evidenceReceipts: { ...receipts, [body.captureId]: { ...(known ? { captureContext: known.captureContext ?? { formRevision: known.formRevision, draftIdentity: known.draftIdentity } } : {}), key: body.key, fieldId: body.fieldId, destination: target, version: known ? (known.version ?? 0) + 1 : 0, formRevision: revision, draftIdentity: identity } },
         state: { ...setDestinationMedia(movedState, target, media), updatedAt },
       }, tx);
       return json({ ok: true, captureId: body.captureId, key: body.key, media: verifiedMedia, destination: target, version: known ? (known.version ?? 0) + 1 : 0 });
@@ -244,7 +247,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         }, tx);
         return json({ ok: true, key });
       }
-      if (entries.some(([, receipt]) => receipt.draftIdentity !== identity || receipt.formRevision !== body.formRevision)) return json({ code: "EVIDENCE_CONTEXT_MISMATCH", canDiscardReference: canCleanerDiscardReference(existing, body.key!, params.id, session.user.id), error: "This photo has a different capture context. If it does not belong here, discard only its draft reference. Otherwise ask the office to open Forms & report → Draft evidence review." }, 409);
+      if (entries.some(([, receipt]) => receipt.draftIdentity !== identity)) return json({ code: "EVIDENCE_CONTEXT_MISMATCH", canDiscardReference: canCleanerDiscardReference(existing, body.key!, params.id, session.user.id), error: "This photo has a different capture context. If it does not belong here, discard only its draft reference. Otherwise ask the office to open Forms & report → Draft evidence review." }, 409);
       const receipts = { ...existing.evidenceReceipts };
       for (const [id, receipt] of entries) {
         receipts[id] = { ...receipt, detached: true };

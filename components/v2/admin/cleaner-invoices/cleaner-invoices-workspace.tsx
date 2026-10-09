@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Estate-native admin view of cleaner-submitted invoices (CleanerInvoiceSubmission).
  * Review each cleaner's invoice, push it to Xero, mark it paid, reverse (void) or
@@ -150,8 +152,8 @@ export function CleanerInvoicesWorkspace() {
   const { toast } = useToast();
   const [rows, setRows] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | Submission["status"]>("all");
-  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useRestorableState<"all" | Submission["status"]>("cleaner-invoices-workspace:filter", "all");
+  const [query, setQuery] = useRestorableState("cleaner-invoices-workspace:query", "");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Submission | null>(null);
   const [confirm, setConfirm] = useState<{ kind: "void" | "delete"; row: Submission } | null>(null);

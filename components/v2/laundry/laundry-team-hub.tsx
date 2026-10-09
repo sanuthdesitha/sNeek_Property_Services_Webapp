@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Native Estate laundry team hub — feed + recognition + leaderboards over the
  * SAME endpoint the v1 workforce hub uses (`GET /api/me/workforce`, backed by
@@ -98,7 +100,7 @@ function titleCase(v: string) {
 }
 
 export function LaundryTeamHub() {
-  const [tab, setTab] = React.useState<"feed" | "recognition" | "leaderboard">("feed");
+  const [tab, setTab] = useRestorableState<"feed" | "recognition" | "leaderboard">("laundry-team-hub:tab", "feed");
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [data, setData] = React.useState<any>(null);

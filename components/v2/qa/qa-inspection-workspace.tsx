@@ -1,4 +1,6 @@
 "use client";
+
+import { useRestorableState } from "@/hooks/use-restorable-state";
 import { DeviceStatusInput } from "@/components/forms/device-status-input";
 import { isDeviceException, isDeviceStatusField } from "@/lib/forms/device-status";
 
@@ -1100,7 +1102,7 @@ export function QaInspectionWorkspace({
   const [payload, setPayload] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [step, setStep] = useState(0);
+  const [rememberedStep, setStep] = useRestorableState(`qa:${jobId}:step`, 0);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const [data, setData] = useState<Record<string, any>>({});
@@ -1182,6 +1184,9 @@ export function QaInspectionWorkspace({
   const [remoteReason, setRemoteReason] = useState("");
 
   const QA_STEPS = ["Pre-inspection brief", "Inspect & log findings", "Score, sign off & submit"];
+  const step = Number.isInteger(rememberedStep)
+    ? Math.max(0, Math.min(QA_STEPS.length - 1, rememberedStep))
+    : 0;
 
   const pushToast = useCallback((t: Omit<Toast, "id">) => {
     const id = uid();
@@ -1218,8 +1223,15 @@ export function QaInspectionWorkspace({
     draftRestoredRef.current = true;
     try {
       const raw = localStorage.getItem(draftKey);
-      if (!raw) return;
+      if (!raw) {
+        setStep(0);
+        return;
+      }
       const d = JSON.parse(raw);
+      if (!d || typeof d !== "object" || Array.isArray(d)) {
+        setStep(0);
+        return;
+      }
       if (d && typeof d === "object") {
         if (d.data && typeof d.data === "object") setData(d.data);
         if (typeof d.notes === "string") setNotes(d.notes);
@@ -1229,9 +1241,10 @@ export function QaInspectionWorkspace({
         if (typeof d.savedAt === "number") setDraftSavedAt(d.savedAt);
       }
     } catch {
+      setStep(0);
       /* ignore */
     }
-  }, [payload, draftKey]);
+  }, [payload, draftKey, setStep]);
 
   // debounced autosave
   useEffect(() => {

@@ -188,3 +188,18 @@ it("rejects a removal acknowledgement for another photo and retains the original
   await expect(removeEvidence(scope, receipt.key)).rejects.toThrow("not confirmed");
   expect(store.put).not.toHaveBeenCalled(); expect(saved.blob).toBe(record.blob);
 });
+
+it("batch assignment reads the draft once and confirms each move before updating UI", async () => {
+ const { moveEvidenceBatch } = await import("@/lib/cleaner/evidence-client");
+ const items = ["one", "two", "three"].map(id => ({ media: { key: id, url: `/${id}.jpg`, kind: "image" as const }, from: { type: "bulkPool" as const } }));
+ const target = { type: "formField" as const, fieldId: "photo" };
+ fetcher.mockImplementation(async (_url, init) => {
+  if (!init?.method) return new Response(JSON.stringify({ draft: { evidenceReceipts: Object.fromEntries(items.map(item => [item.media.key, { key: item.media.key, draftIdentity: scope.draftIdentity, formRevision: scope.formRevision, destination: item.from, version: 0 }])) } }));
+  const body = JSON.parse(init.body);
+  return new Response(JSON.stringify({ ok: true, captureId: body.captureId, key: body.key, version: 1, destination: target }));
+ });
+ const moved = vi.fn();
+ await moveEvidenceBatch(scope, items, target, moved, () => true);
+ expect(fetcher).toHaveBeenCalledTimes(4);
+ expect(moved.mock.calls.flat().sort()).toEqual(["one", "three", "two"]);
+});

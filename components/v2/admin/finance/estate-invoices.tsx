@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE client invoices — v2-native replacement for the v1 ClientInvoicesPage.
  * Same endpoints, new Estate UI (ETableShell + EModal). Native line-item editing
@@ -86,6 +88,7 @@ type Invoice = {
   paidDate?: string | null;
   createdAt: string;
   xeroExportedAt?: string | null;
+  xeroInvoiceId?: string | null;
   client: { id: string; name: string; email: string };
 };
 
@@ -204,7 +207,7 @@ export function EstateInvoices() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
 
-  const [statusFilter, setStatusFilter] = useState("active");
+  const [statusFilter, setStatusFilter] = useRestorableState("estate-invoices:statusFilter", "active");
   const [searchQ, setSearchQ] = useState("");
 
   // Generate modal
@@ -231,6 +234,11 @@ export function EstateInvoices() {
   const [newLine, setNewLine] = useState({ description: "", quantity: "1", unitPrice: "0" });
 
   // Delete confirm
+  const [correctionFor, setCorrectionFor] = useState<Invoice | null>(null);
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [correctionReference, setCorrectionReference] = useState("");
+  const [correcting, setCorrecting] = useState(false);
+  const [correctionError, setCorrectionError] = useState("");
   const [deleteFor, setDeleteFor] = useState<Invoice | null>(null);
   const [removeLineId, setRemoveLineId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -437,6 +445,24 @@ export function EstateInvoices() {
     } finally {
       setDeleting(false);
     }
+  }
+
+  async function reconcileInvoice(security?: { pin?: string; password?: string }) {
+    if (!correctionFor || correcting) return;
+    setCorrecting(true);
+    setCorrectionError("");
+    try {
+      const response = await fetch(`/api/admin/invoices/${correctionFor.id}/reconcile`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: correctionReason, reference: correctionReference, confirmedInXero: true, security }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Could not reconcile invoice.");
+      setCorrectionFor(null);
+      toast({ title: "Reconciled invoice voided", description: "The invoice and Xero link remain in history." });
+      await load();
+    } catch (cause) { setCorrectionError(cause instanceof Error ? cause.message : "Could not reconcile invoice."); }
+    finally { setCorrecting(false); }
   }
 
   async function pushToXero(inv: Invoice) {
@@ -922,7 +948,7 @@ export function EstateInvoices() {
                         {inv.xeroExportedAt ? "Xero ✓" : "Xero"}
                       </EButton>
                     ) : null}
-                    {inv.status === "SENT" || inv.status === "APPROVED" ? (
+                    {!inv.xeroInvoiceId && !inv.xeroExportedAt && (inv.status === "SENT" || inv.status === "APPROVED") ? (
                       <EButton
                         size="sm"
                         variant="ghost"
@@ -939,10 +965,7 @@ export function EstateInvoices() {
                         one; reverse keeps this invoice and reopens it. The
                         titles say which, so the difference is readable at the
                         moment of clicking rather than discovered afterwards. */}
-                    {inv.status === "APPROVED" ||
-                    inv.status === "SENT" ||
-                    inv.status === "PART_PAID" ||
-                    inv.status === "PAID" ? (
+                    {!inv.xeroInvoiceId && !inv.xeroExportedAt && !inv.paidAt && !Number(inv.paidAmount ?? 0) && (inv.status === "APPROVED" || inv.status === "SENT") ? (
                       <EButton
                         size="sm"
                         variant="ghost"
@@ -953,7 +976,8 @@ export function EstateInvoices() {
                         <Undo2 className="h-3.5 w-3.5" /> Reverse
                       </EButton>
                     ) : null}
-                    {inv.status === "DRAFT" || inv.status === "VOID" ? (
+                    {(inv.xeroInvoiceId || inv.xeroExportedAt) && inv.status !== "VOID" && !inv.paidAt && !Number(inv.paidAmount ?? 0) && <EButton size="sm" variant="ghost" onClick={() => { setCorrectionFor(inv); setCorrectionReason(""); setCorrectionReference(""); setCorrectionError(""); }}>Reconcile / void</EButton>}
+                    {inv.status === "DRAFT" && !inv.xeroInvoiceId && !inv.xeroExportedAt ? (
                       <EButton
                         size="sm"
                         variant="ghost"
@@ -1513,6 +1537,15 @@ export function EstateInvoices() {
         loading={editSaving}
         onConfirm={removeLine}
       />
+
+      <EConfirmModal open={Boolean(correctionFor)} onClose={() => { if (!correcting) setCorrectionFor(null); }} title={`Reconcile ${correctionFor?.invoiceNumber ?? "invoice"}`} requireSecurity confirmPhrase="VOID" confirmLabel="Record reconciled void" loading={correcting} onConfirm={reconcileInvoice} description={<div className="space-y-3">
+        <p>First void or correct this invoice in Xero. Confirming records your acknowledgement, then voids the local invoice and releases its work for replacement billing. The issued document, Xero link and audit history remain. This action does not contact Xero.</p>
+        <fieldset disabled={correcting} className="space-y-3">
+          <label className="block">Reason (at least 10 characters)<textarea className="mt-1 w-full rounded border bg-transparent p-2" value={correctionReason} onChange={event => setCorrectionReason(event.target.value)} /></label>
+          <label className="block">Xero correction reference<input className="mt-1 min-h-11 w-full rounded border bg-transparent p-2" value={correctionReference} onChange={event => setCorrectionReference(event.target.value)} /></label>
+        </fieldset>
+        {correctionError && <p role="alert" className="text-[hsl(var(--e-danger))]">{correctionError}</p>}
+      </div>} />
 
       {/* Delete invoice.
 

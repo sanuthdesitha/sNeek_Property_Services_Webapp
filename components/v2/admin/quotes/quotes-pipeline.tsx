@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE quotes pipeline — leads + quotes in one native Estate workspace.
  * Same endpoints as the legacy hub (/api/admin/leads, /api/admin/quotes,
@@ -110,7 +112,7 @@ function EModal({
 }
 
 export function QuotesPipeline() {
-  const [tab, setTab] = useState<"leads" | "quotes">("leads");
+  const [tab, setTab] = useRestorableState<"leads" | "quotes">("quotes-pipeline:tab", "leads");
   const [recurringOnly, setRecurringOnly] = useState(false);
   const [leads, setLeads] = useState<any[]>([]);
   const [quotes, setQuotes] = useState<any[]>([]);

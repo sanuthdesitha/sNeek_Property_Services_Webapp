@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE — Checklist coverage (native v2 port of app/admin/checklists/coverage).
  * Bulk rollout assistant: every active property with its checklist status,
@@ -63,7 +65,7 @@ export function EstateChecklistCoverage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [generating, setGenerating] = useState(false);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useRestorableState("checklist-coverage:search", "");
   const [linkBusy, setLinkBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {

@@ -1,4 +1,4 @@
-﻿import * as React from "react"
+import * as React from "react"
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast"
 
 const TOAST_LIMIT = 5
@@ -88,7 +88,7 @@ function useToast() {
       const index = listeners.indexOf(setState)
       if (index > -1) listeners.splice(index, 1)
     }
-  }, [state])
+  }, [])
   return { ...state, toast, dismiss: (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId }) }
 }
 

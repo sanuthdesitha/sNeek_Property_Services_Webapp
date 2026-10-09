@@ -2,7 +2,7 @@ import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ClientJobsBoard } from "@/components/v2/client/jobs-board";
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/v2/client/jobs", useRouter: () => ({ refresh: vi.fn() }) }));
 const job = { id: "old-job", jobNumber: null, jobType: "DEEP_CLEAN", status: "COMPLETED", scheduledDate: "2001-01-01", startTime: null, dueTime: null, property: { id: "p1", name: "Harbour", suburb: "Sydney" }, assignments: [], jobTasks: [], laundryTask: null, satisfactionRating: null };
 const props = { showCleanerNames: false, showClientTaskRequests: false, showLaundryUpdates: false };
 beforeEach(() => localStorage.clear());

@@ -5,6 +5,8 @@
  * Pure Estate language: hairline dividers, serif property names, e-numeral
  * money, EBadge status pills. Data comes straight from /api/jobs rows.
  */
+import { statusBlockStyle, JOB_STATUS_TONES } from "@/lib/jobs/status-presentation";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
 import { useRouter } from "next/navigation";
 import type { CSSProperties } from "react";
 import { DEFAULT_JOBS_COLUMNS, type JobsColumns } from "@/lib/jobs/workspace-state";
@@ -20,19 +22,7 @@ export type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "dan
 import { STATUS_LABELS } from "@/lib/jobs/status-labels";
 export { STATUS_LABELS };
 
-export const STATUS_TONES: Record<string, Tone> = {
-  UNASSIGNED: "warning",
-  OFFERED: "warning",
-  ASSIGNED: "primary",
-  EN_ROUTE: "info",
-  IN_PROGRESS: "info",
-  PAUSED: "warning",
-  WAITING_CONTINUATION_APPROVAL: "danger",
-  SUBMITTED: "aubergine",
-  QA_REVIEW: "aubergine",
-  COMPLETED: "success",
-  INVOICED: "gold",
-};
+export const STATUS_TONES: Record<string, Tone> = JOB_STATUS_TONES;
 
 export function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status.replace(/_/g, " ");
@@ -151,7 +141,7 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage
     <div
       role="link"
       tabIndex={0}
-      style={{ "--jobs-row-columns": tracks } as CSSProperties}
+      style={{ ...statusBlockStyle(status), "--jobs-row-columns": tracks } as CSSProperties}
       onClick={() => router.push(`/v2/admin/jobs/${job.id}`)}
       onKeyDown={(event) => {
         if (event.key === "Enter" && event.target === event.currentTarget) router.push(`/v2/admin/jobs/${job.id}`);
@@ -170,6 +160,7 @@ export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage
 
       {/* Property — the identifier, so it gets the room and never truncates */}
       <div className="e-job-row-property min-w-0">
+        <span className="float-left mr-3 mb-1"><JobStatusIcon status={status} /></span>
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <p className="e-serif text-[1rem] font-[520] leading-snug [overflow-wrap:anywhere]">
             {propertyName}
@@ -316,10 +307,12 @@ export function EBoardCard({ job, selected, onToggleSelect, onQuickAssign, onMan
       onKeyDown={(event) => {
         if (event.key === "Enter" && event.target === event.currentTarget) router.push(`/v2/admin/jobs/${job.id}`);
       }}
+      style={statusBlockStyle(String(job.status ?? ""))}
       className={"cursor-pointer rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] transition-shadow duration-[160ms] hover:shadow-[var(--e-elevation-2)] " +
         (density === "compact" ? "p-2.5" : density === "comfortable" ? "p-5" : "p-3.5")}
     >
       <div className="flex items-start justify-between gap-2">
+        <JobStatusIcon status={status} />
         <p className="e-serif min-w-0 truncate text-[0.9375rem] font-[520] leading-snug">
           {job?.property?.name ?? "Unknown property"}
         </p>

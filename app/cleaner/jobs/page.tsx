@@ -1,3 +1,5 @@
+
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
@@ -334,9 +336,9 @@ export default async function CleanerJobsPage({
                           badge + accept/decline actions above already convey the
                           state — don't also show the duplicate OFFERED status badge. */}
                       {assignmentResponseStatus !== "PENDING" ? (
-                        <Badge variant={STATUS_BADGE[job.status] ?? "secondary"}>
+                        <><JobStatusIcon status={job.status} /><Badge variant={STATUS_BADGE[job.status] ?? "secondary"}>
                           {formatJobStatusLabel(job.status)}
-                        </Badge>
+                        </Badge></>
                       ) : null}
                       {mapsUrl ? (
                         <Button size="sm" variant="outline" asChild>

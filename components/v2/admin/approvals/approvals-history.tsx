@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Approval Center → History tab.
  *
@@ -119,7 +121,7 @@ export function ApprovalsHistory() {
   const [deciderId, setDeciderId] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useRestorableState("approvals-history:search", "");
 
   // Edit modal
   const [editRow, setEditRow] = useState<HistoryRow | null>(null);

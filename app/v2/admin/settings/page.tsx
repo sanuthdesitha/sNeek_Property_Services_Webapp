@@ -1,33 +1,14 @@
-import { OperationsButton } from "@/components/operations/ui";
+import { SettingsNavigation } from "@/components/v2/admin/settings/settings-navigation";
+import { availableSettings } from "@/components/v2/admin/settings/settings-catalog";
+import { HolidayRatesWorkspace } from "@/components/finance/holiday-rates-workspace";
+import { PropertyFormEditor } from "@/components/v2/admin/settings/property-form-editor";
+import { getPropertyFormConfig } from "@/lib/property-form/config-store";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { EPageHeader } from "@/components/v2/ui/primitives";
-import { EChipTabs } from "@/components/v2/admin/estate-kit";
+import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
+import Link from "next/link";
 import { getAppSettings } from "@/lib/settings";
-import {
-  Building2,
-  Plug,
-  CalendarCheck,
-  CreditCard,
-  FileSpreadsheet,
-  BellRing,
-  Landmark,
-  ShieldCheck,
-  DollarSign,
-  SlidersHorizontal,
-  Eye,
-  Shirt,
-  Globe,
-  UserCog,
-  LayoutGrid,
-  Send,
-  KeyRound,
-  History,
-  ClipboardCheck,
-  Megaphone,
-  Palette,
-} from "lucide-react";
 import { CompanySection } from "@/components/v2/admin/settings/company-section";
 import { BankSection } from "@/components/v2/admin/settings/bank-section";
 import { InvoiceNumberingSection } from "@/components/v2/admin/settings/invoice-numbering-section";
@@ -58,80 +39,11 @@ import { NotificationAudienceSection } from "@/components/v2/admin/settings/noti
 export const metadata = { title: "Settings · Estate admin" };
 export const dynamic = "force-dynamic";
 
-type TabKey =
-  | "overview"
-  | "look"
-  | "company"
-  | "bank"
-  | "safeguards"
-  | "notifications"
-  | "message-channels"
-  | "rates"
-  | "pricing-variables"
-  | "accountability"
-  | "portals"
-  | "laundry"
-  | "public-widgets"
-  | "profile-permissions"
-  | "integrations"
-  | "ical-sync"
-  | "payment-gateways"
-  | "ollama"
-  | "xero"
-  | "finance-notifications"
-  | "notification-tools"
-  | "roles"
-  | "audit";
-
-// Every tab now belongs to a labelled GROUP so related settings sit together
-// (all notification surfaces in one row, all money in another, …). Keys are
-// unchanged — every existing ?tab= deep link keeps working.
-const GROUP_ORDER = [
-  "Overview",
-  "Company & brand",
-  "Notifications",
-  "Money",
-  "Cleaners & quality",
-  "Operations",
-  "Access & permissions",
-  "System",
-] as const;
-type TabGroup = (typeof GROUP_ORDER)[number];
-
-const ALL_TABS: Array<{ key: TabKey; label: string; icon: JSX.Element; adminOnly: boolean; group: TabGroup }> = [
-  { key: "overview", label: "Overview", icon: <LayoutGrid className="h-4 w-4" />, adminOnly: false, group: "Overview" },
-  // Company & brand — identity, look, and everything the public site shows.
-  { key: "company", label: "Company & brand", icon: <Building2 className="h-4 w-4" />, adminOnly: false, group: "Company & brand" },
-  { key: "look", label: "Default look", icon: <Palette className="h-4 w-4" />, adminOnly: true, group: "Company & brand" },
-  { key: "public-widgets", label: "Public site widgets", icon: <Globe className="h-4 w-4" />, adminOnly: true, group: "Company & brand" },
-  // Notifications — every channel and schedule in one place.
-  { key: "notifications", label: "Scheduled notifications", icon: <BellRing className="h-4 w-4" />, adminOnly: true, group: "Notifications" },
-  { key: "message-channels", label: "Message channels", icon: <Megaphone className="h-4 w-4" />, adminOnly: true, group: "Notifications" },
-  { key: "finance-notifications", label: "Finance notifications", icon: <BellRing className="h-4 w-4" />, adminOnly: true, group: "Notifications" },
-  { key: "notification-tools", label: "Notification tools", icon: <Send className="h-4 w-4" />, adminOnly: false, group: "Notifications" },
-  // Money — banking, rates, pricing and the systems that move funds.
-  { key: "bank", label: "Bank & payment", icon: <Landmark className="h-4 w-4" />, adminOnly: false, group: "Money" },
-  { key: "rates", label: "Cleaner rates", icon: <DollarSign className="h-4 w-4" />, adminOnly: true, group: "Money" },
-  { key: "pricing-variables", label: "Pricing variables", icon: <SlidersHorizontal className="h-4 w-4" />, adminOnly: true, group: "Money" },
-  { key: "payment-gateways", label: "Payment gateways", icon: <CreditCard className="h-4 w-4" />, adminOnly: true, group: "Money" },
-  { key: "xero", label: "Xero", icon: <FileSpreadsheet className="h-4 w-4" />, adminOnly: true, group: "Money" },
-  // Cleaners & quality — submission gates, QA automation, accountability.
-  { key: "safeguards", label: "Operational safeguards", icon: <ShieldCheck className="h-4 w-4" />, adminOnly: true, group: "Cleaners & quality" },
-  { key: "accountability", label: "Accountability", icon: <ClipboardCheck className="h-4 w-4" />, adminOnly: true, group: "Cleaners & quality" },
-  // Operations — day-to-day logistics and calendar plumbing.
-  { key: "laundry", label: "Laundry & locations", icon: <Shirt className="h-4 w-4" />, adminOnly: true, group: "Operations" },
-  { key: "ical-sync", label: "iCal sync", icon: <CalendarCheck className="h-4 w-4" />, adminOnly: true, group: "Operations" },
-  { key: "integrations", label: "Integrations", icon: <Plug className="h-4 w-4" />, adminOnly: true, group: "Operations" },
-  // Access & permissions — who can see and do what.
-  { key: "portals", label: "Portal visibility", icon: <Eye className="h-4 w-4" />, adminOnly: true, group: "Access & permissions" },
-  { key: "profile-permissions", label: "Profile permissions", icon: <UserCog className="h-4 w-4" />, adminOnly: true, group: "Access & permissions" },
-  { key: "roles", label: "Roles & permissions", icon: <KeyRound className="h-4 w-4" />, adminOnly: true, group: "Access & permissions" },
-  // System — the record of everything.
-  { key: "ollama", label: "Ollama", icon: <Plug className="h-4 w-4" />, adminOnly: true, group: "System" },
-  { key: "audit", label: "Audit log", icon: <History className="h-4 w-4" />, adminOnly: true, group: "System" },
-];
-
-export default async function SettingsPage({ searchParams }: { searchParams: { tab?: string } }) {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: { tab?: string; jobId?: string };
+}) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const isAdmin = session.user.role === Role.ADMIN;
   const appSettings = await getAppSettings();
@@ -141,62 +53,81 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
     orderBy: [{ name: "asc" }, { email: "asc" }],
   });
 
-  const availableTabs = ALL_TABS.filter((t) => isAdmin || !t.adminOnly);
+  const availableTabs = availableSettings(isAdmin);
   const requested = availableTabs.find((t) => t.key === searchParams.tab)?.key;
-  const activeTab: TabKey = requested ?? availableTabs[0]!.key;
+  const activeTab = requested ?? "overview";
+  const propertyFormConfig =
+    activeTab === "property-form" ? await getPropertyFormConfig() : null;
 
   return (
-    <div className="space-y-6">
-      <OperationsButton asChild variant="outline" className="my-2"><a href="/v2/admin/settings/holiday-rates">Public holiday rates</a></OperationsButton>
+    <div className="min-w-0 space-y-6">
       <EPageHeader
         eyebrow="Configuration"
         title="Settings"
-        description="Grouped operational settings with integrations and API credentials."
+        description="Find the right setting, then make changes in one place."
       />
 
-      {/* Grouped rail: one labelled row per settings family, so every
-          notification surface (for example) sits together instead of being
-          scattered through a 23-chip strip. */}
-      <div className="space-y-3">
-        {GROUP_ORDER.map((group) => {
-          const tabs: Array<{ key: string; label: string; icon: JSX.Element; href: string; active: boolean }> =
-            availableTabs.filter((t) => t.group === group).map((t) => ({
-              key: t.key,
-              label: t.label,
-              icon: t.icon,
-              href: `/v2/admin/settings?tab=${t.key}`,
-              active: t.key === activeTab,
-            }));
-          // Standalone editor (its own route) — surfaced with its family for
-          // discoverability.
-          if (group === "Company & brand" && isAdmin) {
-            tabs.push({
-              key: "property-form",
-              label: "Property form",
-              icon: <ClipboardCheck className="h-4 w-4" />,
-              href: "/v2/admin/settings/property-form",
-              active: false,
-            });
-          }
-          if (tabs.length === 0) return null;
-          return (
-            <div key={group} className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <span className="w-40 shrink-0 text-[0.6875rem] font-[600] uppercase tracking-[0.12em] text-[hsl(var(--e-text-faint))]">
-                {group}
-              </span>
-              <div className="min-w-0 flex-1">
-                <EChipTabs tabs={tabs} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <SettingsNavigation
+        key={activeTab}
+        sections={availableTabs}
+        activeTab={activeTab}
+      />
+
+      {activeTab === "holiday-rates" && isAdmin ? (
+        <section aria-labelledby="holiday-rates-heading" className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 id="holiday-rates-heading" className="text-lg font-semibold">
+              Public holiday rates
+            </h2>
+            {searchParams.jobId ? (
+              <EButton asChild variant="outline" className="min-h-11">
+                <Link
+                  href={`/v2/admin/jobs/${encodeURIComponent(searchParams.jobId)}?tab=money`}
+                >
+                  Back to job
+                </Link>
+              </EButton>
+            ) : null}
+          </div>
+          <p className="text-sm text-[hsl(var(--e-muted-foreground))]">
+            Configure holiday rates and review a job adjustment before applying
+            it.
+          </p>
+          <HolidayRatesWorkspace
+            key={searchParams.jobId ?? ""}
+            panel
+            initialJobId={searchParams.jobId ?? ""}
+          />
+        </section>
+      ) : null}
+      {activeTab === "property-form" && propertyFormConfig ? (
+        <section aria-labelledby="property-form-heading" className="space-y-3">
+          <h2 id="property-form-heading" className="text-lg font-semibold">
+            Property form
+          </h2>
+          <PropertyFormEditor initialConfig={propertyFormConfig} />
+        </section>
+      ) : null}
 
       {activeTab === "ollama" && isAdmin ? <OllamaSection /> : null}
-      {activeTab === "overview" ? <OverviewSection isAdmin={isAdmin} /> : null}
+      {activeTab === "overview" ? (
+        <OverviewSection
+          settings={{
+            companyName: appSettings.companyName,
+            projectName: appSettings.projectName,
+            accountsEmail: appSettings.accountsEmail,
+            timezone: appSettings.timezone,
+            smsProvider: appSettings.smsProvider,
+            gstEnabled: appSettings.pricing.gstEnabled,
+          }}
+        />
+      ) : null}
 
       {activeTab === "look" && isAdmin ? (
-        <LookSection initial={appSettings.defaultPortalVersion} readOnly={!isAdmin} />
+        <LookSection
+          initial={appSettings.defaultPortalVersion}
+          readOnly={!isAdmin}
+        />
       ) : null}
 
       {activeTab === "company" ? (
@@ -223,7 +154,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
         <BankSection
           initial={{
             accountsEmail: appSettings.accountsEmail,
-            defaultPaymentTermsDays: appSettings.invoicing.defaultPaymentTermsDays,
+            defaultPaymentTermsDays:
+              appSettings.invoicing.defaultPaymentTermsDays,
             abn: appSettings.invoicing.abn,
             bankName: appSettings.invoicing.bankName,
             bankBsb: appSettings.invoicing.bankBsb,
@@ -244,13 +176,17 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
       {activeTab === "safeguards" && isAdmin ? (
         <SafeguardsSection
           initial={{
-            cleanerStartRequireDateMatch: appSettings.cleanerStartRequireDateMatch,
-            cleanerStartRequireChecklistConfirm: appSettings.cleanerStartRequireChecklistConfirm,
+            cleanerStartRequireDateMatch:
+              appSettings.cleanerStartRequireDateMatch,
+            cleanerStartRequireChecklistConfirm:
+              appSettings.cleanerStartRequireChecklistConfirm,
             strictClientAdminOnly: appSettings.strictClientAdminOnly,
-            inputHistorySuggestionsEnabled: appSettings.inputHistorySuggestionsEnabled,
+            inputHistorySuggestionsEnabled:
+              appSettings.inputHistorySuggestionsEnabled,
             autoClockOut: {
               enabled: appSettings.autoClockOut.enabled,
-              stopAtEstimatedDuration: appSettings.autoClockOut.stopAtEstimatedDuration,
+              stopAtEstimatedDuration:
+                appSettings.autoClockOut.stopAtEstimatedDuration,
               graceMinutes: appSettings.autoClockOut.graceMinutes,
               fallbackAtMidnight: appSettings.autoClockOut.fallbackAtMidnight,
               maxJobLengthHours: appSettings.autoClockOut.maxJobLengthHours,
@@ -259,7 +195,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
             sla: {
               enabled: appSettings.sla.enabled,
               warnHoursBeforeDue: appSettings.sla.warnHoursBeforeDue,
-              overdueEscalationMinutes: appSettings.sla.overdueEscalationMinutes,
+              overdueEscalationMinutes:
+                appSettings.sla.overdueEscalationMinutes,
             },
             recurringJobs: {
               enabled: appSettings.recurringJobs.enabled,
@@ -267,7 +204,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
             },
             autoAssign: {
               enabled: appSettings.autoAssign.enabled,
-              maxDailyJobsPerCleaner: appSettings.autoAssign.maxDailyJobsPerCleaner,
+              maxDailyJobsPerCleaner:
+                appSettings.autoAssign.maxDailyJobsPerCleaner,
             },
             qaAutomation: {
               autoCreateReworkJob: appSettings.qaAutomation.autoCreateReworkJob,
@@ -280,8 +218,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
               defaultMode: appSettings.qaPay.defaultMode,
               defaultFixedAmount: appSettings.qaPay.defaultFixedAmount,
               defaultHourlyRate: appSettings.qaPay.defaultHourlyRate,
-              defaultHoursPerInspection: appSettings.qaPay.defaultHoursPerInspection,
-              transportAllowancePerDay: appSettings.qaPay.transportAllowancePerDay,
+              defaultHoursPerInspection:
+                appSettings.qaPay.defaultHoursPerInspection,
+              transportAllowancePerDay:
+                appSettings.qaPay.transportAllowancePerDay,
             },
             evidenceStamp: {
               dateFormat: appSettings.evidenceStamp.dateFormat,
@@ -318,32 +258,57 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
       {activeTab === "rates" && isAdmin ? (
         <RatesSection
           cleaners={cleaners}
-          initialRates={appSettings.cleanerJobHourlyRates as Record<string, Record<string, number>>}
+          initialRates={
+            appSettings.cleanerJobHourlyRates as Record<
+              string,
+              Record<string, number>
+            >
+          }
           readOnly={!isAdmin}
         />
       ) : null}
 
       {activeTab === "pricing-variables" && isAdmin ? (
-        <PricingVariablesSection initial={appSettings.pricingVariables} readOnly={!isAdmin} />
+        <PricingVariablesSection
+          initial={appSettings.pricingVariables}
+          readOnly={!isAdmin}
+        />
       ) : null}
 
       {activeTab === "accountability" && isAdmin ? (
         <>
-          <AccountabilitySection initial={appSettings.accountability} readOnly={!isAdmin} />
+          <AccountabilitySection
+            initial={appSettings.accountability}
+            readOnly={!isAdmin}
+          />
           {/* Final check-up (R7) — the pre-submit acknowledgement dialog config
               lives beside the other cleaner-submission gates. */}
-          <FinalCheckupSettingsSection initial={appSettings.finalCheckup} readOnly={!isAdmin} />
+          <FinalCheckupSettingsSection
+            initial={appSettings.finalCheckup}
+            readOnly={!isAdmin}
+          />
           {/* "No photo taken" exemption roster — same concern family: what a
               cleaner may skip at submission and what it costs them. */}
-          <NoPhotoSection initial={appSettings.noPhotoExemptCleanerIds} readOnly={!isAdmin} />
+          <NoPhotoSection
+            initial={appSettings.noPhotoExemptCleanerIds}
+            readOnly={!isAdmin}
+          />
         </>
       ) : null}
 
       {activeTab === "portals" && isAdmin ? (
         <PortalsSection
           initial={{
-            clientPortalVisibility: appSettings.clientPortalVisibility as unknown as Record<string, boolean>,
-            cleanerPortalVisibility: appSettings.cleanerPortalVisibility as unknown as Record<string, boolean>,
+            clientPortalVisibility:
+              appSettings.clientPortalVisibility as unknown as Record<
+                string,
+                boolean
+              >,
+            cleanerPortalVisibility:
+              appSettings.cleanerPortalVisibility as unknown as Record<
+                string,
+                boolean
+              >,
           }}
           readOnly={!isAdmin}
         />
@@ -352,10 +317,15 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
       {activeTab === "laundry" && isAdmin ? (
         <LaundrySection
           initial={{
-            laundryPortalVisibility: appSettings.laundryPortalVisibility as unknown as Record<string, boolean>,
+            laundryPortalVisibility:
+              appSettings.laundryPortalVisibility as unknown as Record<
+                string,
+                boolean
+              >,
             laundryOperations: appSettings.laundryOperations,
             laundryBagLocationOptions: appSettings.laundryBagLocationOptions,
-            laundryDropoffLocationOptions: appSettings.laundryDropoffLocationOptions,
+            laundryDropoffLocationOptions:
+              appSettings.laundryDropoffLocationOptions,
           }}
           readOnly={!isAdmin}
         />
@@ -363,17 +333,25 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
 
       {activeTab === "public-widgets" && isAdmin ? (
         <PublicWidgetsSection
-          initial={appSettings.publicWidgets as unknown as Record<string, boolean>}
+          initial={
+            appSettings.publicWidgets as unknown as Record<string, boolean>
+          }
           readOnly={!isAdmin}
         />
       ) : null}
 
       {activeTab === "profile-permissions" && isAdmin ? (
         <ProfilePermissionsSection
-          initial={appSettings.profileEditPolicy as unknown as Record<
-            string,
-            { canEditName: boolean; canEditPhone: boolean; canEditEmail: boolean }
-          >}
+          initial={
+            appSettings.profileEditPolicy as unknown as Record<
+              string,
+              {
+                canEditName: boolean;
+                canEditPhone: boolean;
+                canEditEmail: boolean;
+              }
+            >
+          }
           readOnly={!isAdmin}
         />
       ) : null}
@@ -382,10 +360,18 @@ export default async function SettingsPage({ searchParams }: { searchParams: { t
       {activeTab === "ical-sync" && isAdmin ? <IcalSection /> : null}
       {activeTab === "payment-gateways" && isAdmin ? <GatewaysSection /> : null}
       {activeTab === "xero" && isAdmin ? <XeroSection /> : null}
-      {activeTab === "finance-notifications" && isAdmin ? <FinanceNotificationsSection /> : null}
-      {activeTab === "notification-tools" ? <NotificationToolsSection isAdmin={isAdmin} /> : null}
-      {activeTab === "roles" && isAdmin ? <RolesSection isAdmin={isAdmin} /> : null}
-      {activeTab === "audit" && isAdmin ? <AuditSection isAdmin={isAdmin} /> : null}
+      {activeTab === "finance-notifications" && isAdmin ? (
+        <FinanceNotificationsSection />
+      ) : null}
+      {activeTab === "notification-tools" ? (
+        <NotificationToolsSection isAdmin={isAdmin} />
+      ) : null}
+      {activeTab === "roles" && isAdmin ? (
+        <RolesSection isAdmin={isAdmin} />
+      ) : null}
+      {activeTab === "audit" && isAdmin ? (
+        <AuditSection isAdmin={isAdmin} />
+      ) : null}
     </div>
   );
 }

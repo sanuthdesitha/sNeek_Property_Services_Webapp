@@ -1,4 +1,7 @@
 "use client";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
+
+import { statusBlockStyle } from "@/lib/jobs/status-presentation";
 
 /**
  * Estate laundry workspace (client) — read-only laundry schedule + timeline.
@@ -267,6 +270,7 @@ export function LaundryWorkspace({ tasks, showLaundryImages, properties: availab
     return (
       <div
         key={task.id}
+        style={statusBlockStyle(String(task.status), "laundry")}
         ref={(node) => {
           taskRefs.current[task.id] = node;
         }}
@@ -295,7 +299,7 @@ export function LaundryWorkspace({ tasks, showLaundryImages, properties: availab
               ) : null}
             </div>
           </div>
-          <EBadge tone={statusTone(task)} soft>
+          <JobStatusIcon status={String(task.status)} domain="laundry" /><EBadge tone={statusTone(task)} soft>
             {formatLaundryStatus(task)}
           </EBadge>
         </div>

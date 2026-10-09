@@ -72,7 +72,7 @@ type HistoryEntry = {
   details?: any;
 };
 
-export function LaundryReports() {
+export function LaundryReports({ task, onClearTask }: { task?: { id: string; name: string } | null; onClearTask?: () => void } = {}) {
   const [period, setPeriod] = React.useState<Period>("weekly");
   const [anchorDate, setAnchorDate] = React.useState(() => dateInputValue(new Date()));
   const [startDate, setStartDate] = React.useState(() => dateInputValue(new Date()));
@@ -129,6 +129,7 @@ export function LaundryReports() {
   }
 
   function reportBody(extra?: Record<string, unknown>) {
+    if (task) return { taskId: task.id, ...extra };
     const filters = scopeFilters();
     const base =
       period === "custom"
@@ -138,6 +139,7 @@ export function LaundryReports() {
   }
 
   function buildQuery() {
+    if (task) return new URLSearchParams({ taskId: task.id }).toString();
     const params = new URLSearchParams();
     params.set("period", period);
     params.set("includePending", "true");
@@ -253,6 +255,8 @@ export function LaundryReports() {
             </EButton>
           </div>
 
+          {task && <div className="flex flex-wrap items-center justify-between gap-3 rounded border p-3 text-sm"><p>Report for {task.name} · one laundry run</p><EButton variant="outline" onClick={onClearTask} disabled={loading || downloading || emailing}>All reports</EButton></div>}
+          {!task && <>
           {/* Period */}
           <div className="grid gap-3 sm:grid-cols-3">
             <EField label="Period">
@@ -370,6 +374,7 @@ export function LaundryReports() {
             </div>
           </EField>
 
+          </>}
           {/* Email + actions */}
           <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
             <EField label="Email report to" hint="Sends the PDF as an attachment.">

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 
 // jsdom does not implement Element.scrollIntoView; stub it for libs like cmdk.
@@ -36,3 +36,6 @@ if (typeof window !== "undefined" && !window.matchMedia) {
 afterEach(() => {
   cleanup();
 });
+
+// Navigation preferences persist across component mounts, not across test cases.
+beforeEach(() => { if (typeof window !== "undefined") window.sessionStorage.clear(); });

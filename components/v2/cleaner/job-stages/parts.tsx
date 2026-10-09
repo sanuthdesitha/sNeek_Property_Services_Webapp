@@ -237,7 +237,7 @@ export function TaskChip({
 }
 
 /* ── Pre-start job briefing ──────────────────────────────────────────────── */
-export function BriefingCard({ briefing }: { briefing: any }) {
+export function BriefingCard({ briefing, showLaundry = true }: { briefing: any; showLaundry?: boolean }) {
   if (!briefing) return null;
   // Access details (accessCode/alarmCode/keyLocation/accessNotes) are DELIBERATELY
   // not rendered here — access lives in exactly ONE cleaner surface,
@@ -245,7 +245,7 @@ export function BriefingCard({ briefing }: { briefing: any }) {
   const reworkNotes: any[] = Array.isArray(briefing.qaReworkNotes) ? briefing.qaReworkNotes : [];
   const flags: string[] = Array.isArray(briefing.previousFlags) ? briefing.previousFlags : [];
   const lastPhotos: any[] = Array.isArray(briefing.lastPhotos) ? briefing.lastPhotos : [];
-  const drop = briefing.previousLaundryDrop;
+  const drop = showLaundry ? briefing.previousLaundryDrop : null;
   const hasContent =
     briefing.priorQaWarning ||
     reworkNotes.length > 0 ||

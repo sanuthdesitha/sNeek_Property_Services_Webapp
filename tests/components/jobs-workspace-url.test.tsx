@@ -1,16 +1,23 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render as renderBase, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JobsWorkspace } from "@/components/v2/admin/jobs/jobs-workspace";
 import { readJobsState } from "@/components/v2/admin/jobs/use-jobs-workspace-state";
 import { DEFAULT_JOBS_STATE, jobsSnapshot } from "@/lib/jobs/workspace-state";
 
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(window.location.search) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(window.location.search) }));
 vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
 vi.mock("@/components/v2/admin/jobs/job-row", () => ({
   EJobRow: ({ job }: any) => <div>List {job.property.name}</div>,
   EBoardCard: ({ job }: any) => <div>Board {job.property.name}</div>,
   ECheck: () => null, assignmentNames: () => [], scheduledLabel: () => "", statusLabel: (s: string) => s,
 }));
+
+function render(ui: React.ReactElement) {
+  const result = renderBase(ui);
+  fireEvent.keyDown(screen.getByRole("button", { name: "Jobs options" }), { key: "Enter" });
+  fireEvent.click(screen.getByRole("menuitem", { name: "View options" }));
+  return result;
+}
 
 type Pending = { url: string; resolve: (response: unknown) => void; reject: (error: Error) => void };
 let pending: Pending[];
@@ -21,6 +28,7 @@ function respond(index: number, name: string, page = 1) {
   }) });
 }
 beforeEach(() => {
+  sessionStorage.clear();
   pending = [];
   window.history.replaceState({}, "", "/v2/admin/jobs");
   vi.stubGlobal("fetch", vi.fn((url: string) => url.startsWith("/api/jobs?")
@@ -53,6 +61,63 @@ describe("Jobs workspace URL integration", () => {
     expect(pending[pending.length - 1].url).toContain("statusGroup=active");
     expect(pending[pending.length - 1].url).not.toContain("density");
   });
+  it("groups filters in one disclosure and clears search, status and date together", async () => {
+    window.history.replaceState({}, "", "/v2/admin/jobs?search=Harbour&statusChip=active&dateScope=today");
+    const { container } = render(<JobsWorkspace />);
+    const panel = container.querySelector("details")!;
+    expect(panel).toContainElement(screen.getByRole("textbox", { name: "Search jobs" }));
+    expect(panel).toContainElement(screen.getByRole("button", { name: "Active" }));
+    expect(panel).toContainElement(screen.getByRole("combobox", { name: "Filter by client" }));
+    expect(screen.getAllByRole("button", { name: "Clear filters" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(readJobsState(new URLSearchParams(window.location.search))).toMatchObject({ search: "", statusChip: "all", dateScope: "all" });
+  });
+
+  it("refreshes in place on focus, retains rows on failure and recovers", async () => {
+    render(<JobsWorkspace />);
+    await act(async () => respond(0, "Original"));
+    fireEvent(window, new Event("focus"));
+    expect(screen.getByText("List Original")).toBeVisible();
+    fireEvent(window, new Event("focus"));
+    expect(pending).toHaveLength(2);
+    await act(async () => pending[1].resolve({ ok: false }));
+    expect(screen.getByText("List Original")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Live refresh unavailable");
+    fireEvent(window, new Event("focus"));
+    await act(async () => respond(2, "Updated"));
+    expect(screen.getByText("List Updated")).toBeVisible();
+    expect(screen.queryByText(/Live refresh unavailable/)).not.toBeInTheDocument();
+  });
+
+  it("loads and applies team defaults while view options stay closed", async () => {
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => {
+      if (url === "/api/me/jobs-views") return Promise.resolve({ ok: true, status: 200, json: async () => ({ context: "test-context", data: { version: 1, revision: 0, defaultId: null, views: [] } }) });
+      if (url === "/api/admin/jobs-team-default") return Promise.resolve({ ok: true, status: 200, json: async () => ({ context: "test-context", canPublish: true, data: { version: 1, revision: 1, updatedBy: "admin", updatedAt: "2026-10-09T00:00:00.000Z", snapshot: jobsSnapshot({ ...DEFAULT_JOBS_STATE, density: "comfortable", view: "board" }) } }) });
+      return originalFetch(url, options);
+    }));
+    renderBase(<JobsWorkspace viewsContext="test-context" teamDefaultsEnabled />);
+    await waitFor(() => expect(readJobsState(new URLSearchParams(window.location.search))).toMatchObject({ density: "comfortable", view: "board" }));
+    expect(screen.queryByRole("button", { name: "Publish current view" })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Jobs options" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "View options" }));
+    expect(screen.getByRole("button", { name: "Publish current view" })).toBeEnabled();
+  });
+
+  it("hides view settings until requested and resets appearance without losing filters", () => {
+    window.history.replaceState({}, "", "/v2/admin/jobs?search=Harbour&view=board&density=compact&sort=latest");
+    renderBase(<JobsWorkspace />);
+    expect(screen.queryByRole("combobox", { name: "Jobs density" })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Jobs options" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "View options" }));
+    expect(screen.getByRole("combobox", { name: "Jobs density" })).toHaveValue("compact");
+    fireEvent.click(screen.getByRole("button", { name: "Reset appearance" }));
+    expect(readJobsState(new URLSearchParams(window.location.search))).toMatchObject({ search: "Harbour", view: "list", density: "default", sort: "soonest" });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("combobox", { name: "Jobs density" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Jobs options" })).toHaveFocus();
+  });
+
   it("accepts exactly the sort values exposed by the select", () => {
     render(<JobsWorkspace />);
     const select = screen.getByRole("combobox", { name: "Sort jobs" }) as HTMLSelectElement;
@@ -144,7 +209,8 @@ describe("Jobs workspace URL integration", () => {
     expect(cleared.has("dateFrom")).toBe(false);
     expect(cleared.has("cleanerId")).toBe(false);
     expect(cleared.has("page")).toBe(false);
-    expect(cleared.get("search")).toBe("Harbour");
+    expect(cleared.has("search")).toBe(false);
+    await waitFor(() => expect(pending).toHaveLength(4));
     await act(async () => respond(3, "Harbour"));
   });
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Estate-native diagnostics hub — System (live 5s poll of
  * /api/admin/system/diagnostics), Email (suppression list + unsuppress), and
@@ -41,7 +43,7 @@ export function DiagnosticsHub({
   email: EmailRow[];
   uploads: UploadRow[];
 }) {
-  const [tab, setTab] = useState<Tab>(
+  const [tab, setTab] = useRestorableState<Tab>("diagnostics-hub:tab",
     initialTab === "email" || initialTab === "uploads" ? (initialTab as Tab) : "system"
   );
 

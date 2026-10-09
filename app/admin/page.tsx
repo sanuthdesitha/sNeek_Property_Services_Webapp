@@ -1,3 +1,4 @@
+import { LivePageRefresh } from "@/components/shared/live-page-refresh";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { Role, JobStatus, PayAdjustmentStatus, QaReworkTransferStatus } from "@prisma/client";
@@ -404,6 +405,7 @@ export default async function AdminDashboard() {
 
   return (
     <div className="space-y-6">
+      <LivePageRefresh />
       {/* Header */}
       <div className="rounded-2xl border border-border bg-gradient-to-r from-surface-raised via-surface to-primary/5 p-5 shadow-[0_16px_36px_-28px_rgba(15,23,42,0.5)] dark:shadow-none dark:from-surface-raised dark:via-surface-raised dark:to-primary/10">
         <h2 className="text-2xl font-bold tracking-tight text-foreground">

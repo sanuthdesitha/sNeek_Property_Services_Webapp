@@ -7,7 +7,7 @@ import { SavedViewsControls } from "@/components/v2/admin/jobs/saved-views-contr
 import { emptyJobsViews, type JobsViews } from "@/lib/jobs/saved-views";
 import { jobsSnapshot } from "@/lib/jobs/workspace-state";
 
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(window.location.search) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(window.location.search) }));
 const viewId = "11111111-1111-4111-8111-111111111111";
 const secondId = "22222222-2222-4222-8222-222222222222";
 const snapshot = jobsSnapshot({ ...DEFAULT_JOBS_STATE, sort: "latest", density: "compact" });
@@ -16,6 +16,7 @@ const response = (data: JobsViews, context = "context-a") => ({ ok: true, status
 type Deferred = { resolve: (response: any) => void; reject: (error: Error) => void; options: RequestInit };
 let pending: Deferred[];
 beforeEach(() => {
+  sessionStorage.clear();
   pending = [];
   window.history.replaceState({ marker: true }, "", "/v2/admin/jobs");
   vi.stubGlobal("fetch", vi.fn((_url, options) => new Promise((resolve, reject) => pending.push({ resolve, reject, options }))));

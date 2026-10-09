@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 import * as React from "react";
 import Link from "next/link";
 import { Briefcase, FileWarning, Search, Star } from "lucide-react";
@@ -32,7 +34,7 @@ function qaTone(qa: number | null): "success" | "warning" | "danger" | "neutral"
 }
 
 export function RosterTable({ rows }: { rows: RosterRow[] }) {
-  const [query, setQuery] = React.useState("");
+  const [query, setQuery] = useRestorableState("roster-table:query", "");
   const [role, setRole] = React.useState("ALL");
 
   const roles = React.useMemo(

@@ -84,20 +84,20 @@ export function SavedViewsControls({ context, readOnly, state, apply, applyDefau
         {views.data?.views.map(view => <option key={view.id} value={view.id}>{view.name}{view.id === views.data?.defaultId ? " (default)" : ""}</option>)}
       </select>
       <EButton size="sm" variant="outline" title="Save as new view" aria-label="Save as new view" disabled={cannotWrite || snapshotInvalid || (views.data?.views.length ?? 0) >= 20}
-        onClick={() => { setName(""); setDialog("create"); }}><Plus className="h-4 w-4" /></EButton>
+        onClick={() => { setName(""); setDialog("create"); }}><Plus className="h-4 w-4" /><span>Save as new</span></EButton>
       <EButton size="sm" variant="outline" title="Update selected view" aria-label="Update selected view" disabled={cannotWrite || snapshotInvalid || !selected}
-        onClick={() => selected && void save({ action: "update", id: selected.id, snapshot })}><Save className="h-4 w-4" /></EButton>
+        onClick={() => selected && void save({ action: "update", id: selected.id, snapshot })}><Save className="h-4 w-4" /><span>Update view</span></EButton>
       <EButton size="sm" variant="outline" title="Rename selected view" aria-label="Rename selected view" disabled={cannotWrite || !selected}
-        onClick={() => { setName(selected?.name ?? ""); setDialog("rename"); }}><Pencil className="h-4 w-4" /></EButton>
+        onClick={() => { setName(selected?.name ?? ""); setDialog("rename"); }}><Pencil className="h-4 w-4" /><span>Rename</span></EButton>
       <EButton size="sm" variant="outline" title="Delete selected view" aria-label="Delete selected view" disabled={cannotWrite || !selected}
-        onClick={() => setDialog("delete")}><Trash2 className="h-4 w-4" /></EButton>
+        onClick={() => setDialog("delete")}><Trash2 className="h-4 w-4" /><span>Delete</span></EButton>
       <EButton size="sm" variant="outline" title={selected && views.data?.defaultId === selected.id ? "Remove personal default" : "Set personal default"}
         aria-label={selected && views.data?.defaultId === selected.id ? "Remove personal default" : "Set personal default"}
         aria-pressed={Boolean(selected && views.data?.defaultId === selected.id)} disabled={cannotWrite || !selected}
         onClick={() => selected && void save({ action: "default", id: views.data?.defaultId === selected.id ? null : selected.id })}>
-        <Star className="h-4 w-4" fill={selected && views.data?.defaultId === selected.id ? "currentColor" : "none"} /></EButton>
+        <Star className="h-4 w-4" fill={selected && views.data?.defaultId === selected.id ? "currentColor" : "none"} /><span>{selected && views.data?.defaultId === selected.id ? "Remove personal default" : "Set personal default"}</span></EButton>
       <EButton size="sm" variant="ghost" title="Reset Jobs view" aria-label="Reset Jobs view"
-        onClick={() => { setSelectedId(""); apply({ ...DEFAULT_JOBS_STATE }); }}><RotateCcw className="h-4 w-4" /></EButton>
+        onClick={() => { setSelectedId(""); apply({ ...DEFAULT_JOBS_STATE }); }}><RotateCcw className="h-4 w-4" /><span>Reset Jobs view</span></EButton>
       {modified ? <span className="text-sm">Modified</span> : null}
     </div>
     {!dialog ? feedback : null}

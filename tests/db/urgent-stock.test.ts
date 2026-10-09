@@ -26,6 +26,7 @@ describe.skipIf(!url)("urgent stock transactional integration", () => {
  });
  beforeEach(async () => {
   await m.client.appSetting.deleteMany({ where: { key: { startsWith: prefix } } });
+  await m.client.notificationIntent.deleteMany({ where: { recipientId: adminId } });
   await m.client.notification.deleteMany({ where: { userId: adminId } });
   await m.client.stockTx.deleteMany({ where: { propertyStock: { propertyId } } });
   await m.client.propertyStock.updateMany({ where: { propertyId }, data: { onHand: 10, updatedAt: new Date(Date.now() - 3600000) } });
@@ -34,6 +35,7 @@ describe.skipIf(!url)("urgent stock transactional integration", () => {
  });
  afterAll(async () => {
   await m.client.appSetting.deleteMany({ where: { key: { startsWith: prefix } } });
+  await m.client.notificationIntent.deleteMany({ where: { recipientId: adminId } });
   await m.client.notification.deleteMany({ where: { userId: { in: [adminId, cleanerId, strangerId] } } });
   await m.client.auditLog.deleteMany({ where: { userId: adminId } });
   await m.client.stockTx.deleteMany({ where: { propertyStock: { propertyId } } });
@@ -106,7 +108,11 @@ describe.skipIf(!url)("urgent stock transactional integration", () => {
   const now = new Date(Date.now() + 3600001);
   const results = await Promise.all([reminders(now), reminders(now)]);
   expect(results.reduce((sum, result) => sum + result.sent, 0)).toBe(1);
-  expect(await m.client.notification.count({ where: { userId: adminId } })).toBe(2);
+  const intents = await m.client.notificationIntent.findMany({ where: { recipientId: adminId } });
+  expect(intents).toHaveLength(2);
+  expect(intents.every((row: any) => row.transport === "INBOX" && row.status === "QUEUED")).toBe(true);
+  expect(intents.map((row: any) => row.envelope.category)).toEqual(["shopping", "shopping"]);
+  expect(await m.client.notification.count({ where: { userId: adminId } })).toBe(0);
   expect((await reminders(new Date(now.getTime() + 86400000))).sent).toBe(0);
   await act(admin, action(need, "ADMIN_RESOLVED"));
   expect((await reminders(new Date(now.getTime() + 172800000))).sent).toBe(0);

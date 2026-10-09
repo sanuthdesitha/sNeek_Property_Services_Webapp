@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE reports manager — search, property + visibility filters, pagination,
  * visibility toggles, regenerate (with theme), PDF and delete. Same endpoints
@@ -32,7 +34,7 @@ export function ReportsManager() {
   const [reports, setReports] = useState<any[]>([]);
   const [properties, setProperties] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ q: "", propertyId: "all", visibility: "all", sort: "newest" });
+  const [filters, setFilters] = useRestorableState("reports-manager:filters", { q: "", propertyId: "all", visibility: "all", sort: "newest" });
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, limit: 25, totalCount: 0, totalPages: 1, hasMore: false });

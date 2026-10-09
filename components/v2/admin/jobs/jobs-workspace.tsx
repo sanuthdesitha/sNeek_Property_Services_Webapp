@@ -7,6 +7,12 @@
  * entirely new Estate presentation: date-scope tabs, status chips, list ⇄
  * board toggle, serif rows, bulk bar, CSV export.
  */
+import Link from "next/link";
+import { Plus } from "lucide-react";
+import { EPageHeader } from "@/components/v2/ui/primitives";
+import { DEFAULT_JOBS_STATE } from "@/lib/jobs/workspace-state";
+import { JobsViewOptionsMenu } from "./view-options-menu";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -163,7 +169,15 @@ const FIELD_CLS =
   "focus:outline-none focus:ring-2 focus:ring-[hsl(var(--e-ring))]";
 
 /* ── Workspace ─────────────────────────────────────────────────────────── */
-export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefaultsEnabled = false }: { viewsContext?: string; viewsReadOnly?: boolean; teamDefaultsEnabled?: boolean }) {
+export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefaultsEnabled = false, showPageHeader = false }: { showPageHeader?: boolean; viewsContext?: string; viewsReadOnly?: boolean; teamDefaultsEnabled?: boolean }) {
+  const router = useRouter();
+  const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
+  const viewOptionsTitle = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (!viewOptionsOpen) return;
+    const timer = window.setTimeout(() => viewOptionsTitle.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [viewOptionsOpen]);
   const [jobs, setJobs] = useState<any[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: PAGE_SIZE, totalCount: 0, totalPages: 0, hasMore: false });
   const [loadState, setLoadState] = useState<{ status: "loading" | "success" | "error"; query: string }>({ status: "loading", query: "" });
@@ -171,7 +185,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
   const { state, ready, update, applyDefault, columnsError } = useJobsWorkspaceState();
   const { dateScope, statusChip, sort, search, view, jobType, clientId, propertyId,
     cleanerId, dateFrom, dateTo, invoiced, page, density, columns } = state;
-  const setDateScope = (value: DateScope) => update({ dateScope: value });
+  const setDateScope = (value: DateScope) => update({ dateScope: value, dateFrom: "", dateTo: "" });
   const setStatusChip = (value: string) => update({ statusChip: value });
   const setSort = (value: JobSort) => update({ sort: value });
   const setSearch = (value: string) => update({ search: value });
@@ -199,7 +213,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
    * show, with the rest of the job visible around them.
    */
   const openManage = (job: any) => {
-    if (job?.id) window.location.href = `/v2/admin/jobs/${job.id}?tab=schedule`;
+    if (job?.id) router.push(`/v2/admin/jobs/${job.id}?tab=schedule`);
   };
   const [assignSelected, setAssignSelected] = useState<string[]>([]);
   const [assignSubmitting, setAssignSubmitting] = useState(false);
@@ -249,11 +263,16 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
   const requestId = useRef(0);
   const requestedSearch = useRef<string | null>(null);
 
-  async function loadJobs() {
+  const inFlight = useRef(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+
+  async function loadJobs(background = false) {
+    if (background && inFlight.current) return;
+    inFlight.current = true;
     const query = latestQuery.current;
     requestedSearch.current = new URLSearchParams(query).get("search") ?? "";
     const id = ++requestId.current;
-    setLoadState({ status: "loading", query });
+    if (!background) setLoadState({ status: "loading", query });
     try {
       const res = await fetch(`/api/jobs?${query}`, { cache: "no-store" });
       if (!res.ok) throw new Error("Could not load jobs.");
@@ -266,12 +285,16 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
         throw new Error("Invalid jobs pagination.");
       }
       if (id !== requestId.current || query !== latestQuery.current) return;
+      setRefreshFailed(false);
       setJobs(data.jobs);
       setPagination(resultPage);
       setLoadState({ status: "success", query });
     } catch {
       if (id !== requestId.current || query !== latestQuery.current) return;
-      setLoadState({ status: "error", query });
+      if (background) setRefreshFailed(true);
+      else setLoadState({ status: "error", query });
+    } finally {
+      if (id === requestId.current) inFlight.current = false;
     }
   }
 
@@ -288,6 +311,23 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, jobsQuery]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadJobs(true);
+    };
+    const timer = window.setInterval(refresh, 15_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+    // Reads the latest query and rejects obsolete responses inside loadJobs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   useEffect(() => {
     fetch("/api/admin/clients")
@@ -509,6 +549,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
   }
 
   const hasActiveFilters =
+    search.trim() !== "" || statusChip !== "all" || dateScope !== "all" ||
     jobType !== "all" ||
     clientId !== "all" ||
     propertyId !== "all" ||
@@ -518,7 +559,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
     Boolean(dateTo);
 
   function resetFilters() {
-    update({ jobType: "all", clientId: "all", propertyId: "all", cleanerId: "all",
+    update({ search: "", statusChip: "all", dateScope: "all", jobType: "all", clientId: "all", propertyId: "all", cleanerId: "all",
       invoiced: "all", dateFrom: "", dateTo: "" });
   }
 
@@ -536,47 +577,29 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
 
   return (
     <div className="space-y-5">
-      {viewsContext ? <SavedViewsControls key={viewsContext} context={viewsContext} readOnly={viewsReadOnly}
-        state={state} apply={update} applyDefault={applyDefault} snapshotInvalid={columnsError} teamDefaultsEnabled={teamDefaultsEnabled} /> : null}
-      {columnsError ? <p role="alert" className="text-sm text-red-700">Invalid columns in this link. Choose list columns or reset the view before saving.</p> : null}
-      {/* ── Command bar: date scope · search · sort · view ── */}
+      {showPageHeader ? <EPageHeader className="[&>div:first-child>div:last-child]:ml-auto" eyebrow="Operations" title="Jobs"
+        description="Every engagement across the portfolio — scheduled, in motion, and settled."
+        actions={<div className="flex items-center gap-2">
+          <EButton variant="gold" asChild><Link href="/v2/admin/jobs/new"><Plus className="h-4 w-4" /> New / Bulk</Link></EButton>
+          <JobsViewOptionsMenu onOpen={() => setViewOptionsOpen(true)} />
+        </div>} /> : <div className="flex justify-end"><JobsViewOptionsMenu onOpen={() => setViewOptionsOpen(true)} /></div>}
+      <section hidden={!viewOptionsOpen} aria-labelledby="jobs-view-options-title"
+        className="space-y-5 rounded-lg border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 id="jobs-view-options-title" ref={viewOptionsTitle} tabIndex={-1} className="e-serif text-xl">View options</h2>
+            <p className="mt-1 text-sm text-[hsl(var(--e-muted-foreground))]">Customise your layout, save personal views and manage the team default.</p>
+          </div>
+          <EButton variant="ghost" size="sm" onClick={() => { setViewOptionsOpen(false); document.querySelector<HTMLButtonElement>('[aria-label="Jobs options"]')?.focus(); }}>Done</EButton>
+        </div>
+        <h3 className="text-sm font-semibold">Layout and appearance</h3>
+      {/* Display tools stay separate from filtering. */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1 rounded-[var(--e-radius)] bg-[hsl(var(--e-muted))] p-1">
-          {DATE_SCOPES.map((scope) => (
-            <button
-              key={scope.id}
-              type="button"
-              aria-pressed={dateScope === scope.id}
-              onClick={() => setDateScope(scope.id)}
-              className={
-                "rounded-[var(--e-radius-sm)] px-3.5 py-1.5 text-[0.8125rem] font-[550] transition-colors duration-[160ms] " +
-                (dateScope === scope.id
-                  ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
-                  : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]")
-              }
-            >
-              {scope.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="relative min-w-[220px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
-          <input
-            aria-label="Search jobs"
-            value={search}
-            maxLength={200}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search property, client, cleaner, job number…"
-            className={FIELD_CLS + " pl-9"}
-          />
-        </div>
-
         <select
           value={sort}
           onChange={(event) => setSort(event.target.value as JobSort)}
           aria-label="Sort jobs"
-          className={FIELD_CLS + " w-auto min-w-[180px] cursor-pointer"}
+          className={FIELD_CLS + " !w-auto min-w-[180px] cursor-pointer"}
         >
           {SORT_OPTIONS.map((option) => (
             <option key={option.id} value={option.id}>
@@ -586,7 +609,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
         </select>
 
         <select aria-label="Jobs density" value={density} onChange={event => update({ density: event.target.value })}
-          className={FIELD_CLS + " w-auto cursor-pointer"}>
+          className={FIELD_CLS + " !w-auto cursor-pointer"}>
           <option value="compact">Compact</option><option value="default">Default density</option><option value="comfortable">Comfortable</option>
         </select>
         <JobsColumnsMenu columns={columns} onChange={value => update({ columns: value })} />
@@ -622,9 +645,59 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
           </button>
         </div>
 
+        <EButton variant="ghost" size="sm" onClick={() => update({ view: DEFAULT_JOBS_STATE.view, density: DEFAULT_JOBS_STATE.density, columns: { ...DEFAULT_JOBS_STATE.columns }, sort: DEFAULT_JOBS_STATE.sort })}>Reset appearance</EButton>
+      </div>
+
+        <p className="text-xs text-[hsl(var(--e-muted-foreground))]">List columns apply to list view. Reset appearance keeps your current filters.</p>
+        <h3 className="text-sm font-semibold">Saved views and defaults</h3>
+      {viewsContext ? <SavedViewsControls key={viewsContext} context={viewsContext} readOnly={viewsReadOnly}
+        state={state} apply={update} applyDefault={applyDefault} snapshotInvalid={columnsError} teamDefaultsEnabled={teamDefaultsEnabled} /> : null}
+      {columnsError ? <p role="alert" className="text-sm text-red-700">Invalid columns in this link. Choose list columns or reset the view before saving.</p> : null}
+      </section>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-[hsl(var(--e-muted-foreground))]">{view === "board" ? "Board" : "List"} view · {density === "default" ? "Standard" : density === "compact" ? "Compact" : "Comfortable"} spacing</p>
         <JobsExportPreview query={buildQuery({ page: "1", limit: "5000" }).toString()} context={viewsContext} disabled={!ready} />
       </div>
 
+      <details className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]" open>
+        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
+          <SlidersHorizontal className="mr-2 inline h-4 w-4" aria-hidden />
+          Filters · {hasActiveFilters ? "Filtered view" : "All jobs"}
+        </summary>
+        <div className="space-y-4 border-t border-[hsl(var(--e-border))] p-4">
+          <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-1 rounded-[var(--e-radius)] bg-[hsl(var(--e-muted))] p-1">
+          {DATE_SCOPES.map((scope) => (
+            <button
+              key={scope.id}
+              type="button"
+              aria-pressed={!dateFrom && !dateTo && dateScope === scope.id}
+              onClick={() => setDateScope(scope.id)}
+              className={
+                "rounded-[var(--e-radius-sm)] px-3.5 py-1.5 text-[0.8125rem] font-[550] transition-colors duration-[160ms] " +
+                (!dateFrom && !dateTo && dateScope === scope.id
+                  ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
+                  : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]")
+              }
+            >
+              {scope.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
+          <input
+            aria-label="Search jobs"
+            value={search}
+            maxLength={200}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search property, client, cleaner, job number…"
+            className={FIELD_CLS + " pl-9"}
+          />
+        </div>
+
+          </div>
       {/* ── Status chips ── */}
       <div className="flex flex-wrap items-center gap-2">
         {STATUS_CHIPS.map((chip) => {
@@ -652,12 +725,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
         </span>}
       </div>
 
-      {/* ── Refined filters: type · client · property · explicit range · invoice ── */}
-      <div className="flex flex-wrap items-end gap-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised)/0.5)] px-4 py-3">
-        <span className="flex items-center gap-1.5 self-center text-[0.6875rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-faint))]">
-          <SlidersHorizontal className="h-3.5 w-3.5" /> Filters
-        </span>
-
+      <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 [&>label]:min-w-0 [&_select]:!w-full [&_select]:!min-w-0 [&_input]:!w-full [&_input]:!min-w-0">
         <label className="flex flex-col gap-1">
           <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Job type</span>
           <select
@@ -780,7 +848,10 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
           </span>
         ) : null}
       </div>
+        </div>
+      </details>
 
+      {refreshFailed && <p role="status" className="text-sm">Live refresh unavailable. Showing the last loaded jobs; retrying automatically.</p>}
       {/* ── Content ── */}
       {loading ? (
         <ECard className="px-6 py-16 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">

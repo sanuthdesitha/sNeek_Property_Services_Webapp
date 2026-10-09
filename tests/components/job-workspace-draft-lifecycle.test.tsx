@@ -15,7 +15,7 @@ vi.mock("@/components/v2/cleaner/start-briefing-dialog", () => ({ StartBriefingD
 vi.mock("@/components/v2/cleaner/final-checkup-dialog", () => ({ FinalCheckupDialog: () => null }));
 vi.mock("@/components/v2/cleaner/job-stages/timing-banner", () => ({ TimingRuleBanners: () => null }));
 vi.mock("@/components/v2/cleaner/job-stages/job-header", () => ({ JobHeader: ({ api }: { api: WorkspaceApi }) => (
-  <><span data-testid="job-status">{api.status}</span><button onClick={() => void api.load()}>Refresh fixture</button></>
+  <><span data-testid="active-stage">{api.activeStage}</span><button onClick={() => api.setActiveStage(2)}>Travel fixture</button><span data-testid="job-status">{api.status}</span><button onClick={() => void api.load()}>Refresh fixture</button></>
 ) }));
 vi.mock("@/components/v2/cleaner/job-stages/stage-nav", () => ({ StageNav: () => null }));
 vi.mock("@/components/v2/cleaner/job-stages/stage-accept", () => ({ StageAccept: () => null }));
@@ -445,7 +445,8 @@ describe("real JobWorkspace draft lifecycle", () => {
     expect(input).toHaveValue("upload in progress");
     await act(async () => { fireEvent(window, new Event("focus")); });
     expect(screen.getByLabelText("Fixture answer")).toBe(input);
-    expect(calls("/draft", "GET")).toHaveLength(1);
+    // Initial hydration plus two evidence-only focus reads preserve the mounted form.
+    expect(calls("/draft", "GET")).toHaveLength(3);
     await advance(); await respond(0);
   });
 
@@ -472,7 +473,7 @@ describe("real JobWorkspace draft lifecycle", () => {
     // hydrated flag. Hold that read to verify pagehide cannot save prematurely.
     const restoration = deferred<Response>(); readDraft = () => restoration.promise;
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Try again" })); });
-    expect(calls("/draft", "GET")).toHaveLength(2);
+    expect(calls("/draft", "GET")).toHaveLength(3);
     fireEvent(window, new Event("pagehide")); await advance();
     expect(patches).toHaveLength(1);
     expect(screen.queryByLabelText("Fixture answer")).not.toBeInTheDocument();
@@ -674,4 +675,15 @@ it("applies server removal records before restoring a stale local bulk pool", as
   render(<JobWorkspace jobId="job" draftIdentity={identity} />);
   await act(async () => {});
   expect(latestApi.bulkPool).toEqual([]);
+});
+
+
+it("restores the cleaner stage after navigating away while keeping job data scoped", async () => {
+  const view = await mount();
+  expect(screen.getByTestId("active-stage")).toHaveTextContent("4");
+  fireEvent.click(screen.getByRole("button", { name: "Travel fixture" }));
+  expect(screen.getByTestId("active-stage")).toHaveTextContent("2");
+  view.unmount();
+  await mount(false);
+  expect(screen.getByTestId("active-stage")).toHaveTextContent("2");
 });

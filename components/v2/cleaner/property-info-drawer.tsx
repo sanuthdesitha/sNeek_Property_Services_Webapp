@@ -270,7 +270,11 @@ export function PropertyInfoDrawer({
   nextGuest,
   readFirstItems,
   restockNeeds,
+  showAccess = true,
+  showReferences = true,
 }: {
+  showAccess?: boolean;
+  showReferences?: boolean;
   open: boolean;
   onClose: () => void;
   property: any;
@@ -344,7 +348,7 @@ export function PropertyInfoDrawer({
 
           <NextGuestBlock nextGuest={nextGuest} />
 
-          {keyPickup ? (
+          {showAccess && keyPickup ? (
             <div className="space-y-2">
               <SectionHeading icon={<MapPin className="h-3.5 w-3.5" />}>Key pickup</SectionHeading>
               <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
@@ -353,7 +357,7 @@ export function PropertyInfoDrawer({
             </div>
           ) : null}
 
-          {propertyId || property?.accessInfo ? (
+          {showAccess && (propertyId || property?.accessInfo) ? (
             <div className="space-y-2">
               <SectionHeading icon={<KeyRound className="h-3.5 w-3.5" />}>Access</SectionHeading>
               {/* Canonical access surface — the SAME guide used across the portal. */}
@@ -373,7 +377,7 @@ export function PropertyInfoDrawer({
           ) : null}
 
           <LaundryBagBlock property={property} />
-          <SetupGuideBlock property={property} />
+          {showReferences ? <SetupGuideBlock property={property} /> : null}
 
           {readFirstItems && readFirstItems.length > 0 ? (
             <ReadFirstBlock items={readFirstItems} defaultVisible={readFirstItems.length} />

@@ -5,8 +5,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
 
 const SHOW_DELAY_MS = 600;
-const SUCCESS_CLOSE_MS = 900;
-const ERROR_CLOSE_MS = 1800;
+const SUCCESS_CLOSE_MS = 5000;
+const ERROR_CLOSE_MS = 10000;
 
 function ProgressDescription({ message, progress }: { message: string; progress: number }) {
   return (
@@ -126,6 +126,7 @@ export function GlobalRequestProgress() {
       let progress = 12;
       const handle = toast({
         title,
+        duration: Infinity,
         description: <ProgressDescription message="Preparing download..." progress={progress} />,
       });
       const interval = registerTimer(
@@ -183,6 +184,7 @@ export function GlobalRequestProgress() {
         shown = true;
         toastHandle = toast({
           title,
+          duration: Infinity,
           description: <ProgressDescription message="Working on your request..." progress={progress} />,
         });
         progressInterval = registerTimer(setInterval(() => {
@@ -199,12 +201,12 @@ export function GlobalRequestProgress() {
 
         if (shown && toastHandle) {
           clearTrackedTimer(progressInterval);
-          updateToast("Done.", 100);
+          updateToast(response.ok ? "Request completed." : "Request failed. Check the details and retry.", 100, response.ok ? "default" : "destructive");
           const dismissTimer = registerTimer(
             setTimeout(() => {
               toastHandle?.dismiss();
               clearTrackedTimer(dismissTimer);
-            }, SUCCESS_CLOSE_MS)
+            }, response.ok ? SUCCESS_CLOSE_MS : ERROR_CLOSE_MS)
           );
         }
 

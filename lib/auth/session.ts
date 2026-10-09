@@ -1,3 +1,4 @@
+import { enforceOpsRequest } from "@/lib/rbac/ops-access";
 import { getServerSession } from "next-auth";
 import { authOptions } from "./auth-options";
 import { Role } from "@prisma/client";
@@ -72,6 +73,7 @@ export async function requireSession() {
     };
   }
 
+  await enforceOpsRequest(session.user);
   return session;
 }
 

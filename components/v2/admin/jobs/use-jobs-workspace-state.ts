@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { initializeViewMemory, rememberedHref, rememberCurrentView } from "@/lib/navigation/view-memory";
 import { useSearchParams } from "next/navigation";
 import { DEFAULT_JOBS_STATE, hasExplicitJobsState, jobsColumnsSchema, readJobsColumns, readJobsState, writeJobsState, type JobsSnapshot, type JobsWorkspaceState } from "@/lib/jobs/workspace-state";
 export { DEFAULT_JOBS_STATE, readJobsState, writeJobsState, type JobsWorkspaceState } from "@/lib/jobs/workspace-state";
@@ -17,6 +18,12 @@ export function useJobsWorkspaceState() {
 
   useEffect(() => {
     const restore = (navigated = false) => {
+      initializeViewMemory();
+      const remembered = rememberedHref(window.location.pathname + window.location.search);
+      if (remembered !== window.location.pathname + window.location.search) {
+        window.history.replaceState(window.history.state, "", remembered + window.location.hash);
+        defaultAllowed.current = false;
+      }
       const params = new URLSearchParams(window.location.search);
       if (navigated || (restoredQuery.current !== null && restoredQuery.current !== window.location.search)
         || hasExplicitJobsState(params)) defaultAllowed.current = false;
@@ -58,6 +65,7 @@ export function useJobsWorkspaceState() {
     const clean = cleanParams.toString();
     // Replace this list entry so Back from a detail returns the latest view.
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${clean ? `?${clean}` : ""}${window.location.hash}`);
+    rememberCurrentView();
     setState(current.current);
   }, []);
 

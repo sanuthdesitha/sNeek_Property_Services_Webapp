@@ -188,7 +188,7 @@ export function buildSpokenScript(
 
   // Reminders.
   if (b.reminders?.deviceLine) {
-    parts.push("And a quick reminder to check the Ring and Minut devices where they're fitted.");
+    parts.push("Charge the Ring camera and Minut devices on every clean where fitted, and upload charging proof for each device. Record a reason if a device is absent or cannot be charged.");
   }
   if (b.reminders && b.reminders.expiringDocuments.length > 0) {
     parts.push(`One admin note: ${joinNatural(b.reminders.expiringDocuments)} ${b.reminders.expiringDocuments.length === 1 ? "is" : "are"} due to expire soon.`);

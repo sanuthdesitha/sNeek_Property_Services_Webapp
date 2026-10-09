@@ -1,5 +1,5 @@
+import { JobStatusProgress } from "@/components/shared/job-status-progress";
 import { DraftEvidenceReview } from "@/components/v2/admin/jobs/draft-evidence-review";
-import { OperationsButton } from "@/components/operations/ui";
 import { formatServiceDate } from "@/lib/time/service-date";
 import { PhotoReviewPanel } from "@/components/v2/qa/photo-review-panel";
 import Link from "next/link";
@@ -419,7 +419,7 @@ export default async function AdminJobDetailPage({
   params: { id: string };
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const job = await getJob(params.id);
   if (!job) notFound();
 
@@ -845,7 +845,7 @@ export default async function AdminJobDetailPage({
 
   return (
     <div className="space-y-6">
-      <OperationsButton asChild variant="outline" className="my-2"><a href={`/v2/admin/settings/holiday-rates?jobId=${job.id}`}>Review public holiday rates</a></OperationsButton>
+      <JobStatusProgress status={job.status} />
       <div className="flex items-center gap-2">
         <EButton asChild variant="ghost" size="icon"><Link href="/v2/admin/jobs" aria-label="Back to jobs board"><ArrowLeft className="h-4 w-4" /></Link></EButton>
         <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Jobs · {job.jobNumber}</span>
@@ -1205,6 +1205,13 @@ export default async function AdminJobDetailPage({
               </p>
             ) : null}
             {job.invoiceNote ? <p className="pt-1 text-[hsl(var(--e-text-faint))]">Invoice note: {job.invoiceNote}</p> : null}
+            {session.user.role === Role.ADMIN ? (
+              <div className="border-t border-[hsl(var(--e-border))] pt-3">
+                <EButton asChild variant="outline" className="min-h-11">
+                  <Link href={`/v2/admin/settings?tab=holiday-rates&jobId=${encodeURIComponent(job.id)}`}>Review public holiday rates</Link>
+                </EButton>
+              </div>
+            ) : null}
           </ECardBody>
         </ECard>
 

@@ -1,4 +1,5 @@
-import { OperationsButton } from "@/components/operations/ui";
+import { PropertyCareWorkspace } from "@/components/property-care/workspace";
+import { OperationsDisclosure } from "@/components/operations/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
@@ -185,7 +186,6 @@ export default async function EstateClientPropertyDetailPage({
 
   return (
     <div className="space-y-8">
-      <OperationsButton asChild variant="outline" className="my-2"><Link href={`/property-care?propertyId=${params.id}`}>Planned and completed property care</Link></OperationsButton>
       <div className="space-y-4">
         <EButton asChild variant="ghost" size="sm">
           <Link href="/v2/client/properties">
@@ -220,6 +220,10 @@ export default async function EstateClientPropertyDetailPage({
           </div>
         </ECard>
       </div>
+
+      <OperationsDisclosure title="Planned and completed property care">
+        <PropertyCareWorkspace propertyId={params.id} timeZone={settings.timezone} panel />
+      </OperationsDisclosure>
 
       {/* Stats */}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -37,7 +39,6 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 const TZ = "Australia/Sydney";
-const STORAGE_KEY = "sneek_client_jobs_filter";
 
 type FilterMode = "all" | "today" | "tomorrow" | "week" | "date";
 type ViewMode = "list" | "calendar";
@@ -146,11 +147,20 @@ export function ClientJobsWorkspace({
   showClientTaskRequests: boolean;
   showLaundryUpdates: boolean;
 }) {
-  const [filterMode, setFilterMode] = useState<FilterMode>("all");
-  const [selectedDate, setSelectedDate] = useState("");
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
-  const [showPastJobs, setShowPastJobs] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(toZonedTime(new Date(), TZ)));
+  const [filterMode, setFilterMode] = useRestorableState<FilterMode>("client-jobs:filter", "all");
+  const [selectedDate, setSelectedDate] = useRestorableState("client-jobs:date", "");
+  const [savedViewMode, setViewMode] = useRestorableState<ViewMode>("client-jobs:view", "list");
+  const viewMode: ViewMode = savedViewMode === "calendar" ? "calendar" : "list";
+  const [showPastJobs, setShowPastJobs] = useRestorableState("client-jobs:past", false);
+  const initialMonth = format(startOfMonth(toZonedTime(new Date(), TZ)), "yyyy-MM-dd");
+  const [savedMonth, setSavedMonth] = useRestorableState("client-jobs:month", initialMonth);
+  const calendarMonth = useMemo(() => /^\d{4}-(?:0[1-9]|1[0-2])-01$/.test(savedMonth)
+    ? new Date(`${savedMonth}T00:00:00`)
+    : new Date(`${initialMonth}T00:00:00`), [savedMonth, initialMonth]);
+  const setCalendarMonth = (next: Date | ((current: Date) => Date)) => {
+    const value = typeof next === "function" ? next(calendarMonth) : next;
+    setSavedMonth(format(startOfMonth(value), "yyyy-MM-dd"));
+  };
   const [actionJob, setActionJob] = useState<any | null>(null);
   const [actionMode, setActionMode] = useState<"reschedule" | "cancel" | null>(null);
   const [requestedDate, setRequestedDate] = useState("");
@@ -219,22 +229,7 @@ export function ClientJobsWorkspace({
     }
   }
 
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as { filterMode?: FilterMode; selectedDate?: string; viewMode?: ViewMode };
-      if (parsed.filterMode) setFilterMode(parsed.filterMode);
-      if (parsed.selectedDate) setSelectedDate(parsed.selectedDate);
-      if (parsed.viewMode) setViewMode(parsed.viewMode);
-    } catch {
-      // ignore invalid local state
-    }
-  }, []);
 
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ filterMode, selectedDate, viewMode }));
-  }, [filterMode, selectedDate, viewMode]);
 
   const filteredJobs = useMemo(
     () => sortJobs(jobs).filter((job) => matchesFilter(job, filterMode, selectedDate)),
@@ -542,7 +537,7 @@ export function ClientJobsWorkspace({
         <Card>
           <CardContent className="space-y-4 p-4">
             <div className="flex items-center justify-between">
-              <Button variant="outline" size="icon" onClick={() => setCalendarMonth((current) => subMonths(current, 1))}>
+              <Button variant="outline" size="icon" aria-label="Previous month" onClick={() => setCalendarMonth((current) => subMonths(current, 1))}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <div className="text-sm font-medium">{format(calendarMonth, "MMMM yyyy")}</div>
@@ -550,7 +545,7 @@ export function ClientJobsWorkspace({
                 <Button variant="outline" onClick={() => setCalendarMonth(startOfMonth(toZonedTime(new Date(), TZ)))}>
                   Today
                 </Button>
-                <Button variant="outline" size="icon" onClick={() => setCalendarMonth((current) => addMonths(current, 1))}>
+                <Button variant="outline" size="icon" aria-label="Next month" onClick={() => setCalendarMonth((current) => addMonths(current, 1))}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>

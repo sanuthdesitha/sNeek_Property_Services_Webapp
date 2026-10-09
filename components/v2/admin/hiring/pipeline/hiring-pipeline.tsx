@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE-native hiring hub (ATS) — pipeline board + filterable roster of
  * applications, KPIs, and open-role management. Uses the same endpoints as the
@@ -70,10 +72,10 @@ export function HiringPipeline({
   applications: Application[];
 }) {
   const router = useRouter();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useRestorableState("hiring-pipeline:query", "");
   const [positionId, setPositionId] = useState("all");
-  const [stageFilter, setStageFilter] = useState("all");
-  const [view, setView] = useState<"board" | "list">("board");
+  const [stageFilter, setStageFilter] = useRestorableState("hiring-pipeline:stageFilter", "all");
+  const [view, setView] = useRestorableState<"board" | "list">("hiring-pipeline:view", "board");
   const [showClosed, setShowClosed] = useState(false);
   const [creating, setCreating] = useState(false);
 

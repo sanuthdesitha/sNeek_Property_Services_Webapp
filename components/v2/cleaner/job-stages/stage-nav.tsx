@@ -8,7 +8,7 @@
  * 4-step rail.
  */
 import * as React from "react";
-import { Check } from "lucide-react";
+import { Check, ClipboardCheck, Navigation, KeyRound, Sparkles, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { JOB_STAGE_LABELS, type JobStage } from "@/lib/cleaner/job-stage";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
@@ -16,6 +16,7 @@ import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 export function StageNav({ api }: { api: WorkspaceApi }) {
   const { activeStage, setActiveStage, needsAcceptance, hasStarted, locked } = api;
 
+  const stageIcons = { 1: ClipboardCheck, 2: Navigation, 3: KeyRound, 4: Sparkles, 5: Flag };
   const stages: JobStage[] = needsAcceptance ? [1, 2, 3, 4, 5] : [2, 3, 4, 5];
 
   const isReachable = (stage: JobStage): boolean => {
@@ -34,7 +35,8 @@ export function StageNav({ api }: { api: WorkspaceApi }) {
 
   return (
     <nav aria-label="Job progress" className="flex items-stretch gap-1.5 overflow-x-auto pb-1">
-      {stages.map((stage, i) => {
+      {stages.map((stage) => {
+        const StageIcon = stageIcons[stage];
         const active = stage === activeStage;
         const complete = isComplete(stage);
         const reachable = isReachable(stage);
@@ -65,7 +67,7 @@ export function StageNav({ api }: { api: WorkspaceApi }) {
                     : "bg-[hsl(var(--e-muted))] text-[hsl(var(--e-muted-foreground))]"
               )}
             >
-              {complete && !active ? <Check className="h-3.5 w-3.5" /> : i + 1}
+              {complete && !active ? <Check className="h-3.5 w-3.5" aria-hidden /> : <StageIcon className="h-3.5 w-3.5" aria-hidden />}
             </span>
             <span
               className={cn(

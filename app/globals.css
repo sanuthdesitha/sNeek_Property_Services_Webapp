@@ -1222,3 +1222,47 @@ html.impersonating body {
 html.impersonating .sticky.top-0 {
   top: 2.25rem;
 }
+
+/* Shared workflow vectors: restrained, finite motion; never an activity claim. */
+.job-status-vector { display: inline-flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; flex-shrink: 0; border: 1px solid currentColor; border-radius: 50%; background: hsl(var(--e-surface, var(--background))); }
+.job-status-vector svg { transform-origin: center; }
+.job-status-vector[data-motion="plan"] svg { animation: job-plan 2s ease-in-out 2; }
+.job-status-vector[data-motion="assign"] svg { animation: job-assign 1.8s ease-out 2; }
+.job-status-vector[data-motion="travel"] svg { animation: job-travel 1.8s ease-in-out 2; }
+.job-status-vector[data-motion="clean"] svg { animation: job-clean 2s ease-in-out 2; }
+.job-status-vector[data-motion="review"] svg { animation: job-review 2s ease-in-out 2; }
+.job-status-vector[data-motion="complete"] svg { animation: job-complete 1s ease-out 1; }
+.job-status-vector[data-motion="invoice"] svg { animation: job-invoice 1.8s ease-in-out 2; }
+.job-status-vector[data-motion="waiting"] svg { animation: job-waiting 2s ease-in-out 2; }
+.job-status-vector[data-motion="offered"] svg { animation: job-offered 1.8s ease-in-out 2; }
+@keyframes job-plan { 50% { transform: translateY(-2px); } }
+@keyframes job-assign { 50% { transform: scale(1.12); } }
+@keyframes job-travel { 35% { transform: translateX(3px); } 70% { transform: translateX(-2px); } }
+@keyframes job-clean { 50% { transform: rotate(15deg) scale(1.08); } }
+@keyframes job-review { 50% { transform: rotate(-8deg); } }
+@keyframes job-complete { 0% { transform: scale(.7); } 60% { transform: scale(1.15); } }
+@keyframes job-invoice { 50% { transform: translateY(2px) scale(.95); } }
+@keyframes job-waiting { 50% { opacity: .55; } }
+@keyframes job-offered { 50% { transform: translate(2px, -2px); } }
+.job-stepper { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0; }
+.job-stepper li { position: relative; display: flex; flex-direction: column; align-items: center; gap: .65rem; text-align: center; font-size: .6875rem; }
+.job-stepper li::before { content: ''; position: absolute; top: 1.1rem; right: 50%; width: 100%; height: 1px; background: currentColor; opacity: .2; }
+.job-stepper li:first-child::before { display: none; }
+.job-stepper .job-status-vector { position: relative; z-index: 1; }
+.job-stepper li[data-reached="false"] { color: hsl(var(--e-muted-foreground, var(--muted-foreground))); }
+.job-stepper li[data-reached="true"]::before { opacity: .7; }
+.job-stepper li[aria-current="step"] { font-weight: 650; }
+.job-stepper li[aria-current="step"] .job-status-vector { box-shadow: 0 0 0 4px hsl(var(--e-gold, 41 42% 57%) / .2); }
+@media (max-width: 480px) {
+  .job-stepper { grid-template-columns: 1fr; gap: 1rem; }
+  .job-stepper li { flex-direction: row; text-align: left; font-size: .8125rem; gap: 1rem; }
+  .job-stepper li::before { width: 1px; height: 1rem; top: -1rem; left: 1.1rem; }
+}
+@media (prefers-reduced-motion: reduce) { .job-status-vector svg { animation: none !important; } }
+
+/* One visual language for operational status across portals. */
+.job-status-vector {
+  background: linear-gradient(145deg, hsl(var(--e-surface, var(--background))), hsl(var(--e-gold, 41 42% 57%) / .12));
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / .18), 0 2px 6px hsl(160 30% 10% / .06);
+  border-color: hsl(var(--e-gold, 41 42% 57%) / .45);
+}

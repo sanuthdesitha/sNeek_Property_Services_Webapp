@@ -1,3 +1,6 @@
+
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
+import { statusBlockStyle } from "@/lib/jobs/status-presentation";
 import Link from "next/link";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
@@ -322,7 +325,7 @@ export default async function CleanerJobsPage({
                       plans their day, not only inside the job. */}
                   <CleanerTimingSummary startTime={j.startTime} dueTime={j.dueTime} timingBadges={resolveTimingBadges(j.internalNotes)} sameDayCheckin={j.sameDayCheckin} sameDayCheckinTime={j.sameDayCheckinTime} />
                 </div>
-                <EBadge tone={statusTone(j.status)} soft>
+                <JobStatusIcon status={j.status} /><EBadge tone={statusTone(j.status)} soft>
                   {titleCase(j.status)}
                 </EBadge>
                 {isPending ? (
@@ -337,10 +340,10 @@ export default async function CleanerJobsPage({
             // Pending-offer rows carry inline Accept/Decline buttons, so they must
             // not be wrapped in an anchor (no interactive controls inside a link).
             return isPending ? (
-              <ECard key={j.id}>{body}</ECard>
+              <ECard style={statusBlockStyle(j.status)} key={j.id}>{body}</ECard>
             ) : (
               <Link key={j.id} href={`/v2/cleaner/jobs/${j.id}`} className="block">
-                <ECard>{body}</ECard>
+                <ECard style={statusBlockStyle(j.status)}>{body}</ECard>
               </Link>
             );
           })}

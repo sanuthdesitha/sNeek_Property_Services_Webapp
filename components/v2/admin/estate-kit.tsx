@@ -323,7 +323,7 @@ export function EConfirmModal({
     <EModal open={open} onClose={onClose} title={title} eyebrow="Please confirm">
       <div className="space-y-4">
         {description ? (
-          <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">{description}</p>
+          <div className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">{description}</div>
         ) : null}
 
         {confirmPhrase ? (

@@ -6,6 +6,8 @@ import bcrypt from "bcryptjs";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "../lib/jobs/meta";
 const origin = process.env.SNEEK_TEST_SERVER_ORIGIN, database = process.env.SNEEK_TEST_DATABASE_URL;
 test.skip(!origin || !database, "Requires isolated fixture server and database");
+// Includes multiple portal journeys plus desktop/mobile light/dark captures.
+test.setTimeout(90_000);
 const [admin, cleaner, client, property, job, item, task, invoice] = Array.from({ length: 8 }, () => randomUUID());
 const password = "Care-fixture-password-27!";
 let db: PrismaClient;
@@ -50,5 +52,11 @@ test("bag custody and audited profit remain distinct from delivery and cash",asy
  await captureOperationsLayout(page,"linen");
  await page.goto(`${origin}/turnover-profit?jobId=${job}`);await expect(page.getByText("Profit on documented accrual basis: Unknown")).toBeVisible();for(const key of ["CLEANER","LAUNDRY","SUPPLIES","OTHER"]){await page.getByLabel(`${key} amount`,{exact:true}).fill(key==="CLEANER"?"40":"0");await page.getByLabel(`${key} reference`,{exact:true}).fill("Fixture document review; explicit amount confirmed");}await page.getByRole("checkbox").check();await page.getByRole("button",{name:"Save audited cost review"}).click();await expect(page.getByText("Profit on documented accrual basis: $60.00")).toBeVisible();await expect(page.getByText("Cash specifically attributable to this turnover: Unknown")).toBeVisible();await page.screenshot({path:"/workspace/final-release/turnover-profit.png",fullPage:true});
  await captureOperationsLayout(page,"profit");
+ await page.goto(`${origin}/v2/admin/finance`);
+ await page.getByRole("button", { name: "Review profit for an individual turnover", exact: true }).click();
+ await page.getByRole("combobox", { name: "Turnover", exact: true }).selectOption(job);
+ await expect(page.getByText("Profit on documented accrual basis: $60.00")).toBeVisible();
+ await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+ await captureOperationsLayout(page,"profit-integrated");
  const restricted=await login(cleaner);const response=await restricted.request.get(`${origin}/api/admin/turnover-profit?jobId=${job}`);expect(response.status()).toBe(403);await restricted.close();await context.close();
 });

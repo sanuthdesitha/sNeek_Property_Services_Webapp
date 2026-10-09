@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Jobs & history tab for the v2 property workspace — Estate-native port of
  * v1's components/admin/property-jobs-tab.tsx against the same
@@ -102,7 +104,7 @@ const QUICK_LINKS: Array<{ href: string; label: string; icon: React.ReactNode }>
 export function PropertyJobsHistory({ propertyId }: { propertyId: string }) {
   const [jobs, setJobs] = useState<PropertyJob[] | null>(null);
   const [stats, setStats] = useState<PropertyJobStats | null>(null);
-  const [filter, setFilter] = useState<JobFilter>("all");
+  const [filter, setFilter] = useRestorableState<JobFilter>("property-jobs-history:filter", "all");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   useEffect(() => {

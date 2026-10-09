@@ -33,6 +33,7 @@ export type LaundryDeletePayload = {
   mode: "SUPPRESS" | "PERMANENT";
   force?: boolean;
   reason?: string;
+  security?: { pin?: string; password?: string };
 };
 
 function label(task: DeletableLaundryTask) {
@@ -57,6 +58,7 @@ export function useLaundryDeleteDialog<T extends DeletableLaundryTask>(
   const [task, setTask] = React.useState<T | null>(null);
   const [mode, setMode] = React.useState<"SUPPRESS" | "PERMANENT">("SUPPRESS");
   const [reason, setReason] = React.useState("");
+  const [pin, setPin] = React.useState("");
   const [force, setForce] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
@@ -64,11 +66,13 @@ export function useLaundryDeleteDialog<T extends DeletableLaundryTask>(
     setTask(next);
     setMode("SUPPRESS");
     setReason("");
+    setPin("");
     setForce(false);
   }, []);
 
   const completed = task ? task.status === "DROPPED" || Boolean(task.droppedAt) : false;
-  const blocked = completed && !force;
+  const protectedRemoval = completed || mode === "PERMANENT";
+  const blocked = (completed && !force) || (protectedRemoval && !pin);
 
   async function confirm() {
     if (!task || busy || blocked) return;
@@ -76,6 +80,7 @@ export function useLaundryDeleteDialog<T extends DeletableLaundryTask>(
     try {
       const closed = await onConfirm(task, {
         mode,
+        security: protectedRemoval ? { pin } : undefined,
         force: completed ? true : undefined,
         reason: reason.trim() || undefined,
       });
@@ -150,12 +155,13 @@ export function useLaundryDeleteDialog<T extends DeletableLaundryTask>(
           />
         </EField>
 
+        {protectedRemoval && <label className="block text-sm">Your security PIN<input type="password" inputMode="numeric" autoComplete="off" value={pin} disabled={busy} onChange={event => setPin(event.target.value)} className="mt-1 min-h-11 w-full rounded border bg-transparent px-3" /></label>}
         {completed ? (
           <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-danger)/0.4)] bg-[hsl(var(--e-danger)/0.06)] px-3 py-2.5">
             <p className="inline-flex items-start gap-2 text-[0.75rem] text-[hsl(var(--e-danger))]">
               <AlertTriangle className="mt-[0.1rem] h-3.5 w-3.5 shrink-0" />
               This set has already been returned. Deleting it removes completed evidence, weights and
-              costs from reporting. Full admins only.
+              costs from reporting. Requires owner access or an explicit sensitive-action grant.
             </p>
             <label className="flex cursor-pointer items-center gap-2 text-[0.75rem] font-[550]">
               <ECheckbox checked={force} onChange={(e) => setForce(e.target.checked)} />

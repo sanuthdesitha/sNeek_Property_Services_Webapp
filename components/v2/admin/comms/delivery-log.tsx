@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import {
@@ -33,7 +35,7 @@ function statusTone(status: string): "neutral" | "warning" | "success" | "danger
 
 export function CommsDeliveryLog({ onToast, reloadSignal }: { onToast: (t: EstateToast) => void; reloadSignal: number }) {
   const [items, setItems] = useState<LogItem[]>([]);
-  const [filters, setFilters] = useState({ q: "", channel: "all", status: "all", source: "all" });
+  const [filters, setFilters] = useRestorableState("delivery-log:filters", { q: "", channel: "all", status: "all", source: "all" });
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, totalCount: 0, totalPages: 1, hasMore: false });
   const [loading, setLoading] = useState(true);

@@ -25,3 +25,5 @@ it("returns a conflict without silently overwriting a changed report", async () 
  const response = await POST(new NextRequest("http://0.0.0.0:3000/api/inventory/urgent-stock", { method: "POST", headers: { origin: "https://app.invalid", host: "app.invalid", "x-forwarded-proto": "https" }, body: JSON.stringify({ action: "transition", expectedVersion: 1 }) }));
  expect(response.status).toBe(409); expect(m.act).toHaveBeenCalledWith({ id: "cleaner", role: "CLEANER" }, { expectedVersion: 1 });
 });
+
+vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Australia/Perth" }) }));

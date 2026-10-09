@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE staff accounts manager — v2-native replacement for the v1
  * UsersManager. Same API surface, new Estate UI:
@@ -137,8 +139,8 @@ export function EstateStaffManager({
   const [clients, setClients] = useState<ClientItem[]>([]);
   const [loading, setLoading] = useState(true);
   const selectableRoles = roles ?? MANAGED_ROLES;
-  const [roleFilter, setRoleFilter] = useState<"all" | string>("all");
-  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useRestorableState<"all" | string>(`staff-manager:${selectableRoles.join("|")}:roleFilter`, "all");
+  const [search, setSearch] = useRestorableState("staff-manager:search", "");
   const [busyUserId, setBusyUserId] = useState("");
 
   const [editing, setEditing] = useState<UserItem | null>(null);
@@ -219,10 +221,7 @@ export function EstateStaffManager({
     void loadUsers(roleFilter);
   }, [roleFilter, loadUsers]);
 
-  // A role left selected on the previous tab would silently empty this one.
-  useEffect(() => {
-    setRoleFilter("all");
-  }, [roles]);
+
 
   useEffect(() => {
     fetch("/api/admin/clients")

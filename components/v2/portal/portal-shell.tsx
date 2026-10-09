@@ -5,6 +5,8 @@
  * with a mobile drawer + bottom tab bar. Accent comes from the data-portal-accent
  * set by each portal layout. Presentation only; nav config passed in.
  */
+import { opsNavigationHref } from "@/lib/rbac/ops-catalog";
+import { useOpsAccess } from "@/components/shared/ops-access-provider";
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -33,7 +35,7 @@ export interface NavItem {
 export function PortalShell({
   accent,
   wordmark,
-  nav,
+  nav: suppliedNav,
   user,
   roleLabel,
   children,
@@ -47,6 +49,8 @@ export function PortalShell({
   roleLabel?: string;
   children: React.ReactNode;
 }) {
+  const { canAccess, levels } = useOpsAccess();
+  const nav = suppliedNav.map((item) => ({ ...item, href: opsNavigationHref(levels, item.href) ?? item.href })).filter((item) => canAccess(item.href));
   const pathname = usePathname();
   const { data: session } = useSession();
   const displayName = user?.name ?? session?.user?.name ?? "";

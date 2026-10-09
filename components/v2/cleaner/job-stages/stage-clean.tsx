@@ -12,6 +12,7 @@
  * FormRenderer (which stays behavior-compatible: the new props default off).
  */
 import * as React from "react";
+import { UrgentStockWorkspace } from "@/components/inventory/urgent-stock-workspace";
 import { ListChecks, ClipboardCheck, Camera, CheckCircle2, AlertTriangle, Images } from "lucide-react";
 import { ECard, ECardBody, EAlert, EButton } from "@/components/v2/ui/primitives";
 import { ETextarea } from "@/components/v2/cleaner/fields";
@@ -27,6 +28,8 @@ import { EarlyCheckoutStatus } from "@/components/v2/cleaner/job-actions";
 import { titleCase, type WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
 export function StageClean({ api }: { api: WorkspaceApi }) {
+  const [urgentStockMounted, setUrgentStockMounted] = React.useState(false);
+  const [urgentStockOpen, setUrgentStockOpen] = React.useState(false);
   const { schema, answers, uploads, jobTasks, taskDrafts, locked, property, addressLine, template } = api;
 
   const uploadCounts = React.useMemo(() => {
@@ -71,6 +74,10 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
 
   return (
     <div className="space-y-5">
+      {!locked && property?.inventoryEnabled && api.job?.propertyId ? <section className="rounded-lg border border-[hsl(var(--e-border))] p-3">
+        <EButton variant="outline" onClick={() => { setUrgentStockMounted(true); setUrgentStockOpen(value => !value); }} aria-expanded={urgentStockOpen}>Request urgent stock</EButton>
+        {urgentStockMounted ? <div hidden={!urgentStockOpen}><UrgentStockWorkspace key={api.job.propertyId} isAdmin={false} panel lockProperty initialPropertyId={api.job.propertyId} /></div> : null}
+      </section> : null}
       {/* Admin-raised timing request (early check-in / late checkout) awaiting
           this cleaner's approval — self-hides when there is none. */}
       <EarlyCheckoutStatus jobId={api.jobId} />

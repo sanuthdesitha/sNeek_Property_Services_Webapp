@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE-native hiring position editor — a self-contained re-imagining of the
  * classic components/hiring/position-editor. Posts to the SAME workforce
@@ -34,7 +36,7 @@ export function EstatePositionEditor({
   position: PositionShape | null;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("details");
+  const [tab, setTab] = useRestorableState<Tab>("position-editor:tab", "details");
   // In create mode the id doesn't exist until Details is saved; the schema tabs
   // stay locked until then so their PATCH endpoints have a real position id.
   const [positionId, setPositionId] = useState<string | null>(position?.id ?? null);

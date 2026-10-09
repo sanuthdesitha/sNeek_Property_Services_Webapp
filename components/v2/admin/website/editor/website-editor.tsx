@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Estate WEBSITE CMS editor — native Estate rewrite of the v1 public-site
  * content editor. Edits the full `websiteContent` schema and saves through the
@@ -67,7 +69,7 @@ export function WebsiteCmsEditor({
   const [saving, setSaving] = React.useState(false);
   const [uploadingKey, setUploadingKey] = React.useState<string | null>(null);
   const { status, flash } = useSaveStatus();
-  const [activeTab, setActiveTab] = React.useState<TabKey>("home");
+  const [activeTab, setActiveTab] = useRestorableState<TabKey>("website-editor:activeTab", "home");
 
   const activeMeta = TABS.find((t) => t.key === activeTab) ?? TABS[0]!;
 

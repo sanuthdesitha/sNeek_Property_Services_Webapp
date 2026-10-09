@@ -1,0 +1,37 @@
+import { beforeEach, afterEach, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { OpsPermissionsSection } from "@/components/v2/admin/settings/ops-permissions-section";
+const initial = { revision: 0, presets: [], assignments: {} };
+let fetcher: ReturnType<typeof vi.fn>;
+beforeEach(() => { fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ policy: initial, managers: [{ id: "manager", name: "Sam", email: "sam@example.invalid" }] }))); vi.stubGlobal("fetch", fetcher); });
+afterEach(() => vi.unstubAllGlobals());
+it("keeps unsaved overrides on failure, and prevents stale conflicts overwriting another administrator", async () => {
+  render(<OpsPermissionsSection />);
+  await screen.findByLabelText("Jobs & assignments");
+  fireEvent.change(screen.getByLabelText(/Assigned permission pack/), { target: { value: "observer" } });
+  fireEvent.change(screen.getByLabelText("Jobs & assignments"), { target: { value: "off" } });
+  fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ error: "Changed elsewhere" }), { status: 409 }));
+  fireEvent.click(screen.getByRole("button", { name: "Save permissions" }));
+  await screen.findByText("Changed elsewhere");
+  expect(screen.getByLabelText("Jobs & assignments")).toHaveValue("off");
+  expect(screen.getByLabelText("Operations manager")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Save permissions" })).toBeDisabled();
+  expect(JSON.parse(fetcher.mock.calls[1][1].body).assignments.manager).toEqual({ presetId: "observer", overrides: { jobs: "off" } });
+});
+it("creates reusable custom packs and saves their feature levels with manager assignment", async () => {
+  render(<OpsPermissionsSection />); await screen.findByLabelText("Jobs & assignments");
+  fireEvent.click(screen.getByText("Reusable permission packs"));
+  fireEvent.click(screen.getByRole("button", { name: "Create permission pack" }));
+  fireEvent.change(screen.getByLabelText("Pack name"), { target: { value: "Dispatch team" } });
+  fireEvent.change(screen.getByLabelText("Jobs & assignments"), { target: { value: "read" } });
+  const select = screen.getByLabelText("Edit custom pack") as HTMLSelectElement;
+  const packId = select.value;
+  fireEvent.change(screen.getByLabelText(/Assigned permission pack/), { target: { value: packId } });
+  fetcher.mockImplementationOnce(async (_url, options) => new Response(JSON.stringify({ policy: { ...JSON.parse(options.body), revision: 1 } })));
+  fireEvent.click(screen.getByRole("button", { name: "Save permissions" }));
+  await screen.findByText(/Permissions saved/);
+  const payload = JSON.parse(fetcher.mock.calls[1][1].body);
+  expect(payload.presets[0]).toMatchObject({ name: "Dispatch team", levels: { jobs: "read" } });
+  expect(payload.assignments.manager.presetId).toBe(packId);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Save permissions" })).toBeDisabled());
+});

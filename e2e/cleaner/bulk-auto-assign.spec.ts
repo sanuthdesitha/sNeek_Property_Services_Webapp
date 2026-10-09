@@ -29,6 +29,7 @@ test("older saved photos are acknowledged before analysis and explicitly assigne
     return route.fulfill({ contentType: "text/html", body: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>' });
   });
   await page.goto("http://localhost:3999/bulk?legacy"); await page.addStyleTag({ content: css }); await page.addScriptTag({ content: bundle });
+  await page.getByText("Optional · Suggest photo sections", { exact: true }).click();
   await page.getByRole("button", { name: "Auto assign", exact: true }).click();
   await expect(page.getByText("Kitchen match")).toBeVisible(); await expect(page.getByText("Unassigned: 1")).toBeVisible();
   expect(writes).toHaveLength(1);
@@ -39,7 +40,7 @@ test("older saved photos are acknowledged before analysis and explicitly assigne
 class BulkPhotos {
   constructor(readonly page: Page) {}
   async upload() { await this.page.getByLabel("Choose photos", { exact: true }).setInputFiles(photoNames.map(name => ({ name, mimeType: "image/jpeg", buffer: Buffer.from("mock upload") }))); await expect(this.page.getByText("Unassigned: 6")).toBeVisible(); }
-  async analyse() { await this.page.getByRole("button", { name: "Auto assign", exact: true }).click(); }
+  async analyse() { if (!await this.page.getByRole("button", { name: "Auto assign", exact: true }).isVisible()) await this.page.getByText("Optional · Suggest photo sections", { exact: true }).click(); await this.page.getByRole("button", { name: "Auto assign", exact: true }).click(); }
   async fits() { expect(await this.page.evaluate(() => Math.max(document.body.scrollWidth, document.documentElement.scrollWidth, ...Array.from(document.querySelectorAll('[role="dialog"]')).map(el => el.scrollWidth)) - innerWidth)).toBeLessThanOrEqual(1); }
 }
 for (const width of [320, 390, 1440]) test(`uploaded batch is reviewed, strictly assigned and reversible at ${width}px`, async ({ page }, info) => {

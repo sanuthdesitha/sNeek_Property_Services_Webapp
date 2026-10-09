@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -76,8 +78,8 @@ export function IcalSection() {
   });
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<(typeof STATUS_OPTIONS)[number]>("all");
-  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useRestorableState<(typeof STATUS_OPTIONS)[number]>("ical-section:statusFilter", "all");
+  const [query, setQuery] = useRestorableState("ical-section:query", "");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const { status, flash } = useSaveStatus();
 

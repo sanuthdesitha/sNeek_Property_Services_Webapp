@@ -1,5 +1,9 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+import { PropertyCareWorkspace } from "@/components/property-care/workspace";
+import { OperationsDisclosure } from "@/components/operations/ui";
+
 /**
  * ESTATE property detail — v2-native replacement for the v1 property detail
  * page (app/admin/properties/[id]). Same endpoints:
@@ -177,12 +181,12 @@ function OnboardingCaptureCard({ property }: { property: any }) {
   );
 }
 
-export function PropertyDetail({ propertyId }: { propertyId: string }) {
+export function PropertyDetail({ propertyId, timeZone = "Australia/Sydney" }: { propertyId: string; timeZone?: string }) {
   const router = useRouter();
   const [property, setProperty] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [notFoundState, setNotFoundState] = useState(false);
-  const [tab, setTab] = useState<TabKey>("profile");
+  const [tab, setTab] = useRestorableState<TabKey>("property-detail:tab", "profile");
 
   // Edit form
   const [form, setForm] = useState({
@@ -1080,7 +1084,7 @@ export function PropertyDetail({ propertyId }: { propertyId: string }) {
       ) : null}
 
       {/* JOBS & HISTORY — chips, report downloads, forms deep links, quick links */}
-      {tab === "jobs" ? <div className="space-y-4"><PropertyDeepCleanPlanning propertyId={propertyId} /><PropertyCadenceLedger propertyId={propertyId} /><PropertyJobsHistory propertyId={propertyId} /></div> : null}
+      {tab === "jobs" ? <div className="space-y-4"><OperationsDisclosure title="Property memory and care"><PropertyCareWorkspace propertyId={propertyId} timeZone={timeZone} panel /></OperationsDisclosure><PropertyDeepCleanPlanning propertyId={propertyId} /><PropertyCadenceLedger propertyId={propertyId} /><PropertyJobsHistory propertyId={propertyId} /></div> : null}
 
       {/* ACCESS GUIDE */}
       {tab === "access" ? (

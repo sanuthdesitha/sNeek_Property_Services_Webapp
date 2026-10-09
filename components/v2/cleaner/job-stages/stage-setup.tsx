@@ -9,6 +9,7 @@
  * as pre-start context.
  */
 import * as React from "react";
+import PropertyAccessGuide from "@/components/v2/cleaner/property-access-guide";
 import { Clock, WashingMachine, BookOpen, Package, AlertTriangle, ClipboardCheck, MapPin, ChevronDown } from "lucide-react";
 import { ECard, ECardBody, EAlert } from "@/components/v2/ui/primitives";
 import { MediaGallery } from "@/components/shared/media-gallery";
@@ -71,11 +72,13 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
         checkinTime={api.property?.defaultCheckinTime}
       />
 
+      {api.job?.propertyId ? <PropertyAccessGuide propertyId={api.job.propertyId} /> : null}
+
       {/* Setup reference — collapsed by default, right under the booking facts
           so the top of the stage is guest count → how the property is set up. */}
       <SetupReferenceDisclosure entries={setupGuideEntries} />
 
-      <BriefingCard briefing={briefing} />
+      <BriefingCard briefing={briefing} showLaundry={false} />
 
       <ECard className={api.hasStarted ? undefined : "border-[hsl(var(--e-gold))]"}>
         <ECardBody className="space-y-4 pt-6">
@@ -250,7 +253,7 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
  * expanding to the existing per-entry MediaGallery strip. Renders nothing when
  * the property has no setup guide.
  */
-function SetupReferenceDisclosure({ entries }: { entries: WorkspaceApi["setupGuideEntries"] }) {
+export function SetupReferenceDisclosure({ entries }: { entries: WorkspaceApi["setupGuideEntries"] }) {
   const [open, setOpen] = React.useState(false);
   if (!entries || entries.length === 0) return null;
 

@@ -1,0 +1,23 @@
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+const m = vi.hoisted(() => ({ router: { refresh: vi.fn() } }));
+vi.mock("next/navigation", () => ({ useRouter: () => m.router }));
+import { LivePageRefresh } from "@/components/shared/live-page-refresh";
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
+it("refreshes visible operational totals, pauses hidden tabs and refreshes on return", async () => {
+  vi.useFakeTimers();
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  const view = render(<LivePageRefresh />);
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+  expect(m.router.refresh).toHaveBeenCalledOnce();
+  visibility.mockReturnValue("hidden");
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+  expect(m.router.refresh).toHaveBeenCalledOnce();
+  visibility.mockReturnValue("visible");
+  fireEvent.focus(window);
+  expect(m.router.refresh).toHaveBeenCalledTimes(2);
+  view.unmount();
+  fireEvent.focus(window);
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+  expect(m.router.refresh).toHaveBeenCalledTimes(2);
+});

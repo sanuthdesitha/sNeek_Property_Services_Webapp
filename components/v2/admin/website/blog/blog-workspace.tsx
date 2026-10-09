@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE blog workspace — lists posts (title, slug, status, date, author) with
  * search + status filter, opens a create/edit modal (PostEditor), and deletes
@@ -42,7 +44,7 @@ function postDate(post: BlogPostRecord) {
 export function BlogWorkspace() {
   const [posts, setPosts] = useState<BlogPostRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useRestorableState("blog-workspace:query", "");
   const [status, setStatus] = useState<StatusFilter>("all");
 
   const [editorOpen, setEditorOpen] = useState(false);

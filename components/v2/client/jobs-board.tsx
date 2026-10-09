@@ -1,4 +1,10 @@
 "use client";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
+
+import { statusBlockStyle } from "@/lib/jobs/status-presentation";
+
+
+import { useRestorableState } from "@/hooks/use-restorable-state";
 
 /**
  * Estate client jobs board — Upcoming/Past groups, search + status filter,
@@ -53,7 +59,6 @@ import { cn } from "@/lib/utils";
 import { canRebookJob } from "@/lib/booking/rebook";
 
 const TZ = "Australia/Sydney";
-const STORAGE_KEY = "sneek_client_jobs_filter";
 
 type FilterMode = "all" | "today" | "tomorrow" | "week" | "date";
 type ViewMode = "list" | "calendar";
@@ -467,7 +472,8 @@ function JobCard({
   }
 
   return (
-    <ECard className={cn(!isUpcoming && "opacity-90")}>
+    <ECard style={statusBlockStyle(job.status)} className={cn(!isUpcoming && "opacity-90")}>
+      <span className="float-left m-4"><JobStatusIcon status={job.status} /></span>
       <ECardBody className="pt-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           {/* Serif date block */}
@@ -620,62 +626,26 @@ export function ClientJobsBoard({
   showLaundryUpdates: boolean;
   canBook?: boolean;
 }) {
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("ALL");
-  const [showPast, setShowPast] = useState(false);
-  const [filterMode, setFilterMode] = useState<FilterMode>("today");
-  const [selectedDate, setSelectedDate] = useState(todayKeyOf);
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [query, setQuery] = useRestorableState("jobs-board:query", "");
+  const [status, setStatus] = useRestorableState("jobs-board:status", "ALL");
+  const [showPast, setShowPast] = useRestorableState("jobs-board:showPast", false);
+  const [filterMode, setFilterMode] = useRestorableState<FilterMode>("jobs-board:filterMode", "today");
+  const [selectedDate, setSelectedDate] = useRestorableState("jobs-board:selectedDate", todayKeyOf());
+  const [viewMode, setViewMode] = useRestorableState<ViewMode>("jobs-board:viewMode", "list");
   // Admin-side parity: narrow by property, job type and an explicit date range.
-  const [propertyId, setPropertyId] = useState("ALL");
-  const [jobType, setJobType] = useState("ALL");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [calendarMonth, setCalendarMonth] = useState(() =>
-    startOfMonth(toZonedTime(new Date(), TZ))
-  );
-
-  // Restore the last-used filter/view (same key as the legacy workspace so
-  // preferences carry across the redesign).
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as {
-        filterMode?: FilterMode;
-        selectedDate?: string;
-        viewMode?: ViewMode;
-      };
-      if (parsed.filterMode && ["all", "today", "tomorrow", "week", "date"].includes(parsed.filterMode)) {
-        const date = typeof parsed.selectedDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.selectedDate) &&
-          !Number.isNaN(new Date(`${parsed.selectedDate}T00:00:00`).getTime()) &&
-          format(new Date(`${parsed.selectedDate}T00:00:00`), "yyyy-MM-dd") === parsed.selectedDate ? parsed.selectedDate : "";
-        if (parsed.filterMode !== "date" || date) {
-          setFilterMode(parsed.filterMode);
-          const selected = parsed.filterMode === "today" ? todayKeyOf() : parsed.filterMode === "tomorrow" ? tomorrowKeyOf() : date;
-          setSelectedDate(selected);
-          if (selected) setCalendarMonth(startOfMonth(new Date(`${selected}T00:00:00`)));
-        }
-      }
-      if (parsed.viewMode === "list" || parsed.viewMode === "calendar") setViewMode(parsed.viewMode);
-    } catch {
-      // ignore invalid local state
-    }
-  }, []);
-
-  useEffect(() => {
-    // Guarded like the read above it. localStorage throws in private-mode
-    // Safari and when the quota is full, and an unwritable preference must
-    // never take the jobs list down with it.
-    try {
-      window.localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ filterMode, selectedDate, viewMode })
-      );
-    } catch {
-      // The board keeps working; it just will not remember this choice.
-    }
-  }, [filterMode, selectedDate, viewMode]);
+  const [propertyId, setPropertyId] = useRestorableState("jobs-board:propertyId", "ALL");
+  const [jobType, setJobType] = useRestorableState("jobs-board:jobType", "ALL");
+  const [fromDate, setFromDate] = useRestorableState("jobs-board:fromDate", "");
+  const [toDate, setToDate] = useRestorableState("jobs-board:toDate", "");
+  const initialMonth = format(startOfMonth(toZonedTime(new Date(), TZ)), "yyyy-MM-dd");
+  const [savedMonth, setSavedMonth] = useRestorableState("jobs-board:month", initialMonth);
+  const calendarMonth = useMemo(() => /^\d{4}-(?:0[1-9]|1[0-2])-01$/.test(savedMonth)
+    ? new Date(`${savedMonth}T00:00:00`)
+    : new Date(`${initialMonth}T00:00:00`), [savedMonth, initialMonth]);
+  const setCalendarMonth = (next: Date | ((current: Date) => Date)) => {
+    const value = typeof next === "function" ? next(calendarMonth) : next;
+    setSavedMonth(format(startOfMonth(value), "yyyy-MM-dd"));
+  };
 
   const statuses = useMemo(
     () => Array.from(new Set(jobs.map((job) => job.status))).sort(),
@@ -737,10 +707,8 @@ export function ClientJobsBoard({
   }, [jobs, query, status, filterMode, selectedDate, propertyId, jobType, fromDate, toDate]);
 
   // Every narrowing control in one place, so an active filter is always
-  // visible and clearable. The board restores the last-used filter from
-  // localStorage, which previously meant a client who once picked "Today"
-  // saw only today's jobs on every later visit with nothing on screen
-  // explaining why the list looked empty.
+  // visible and clearable. Returning keeps the current view; a full refresh
+  // resets these temporary choices to today.
   const activeFilters = useMemo(() => {
     const chips: Array<{ label: string; clear: () => void }> = [];
     if (filterMode !== "all")
@@ -762,7 +730,7 @@ export function ClientJobsBoard({
     if (toDate) chips.push({ label: `To ${toDate}`, clear: () => setToDate("") });
     if (query.trim()) chips.push({ label: `Search: "${query.trim()}"`, clear: () => setQuery("") });
     return chips;
-  }, [filterMode, selectedDate, status, propertyId, jobType, fromDate, toDate, query, properties]);
+  }, [filterMode, selectedDate, status, propertyId, jobType, fromDate, toDate, query, properties, setFilterMode, setSelectedDate, setStatus, setPropertyId, setJobType, setFromDate, setToDate, setQuery]);
 
   function clearAllFilters() {
     setFilterMode("all");
@@ -797,7 +765,7 @@ export function ClientJobsBoard({
   // every render.
   useEffect(() => {
     if (upcoming.length === 0 && past.length > 0) setShowPast(true);
-  }, [upcoming.length, past.length]);
+  }, [upcoming.length, past.length, setShowPast]);
 
   return (
     <div className="space-y-8">

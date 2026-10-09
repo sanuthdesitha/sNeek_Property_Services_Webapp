@@ -1,4 +1,7 @@
 "use client";
+import { MediaGallery } from "@/components/shared/media-gallery";
+
+import { useRestorableState } from "@/hooks/use-restorable-state";
 
 import * as React from "react";
 import { ChevronDown, ExternalLink, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
@@ -10,7 +13,7 @@ type Row = {
   key: string; name: string; previewUrl: string | null; version: string; removed: boolean; issues: string[];
   source: { jobId: string | null; captureId: string | null; userId: string; legacy: boolean } | null;
   locations: EvidenceDestination[];
-  receipts: Array<{ id: string; formRevision: string; draftIdentity: string; detached?: boolean; resolution?: { at: string; reason: string } }>;
+  receipts: Array<{ captureContext?: { formRevision: string; draftIdentity: string }; id: string; formRevision: string; draftIdentity: string; detached?: boolean; resolution?: { at: string; reason: string } }>;
 };
 type Review = { comparisonWarning?: string | null; jobId: string; locked: boolean; rows: Row[]; history: Array<{ id: string; action: string; createdAt: string; user: { name: string | null }; after: { reason?: string } | null }> };
 type Result = { key: string; name: string; text: string };
@@ -25,7 +28,7 @@ export function DraftEvidenceReview({ jobId }: { jobId: string }) {
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
-  const [filter, setFilter] = React.useState("active");
+  const [filter, setFilter] = useRestorableState("draft-evidence-review:filter", "active");
   const [page, setPage] = React.useState(0);
   const [selected, setSelected] = React.useState<string[]>([]);
   const [reason, setReason] = React.useState("");
@@ -128,16 +131,13 @@ export function DraftEvidenceReview({ jobId }: { jobId: string }) {
               <span className="min-w-0 flex-1"><span className="block truncate font-medium">{row.name}</span><span className="block truncate text-xs text-[hsl(var(--e-text-secondary))]">{row.removed ? "Removed from draft" : row.issues[0] ?? row.locations.map(locationLabel).join(" · ")}{row.issues.length > 1 && !row.removed ? ` · +${row.issues.length - 1} more` : ""}</span></span><span className="shrink-0 text-xs underline">Details</span>
             </summary>
             <div className="space-y-2 pb-3 [overflow-wrap:anywhere]">
-              {row.previewUrl ? <a href={row.previewUrl} target="_blank" rel="noreferrer" aria-label={`View original ${row.name}`} className="inline-flex min-h-11 items-center gap-2 underline">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={row.previewUrl} alt={row.name} loading="lazy" className="h-20 w-20 rounded object-cover" />View original<ExternalLink aria-hidden="true" className="h-3 w-3" />
-              </a> : null}
+              {row.previewUrl ? <MediaGallery items={[{ id: row.key, url: row.previewUrl, label: row.name }]} title={`Preview ${row.name}`} className="grid max-w-32 grid-cols-1" /> : null}
               <EBadge tone={row.removed ? "neutral" : row.issues.length ? "warning" : "info"}>{row.removed ? "Removed" : row.issues.length ? "Needs review" : "Draft attachment"}</EBadge>
               {row.issues.length ? <ul className="list-inside list-disc">{row.issues.map(issue => <li key={issue}>{issue}</li>)}</ul> : null}
               <p>{row.locations.map(locationLabel).join(" · ")}</p>
               <dl className="space-y-1"><dt className="font-medium">Original storage key</dt><dd>{row.key}</dd><dt className="font-medium">Source job</dt><dd>{row.source?.jobId ? <a href={`/v2/admin/jobs/${encodeURIComponent(row.source.jobId)}?tab=forms`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-1 underline">{row.source.jobId}<ExternalLink aria-hidden="true" className="h-3 w-3" /></a> : "Not recorded in legacy key"}</dd><dt className="font-medium">Recorded uploader / capture</dt><dd>{row.source?.userId ?? "Unknown"} / {row.source?.captureId ?? "Not recorded"}</dd></dl>
               <p>Capture time is not available from this receipt. Original photo stamps are unchanged.</p>
-              {row.receipts.map(receipt => <div key={receipt.id} className="space-y-1 border-t border-[hsl(var(--e-border))] pt-2"><p>Receipt: {receipt.id}</p><p>Form version: {receipt.formRevision}</p><p>Account context: {receipt.draftIdentity}</p>{receipt.resolution ? <p>Discarded {new Date(receipt.resolution.at).toLocaleString()}: {receipt.resolution.reason}</p> : null}</div>)}
+              {row.receipts.map(receipt => <div key={receipt.id} className="space-y-1 border-t border-[hsl(var(--e-border))] pt-2"><p>Receipt: {receipt.id}</p><p>Current binding form: {receipt.formRevision}</p>{receipt.captureContext ? <p>Original capture form: {receipt.captureContext.formRevision} · Original account context: {receipt.captureContext.draftIdentity}</p> : null}<p>Account context: {receipt.draftIdentity}</p>{receipt.resolution ? <p>Discarded {new Date(receipt.resolution.at).toLocaleString()}: {receipt.resolution.reason}</p> : null}</div>)}
             </div>
           </details>
         </article>)}

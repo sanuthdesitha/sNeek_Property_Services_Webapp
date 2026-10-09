@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -336,7 +338,10 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   const [capturePending, setCapturePending] = useState<Record<string, number>>({});
   // ── Guided two-step flow (Phase 4) ──
   const QA_STEPS = ["Inspect & log findings", "Score, sign off & submit"];
-  const [step, setStep] = useState(0);
+  const [rememberedStep, setStep] = useRestorableState(`qa:${jobId}:step`, 0);
+  const step = Number.isInteger(rememberedStep)
+    ? Math.max(0, Math.min(QA_STEPS.length - 1, rememberedStep))
+    : 0;
   const inspectorName = authSession?.user?.name || authSession?.user?.email || "QA Inspector";
   const [reworkAreaDraft, setReworkAreaDraft] = useState("");
   // Display URLs for section photos, keyed by S3 key (seeded from GET, then
@@ -411,8 +416,15 @@ export function QaJobClient({ jobId }: { jobId: string }) {
     draftRestoredRef.current = true;
     try {
       const raw = localStorage.getItem(draftKey);
-      if (!raw) return;
+      if (!raw) {
+        setStep(0);
+        return;
+      }
       const d = JSON.parse(raw);
+      if (!d || typeof d !== "object" || Array.isArray(d)) {
+        setStep(0);
+        return;
+      }
       if (d && typeof d === "object") {
         if (d.data && typeof d.data === "object") setData(d.data);
         if (typeof d.notes === "string") setNotes(d.notes);
@@ -422,9 +434,10 @@ export function QaJobClient({ jobId }: { jobId: string }) {
         if (typeof d.savedAt === "number") setDraftSavedAt(d.savedAt);
       }
     } catch {
+      setStep(0);
       /* ignore corrupt/unavailable storage */
     }
-  }, [payload, draftKey]);
+  }, [payload, draftKey, setStep]);
 
   // Debounced autosave of the in-progress inspection to this device.
   useEffect(() => {

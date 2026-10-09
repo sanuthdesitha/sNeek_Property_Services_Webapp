@@ -6,6 +6,7 @@
  * preview so the cleaner knows what they're taking on before accepting.
  */
 import * as React from "react";
+import Link from "next/link";
 import { Megaphone, CheckCircle2, ChevronRight } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
@@ -39,7 +40,7 @@ export function StageAccept({ api }: { api: WorkspaceApi }) {
   const pay = readPay(api);
   const timeWindow = job?.startTime ? `${job.startTime}${job?.dueTime ? `–${job.dueTime}` : ""}` : null;
   const dateLabel = job?.scheduledDate
-    ? new Date(job.scheduledDate).toLocaleDateString("en-AU", { weekday: "short", day: "2-digit", month: "short" })
+    ? new Date(job.scheduledDate).toLocaleDateString("en-AU", { weekday: "short", day: "2-digit", month: "short", timeZone: "Australia/Sydney" })
     : null;
   const whenValue = [dateLabel, timeWindow].filter(Boolean).join(" · ");
   // First read-first item doubles as the "Notes preview" line the design shows.
@@ -94,6 +95,7 @@ export function StageAccept({ api }: { api: WorkspaceApi }) {
               <p className="flex items-center gap-1.5 text-[0.8125rem] text-[hsl(var(--e-success))]">
                 <CheckCircle2 className="h-4 w-4" /> You accepted this job.
               </p>
+              <EButton variant="primary" asChild className="w-full"><Link href={`/v2/cleaner/route?jobId=${encodeURIComponent(api.job.id)}`}>Start driving</Link></EButton>
               <EButton variant="gold" className="w-full" onClick={() => api.setActiveStage(2)}>
                 Continue to Get there <ChevronRight className="h-4 w-4" />
               </EButton>

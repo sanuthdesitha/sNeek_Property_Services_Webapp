@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE pay adjustments — v2-native rebuild of the v1 PayRequestsWorkspace core.
  * Same API surface:
@@ -136,7 +138,7 @@ function DetailTile({ label, children }: { label: string; children: ReactNode })
 export function EstatePayAdjustments() {
   const [rows, setRows] = useState<PayAdjustmentRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"PENDING" | "APPROVED" | "REJECTED" | "ALL">("PENDING");
+  const [tab, setTab] = useRestorableState<"PENDING" | "APPROVED" | "REJECTED" | "ALL">("pay-adjustments:tab", "PENDING");
   const [cleaners, setCleaners] = useState<Cleaner[]>([]);
 
   // Detail modal — the full v1 detail set (amount trail, notes, property,

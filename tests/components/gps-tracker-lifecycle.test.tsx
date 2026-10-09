@@ -18,7 +18,7 @@ const scope = (id = "one") => JSON.stringify([id, "CLEANER", null, null, null]);
 const ping = (id: string, owner: string | undefined = scope(), jobId = "previous-job"): QueuedPing => ({
   id, scope: owner, jobId, lat: 1, lng: 2, timestamp: "2026-09-09T00:00:00.000Z",
 });
-const position = { coords: { latitude: 1, longitude: 2, accuracy: 5, heading: null, speed: null } } as GeolocationPosition;
+const position = { timestamp: Date.parse("2026-09-09T00:00:00Z"), coords: { latitude: 1, longitude: 2, accuracy: 5, heading: null, speed: null } } as GeolocationPosition;
 const denied = { code: 1, PERMISSION_DENIED: 1 } as GeolocationPositionError;
 let oneShots: PositionCallback[];
 let watches: PositionCallback[];
@@ -95,6 +95,10 @@ describe("GPS collection lifecycle", () => {
     await act(async () => watches[1](position));
     expect(mocks.enqueue).toHaveBeenLastCalledWith(expect.objectContaining({ jobId: "second" }));
     await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
+    expect(mocks.enqueue).toHaveBeenCalledTimes(2); // No fabricated fix on heartbeat.
+    const measuredAt = Date.now() - 5000;
+    await act(async () => oneShots.at(-1)!({ ...position, timestamp: measuredAt }));
+    expect(mocks.enqueue).toHaveBeenLastCalledWith(expect.objectContaining({ timestamp: new Date(measuredAt).toISOString() }));
     expect(mocks.enqueue).toHaveBeenCalledTimes(3);
   });
 
@@ -108,7 +112,7 @@ describe("GPS collection lifecycle", () => {
     mocks.session.mockReturnValue(signedIn("two", { actorId: "admin", mode: "FULL", startedAt: 1 }));
     rerender({ enabled: true });
     expect(result.current.lastFix).toBeNull();
-    await act(async () => { watches[1](position); oneShots[2](position); });
+    await act(async () => { watches[1](position); oneShots.at(-1)!(position); });
     expect(mocks.enqueue).toHaveBeenCalledTimes(2);
     expect(mocks.enqueue).toHaveBeenLastCalledWith(expect.objectContaining({ scope: JSON.stringify(["two", "CLEANER", "admin", "FULL", 1]) }));
     expect(log).not.toHaveBeenCalled();

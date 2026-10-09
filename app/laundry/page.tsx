@@ -1,4 +1,7 @@
 "use client";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
+
+import { statusBlockStyle } from "@/lib/jobs/status-presentation";
 
 import { useSession } from "next-auth/react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -1463,7 +1466,7 @@ export default function LaundryPortal() {
                 LAUNDRY_SKIP_REASONS.find((reason) => reason.value === task.skipReasonCode)?.label ??
                 String(task.skipReasonCode ?? "Not set").replace(/_/g, " ");
               return (
-                <div key={task.id} className="rounded-xl border border-warning/40 bg-surface p-4">
+                <div style={statusBlockStyle(task.status, "laundry")} key={task.id} className="rounded-xl border border-warning/40 bg-surface p-4">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <p className="font-semibold">{task.property.name}</p>
@@ -1616,7 +1619,7 @@ export default function LaundryPortal() {
               const droppedEarly = isEarlyDropoffDay(task.droppedAt, task.dropoffDate);
               if (viewMode === "compact") {
                 return (
-                  <Card key={task.id} className="border-primary/20">
+                  <Card style={statusBlockStyle(task.status, "laundry")} key={task.id} className="border-primary/20">
                     <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
                       <div className="min-w-0">
                         <p className="font-medium">{task.property.name}</p>
@@ -1648,7 +1651,7 @@ export default function LaundryPortal() {
                 );
               }
               return (
-                <Card key={task.id} className="border-primary/30">
+                <Card style={statusBlockStyle(task.status, "laundry")} key={task.id} className="border-primary/30">
                   <CardContent className="p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
@@ -1849,7 +1852,7 @@ export default function LaundryPortal() {
               const droppedEarly = isEarlyDropoffDay(task.droppedAt, task.dropoffDate);
               const completion = getTaskCompletionDetails(task);
               return (
-                <Card key={task.id}>
+                <Card style={statusBlockStyle(task.status, "laundry")} key={task.id}>
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1923,7 +1926,7 @@ export default function LaundryPortal() {
             const olderCompleted = isOlderCompletedTask(task);
             const historyExpanded = !olderCompleted || expandedHistoryIds.has(task.id);
             return (
-              <Card key={task.id}>
+              <Card style={statusBlockStyle(task.status, "laundry")} key={task.id}>
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
@@ -1936,7 +1939,7 @@ export default function LaundryPortal() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant={STATUS_BADGE[task.status]}>{task.status.replace(/_/g, " ")}</Badge>
+                      <JobStatusIcon status={task.status} domain="laundry" /><Badge variant={STATUS_BADGE[task.status]}>{task.status.replace(/_/g, " ")}</Badge>
                       {olderCompleted ? (
                         <Button
                           size="sm"

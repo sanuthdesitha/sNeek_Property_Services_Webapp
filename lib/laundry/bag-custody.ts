@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Prisma, Role } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { propertyIsVisibleToLaundry } from "./teams";
+import { propertyIsVisibleToLaundry, getVisibleLaundryPropertyIds } from "./teams";
 export const bagEventInput = z.object({ requestId:z.string().uuid(), taskId:z.string().min(1), bagId:z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9 _.-]+$/).transform(value=>value.toUpperCase()), expectedVersion:z.number().int().nonnegative(), status:z.enum(["REGISTERED","PICKED_UP","RETURNED","UNKNOWN"]), observedAt:z.string().datetime({offset:true}), location:z.string().trim().min(1).max(300), contents:z.string().trim().max(1000).nullable(), itemCount:z.number().int().min(0).max(10000).nullable(), note:z.string().trim().min(1).max(2000) }).strict();
 type Actor={id:string;role:Role};type Tx=Prisma.TransactionClient;
 export type BagRecord={bagId:string;propertyId:string;taskId:string;jobId:string;version:number;status:string;observedAt:string;recordedAt:string;location:string;contents:string|null;itemCount:number|null;note:string;actorId:string;source:string};
@@ -33,7 +33,8 @@ export async function recordBagEvent(user:Actor,raw:unknown){const input=bagEven
  await tx.auditLog.create({data:{userId:user.id,action:"LINEN_BAG_CUSTODY_RECORDED",entity:"LaundryTask",entityId:task.id,before:previous?previous as unknown as Prisma.InputJsonValue:Prisma.JsonNull,after:value}});return record;
  });}
 export async function listBagCustody(user:Actor,taskId?:string){await actor(db,user);if(taskId)await taskScope(db,user,taskId);
- const tasks=await db.laundryTask.findMany({where:{...(taskId?{id:taskId}:{}),...(user.role===Role.CLEANER?{job:{assignments:{some:{userId:user.id,removedAt:null,responseStatus:{in:["PENDING","ACCEPTED"]}}}}}:{})},include:{property:{select:{name:true,accessInfo:true,laundryEnabled:true}},job:{select:{jobNumber:true}}},orderBy:{pickupDate:"desc"},take:100});
+ const propertyIds=user.role===Role.LAUNDRY?await getVisibleLaundryPropertyIds(user.id):undefined;
+ const tasks=await db.laundryTask.findMany({where:{...(propertyIds?{propertyId:{in:propertyIds}}:{}),...(taskId?{id:taskId}:{}),...(user.role===Role.CLEANER?{job:{assignments:{some:{userId:user.id,removedAt:null,responseStatus:{in:["PENDING","ACCEPTED"]}}}}}:{})},include:{property:{select:{name:true,accessInfo:true,laundryEnabled:true}},job:{select:{jobNumber:true}}},orderBy:{pickupDate:"desc"},take:100});
  const allowed=tasks.filter(task=>user.role!==Role.LAUNDRY||propertyIsVisibleToLaundry(task.property,user.id));
  const rows=taskId?await db.appSetting.findMany({where:{key:{startsWith:prefix+"event:"},value:{path:["taskId"],equals:taskId}},orderBy:{createdAt:"asc"}}):[];
  return {tasks:allowed.map(task=>({id:task.id,property:task.property.name,job:task.job.jobNumber,pickupDate:task.pickupDate,returnDate:task.dropoffDate,legacyStatus:task.status})),events:rows.map(row=>(row.value as any).record as BagRecord)};

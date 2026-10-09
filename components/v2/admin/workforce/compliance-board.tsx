@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -169,9 +171,9 @@ export function ComplianceBoard({
   // was uploaded, verified and still current — exactly the document an owner
   // opens this page to find — appeared nowhere at all. Everything needing
   // action still leads; this is the rest of the filing cabinet under it.
-  const [query, setQuery] = React.useState("");
+  const [query, setQuery] = useRestorableState("compliance-board:query", "");
   const [categoryFilter, setCategoryFilter] = React.useState("ALL");
-  const [statusFilter, setStatusFilter] = React.useState("ALL");
+  const [statusFilter, setStatusFilter] = useRestorableState("compliance-board:statusFilter", "ALL");
 
   const library = React.useMemo(() => {
     const needle = query.trim().toLowerCase();

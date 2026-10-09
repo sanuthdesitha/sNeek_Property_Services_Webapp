@@ -1,4 +1,8 @@
 "use client";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
+
+
+import { useRestorableState } from "@/hooks/use-restorable-state";
 
 /**
  * ESTATE admin laundry workspace — the real v2-native operations surface. A
@@ -13,7 +17,15 @@
  * No components/ui/*; Estate token scope only.
  */
 import * as React from "react";
-import { format, startOfWeek } from "date-fns";
+import { format } from "date-fns";
+import {
+  addDaysToKey,
+  sydneyDayStart,
+  sydneyDateKey,
+  sydneyTodayKey,
+} from "@/lib/time/sydney-range";
+import { describeLaundryConfirmation } from "@/lib/laundry/media";
+import { statusBlockStyle } from "@/lib/jobs/status-presentation";
 import { toZonedTime } from "date-fns-tz";
 import {
   ClipboardList,
@@ -30,7 +42,15 @@ import {
   Weight,
 } from "lucide-react";
 import Link from "next/link";
-import { EBadge, EButton, ECard, ECardBody, EEmptyState, EPageHeader, EStatCard } from "@/components/v2/ui/primitives";
+import {
+  EBadge,
+  EButton,
+  ECard,
+  ECardBody,
+  EEmptyState,
+  EPageHeader,
+  EStatCard,
+} from "@/components/v2/ui/primitives";
 import { toast } from "@/hooks/use-toast";
 import {
   useLaundryDeleteDialog,
@@ -40,6 +60,7 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { LaundrySuppliers } from "@/components/v2/admin/laundry/laundry-suppliers";
 import { LaundryEditDialog } from "./laundry-edit-dialog";
 import { LaundryLive } from "./laundry-live";
+import { LaundryEvidenceReplacement } from "./laundry-evidence-replacement";
 import { LaundryReports } from "./laundry-reports";
 import { LaundryNewRun } from "./laundry-new-run";
 import { LaundryInvestigation } from "./laundry-investigation";
@@ -54,7 +75,13 @@ import {
 
 const TZ = "Australia/Sydney";
 
-type TabKey = "investigate" | "today" | "live" | "completed" | "reports" | "suppliers";
+type TabKey =
+  | "investigate"
+  | "today"
+  | "live"
+  | "completed"
+  | "reports"
+  | "suppliers";
 
 function propertyLine(task: LaundryTaskDTO) {
   const name = task.property?.name ?? "Property";
@@ -70,7 +97,12 @@ function TabBar({
 }: {
   active: TabKey;
   onSelect: (key: TabKey) => void;
-  tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode; count?: number }>;
+  tabs: Array<{
+    key: TabKey;
+    label: string;
+    icon: React.ReactNode;
+    count?: number;
+  }>;
 }) {
   return (
     <div className="-mx-1 overflow-x-auto px-1 pb-1">
@@ -117,29 +149,39 @@ function TaskCard({
   task,
   onEdit,
   onDelete,
+  onReport,
+  onSaved,
   busy,
   showMedia,
 }: {
   task: LaundryTaskDTO;
   onEdit: (task: LaundryTaskDTO) => void;
   onDelete: (task: LaundryTaskDTO) => void;
+  onReport: (task: LaundryTaskDTO) => void;
+  onSaved: () => void;
   busy?: boolean;
   showMedia?: boolean;
 }) {
   const { name, suburb } = propertyLine(task);
-  const clientName = task.property?.client?.name ?? task.property?.client?.email ?? null;
+  const clientName =
+    task.property?.client?.name ?? task.property?.client?.email ?? null;
   const supplier = task.supplier?.name ?? null;
   const media = showMedia ? buildTaskMedia(task) : [];
   const count = mediaCount(task);
 
   return (
-    <ECard>
+    <ECard style={statusBlockStyle(task.status, "laundry")}>
+      <span className="float-left m-3"><JobStatusIcon status={task.status} domain="laundry" /></span>
       <ECardBody className="space-y-3 pt-6">
-        <div className="flex items-start gap-4">
+        <div className="flex flex-col items-start gap-4 sm:flex-row">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[0.9375rem] font-[550]">
+            <p className="break-words text-[0.9375rem] font-[550]">
               {name}
-              {suburb ? <span className="font-normal text-[hsl(var(--e-muted-foreground))]">, {suburb}</span> : null}
+              {suburb ? (
+                <span className="font-normal text-[hsl(var(--e-muted-foreground))]">
+                  , {suburb}
+                </span>
+              ) : null}
             </p>
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
               {clientName ?? "Unassigned client"}
@@ -147,17 +189,27 @@ function TaskCard({
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
               <span className="inline-flex items-center gap-1">
-                <Truck className="h-3 w-3" /> Pickup {format(new Date(task.pickupDate), "EEE d MMM")}
+                <Truck className="h-3 w-3" /> Pickup{" "}
+                {format(
+                  toZonedTime(new Date(task.pickupDate), TZ),
+                  "EEE d MMM",
+                )}
               </span>
               <span className="inline-flex items-center gap-1">
-                <PackageCheck className="h-3 w-3" /> Drop-off {format(new Date(task.dropoffDate), "EEE d MMM")}
+                <PackageCheck className="h-3 w-3" /> Drop-off{" "}
+                {format(
+                  toZonedTime(new Date(task.dropoffDate), TZ),
+                  "EEE d MMM",
+                )}
               </span>
               <span className="inline-flex items-center gap-1">
-                <Weight className="h-3 w-3" /> {task.bagWeightKg ? `${task.bagWeightKg} kg` : "Weight t.b.c."}
+                <Weight className="h-3 w-3" />{" "}
+                {task.bagWeightKg ? `${task.bagWeightKg} kg` : "Weight t.b.c."}
               </span>
               {count > 0 ? (
                 <span className="inline-flex items-center gap-1">
-                  <Images className="h-3 w-3" /> {count} photo{count === 1 ? "" : "s"}
+                  <Images className="h-3 w-3" /> {count} photo
+                  {count === 1 ? "" : "s"}
                 </span>
               ) : null}
               {task.dropoffCostAud != null ? (
@@ -167,7 +219,7 @@ function TaskCard({
               ) : null}
             </div>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex w-full shrink-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:flex-col sm:items-end">
             <EBadge tone={statusTone(task.status)} soft>
               {statusLabel(task.status)}
             </EBadge>
@@ -194,10 +246,96 @@ function TaskCard({
           </p>
         ) : null}
 
+        <details className="text-sm">
+          <summary className="cursor-pointer font-medium">
+            Handoff and job details
+          </summary>
+          <div className="mt-2 space-y-2">
+            <EButton variant="outline" size="sm" onClick={() => onReport(task)}>
+              Task report / PDF
+            </EButton>
+            {task.property?.linenBufferSets != null && (
+              <p>Buffer linen: {task.property.linenBufferSets} sets</p>
+            )}
+            {task.property?.keyLostMode && (
+              <p>Key lost — same-day pickup and delivery required.</p>
+            )}
+            {task.confirmations
+              ?.filter((row) => row.photoUrl)
+              .map((row) => (
+                <LaundryEvidenceReplacement
+                  key={row.id}
+                  confirmationId={row.id}
+                  onSaved={onSaved}
+                />
+              ))}
+            {task.property?.address && <p>{task.property.address}</p>}
+            {task.job?.scheduledDate && (
+              <p>
+                Cleaning:{" "}
+                {format(
+                  toZonedTime(new Date(task.job.scheduledDate), TZ),
+                  "EEE d MMM",
+                )}{" "}
+                · {task.job.status?.replace(/_/g, " ")}
+              </p>
+            )}
+            {task.jobId && (
+              <Link className="underline" href={`/v2/admin/jobs/${task.jobId}`}>
+                Open linked job
+              </Link>
+            )}
+            {task.confirmations?.map((row) => (
+              <p key={row.id}>
+                {row.confirmedByName ?? "Team member"}:{" "}
+                {row.laundryReady === false
+                  ? "Not ready"
+                  : row.laundryReady === true
+                    ? "Ready"
+                    : "Handoff recorded"}
+                {row.bagLocation ? ` · ${row.bagLocation}` : ""}
+                {describeLaundryConfirmation(row)
+                  ? ` · ${describeLaundryConfirmation(row)}`
+                  : ""}
+              </p>
+            ))}
+            {!task.confirmations?.length && (
+              <p>No handoff confirmation recorded.</p>
+            )}
+            {task.flagReason && (
+              <p>Flag: {task.flagReason.replace(/_/g, " ")}</p>
+            )}
+            {task.skipReasonCode && (
+              <p>
+                Skipped: {task.skipReasonCode.replace(/_/g, " ")}{" "}
+                {task.skipReasonNote}
+              </p>
+            )}
+            {task.adminOverrideNote && (
+              <p>Override: {task.adminOverrideNote}</p>
+            )}
+            {[
+              ["Confirmed", task.confirmedAt],
+              ["Picked up", task.pickedUpAt],
+              ["Delivered", task.droppedAt],
+            ].map(([label, value]) =>
+              value ? (
+                <p key={label}>
+                  {label}:{" "}
+                  {format(toZonedTime(new Date(value), TZ), "d MMM yyyy HH:mm")}
+                </p>
+              ) : null,
+            )}
+          </div>
+        </details>
         {showMedia && media.length > 0 ? (
           <div className="border-t border-[hsl(var(--e-border))] pt-3">
             <p className="e-eyebrow mb-1.5">Evidence</p>
-            <MediaGallery items={media} title="Laundry evidence" className="grid grid-cols-3 gap-2 sm:grid-cols-5" />
+            <MediaGallery
+              items={media}
+              title="Laundry evidence"
+              className="grid grid-cols-3 gap-2 sm:grid-cols-5"
+            />
           </div>
         ) : null}
       </ECardBody>
@@ -205,29 +343,87 @@ function TaskCard({
   );
 }
 
-export function LaundryWorkspace() {
-  const [tab, setTab] = React.useState<TabKey>("today");
+export function LaundryWorkspace({
+  canReviewBags = false,
+}: {
+  canReviewBags?: boolean;
+}) {
+  const [tab, setTab] = useRestorableState<TabKey>(
+    "laundry-workspace:tab",
+    "today",
+  );
+  const [reportTask, setReportTask] = useRestorableState<{
+    id: string;
+    name: string;
+  } | null>("admin-laundry:report-task", null);
   const [tasks, setTasks] = React.useState<LaundryTaskDTO[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState("");
+  const [search, setSearch] = useRestorableState("admin-laundry:search", "");
+  const [status, setStatus] = useRestorableState("admin-laundry:status", "all");
+  const [startDate, setStartDate] = useRestorableState(
+    "admin-laundry:start",
+    addDaysToKey(sydneyTodayKey(), -14),
+  );
+  const [endDate, setEndDate] = useRestorableState(
+    "admin-laundry:end",
+    addDaysToKey(sydneyTodayKey(), 14),
+  );
+  const controllerRef = React.useRef<AbortController | null>(null);
   const [editTask, setEditTask] = React.useState<LaundryTaskDTO | null>(null);
 
-  const load = React.useCallback(async (opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setLoading(true);
-    try {
-      // Load a window that spans recent history (completed) + the current week
-      // (today/upcoming): start on Monday of last week, 21 days forward.
-      const monday = startOfWeek(new Date(), { weekStartsOn: 1 });
-      const start = new Date(monday.getTime() - 7 * 86_400_000);
-      const res = await fetch(`/api/laundry/week?start=${start.toISOString()}&days=28`, { cache: "no-store" });
-      const body = await res.json().catch(() => []);
-      setTasks(Array.isArray(body) ? (body as LaundryTaskDTO[]) : []);
-    } finally {
-      if (!opts?.silent) setLoading(false);
-    }
-  }, []);
+  const load = React.useCallback(
+    async (opts?: { silent?: boolean }) => {
+      controllerRef.current?.abort();
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      if (!opts?.silent) setLoading(true);
+      setError("");
+      try {
+        const days =
+          Math.round(
+            (Date.parse(endDate) - Date.parse(startDate)) / 86_400_000,
+          ) + 1;
+        if (!Number.isFinite(days) || days < 1 || days > 366)
+          throw new Error("Choose a date range of 1–366 days.");
+        const res = await fetch(
+          `/api/laundry/week?start=${sydneyDayStart(startDate).toISOString()}&days=${days}`,
+          {
+            cache: "no-store",
+            signal: controller.signal,
+            headers: { "x-progress-toast": "off" },
+          },
+        );
+        const body = await res.json();
+        if (!res.ok || !Array.isArray(body))
+          throw new Error(body.error || "Could not load laundry runs.");
+        if (!controller.signal.aborted) setTasks(body);
+      } catch (cause) {
+        if (!controller.signal.aborted)
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Could not load laundry runs.",
+          );
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    },
+    [startDate, endDate],
+  );
 
   React.useEffect(() => {
     void load();
+    const refresh = () => {
+      if (document.visibilityState === "visible") void load({ silent: true });
+    };
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      controllerRef.current?.abort();
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
   }, [load]);
 
   // Optimistic delete against DELETE /api/laundry/[taskId] — the row leaves the
@@ -261,7 +457,10 @@ export function LaundryWorkspace() {
           return false;
         }
         toast({
-          title: payload.mode === "PERMANENT" ? "Laundry set deleted" : "Removed from the boards",
+          title:
+            payload.mode === "PERMANENT"
+              ? "Laundry set deleted"
+              : "Removed from the boards",
           description: body?.mayBeRecreated
             ? "The plan generator may recreate this set from its job."
             : undefined,
@@ -270,7 +469,11 @@ export function LaundryWorkspace() {
         return true;
       } catch (err: any) {
         setTasks(snapshot);
-        toast({ title: "Delete failed", description: err?.message ?? "Unknown error", variant: "destructive" });
+        toast({
+          title: "Delete failed",
+          description: err?.message ?? "Unknown error",
+          variant: "destructive",
+        });
         return false;
       } finally {
         setDeletingId(null);
@@ -279,39 +482,99 @@ export function LaundryWorkspace() {
     [load],
   );
 
-  const { requestDelete, modal: deleteModal } = useLaundryDeleteDialog(removeTask);
+  const { requestDelete, modal: deleteModal } =
+    useLaundryDeleteDialog(removeTask);
+
+  const filteredTasks = React.useMemo(
+    () =>
+      tasks.filter((task) => {
+        const matches = [
+          task.property?.name,
+          task.property?.address,
+          task.property?.suburb,
+          task.property?.client?.name,
+          task.supplier?.name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(search.toLowerCase());
+        return matches && (status === "all" || task.status === status);
+      }),
+    [tasks, search, status],
+  );
 
   const todayTasks = React.useMemo(
-    () => tasks.filter((t) => !isCompleted(t)).sort((a, b) => new Date(a.pickupDate).getTime() - new Date(b.pickupDate).getTime()),
-    [tasks],
+    () =>
+      filteredTasks
+        .filter((t) => !isCompleted(t))
+        .sort(
+          (a, b) =>
+            new Date(a.pickupDate).getTime() - new Date(b.pickupDate).getTime(),
+        ),
+    [filteredTasks],
   );
   const completedTasks = React.useMemo(
-    () => tasks.filter(isCompleted).sort((a, b) => new Date(b.dropoffDate).getTime() - new Date(a.dropoffDate).getTime()),
-    [tasks],
+    () =>
+      filteredTasks
+        .filter(isCompleted)
+        .sort(
+          (a, b) =>
+            new Date(b.dropoffDate).getTime() -
+            new Date(a.dropoffDate).getTime(),
+        ),
+    [filteredTasks],
   );
 
   // Stat tiles keyed off today (Sydney).
   const stats = React.useMemo(() => {
-    const nowSyd = toZonedTime(new Date(), TZ);
-    const dayStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
-    const dayEnd = new Date(dayStart.getTime() + 86_400_000);
-    const inWindow = (v: string) => {
-      const d = new Date(v);
-      return d >= dayStart && d < dayEnd;
-    };
-    const loadsToday = tasks.filter((t) => inWindow(t.pickupDate) || inWindow(t.dropoffDate)).length;
+    const today = sydneyTodayKey();
+    const inWindow = (value: string) =>
+      sydneyDateKey(new Date(value)) === today;
+    const loadsToday = tasks.filter(
+      (t) => inWindow(t.pickupDate) || inWindow(t.dropoffDate),
+    ).length;
     const inTransit = tasks.filter((t) => t.status === "PICKED_UP").length;
-    const deliveredToday = tasks.filter((t) => t.status === "DROPPED" && t.droppedAt && inWindow(t.droppedAt)).length;
+    const deliveredToday = tasks.filter(
+      (t) => t.status === "DROPPED" && t.droppedAt && inWindow(t.droppedAt),
+    ).length;
     return { loadsToday, inTransit, deliveredToday };
   }, [tasks]);
 
-  const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode; count?: number }> = [
-    { key: "today", label: "Today", icon: <ClipboardList className="h-3.5 w-3.5" />, count: todayTasks.length },
-    { key: "investigate", label: "Investigate property", icon: <ClipboardList className="h-3.5 w-3.5" /> },
+  const tabs: Array<{
+    key: TabKey;
+    label: string;
+    icon: React.ReactNode;
+    count?: number;
+  }> = [
+    {
+      key: "today",
+      label: "Active runs",
+      icon: <ClipboardList className="h-3.5 w-3.5" />,
+      count: todayTasks.length,
+    },
+    {
+      key: "investigate",
+      label: "Investigate property",
+      icon: <ClipboardList className="h-3.5 w-3.5" />,
+    },
     { key: "live", label: "Live", icon: <Radio className="h-3.5 w-3.5" /> },
-    { key: "completed", label: "Completed", icon: <PackageCheck className="h-3.5 w-3.5" />, count: completedTasks.length },
-    { key: "reports", label: "Reports", icon: <Scale className="h-3.5 w-3.5" /> },
-    { key: "suppliers", label: "Suppliers", icon: <Store className="h-3.5 w-3.5" /> },
+    {
+      key: "completed",
+      label: "Completed",
+      icon: <PackageCheck className="h-3.5 w-3.5" />,
+      count: completedTasks.length,
+    },
+    {
+      key: "reports",
+      label: "Reports",
+      icon: <Scale className="h-3.5 w-3.5" />,
+    },
+    {
+      key: "suppliers",
+      label: "Suppliers",
+      icon: <Store className="h-3.5 w-3.5" />,
+    },
   ];
 
   return (
@@ -334,22 +597,106 @@ export function LaundryWorkspace() {
       />
 
       <section className="grid gap-4 sm:grid-cols-3">
-        <EStatCard label="Loads today" value={String(stats.loadsToday)} delta="in the pipeline" deltaTone="neutral" icon={<Shirt className="h-4 w-4" />} />
-        <EStatCard label="In transit" value={String(stats.inTransit)} delta="picked up" deltaTone="neutral" icon={<Truck className="h-4 w-4" />} />
-        <EStatCard label="Delivered" value={String(stats.deliveredToday)} delta="today" icon={<PackageCheck className="h-4 w-4" />} />
+        <EStatCard
+          label="Loads today"
+          value={loading || error ? "—" : String(stats.loadsToday)}
+          delta="in selected date range"
+          deltaTone="neutral"
+          icon={<Shirt className="h-4 w-4" />}
+        />
+        <EStatCard
+          label="In transit"
+          value={loading || error ? "—" : String(stats.inTransit)}
+          delta="in selected date range"
+          deltaTone="neutral"
+          icon={<Truck className="h-4 w-4" />}
+        />
+        <EStatCard
+          label="Delivered"
+          value={loading || error ? "—" : String(stats.deliveredToday)}
+          delta="today"
+          icon={<PackageCheck className="h-4 w-4" />}
+        />
       </section>
 
+      {error && (
+        <p role="alert" className="text-sm text-[hsl(var(--e-danger))]">
+          {error} Existing rows may be out of date.{" "}
+          <button className="underline" onClick={() => void load()}>
+            Retry
+          </button>
+        </p>
+      )}
+      {(tab === "today" || tab === "completed") && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="text-sm">
+            Search
+            <input
+              className="mt-1 min-h-11 w-full rounded border bg-transparent px-3"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Property, client or supplier"
+            />
+          </label>
+          <label className="text-sm">
+            Status
+            <select
+              className="mt-1 min-h-11 w-full rounded border bg-[hsl(var(--e-surface))] px-3"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option value="all">All statuses</option>
+              {[
+                "PENDING",
+                "CONFIRMED",
+                "PICKED_UP",
+                "DROPPED",
+                "FLAGGED",
+                "SKIPPED_PICKUP",
+              ].map((value) => (
+                <option key={value} value={value}>
+                  {statusLabel(value)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            From
+            <input
+              type="date"
+              className="mt-1 min-h-11 w-full rounded border bg-transparent px-3"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+          </label>
+          <label className="text-sm">
+            Through
+            <input
+              type="date"
+              className="mt-1 min-h-11 w-full rounded border bg-transparent px-3"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </label>
+        </div>
+      )}
+      <p className="text-xs text-[hsl(var(--e-muted-foreground))]">
+        Pickup or drop-off in the selected range; flagged work remains visible
+        for follow-up. Dates use Sydney time. Refreshes every 30 seconds.
+      </p>
       <TabBar active={tab} onSelect={setTab} tabs={tabs} />
 
       {tab === "today" ? (
         <div className="space-y-3">
           {loading ? (
-            <p className="py-12 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Loading runs…</p>
-          ) : todayTasks.length === 0 ? (
+            <p className="py-12 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+              Loading runs…
+            </p>
+          ) : error && tasks.length === 0 ? null : todayTasks.length === 0 ? (
             <EEmptyState
               eyebrow="Quiet"
               title="No laundry scheduled"
-              description="Nothing active in the laundry pipeline right now."
+              description="No active runs match the selected dates and filters."
               action={<LaundryNewRun onApplied={() => void load()} />}
             />
           ) : (
@@ -359,6 +706,15 @@ export function LaundryWorkspace() {
                 task={task}
                 onEdit={setEditTask}
                 onDelete={requestDelete}
+                onReport={(task) => {
+                  setReportTask({
+                    id: task.id,
+                    name: task.property?.name ?? "Property",
+                  });
+                  setTab("reports");
+                }}
+                onSaved={() => void load({ silent: true })}
+                showMedia
                 busy={deletingId === task.id}
               />
             ))
@@ -366,15 +722,23 @@ export function LaundryWorkspace() {
         </div>
       ) : null}
 
-      {tab === "investigate" ? <LaundryInvestigation initialTasks={tasks} /> : null}
+      {tab === "investigate" ? (
+        <LaundryInvestigation
+          initialTasks={tasks}
+          canReviewBags={canReviewBags}
+        />
+      ) : null}
 
       {tab === "live" ? <LaundryLive /> : null}
 
       {tab === "completed" ? (
         <div className="space-y-3">
           {loading ? (
-            <p className="py-12 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Loading history…</p>
-          ) : completedTasks.length === 0 ? (
+            <p className="py-12 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+              Loading history…
+            </p>
+          ) : error && tasks.length === 0 ? null : completedTasks.length ===
+            0 ? (
             <EEmptyState
               eyebrow="Nothing yet"
               title="No completed runs"
@@ -387,6 +751,14 @@ export function LaundryWorkspace() {
                 task={task}
                 onEdit={setEditTask}
                 onDelete={requestDelete}
+                onReport={(task) => {
+                  setReportTask({
+                    id: task.id,
+                    name: task.property?.name ?? "Property",
+                  });
+                  setTab("reports");
+                }}
+                onSaved={() => void load({ silent: true })}
                 busy={deletingId === task.id}
                 showMedia
               />
@@ -395,14 +767,26 @@ export function LaundryWorkspace() {
         </div>
       ) : null}
 
-      {tab === "reports" ? <LaundryReports /> : null}
+      {tab === "reports" ? (
+        <LaundryReports
+          key={reportTask?.id ?? "all"}
+          task={reportTask}
+          onClearTask={() => setReportTask(null)}
+        />
+      ) : null}
 
       {tab === "suppliers" ? <LaundrySuppliers /> : null}
 
-      <LaundryEditDialog task={editTask} onClose={() => setEditTask(null)} onSaved={() => void load()} />
+      <LaundryEditDialog
+        task={editTask}
+        onClose={() => setEditTask(null)}
+        onSaved={() => void load()}
+      />
       {deleteModal}
 
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate workspace · live data from your operations.</p>
+      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
+        Estate workspace · live data from your operations.
+      </p>
     </div>
   );
 }

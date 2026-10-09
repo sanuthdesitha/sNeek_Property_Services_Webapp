@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { EBadge, EButton, ECard, ECardBody, EEmptyState } from "@/components/v2/ui/primitives";
@@ -22,9 +24,9 @@ function TicketCard({ ticket }: { ticket: MaintenanceTicketSummary }) {
 }
 
 export function MaintenanceTicketsWorkspace({ tickets, page = 1, totalCount = tickets?.length ?? null }: { tickets: MaintenanceTicketSummary[] | null; page?: number; totalCount?: number | null }) {
-  const [view, setView] = useState<"list" | "board">("list");
+  const [view, setView] = useRestorableState<"list" | "board">("tickets-workspace:view", "list");
   const [status, setStatus] = useState("all");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useRestorableState("tickets-workspace:search", "");
   const filtered = useMemo(() => (tickets ?? []).filter((ticket) => {
     if (status !== "all" && ticket.status !== status) return false;
     const text = [ticket.title, ticket.property?.name, ticket.property?.suburb].filter(Boolean).join(" ").toLowerCase();

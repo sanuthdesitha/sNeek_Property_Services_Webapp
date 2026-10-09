@@ -1,5 +1,9 @@
 "use client";
-import { OperationsButton } from "@/components/operations/ui";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
+
+import { statusBlockStyle } from "@/lib/jobs/status-presentation";
+import { LinenBags } from "@/components/operations/linen-bags";
+import { OperationsDisclosure } from "@/components/operations/ui";
 
 /**
  * Estate laundry live board + tracking — the single source of truth for the v2
@@ -627,7 +631,6 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
 
   return (
     <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
-      <OperationsButton asChild variant="outline" className="my-2"><a href="/linen-bags">Individual bag custody</a></OperationsButton>
       <div className="flex flex-wrap items-center justify-between gap-2">
         {control}
         <RefreshButton loading={loading} onClick={() => void load()} />
@@ -686,7 +689,7 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
           {QUEUE_STAGES.map((s) => {
             const items = active.filter((t) => t.status === s.status);
             return (
-              <ECard key={s.status}>
+              <ECard key={s.status} style={statusBlockStyle(s.status, "laundry")}>
                 <ECardBody className="space-y-3 pt-6">
                   <div className="flex items-center justify-between">
                     <p className="text-[0.8125rem] font-semibold uppercase tracking-wide text-[hsl(var(--e-muted-foreground))]">
@@ -705,8 +708,9 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
                         return (
                           <div
                             key={it.id}
+                            style={statusBlockStyle(it.status, "laundry")}
                             className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]"
-                          >
+                          ><JobStatusIcon status={it.status} domain="laundry" />
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <p className="min-w-0 truncate font-medium">{propertyLabel(it)}</p>
                               <KeyLostBadge task={it} />
@@ -799,7 +803,6 @@ export function RunsBoard({ canDelete = false }: BoardRoleProps) {
 
   return (
     <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
-      <OperationsButton asChild variant="outline" className="my-2"><a href="/linen-bags">Individual bag custody</a></OperationsButton>
       <div className="flex flex-wrap items-center justify-between gap-2">
         {control}
         <RefreshButton loading={loading} onClick={() => void load()} />
@@ -1142,7 +1145,7 @@ function InlinePriceWeightEdit({ task, onSaved }: { task: BoardTask; onSaved: ()
   );
 }
 
-export function TrackingBoard({ canDelete = false }: BoardRoleProps) {
+export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleProps & { bagTrackingRole?: "ADMIN" | "LAUNDRY" }) {
   const { range, control } = useLaundryDateScope("week");
   const { tasks, loading, submittingId, load, act, remove } = useLaundryFeed(range);
   const { openAction, modal, config } = useLaundryActionModal(() => void load({ silent: true }));
@@ -1239,7 +1242,11 @@ export function TrackingBoard({ canDelete = false }: BoardRoleProps) {
 
   return (
     <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
-      <OperationsButton asChild variant="outline" className="my-2"><a href="/linen-bags">Individual bag custody</a></OperationsButton>
+      {bagTrackingRole ? (
+        <OperationsDisclosure title="Track individual bags (optional)">
+          <LinenBags role={bagTrackingRole} panel />
+        </OperationsDisclosure>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-2">
         {control}
         <div className="flex flex-wrap items-center justify-end gap-2">

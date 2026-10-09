@@ -1,5 +1,7 @@
 "use client";
 
+import { JobStatusProgress } from "@/components/shared/job-status-progress";
+
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -1090,7 +1092,7 @@ export default function JobDetailPage() {
 
   return (
     <div className="space-y-6">
-      <a className="inline-block rounded border p-2" href={`/admin/settings/holiday-rates?jobId=${job.id}`}>Review public holiday rates</a>
+      <JobStatusProgress status={job.status} />
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="icon" asChild>
           <Link href="/admin/jobs" aria-label="Back to jobs">
@@ -2504,6 +2506,11 @@ export default function JobDetailPage() {
               <p className="text-xs text-muted-foreground">
                 Display only. Edit billing and payout values in Schedule &amp; Assignment → Edit Job.
               </p>
+              {job.capabilities?.reviewHolidayRates === true ? (
+                <Button asChild variant="outline" className="min-h-11">
+                  <Link href={`/v2/admin/settings?tab=holiday-rates&jobId=${encodeURIComponent(job.id)}`}>Review public holiday rates</Link>
+                </Button>
+              ) : null}
             </CardContent>
           </Card>
         </TabsContent>

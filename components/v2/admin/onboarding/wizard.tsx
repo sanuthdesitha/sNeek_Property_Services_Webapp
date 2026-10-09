@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE onboarding wizard — v2-native port of the v1 wizard
  * (app/admin/onboarding/new/page.tsx + components/onboarding/wizard-layout.tsx).
@@ -326,7 +328,7 @@ function StepReview({
 export function OnboardingWizard({ editId }: { editId?: string }) {
   const router = useRouter();
   const [surveyId, setSurveyId] = React.useState<string | null>(null);
-  const [currentStep, setCurrentStep] = React.useState(STEPS[0].id);
+  const [currentStep, setCurrentStep] = useRestorableState("wizard:currentStep", STEPS[0].id);
   const [completedSteps, setCompletedSteps] = React.useState<string[]>([]);
   const [formData, setFormData] = React.useState<Record<string, unknown>>({});
   const [loading, setLoading] = React.useState(true);
@@ -384,6 +386,7 @@ export function OnboardingWizard({ editId }: { editId?: string }) {
         .then((data) => {
           if (data.id) {
             setSurveyId(data.id);
+            router.replace(`/v2/admin/onboarding/${encodeURIComponent(data.id)}`);
           } else {
             toast({ title: "Failed to create survey", variant: "destructive" });
           }

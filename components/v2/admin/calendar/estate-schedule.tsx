@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE schedule — a custom month grid + agenda list built on CSS grid.
  * No FullCalendar. Same data as the legacy dispatch calendar: /api/jobs for
@@ -114,14 +116,14 @@ function cleanerLabel(job: any): string | undefined {
 
 export function EstateSchedule() {
   const todayIso = useMemo(() => sydneyTodayIso(), []);
-  const [view, setView] = useState<"month" | "agenda">("month");
+  const [view, setView] = useRestorableState<"month" | "agenda">("estate-schedule:view", "month");
   const [cursor, setCursor] = useState(() => ({
     year: Number(todayIso.slice(0, 4)),
     month: Number(todayIso.slice(5, 7)) - 1,
   }));
   const [jobs, setJobs] = useState<JobEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useRestorableState("estate-schedule:statusFilter", "ALL");
   const [unassignedOnly, setUnassignedOnly] = useState(false);
   const [showLaundry, setShowLaundry] = useState(false);
   const [laundry, setLaundry] = useState<LaundryEntry[]>([]);

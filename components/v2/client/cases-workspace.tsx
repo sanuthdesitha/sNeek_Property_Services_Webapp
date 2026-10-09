@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Estate cases & disputes workspace — same endpoints as the legacy client
  * cases page:
@@ -129,7 +131,7 @@ export function ClientCasesWorkspace() {
   const [cases, setCases] = useState<CaseView[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useRestorableState("cases-workspace:statusFilter", "ALL");
 
   const [creating, setCreating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);

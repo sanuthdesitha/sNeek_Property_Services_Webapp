@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE cleaners roster — v2-native replacement for the v1 CleanersHub.
  * Same data + same endpoints, new Estate UI:
@@ -91,7 +93,7 @@ function Metric({ label, value, tone = "neutral" }: { label: string; value: stri
 
 export function EstateCleanersRoster({ rows }: { rows: EstateCleanerRow[] }) {
   const router = useRouter();
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useRestorableState("cleaners-roster:search", "");
   const [status, setStatus] = useState("active");
   const [sortBy, setSortBy] = useState("name");
   const [busyId, setBusyId] = useState<string | null>(null);

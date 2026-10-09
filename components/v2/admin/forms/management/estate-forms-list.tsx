@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE — Forms management (native v2 port of app/admin/forms).
  * Two tabs, driven natively (no @/components/{admin,ui,shared,forms}):
@@ -68,7 +70,7 @@ export function EstateFormsList({ tab, canWrite = false }: { tab: TabKey; canWri
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useRestorableState("estate-forms-list:search", "");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TemplateRow | null>(null);
   const [deleting, setDeleting] = useState(false);

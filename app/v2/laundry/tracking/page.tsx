@@ -22,7 +22,10 @@ export default async function LaundryTrackingPage() {
         title="Tracking"
         description="Follow every set from pickup to return, and move it along."
       />
-      <TrackingBoard canDelete={canDelete} />
+      <TrackingBoard
+        canDelete={canDelete}
+        bagTrackingRole={session.user.role === Role.ADMIN || session.user.role === Role.LAUNDRY ? session.user.role : undefined}
+      />
       <QuantityExceptions />
     </div>
   );

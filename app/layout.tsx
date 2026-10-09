@@ -1,5 +1,8 @@
 /* eslint-disable @next/next/no-sync-scripts -- Account transport must bind before hydration starts requests. */
 import { retainedContextId } from "@/lib/auth/retained-context";
+import { createHash } from "node:crypto";
+import { cookies } from "next/headers";
+import { ViewMemoryProvider } from "@/components/shared/view-memory-provider";
 import { AccountScopeProvider } from "@/components/auth/account-scope-provider";
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Cormorant_Garamond, Fraunces } from "next/font/google";
@@ -95,6 +98,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // fixed warning bar pushes the page (and any sticky portal header) down
   // rather than covering it.
   const impersonation = await getImpersonationBanner();
+  const viewScope = createHash("sha256").update(JSON.stringify([
+    session?.user?.id ?? "public", accountContext,
+    cookies().get("sneek.active-role")?.value ?? "",
+    cookies().get("sneek.test-as")?.value ?? "",
+  ])).digest("hex");
   const initialClass = `${themePref === "dark" ? "dark" : "light"}${impersonation ? " impersonating" : ""}`;
 
   // Pre-hydration script: resolves "system" against the OS preference and
@@ -122,13 +130,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {accountContext ? <script src="/account-context.js" /> : null}
         <script dangerouslySetInnerHTML={{ __html: preHydrationScript }} />
       </head>
-      <body className={`${fontSans.variable} ${fontDisplay.variable} ${fontDisplaySerif.variable} ${fontEstateSerif.variable} ${fontMono.variable} antialiased`}>
+      <body data-view-scope={viewScope} className={`${fontSans.variable} ${fontDisplay.variable} ${fontDisplaySerif.variable} ${fontEstateSerif.variable} ${fontMono.variable} antialiased`}>
         {/* Admin "test as" banner. Renders nothing (and hits no database)
             unless an impersonation ticket is active; when it does render it
             adds .has-impersonation-bar to <html> so sticky portal headers are
             pushed below it instead of hiding underneath. */}
         {impersonation ? <ImpersonationSlot banner={impersonation} /> : null}
-        <AccountScopeProvider contextId={accountContext}><Providers accountContext={accountContext}>{children}</Providers></AccountScopeProvider>
+        <AccountScopeProvider contextId={accountContext}><ViewMemoryProvider><Providers accountContext={accountContext}>{children}</Providers></ViewMemoryProvider></AccountScopeProvider>
       </body>
     </html>
   );

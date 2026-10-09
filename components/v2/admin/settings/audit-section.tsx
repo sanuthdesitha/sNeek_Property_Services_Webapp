@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE — Settings › Audit log.
  * Native port of v1's SettingsWorkspace "audit" tab + SettingsAuditLog. Self-
@@ -58,7 +60,7 @@ export function AuditSection({ isAdmin = true }: { isAdmin?: boolean } = {}) {
   const router = useRouter();
   const [entries, setEntries] = React.useState<AuditEntry[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [query, setQuery] = React.useState("");
+  const [query, setQuery] = useRestorableState("audit-section:query", "");
   const [restoringId, setRestoringId] = React.useState<string | null>(null);
 
   React.useEffect(() => {

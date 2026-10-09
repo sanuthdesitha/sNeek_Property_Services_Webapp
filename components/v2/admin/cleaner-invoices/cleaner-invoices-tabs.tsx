@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Client tab switch for the admin cleaner-invoices page. Two surfaces over the
  * same cleaner-invoice domain:
@@ -26,7 +28,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
 ];
 
 export function CleanerInvoicesTabs() {
-  const [tab, setTab] = React.useState<TabKey>("submitted");
+  const [tab, setTab] = useRestorableState<TabKey>("cleaner-invoices-tabs:tab", "submitted");
 
   return (
     <div className="space-y-6">

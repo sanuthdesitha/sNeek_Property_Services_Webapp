@@ -671,7 +671,7 @@ export async function assembleCleanerBriefing(input: {
     (async (): Promise<BriefingReminders | null> => {
       const deviceLine =
         propertyIds.length > 0
-          ? "Check/replace Ring camera & Minut device batteries where fitted."
+          ? "Charge the Ring camera and Minut devices on every clean where fitted. Upload a photo showing each device charging or charged; record a reason if a device is absent or cannot be charged."
           : null;
       let expiringDocuments: string[] = [];
       try {

@@ -389,7 +389,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { taskId: s
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = await req.json().catch(() => ({}));
-    await verifySensitiveAction(session.user.id, body?.security);
+    await verifySensitiveAction(session.user.id, body?.security, "laundry.delete");
     const existing = await db.laundryTask.findUnique({
       where: { id: params.taskId },
       select: { id: true, jobId: true, status: true, pickedUpAt: true, droppedAt: true, confirmations: { select: { id: true } } },

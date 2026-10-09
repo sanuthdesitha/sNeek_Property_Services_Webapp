@@ -1,4 +1,10 @@
 "use client";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
+
+import { statusBlockStyle } from "@/lib/jobs/status-presentation";
+
+
+import { useRestorableState } from "@/hooks/use-restorable-state";
 
 /**
  * ESTATE laundry history — the v2 History surface. Fetches the SAME endpoint
@@ -109,7 +115,7 @@ export function HistoryBoard() {
   const [forbidden, setForbidden] = React.useState(false);
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
 
-  const [query, setQuery] = React.useState("");
+  const [query, setQuery] = useRestorableState("history-board:query", "");
   const [status, setStatus] = React.useState<"ALL" | LaundryStatus>("ALL");
   const [dateFilter, setDateFilter] = React.useState("");
 
@@ -297,9 +303,9 @@ export function HistoryBoard() {
 
                 <div className="space-y-3 md:hidden">
                   {g.rows.map((t) => (
-                    <article key={t.id} className="min-w-0 space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 [overflow-wrap:anywhere]">
+                    <article style={statusBlockStyle(t.status, "laundry")} key={t.id} className="min-w-0 space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 [overflow-wrap:anywhere]">
                       <p className="font-medium">{propertyLabel(t)}</p>
-                      <EBadge tone={toneFor(t.status)} soft>{labelFor(t.status)}</EBadge>
+                      <JobStatusIcon status={t.status} domain="laundry" /><EBadge tone={toneFor(t.status)} soft>{labelFor(t.status)}</EBadge>
                       <dl className="grid grid-cols-2 gap-2 text-sm">
                         <div className="col-span-2"><dt className="text-[hsl(var(--e-muted-foreground))]">Supplier</dt><dd>{t.supplier?.name ?? "—"}</dd></div>
                         <div><dt className="text-[hsl(var(--e-muted-foreground))]">Weight</dt><dd>{t.bagWeightKg ? `${t.bagWeightKg.toFixed(1)} kg` : "—"}</dd></div>
@@ -323,7 +329,7 @@ export function HistoryBoard() {
                   ]}
                 >
                   {g.rows.map((t) => (
-                    <tr key={t.id}>
+                    <tr style={statusBlockStyle(t.status, "laundry")} key={t.id}>
                       <td className="px-4 py-3">
                         <p className="min-w-0 truncate font-medium">{propertyLabel(t)}</p>
                       </td>
@@ -331,7 +337,7 @@ export function HistoryBoard() {
                         {t.supplier?.name ?? "—"}
                       </td>
                       <td className="px-4 py-3">
-                        <EBadge tone={toneFor(t.status)} soft>
+                        <JobStatusIcon status={t.status} domain="laundry" /><EBadge tone={toneFor(t.status)} soft>
                           {labelFor(t.status)}
                         </EBadge>
                       </td>

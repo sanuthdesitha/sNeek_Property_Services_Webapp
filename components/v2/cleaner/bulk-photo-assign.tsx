@@ -21,6 +21,7 @@ import { PHOTO_ASSIGNMENT_REQUEST_TIMEOUT_MS } from "@/lib/ai/runtime-limits";
  * validation, autosave/draft and submit need no knowledge of this component.
  */
 import * as React from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { z } from "zod";
 import {
   Camera,
@@ -43,7 +44,7 @@ import {
 } from "@/components/v2/cleaner/media-capture";
 import type { UploadMap } from "@/components/v2/cleaner/form-renderer";
 import { useEvidenceScope } from "./evidence-context";
-import { moveEvidence, removeEvidence } from "@/lib/cleaner/evidence-client";
+import { moveEvidence, moveEvidenceBatch, removeEvidence } from "@/lib/cleaner/evidence-client";
 import { destinationOf, isLegacyEvidenceKey, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
 import {
   addToPool,
@@ -98,6 +99,7 @@ export function BulkPhotoAssign({
   prepareAutoAssign?: () => Promise<void>;
 }) {
   const evidenceScope = useEvidenceScope();
+  const [preview, setPreview] = React.useState<CapturedMedia | null>(null);
   const [moving, setMoving] = React.useState(false);
   const [blockedRemoval, setBlockedRemoval] = React.useState<{ key: string; scope: string } | null>(null);
   const [selected, setSelected] = React.useState<string[]>([]);
@@ -122,7 +124,7 @@ export function BulkPhotoAssign({
   const fieldsRef = React.useRef(fields); fieldsRef.current = fields;
   const uploadScopeKey = JSON.stringify(evidenceScope);
   const uploadScopeRef = React.useRef(uploadScopeKey); uploadScopeRef.current = uploadScopeKey;
-  React.useEffect(() => { setPending([]); setBlockedRemoval(null); setSelected([]); }, [uploadScopeKey]);
+  React.useEffect(() => { setPending([]); setBlockedRemoval(null); setSelected([]); setPreview(null); }, [uploadScopeKey]);
   React.useEffect(() => {
     ++requestRef.current.id; requestRef.current.controller?.abort();
     stopApplyingRef.current = true;
@@ -130,6 +132,9 @@ export function BulkPhotoAssign({
     return () => { ++requestRef.current.id; requestRef.current.controller?.abort(); stopApplyingRef.current = true; };
   }, [scopeKey]);
 
+  React.useEffect(() => {
+    if (preview && !pool.some(media => media.key === preview.key) && !Object.values(uploads).some(items => items.some(media => media.key === preview.key))) setPreview(null);
+  }, [pool, uploads, preview]);
   const state = React.useMemo(() => ({ pool, uploads }), [pool, uploads]);
   const assignedBy = React.useMemo(() => assignmentIndex(uploads), [uploads]);
   const fieldById = React.useMemo(() => {
@@ -368,20 +373,26 @@ export function BulkPhotoAssign({
   async function acknowledgeMoves(to: EvidenceDestination) {
     if (evidenceScope === null) throw new Error("Reload the current form before moving evidence.");
     if (!evidenceScope) return;
-    for (const key of selected) {
-      const item = gallery.find(item => item.media.key === key);
-      if (!item) continue;
-      await moveEvidence(evidenceScope, item.media, item.fieldId ? { type: "formField", fieldId: item.fieldId } : { type: "bulkPool" }, to);
+    const startedScope = scopeKey;
+    const items = selected.flatMap(key => {
+      const item = gallery.find(row => row.media.key === key);
+      return item ? [{ media: item.media, from: item.fieldId ? { type: "formField" as const, fieldId: item.fieldId } : { type: "bulkPool" as const } }] : [];
+    });
+    await moveEvidenceBatch(evidenceScope, items, to, key => {
       const next = to.type === "formField" ? assignToField({ pool: poolRef.current, uploads: uploadsRef.current }, [key], to.fieldId) : unassignKeys({ pool: poolRef.current, uploads: uploadsRef.current }, [key]);
       poolRef.current = next.pool; uploadsRef.current = next.uploads; commit(next);
-    }
+      setSelected(current => current.filter(item => item !== key));
+    }, () => scopeKeyRef.current === startedScope);
+
   }
   async function assign(fieldId: string) {
     if (movingRef.current) return;
     if (selected.length === 0 || !fieldId) return;
     movingRef.current = true; setMoving(true);
     try {
+    const startedScope = scopeKey;
     await acknowledgeMoves({ type: "formField", fieldId });
+    if (scopeKeyRef.current !== startedScope) return;
     const next = assignToField({ pool: poolRef.current, uploads: uploadsRef.current }, selected, fieldId);
     commit(next);
     setSelected([]);
@@ -397,7 +408,9 @@ export function BulkPhotoAssign({
     if (selected.length === 0) return;
     movingRef.current = true; setMoving(true);
     try {
+    const startedScope = scopeKey;
     await acknowledgeMoves({ type: "bulkPool" });
+    if (scopeKeyRef.current !== startedScope) return;
     commit(unassignKeys({ pool: poolRef.current, uploads: uploadsRef.current }, selected));
     setSelected([]);
     } catch (error) { setUploadNote(error instanceof Error ? error.message : "Move failed. Reload evidence."); }
@@ -463,6 +476,15 @@ export function BulkPhotoAssign({
 
   return (
     <div role="dialog" aria-label="Bulk photos" aria-modal="true" className="fixed inset-0 z-[110] flex min-w-0 flex-col bg-[hsl(var(--e-background))] [overflow-wrap:anywhere]">
+      <Dialog.Root open={Boolean(preview)} onOpenChange={open => { if (!open) setPreview(null); }}>
+        <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-[120] bg-black/80" />
+          <Dialog.Content data-skin="estate" data-portal-accent="cleaner" aria-describedby={undefined} className="fixed inset-4 z-[121] flex flex-col rounded-lg bg-[hsl(var(--e-surface))] p-4">
+            <div className="flex items-center justify-between gap-3"><Dialog.Title className="truncate">{preview?.name || "Photo preview"}</Dialog.Title><Dialog.Close className="min-h-11 px-3">Close preview</Dialog.Close></div>
+            {preview?.kind === "video" ? <video src={preview.url} controls playsInline className="min-h-0 flex-1 object-contain" /> : preview ? <img src={preview.url} alt={preview.name || "Photo preview"} className="min-h-0 flex-1 object-contain" /> : null}
+            {preview ? <EButton disabled={moving} onClick={() => toggle(preview.key)}>{selectedSet.has(preview.key) ? "Deselect photo" : "Select photo"}</EButton> : null}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--e-border))] px-4 py-3">
         <div className="min-w-0">
@@ -532,8 +554,9 @@ export function BulkPhotoAssign({
           ) : null}
         </section>
 
-        <section aria-label="Auto assignment suggestions" className="min-w-0 space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <details aria-label="Auto assignment suggestions" className="min-w-0 space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+          <summary className="cursor-pointer text-sm font-medium">Optional · Suggest photo sections</summary>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0"><p className="font-semibold">Auto assign photos</p><p className="text-xs text-[hsl(var(--e-muted-foreground))]">Analyse {pool.filter(media => media.kind === "image").length} unassigned photos in batches of up to {batchSize}. Existing suggestions are kept. Review before filing.</p></div>
             <EButton className="min-h-11" disabled={!evidenceScope || !prepareAutoAssign || analysing || moving || !pool.some(media => media.kind === "image") || pending.some(item => item.status === "uploading")} onClick={() => void autoAssign()}>{analysing ? <><Loader2 className="h-4 w-4 animate-spin" />Analysing…</> : "Auto assign"}</EButton>
           </div>
@@ -558,7 +581,7 @@ export function BulkPhotoAssign({
               </div>
             </article>;
           })}
-        </section>
+        </details>
 
         {/* Step 2 — categorise */}
         <section className="space-y-2">
@@ -589,11 +612,13 @@ export function BulkPhotoAssign({
                 const label = fieldId ? fieldById.get(fieldId)?.label ?? fieldId : null;
                 return (
                   <div key={media.key} className="min-w-0 space-y-1">
-                    <a
-                      href={media.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label={`Preview ${media.name || "photo"}`}
+                    <button
+                      type="button"
+                      disabled={moving}
+                      role="checkbox"
+                      aria-checked={isSelected}
+                      onClick={() => toggle(media.key)}
+                      aria-label={`Select ${media.name || "photo"}`}
                       className={cn(
                         "relative block w-full aspect-square overflow-hidden rounded-[var(--e-radius-sm)] border bg-[hsl(var(--e-surface-sunken))]",
                         isSelected
@@ -622,11 +647,9 @@ export function BulkPhotoAssign({
                           {label}
                         </span>
                       ) : null}
-                    </a>
-                    <label className="flex min-h-11 cursor-pointer items-center justify-center gap-2 text-xs">
-                      <input type="checkbox" aria-label={`Select ${media.name || "photo"}`} checked={isSelected} disabled={moving} onChange={() => toggle(media.key)} className="h-4 w-4" />
-                      Select
-                    </label>
+                    </button>
+                    <button type="button" onClick={() => setPreview(media)} className="min-h-11 w-full rounded border text-xs" aria-label={`Preview ${media.name || "photo"}`}>Preview</button>
+
                   </div>
                 );
               })}

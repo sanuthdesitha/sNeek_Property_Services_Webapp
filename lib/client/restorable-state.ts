@@ -9,8 +9,9 @@
  * WHY sessionStorage rather than the URL: much of this state is not worth a
  * shareable link (which row is expanded), some of it should not be in a link at
  * all, and the router owns the URL. sessionStorage is scoped to the tab, so
- * closing it forgets everything — the right lifetime for "where I was", which
- * is a fact about this browsing session and not about the user.
+ * a full reload clears this namespace. Saved defaults and form drafts use their
+ * own storage and are untouched. Identity scope also separates retained accounts,
+ * active roles and impersonation.
  *
  * WHY keyed by pathname: two pages that both track `filters` must not read each
  * other's. The dynamic segment is kept, so job A and job B remember separately.
@@ -19,10 +20,10 @@
  * when the quota is full, and losing a filter is never worth breaking a page.
  */
 
-const PREFIX = "sneek:page-state";
+import { viewMemoryKey } from "@/lib/navigation/view-memory";
 
 function storageKey(pathname: string, key: string): string {
-  return `${PREFIX}:${pathname}:${key}`;
+  return viewMemoryKey(pathname, key);
 }
 
 export function readRestorable<T>(pathname: string, key: string): T | undefined {
@@ -66,7 +67,7 @@ export function clearRestorable(pathname: string, key: string): void {
 export function clearRestorablePath(pathname: string): void {
   if (typeof window === "undefined") return;
   try {
-    const prefix = `${PREFIX}:${pathname}:`;
+    const prefix = storageKey(pathname, "");
     const doomed: string[] = [];
     for (let i = 0; i < window.sessionStorage.length; i++) {
       const key = window.sessionStorage.key(i);

@@ -1,108 +1,590 @@
 "use client";
-import { OperationsPage, OperationsButton, OperationsNotice, OperationsLoading } from "@/components/operations/ui";
+import {
+  OperationsPage,
+  OperationsButton,
+  OperationsNotice,
+  OperationsLoading,
+} from "@/components/operations/ui";
+import { operationalTimestamp } from "@/components/operations/presentation";
 import { StayPreparationPanel } from "./stay-preparation-panel";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UrgentNeed } from "@/lib/inventory/urgent-stock";
-import { isUrgentStockClosed, type UrgentStockStage } from "@/lib/inventory/urgent-stock-policy";
+import {
+  isUrgentStockClosed,
+  type UrgentStockStage,
+} from "@/lib/inventory/urgent-stock-policy";
 
-type Settings = { enabled: boolean; intervalHours: number; maxReminders: number; beforeNextCleanHours: number };
-type Snapshot = { properties: { id: string; name: string }[]; items: { itemId: string; item: { name: string; unit: string } }[]; reports: UrgentNeed[]; settings: Settings | null; nextCleanAt?: string | null };
-const LABEL: Record<UrgentStockStage, string> = { REPORTED: "Reported", ACKNOWLEDGED: "Acknowledged", ORDERED: "Order recorded", DELIVERED: "Delivery recorded", PROPERTY_CONFIRMED: "Confirmed at property", ADMIN_RESOLVED: "Resolved by administrator" };
+type Settings = {
+  enabled: boolean;
+  intervalHours: number;
+  maxReminders: number;
+  beforeNextCleanHours: number;
+};
+type Snapshot = {
+  timeZone?: string;
+  properties: { id: string; name: string }[];
+  items: { itemId: string; item: { name: string; unit: string } }[];
+  reports: UrgentNeed[];
+  settings: Settings | null;
+  nextCleanAt?: string | null;
+};
+const LABEL: Record<UrgentStockStage, string> = {
+  REPORTED: "Reported",
+  ACKNOWLEDGED: "Acknowledged",
+  ORDERED: "Order recorded",
+  DELIVERED: "Delivery recorded",
+  PROPERTY_CONFIRMED: "Confirmed at property",
+  ADMIN_RESOLVED: "Resolved by administrator",
+};
 const style = "ops-field";
-const countValue = (value: string) => value.trim() === "" ? null : Number(value);
-const timestamp = (value: string) => value ? new Date(value).toISOString() : null;
+const countValue = (value: string) =>
+  value.trim() === "" ? null : Number(value);
+const timestamp = (value: string) =>
+  value ? new Date(value).toISOString() : null;
 type Post = (input: Record<string, unknown>) => Promise<void>;
-export function UrgentStockWorkspace({ isAdmin, initialPropertyId = "" }: { isAdmin: boolean; initialPropertyId?: string }) {
+export function UrgentStockWorkspace({
+  isAdmin,
+  initialPropertyId = "",
+  panel = false,
+  lockProperty = false,
+}: {
+  panel?: boolean;
+  lockProperty?: boolean;
+  isAdmin: boolean;
+  initialPropertyId?: string;
+}) {
   const [propertyId, setPropertyId] = useState(initialPropertyId);
-  const [data, setData] = useState<Snapshot>({ properties: [], items: [], reports: [], settings: null });
-  const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true), [notice, setNotice] = useState("");
-  const [itemId, setItemId] = useState(""); const [observed, setObserved] = useState(""); const [observedAt, setObservedAt] = useState("");
-  const [purchase, setPurchase] = useState(""); const [note, setNote] = useState("");
+  const [data, setData] = useState<Snapshot>({
+    properties: [],
+    items: [],
+    reports: [],
+    settings: null,
+  });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true),
+    [notice, setNotice] = useState("");
+  const [itemId, setItemId] = useState("");
+  const [observed, setObserved] = useState("");
+  const [observedAt, setObservedAt] = useState("");
+  const [purchase, setPurchase] = useState("");
+  const [note, setNote] = useState("");
   const receipts = useRef(new Map<string, string>());
-  const load = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch(`/api/inventory/urgent-stock?propertyId=${encodeURIComponent(propertyId)}`, { cache: "no-store", signal });
-    const body = await response.json(); if (!response.ok) throw new Error(body.error); setData(body);
-  }, [propertyId]);
-  useEffect(() => { const controller = new AbortController(); setLoading(true); setNotice(""); setData(previous => ({ ...previous, items: [], reports: [] })); void load(controller.signal).catch(e => { if (!controller.signal.aborted) setError(e.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); }); return () => controller.abort(); }, [load]);
-  const post: Post = async input => {
-    setBusy(true); setError(""); setNotice("");
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      const response = await fetch(
+        `/api/inventory/urgent-stock?propertyId=${encodeURIComponent(propertyId)}`,
+        { cache: "no-store", signal },
+      );
+      const body = await response.json();
+      if (signal?.aborted) return;
+      if (!response.ok) throw new Error(body.error);
+      setData(body);
+    },
+    [propertyId],
+  );
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setNotice("");
+    setData((previous) => ({ ...previous, items: [], reports: [] }));
+    void load(controller.signal)
+      .catch((e) => {
+        if (!controller.signal.aborted) setError(e.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [load]);
+  const post: Post = async (input) => {
+    setBusy(true);
+    setError("");
+    setNotice("");
     try {
       const fingerprint = JSON.stringify(input);
-      const requestId = receipts.current.get(fingerprint) ?? crypto.randomUUID(); receipts.current.set(fingerprint, requestId);
-      const response = await fetch("/api/inventory/urgent-stock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input.action === "settings" ? input : { ...input, requestId }) });
-      const body = await response.json(); if (!response.ok) throw new Error(body.error);
+      const requestId =
+        receipts.current.get(fingerprint) ?? crypto.randomUUID();
+      receipts.current.set(fingerprint, requestId);
+      const response = await fetch("/api/inventory/urgent-stock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          input.action === "settings" ? input : { ...input, requestId },
+        ),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
       // Retain the receipt through a failed refresh, so retry cannot duplicate it.
-      await load(); receipts.current.delete(fingerprint); setNotice(input.action === "settings" ? "Reminder settings saved." : "Stock update recorded.");
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not save."); throw e; }
-    finally { setBusy(false); }
+      await load();
+      receipts.current.delete(fingerprint);
+      setNotice(
+        input.action === "settings"
+          ? "Reminder settings saved."
+          : "Stock update recorded.",
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save.");
+      throw e;
+    } finally {
+      setBusy(false);
+    }
   };
-  return <OperationsPage title="Urgent stock" accent={isAdmin ? "admin" : "cleaner"} backHref={isAdmin ? "/v2/admin/inventory" : "/v2/cleaner/supplies"} backLabel="Back to supplies">
-    <p>Report supplies needed at a property. Leave unknown quantities blank. Recording an order does not place one; acknowledgement and delivery stay open until the need is resolved.</p>
-    {error ? <OperationsNotice tone="danger">{error}</OperationsNotice> : null}
-    {loading ? <OperationsLoading label="Loading property supplies…" /> : null}
-    {notice ? <OperationsNotice tone="success">{notice}</OperationsNotice> : null}{busy ? <OperationsNotice>Saving changes…</OperationsNotice> : null}
-    <label>Property<select className={style} value={propertyId} disabled={busy} onChange={e => { setPropertyId(e.target.value); setItemId(""); setObserved(""); setObservedAt(""); setPurchase(""); setNote(""); setError(""); }}><option value="">Choose property</option>{data.properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-    {propertyId && data.items.length ? <form className="ops-card ops-form-grid" onSubmit={e => { e.preventDefault(); void post({ action: "report", propertyId, itemId, observedCount: countValue(observed), observedAt: timestamp(observedAt), purchaseQuantity: countValue(purchase), note }).then(() => { setNote(""); setObserved(""); setObservedAt(""); setPurchase(""); }).catch(() => {}); }}>
-      <h2 className="font-semibold">Report a need</h2>
-      <label>Item<select className={style} required value={itemId} onChange={e => setItemId(e.target.value)}><option value="">Choose item</option>{data.items.map(i => <option key={i.itemId} value={i.itemId}>{i.item.name} ({i.item.unit})</option>)}</select></label>
-      <label>Observed count (blank = unknown)<input className={style} type="number" min="0" max="1000000" step="any" value={observed} onChange={e => setObserved(e.target.value)} /></label>
-      <label>When you observed that count<input className={style} type="datetime-local" step="1" required={observed !== ""} value={observedAt} onChange={e => setObservedAt(e.target.value)} /></label>
-      <label>Requested purchase quantity (blank = unknown)<input className={style} type="number" min="0.001" max="1000000" step="any" value={purchase} onChange={e => setPurchase(e.target.value)} /></label>
-      <label>What is needed and why?<textarea className={style} required maxLength={2000} value={note} onChange={e => setNote(e.target.value)} /></label>
-      <OperationsButton  disabled={busy}>Save report</OperationsButton>
-    </form> : propertyId && !loading ? <p>No configured inventory items available.</p> : null}
-    {data.nextCleanAt ? <p>Next clean planning deadline: {new Date(data.nextCleanAt).toLocaleString()}. An unspecified clean time uses the start of its local day.</p> : propertyId ? <p>No upcoming clean is currently scheduled.</p> : null}
-    {propertyId ? <StayPreparationPanel key={propertyId} propertyId={propertyId} isAdmin={isAdmin} items={data.items} refreshToken={data.reports.map(report => `${report.id}:${report.version}`).join(",")} /> : null}
-    <section className="space-y-4"><h2 className="font-semibold">Reports and recorded actions</h2>
-      {data.reports.map(report => <Need key={report.id} report={report} isAdmin={isAdmin} busy={busy} post={post} />)}
-      {propertyId && !loading && !data.reports.length ? <p>No reports for this property.</p> : null}
-    </section>
-    {isAdmin && data.settings ? <ReminderSettings key={JSON.stringify(data.settings)} settings={data.settings} busy={busy} post={post} /> : null}
-  </OperationsPage>;
+  const timeZone = data.timeZone ?? "Australia/Sydney";
+  return (
+    <OperationsPage
+      panel={panel}
+      pending={busy}
+      title="Urgent stock"
+      accent={isAdmin ? "admin" : "cleaner"}
+      backHref={isAdmin ? "/v2/admin/inventory" : "/v2/cleaner/supplies"}
+      backLabel="Back to supplies"
+    >
+      <p>
+        Report supplies needed at a property. Leave unknown quantities blank.
+        Recording an order does not place one; acknowledgement and delivery stay
+        open until the need is resolved.
+      </p>
+      {error ? (
+        <OperationsNotice tone="danger">{error}</OperationsNotice>
+      ) : null}
+      {loading ? (
+        <OperationsLoading label="Loading property supplies…" />
+      ) : null}
+      {notice ? (
+        <OperationsNotice tone="success">{notice}</OperationsNotice>
+      ) : null}
+      {busy ? <OperationsNotice>Saving changes…</OperationsNotice> : null}
+      <label>
+        Property
+        <select
+          className={style}
+          value={propertyId}
+          disabled={busy || lockProperty}
+          onChange={(e) => {
+            setPropertyId(e.target.value);
+            setItemId("");
+            setObserved("");
+            setObservedAt("");
+            setPurchase("");
+            setNote("");
+            setError("");
+          }}
+        >
+          <option value="">Choose property</option>
+          {data.properties.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {propertyId && data.items.length ? (
+        <form
+          className="ops-card ops-form-grid"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void post({
+              action: "report",
+              propertyId,
+              itemId,
+              observedCount: countValue(observed),
+              observedAt: timestamp(observedAt),
+              purchaseQuantity: countValue(purchase),
+              note,
+            })
+              .then(() => {
+                setNote("");
+                setObserved("");
+                setObservedAt("");
+                setPurchase("");
+              })
+              .catch(() => {});
+          }}
+        >
+          <h2 className="font-semibold">Report a need</h2>
+          <label>
+            Item
+            <select
+              className={style}
+              required
+              value={itemId}
+              onChange={(e) => setItemId(e.target.value)}
+            >
+              <option value="">Choose item</option>
+              {data.items.map((i) => (
+                <option key={i.itemId} value={i.itemId}>
+                  {i.item.name} ({i.item.unit})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Observed count (blank = unknown)
+            <input
+              className={style}
+              type="number"
+              min="0"
+              max="1000000"
+              step="any"
+              value={observed}
+              onChange={(e) => setObserved(e.target.value)}
+            />
+          </label>
+          <label>
+            When you observed that count
+            <input
+              className={style}
+              type="datetime-local"
+              step="1"
+              required={observed !== ""}
+              value={observedAt}
+              onChange={(e) => setObservedAt(e.target.value)}
+            />
+          </label>
+          <label>
+            Requested purchase quantity (blank = unknown)
+            <input
+              className={style}
+              type="number"
+              min="0.001"
+              max="1000000"
+              step="any"
+              value={purchase}
+              onChange={(e) => setPurchase(e.target.value)}
+            />
+          </label>
+          <label>
+            What is needed and why?
+            <textarea
+              className={style}
+              required
+              maxLength={2000}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </label>
+          <OperationsButton disabled={busy}>Save report</OperationsButton>
+        </form>
+      ) : propertyId && !loading && !error ? (
+        <p>No configured inventory items available.</p>
+      ) : null}
+      {!loading && !error && data.nextCleanAt ? (
+        <p>
+          Next clean planning deadline:{" "}
+          {operationalTimestamp(data.nextCleanAt, timeZone)}. An unspecified
+          clean time uses the start of its local day.
+        </p>
+      ) : propertyId && !loading && !error ? (
+        <p>No upcoming clean is currently scheduled.</p>
+      ) : null}
+      {propertyId && !lockProperty ? (
+        <StayPreparationPanel
+          key={propertyId}
+          propertyId={propertyId}
+          isAdmin={isAdmin}
+          items={data.items}
+          refreshToken={data.reports
+            .map((report) => `${report.id}:${report.version}`)
+            .join(",")}
+        />
+      ) : null}
+      <section className="space-y-4">
+        <h2 className="font-semibold">Reports and recorded actions</h2>
+        {data.reports.map((report) => (
+          <Need
+            key={report.id}
+            report={report}
+            isAdmin={isAdmin}
+            busy={busy}
+            post={post}
+            timeZone={timeZone}
+          />
+        ))}
+        {propertyId && !loading && !error && !data.reports.length ? (
+          <p>No reports for this property.</p>
+        ) : null}
+      </section>
+      {isAdmin && data.settings ? (
+        <ReminderSettings
+          key={JSON.stringify(data.settings)}
+          settings={data.settings}
+          busy={busy}
+          post={post}
+        />
+      ) : null}
+    </OperationsPage>
+  );
 }
-function Need({ report, isAdmin, busy, post }: { report: UrgentNeed; isAdmin: boolean; busy: boolean; post: Post }) {
-  const [stage, setStage] = useState<UrgentStockStage>("PROPERTY_CONFIRMED"); const [reason, setReason] = useState("");
-  const [count, setCount] = useState(""); const [observedAt, setObservedAt] = useState(""); const [resolved, setResolved] = useState(false);
-  const [history, setHistory] = useState<any[] | null>(null); const [historyError, setHistoryError] = useState("");
-  useEffect(() => { setStage("PROPERTY_CONFIRMED"); }, [report.stage]);
-  const next: Partial<Record<UrgentStockStage, UrgentStockStage>> = { REPORTED: "ACKNOWLEDGED", ACKNOWLEDGED: "ORDERED", ORDERED: "DELIVERED" };
+function Need({
+  timeZone,
+  report,
+  isAdmin,
+  busy,
+  post,
+}: {
+  timeZone: string;
+  report: UrgentNeed;
+  isAdmin: boolean;
+  busy: boolean;
+  post: Post;
+}) {
+  const [stage, setStage] = useState<UrgentStockStage>("PROPERTY_CONFIRMED");
+  const [reason, setReason] = useState("");
+  const [count, setCount] = useState("");
+  const [observedAt, setObservedAt] = useState("");
+  const [resolved, setResolved] = useState(false);
+  const [history, setHistory] = useState<any[] | null>(null);
+  const [historyError, setHistoryError] = useState("");
+  useEffect(() => {
+    setStage("PROPERTY_CONFIRMED");
+  }, [report.stage]);
+  const next: Partial<Record<UrgentStockStage, UrgentStockStage>> = {
+    REPORTED: "ACKNOWLEDGED",
+    ACKNOWLEDGED: "ORDERED",
+    ORDERED: "DELIVERED",
+  };
   async function showHistory() {
-    try { const response = await fetch(`/api/inventory/urgent-stock?propertyId=${encodeURIComponent(report.propertyId)}&reportId=${report.id}`, { cache: "no-store" }); const body = await response.json(); if (!response.ok) throw new Error(body.error); setHistory(body.events); }
-    catch (e) { setHistoryError(e instanceof Error ? e.message : "History unavailable"); }
+    try {
+      const response = await fetch(
+        `/api/inventory/urgent-stock?propertyId=${encodeURIComponent(report.propertyId)}&reportId=${report.id}`,
+        { cache: "no-store" },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setHistory(body.events);
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : "History unavailable");
+    }
   }
-  return <article className="ops-card space-y-4">
-    <h3 className="font-semibold">{report.itemName} — {LABEL[report.stage]}</h3><p>{report.note}</p>
-    <p>Reported count: {report.observedCount ?? "unknown"} {report.unit}; requested purchase: {report.purchaseQuantity ?? "unknown"} {report.unit}.</p>
-    <p>{report.observedAt ? `Observed ${new Date(report.observedAt).toLocaleString()}. ` : ""}{report.observationDisposition === "APPLY" ? "Observation applied to stock when recorded." : `Stock unchanged (${report.observationDisposition.toLowerCase()}).`} This report is not a live stock balance.</p>
-    {!isUrgentStockClosed(report.stage) ? <form className="space-y-2" onSubmit={e => { e.preventDefault(); void post({ action: "transition", reportId: report.id, expectedVersion: report.version, stage, reason, observedCount: stage === "PROPERTY_CONFIRMED" ? countValue(count) : null, observedAt: stage === "PROPERTY_CONFIRMED" ? timestamp(observedAt) : null, needResolved: stage === "PROPERTY_CONFIRMED" && resolved }).then(() => { setReason(""); setHistory(null); }).catch(() => {}); }}>
-      <label>Record action<select className={style} value={stage} onChange={e => setStage(e.target.value as UrgentStockStage)}>
-        {next[report.stage] ? <option value={next[report.stage]}>{LABEL[next[report.stage]!]}</option> : null}
-        <option value="PROPERTY_CONFIRMED">Confirm need resolved at property</option>{isAdmin ? <option value="ADMIN_RESOLVED">Resolve with administrator explanation</option> : null}
-      </select></label>
-      {stage === "PROPERTY_CONFIRMED" ? <>
-        <label>Fresh observed count<input className={style} required type="number" min="0.001" max="1000000" step="any" value={count} onChange={e => setCount(e.target.value)} /></label>
-        <label>Observation time<input className={style} required type="datetime-local" step="1" value={observedAt} onChange={e => setObservedAt(e.target.value)} /></label>
-        <label className="block"><input required type="checkbox" checked={resolved} onChange={e => setResolved(e.target.checked)} /> I checked the property and this need is resolved</label>
-      </> : null}
-      <label>Action reason<textarea className={style} required maxLength={2000} value={reason} onChange={e => setReason(e.target.value)} /></label><OperationsButton  disabled={busy}>Record action</OperationsButton>
-    </form> : <p>Closed with a recorded resolution; earlier actions remain in history.</p>}
-    <OperationsButton variant="ghost" onClick={() => void showHistory()}>View history</OperationsButton>{historyError ? <OperationsNotice tone="danger">{historyError}</OperationsNotice> : null}
-    {history ? <ol>{history.map((event, i) => <li key={i} className="border-t py-2">
-      {new Date(event.at).toLocaleString()} — {LABEL[event.kind as UrgentStockStage] ?? event.kind.replaceAll("_", " ").toLowerCase()} · {event.actorName}
-      <p>{event.detail.reason ?? event.detail.note ?? `Reminder ${event.detail.number}`}</p>
-      {"observedCount" in event.detail ? <p>Observed count: {event.detail.observedCount ?? "unknown"}{event.detail.observedAt ? ` at ${new Date(event.detail.observedAt).toLocaleString()}` : ""}.</p> : null}
-      {"purchaseQuantity" in event.detail ? <p>Requested purchase: {event.detail.purchaseQuantity ?? "unknown"}.</p> : null}
-      {event.detail.observationDisposition ? <p>Count outcome: {event.detail.observationDisposition.toLowerCase()}.</p> : null}
-    </li>)}</ol> : null}
-  </article>;
+  return (
+    <article className="ops-card space-y-4">
+      <h3 className="font-semibold">
+        {report.itemName} — {LABEL[report.stage]}
+      </h3>
+      <p>{report.note}</p>
+      <p>
+        Reported count: {report.observedCount ?? "unknown"} {report.unit};
+        requested purchase: {report.purchaseQuantity ?? "unknown"} {report.unit}
+        .
+      </p>
+      <p>
+        {report.observedAt
+          ? `Observed ${operationalTimestamp(report.observedAt, timeZone)}. `
+          : ""}
+        {report.observationDisposition === "APPLY"
+          ? "Observation applied to stock when recorded."
+          : `Stock unchanged (${report.observationDisposition.toLowerCase()}).`}{" "}
+        This report is not a live stock balance.
+      </p>
+      {!isUrgentStockClosed(report.stage) ? (
+        <form
+          className="space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void post({
+              action: "transition",
+              reportId: report.id,
+              expectedVersion: report.version,
+              stage,
+              reason,
+              observedCount:
+                stage === "PROPERTY_CONFIRMED" ? countValue(count) : null,
+              observedAt:
+                stage === "PROPERTY_CONFIRMED" ? timestamp(observedAt) : null,
+              needResolved: stage === "PROPERTY_CONFIRMED" && resolved,
+            })
+              .then(() => {
+                setReason("");
+                setHistory(null);
+              })
+              .catch(() => {});
+          }}
+        >
+          <label>
+            Record action
+            <select
+              className={style}
+              value={stage}
+              onChange={(e) => setStage(e.target.value as UrgentStockStage)}
+            >
+              {next[report.stage] ? (
+                <option value={next[report.stage]}>
+                  {LABEL[next[report.stage]!]}
+                </option>
+              ) : null}
+              <option value="PROPERTY_CONFIRMED">
+                Confirm need resolved at property
+              </option>
+              {isAdmin ? (
+                <option value="ADMIN_RESOLVED">
+                  Resolve with administrator explanation
+                </option>
+              ) : null}
+            </select>
+          </label>
+          {stage === "PROPERTY_CONFIRMED" ? (
+            <>
+              <label>
+                Fresh observed count
+                <input
+                  className={style}
+                  required
+                  type="number"
+                  min="0.001"
+                  max="1000000"
+                  step="any"
+                  value={count}
+                  onChange={(e) => setCount(e.target.value)}
+                />
+              </label>
+              <label>
+                Observation time
+                <input
+                  className={style}
+                  required
+                  type="datetime-local"
+                  step="1"
+                  value={observedAt}
+                  onChange={(e) => setObservedAt(e.target.value)}
+                />
+              </label>
+              <label className="block">
+                <input
+                  required
+                  type="checkbox"
+                  checked={resolved}
+                  onChange={(e) => setResolved(e.target.checked)}
+                />{" "}
+                I checked the property and this need is resolved
+              </label>
+            </>
+          ) : null}
+          <label>
+            Action reason
+            <textarea
+              className={style}
+              required
+              maxLength={2000}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          </label>
+          <OperationsButton disabled={busy}>Record action</OperationsButton>
+        </form>
+      ) : (
+        <p>
+          Closed with a recorded resolution; earlier actions remain in history.
+        </p>
+      )}
+      <OperationsButton variant="ghost" onClick={() => void showHistory()}>
+        View history
+      </OperationsButton>
+      {historyError ? (
+        <OperationsNotice tone="danger">{historyError}</OperationsNotice>
+      ) : null}
+      {history ? (
+        <ol>
+          {history.map((event, i) => (
+            <li key={i} className="border-t py-2">
+              {operationalTimestamp(event.at, timeZone)} —{" "}
+              {LABEL[event.kind as UrgentStockStage] ??
+                event.kind.replaceAll("_", " ").toLowerCase()}{" "}
+              · {event.actorName}
+              <p>
+                {event.detail.reason ??
+                  event.detail.note ??
+                  `Reminder ${event.detail.number}`}
+              </p>
+              {"observedCount" in event.detail ? (
+                <p>
+                  Observed count: {event.detail.observedCount ?? "unknown"}
+                  {event.detail.observedAt
+                    ? ` at ${operationalTimestamp(event.detail.observedAt, timeZone)}`
+                    : ""}
+                  .
+                </p>
+              ) : null}
+              {"purchaseQuantity" in event.detail ? (
+                <p>
+                  Requested purchase:{" "}
+                  {event.detail.purchaseQuantity ?? "unknown"}.
+                </p>
+              ) : null}
+              {event.detail.observationDisposition ? (
+                <p>
+                  Count outcome:{" "}
+                  {event.detail.observationDisposition.toLowerCase()}.
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </article>
+  );
 }
-function ReminderSettings({ settings, busy, post }: { settings: Settings; busy: boolean; post: Post }) {
+function ReminderSettings({
+  settings,
+  busy,
+  post,
+}: {
+  settings: Settings;
+  busy: boolean;
+  post: Post;
+}) {
   const [value, setValue] = useState(settings);
-  return <form className="ops-card space-y-4" onSubmit={e => { e.preventDefault(); void post({ action: "settings", ...value }).catch(() => {}); }}>
-    <h2 className="font-semibold">Administrator reminders</h2><p>In-app reminders for unresolved needs. A running background worker is required. No emails or automatic purchases.</p>
-    <label className="block"><input type="checkbox" checked={value.enabled} onChange={e => setValue({ ...value, enabled: e.target.checked })} /> Enable reminders</label>
-    {([['intervalHours', 'Repeat every (hours)', 1, 168], ['maxReminders', 'Maximum reminders per need', 0, 20], ['beforeNextCleanHours', 'Advance reminder within hours of next clean', 1, 168]] as const).map(([key, label, min, max]) => <label key={key} className="block">{label}<input className={style} required type="number" min={min} max={max} value={value[key]} onChange={e => setValue({ ...value, [key]: Number(e.target.value) })} /></label>)}
-    <OperationsButton  disabled={busy}>Save reminder settings</OperationsButton>
-  </form>;
+  return (
+    <form
+      className="ops-card space-y-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void post({ action: "settings", ...value }).catch(() => {});
+      }}
+    >
+      <h2 className="font-semibold">Administrator reminders</h2>
+      <p>
+        In-app reminders for unresolved needs. A running background worker is
+        required. No emails or automatic purchases.
+      </p>
+      <label className="block">
+        <input
+          type="checkbox"
+          checked={value.enabled}
+          onChange={(e) => setValue({ ...value, enabled: e.target.checked })}
+        />{" "}
+        Enable reminders
+      </label>
+      {(
+        [
+          ["intervalHours", "Repeat every (hours)", 1, 168],
+          ["maxReminders", "Maximum reminders per need", 0, 20],
+          [
+            "beforeNextCleanHours",
+            "Advance reminder within hours of next clean",
+            1,
+            168,
+          ],
+        ] as const
+      ).map(([key, label, min, max]) => (
+        <label key={key} className="block">
+          {label}
+          <input
+            className={style}
+            required
+            type="number"
+            min={min}
+            max={max}
+            value={value[key]}
+            onChange={(e) =>
+              setValue({ ...value, [key]: Number(e.target.value) })
+            }
+          />
+        </label>
+      ))}
+      <OperationsButton disabled={busy}>
+        Save reminder settings
+      </OperationsButton>
+    </form>
+  );
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE properties portfolio — v2-native replacement for the v1 properties
  * page. Client-side search / suburb filter over server-fetched rows, Estate
@@ -37,9 +39,9 @@ const SYNC_TONE: Record<string, "success" | "danger" | "info" | "neutral"> = {
 };
 
 export function PropertiesPortfolio({ rows }: { rows: EstatePropertyRow[] }) {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useRestorableState("properties-portfolio:search", "");
   const [suburb, setSuburb] = useState("all");
-  const [view, setView] = useState<"list" | "map">("list");
+  const [view, setView] = useRestorableState<"list" | "map">("properties-portfolio:view", "list");
 
   const suburbs = useMemo(
     () => Array.from(new Set(rows.map((r) => r.suburb).filter(Boolean))).sort(),

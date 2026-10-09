@@ -8,6 +8,7 @@
  * that advances to Set up.
  */
 import * as React from "react";
+import { SetupReferenceDisclosure } from "./stage-setup";
 import Link from "next/link";
 import { Navigation, Clock, Route, Flag, MapPin } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
@@ -20,6 +21,7 @@ export function StageTravel({ api }: { api: WorkspaceApi }) {
 
   return (
     <div className="space-y-5">
+      <SetupReferenceDisclosure entries={api.setupGuideEntries} />
       <ECard variant="ceremony">
         <ECardBody className="space-y-4 pt-6">
           <div className="flex items-center justify-between gap-2">
@@ -72,9 +74,9 @@ export function StageTravel({ api }: { api: WorkspaceApi }) {
               Start &quot;On the way&quot; on your route to send the office a live ETA and let the guest know you&apos;re coming.
             </p>
           </div>
-          <Link href="/v2/cleaner/route">
+          <Link href={`/v2/cleaner/route?jobId=${encodeURIComponent(job?.id || "")}`}>
             <EButton variant="outline">
-              <Route className="h-4 w-4" /> Open route
+              <Route className="h-4 w-4" /> {enRouteActive ? "Continue driving" : "Start driving"}
             </EButton>
           </Link>
         </ECardBody>

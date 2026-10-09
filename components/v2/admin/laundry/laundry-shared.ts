@@ -86,6 +86,8 @@ export type LaundryTaskDTO = {
     name?: string | null;
     suburb?: string | null;
     address?: string | null;
+    linenBufferSets?: number | null;
+    keyLostMode?: boolean;
     client?: { id?: string; name?: string | null; email?: string | null } | null;
   } | null;
   supplier?: { id?: string; name?: string | null; pricePerKg?: number | null } | null;

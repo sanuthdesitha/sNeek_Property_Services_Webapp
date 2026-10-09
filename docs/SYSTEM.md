@@ -91,6 +91,59 @@ An admin can view the app as any non-admin user. The design (thoroughly document
 
 ### A4. Settings system
 
+**Return navigation and operations access (2026-10).** Root portal navigation
+remembers temporary view queries, tabs, list filters and resumable draft steps per
+browser tab, identity/role and record. Returning overrides saved defaults; explicit
+deep links win. Full refresh resets transient view state while saved Jobs defaults
+and draft/evidence recovery remain intact. Jobs uses client navigation for Manage;
+new onboarding surveys move to their saved draft URL. QA remembers its guided
+step alongside its local draft and returns to step one if that draft is absent.
+Classic and Estate client Jobs now scope their views and calendar months to this identity/tab,
+replacing the old unscoped persistent preference. This covers the root app,
+not the separate mobile/nextgen applications.
+
+Settings → Access → Roles now manages each operations manager's permission pack
+and per-feature Off / View only / Manage overrides. Built-in packs preserve current
+access, provide an observer/coordinator level, or start with all features off;
+admins can create reusable custom packs. `ops_feature_permissions_v1` is a
+revisioned AppSetting, with transactional conflict protection and audit entries.
+Fresh server checks supplement existing role and entity guards. Manage does not
+grant admin-only operations; ADMIN accounts remain outside these restrictions.
+Impersonation uses the effective manager, and retained routes preserve their
+selected identity. Navigation and record search reflect permitted features.
+
+Feature ownership and aliases are centralized in `lib/rbac/ops-catalog.ts`;
+unmapped admin routes fail closed. Permissions describe whole workspaces, not
+field-level redaction: Jobs includes job billing, Properties includes its rate
+cards, and Dashboard/Reports retain their cross-feature summaries. Files/media have a separate feature gate, with job/property preview checks. Map,
+account-self-service and worker-ownership utilities retain existing guards.
+A missing initial policy preserves existing access; malformed stored policy fails
+closed. No schema migration is required. Standards and verification details:
+`docs/style/operational-ui.md` and `docs/qa/recent-changes-review-2026-10-09.md`.
+
+**Settings navigation (2026-10).** The Estate settings page now uses a searchable
+category directory, one horizontal category row and current-category links on
+larger screens, and a grouped native selector on phones. The role-filtered catalog
+is `components/v2/admin/settings/settings-catalog.ts`; existing `?tab=` keys are
+preserved. Public holiday rates are part of **Money**, and property-form editing is
+part of **Operations**. Both old holiday-rate routes and the Estate property-form
+route redirect into the same settings shell; holiday job context is preserved.
+Existing forms, persistence and server permissions remain authoritative (including
+OPS_MANAGER access to the property-form editor). Job holiday review appears in
+**Job → Money** for ADMIN, with a contextual return link. Classic settings links
+to the same rate editor from its Finance category. Classic job navigation consumes
+the server-derived `capabilities.reviewHolidayRates` field (effective role), not
+the primary role cached in the browser session. The overview uses the settings
+already loaded by the page; navigation search opts out of saved-text suggestions.
+
+**Optional bag tracking placement (2026-10).** The global individual-bag log now
+lives only in Laundry → Tracking, with task-scoped cleaner-job and admin-investigation
+entries retained. Queue and Runs use their existing run actions. The UI explains
+that the optional labelled-bag observations help trace missing bags and do not
+advance run status or prove recipient acceptance. ADMIN/LAUNDRY visibility in the
+tracking page matches the existing custody service; OPS_MANAGER gets no unusable
+bag editor. Laundry settings remain configuration, not an event-recording surface.
+
 All tunable behaviour lives in one JSON blob per key in the `AppSetting` table (`key` / `value Json`), read through **`lib/settings.ts`** (~72 KB — the platform's control panel). The pattern is uniform: every settings group has a **TypeScript interface**, a **default**, and a **sanitizer** that coerces whatever is stored back into shape, so a partial or legacy row can never crash a read. `getAppSettings()` merges DB over defaults; admin pages under `/v2/admin/settings/**` write back.
 
 Notable groups on the `AppSettings` interface:
@@ -147,6 +200,11 @@ Alongside that, automatic sends that carried **no `kind`** were backfilled — j
 
 ### A6. Uploads & media
 
+**Cleaner multi-device evidence and recovery (2026-10).** A cleaner may upload from multiple authenticated devices on the same account and assigned job. The Estate workspace reads the shared draft receipts every 10 seconds while visible and on focus, reconciling uploaded media, moves and removal tombstones without replacing unsaved answers. Pending local edits suppress a stale read; obsolete reads are aborted. This is confirmed-upload synchronization, not replication of device-local pending files or collaborative form-answer editing. Account/job authorization and original capture ownership remain enforced.
+
+Bulk thumbnails select; the separate Preview action opens an in-page image/video dialog. Manual multi-photo assignment reads one receipt snapshot and processes up to three version-checked moves concurrently, retaining confirmed successes and identifying failures. An owned older-form receipt can be explicitly moved after current form/destination/capacity validation; the original capture context is retained and the rebind audited. Removing an owned older-form reference records a tombstone without deleting the original. Other account/job contexts retain explicit reference-discard or office review requirements. Office Draft evidence review uses the shared media popup.
+
+
 **Cleaner video compatibility and failed-upload removal (2026-09).** If browser video compression fails, originals up to 150 MiB can upload through the existing multipart flow; cancellation never triggers a fallback, and larger failures retain their originals for recovery. Common video extensions supply a video content type when phones omit it. Failed uploads now have an explicit removal action in the field and device recovery panel. Removal requires a server acknowledgement and records a detached capture even when no upload allocation exists, preventing delayed attachment requests from restoring it. Originals remain on the device until explicitly cleared; remote objects are not deleted. Required evidence fields still need replacement evidence before submission.
 
 Object storage is **S3-compatible (Cloudflare R2)** via `lib/s3.ts` — an `aws-sdk` v2 client, settings-first (A4) with a 60-second credential cache, plus `publicUrl()` (CDN base from `S3_PUBLIC_BASE_URL`) and presigned GET/PUT helpers.
@@ -202,6 +260,20 @@ Current registry (all entries as of `9b89dc77`):
 | `weekly-laundry-plan` | Mon 09:00 | drafts the week's laundry plan |
 | `document-expiry-check` | Mon 08:00 | expiring workforce documents |
 | `recognition-check` | Sun 09:00 | workforce recognition milestones |
+
+### Operational status and delegated corrections (2026-10-09)
+
+Estate Jobs view administration now lives under the page-heading three-dot menu → View options. The panel groups sort, density, list/board layout, columns, personal saved views and team defaults. Reset appearance preserves filtering; Reset Jobs view resets the full view. Hidden controls remain mounted so initial personal/team defaults still apply and drafts survive closing the panel. Shared publication permissions and revision checks are unchanged.
+
+Job details use shared SVG milestone vectors (`JobStatusProgress`/`JobStatusIcon`), horizontal on desktop and vertical on phones. Estate Jobs rows/cards animate the actual status briefly; reduced motion disables animation. The Jobs filter disclosure combines search, date, status and refinements with one clear action; choosing a date shortcut replaces custom dates. Visible lists refresh every 15 seconds/on focus, retaining stale rows with feedback if a background read fails.
+
+Job/laundry cards share whole-block status tints in `lib/jobs/status-presentation.ts`. Job detail workflow progress keeps pauses and continuation approval in the Cleaning stage. Estate admin laundry now exposes range/search/status filtering, Sydney-day totals, active evidence and handoff detail, task-scoped reports and audited replacement photos. Failed loads retain a clear error rather than reporting zero work.
+
+`ops_feature_permissions_v1` supports optional sensitive grants on custom packs and manager assignments. Grants default off and are verified server-side alongside existing feature restrictions and the manager's own PIN/password. Supported grants cover job deletion/reset, property archive, client/case/template deletion, protected laundry deletion and Xero reconciliation. PIN setup remains in Profile. Owner-only account credentials, role administration and impersonation remain separate.
+
+`POST /api/admin/invoices/[id]/reconcile` records a manually reconciled Xero void using an explicit acknowledgement, reason/reference and sensitive credentials. It locks the invoice, rejects payment evidence/pending export, releases existing billing allocations and audits the transition atomically. It keeps the invoice, lines and Xero identity; it performs no Xero network request. Paid invoice credit/refund workflows are not bypassed.
+
+Dashboard totals refresh while visible every 30 seconds and on focus. Live GPS retains device measurement time; its heartbeat obtains a new fix instead of re-dating cached coordinates. The request indicator remains open during long operations and gives readable completion/error time, correctly handling HTTP failures.
 
 ### A8. GPS & Live Ops
 
@@ -1492,7 +1564,48 @@ Two schedule drivers coexist without double-firing. The pg-boss worker (`workers
 Bounces and complaints feed the **suppression list** (`lib/email/suppression.ts`, `EmailSuppression` model): COMPLAINT, SOFT_BOUNCE or HARD_BOUNCE per address. The list is address-keyed (not user-keyed) so it covers client emails with no `User` row; `suppress()` writes both the list and `User.emailStatus`, and `isSuppressed()` checks both. **The send-now suppression fix (2026-07)**: the immediate "Send now" path previously skipped the suppression list entirely. `dispatchEmailCampaignById` now checks `isSuppressed()` per recipient **before** the `CampaignSend` ledger claim ("so a suppressed address leaves no phantom 'contacted' row") and reports a `suppressed` count; engine-v1's `sendCampaign` applies the same guard (checking after its claim and deleting the claim row so the address isn't counted as contacted). Both dispatch paths now honour suppressions; an admin can clear one at `app/api/admin/system/email/[email]/unsuppress`.
 ---
 
+## October 2026 operational feature integration
+
+Recent property care, urgent stock, linen custody and turnover-cost tools extend
+existing Estate workspaces. Care is inside Property → Jobs & history; stock needs
+inside Inventory/Supplies; bag observations inside laundry and cleaner job context;
+ADMIN-only turnover review inside Finance overview. Existing standalone routes
+remain compatible. `OperationsDisclosure` loads on opening, retains drafts while
+collapsed and supplies a section heading; `OperationsPage panel` avoids nested page
+landmarks. Scope changes cancel obsolete reads; pending writes lock editable fields.
+
+Urgent-stock report/reminder transactions now enqueue explicit INBOX notification
+intents with shopping preferences. The existing notification dispatcher handles
+current-recipient authorization and inbox insertion. No email, SMS or device-push
+transport is added. Reminder counters describe queued reminders, not confirmed
+external delivery. Laundry visibility is applied before limiting recent bag runs.
+
+See [the complete commit review](qa/recent-changes-review-2026-10-09.md),
+[operational UI rules](style/operational-ui.md), and root `AGENTS.md` for scope,
+verification, preserved business safeguards and future implementation requirements.
+
+### Cleaner workflow presentation and charging (2026-10)
+
+The Estate cleaner heading includes the Sydney job date. The dashboard route is a compact next-stop link to the existing route workflow; totals refresh while visible. Today's brief groups secondary details into disclosures and explains charging evidence. The cleaner journey uses SVG step icons and identity/job-scoped return-stage memory, reset by a full refresh. Travel's Start driving opens the existing route with this assigned job selected; an already active route remains authoritative.
+
+Property access appears in Set up only; setup reference images appear in Get there and Set up. The stale previous-laundry briefing is suppressed in favor of the existing authoritative laundry-cycle card. During an ongoing inventory-enabled job, Urgent stock opens the existing request workspace inside a lazy disclosure, locked to the current property; collapse retains its draft.
+
+Effective Jackson Airbnb turnover forms add required Ring/Minut charging proof, reusing an unconditional existing device check where possible. Otherwise a charging outcome requires either proof or an absent/unable-to-charge explanation. Augmentation follows rotational filtering so every clean has its charging checks. The established Jackson property-name convention determines applicability; Jackson P3's owner-confirmed Ring removal remains excluded. Reworks and historical submissions are unchanged. Shared finite status animations extend to cleaner, client and laundry surfaces; reduced-motion settings remain respected.
+
 ## Change Log
+
+- **2026-10-09 (cleaner refinement):** Added same-account multi-device receipt sync, popup photo selection/preview, concurrent acknowledged assignment, audited older-form recovery, compact cleaner briefing/route, scoped stage memory, in-job urgent stock and Jackson charging evidence. See the review record for verification and remaining limits.
+
+- **2026-10-09 (Jobs view options):** Moved team-default and saved-view administration into the top-right Jobs menu, alongside grouped appearance controls and a filter-preserving appearance reset. Preserved default application while closed and existing publication permissions.
+
+- **2026-10-09 (job vectors):** Added shared responsive SVG job milestone progress, finite status-specific Estate Jobs icons, reduced-motion support, visible background status refresh and one collapsible Jobs filter panel with unified clearing. See `docs/qa/recent-changes-review-2026-10-09.md`.
+
+- **2026-10-09** — Operational refinement: shared job/laundry colour and progress, explicit OPS sensitive-action grants, task-complete laundry details/reports, audited evidence replacement, recorded Xero reconciled void, genuine GPS freshness, visible dashboard refresh and readable request notifications. See `docs/qa/recent-changes-review-2026-10-09.md`.
+- **2026-10-09 (navigation and ops access):** Added identity-scoped return-view memory with refresh reset, resumable onboarding draft URLs, and operations-manager permission packs/overrides in Roles settings. Enforced feature restrictions on pages/APIs and search, preserved existing owner/service boundaries, and added concurrency, retained-account and browser regressions.
+
+- **2026-10-09 (settings refinement):** Replaced stacked settings navigation with a searchable category directory and responsive navigation; integrated holiday rates and property forms into relevant categories, preserved deep links and job context, and consolidated optional bag tracking under Tracking. Added action-placement standards and focused navigation/browser checks.
+
+- **2026-10-09:** Reviewed the 34 recent changelog entries plus three evidence follow-ups against the supplied handover and current code. Integrated care/stock/bag/profit controls into existing Estate features, repaired asynchronous scope and unknown-state defects, reused transactional INBOX delivery for stock reminders, and corrected laundry query scoping. Added reproducible lint configuration and future change rules. Verification and limits: `docs/qa/recent-changes-review-2026-10-09.md`.
 
 - **2026-09-29:** Removed the cleaner Saved file copies section/manual failed-attempt cleanup gate; added active-upload submission coordination and low-storage session/video fallbacks. Verification: `docs/qa/cleaner-failed-uploads-2026-09-29.md`.
 

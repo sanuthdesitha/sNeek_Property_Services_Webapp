@@ -16,6 +16,6 @@ it("opens property investigation from the real Estate workspace using the existi
   fireEvent.click(screen.getByRole("button",{name:"Investigate property"}));
   fireEvent.change(screen.getByLabelText("Property"),{target:{value:"p"}});
   expect(screen.getByRole("article",{name:"Laundry run r"})).toBeInTheDocument();
-  expect(fetcher).toHaveBeenCalledTimes(1);expect(fetcher.mock.calls[0][1]).toEqual({cache:"no-store"});
+  expect(fetcher).toHaveBeenCalledTimes(1);expect(fetcher.mock.calls[0][1]).toMatchObject({cache:"no-store",signal:expect.any(AbortSignal)});
  }finally{vi.unstubAllGlobals();}
 });

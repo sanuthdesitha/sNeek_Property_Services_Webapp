@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Cleaner "Today's briefing" panel — a concise, high-signal plan-your-day card
+ * Cleaner "Today’s brief" panel — a concise, high-signal plan-your-day card
  * mounted at the top of the v2 cleaner Today page. Today | Tomorrow toggle
  * (refetches), collapsible (state remembered in localStorage, auto-expanded),
  * and a natural-sounding voiceover of the spoken script.
@@ -10,7 +10,7 @@
  * to a compact skeleton/empty state and never blocks the rest of the page.
  * Estate UI only.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import {
   AlertTriangle,
   CalendarClock,
@@ -33,6 +33,7 @@ import {
   Sparkles,
   Star,
   BellRing,
+  BatteryCharging,
 } from "lucide-react";
 import { ECard, ECardBody, EBadge } from "@/components/v2/ui/primitives";
 import { EChip } from "@/components/v2/cleaner/fields";
@@ -69,6 +70,7 @@ function transportWord(mode: string): string {
 }
 
 export function DailyBriefing() {
+  const request = useRef<AbortController | null>(null);
   const [day, setDay] = useState<BriefingDay>("today");
   const [collapsed, setCollapsed] = useState(false);
   const [data, setData] = useState<CleanerBriefing | null>(null);
@@ -97,23 +99,27 @@ export function DailyBriefing() {
   }, []);
 
   const load = useCallback(async (which: BriefingDay) => {
+    request.current?.abort();
+    const controller = new AbortController(); request.current = controller;
     setLoading(true);
     setError(false);
     try {
-      const res = await fetch(`/api/cleaner/briefing?day=${which}`, { cache: "no-store" });
+      const res = await fetch(`/api/cleaner/briefing?day=${which}`, { cache: "no-store", signal: controller.signal });
       if (!res.ok) throw new Error("failed");
       const json = (await res.json()) as CleanerBriefing;
-      setData(json);
+      if (!controller.signal.aborted) setData(json);
     } catch {
+      if (controller.signal.aborted) return;
       setError(true);
       setData(null);
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load(day);
+    void load(day);
+    return () => request.current?.abort();
   }, [day, load]);
 
   const jobCount = data?.jobsOverview?.count ?? 0;
@@ -136,7 +142,7 @@ export function DailyBriefing() {
             )}
             <span className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-[hsl(var(--e-gold-ink))]" />
-              <span className="e-display-sm text-[1.125rem]">Today's briefing</span>
+              <span className="e-display-sm text-[1.125rem]">Today’s brief</span>
             </span>
           </button>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -269,8 +275,8 @@ export function DailyBriefing() {
 
                 {/* ① Travel plan — leg-by-leg leave-by times + tight risks */}
                 {data.travelPlan && data.travelPlan.legs.length > 0 ? (
-                  <section className="space-y-1.5">
-                    <SectionLabel icon={<Navigation className="h-3.5 w-3.5" />}>Travel plan</SectionLabel>
+                  <details className="space-y-1.5">
+                    <summary className="cursor-pointer py-2"><SectionLabel icon={<Navigation className="h-3.5 w-3.5" />}>Travel plan</SectionLabel></summary>
                     <ul className="space-y-1.5">
                       {data.travelPlan.legs.map((leg, i) => (
                         <li
@@ -299,7 +305,7 @@ export function DailyBriefing() {
                         </li>
                       ))}
                     </ul>
-                  </section>
+                  </details>
                 ) : null}
 
                 {/* ⑧ Priority / turnaround watch list */}
@@ -322,8 +328,8 @@ export function DailyBriefing() {
 
                 {/* ④ New-to-you properties */}
                 {data.newProperties && data.newProperties.items.length > 0 ? (
-                  <section className="space-y-1.5">
-                    <SectionLabel icon={<Home className="h-3.5 w-3.5" />}>New to you</SectionLabel>
+                  <details className="space-y-1.5">
+                    <summary className="cursor-pointer py-2"><SectionLabel icon={<Home className="h-3.5 w-3.5" />}>New to you</SectionLabel></summary>
                     <ul className="space-y-1.5">
                       {data.newProperties.items.map((p) => (
                         <li
@@ -353,13 +359,13 @@ export function DailyBriefing() {
                         </li>
                       ))}
                     </ul>
-                  </section>
+                  </details>
                 ) : null}
 
                 {/* ② Access & quirks per stop */}
                 {data.accessNotes && data.accessNotes.stops.length > 0 ? (
-                  <section className="space-y-1.5">
-                    <SectionLabel icon={<KeyRound className="h-3.5 w-3.5" />}>Access & quirks</SectionLabel>
+                  <details className="space-y-1.5">
+                    <summary className="cursor-pointer py-2"><SectionLabel icon={<KeyRound className="h-3.5 w-3.5" />}>Access & quirks</SectionLabel></summary>
                     <ul className="space-y-1.5">
                       {data.accessNotes.stops.map((s, i) => (
                         <li key={i} className="text-[0.8125rem]">
@@ -375,7 +381,7 @@ export function DailyBriefing() {
                         </li>
                       ))}
                     </ul>
-                  </section>
+                  </details>
                 ) : null}
 
                 {/* Warnings row: weather / traffic / low stock */}
@@ -561,8 +567,8 @@ export function DailyBriefing() {
 
                 {/* ③ Last-visit context — previous QA outcome per property */}
                 {data.lastVisit && data.lastVisit.items.length > 0 ? (
-                  <section className="space-y-1.5">
-                    <SectionLabel icon={<History className="h-3.5 w-3.5" />}>Last visit</SectionLabel>
+                  <details className="space-y-1.5">
+                    <summary className="cursor-pointer py-2"><SectionLabel icon={<History className="h-3.5 w-3.5" />}>Last visit</SectionLabel></summary>
                     <ul className="space-y-1">
                       {data.lastVisit.items.map((v, i) => (
                         <li key={i} className="flex items-start gap-2 text-[0.8125rem]">
@@ -587,15 +593,15 @@ export function DailyBriefing() {
                         </li>
                       ))}
                     </ul>
-                  </section>
+                  </details>
                 ) : null}
 
                 {/* Reminders */}
                 {data.reminders && (data.reminders.deviceLine || data.reminders.expiringDocuments.length > 0) ? (
-                  <section className="space-y-1 border-t border-[hsl(var(--e-border))] pt-3">
+                  <section className="space-y-2 rounded-lg border border-[hsl(var(--e-border))] bg-[hsl(var(--e-gold-soft))] p-3">
                     {data.reminders.deviceLine ? (
                       <p className="flex items-start gap-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                        <BellRing className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <BatteryCharging className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(var(--e-gold-ink))]" />
                         {data.reminders.deviceLine}
                       </p>
                     ) : null}

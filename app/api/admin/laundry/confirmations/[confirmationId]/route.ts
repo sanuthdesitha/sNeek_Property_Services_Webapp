@@ -11,9 +11,12 @@ const patchSchema = z.object({
   s3Key: z.string().trim().min(1),
 });
 
-export async function PATCH(req: NextRequest, { params }: { params: { confirmationId: string } }) {
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { confirmationId: string } },
+) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = patchSchema.parse(await req.json().catch(() => ({})));
 
     const existing = await db.laundryConfirmation.findUnique({
@@ -25,15 +28,35 @@ export async function PATCH(req: NextRequest, { params }: { params: { confirmati
       },
     });
     if (!existing) {
-      return NextResponse.json({ error: "Laundry confirmation not found." }, { status: 404 });
+      return NextResponse.json(
+        { error: "Laundry confirmation not found." },
+        { status: 404 },
+      );
     }
 
-    const updated = await db.laundryConfirmation.update({
-      where: { id: params.confirmationId },
-      data: {
-        s3Key: body.s3Key,
-        photoUrl: body.photoUrl?.trim() || publicUrl(body.s3Key),
-      },
+    const updated = await db.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT "id" FROM "LaundryConfirmation" WHERE "id" = ${params.confirmationId} FOR UPDATE`;
+      const before = await transaction.laundryConfirmation.findUniqueOrThrow({
+        where: { id: params.confirmationId },
+      });
+      const after = await transaction.laundryConfirmation.update({
+        where: { id: params.confirmationId },
+        data: {
+          s3Key: body.s3Key,
+          photoUrl: body.photoUrl?.trim() || publicUrl(body.s3Key),
+        },
+      });
+      await transaction.auditLog.create({
+        data: {
+          userId: session.user.id,
+          action: "LAUNDRY_EVIDENCE_REPLACED",
+          entity: "LaundryConfirmation",
+          entityId: params.confirmationId,
+          before: { s3Key: before.s3Key, photoUrl: before.photoUrl },
+          after: { s3Key: after.s3Key, photoUrl: after.photoUrl },
+        },
+      });
+      return after;
     });
 
     if (existing.laundryTask?.jobId) {
@@ -42,7 +65,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { confirmati
 
     return NextResponse.json(updated);
   } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message ?? "Could not update laundry confirmation." }, { status });
+    const status =
+      err.message === "UNAUTHORIZED"
+        ? 401
+        : err.message === "FORBIDDEN"
+          ? 403
+          : 400;
+    return NextResponse.json(
+      { error: err.message ?? "Could not update laundry confirmation." },
+      { status },
+    );
   }
 }

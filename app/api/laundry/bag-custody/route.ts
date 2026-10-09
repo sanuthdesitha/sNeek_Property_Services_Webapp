@@ -1,3 +1,4 @@
+import { getAppSettings } from "@/lib/settings";
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/session";
 import { listBagCustody, recordBagEvent } from "@/lib/laundry/bag-custody";
@@ -11,7 +12,7 @@ function failure(error: unknown) {
 export async function GET(req: NextRequest) {
   try {
     const session = await requireSession();
-    return json(await listBagCustody(session.user, req.nextUrl.searchParams.get("taskId") || undefined));
+    return json({ ...await listBagCustody(session.user, req.nextUrl.searchParams.get("taskId") || undefined), timeZone: (await getAppSettings()).timezone });
   } catch (error) { return failure(error); }
 }
 export async function POST(req: NextRequest) {

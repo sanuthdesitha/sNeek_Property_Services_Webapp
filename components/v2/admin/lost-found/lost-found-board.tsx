@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE — Admin lost & found board. Full workflow over the LostFoundItem model:
  *   GET   /api/admin/lost-found?status&propertyId&from&to&q → { items, openCount, properties }
@@ -108,7 +110,7 @@ export function LostFoundBoard() {
   const [openCount, setOpenCount] = React.useState(0);
   const [loadingList, setLoadingList] = React.useState(true);
 
-  const [filters, setFilters] = React.useState({ status: "ALL", propertyId: "ALL", from: "", to: "", q: "" });
+  const [filters, setFilters] = useRestorableState("lost-found-board:filters", { status: "ALL", propertyId: "ALL", from: "", to: "", q: "" });
 
   const [detail, setDetail] = React.useState<ItemDetail | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);

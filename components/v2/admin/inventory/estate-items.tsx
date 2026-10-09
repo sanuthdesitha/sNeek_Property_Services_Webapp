@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE inventory items — v2-native replacement for the v1
  * InventoryItemsWorkspace (catalog slice). Same endpoints:
@@ -67,7 +69,7 @@ const money = (n: number | null | undefined) =>
 export function EstateItems() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useRestorableState("estate-items:search", "");
   const [showInactive, setShowInactive] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 

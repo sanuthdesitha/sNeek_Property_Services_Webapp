@@ -1,3 +1,4 @@
+import { withDeviceChargingEvidence } from "./device-charging";
 import { withDeviceApplicability } from "./device-status";
 import "server-only";
 import { withLaundryAreaEvidence } from "./laundry-area";
@@ -49,6 +50,7 @@ export async function resolveEffectiveJobForm(
     });
     template = { ...template, schema: filterRotationalSchema(template.schema, states) };
   }
+  if (template) template = { ...template, schema: withDeviceChargingEvidence(template.schema, job) };
   return {
     fullRotationSections,
     template,

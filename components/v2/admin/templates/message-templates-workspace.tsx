@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Estate message-template designer — manages the standalone marketing / lifecycle
  * message templates (MessageTemplate model) via /api/admin/message-templates and
@@ -76,7 +78,7 @@ const EMPTY: Omit<MessageTemplate, "id"> = {
 export function MessageTemplatesWorkspace() {
   const [templates, setTemplates] = React.useState<MessageTemplate[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [query, setQuery] = React.useState("");
+  const [query, setQuery] = useRestorableState("message-templates-workspace:query", "");
   const [editing, setEditing] = React.useState<MessageTemplate | "new" | null>(
     null
   );

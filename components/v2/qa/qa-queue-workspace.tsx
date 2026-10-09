@@ -1,4 +1,8 @@
 "use client";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
+
+
+import { useRestorableState } from "@/hooks/use-restorable-state";
 
 /**
  * ESTATE v2 — QA queue workspace.
@@ -338,8 +342,8 @@ export function QaQueueWorkspace({
   // Day filter: today / tomorrow / a specific date / everything.
   const [dateMode, setDateMode] = useState<"today" | "tomorrow" | "custom" | "all">("today");
   const [customDate, setCustomDate] = useState<string>(() => todayIso());
-  const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
+  const [search, setSearch] = useRestorableState("qa-queue-workspace:search", "");
+  const [typeFilter, setTypeFilter] = useRestorableState("qa-queue-workspace:typeFilter", "all");
   const [readinessFilter, setReadinessFilter] = useState<"all" | QaQueueStage>("all");
   const [selectedInspector, setSelectedInspector] = useState("");
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
@@ -804,7 +808,7 @@ export function QaQueueWorkspace({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-[0.9375rem] font-medium">{jobTitle(row.job)}</p>
-                    <EBadge tone={state.tone} soft>{state.label}</EBadge>
+                    <JobStatusIcon status={String(row.job?.status ?? "")} /><EBadge tone={state.tone} soft>{state.label}</EBadge>
                     <EBadge tone={reviewStage.stage === "BLOCKED" ? "danger" : reviewStage.stage === "READY" ? "success" : "neutral"} soft>{QA_QUEUE_STAGES[reviewStage.stage]}</EBadge>
                     <EBadge tone={row.assigned ? "info" : "neutral"} soft>
                       {row.assigned ? titleCase(String(row.assignment.status)) : "Unassigned"}

@@ -51,6 +51,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { opsNavigationHref } from "@/lib/rbac/ops-catalog";
+import { useOpsAccess } from "@/components/shared/ops-access-provider";
 import { LookSwitchLink } from "@/components/look-switch-link";
 
 export const ADMIN_NAV_GROUPS = [
@@ -268,6 +270,8 @@ export function AdminNavLinks({
   readonly collapsed?: boolean;
   readonly onNavigate?: () => void;
 }) {
+  const { canAccess, levels } = useOpsAccess();
+  const visibleGroups = ADMIN_NAV_GROUPS.map((group) => ({ ...group, items: group.items.map((item) => ({ ...item, href: opsNavigationHref(levels, item.href) ?? item.href })).filter((item) => canAccess(item.href)) })).filter((group) => group.items.length > 0);
   const pathname = usePathname();
   const [counts, setCounts] = useState<Record<string, number>>({});
 
@@ -291,7 +295,7 @@ export function AdminNavLinks({
 
   return (
     <nav className="space-y-1 px-2">
-      {ADMIN_NAV_GROUPS.map((group) => (
+      {visibleGroups.map((group) => (
         <div key={group.label} className="space-y-1 pb-3">
           {collapsed ? null : (
             <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">

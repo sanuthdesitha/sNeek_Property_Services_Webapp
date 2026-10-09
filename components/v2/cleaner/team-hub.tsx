@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Native Estate team hub — feed + recognition over the SAME endpoint the v1 hub
  * uses (`GET /api/me/workforce` → { me, posts, recognitionBoard, ... }). Renders
@@ -71,7 +73,7 @@ function titleCase(v: string) {
 type HubTab = "feed" | "chat" | "learning" | "documents" | "recognition" | "leaderboard";
 
 export function TeamHub() {
-  const [tab, setTab] = React.useState<HubTab>("feed");
+  const [tab, setTab] = useRestorableState<HubTab>("team-hub:tab", "feed");
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [data, setData] = React.useState<any>(null);

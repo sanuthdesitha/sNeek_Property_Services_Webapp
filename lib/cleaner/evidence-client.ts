@@ -1,3 +1,4 @@
+import type { SharedCleanerJobDraftRecord } from "./shared-job-draft";
 import { getEvidence, listEvidence, putEvidence, sameEvidenceScope, type EvidenceRecord, type EvidenceScope, type EvidenceReceipt } from "./evidence-store";
 import { destinationOf, destinationKey, destinationMedia, setDestinationMedia, evidenceDestinationSchema, isLegacyEvidenceKey, type EvidenceDestination } from "./evidence-destination";
 // Keep a known remote receipt available in this tab even if device storage
@@ -37,12 +38,16 @@ export async function removeEvidence(scope: EvidenceScope, key: string, discardR
   });
 }
 
-export async function moveEvidence(scope: EvidenceScope, media: EvidenceReceipt, from: EvidenceDestination, to: EvidenceDestination, expected?: { captureId: string; version: number }) {
+export async function moveEvidence(scope: EvidenceScope, media: EvidenceReceipt, from: EvidenceDestination, to: EvidenceDestination, expected?: { captureId: string; version: number }, snapshot?: Pick<SharedCleanerJobDraftRecord, "evidenceReceipts">) {
   const headers = { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": scope.draftIdentity };
-  const read = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, { headers, cache: "no-store" });
-  const draft = await read.json();
-  if (!read.ok) throw new Error(draft.error || "Evidence could not be checked.");
-  const entry = Object.entries(draft.draft?.evidenceReceipts ?? {}).find(([, value]) => (value as any).key === media.key) as [string, any] | undefined;
+  let saved = snapshot;
+  if (!saved) {
+    const read = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, { headers, cache: "no-store" });
+    const draft = await read.json();
+    if (!read.ok) throw new Error(draft.error || "Evidence could not be checked.");
+    saved = draft.draft ?? {};
+  }
+  const entry = Object.entries(saved?.evidenceReceipts ?? {}).find(([, value]) => (value as any).key === media.key) as [string, any] | undefined;
   if (!entry) {
     if (expected) throw new Error("Evidence receipt changed. Refresh suggestions before assigning.");
     return; // Existing legacy uploaded media remains list-managed.
@@ -50,10 +55,10 @@ export async function moveEvidence(scope: EvidenceScope, media: EvidenceReceipt,
   const [id, receipt] = entry;
   if (expected && (id !== expected.captureId || (receipt.version ?? 0) !== expected.version || destinationKey(destinationOf(receipt)) !== destinationKey(from))) throw new Error("Evidence receipt changed. Refresh suggestions before assigning.");
   const alreadyMoved = destinationKey(destinationOf(receipt)) === destinationKey(to);
-  if (receipt.detached || receipt.draftIdentity !== scope.draftIdentity || receipt.formRevision !== scope.formRevision || (!alreadyMoved && destinationKey(destinationOf(receipt)) !== destinationKey(from))) throw new Error("Evidence changed or belongs to another cleaner. Reload before moving it.");
+  if (receipt.detached || receipt.draftIdentity !== scope.draftIdentity || (!alreadyMoved && destinationKey(destinationOf(receipt)) !== destinationKey(from))) throw new Error("Evidence changed or belongs to another cleaner. Reload before moving it.");
   if (!navigator.locks?.request) throw new Error("This browser cannot safely coordinate evidence recovery.");
   await navigator.locks.request(`cleaner-evidence:${id}`, async () => {
-    if (alreadyMoved) {
+    if (alreadyMoved && receipt.formRevision === scope.formRevision) {
       const current = await getEvidence(id);
       if (current && sameEvidenceScope(current, scope)) await putEvidence({ ...current, destination: to, fieldId: to.type === "formField" ? to.fieldId : destinationKey(to), destinationVersion: receipt.version ?? 0 });
       return;
@@ -63,10 +68,34 @@ export async function moveEvidence(scope: EvidenceScope, media: EvidenceReceipt,
         templateId: scope.templateId, formRevision: scope.formRevision, key: media.key, name: media.name ?? "Evidence", move: { from, version: receipt.version ?? 0 } }) });
     const body = await response.json();
     if (!response.ok || !body.ok) throw new Error(body.error || "Evidence move was not confirmed. Retry after reloading.");
-    if (expected && (body.captureId !== id || body.key !== media.key || body.version !== expected.version + 1 || !body.destination || destinationKey(body.destination) !== destinationKey(to))) throw new Error("Evidence move acknowledgement did not match. Reload evidence before assigning again.");
+    if ((expected || snapshot) && (body.captureId !== id || body.key !== media.key || body.version !== (expected?.version ?? receipt.version ?? 0) + 1 || !body.destination || destinationKey(body.destination) !== destinationKey(to))) throw new Error("Evidence move acknowledgement did not match. Reload evidence before assigning again.");
     const record = await getEvidence(id);
     if (record && sameEvidenceScope(record, scope)) await putEvidence({ ...record, destination: to, fieldId: to.type === "formField" ? to.fieldId : destinationKey(to), destinationVersion: body.version });
   });
+}
+
+/** One shared snapshot and bounded requests; each server move still checks its receipt version. */
+export async function moveEvidenceBatch(scope: EvidenceScope,
+  items: Array<{ media: EvidenceReceipt; from: EvidenceDestination }>, to: EvidenceDestination,
+  onMoved: (key: string) => void, isCurrent: () => boolean) {
+  const read = await fetch(`/api/cleaner/jobs/${encodeURIComponent(scope.jobId)}/draft`, {
+    headers: { "X-Cleaner-Draft-Identity": scope.draftIdentity }, cache: "no-store",
+  });
+  const body = await read.json();
+  if (!read.ok) throw new Error(body.error || "Evidence could not be checked.");
+  const snapshot: Pick<SharedCleanerJobDraftRecord, "evidenceReceipts"> = body.draft ?? {};
+  let next = 0;
+  const failures: string[] = [];
+  await Promise.all(Array.from({ length: Math.min(3, items.length) }, async () => {
+    while (next < items.length && isCurrent()) {
+      const item = items[next++];
+      try {
+        await moveEvidence(scope, item.media, item.from, to, undefined, snapshot);
+        if (isCurrent()) onMoved(item.media.key);
+      } catch (error) { failures.push(error instanceof Error ? error.message : "Assignment was not confirmed."); }
+    }
+  }));
+  if (failures.length) throw new Error(`${failures.length} photo(s) need attention. ${failures[0]} Confirmed assignments were kept.`);
 }
 
 export async function attachEvidence(record: EvidenceRecord): Promise<EvidenceReceipt> {

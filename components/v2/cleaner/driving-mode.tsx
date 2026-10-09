@@ -79,8 +79,10 @@ export function DrivingMode({
   initialStops,
   userId,
   mode = "DRIVING",
+  preferredJobId,
 }: {
   initialStops: RouteStop[];
+  preferredJobId?: string;
   /** Cleaner id — reads the SAME saved per-day order the timeline writes. */
   userId?: string;
   /** The cleaner's transport mode — drives the "On the way" copy, icon, nav
@@ -134,6 +136,7 @@ export function DrivingMode({
   const activeStop = stops.find((s) => s.status === "EN_ROUTE") ?? null;
   const nextStop =
     activeStop ??
+    stops.find(s => s.jobId === preferredJobId && s.status === "ASSIGNED") ??
     stops.find((s) => s.status === "ASSIGNED") ??
     stops.find((s) => !["COMPLETED", "INVOICED", "SUBMITTED", "QA_REVIEW"].includes(s.status)) ??
     null;

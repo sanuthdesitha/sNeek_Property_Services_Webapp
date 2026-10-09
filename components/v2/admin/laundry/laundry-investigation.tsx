@@ -1,5 +1,6 @@
 "use client";
-import { OperationsButton } from "@/components/operations/ui";
+import { LinenBags } from "@/components/operations/linen-bags";
+import { OperationsDisclosure } from "@/components/operations/ui";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -8,7 +9,7 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { investigateLaundry, investigationPropertyKey, investigationDate } from "@/lib/laundry/investigation";
 import { buildTaskMedia, statusLabel, type LaundryTaskDTO } from "./laundry-shared";
 
-export function LaundryInvestigation({ initialTasks }: { initialTasks: LaundryTaskDTO[] }) {
+export function LaundryInvestigation({ initialTasks, canReviewBags = false }: { initialTasks: LaundryTaskDTO[]; canReviewBags?: boolean }) {
   const [tasks, setTasks] = useState(initialTasks);
   const [customRange, setCustomRange] = useState(false);
   useEffect(() => { if (!customRange) setTasks(initialTasks); }, [initialTasks, customRange]);
@@ -70,7 +71,7 @@ export function LaundryInvestigation({ initialTasks }: { initialTasks: LaundryTa
           <dl className="space-y-1 text-sm"><dt className="font-semibold">Readiness</dt><dd>{facts.ready}</dd><dt className="font-semibold">Current holder / location</dt><dd>{facts.holder}</dd><dt className="font-semibold">Next responsibility</dt><dd>{facts.next}</dd></dl>
           <div><h4 className="font-semibold">Recorded issues</h4>{facts.issues.length ? <ul>{facts.issues.map((issue,index)=><li key={index}>{issue}</li>)}</ul> : <p>None recorded.</p>}</div>
           {facts.milestones.length ? <ul className="text-sm">{facts.milestones.map(row=><li key={row.label}>{row.at} — {row.label}</li>)}</ul> : null}
-          <OperationsButton asChild variant="outline" className="my-2"><Link href={`/linen-bags?taskId=${encodeURIComponent(task.id)}`}>Individual bag custody history</Link></OperationsButton>
+          {canReviewBags ? <OperationsDisclosure title="Individual bag history (optional)"><LinenBags initialTaskId={task.id} role="ADMIN" panel /></OperationsDisclosure> : null}
           <LaundryHandoffReceipts confirmations={task.confirmations ?? []} />
           {media.length ? <details><summary className="cursor-pointer underline">Evidence ({media.length})</summary><MediaGallery items={media} title="Laundry investigation evidence" className="mt-2 grid grid-cols-3 gap-2" /></details> : <p className="text-sm">No recorded photo evidence.</p>}
         </article>;

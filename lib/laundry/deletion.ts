@@ -74,6 +74,7 @@ export function evaluateLaundryDelete(input: {
   role: Role | string;
   task: DeletableTask;
   force?: boolean;
+  delegated?: boolean;
 }): DeleteDecision {
   const { role, task, force } = input;
 
@@ -91,7 +92,7 @@ export function evaluateLaundryDelete(input: {
   }
 
   if (isLaundryTaskCompleted(task)) {
-    if (role !== "ADMIN") {
+    if (role !== "ADMIN" && !input.delegated) {
       return {
         ok: false,
         status: 409,

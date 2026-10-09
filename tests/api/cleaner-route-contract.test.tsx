@@ -32,7 +32,7 @@ async function load(surface: string) {
     expect(response.status).toBe(200);
     return response.json();
   }
-  renderToStaticMarkup(await Page());
+  renderToStaticMarkup(await Page({}));
   const props = mocks.driving.mock.lastCall![0];
   return { stops: props.initialStops, date: props.initialDate };
 }
@@ -173,7 +173,7 @@ describe("API date selection and failures", () => {
 describe("page failure state", () => {
   it.each(["assignments", "user"] as const)("shows Retry after %s read fails, without mounting an empty route", async (source) => {
     mocks[source].mockRejectedValue(new Error("private database details"));
-    const html = renderToStaticMarkup(await Page());
+    const html = renderToStaticMarkup(await Page({}));
     expect(html).toContain('role="alert"');
     expect(html).toContain('href="/v2/cleaner/route"');
     expect(html).toContain("Retry");

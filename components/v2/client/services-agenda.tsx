@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Estate client "Services" agenda.
  *
@@ -113,7 +115,7 @@ export function ClientServicesAgenda({ jobs, nowIso }: { jobs: ServiceRow[]; now
   const now = React.useMemo(() => new Date(nowIso), [nowIso]);
   const todayKey = React.useMemo(() => sydneyTodayKey(now), [now]);
 
-  const [dateScope, setDateScope] = React.useState<DateScope>("upcoming");
+  const [dateScope, setDateScope] = useRestorableState<DateScope>("services-agenda:dateScope", "upcoming");
   const [propertyId, setPropertyId] = React.useState("all");
   const [jobType, setJobType] = React.useState("all");
   const [statusBucket, setStatusBucket] = React.useState<StatusBucket>("all");

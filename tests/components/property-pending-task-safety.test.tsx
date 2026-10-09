@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({ fetch: vi.fn(), toast: vi.fn(), post: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/v2/admin/properties/property", useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 vi.mock("@/hooks/use-toast", () => ({ toast: m.toast }));
 vi.mock("@/components/v2/admin/onboarding/address-input", () => ({ EAddressInput: () => null }));
 vi.mock("@/components/v2/admin/properties/property-cover-image", () => ({ PropertyCoverImage: () => null }));

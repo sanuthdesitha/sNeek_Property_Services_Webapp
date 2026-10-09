@@ -42,7 +42,7 @@ export default async function AdminFinancePage({
 }: {
   searchParams?: { tab?: string };
 }) {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
   const tab = normalizeTab(searchParams?.tab);
 
@@ -129,7 +129,7 @@ export default async function AdminFinancePage({
       <FinanceTabNavV2 active={tab} />
 
       <div className="min-w-0">
-        {tab === "overview" && dashboardData ? <FinanceOverview data={dashboardData} /> : null}
+        {tab === "overview" && dashboardData ? <FinanceOverview data={dashboardData} canReviewCosts={session.user.role === Role.ADMIN} /> : null}
         {tab === "invoices" ? <><InvoiceCadenceSettings /><EstateInvoices /></> : null}
         {tab === "payroll" && payrollData ? (
           <EstatePayroll runs={payrollData.runs} cleaners={payrollData.cleaners} />

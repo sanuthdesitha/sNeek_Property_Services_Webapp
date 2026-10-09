@@ -1,13 +1,19 @@
 import React from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderBase, screen, waitFor } from "@testing-library/react";
 import { BulkPhotoAssign } from "@/components/v2/cleaner/bulk-photo-assign";
 import { EvidenceContext } from "@/components/v2/cleaner/evidence-context";
 import type { EvidenceScope } from "@/lib/cleaner/evidence-store";
 import type { CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import type { UploadMap } from "@/components/v2/cleaner/form-renderer";
+function render(ui: React.ReactElement) {
+ const result = renderBase(ui);
+ const summary = screen.queryByText("Optional · Suggest photo sections");
+ if (summary) fireEvent.click(summary);
+ return result;
+}
 const mocks = vi.hoisted(() => ({ move: vi.fn(), prepare: vi.fn() }));
-vi.mock("@/lib/cleaner/evidence-client", () => ({ moveEvidence: mocks.move, removeEvidence: vi.fn() }));
+vi.mock("@/lib/cleaner/evidence-client", () => ({ moveEvidence: mocks.move, moveEvidenceBatch: async (scope: any, items: any[], to: any, moved: (key: string) => void) => { for (const item of items) { await mocks.move(scope, item.media, item.from, to); moved(item.media.key); } }, removeEvidence: vi.fn() }));
 vi.mock("@/components/v2/cleaner/media-capture", () => ({ prepareAndUploadFiles: vi.fn() }));
 const scope: EvidenceScope = { jobId: "job", templateId: "template", formRevision: "revision", draftIdentity: "actor" };
 const media = (key: string): CapturedMedia => ({ key, url: `https://media.invalid/${key}.jpg`, kind: "image", name: `Photo ${key}` });

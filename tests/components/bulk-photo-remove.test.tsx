@@ -84,7 +84,7 @@ it("does not copy a late upload into a different job/account context", async () 
 
 it("preview is separate, clear and scope changes reset selection", () => {
  const view = render(<Harness />);
- expect(screen.getByRole("link", { name: "Preview one" })).toHaveAttribute("href", "/one.jpg");
+ expect(screen.getByRole("button", { name: "Preview one" })).toBeEnabled();
  expect(screen.queryByRole("button", { name: "Remove one from draft" })).toBeNull();
  fireEvent.click(screen.getByRole("checkbox", { name: "Select one" }));
  fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
@@ -100,4 +100,13 @@ it("drops a stale selection when refreshed data removes the reference", async ()
  fireEvent.click(screen.getByRole("button", { name: "External removal" }));
  await waitFor(()=>expect(screen.getByRole("button", { name: "Remove selected" })).toBeDisabled());
  expect(mocks.remove).not.toHaveBeenCalled();
+});
+
+it("opens a popup without selecting or leaving the job, then selects from preview", () => {
+ render(<Harness />);
+ fireEvent.click(screen.getByRole("button", { name: "Preview one" }));
+ expect(screen.getByRole("dialog", { name: "one" })).toBeVisible();
+ fireEvent.click(screen.getByRole("button", { name: "Select photo" }));
+ fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+ expect(screen.getByRole("checkbox", { name: "Select one" })).toBeChecked();
 });

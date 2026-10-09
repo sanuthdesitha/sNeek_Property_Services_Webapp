@@ -272,3 +272,21 @@ it("audits a local-only wrong-job reference so stale recovery cannot later save 
   expect((await DELETE(request({ key: foreignKey, discardReference: true, reason: "Wrong job recovered from old device draft" }, identity, "DELETE"), context)).status).toBe(200);
   expect(Object.values(draft.evidenceReceipts)[0]).toMatchObject({ key: foreignKey, detached: true }); expect(mocks.audit).toHaveBeenCalledTimes(1);
 });
+
+it("revalidates an owned older-form move while preserving original capture context and auditing", async () => {
+ const pool = { type: "bulkPool" };
+ await POST(request({ destination: pool }), context);
+ draft.evidenceReceipts[captureId].formRevision = "b".repeat(64);
+ const move = { destination: { type: "formField", fieldId: "photo" }, move: { from: pool, version: 0 } };
+ expect((await POST(request(move), context)).status).toBe(200);
+ expect(draft.evidenceReceipts[captureId]).toMatchObject({ formRevision: revision, captureContext: { formRevision: "b".repeat(64), draftIdentity: identity }, version: 1 });
+ expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "EVIDENCE_BINDING_REVALIDATED" }) }));
+ expect((await POST(request(move), context)).status).toBe(200);
+ expect(mocks.audit).toHaveBeenCalledTimes(1);
+});
+it("allows removing the cleaner's older-form draft reference without altering original context", async () => {
+ await POST(request(), context);
+ draft.evidenceReceipts[captureId].formRevision = "b".repeat(64);
+ expect((await DELETE(request({}, identity, "DELETE"), context)).status).toBe(200);
+ expect(draft.evidenceReceipts[captureId]).toMatchObject({ detached: true, formRevision: "b".repeat(64) });
+});

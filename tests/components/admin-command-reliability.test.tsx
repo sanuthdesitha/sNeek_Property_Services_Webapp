@@ -4,6 +4,8 @@ import { render, screen } from "@testing-library/react";
 import { serializeJobInternalNotes } from "@/lib/jobs/meta";
 import AdminCommandPage from "@/app/v2/admin/page";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
 const mocks = vi.hoisted(() => ({
   jobs: vi.fn(), statuses: vi.fn(), pings: vi.fn(), timers: vi.fn(), laundry: vi.fn(), metrics: vi.fn(), attention: vi.fn(),
 }));

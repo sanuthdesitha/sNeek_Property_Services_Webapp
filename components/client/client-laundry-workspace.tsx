@@ -1,4 +1,5 @@
 "use client";
+import { statusBlockStyle } from "@/lib/jobs/status-presentation";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -281,6 +282,7 @@ export function ClientLaundryWorkspace({
     return (
       <Card
         key={task.id}
+        style={statusBlockStyle(String(task.status), "laundry")}
         ref={(node) => {
           taskRefs.current[task.id] = node;
         }}

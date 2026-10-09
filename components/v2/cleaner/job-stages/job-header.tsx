@@ -7,6 +7,9 @@
  * A live "time on site" chip appears once the cleaner is clocked in.
  */
 import * as React from "react";
+import { format } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
 import { Navigation, Phone, Info, Check, Copy, Pause, Play } from "lucide-react";
 import { EBadge } from "@/components/v2/ui/primitives";
 import { cn } from "@/lib/utils";
@@ -57,6 +60,7 @@ export function JobHeader({ api }: { api: WorkspaceApi }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
+            <JobStatusIcon status={status} />
             <p className="e-display-sm leading-tight">{propertyCode || "Job"}</p>
             <EBadge tone={statusTone(status)} soft>
               {titleCase(status || "")}
@@ -64,6 +68,7 @@ export function JobHeader({ api }: { api: WorkspaceApi }) {
             <LiveTimerChip timeState={timeState} />
             <HeaderClockControl api={api} />
           </div>
+          <p className="mt-1 text-xs text-[hsl(var(--e-muted-foreground))]">{api.job?.scheduledDate && !Number.isNaN(new Date(api.job.scheduledDate).getTime()) ? format(toZonedTime(new Date(api.job.scheduledDate), "Australia/Sydney"), "EEEE d MMM yyyy") : "Date not set"}{api.job?.startTime ? ` · ${api.job.startTime}` : ""}</p>
           <button
             type="button"
             onClick={copyAddress}

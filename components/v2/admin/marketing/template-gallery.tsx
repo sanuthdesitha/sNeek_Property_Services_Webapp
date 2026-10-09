@@ -63,7 +63,7 @@ export function TemplateGallery({
 
   const previewTemplate = previewId ? CAMPAIGN_TEMPLATES.find((t) => t.id === previewId) ?? null : null;
 
-  async function useTemplate(template: CampaignTemplate) {
+  async function applyTemplate(template: CampaignTemplate) {
     setUsingId(template.id);
     try {
       const design = templateToDesign(template);
@@ -160,7 +160,7 @@ export function TemplateGallery({
                 <EButton variant="outline" size="sm" onClick={() => setPreviewId(template.id)}>
                   <Eye className="h-3.5 w-3.5" />Preview
                 </EButton>
-                <EButton size="sm" onClick={() => useTemplate(template)} disabled={usingId === template.id}>
+                <EButton size="sm" onClick={() => applyTemplate(template)} disabled={usingId === template.id}>
                   <Wand2 className="h-3.5 w-3.5" />{usingId === template.id ? "Creating…" : "Use template"}
                 </EButton>
               </div>
@@ -194,7 +194,7 @@ export function TemplateGallery({
             ) : null}
             <div className="flex justify-end gap-2">
               <EButton variant="outline" size="sm" onClick={() => setPreviewId(null)}>Close</EButton>
-              <EButton size="sm" onClick={() => { const t = previewTemplate; setPreviewId(null); void useTemplate(t); }}>
+              <EButton size="sm" onClick={() => { const t = previewTemplate; setPreviewId(null); void applyTemplate(t); }}>
                 Use template
               </EButton>
             </div>

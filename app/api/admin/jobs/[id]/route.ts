@@ -65,7 +65,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const job = await db.job.findUnique({
       where: { id: params.id },
       include: {
@@ -148,6 +148,7 @@ export async function GET(
     return NextResponse.json({
       ...job,
       jobMeta: parseJobInternalNotes(job.internalNotes),
+      capabilities: { reviewHolidayRates: session.user.role === Role.ADMIN },
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 400 });
@@ -529,9 +530,9 @@ export async function PATCH(
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = await requireRole([Role.ADMIN]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = await req.json().catch(() => ({}));
-    await verifySensitiveAction(session.user.id, body?.security);
+    await verifySensitiveAction(session.user.id, body?.security, "jobs.delete");
     const jobId = params.id;
 
     await db.$transaction(async (tx) => {
@@ -593,7 +594,7 @@ export async function POST(
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = await req.json().catch(() => ({}));
-    await verifySensitiveAction(session.user.id, body?.security);
+    await verifySensitiveAction(session.user.id, body?.security, "jobs.reset");
     const jobId = params.id;
 
     const existing = await db.job.findUnique({

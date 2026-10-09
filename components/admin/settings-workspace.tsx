@@ -220,6 +220,11 @@ export function SettingsWorkspace({
               {CATEGORY_LABELS[cat]}
             </button>
           ))}
+          {category === "finance" && isAdmin ? (
+            <Link href="/v2/admin/settings?tab=holiday-rates" className="inline-flex min-h-11 items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted">
+              Public holiday rates
+            </Link>
+          ) : null}
           {category === "display" ? (
             <Link
               href="/admin/settings/display"
@@ -348,6 +353,7 @@ export function SettingsWorkspace({
       ) : null}
 
       <TabsContent value="roles" className="space-y-4">
+        {isAdmin ? <Card><CardHeader><CardTitle className="text-base">Operations manager permissions</CardTitle><CardDescription>Assign permission packs and control individual features for each operations manager.</CardDescription></CardHeader><CardContent><Link className="inline-flex min-h-11 items-center rounded-md border px-4 text-sm font-medium" href="/v2/admin/settings?tab=roles">Manage permission packs</Link></CardContent></Card> : null}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Portal Access Matrix</CardTitle>

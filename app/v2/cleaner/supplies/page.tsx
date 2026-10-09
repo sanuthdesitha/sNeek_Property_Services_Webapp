@@ -1,4 +1,5 @@
-import { OperationsButton } from "@/components/operations/ui";
+import { UrgentStockWorkspace } from "@/components/inventory/urgent-stock-workspace";
+import { OperationsDisclosure } from "@/components/operations/ui";
 import Link from "next/link";
 import { Role } from "@prisma/client";
 import { Package, PackageSearch, ScanLine, ShoppingCart } from "lucide-react";
@@ -97,7 +98,6 @@ export default async function CleanerSuppliesPage({
 
   return (
     <div className="space-y-6">
-      <OperationsButton asChild variant="outline" className="my-2"><a href="/urgent-stock">Report or review urgent stock</a></OperationsButton>
       <EPageHeader eyebrow="Inventory" title="Supplies" description={description} />
 
       {myScanTasks.length > 0 ? (
@@ -150,6 +150,8 @@ export default async function CleanerSuppliesPage({
           }))}
         />
       ) : null}
+
+      <OperationsDisclosure title="Report or review urgent stock"><UrgentStockWorkspace isAdmin={false} panel /></OperationsDisclosure>
 
       {active === "quick-scan" ? <QuickScanLauncher properties={properties} /> : null}
       {active === "restock" ? <RestockPanel /> : null}

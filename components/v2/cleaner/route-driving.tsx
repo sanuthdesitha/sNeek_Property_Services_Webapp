@@ -17,11 +17,13 @@ import {
 } from "@/components/v2/cleaner/route-timeline";
 
 export function RouteDriving({
+  preferredJobId,
   initialDate,
   initialStops,
   userId,
   preferredTransport = "DRIVING",
 }: {
+  preferredJobId?: string;
   initialDate: string;
   initialStops: RouteStop[];
   /** Cleaner id — namespaces the saved per-day stop order (localStorage). */
@@ -47,7 +49,7 @@ export function RouteDriving({
         </EChip>
       </div>
       {mode === "drive" ? (
-        <DrivingMode initialStops={initialStops} userId={userId} mode={preferredTransport} />
+        <DrivingMode preferredJobId={preferredJobId} initialStops={initialStops} userId={userId} mode={preferredTransport} />
       ) : (
         <RouteTimeline
           initialDate={initialDate}

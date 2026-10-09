@@ -1,3 +1,4 @@
+import { LivePageRefresh } from "@/components/shared/live-page-refresh";
 import { STATUS_LABELS } from "@/lib/jobs/status-labels";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import Link from "next/link";
@@ -387,6 +388,7 @@ export default async function AdminCommandPage() {
 
   return (
     <div className="space-y-8">
+      <LivePageRefresh />
       {/* Greeting header */}
       <header className="e-rise">
         <EEyebrow>{dateLine} · SYDNEY</EEyebrow>

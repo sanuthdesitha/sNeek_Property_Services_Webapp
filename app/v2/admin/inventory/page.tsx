@@ -1,4 +1,5 @@
-import { OperationsButton } from "@/components/operations/ui";
+import { UrgentStockWorkspace } from "@/components/inventory/urgent-stock-workspace";
+import { OperationsDisclosure } from "@/components/operations/ui";
 import Link from "next/link";
 import { Role } from "@prisma/client";
 import {
@@ -154,7 +155,7 @@ export default async function EstateInventoryPage({
 }: {
   searchParams?: { tab?: string; filter?: string };
 }) {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
   const tab = normalizeTab(searchParams?.tab);
   const filter = normalizePropertyInventoryFilter(searchParams?.filter);
@@ -217,7 +218,6 @@ export default async function EstateInventoryPage({
 
   return (
     <div className="space-y-6">
-      <OperationsButton asChild variant="outline" className="my-2"><a href="/urgent-stock">Report or review urgent stock</a></OperationsButton>
       <EPageHeader
         eyebrow="Commercial"
         title="Inventory & supplies"
@@ -292,6 +292,7 @@ export default async function EstateInventoryPage({
       </section>
 
       <InventoryChipTabs active={tab} />
+      {session.user.role === Role.ADMIN ? <OperationsDisclosure title="Report or review urgent stock"><UrgentStockWorkspace isAdmin panel /></OperationsDisclosure> : null}
 
       <div className="min-w-0">
         {tab === "items" ? <EstateItems /> : null}

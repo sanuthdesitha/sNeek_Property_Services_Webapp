@@ -89,6 +89,8 @@ describe("Jobs column URL restoration", () => {
       return { ok: true, json: async () => [] };
     }));
     render(<JobsWorkspace viewsContext="test-context" />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Jobs options" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "View options" }));
     await waitFor(() => expect(screen.queryByText("Saving or loading views...")).toBeNull());
     expect(screen.getByRole("alert")).toHaveTextContent("Invalid columns");
     expect(screen.getByRole("button", { name: "Save as new view" })).toBeDisabled();
@@ -116,6 +118,8 @@ describe("Jobs column URL restoration", () => {
         : url.startsWith("/api/jobs?") ? { jobs: [], pagination: { page: 1, limit: 50, totalCount: 0, totalPages: 1, hasMore: false } } : [],
     })));
     render(<JobsWorkspace viewsContext="test-context" />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Jobs options" }), { key: "Enter" });
+    fireEvent.click(screen.getByRole("menuitem", { name: "View options" }));
     const select = screen.getByRole("combobox", { name: "Personal saved view" });
     await waitFor(() => expect(select).toBeEnabled());
     expect(new URLSearchParams(window.location.search).get("columns")).toBe("bad");

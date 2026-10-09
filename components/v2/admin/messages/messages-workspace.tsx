@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Loader2, MessageSquare, Search, Send } from "lucide-react";
@@ -37,7 +39,7 @@ export function EstateMessagesWorkspace() {
   const [loadingThread, setLoadingThread] = useState(false);
   const [sending, setSending] = useState(false);
   const [body, setBody] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useRestorableState("messages-workspace:search", "");
   const [error, setError] = useState<string | null>(null);
 
   const selectedRef = useRef(selectedClientId);

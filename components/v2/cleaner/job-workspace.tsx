@@ -1,6 +1,8 @@
 "use client";
+import { JobStatusProgress } from "@/components/shared/job-status-progress";
+import { LinenBags } from "@/components/operations/linen-bags";
 import { reconcileEvidenceState } from "@/lib/cleaner/evidence-destination";
-import { OperationsButton } from "@/components/operations/ui";
+import { OperationsDisclosure } from "@/components/operations/ui";
 import { savedLaundrySignature, type SavedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
 import { parseLaundryBagCountInput } from "@/lib/laundry/bag-count";
 
@@ -68,7 +70,6 @@ import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { useOnlineAction } from "@/hooks/use-online-action";
 import { JobActions } from "@/components/v2/cleaner/job-actions";
-import PropertyAccessGuide from "@/components/v2/cleaner/property-access-guide";
 import {
   FormRenderer,
   type AnswerMap,
@@ -110,6 +111,8 @@ import {
   isStartedForVisibility,
   requiresStartConfirmations,
 } from "@/lib/cleaner/team-state";
+import { readRestorable, writeRestorable } from "@/lib/client/restorable-state";
+import { useSharedEvidenceSync } from "@/hooks/use-shared-evidence-sync";
 import { mergeDraftStates } from "@/lib/cleaner/draft-merge";
 import { useDraftSave } from "@/lib/cleaner/use-draft-save";
 import { readCleanerLocalDraft, writeCleanerLocalDraft, clearCleanerLocalDraft, hasLegacyCleanerLocalDraft } from "@/lib/cleaner/local-draft";
@@ -338,7 +341,13 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
 
   // Journey-stage UI state (presentation only — the gates/handlers below are
   // unchanged; the stage just decides which slice is on screen).
-  const [activeStage, setActiveStage] = React.useState<JobStage>(1);
+  const [activeStage, updateActiveStage] = React.useState<JobStage>(1);
+  const stageMemoryPath = `/v2/cleaner/jobs/${jobId}`;
+  const stageMemoryKey = `stage:${draftIdentity}`;
+  const setActiveStage = React.useCallback((stage: JobStage) => {
+    writeRestorable(stageMemoryPath, stageMemoryKey, stage);
+    updateActiveStage(stage);
+  }, [stageMemoryPath, stageMemoryKey]);
   const [infoDrawerOpen, setInfoDrawerOpen] = React.useState(false);
   const [contactSheetOpen, setContactSheetOpen] = React.useState(false);
   const stageInitRef = React.useRef(false);
@@ -854,6 +863,12 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   );
   const draftStateRef = React.useRef(buildDraftState);
   draftStateRef.current = buildDraftState;
+
+  const evidenceSyncError = useSharedEvidenceSync({
+    jobId, draftIdentity,
+    canSync: () => draftHydratedRef.current && !draftSubmittedRef.current && !locked,
+    readState: () => draftStateRef.current(), restore: restoreDraftState,
+  });
 
   // Keep a synchronous local mirror; queued server delivery is separate.
   const mirrorDraft = React.useCallback(() => {
@@ -1453,23 +1468,26 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     prevStartedRef.current = hasStarted;
     prevLockedRef.current = locked;
     prevNeedsAcceptRef.current = needsAcceptance;
-    setActiveStage(derivedStage);
-  }, [loading, job, derivedStage, hasStarted, locked, needsAcceptance]);
+    const saved = readRestorable<JobStage>(stageMemoryPath, stageMemoryKey);
+    const reachable = saved === 1 ? needsAcceptance
+      : !needsAcceptance && (saved === 2 || saved === 3 || ((saved === 4 || saved === 5) && hasStarted));
+    setActiveStage(saved && reachable ? saved : derivedStage);
+  }, [loading, job, derivedStage, hasStarted, locked, needsAcceptance, stageMemoryPath, stageMemoryKey, setActiveStage]);
 
   // Auto-advance on the SAME transitions that already happen today: accept →
   // setup, clock-in success → clean, submit success → wrap up.
   React.useEffect(() => {
-    if (!needsAcceptance && prevNeedsAcceptRef.current) setActiveStage(3);
+    if (stageInitRef.current && !needsAcceptance && prevNeedsAcceptRef.current) setActiveStage(3);
     prevNeedsAcceptRef.current = needsAcceptance;
-  }, [needsAcceptance]);
+  }, [needsAcceptance, setActiveStage]);
   React.useEffect(() => {
-    if (hasStarted && !prevStartedRef.current) setActiveStage(4);
+    if (stageInitRef.current && hasStarted && !prevStartedRef.current) setActiveStage(4);
     prevStartedRef.current = hasStarted;
-  }, [hasStarted]);
+  }, [hasStarted, setActiveStage]);
   React.useEffect(() => {
-    if (locked && !prevLockedRef.current) setActiveStage(5);
+    if (stageInitRef.current && locked && !prevLockedRef.current) setActiveStage(5);
     prevLockedRef.current = locked;
-  }, [locked]);
+  }, [locked, setActiveStage]);
 
   if (loading) {
     return (
@@ -1632,6 +1650,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       <BackLink />
 
       <JobHeader api={api} />
+      <JobStatusProgress status={status} />
       {!locked ? <DraftSaveStatus state={draftSave} onRetry={() => flushDraft()} /> : null}
       {!onlineAction.online ? <EAlert tone="info" title="Working offline">
         You can continue your draft and retain photos on this device. Clock changes, job offers, laundry updates and submission need a connection and are never queued automatically.
@@ -1668,7 +1687,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       ) : null}
 
       {/* Property access guide — self-fetching; hides when the property has none. */}
-      {propertyId ? <PropertyAccessGuide propertyId={propertyId} /> : null}
+      {evidenceSyncError ? <p role="status" className="text-sm">Other-device photo updates are temporarily unavailable. Your current work is kept; syncing will retry.</p> : null}
 
       {/* Saved progress restored from another device / co-cleaner */}
       {!locked && draftInfo.updatedAt ? (
@@ -1685,7 +1704,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         </EAlert>
       ) : null}
 
-      {job?.laundryTask?.id ? <OperationsButton asChild variant="outline" className="my-2"><a href={`/linen-bags?taskId=${encodeURIComponent(job.laundryTask.id)}`}>Record or review individual linen bags</a></OperationsButton> : null}
+      {job?.laundryTask?.id ? <OperationsDisclosure key={job.laundryTask.id} title="Track individual bags (optional)"><LinenBags initialTaskId={job.laundryTask.id} role="CLEANER" panel /></OperationsDisclosure> : null}
       <StageNav api={api} />
 
       <div>
@@ -1882,6 +1901,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         onClose={() => setInfoDrawerOpen(false)}
         property={property}
         propertyId={propertyId}
+        showAccess={false}
+        showReferences={false}
         keyPickupLocation={payload?.keyPickupLocation ?? null}
         contact={contact}
         nextGuest={payload?.nextGuest ?? null}

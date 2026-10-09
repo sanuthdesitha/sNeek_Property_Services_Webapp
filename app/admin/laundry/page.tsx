@@ -1,4 +1,8 @@
 "use client";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
+
+import { statusBlockStyle } from "@/lib/jobs/status-presentation";
+
 
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
@@ -1473,7 +1477,7 @@ export default function LaundryPage() {
           ) : (
             <div className="space-y-2">
               {confirmedTasks.map((task) => (
-                <div key={task.id} className="rounded-md border p-3 text-sm">
+                <div style={statusBlockStyle(task.status, "laundry")} key={task.id} className="rounded-md border p-3 text-sm">
                   {(() => {
                     const cleanerConfirmation = getCleanerLaundryConfirmation(task);
                     const pickupConfirmation = getEventConfirmation(task, "PICKED_UP");
@@ -1525,7 +1529,7 @@ export default function LaundryPage() {
                         {format(new Date(task.dropoffDate), "dd MMM")}
                       </p>
                     </div>
-                    <Badge variant={STATUS_COLORS[task.status] as any}>{task.status.replace(/_/g, " ")}</Badge>
+                    <JobStatusIcon status={task.status} domain="laundry" /><Badge variant={STATUS_COLORS[task.status] as any}>{task.status.replace(/_/g, " ")}</Badge>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" onClick={() => previewReport(task)}>
@@ -1613,7 +1617,7 @@ export default function LaundryPage() {
                 ) : (
                   <div className="space-y-2">
                     {activeTasks.map((task) => (
-                      <div key={task.id} className="rounded-md border p-3 text-sm">
+                      <div style={statusBlockStyle(task.status, "laundry")} key={task.id} className="rounded-md border p-3 text-sm">
                         {(() => {
                           const cleanerConfirmation = getCleanerLaundryConfirmation(task);
                           const pickupConfirmation = getEventConfirmation(task, "PICKED_UP");
@@ -1674,7 +1678,7 @@ export default function LaundryPage() {
                                   ) : null}
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <Badge variant={STATUS_COLORS[task.status] as any}>{task.status.replace(/_/g, " ")}</Badge>
+                                  <JobStatusIcon status={task.status} domain="laundry" /><Badge variant={STATUS_COLORS[task.status] as any}>{task.status.replace(/_/g, " ")}</Badge>
                                   <Button size="icon" variant="ghost" onClick={() => setEditTask(task)} aria-label="Edit task">
                                     <Pencil className="h-4 w-4" />
                                   </Button>
@@ -1782,7 +1786,7 @@ export default function LaundryPage() {
                       ].filter(Boolean) as any[];
 
                       return (
-                        <div key={task.id} className="rounded-md border p-3 text-sm">
+                        <div style={statusBlockStyle(task.status, "laundry")} key={task.id} className="rounded-md border p-3 text-sm">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <p className="font-medium">{task.property.name}</p>

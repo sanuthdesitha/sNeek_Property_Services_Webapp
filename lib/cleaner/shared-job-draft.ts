@@ -6,7 +6,7 @@ const CLEANER_SHARED_DRAFT_PREFIX = "cleaner_job_shared_draft_v1:";
 
 export type SharedCleanerJobDraftRecord = {
   /** Server-owned idempotent attachment receipts; generic autosave cannot write these. */
-  evidenceReceipts?: Record<string, { key: string; fieldId: string; destination?: EvidenceDestination; version?: number; formRevision: string; draftIdentity: string; detached?: boolean; resolution?: { action: "DISCARD_DRAFT_REFERENCE"; actorId: string; reason: string; at: string; office: boolean } }>;
+  evidenceReceipts?: Record<string, { key: string; captureContext?: { formRevision: string; draftIdentity: string }; fieldId: string; destination?: EvidenceDestination; version?: number; formRevision: string; draftIdentity: string; detached?: boolean; resolution?: { action: "DISCARD_DRAFT_REFERENCE"; actorId: string; reason: string; at: string; office: boolean } }>;
   updatedAt: string;
   updatedByUserId: string;
   updatedByName: string;

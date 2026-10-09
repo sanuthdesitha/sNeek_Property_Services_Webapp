@@ -8,7 +8,7 @@
  * Polls every 15s.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { MapPinned, RadioTower } from "lucide-react";
 import {
@@ -48,7 +48,15 @@ type LivePing = {
   timer?: { startedAt: string; elapsedMinutes: number } | null;
 };
 
-type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
+type Tone =
+  | "neutral"
+  | "primary"
+  | "gold"
+  | "success"
+  | "warning"
+  | "danger"
+  | "info"
+  | "aubergine";
 
 const STATUS_TONE: Record<string, Tone> = {
   ON_SITE: "success",
@@ -95,32 +103,38 @@ export function LiveCleaners({ mapDate }: { mapDate: string }) {
   const [locations, setLocations] = useState<LivePing[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [error, setError] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  async function fetchLocations() {
-    try {
-      const res = await fetch("/api/admin/ops/live-locations", {
-        cache: "no-store",
-        headers: { "x-progress-toast": "off" },
-      });
-      if (!res.ok) {
-        setError(true);
-        return;
-      }
-      const data = await res.json().catch(() => ({ pings: [] }));
-      setLocations(Array.isArray(data?.pings) ? data.pings : []);
-      setLastUpdated(new Date());
-      setError(false);
-    } catch {
-      setError(true);
-    }
-  }
-
   useEffect(() => {
-    void fetchLocations();
-    intervalRef.current = setInterval(fetchLocations, POLL_INTERVAL_MS);
+    const controller = new AbortController();
+    let pending = false;
+    async function refresh() {
+      if (pending || document.visibilityState === "hidden") return;
+      pending = true;
+      try {
+        const response = await fetch("/api/admin/ops/live-locations", {
+          cache: "no-store",
+          signal: controller.signal,
+          headers: { "x-progress-toast": "off" },
+        });
+        const data = await response.json();
+        if (!response.ok || !Array.isArray(data.pings))
+          throw new Error("Locations unavailable");
+        if (controller.signal.aborted) return;
+        setLocations(data.pings);
+        setLastUpdated(new Date());
+        setError(false);
+      } catch {
+        if (!controller.signal.aborted) setError(true);
+      } finally {
+        pending = false;
+      }
+    }
+    void refresh();
+    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    window.addEventListener("focus", refresh);
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      controller.abort();
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
     };
   }, []);
 
@@ -129,17 +143,23 @@ export function LiveCleaners({ mapDate }: { mapDate: string }) {
       <ECardHeader className="flex-row items-start justify-between gap-3">
         <div>
           <ECardTitle className="flex items-center gap-2">
-            <RadioTower className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" aria-hidden />
+            <RadioTower
+              className="h-4 w-4 text-[hsl(var(--e-accent-portal))]"
+              aria-hidden
+            />
             Active cleaners
           </ECardTitle>
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
             Everyone currently driving or on site
-            {lastUpdated ? ` · updated ${relativePing(lastUpdated.toISOString())} · refreshes every 15s` : ""}.
+            {lastUpdated
+              ? ` · updated ${relativePing(lastUpdated.toISOString())} · refreshes every 15s`
+              : ""}
+            .
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <EBadge tone={locations.length > 0 ? "success" : "neutral"} soft>
-            {locations.length} live
+            {locations.length} tracked
           </EBadge>
           <Link
             href={`/v2/admin/ops/map?date=${mapDate}`}
@@ -151,17 +171,25 @@ export function LiveCleaners({ mapDate }: { mapDate: string }) {
       </ECardHeader>
       <ECardBody className="pt-0">
         {error ? (
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Could not load live locations.</p>
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Could not refresh locations. Last received data may be out of date.
+          </p>
         ) : locations.length === 0 ? (
           <p className="rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border))] px-3 py-6 text-center text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-            No cleaners are live right now. They appear here while en route or during a clean.
+            No cleaners are live right now. They appear here while en route or
+            during a clean.
           </p>
         ) : (
           <div className="space-y-3">
             {locations.map((loc) => {
               const state = stateLabel(loc);
-              const eta = loc.liveStatus === "EN_ROUTE" ? formatEta(loc.activeJob?.etaMinutes) : null;
-              const href = loc.activeJob ? `/v2/admin/jobs/${loc.activeJob.id}` : `/v2/admin/ops/map?date=${mapDate}`;
+              const eta =
+                loc.liveStatus === "EN_ROUTE"
+                  ? formatEta(loc.activeJob?.etaMinutes)
+                  : null;
+              const href = loc.activeJob
+                ? `/v2/admin/jobs/${loc.activeJob.id}`
+                : `/v2/admin/ops/map?date=${mapDate}`;
               return (
                 <Link
                   key={loc.userId}
@@ -170,19 +198,28 @@ export function LiveCleaners({ mapDate }: { mapDate: string }) {
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-[0.8125rem] font-[550]">{cleanerName(loc)}</p>
-                      <EBadge tone={state.tone} soft>{state.label}</EBadge>
+                      <p className="text-[0.8125rem] font-[550]">
+                        {cleanerName(loc)}
+                      </p>
+                      <EBadge tone={state.tone} soft>
+                        {state.label}
+                      </EBadge>
                       {eta ? <EBadge tone="warning">{eta}</EBadge> : null}
                       {loc.timer ? (
                         <span className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
-                          elapsed {Math.floor(loc.timer.elapsedMinutes / 60) > 0 ? `${Math.floor(loc.timer.elapsedMinutes / 60)}h ` : ""}
+                          elapsed{" "}
+                          {Math.floor(loc.timer.elapsedMinutes / 60) > 0
+                            ? `${Math.floor(loc.timer.elapsedMinutes / 60)}h `
+                            : ""}
                           {loc.timer.elapsedMinutes % 60}m
                         </span>
                       ) : null}
                     </div>
                     <p className="mt-0.5 truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                       {loc.activeJob?.propertyName ?? "No active job"}
-                      {loc.activeJob?.jobNumber ? ` · #${loc.activeJob.jobNumber}` : ""}
+                      {loc.activeJob?.jobNumber
+                        ? ` · #${loc.activeJob.jobNumber}`
+                        : ""}
                     </p>
                   </div>
                   <p

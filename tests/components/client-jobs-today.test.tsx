@@ -2,9 +2,14 @@ import React from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { ClientJobsBoard } from "@/components/v2/client/jobs-board";
+import { writeRestorable } from "@/lib/client/restorable-state";
 import { EstateCalendarGrid } from "@/components/v2/client/calendar-grid";
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/v2/client/jobs", useRouter: () => ({ refresh: vi.fn() }) }));
 const key = "sneek_client_jobs_filter";
+function remember(value: { filterMode: string; selectedDate: string; viewMode: string }) {
+  for (const [name, entry] of Object.entries(value)) writeRestorable("/v2/client/jobs", `jobs-board:${name}`, entry);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value.selectedDate)) writeRestorable("/v2/client/jobs", "jobs-board:month", value.selectedDate.slice(0, 7) + "-01");
+}
 const job = (id: string, date: string) => ({ id, jobNumber: id, jobType: "REGULAR", status: "ASSIGNED", scheduledDate: `${date}T00:00:00Z`, startTime: null, dueTime: null, property: { id, name: id, suburb: null }, assignments: [], jobTasks: [], laundryTask: null, satisfactionRating: null });
 const mount = () => render(<ClientJobsBoard jobs={[job("Today property", "2026-10-01"), job("Tomorrow property", "2026-10-02")]} showCleanerNames={false} showClientTaskRequests={false} showLaundryUpdates={false} />);
 beforeEach(() => { localStorage.clear(); vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-09-30T15:00:00Z")); });
@@ -15,12 +20,12 @@ it("defaults to Sydney today with a visible selected date", () => {
   expect(screen.getByText("Today property", { selector: "p" })).toBeVisible(); expect(screen.queryByText("Tomorrow property", { selector: "p" })).not.toBeInTheDocument();
 });
 it("preserves an explicit stored date and restores its calendar month", () => {
-  localStorage.setItem(key, JSON.stringify({ filterMode: "date", selectedDate: "2026-08-12", viewMode: "calendar" })); mount();
+  remember({ filterMode: "date", selectedDate: "2026-08-12", viewMode: "calendar" }); mount();
   expect(screen.getByLabelText("Filter by date")).toHaveValue("2026-08-12"); expect(screen.getByText("August 2026")).toBeVisible();
   expect(screen.getByRole("button", { name: "Select 2026-08-12" })).toHaveAttribute("aria-pressed", "true");
 });
 it("calendar Today resets an old selected day and date range while retaining other filters", () => {
-  localStorage.setItem(key, JSON.stringify({ filterMode: "date", selectedDate: "2026-08-12", viewMode: "calendar" })); mount();
+  remember({ filterMode: "date", selectedDate: "2026-08-12", viewMode: "calendar" }); mount();
   fireEvent.change(screen.getByLabelText("From date"), { target: { value: "2026-08-01" } });
   fireEvent.change(screen.getByLabelText("To date"), { target: { value: "2026-08-31" } });
   fireEvent.change(screen.getByLabelText("Filter by property"), { target: { value: "Today property" } });
@@ -30,15 +35,15 @@ it("calendar Today resets an old selected day and date range while retaining oth
   expect(screen.getByLabelText("Filter by property")).toHaveValue("Today property");
   expect(screen.getByRole("button", { name: "Select 2026-10-01" })).toHaveAttribute("aria-pressed", "true");
 });
-it("preserves an explicitly saved All preference", () => {
-  localStorage.setItem(key, JSON.stringify({ filterMode: "all", selectedDate: "", viewMode: "list" })); mount();
+it("preserves the current tab’s All selection on return", () => {
+  remember({ filterMode: "all", selectedDate: "", viewMode: "list" }); mount();
   expect(screen.getByRole("button", { name: "All", exact: true })).toHaveAttribute("aria-pressed", "true"); expect(screen.getByText("Tomorrow property", { selector: "p" })).toBeVisible();
 });
-it("restored Today uses the current Sydney day instead of yesterday's stored date", () => {
+it("ignores the old persistent Today selection on a fresh visit", () => {
   localStorage.setItem(key, JSON.stringify({ filterMode: "today", selectedDate: "2026-09-30", viewMode: "list" })); mount();
   expect(screen.getByLabelText("Filter by date")).toHaveValue("2026-10-01");
 });
-it("invalid persisted calendar dates fall back to today", () => {
+it("ignores invalid dates in the retired persistent preference", () => {
   localStorage.setItem(key, JSON.stringify({ filterMode: "date", selectedDate: "2026-02-31", viewMode: "invalid" })); mount();
   expect(screen.getByLabelText("Filter by date")).toHaveValue("2026-10-01");
 });

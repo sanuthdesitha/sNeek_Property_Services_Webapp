@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 import * as React from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -70,7 +72,7 @@ export function EstateComposeWorkspace() {
 
   const [templates, setTemplates] = React.useState<Template[]>([]);
   const [loadingTemplates, setLoadingTemplates] = React.useState(true);
-  const [filter, setFilter] = React.useState("");
+  const [filter, setFilter] = useRestorableState("compose-workspace:filter", "");
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | null>(null);
 
   const [channel, setChannel] = React.useState<"EMAIL" | "SMS">("EMAIL");

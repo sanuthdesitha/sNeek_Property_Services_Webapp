@@ -95,7 +95,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = await req.json().catch(() => ({}));
-    await verifySensitiveAction(session.user.id, body?.security);
+    await verifySensitiveAction(session.user.id, body?.security, "clients.delete");
     await db.client.update({ where: { id: params.id }, data: { isActive: false } });
     await db.auditLog.create({
       data: {

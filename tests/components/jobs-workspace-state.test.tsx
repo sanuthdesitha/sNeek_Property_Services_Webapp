@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { JobType } from "@prisma/client";
 import { DEFAULT_JOBS_STATE, readJobsState, useJobsWorkspaceState, writeJobsState } from "@/components/v2/admin/jobs/use-jobs-workspace-state";
 
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(window.location.search) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(window.location.search) }));
 
-beforeEach(() => window.history.replaceState({ nextMarker: "preserve" }, "", "/v2/admin/jobs"));
+beforeEach(() => { sessionStorage.clear(); window.history.replaceState({ nextMarker: "preserve" }, "", "/v2/admin/jobs"); });
 
 describe("Jobs URL state", () => {
   it("round trips every view field while preserving unrelated parameters", () => {
@@ -91,4 +91,18 @@ describe("Jobs URL state", () => {
     expect(hook.result.current.state.search).toHaveLength(200);
     expect(new URLSearchParams(window.location.search).get("search")).toHaveLength(200);
   });
+});
+
+
+it("a bare return link restores the last view ahead of personal/team defaults", () => {
+  const first = renderHook(useJobsWorkspaceState);
+  act(() => first.result.current.update({ view: "board", statusChip: "COMPLETED", page: 1 }));
+  first.unmount();
+  window.history.replaceState({}, "", "/v2/admin/jobs");
+  const returned = renderHook(useJobsWorkspaceState);
+  expect(returned.result.current.state).toMatchObject({ view: "board", statusChip: "COMPLETED" });
+  let applied = true;
+  act(() => { applied = returned.result.current.applyDefault({ ...DEFAULT_JOBS_STATE, view: "list" }); });
+  expect(applied).toBe(false);
+  returned.unmount();
 });

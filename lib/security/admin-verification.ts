@@ -1,7 +1,13 @@
+import { getOpsPolicy } from "@/lib/rbac/ops-access";
+import { resolveSensitiveGrants } from "@/lib/rbac/ops-policy";
+import type { SensitiveAction } from "./sensitive-actions";
 import bcrypt from "bcryptjs";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
-import { getUserExtendedProfile, upsertUserExtendedProfile } from "@/lib/accounts/user-details";
+import {
+  getUserExtendedProfile,
+  upsertUserExtendedProfile,
+} from "@/lib/accounts/user-details";
 
 export interface SensitiveActionCredentials {
   pin?: string | null | undefined;
@@ -43,12 +49,19 @@ export async function clearAdminPin(userId: string) {
 
 export async function verifySensitiveAction(
   userId: string,
-  credentials: SensitiveActionCredentials | null | undefined
+  credentials: SensitiveActionCredentials | null | undefined,
+  action?: SensitiveAction,
 ) {
   const [user, profile] = await Promise.all([
     db.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, passwordHash: true, isActive: true },
+      select: {
+        id: true,
+        role: true,
+        passwordHash: true,
+        isActive: true,
+        extraRoles: { select: { role: true } },
+      },
     }),
     getUserExtendedProfile(userId),
   ]);
@@ -56,8 +69,14 @@ export async function verifySensitiveAction(
   if (!user?.isActive) {
     throw new Error("UNAUTHORIZED");
   }
-  if (user.role !== Role.ADMIN && user.role !== Role.OPS_MANAGER) {
+  const roles = [user.role, ...(user.extraRoles ?? []).map((row) => row.role)];
+  if (!roles.includes(Role.ADMIN) && !roles.includes(Role.OPS_MANAGER)) {
     throw new Error("FORBIDDEN");
+  }
+
+  if (!roles.includes(Role.ADMIN) && action) {
+    const grants = resolveSensitiveGrants(await getOpsPolicy(), userId);
+    if (grants[action] !== true) throw new Error("FORBIDDEN");
   }
 
   const pin = normalizePin(credentials?.pin);

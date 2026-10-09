@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * ESTATE clock / time adjustments — v2-native browsing workspace for the v1
  * ClockAdjustmentsWorkspace data (cleaner requests to change the final clock
@@ -87,7 +89,7 @@ export function EstateTimeAdjustments() {
   const [loading, setLoading] = useState(true);
 
   // Filters — all applied client-side (the API only filters by status).
-  const [tab, setTab] = useState<TimeAdjustmentStatus | "ALL">("PENDING");
+  const [tab, setTab] = useRestorableState<TimeAdjustmentStatus | "ALL">("time-adjustments:tab", "PENDING");
   const [cleanerId, setCleanerId] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");

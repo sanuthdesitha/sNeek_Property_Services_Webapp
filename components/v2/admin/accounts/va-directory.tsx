@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 import * as React from "react";
 import Link from "next/link";
 import { Loader2, ShieldCheck } from "lucide-react";
@@ -72,7 +74,7 @@ function grantedCount(permissions: Record<string, boolean> | null): number {
 export function EstateVaDirectory({ canManage }: { canManage: boolean }) {
   const [rows, setRows] = React.useState<DirectoryRow[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [query, setQuery] = React.useState("");
+  const [query, setQuery] = useRestorableState("va-directory:query", "");
   const [editingTeam, setEditingTeam] = React.useState<DirectoryVaTeam | null>(null);
 
   const load = React.useCallback(async () => {

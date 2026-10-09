@@ -124,8 +124,8 @@ export function OpsLiveMap({
   // ── Initial snapshot of recent cleaner pings ───────────────────────
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/admin/ops/live-locations")
-      .then((r) => r.json())
+    const refresh = () => fetch("/api/admin/ops/live-locations", { cache: "no-store", headers: { "x-progress-toast": "off" } })
+      .then((r) => { if (!r.ok) throw new Error("Could not refresh locations"); return r.json(); })
       .then((data: { pings?: RawPing[] }) => {
         if (cancelled) return;
         const m = new Map<string, CleanerLocation>();
@@ -144,7 +144,12 @@ export function OpsLiveMap({
       .catch(() => {
         /* SSE will populate on next ping */
       });
+    void refresh();
+    const timer = setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
     return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
       cancelled = true;
     };
   }, []);

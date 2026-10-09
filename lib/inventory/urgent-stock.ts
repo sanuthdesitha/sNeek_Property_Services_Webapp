@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { Prisma, Role } from "@prisma/client";
 import { z } from "zod";
 import { fromZonedTime } from "date-fns-tz";
+import { enqueueNotificationIntent } from "@/lib/notifications/intent-store";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
@@ -88,8 +89,19 @@ async function notify(tx: Tx, need: UrgentNeed, kind: string, nextCleanAt?: Date
   const admins = await tx.user.findMany({ where: { isActive: true, OR: [{ role: Role.ADMIN }, { extraRoles: { some: { role: Role.ADMIN } } }] }, select: { id: true } });
   if (!admins.length) return false;
   // In-app only. No email, SMS, purchase or external dispatch is performed.
-  await tx.notification.createMany({ data: admins.map(admin => ({ userId: admin.id, channel: "PUSH", status: "SENT", sentAt: new Date(), subject: `Urgent stock: ${need.propertyName} — ${need.itemName}`,
-    body: `${kind}. ${need.stage}. Observed count: ${need.observedCount ?? "unknown"}; requested purchase: ${need.purchaseQuantity ?? "unknown"}. ${nextCleanAt ? `Next clean planning deadline: ${nextCleanAt.toISOString()}. ` : ""}Review /urgent-stock?propertyId=${encodeURIComponent(need.propertyId)}` })) });
+  for (const admin of admins) {
+    await enqueueNotificationIntent(tx, {
+      version: 1,
+      eventId: `${need.id}:${kind}:${need.remindersSent}`,
+      eventKey: "urgent_stock.open_need",
+      entity: { type: "urgent_stock", id: need.id },
+      actorId: null,
+      recipient: { userId: admin.id, role: Role.ADMIN, scope: { kind: "ADMIN_OPERATIONS" } },
+      severity: "ACTION", category: "shopping", transport: "INBOX", jobId: null,
+      subject: `Urgent stock: ${need.propertyName} — ${need.itemName}`,
+      body: `${kind}. ${need.stage}. Observed count: ${need.observedCount ?? "unknown"}; requested purchase: ${need.purchaseQuantity ?? "unknown"}. ${nextCleanAt ? `Next clean planning deadline: ${nextCleanAt.toISOString()}. ` : ""}Review /urgent-stock?propertyId=${encodeURIComponent(need.propertyId)}`,
+    });
+  }
   return true;
 }
 async function receipt(tx: Tx, actor: StockActor, requestId: string, input: unknown) {

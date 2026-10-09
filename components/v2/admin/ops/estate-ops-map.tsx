@@ -1,4 +1,5 @@
 "use client";
+import { mergeTrackedPosition } from "@/lib/ops/live-positions";
 
 /**
  * ESTATE live operations map — full parity with the classic ops live map,
@@ -235,6 +236,7 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
   const [mapReady, setMapReady] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [pings, setPings] = useState<RawPing[]>([]);
+  const [snapshotFailed, setSnapshotFailed] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // ── Load the Maps script (runtime key via /api/public/maps-config) ─────
@@ -302,21 +304,33 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
   // ── 15s snapshot poll (enriched: status, active job, ETA, timer) ───────
   useEffect(() => {
     let cancelled = false;
+    let pending = false;
+    const controller = new AbortController();
 
     async function poll() {
+      if (pending) return;
+      pending = true;
       try {
         const res = await fetch("/api/admin/ops/live-locations", {
           cache: "no-store",
+          signal: controller.signal,
           headers: { "x-progress-toast": "off" },
         });
-        if (!res.ok || cancelled) return;
+        if (cancelled) return;
+        if (!res.ok) throw new Error("Snapshot unavailable");
         const data = (await res.json()) as { pings?: RawPing[] };
         if (cancelled) return;
-        setPings(Array.isArray(data.pings) ? data.pings : []);
+        setPings(previous => (Array.isArray(data.pings) ? data.pings : []).map(snapshot => {
+          const current = previous.find(item => item.userId === snapshot.userId);
+          if (!current || Date.parse(current.lastPingAt ?? current.timestamp ?? "") <= Date.parse(snapshot.lastPingAt ?? snapshot.timestamp ?? "")) return snapshot;
+          return { ...snapshot, lat: current.lat, lng: current.lng, timestamp: current.timestamp, lastPingAt: current.lastPingAt, accuracy: current.accuracy, positionSource: current.positionSource };
+        }));
         setLastUpdated(new Date());
+        setSnapshotFailed(false);
       } catch {
-        // transient — next tick retries
-      }
+        if (!cancelled) setSnapshotFailed(true);
+        // Retain last known positions; next tick retries.
+      } finally { pending = false; }
     }
 
     poll();
@@ -324,6 +338,7 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
     return () => {
       cancelled = true;
       clearInterval(id);
+      controller.abort();
     };
   }, []);
 
@@ -338,24 +353,7 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
         const msg = JSON.parse(e.data) as { type: string; ping?: RawPing };
         if (msg.type !== "ping" || !msg.ping) return;
         const incoming = msg.ping;
-        setPings((prev) => {
-          const idx = prev.findIndex((p) => p.userId === incoming.userId);
-          if (idx === -1) return [...prev, incoming];
-          // Keep the enriched snapshot fields (status/job/timer); only refresh
-          // the position and freshness from the streamed raw ping.
-          const next = prev.slice();
-          next[idx] = {
-            ...next[idx],
-            lat: incoming.lat,
-            lng: incoming.lng,
-            accuracy: incoming.accuracy ?? next[idx].accuracy,
-            timestamp: incoming.timestamp,
-            lastPingAt: incoming.timestamp,
-            positionSource: "gps",
-            stale: false,
-          };
-          return next;
-        });
+        setPings(previous => mergeTrackedPosition(previous, incoming));
         setLastUpdated(new Date());
       } catch {
         // malformed — ignore
@@ -500,6 +498,7 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
 
   return (
     <div className="space-y-3">
+      {snapshotFailed && <p role="status" className="text-sm text-[hsl(var(--e-warning))]">Location refresh failed. Showing last received positions; retrying automatically.</p>}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         {/* ── Map ─────────────────────────────────────────────────────── */}
         <div className="relative">
@@ -515,7 +514,7 @@ export function EstateOpsMap({ properties }: { properties: OpsMapProperty[] }) {
               <span
                 className={`h-2 w-2 rounded-full ${pings.length > 0 ? "animate-pulse bg-[hsl(var(--e-success))]" : "bg-[hsl(var(--e-muted-foreground)/0.4)]"}`}
               />
-              {pings.length} cleaner{pings.length === 1 ? "" : "s"} live
+              {pings.length} cleaner{pings.length === 1 ? "" : "s"} tracked
               {lastUpdated
                 ? ` · updated ${lastUpdated.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}`
                 : ""}

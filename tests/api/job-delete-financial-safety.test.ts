@@ -41,7 +41,7 @@ it.each(["adjustments", "transfers", "qa", "claim"] as const)("refuses related f
 });
 it("deletes ordinary unsettled job only after locks and claim inspection, with atomic audit", async () => {
   expect((await remove()).status).toBe(200);
-  expect(m.auth).toHaveBeenCalledWith(["ADMIN"]); expect(m.verify).toHaveBeenCalled();
+  expect(m.auth).toHaveBeenCalledWith(["ADMIN", "OPS_MANAGER"]); expect(m.verify).toHaveBeenCalledWith("admin", undefined, "jobs.delete");
   expect(m.lock).toHaveBeenCalledTimes(2);
   expect(m.lock.mock.invocationCallOrder[1]).toBeLessThan(m.read.mock.invocationCallOrder[0]);
   expect(m.claim.mock.invocationCallOrder[0]).toBeLessThan(m.remove.mock.invocationCallOrder[0]);

@@ -1,7 +1,14 @@
+import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
-import { HolidayRatesWorkspace } from "@/components/finance/holiday-rates-workspace";
+import { settingsHref } from "@/components/v2/admin/settings/settings-catalog";
+
 export const dynamic = "force-dynamic";
-export default async function HolidayRatesPage({ searchParams }: { searchParams?: { jobId?: string } }) {
+
+export default async function HolidayRatesPage({
+  searchParams,
+}: {
+  searchParams?: { jobId?: string };
+}) {
   await requireRole(["ADMIN"]);
-  return <HolidayRatesWorkspace initialJobId={searchParams?.jobId ?? ""} />;
+  redirect(settingsHref("holiday-rates", searchParams?.jobId));
 }

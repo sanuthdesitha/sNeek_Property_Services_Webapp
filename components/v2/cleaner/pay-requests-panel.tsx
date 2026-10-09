@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Estate cleaner extra-pay requests. Same endpoints + payloads as the live
  * workspace (components/cleaner/pay-requests-page.tsx):
@@ -87,7 +89,7 @@ export function PayRequestsPanel({
   const initialJobValid = Boolean(initialJobId && jobs.some((job) => job.id === initialJobId));
 
   const [payRequests, setPayRequests] = useState<any[]>([]);
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "APPROVED" | "PENDING" | "REJECTED">("ALL");
+  const [statusFilter, setStatusFilter] = useRestorableState<"ALL" | "APPROVED" | "PENDING" | "REJECTED">("pay-requests-panel:statusFilter", "ALL");
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(initialJobValid);
   const [saving, setSaving] = useState(false);

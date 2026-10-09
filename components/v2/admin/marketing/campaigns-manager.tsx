@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 import { useMemo, useState } from "react";
 import { Plus, Rocket, Tag } from "lucide-react";
 import { MARKETED_SERVICES } from "@/lib/marketing/catalog";
@@ -100,7 +102,7 @@ export function MarketingCampaignsManager({
   initialPlans: PlanRow[];
   onToast: (t: Toast) => void;
 }) {
-  const [tab, setTab] = useState<"campaigns" | "plans">("campaigns");
+  const [tab, setTab] = useRestorableState<"campaigns" | "plans">("campaigns-manager:tab", "campaigns");
   const [campaigns, setCampaigns] = useState(initialCampaigns);
   const [plans, setPlans] = useState(initialPlans);
   const [campaignSaving, setCampaignSaving] = useState(false);

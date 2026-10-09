@@ -7,6 +7,7 @@ export const DEVICE_EXCEPTION_LABELS = {
 export type DeviceExceptionStatus = keyof typeof DEVICE_EXCEPTION_LABELS;
 export type DeviceExceptionAnswer = { deviceStatus: DeviceExceptionStatus; reason: string };
 export function isDeviceStatusField(field: { type?: unknown; label?: unknown; id?: unknown; deviceStatus?: unknown } | null | undefined): boolean {
+  if (field?.deviceStatus === false) return false;
   if (!field || !["checkbox", "yesno", "select", "radio"].includes(String(field.type))) return false;
   // Ring/Minut are known device checks. Other device checks may explicitly opt in.
   // Do not infer applicability from generic cleaning, photo or safety-signoff fields.

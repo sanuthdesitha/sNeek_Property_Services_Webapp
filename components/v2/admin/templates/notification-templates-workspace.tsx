@@ -1,5 +1,7 @@
 "use client";
 
+import { useRestorableState } from "@/hooks/use-restorable-state";
+
 /**
  * Estate notification/email template designer.
  *
@@ -58,7 +60,7 @@ const CATEGORY_LABEL: Record<string, string> = {
 export function NotificationTemplatesWorkspace() {
   const [templates, setTemplates] = React.useState<Template[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [query, setQuery] = React.useState("");
+  const [query, setQuery] = useRestorableState("notification-templates-workspace:query", "");
   const [editing, setEditing] = React.useState<Template | null>(null);
 
   const load = React.useCallback(async () => {

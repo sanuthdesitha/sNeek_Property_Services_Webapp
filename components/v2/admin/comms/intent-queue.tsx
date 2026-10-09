@@ -1,4 +1,6 @@
 "use client";
+
+import { useRestorableState } from "@/hooks/use-restorable-state";
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { z } from "zod";
@@ -14,7 +16,7 @@ export function NotificationIntentQueue() {
   return <IntentQueue key={JSON.stringify([session?.user?.id, session?.user?.role, session?.impersonation])} readOnly={Boolean(session?.impersonation)} />;
 }
 function IntentQueue({ readOnly }: { readOnly: boolean }) {
-  const [filter, setFilter] = useState("ATTENTION");
+  const [filter, setFilter] = useRestorableState("intent-queue:filter", "ATTENTION");
   const [page, setPage] = useState<z.infer<typeof pageSchema> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
