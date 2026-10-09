@@ -29,6 +29,7 @@
 ## Verify and document
 
 - Add focused regression tests for changed behavior, especially races, authorization, retries, and unknown states. Run TypeScript, the relevant tests, and a production build.
+- Every database schema change must include a forward migration in `prisma/migrations` in the same commit. Verify `npx prisma migrate deploy` on a fresh disposable database and an existing migrated database, repeat it to confirm no pending changes, and compare migration history with `schema.prisma`. Preserve data and existing useful indexes; do not rely on `db push` or rewrite applied migrations.
 - Database tests must use a disposable loopback PostgreSQL database on port 55439. Several suites clear fixture-wide settings; never use production, shared development data, or run these concurrently with browser fixtures in the same database.
 - Exercise affected UI in Chromium at 390px and 1280px, light and dark. Check keyboard controls, overflow, draft retention, and errors. State what was actually inspected.
 - Update the relevant section and Change Log in `docs/SYSTEM.md`, plus the review record, in the same change. Report failures, skips, missing provider credentials, and unverified deployment honestly.

@@ -627,6 +627,7 @@ model MaintenanceItemAssignment {
   @@unique([itemId, userId, role])
   @@index([itemId, role])
   @@index([userId, removedAt])
+  @@index([includedInClientInvoiceId])
 }
 
 /// Which hat a person wears on a maintenance item. Deliberately NOT the global
@@ -941,6 +942,7 @@ model User {
 
   @@index([emailStatus])
   @@index([lastSeenAt])
+  @@index([vaTeamId])
 }
 
 // ─────────────────────────────────────────────
@@ -3503,7 +3505,7 @@ model BlogPost {
   body             String    @db.Text
   coverImageUrl    String?
   galleryImageUrls String[]  @default([])
-  tags             String[]
+  tags             String[]  @default([])
   isPublished      Boolean   @default(false)
   publishedAt      DateTime?
   authorName       String    @default("sNeek Team")
