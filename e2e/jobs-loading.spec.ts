@@ -97,6 +97,22 @@ test("owner Jobs loads real records and retries a temporary error without losing
     headers: { cookie: `${sessionCookies}; sneek.test-as-unlock=${proof}` },
   });
   expect((await unlocked.json()).unlocked).toBe(true);
+  // The fixture intentionally points middleware's HTTP validation callback at
+  // a closed port. Owner access must still use live, in-process authorization.
+  for (const href of [
+    "/v2/admin/properties",
+    "/v2/admin/laundry",
+    "/v2/admin/finance",
+    "/v2/admin/settings?tab=ical-sync",
+  ]) {
+    const response = await page.goto(href);
+    expect(response?.status()).toBe(200);
+    await expect(
+      page.getByText("Permissions are temporarily unavailable.", {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+  }
   let fail = true;
   await page.route("**/api/jobs?*", (route) =>
     fail

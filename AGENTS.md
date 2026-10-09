@@ -11,6 +11,7 @@
 
 - Reuse domain services and transactions. Property care executes through existing JobTasks; bag observations supplement LaundryTask; stock requests do not place purchases or prove delivery.
 - Revalidate current permissions and entity scope on the server. Keep actual actor, effective role, retained account, impersonation, and client subject distinct. ADMIN and OPS_MANAGER are not interchangeable.
+- Protected API routes must call the live local session/role guards (or an audited wrapper). Middleware supplies trusted scope metadata; do not make API access depend on an HTTP callback to the application itself. ADMIN has full feature rights independently of OPS packs, while revoked users and impersonated targets must retain their actual restrictions.
 - Never convert missing evidence, counts, costs, dates, or provider configuration into success or zero. Retain explicit reasons and human review.
 - Preserve evidence originals, scoped receipts, removal tombstones, job/form revisions, and historical submissions. AI proposals are not approved assignments or deductions.
 - Preserve issued/paid financial records and immutable rate snapshots. Use existing money and billing policies; do not reconstruct financial arithmetic in UI components.

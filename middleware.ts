@@ -1,4 +1,4 @@
-import { canUseOpsPath, opsRequestFeature, type OpsLevels } from "@/lib/rbac/ops-catalog";
+import { canUseOpsPath, type OpsLevels } from "@/lib/rbac/ops-catalog";
 import { withAuth } from "next-auth/middleware";
 import type { NextRequestWithAuth } from "next-auth/middleware";
 import { NextRequest, NextResponse, type NextFetchEvent } from "next/server";
@@ -54,15 +54,13 @@ async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?
     }
 
     if (pathname.startsWith("/api")) {
-      // API authorization must also cover legacy handlers and their status codes.
-      // The session-validation endpoints are unclassified, preventing recursion.
-      if (token && opsRequestFeature(pathname + req.nextUrl.search) !== null && !pathname.startsWith("/api/admin/impersonate")) {
-        const validation = req.retainedValidation ?? await validateActiveSession(req);
-        if (validation.valid !== true) return applySecurityHeaders(NextResponse.json({ error: validation.valid === false ? "UNAUTHORIZED" : "Permissions are temporarily unavailable." }, { status: validation.valid === false ? 401 : 503 }));
-        if (validation.opsAccess && !canUseOpsPath(validation.opsAccess, pathname + req.nextUrl.search, req.method)) {
-          return applySecurityHeaders(NextResponse.json({ error: "This feature or action is disabled in your operations-manager permissions.", code: "OPS_FEATURE_FORBIDDEN" }, { status: 403 }));
-        }
-      }
+      // Protected handlers call requireRole/requireSession (or their audited
+      // wrappers), which validate the live account and enforce OPS policy with
+      // the trusted request headers supplied below. Repeating that guard via
+      // HTTP makes every API depend on a callback that may fail behind a proxy.
+      // Owner ADMIN has full feature access; OPS limits remain enforced locally.
+      // Retained identity and read-only impersonation checks still run before
+      // this branch. Public webhooks/diagnostics keep their own scoped guards.
       return applySecurityHeaders(NextResponse.next());
     }
 

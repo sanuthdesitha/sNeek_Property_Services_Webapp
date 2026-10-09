@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 const m = vi.hoisted(() => ({
   session: vi.fn(),
+  impersonation: vi.fn(),
   user: vi.fn(),
   policy: vi.fn(),
   jobs: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock("@/lib/auth/active-role", () => ({
   readActiveRoleCookie: () => m.role,
 }));
 vi.mock("@/lib/auth/impersonation-server", () => ({
-  resolveImpersonation: async () => null,
+  resolveImpersonation: m.impersonation,
 }));
 vi.mock("next/headers", () => ({
   headers: () =>
@@ -37,6 +38,7 @@ const request = () =>
 beforeEach(() => {
   vi.resetAllMocks();
   m.role = "ADMIN";
+  m.impersonation.mockResolvedValue(null);
   m.session.mockResolvedValue({ user: { id: "owner", role: "ADMIN" } });
   m.user.mockResolvedValue({
     id: "owner",
@@ -102,4 +104,32 @@ it("continues scoping a cleaner to their own assignments", async () => {
       }),
     }),
   );
+});
+
+it("owner Jobs works even when the manager policy store is unavailable", async () => {
+  m.policy.mockRejectedValue(new Error("Manager settings unavailable"));
+  const response = await GET(request());
+  expect(response.status).toBe(200);
+  expect(m.policy).not.toHaveBeenCalled();
+});
+
+it("does not lend owner permissions to an impersonated restricted manager", async () => {
+  m.impersonation.mockResolvedValue({
+    actor: { id: "owner" },
+    target: { id: "manager", role: "OPS_MANAGER" },
+    mode: "FULL",
+    ticket: { startedAt: 1 },
+  });
+  m.policy.mockResolvedValue({
+    value: {
+      revision: 1,
+      presets: [],
+      assignments: {
+        manager: { presetId: "observer", overrides: { jobs: "off" } },
+      },
+    },
+  });
+  const response = await GET(request());
+  expect(response.status).toBe(403);
+  expect(m.jobs).not.toHaveBeenCalled();
 });

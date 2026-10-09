@@ -94,6 +94,9 @@ export function isOpsSubject(user: {
   role: string;
   heldRoles?: string[];
 }): boolean {
+  // An effective ADMIN never inherits a manager feature pack. Impersonation
+  // replaces both role and heldRoles with the target before this check.
+  if (user.role === "ADMIN") return false;
   const roles = user.heldRoles ?? [user.role];
   return !roles.includes("ADMIN") && roles.includes("OPS_MANAGER");
 }
