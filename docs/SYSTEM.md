@@ -1594,7 +1594,11 @@ Property access appears in Set up only; setup reference images appear in Get the
 
 Effective Jackson Airbnb turnover forms add required Ring/Minut charging proof, reusing an unconditional existing device check where possible. Otherwise a charging outcome requires either proof or an absent/unable-to-charge explanation. Augmentation follows rotational filtering so every clean has its charging checks. The established Jackson property-name convention determines applicability; Jackson P3's owner-confirmed Ring removal remains excluded. Reworks and historical submissions are unchanged. Shared finite status animations extend to cleaner, client and laundry surfaces; reduced-motion settings remain respected.
 
+**Internal session validation (2026-10).** Middleware validates API/OPS access through a trusted `NEXTAUTH_URL_INTERNAL` origin. The repository's `start`/`dev` runner defaults this to loopback at its actual Next port, avoiding public DNS/TLS/proxy hairpin dependencies; custom launchers must configure their internal origin explicitly. Public `NEXTAUTH_URL`, browser redirects, cookie selection, live permissions, retained-account validation and handler-side scope remain unchanged. Both validation callbacks reject redirects and time out after five seconds. Validation service errors remain unavailable rather than being mistaken for revoked credentials; authenticated API access still fails closed. The Estate Jobs error card distinguishes expired sessions, permission denial, temporary unavailability, server status and invalid payloads without displaying raw server errors.
+
 ## Change Log
+
+- **2026-10-09 (Jobs and permission loading):** Routed middleware session callbacks through the trusted internal Next origin for Jobs, calendar sync, Test as and other protected requests; preserved live authorization and added clearer Jobs retry errors.
 
 - **2026-10-09 (brand icons):** Connected the saved company logo to browser favicons, Android install icons and Apple touch icons, with dynamic manifest metadata, bounded image conversion and versioned URLs.
 

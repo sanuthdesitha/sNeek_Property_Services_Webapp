@@ -133,7 +133,7 @@ describe("Jobs workspace URL integration", () => {
     await act(async () => respond(0, "Previous", 3));
     fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), { target: { value: "created" } });
     await act(async () => pending[1].resolve({ ok: false, status: 503 }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Could not load jobs");
+    expect(screen.getByRole("alert")).toHaveTextContent("Jobs are temporarily unavailable");
     expect(screen.queryByText("Nothing on the books")).not.toBeInTheDocument();
     expect(screen.queryByText("List Previous")).not.toBeInTheDocument();
     expect(screen.queryByText("200")).not.toBeInTheDocument();
@@ -281,4 +281,13 @@ describe("Jobs workspace URL integration", () => {
     expect(Object.fromEntries(exported)).toEqual(Object.fromEntries(list));
     await act(async () => pending[1].resolve({ ok: true, json: async () => ({ jobs: [] }) }));
   });
+});
+
+
+it.each([[401, "Your session has expired"], [403, "does not have permission"], [500, "(500)"]])("identifies Jobs HTTP %s without exposing raw server internals", async (status, message) => {
+  render(<JobsWorkspace />);
+  await act(async () => pending[0].resolve({ ok: false, status, json: async () => ({ error: "private database details" }) }));
+  expect(screen.getByRole("alert")).toHaveTextContent(String(message));
+  expect(screen.queryByText("private database details")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
 });

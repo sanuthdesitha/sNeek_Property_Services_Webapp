@@ -365,8 +365,8 @@ export default async function middleware(original: NextRequest, event: NextFetch
   if (context.pathname.startsWith("/api/admin/impersonate") || context.pathname === "/api/me/active-role" && original.method !== "GET" || /^\/api\/auth\/(?:callback|signin)/.test(context.pathname)) return NextResponse.json({ error: "Manage identities from Accounts; this tab cannot change another account's session." }, { status: 403 });
   let validation;
   try {
-    const url = new URL("/api/auth/retained/validate", original.url); url.searchParams.set("context", context.contextId);
-    const response = await fetch(url, { headers: { cookie: headers.get("cookie") ?? "" }, cache: "no-store", redirect: "error" });
+    const url = sessionValidationUrl("/api/auth/retained/validate", original.url); url.searchParams.set("context", context.contextId);
+    const response = await fetch(url, { headers: { cookie: headers.get("cookie") ?? "" }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(5_000) });
     validation = response.ok ? await response.json() : null;
   } catch { validation = null; }
   if (!validation?.valid) return context.pathname.startsWith("/api/")
@@ -462,15 +462,28 @@ function portalHome(role: Role | undefined): string {
   }
 }
 
+// Only deployment configuration may select a private callback destination.
+// Never use forwarded headers: this request carries session cookies.
+function sessionValidationUrl(path: string, requestUrl: string) {
+  return new URL(path, process.env.NEXTAUTH_URL_INTERNAL || requestUrl);
+}
+
 async function validateActiveSession(req: NextRequestWithAuth) {
   try {
-    const response = await fetch(new URL("/api/auth/validate-session", req.url), {
+    const response = await fetch(sessionValidationUrl("/api/auth/validate-session", req.url), {
       headers: {
         cookie: req.headers.get("cookie") ?? "",
       },
       cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(5_000),
     });
 
+    // A backend outage is not an expired account. Keep API/OPS access closed
+    // without redirecting a valid owner into a sign-out loop.
+    if (!response.ok && response.status !== 401 && response.status !== 403) {
+      throw new Error("Session validation service unavailable");
+    }
     if (!response.ok) {
       return { valid: false as const, role: undefined, heldRoles: undefined, opsAccess: null };
     }

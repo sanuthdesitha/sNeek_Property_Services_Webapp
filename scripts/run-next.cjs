@@ -60,6 +60,17 @@ if (!mode || !["build", "start", "dev"].includes(mode)) {
 
 const forwardedArgs = process.argv.slice(3);
 const env = { ...process.env };
+// Session checks stay inside this Next server rather than depending on public
+// DNS/TLS/proxy hairpin access. Explicit deployment configuration wins.
+if (mode !== "build" && !env.NEXTAUTH_URL_INTERNAL) {
+  const portFlag = forwardedArgs.findIndex((arg) => arg === "-p" || arg === "--port");
+  const port = portFlag >= 0 ? forwardedArgs[portFlag + 1] : env.PORT || "3000";
+  if (!/^\d+$/.test(port ?? "") || Number(port) < 1 || Number(port) > 65535) {
+    throw new Error("Invalid Next server port");
+  }
+  env.NEXTAUTH_URL_INTERNAL = `http://127.0.0.1:${port}`;
+}
+
 const requestedDistDir = env.NEXT_DIST_DIR || (mode === "build" || mode === "start" ? ".next-prod" : ".next-dev");
 const stagedBuildDistDir = `${requestedDistDir}.__build`;
 const tsconfigPath = path.resolve(process.cwd(), "tsconfig.json");

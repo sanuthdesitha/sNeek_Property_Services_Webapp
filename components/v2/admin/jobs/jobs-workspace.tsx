@@ -179,6 +179,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
     return () => window.clearTimeout(timer);
   }, [viewOptionsOpen]);
   const [jobs, setJobs] = useState<any[]>([]);
+  const [loadError, setLoadError] = useState("Could not load jobs. Please try again.");
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: PAGE_SIZE, totalCount: 0, totalPages: 0, hasMore: false });
   const [loadState, setLoadState] = useState<{ status: "loading" | "success" | "error"; query: string }>({ status: "loading", query: "" });
 
@@ -273,9 +274,17 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
     requestedSearch.current = new URLSearchParams(query).get("search") ?? "";
     const id = ++requestId.current;
     if (!background) setLoadState({ status: "loading", query });
+    let failureMessage = "Could not load jobs. Check your connection and retry.";
     try {
       const res = await fetch(`/api/jobs?${query}`, { cache: "no-store" });
-      if (!res.ok) throw new Error("Could not load jobs.");
+      if (!res.ok) {
+        failureMessage = res.status === 401 ? "Your session has expired. Sign in again to load jobs."
+          : res.status === 403 ? "This account does not have permission to view jobs."
+          : res.status === 503 ? "Jobs are temporarily unavailable. Please retry shortly. (503)"
+          : `The server could not load jobs. Please retry. (${res.status})`;
+        throw new Error("Jobs request failed");
+      }
+      failureMessage = "Jobs returned an unexpected response. Please retry.";
       const data = jobsResponseSchema.parse(await res.json());
       const resultPage = data.pagination;
       if (resultPage.page !== Number(new URLSearchParams(query).get("page")) ||
@@ -292,7 +301,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
     } catch {
       if (id !== requestId.current || query !== latestQuery.current) return;
       if (background) setRefreshFailed(true);
-      else setLoadState({ status: "error", query });
+      else { setLoadError(failureMessage); setLoadState({ status: "error", query }); }
     } finally {
       if (id === requestId.current) inFlight.current = false;
     }
@@ -859,7 +868,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
         </ECard>
       ) : loadStatus === "error" ? (
         <ECard className="px-6 py-12 text-center">
-          <p role="alert" className="mb-4 text-[0.875rem]">Could not load jobs. Please try again.</p>
+          <p role="alert" className="mb-4 text-[0.875rem]">{loadError}</p>
           <EButton variant="outline" onClick={() => void loadJobs()}>
             <RotateCw className="h-4 w-4" />
             Retry
