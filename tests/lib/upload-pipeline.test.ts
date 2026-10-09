@@ -440,13 +440,15 @@ describe("progress", () => {
     expect(dispose).toHaveBeenCalledOnce();
   });
 
-  it("retains the original for retry when compression fails without uploading it", async () => {
+  it("uploads a large original as one video when phone compression is unavailable", async () => {
     const state = installFakeXhr(() => "ok");
     const original = fakeFile("walkthrough.mov", 600 * 1024 * 1024, "video/quicktime");
     vi.mocked(compressVideo).mockRejectedValueOnce(new Error("Unsupported codec"));
     const out = await prepareAndUploadFiles([original], OPTS);
-    expect(state.calls).toHaveLength(0);
-    expect(out.failed[0]).toMatchObject({ file: original, reason: "Unsupported codec" });
+    expect(state.calls).toEqual(["walkthrough.mov"]);
+    expect(out.failed).toHaveLength(0);
+    expect(out.results).toHaveLength(1);
+    expect(vi.mocked(uploadMultipart).mock.calls.at(-1)?.[0]).toBe(original);
   });
 
   it("reports every file as it settles, successes and failures alike", async () => {

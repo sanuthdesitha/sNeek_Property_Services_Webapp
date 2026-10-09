@@ -3,7 +3,7 @@ import { getEvidence, listEvidence, putEvidence, sameEvidenceScope, type Evidenc
 import { destinationOf, destinationKey, destinationMedia, setDestinationMedia, evidenceDestinationSchema, isLegacyEvidenceKey, type EvidenceDestination } from "./evidence-destination";
 // Keep a known remote receipt available in this tab even if device storage
 // temporarily fails after upload. Across a restart, uploading/no receipt is
-// explicitly uncertain and must never automatically send the blob again.
+// explicitly uncertain: verify completion or resume its exact saved allocation.
 const receiptMemory = new Map<string, EvidenceRecord>();
 /** Cancel a capture without deleting its retained original or remote object. */
 export async function cancelPendingEvidence(record: EvidenceRecord, scope: EvidenceScope) {
@@ -107,7 +107,7 @@ export async function attachEvidence(record: EvidenceRecord): Promise<EvidenceRe
       formRevision: record.formRevision, key: expectedKey, name: record.filename }),
   });
   const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(body?.error || "Evidence attachment was not confirmed. Retry from device recovery.");
+  if (!response.ok) throw Object.assign(new Error(body?.error || "Evidence attachment was not confirmed. Retry from device recovery."), { code: body?.code });
   if (body?.ok !== true || body.captureId !== record.id || body.key !== expectedKey) {
     throw new Error("Evidence attachment could not be confirmed. Retry from device recovery.");
   }
@@ -145,14 +145,21 @@ export async function processEvidence(record: EvidenceRecord, scope: EvidenceSco
     try {
       let attachmentConfirmed = false;
       if (current.status === "uploading" && !current.receipt && current.allocation) {
-        // The original allocation is authoritative. The endpoint verifies this
-        // exact owned object with HEAD and attaches it; it never lists a bucket,
-        // allocates another key, or asks the browser to resend original bytes.
-        const receipt = await attachEvidence(current);
-        current = { ...current, receipt, status: "uploaded", error: undefined };
-        receiptMemory.set(current.id, current);
-        await putEvidence(current);
-        attachmentConfirmed = true;
+        // Prefer attaching a completed object (including a lost completion ACK).
+        // Only an explicit missing-object result allows resuming this allocation.
+        try {
+          const receipt = await attachEvidence(current);
+          current = { ...current, receipt, status: "uploaded", error: undefined };
+          receiptMemory.set(current.id, current);
+          await putEvidence(current);
+          attachmentConfirmed = true;
+        } catch (error) {
+          // Only an explicit missing-object response permits transfer recovery.
+          // Auth, stale form, tombstone and uncertain HEAD failures still stop.
+          if (!(error instanceof Error) || (error as Error & { code?: string }).code !== "EVIDENCE_OBJECT_MISSING" || !current.prepared) throw error;
+          // The upload callback resumes this exact allocation from saved bytes;
+          // it must not recompress or allocate a new capture/key.
+        }
       }
       if (!current.receipt) {
         current = { ...current, status: "preparing", error: undefined };

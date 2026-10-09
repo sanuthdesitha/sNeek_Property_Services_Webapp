@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       let object;
       try { object = await s3.headObject({ Bucket, Key: body.key }).promise(); }
       catch (error: any) {
-        if (error?.code === "NotFound" || error?.statusCode === 404) return json({ error: "Uploaded evidence was not found. Keep the original and retry." }, 409);
+        if (error?.code === "NotFound" || error?.statusCode === 404) return json({ error: "Uploaded evidence was not found. Keep the original and retry.", code: "EVIDENCE_OBJECT_MISSING" }, 409);
         throw error;
       }
       if (!object.ContentLength) return json({ error: "Uploaded evidence could not be verified. Retry attachment." }, 409);

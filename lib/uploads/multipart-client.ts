@@ -2,6 +2,7 @@ export interface MultipartUploadInit {
   uploadId: string;
   key: string;
   partUrls: string[]; // pre-signed URLs for each part
+  uploadedParts?: { PartNumber: number; ETag: string; Size: number }[];
 }
 
 export interface UploadProgress {
@@ -12,6 +13,21 @@ export interface UploadProgress {
 }
 
 const PART_SIZE = 5 * 1024 * 1024; // 5 MB
+
+// A dead mobile socket must eventually return control to the recovery UI.
+async function transferFetch(url: string, options: RequestInit, parent?: AbortSignal): Promise<Response> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(parent?.reason);
+  parent?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(() => controller.abort(new Error("Upload connection timed out. Retry to continue the saved video.")), 120_000);
+  try {
+    parent?.throwIfAborted();
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+    parent?.removeEventListener("abort", abort);
+  }
+}
 
 export async function uploadMultipart(
   blob: Blob,
@@ -27,7 +43,8 @@ export async function uploadMultipart(
    */
   folder?: string,
   /** Durable callers must commit this identity before the first byte is sent. */
-  onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>
+  onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>,
+  resume?: { key: string; uploadId: string }
 ): Promise<{ url: string; key: string }> {
   if (!blob.size) throw new Error("Cannot upload an empty file.");
   signal?.throwIfAborted();
@@ -35,17 +52,24 @@ export async function uploadMultipart(
   const parts = Math.ceil(blob.size / partSize);
 
   // Initiate
-  const initRes = await fetch("/api/uploads/presign-multipart", {
+  const initRes = await fetch(resume ? "/api/uploads/resume-multipart" : "/api/uploads/presign-multipart", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ filename, contentType, partsCount: parts, ...(folder ? { folder } : {}) }),
+    body: JSON.stringify(resume ? { ...resume, size: blob.size, partSize, contentType } : { filename, contentType, partsCount: parts, ...(folder ? { folder } : {}) }),
     signal,
   });
   if (!initRes.ok) {
     const error = await initRes.json().catch(() => ({}));
     throw new Error(error.error || `Could not start upload (${initRes.status})`);
   }
-  const init: MultipartUploadInit = await initRes.json();
+  const response = await initRes.json();
+  if (resume && response.key !== resume.key) throw new Error("Upload recovery returned a different file. No bytes were sent.");
+  if (resume && response.completed === true) {
+    if (typeof response.url !== "string" || !response.url) throw new Error("Completed upload receipt is missing.");
+    onProgress?.({ bytesUploaded: blob.size, totalBytes: blob.size, partsCompleted: parts, partsTotal: parts });
+    return { key: response.key, url: response.url };
+  }
+  const init: MultipartUploadInit = response;
   if (typeof init.key !== "string" || !init.key.trim() || typeof init.uploadId !== "string" || !init.uploadId.trim() ||
     !Array.isArray(init.partUrls) || init.partUrls.length !== parts || init.partUrls.some(url => typeof url !== "string" || !url.trim())) {
     throw new Error("Storage returned an invalid upload allocation. No file bytes were sent.");
@@ -57,19 +81,29 @@ export async function uploadMultipart(
   let bytesUploaded = 0;
   let partsCompleted = 0;
   let useProxy = false;
+  for (const part of init.uploadedParts ?? []) {
+    const expectedSize = Math.min(partSize, blob.size - (part.PartNumber - 1) * partSize);
+    if (!Number.isInteger(part.PartNumber) || part.PartNumber < 1 || part.PartNumber > parts || !part.ETag || part.Size !== expectedSize || partETags[part.PartNumber - 1]) {
+      throw new Error("Storage returned invalid saved video parts. No bytes were sent.");
+    }
+    partETags[part.PartNumber - 1] = { PartNumber: part.PartNumber, ETag: part.ETag.replaceAll('"', "") };
+    bytesUploaded += part.Size;
+    partsCompleted++;
+  }
 
   async function proxyPart(index: number, slice: Blob): Promise<Response> {
     const query = new URLSearchParams({ key: init.key, uploadId: init.uploadId, partNumber: String(index + 1) });
-    const response = await fetch(`/api/uploads/part?${query}`, {
+    const response = await transferFetch(`/api/uploads/part?${query}`, {
       method: "PUT", body: slice, signal,
       headers: { "x-upload-size": String(slice.size) },
-    });
+    }, signal);
     if (!response.ok) return response;
     const body = await response.json();
     return new Response(null, { headers: { etag: body.etag ?? "" } });
   }
 
   async function uploadPart(index: number) {
+    if (partETags[index]) return;
     const start = index * partSize;
     const end = Math.min(start + partSize, blob.size);
     const slice = blob.slice(start, end);
@@ -81,13 +115,13 @@ export async function uploadMultipart(
           res = await proxyPart(index, slice);
         } else {
           try {
-            res = await fetch(init.partUrls[index], { method: "PUT", body: slice, signal });
+            res = await transferFetch(init.partUrls[index], { method: "PUT", body: slice }, signal);
           } catch (error) {
             signal?.throwIfAborted();
             useProxy = true;
             res = await proxyPart(index, slice);
           }
-          if (res.ok && !res.headers.get("etag")) {
+          if ((res.ok && !res.headers.get("etag")) || res.status === 403) {
             useProxy = true;
             res = await proxyPart(index, slice);
           }
@@ -107,11 +141,14 @@ export async function uploadMultipart(
     onProgress?.({ bytesUploaded, totalBytes: blob.size, partsCompleted, partsTotal: parts });
   }
 
+  let allocationRetained = false;
   try {
     // A rejected durable write stops all transfer. The catch below aborts this
     // empty multipart allocation using its own cleanup request.
     await onAllocated?.({ key: init.key, uploadId: init.uploadId });
+    allocationRetained = Boolean(onAllocated);
     signal?.throwIfAborted();
+    onProgress?.({ bytesUploaded, totalBytes: blob.size, partsCompleted, partsTotal: parts });
     // Run in batches of `concurrency`.
     for (let i = 0; i < parts; i += concurrency) {
       const batch: Promise<void>[] = [];
@@ -135,8 +172,9 @@ export async function uploadMultipart(
     }
     return completeRes.json();
   } catch (error) {
-    // Cleanup must use its own request: the user's signal may already be aborted.
-    await fetch("/api/uploads/abort-multipart", {
+    // Durable evidence keeps its allocation and acknowledged parts for Retry.
+    // Non-durable callers cannot recover the identity, so clean those up.
+    if (!allocationRetained) await fetch("/api/uploads/abort-multipart", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ uploadId: init.uploadId, key: init.key }),
       signal: AbortSignal.timeout(10_000),

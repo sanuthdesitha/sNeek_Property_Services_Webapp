@@ -57,7 +57,7 @@ export async function PUT(req: NextRequest) {
     }
   } catch (error: any) {
     return NextResponse.json({ error: error.message ?? "Upload part failed" }, {
-      status: error.message === "UNAUTHORIZED" ? 401 : 400,
+      status: error.message === "UNAUTHORIZED" ? 401 : error instanceof z.ZodError || /declared size|Incomplete upload part/.test(error.message ?? "") ? 400 : error.statusCode === 403 ? 403 : 503,
     });
   }
 }

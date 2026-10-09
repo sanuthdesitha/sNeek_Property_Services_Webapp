@@ -43,13 +43,25 @@ import { isStampableImage, type StampGps, type StampOptions } from "@/lib/upload
 import { getAccuratePosition } from "@/lib/geo/get-position";
 import { uploadMultipart } from "@/lib/uploads/multipart-client";
 import { compressVideo, isVideoFile } from "@/lib/uploads/compress-video";
-import { getEvidence, listEvidence, putEvidence, isEvidenceVolatile, type EvidenceRecord, type EvidenceScope } from "@/lib/cleaner/evidence-store";
+import { getEvidence, listEvidence, putEvidence, isEvidenceVolatile, sameEvidenceScope, type EvidenceRecord, type EvidenceScope } from "@/lib/cleaner/evidence-store";
 import { processEvidence } from "@/lib/cleaner/evidence-client";
 import { useEvidenceScope } from "./evidence-context";
 import { getVolatileEvidence, retainVolatileEvidence, releaseVolatileEvidence, beginActiveEvidenceUpload } from "@/lib/cleaner/evidence-volatile";
 import { destinationKey, destinationOf, type EvidenceDestination } from "@/lib/cleaner/evidence-destination";
 import { deviceStorageAdvice, inspectImageCapture } from "@/lib/uploads/capture-advice";
 import { CaptureAdviceNotice } from "./capture-advice-notice";
+
+// A form can render dozens of capture fields. Share each concurrent recovery
+// read rather than cloning the entire IndexedDB evidence store per field.
+let recoveryRead: Promise<EvidenceRecord[]> | undefined;
+function readRecoveryRecords(): Promise<EvidenceRecord[]> {
+  if (!recoveryRead) {
+    const reading = listEvidence();
+    recoveryRead = reading;
+    void reading.finally(() => { if (recoveryRead === reading) recoveryRead = undefined; }).catch(() => {});
+  }
+  return recoveryRead;
+}
 
 export interface CapturedMedia {
   key: string;
@@ -170,8 +182,6 @@ class PermanentUploadError extends Error {}
 
 /** Above this, an automatic retry costs more than it saves on mobile data. */
 const AUTO_RETRY_MAX_BYTES = 25 * 1024 * 1024;
-// Avoid silently sending very large originals when browser encoding is unavailable.
-const ORIGINAL_VIDEO_FALLBACK_MAX_BYTES = 150 * 1024 * 1024;
 function uploadContentType(file: File): string {
   if (file.type && file.type.toLowerCase() !== "application/octet-stream") return file.type;
   const extension = file.name.split(".").pop()?.toLowerCase();
@@ -199,7 +209,8 @@ async function uploadLargeFile(
   folder: string,
   onBytes?: (sent: number, total: number) => void,
   signal?: AbortSignal,
-  onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>
+  onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>,
+  resume?: { key: string; uploadId: string }
 ): Promise<CapturedMedia> {
   try {
     const { url, key } = await uploadMultipart(
@@ -209,7 +220,8 @@ async function uploadLargeFile(
       (progress) => onBytes?.(progress.bytesUploaded, progress.totalBytes),
       signal,
       folder,
-      onAllocated
+      onAllocated,
+      resume
     );
     if (typeof key !== "string" || !key.trim() || typeof url !== "string" || !url.trim()) {
       throw new PermanentUploadError("Upload response is incomplete. The file was not attached.");
@@ -399,6 +411,7 @@ export async function prepareAndUploadFiles(
     recoveryRecords?: EvidenceRecord[];
     /** Internal recovery hooks: persist prepared bytes before network. */
     prepared?: File;
+    resume?: { key: string; uploadId: string };
     onPrepared?: (file: File) => Promise<void>;
     beforeNetwork?: () => Promise<void>;
     onAllocated?: (allocation: { key: string; uploadId: string }) => Promise<void>;
@@ -455,7 +468,7 @@ export async function prepareAndUploadFiles(
           const uploaded = await prepareAndUploadFiles([new File([current.blob], current.filename, { type: current.mime })], {
             folder: `forms/${current.jobId}/${current.id}`, source: current.source, signal: opts.signal,
             stamp: current.stamp === null ? null : { ...current.stamp, capturedAt: current.createdAt },
-            prepared, onFileProgress: opts.onFileProgress, onAdvice: opts.onAdvice,
+            prepared, resume: current.allocation, onFileProgress: opts.onFileProgress, onAdvice: opts.onAdvice,
             beforeNetwork, noAutoRetry: true,
             onAllocated: async allocation => {
               const parts = allocation.key.split("/");
@@ -533,7 +546,6 @@ export async function prepareAndUploadFiles(
               dispose = result.dispose;
             } catch (error) {
               opts.signal?.throwIfAborted();
-              if (file.size > ORIGINAL_VIDEO_FALLBACK_MAX_BYTES) throw error;
               // Encoding support varies by phone/browser. Keep every track by
               // uploading the original instead of discarding valid evidence.
               prepared = file;
@@ -561,7 +573,7 @@ export async function prepareAndUploadFiles(
             ? await uploadLargeFile(prepared, opts.folder, onBytes, opts.signal, async allocation => {
                 await opts.onAllocated?.(allocation);
                 await opts.beforeNetwork?.();
-              })
+              }, opts.resume)
             : await uploadWithRetry(prepared, opts.folder, onBytes, opts.signal);
         } catch (err: any) {
           // A file the cleaner cancelled is not a file that failed. Putting it
@@ -778,9 +790,14 @@ export function MediaCapture({
   const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [captureAdvice, setCaptureAdvice] = React.useState<Record<string, string[]>>({});
-  // Optional downloads only; failed attempts never remain in the active queue.
+  // Failed captures remain recoverable without being counted as active uploads.
   const [failures, setFailures] = React.useState<UploadFailure[]>([]);
 
+
+  const recoveryContext = JSON.stringify([evidenceScope, evidenceFieldId]);
+  const recoveryContextRef = React.useRef(recoveryContext);
+  recoveryContextRef.current = recoveryContext;
+  React.useEffect(() => { setFailures([]); setUploadError(null); }, [recoveryContext]);
 
   const latestValue = React.useRef(value);
   latestValue.current = value;
@@ -830,9 +847,9 @@ export function MediaCapture({
         // Replaced rather than appended: this list IS the files that just
         // ran, so anything previously failed and now retried disappears.
         setFailures(failed);
-        if (failed.length) setUploadError(`${failed.length} ${failed.length === 1 ? "file did" : "files did"} not upload. Choose the file again to retry. Uploaded attachments are kept.`);
+        if (failed.length) setUploadError(`${failed.length} ${failed.length === 1 ? "file did" : "files did"} not upload. ${failed.some(item => item.captureId) ? "Retry the saved upload below to continue." : "Choose the file again to retry."} Uploaded attachments are kept.`);
         if (results.length > 0) {
-          onChange(multiple ? [...latestValue.current, ...results] : results.slice(-1));
+          onChange(multiple ? Array.from(new Map([...latestValue.current, ...results].map(item => [item.key, item])).values()) : results.slice(-1));
         }
         if (controller.signal.aborted) {
           setNotice(
@@ -857,6 +874,49 @@ export function MediaCapture({
     },
     [folder, multiple, onChange, value, stamp, evidenceScope, evidenceFieldId, evidenceDestination]
   );
+
+  // Reopen interrupted photos and videos in their original field after navigation/reload.
+  React.useEffect(() => {
+    if (!evidenceScope || !evidenceFieldId || busy) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const records = await readRecoveryRecords();
+        if (!active) return;
+        const pending = records.filter(record => sameEvidenceScope(record, evidenceScope)
+          && record.fieldId === evidenceFieldId
+          && record.status !== "attached" && record.status !== "detached");
+        setFailures(previous => {
+          const recordsById = new Map(records.map(record => [record.id, record]));
+          const merged = new Map(previous.filter(item => {
+            const status = item.captureId ? recordsById.get(item.captureId)?.status : undefined;
+            return status !== "attached" && status !== "detached";
+          }).map(item => [item.captureId ?? item.name, item]));
+          for (const record of pending) if (!merged.has(record.id)) merged.set(record.id, {
+            captureId: record.id, name: record.filename,
+            file: new File([record.blob], record.filename, { type: record.mime }),
+            reason: record.error || "Upload paused. Retry to continue from its saved parts.",
+          });
+          return Array.from(merged.values());
+        });
+      } catch { /* Original selection remains available if local storage fails. */ }
+    };
+    void refresh();
+    window.addEventListener("focus", refresh);
+    return () => { active = false; window.removeEventListener("focus", refresh); };
+  }, [evidenceScope, evidenceFieldId, busy]);
+
+  async function retryCapture(failure: UploadFailure) {
+    try {
+      const context = recoveryContextRef.current;
+      const record = failure.captureId ? await getEvidence(failure.captureId) : undefined;
+      if (context !== recoveryContextRef.current) return;
+      if (!record || !evidenceScope || !sameEvidenceScope(record, evidenceScope) || record.fieldId !== evidenceFieldId) {
+        throw new Error("The saved upload context changed. Reload this job before retrying.");
+      }
+      await runUpload([new File([record.blob], record.filename, { type: record.mime })], record.source, [record]);
+    } catch (error) { setUploadError(error instanceof Error ? error.message : "Could not recover this upload."); }
+  }
 
   const cancelUpload = React.useCallback(() => {
     abortRef.current?.abort();
@@ -1062,6 +1122,13 @@ export function MediaCapture({
         </ul>
       ) : null}
 
+      {failures.some(item => item.captureId) ? <div className="flex flex-wrap gap-2">
+        {failures.filter(item => item.captureId).map(item => <button key={item.captureId} type="button"
+          disabled={Boolean(busy) || disabled} onClick={() => void retryCapture(item)}
+          className="min-h-11 max-w-full break-words rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2 text-left text-sm disabled:opacity-50">
+          Retry upload: {item.name}
+        </button>)}
+      </div> : null}
       {failures.length > 0 ? <details className="text-xs text-[hsl(var(--e-text-secondary))]">
         <summary className="min-h-11 cursor-pointer py-3 font-medium">Why upload failed</summary>
         <ul className="space-y-2 break-words pb-2">

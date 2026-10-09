@@ -188,7 +188,11 @@ describe("evidence attachment acknowledgement", () => {
   });
   it.each([[{ code: "NotFound" }, 409], [{ code: "AccessDenied" }, 500]])("keeps provider failure distinct from not-found", async (error, status) => {
     mocks.head.mockRejectedValue(error);
-    expect((await POST(request(), context)).status).toBe(status);
+    const response = await POST(request(), context);
+    expect(response.status).toBe(status);
+    const result = await response.json();
+    if (status === 409) expect(result.code).toBe("EVIDENCE_OBJECT_MISSING");
+    else expect(result.code).not.toBe("EVIDENCE_OBJECT_MISSING");
     expect(mocks.lock).not.toHaveBeenCalled(); expect(mocks.save).not.toHaveBeenCalled();
   });
   it("explicit detach keeps the receipt tombstone and blocks a delayed attachment retry", async () => {

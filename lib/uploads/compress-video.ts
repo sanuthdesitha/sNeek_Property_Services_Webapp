@@ -38,7 +38,7 @@ export async function compressVideo(file: File, options: {
       writable = undefined;
     }
     if (!writable && file.size > 25 * 1024 * 1024) {
-      throw new Error("Device video workspace is unavailable. Free device storage or choose a shorter clip. The original can still upload when it is 150 MB or smaller.");
+      throw new Error("Device video workspace is unavailable. Free device storage or choose a shorter clip. The original will upload without compression.");
     }
     const target = writable ? new media.StreamTarget(writable) : new media.BufferTarget();
     const output = new media.Output({ format: new media.Mp4OutputFormat(), target });

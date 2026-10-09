@@ -203,3 +203,21 @@ it("batch assignment reads the draft once and confirms each move before updating
  expect(fetcher).toHaveBeenCalledTimes(4);
  expect(moved.mock.calls.flat().sort()).toEqual(["one", "three", "two"]);
 });
+
+it("resumes the same prepared capture only after explicit missing-object confirmation", async () => {
+  record = { ...record, status: "uploading", prepared: new Blob(["prepared"]), allocation: { key: receipt.key, uploadId: "upload" } }; saved = record;
+  fetcher.mockResolvedValueOnce(Response.json({ code: "EVIDENCE_OBJECT_MISSING", error: "Video is incomplete" }, { status: 409 }))
+    .mockResolvedValueOnce(Response.json({ ok: true, captureId: record.id, key: receipt.key, media: receipt }));
+  const upload = vi.fn(async (current, beforeNetwork) => {
+    expect(current.allocation).toEqual(record.allocation); expect(current.prepared).toBe(record.prepared);
+    await beforeNetwork(); return receipt;
+  });
+  await expect(processEvidence(record, scope, upload)).resolves.toEqual({ ...receipt, name: record.filename });
+  expect(upload).toHaveBeenCalledOnce(); expect(saved.status).toBe("attached");
+});
+it("never resends bytes after an authorization or uncertain attachment failure", async () => {
+  record = { ...record, status: "uploading", prepared: new Blob(["prepared"]), allocation: { key: receipt.key, uploadId: "upload" } }; saved = record;
+  fetcher.mockResolvedValueOnce(Response.json({ error: "Not assigned" }, { status: 403 }));
+  const upload = vi.fn();
+  await expect(processEvidence(record, scope, upload)).rejects.toThrow("Not assigned"); expect(upload).not.toHaveBeenCalled();
+});
