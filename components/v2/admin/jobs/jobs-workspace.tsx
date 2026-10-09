@@ -8,6 +8,7 @@
  * board toggle, serif rows, bulk bar, CSV export.
  */
 import Link from "next/link";
+import { navigationScope } from "@/lib/navigation/view-memory";
 import { Plus } from "lucide-react";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { DEFAULT_JOBS_STATE } from "@/lib/jobs/workspace-state";
@@ -171,6 +172,16 @@ const FIELD_CLS =
 /* ── Workspace ─────────────────────────────────────────────────────────── */
 export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefaultsEnabled = false, showPageHeader = false }: { showPageHeader?: boolean; viewsContext?: string; viewsReadOnly?: boolean; teamDefaultsEnabled?: boolean }) {
   const router = useRouter();
+  const filtersPanel = useRef<HTMLDetailsElement>(null);
+  const filtersStorageKey = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `sneek:jobs:filters-open:v1:${navigationScope()}:${viewsContext ?? "default"}`;
+    filtersStorageKey.current = key;
+    let open = true;
+    try { open = localStorage.getItem(key) !== "false"; } catch { /* Optional display preference. */ }
+    if (filtersPanel.current) filtersPanel.current.open = open;
+  }, [viewsContext]);
+
   const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
   const viewOptionsTitle = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -668,7 +679,10 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
         <JobsExportPreview query={buildQuery({ page: "1", limit: "5000" }).toString()} context={viewsContext} disabled={!ready} />
       </div>
 
-      <details className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]" open>
+      <details ref={filtersPanel} onToggle={(event) => {
+        if (!filtersStorageKey.current) return;
+        try { localStorage.setItem(filtersStorageKey.current, String(event.currentTarget.open)); } catch { /* Keep native disclosure usable when storage is blocked. */ }
+      }} className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
         <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
           <SlidersHorizontal className="mr-2 inline h-4 w-4" aria-hidden />
           Filters · {hasActiveFilters ? "Filtered view" : "All jobs"}

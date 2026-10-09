@@ -29,6 +29,7 @@ function respond(index: number, name: string, page = 1) {
 }
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   pending = [];
   window.history.replaceState({}, "", "/v2/admin/jobs");
   vi.stubGlobal("fetch", vi.fn((url: string) => url.startsWith("/api/jobs?")
@@ -290,4 +291,34 @@ it.each([[401, "Your session has expired"], [403, "does not have permission"], [
   expect(screen.getByRole("alert")).toHaveTextContent(String(message));
   expect(screen.queryByText("private database details")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+});
+
+
+it("keeps filters collapsed through job refreshes and restores both disclosure choices on return", async () => {
+  const first = renderBase(<JobsWorkspace viewsContext="owner" />);
+  const panel = first.container.querySelector("details")!;
+  expect(panel.open).toBe(true);
+  panel.open = false;
+  fireEvent(panel, new Event("toggle"));
+  await act(async () => respond(0, "Refreshed"));
+  expect(panel.open).toBe(false);
+  first.unmount();
+  const second = renderBase(<JobsWorkspace viewsContext="owner" />);
+  const restored = second.container.querySelector("details")!;
+  expect(restored.open).toBe(false);
+  restored.open = true;
+  fireEvent(restored, new Event("toggle"));
+  second.unmount();
+  const third = renderBase(<JobsWorkspace viewsContext="owner" />);
+  expect(third.container.querySelector("details")!.open).toBe(true);
+});
+it("keeps disclosure preferences separate between account contexts", () => {
+  const view = renderBase(<JobsWorkspace viewsContext="owner" />);
+  const panel = view.container.querySelector("details")!;
+  panel.open = false;
+  fireEvent(panel, new Event("toggle"));
+  view.rerender(<JobsWorkspace viewsContext="other-account" />);
+  expect(panel.open).toBe(true);
+  view.rerender(<JobsWorkspace viewsContext="owner" />);
+  expect(panel.open).toBe(false);
 });

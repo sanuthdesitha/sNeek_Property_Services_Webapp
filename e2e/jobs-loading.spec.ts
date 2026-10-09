@@ -117,6 +117,24 @@ test("owner Jobs loads real records and retries a temporary error without losing
   await expect(page.getByRole("textbox", { name: "Search jobs" })).toHaveValue(
     job,
   );
+  const filters = page.locator("details").first();
+  const summary = filters.locator("summary");
+  await summary.focus();
+  await summary.press("Enter");
+  await expect(filters).not.toHaveAttribute("open", "");
+  await page.goto(`/v2/admin/jobs?search=${job}`);
+  await expect(filters).not.toHaveAttribute("open", "");
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Jobs", exact: true }),
+  ).toBeVisible();
+  await expect(filters).not.toHaveAttribute("open", "");
+  await summary.click();
+  await expect(filters).toHaveAttribute("open", "");
+  await page.goto(`/v2/admin/jobs?search=${job}`);
+  await expect(filters).toHaveAttribute("open", "");
+  await summary.click();
+  await expect(filters).not.toHaveAttribute("open", "");
   for (const width of [390, 1280])
     for (const dark of [false, true]) {
       await page.setViewportSize({ width, height: 900 });

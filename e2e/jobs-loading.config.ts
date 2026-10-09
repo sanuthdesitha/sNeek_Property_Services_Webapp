@@ -6,7 +6,11 @@ export default defineConfig({
   workers: 1,
   timeout: 90_000,
   outputDir: "../test-results/jobs-loading",
-  use: { baseURL: "http://127.0.0.1:3023", browserName: "chromium" },
+  use: {
+    baseURL: "http://127.0.0.1:3023",
+    browserName: "chromium",
+    serviceWorkers: "block",
+  },
   webServer: {
     cwd: path.resolve(__dirname, ".."),
     command:
