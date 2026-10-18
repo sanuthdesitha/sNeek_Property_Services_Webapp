@@ -8,6 +8,14 @@ Run the dedicated `workers/boss.ts` process with `SNEEK_WORKERS_ENABLED=true`, a
 
 All `boss.schedule` registrations now explicitly specify `Australia/Sydney`, including DST transitions. Existing schedules are updated when the worker registers them. Marketing dispatch runs every five minutes; the Google review cache refresh is daily. Existing iCal four-hour cadence remains unchanged. A five-minute `auto-clockout-sweep` owns the former page-load clock cutoff work. `submission-followup-dispatch` processes the cleaner submission QA/report receipts every five minutes; it must not replay client sends or submit forms. Finance automation retains its own due-date and authorization controls; this change does not enable auto-send.
 
+## Worker startup correction (2026-10-18)
+
+Use `npx tsx --tsconfig tsconfig.scripts.json workers/boss.ts` for a dedicated worker (Compose and `npm run workers:dev` now select this configuration). Plain `tsx workers/boss.ts` throws on the `server-only` import in `lib/db.ts` before reaching the worker opt-in checks or registering schedules. The existing CLI config handles that marker outside Next.js; the application/client-bundle guard remains unchanged.
+
+This is a reproduced source startup defect, not confirmation of the live deployment's failure. A Dockerfile-only deployment still starts just the web app. Inspect the actual worker command, startup logs and fresh heartbeat; a pg-boss schedule row alone does not prove a live worker. Keep `SNEEK_WORKERS_ENABLED`, `SNEEK_WORKERS_DISABLED` and `SNEEK_DISABLED_JOBS` under the existing operator policy. Do not enable the full worker merely to restore iCal if other automation has intentionally been disabled.
+
+The existing iCal handler remains `syncAllIcal()` at `0 */4 * * *` in `Australia/Sydney`, selecting enabled integrations with a non-null URL and recording `AUTO` runs. It does not use the legacy 40-minute due helper. Each feed failure is isolated. Manual Sync now uses the same per-property service, records `MANUAL` and the actor, and remains available independently of the worker. Verify a successful AUTO run and updated `lastSyncAt` after a scheduled tick in the deployed environment; manual success alone does not validate automatic scheduling. No deployment or environment change is performed by this correction.
+
 ## Mobile outbox contract
 
 `Notification` PUSH inserts are annotated by Prisma middleware; the middleware performs **no external delivery**. The marker is stored atomically with the notification, so a rolled-back transaction leaves no dispatchable row. `createMany(skipDuplicates)` only queues rows actually inserted. Explicit INBOX intents (`intent-` IDs) remain inbox-only.

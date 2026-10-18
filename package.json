@@ -26,7 +26,7 @@
     "db:generate": "prisma generate",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "playwright:install": "playwright install chromium",
-    "workers:dev": "cross-env NODE_OPTIONS=\"--max-old-space-size=512\" tsx watch workers/boss.ts",
+    "workers:dev": "cross-env NODE_OPTIONS=\"--max-old-space-size=512\" tsx watch --tsconfig tsconfig.scripts.json workers/boss.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",

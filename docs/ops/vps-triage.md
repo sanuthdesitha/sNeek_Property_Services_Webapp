@@ -143,7 +143,7 @@ Recommended deployment topology:
 - **Web container**: runs `npm start`. Handles HTTP requests only. Set
   `SNEEK_WORKERS_DISABLED=true` so even if the image accidentally ran
   `workers/boss.ts`, it would exit immediately.
-- **Worker container**: runs `npx tsx workers/boss.ts` (or a
+- **Worker container**: runs `npx tsx --tsconfig tsconfig.scripts.json workers/boss.ts` (or a
   `workers:start` script). Imports the same codebase but only registers
   pg-boss listeners.
 
@@ -162,7 +162,7 @@ services:
 
   worker:
     image: sneek-ops-dashboard
-    command: npx tsx workers/boss.ts
+    command: npx tsx --tsconfig tsconfig.scripts.json workers/boss.ts
     cpus: 1.0
     mem_limit: 1g
     restart: unless-stopped
