@@ -68,7 +68,7 @@ services:
         condition: service_healthy
     command: >
       sh -lc "npx prisma generate &&
-      npx tsx workers/boss.ts"
+      npx tsx --tsconfig tsconfig.scripts.json workers/boss.ts"
     environment:
       NODE_ENV: production
       NEXT_DIST_DIR: .next-prod

@@ -109,6 +109,19 @@ it("honors selective disable flags and advertises disabled mobile dispatch", asy
   expect(m.call("startWorkerHeartbeat")).toHaveBeenCalledWith(false);
   expect(m.handlers.has("submission-followup-dispatch")).toBe(true);
 });
+it("keeps automatic iCal on its existing cadence and honors its job kill switch", async () => {
+  await boot();
+  expect(m.schedule).toHaveBeenCalledWith("ical-sync", "0 */4 * * *", {}, { tz: "Australia/Sydney" });
+  await m.handlers.get("ical-sync")!();
+  expect(m.call("syncAllIcal")).toHaveBeenCalledOnce();
+
+  vi.useRealTimers(); vi.resetModules(); vi.clearAllMocks(); m.handlers.clear();
+  vi.stubEnv("SNEEK_DISABLED_JOBS", " ical-sync ");
+  await boot();
+  expect(m.handlers.has("ical-sync")).toBe(false);
+  expect(m.schedule.mock.calls.some(([name]) => name === "ical-sync")).toBe(false);
+  expect(m.call("syncAllIcal")).not.toHaveBeenCalled();
+});
 it("plans every property page using one cutoff without dispatching jobs or invoices", async () => {
   await boot();
   m.call("planDueDeepCleanDrafts").mockResolvedValueOnce({ scanned: 100, created: 2, existing: 98, invalid: 0, errors: 0, nextCursor: "property-100" })

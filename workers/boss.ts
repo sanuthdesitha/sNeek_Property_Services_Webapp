@@ -4,7 +4,7 @@
 
 /**
  * pg-boss worker entry point.
- * Run with: tsx workers/boss.ts
+ * Run with: tsx --tsconfig tsconfig.scripts.json workers/boss.ts
  *
  * Safety guarantees added in fix(perf):
  *  - Every handler is wrapped in `safeWork()` so a throwing job does NOT

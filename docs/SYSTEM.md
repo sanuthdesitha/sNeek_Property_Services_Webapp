@@ -512,7 +512,7 @@ Each property can have one `Integration` row (provider default `ICAL_HOSPITABLE`
 4. **Re-sync updates**: for existing linked jobs (skipping terminal statuses), dates/times are only rewritten when `updateExistingLinkedJobs` is on **and** `manuallyRescheduledAt == null` — a manual admin/client reschedule is never overridden by the feed. Estimated hours are backfilled from the property, and the reservation context is re-merged.
 5. **`pruneVanishedReservationJobs`** deletes jobs whose reservation disappeared from the feed (cancelled or re-UID'd), but only inside the window the feed actually covers and only for `UNASSIGNED/OFFERED/ASSIGNED` jobs — anything from `EN_ROUTE` onward is never auto-deleted. Assigned cleaners are notified first.
 
-Per-property sync behaviour flags (`lib/ical/options.ts`, stored in `Integration.notes` JSON): `ignorePastDates`, `autoCreateTurnoverJobs`, `updateExistingLinkedJobs`, `verifyFeedDuplicates`, `verifyExistingJobConflicts` (skips creating a job when another turnover already exists that day). `syncAllIcalIfDue` runs from the schedulers (B8), gating each feed by its own due time.
+Per-property sync behaviour flags (`lib/ical/options.ts`, stored in `Integration.notes` JSON): `ignorePastDates`, `autoCreateTurnoverJobs`, `updateExistingLinkedJobs`, `verifyFeedDuplicates`, `verifyExistingJobConflicts` (skips creating a job when another turnover already exists that day). The dedicated worker calls `syncAllIcal()` every four hours in Australia/Sydney for enabled integrations with a URL; the legacy `syncAllIcalIfDue` helper is not its handler. (2026-10) Standalone worker commands select the existing `tsconfig.scripts.json` so the `server-only` marker does not crash startup before schedule registration. The web compatibility scheduler is inert; a running, explicitly enabled dedicated worker is required. Safety switches, cadence and manual sync behavior are unchanged. See `docs/ops/scheduler-and-mobile-outbox.md` for deployment verification.
 
 #### Early check-in / late checkout rules, end-to-end
 
@@ -1878,3 +1878,5 @@ One line per shipped wave. Newest first. (Add to this list with every future wav
 - **2026-09-21** — Added reviewable bulk photo matching, property example memory, optional dedicated continuously updated section classifiers, and reference-photo QA suggestions with approval-only deductions.
 
 - **2026-09-21** — Restored older job/report photos in property memory and training through linked-template, checklist-evidence and legacy-upload compatibility; improved pagination and source-job links.
+
+- **2026-10-18** — Correct dedicated worker startup commands to use the existing CLI TypeScript config, resolving a reproduced `server-only` import crash that prevents automatic iCal registration. Preserve opt-in/kill switches, four-hour cadence and manual sync; deployed cause remains unverified.
