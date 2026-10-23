@@ -62,6 +62,7 @@ const defaults = { alertedCases: 0, dispatched: 0, campaigns: 0, warned: 0, esca
 beforeEach(() => {
   vi.resetModules(); vi.clearAllMocks(); m.handlers.clear();
   vi.stubEnv("SNEEK_WORKERS_ENABLED", "true"); vi.stubEnv("SNEEK_WORKERS_DISABLED", "false"); vi.stubEnv("SNEEK_DISABLED_JOBS", "");
+  vi.stubEnv("SNEEK_ENABLED_JOBS", "");
   (globalThis as any).__sneekWorkerFailures = []; (globalThis as any).__sneekJobRuns = [];
   for (const name of ['autoApprovePendingClientJobTasks', 'autoClockOutStaleTimeLogsForUser', 'autoPauseStaleJobs', 'buildLaundryPlanDraft', 'dispatchCleanerDayReminders', 'dispatchClientPostJobAutomationRule', 'dispatchDueCampaigns', 'dispatchJobFollowUp', 'dispatchJobReminders', 'dispatchLaundryDriverNudges', 'dispatchMobileOutbox', 'dispatchNotificationIntents', 'dispatchScheduledEmailCampaigns', 'dispatchScheduledWorkforcePosts', 'dispatchTomorrowPrepSummaries', 'dispatchUnfinishedJobPushReminders', 'generateInvoiceForUser', 'generateJobReport', 'generateRecurringJobs', 'getAppSettings', 'listUsersDueForInvoicing', 'processPhotoReviewQueue', 'processPropertyModelTrainingQueue', 'processQaReportFollowups', 'processSubmissionFollowups', 'rebuildCleanerPropertyStats', 'refreshGoogleReviewsCache', 'runAccountabilityNightly', 'runCredentialExpiryCheck', 'runDocumentExpiryCheck', 'runMissedClockInSweep', 'runQaAutoScoreSweep', 'runRecognitionCheck', 'runSafetyCheckinAlerts', 'runSlaEscalation', 'runTimingRuleReconcileIfPending', 'sendAdminAttentionSummary', 'sendDailyOpsBriefing', 'sendPendingPayApprovalReminders', 'sendStaleCaseFollowUps', 'sendStockAlerts', 'startWorkerHeartbeat', 'sweepStaleEnRouteJobs', 'syncAllIcal']) m.call(name);
   for (const fn of m.calls.values()) fn.mockResolvedValue({ ...defaults });
@@ -86,7 +87,7 @@ it("registers Sydney schedules once and only dispatches domain work when its han
   expect(new Set(names).size).toBe(names.length);
   expect(names.length).toBeGreaterThan(30);
   for (const [, , data, options] of m.schedule.mock.calls) { expect(data).toEqual({}); expect(options).toEqual({ tz: "Australia/Sydney" }); }
-  expect(m.call("startWorkerHeartbeat")).toHaveBeenCalledWith(true);
+  expect(m.call("startWorkerHeartbeat")).toHaveBeenCalledWith(true, expect.arrayContaining(["ical-sync", "mobile-notification-dispatch"]));
   for (const [name, fn] of m.calls) if (name !== "startWorkerHeartbeat") expect(fn, name).not.toHaveBeenCalled();
   for (const handler of m.handlers.values()) await handler();
   expect(m.call("dispatchMobileOutbox")).toHaveBeenCalledOnce();
@@ -106,7 +107,7 @@ it("honors selective disable flags and advertises disabled mobile dispatch", asy
   vi.stubEnv("SNEEK_DISABLED_JOBS", " mobile-notification-dispatch, weekly-laundry-plan ,email-campaign-dispatch,deep-clean-planning");
   await boot();
   for (const name of ["mobile-notification-dispatch", "weekly-laundry-plan", "email-campaign-dispatch", "deep-clean-planning"]) expect(m.handlers.has(name)).toBe(false);
-  expect(m.call("startWorkerHeartbeat")).toHaveBeenCalledWith(false);
+  expect(m.call("startWorkerHeartbeat")).toHaveBeenCalledWith(false, expect.not.arrayContaining(["mobile-notification-dispatch"]));
   expect(m.handlers.has("submission-followup-dispatch")).toBe(true);
 });
 it("keeps automatic iCal on its existing cadence and honors its job kill switch", async () => {
@@ -121,6 +122,24 @@ it("keeps automatic iCal on its existing cadence and honors its job kill switch"
   expect(m.handlers.has("ical-sync")).toBe(false);
   expect(m.schedule.mock.calls.some(([name]) => name === "ical-sync")).toBe(false);
   expect(m.call("syncAllIcal")).not.toHaveBeenCalled();
+});
+it("scopes an iCal-only worker without registering unrelated automation", async () => {
+  vi.stubEnv("SNEEK_ENABLED_JOBS", " ical-sync ");
+  await boot();
+  expect([...m.handlers.keys()]).toEqual(["ical-sync"]);
+  expect(m.schedule).toHaveBeenCalledOnce();
+  expect(m.call("startWorkerHeartbeat")).toHaveBeenCalledWith(false, ["ical-sync"]);
+  await m.handlers.get("ical-sync")!();
+  expect(m.call("syncAllIcal")).toHaveBeenCalledOnce();
+  for (const [name, fn] of m.calls) if (!["syncAllIcal", "startWorkerHeartbeat"].includes(name)) expect(fn, name).not.toHaveBeenCalled();
+});
+it("keeps the iCal kill switch stronger than the deployment allowlist", async () => {
+  vi.stubEnv("SNEEK_ENABLED_JOBS", "ical-sync");
+  vi.stubEnv("SNEEK_DISABLED_JOBS", "ical-sync");
+  await boot();
+  expect(m.handlers.size).toBe(0);
+  expect(m.schedule).not.toHaveBeenCalled();
+  expect(m.call("startWorkerHeartbeat")).toHaveBeenCalledWith(false, []);
 });
 it("plans every property page using one cutoff without dispatching jobs or invoices", async () => {
   await boot();
@@ -159,7 +178,7 @@ it("can disable every job without registering handlers or schedules", async () =
   vi.stubEnv("SNEEK_DISABLED_JOBS", names.join(","));
   await boot();
   expect(m.handlers.size).toBe(0); expect(m.schedule).not.toHaveBeenCalled();
-  expect(m.call("startWorkerHeartbeat")).toHaveBeenCalledWith(false);
+  expect(m.call("startWorkerHeartbeat")).toHaveBeenCalledWith(false, []);
 });
 it("processes positive domain results and isolates individual invoice generation failures", async () => {
   await boot();

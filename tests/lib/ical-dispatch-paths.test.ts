@@ -59,3 +59,27 @@ it("manual sync still rejects unauthorized callers without fetching a feed", asy
   expect(response.status).toBe(403);
   expect(mocks.fetch).not.toHaveBeenCalled();
 });
+
+it("releases every pool slot when feeds send headers but stall their response bodies", async () => {
+  vi.useFakeTimers();
+  try {
+    mocks.findMany.mockResolvedValue(Array.from({ length: 5 }, (_, i) => ({ id: `feed-${i}`, propertyId: `property-${i}` })));
+    mocks.fetch.mockImplementation(async (_url, { signal }) => {
+      const body = new ReadableStream({
+        start(controller) {
+          signal.addEventListener("abort", () => controller.error(new Error("Feed body timed out")), { once: true });
+        },
+      });
+      return new Response(body, { status: 200 });
+    });
+    let settled = false;
+    const sweep = syncAllIcal().then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(mocks.fetch).toHaveBeenCalledTimes(5);
+    expect(settled).toBe(true);
+    expect(mocks.updateRun.mock.calls.filter(([arg]) => arg.data.status === "ERROR")).toHaveLength(5);
+    await sweep;
+  } finally {
+    vi.useRealTimers();
+  }
+});

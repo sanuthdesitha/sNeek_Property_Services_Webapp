@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import type { IcalAutomationStatus } from "@/lib/ical/automation-status";
 import {
   Area,
   AreaChart,
@@ -43,10 +44,11 @@ type Snapshot = {
   };
   scheduler?: {
     resendConfigured: boolean;
-    scheduleCount: number;
+    scheduleCount: number | null;
     schedules: { name: string; cron: string; updatedOn: string | null }[];
     emailsSentLast24h: number | null;
     webFallbackLastTickAt: string | null;
+    ical: IcalAutomationStatus;
   };
   db: {
     activeQueries: { pid: number; user: string | null; state: string | null; seconds: number; query: string }[];
@@ -357,29 +359,31 @@ export function DiagnosticsClient() {
             <h2 className="text-sm font-semibold">Scheduled jobs &amp; email health</h2>
             <BandPill
               status={
-                snap.scheduler.scheduleCount > 0 || snap.scheduler.webFallbackLastTickAt ? "good" : "bad"
+                snap.scheduler.ical.worker?.status === "ACTIVE" ? "good" : "bad"
               }
             >
-              {snap.scheduler.scheduleCount > 0
-                ? "Dedicated worker active"
-                : snap.scheduler.webFallbackLastTickAt
-                  ? "In-web fallback active"
-                  : "No scheduler running"}
+              {snap.scheduler.ical.worker?.status === "ACTIVE" ? "Worker heartbeat active"
+                : snap.scheduler.ical.worker ? `Worker heartbeat ${snap.scheduler.ical.worker.status.toLowerCase()}`
+                  : "Worker health unavailable"}
             </BandPill>
           </div>
-          {snap.scheduler.scheduleCount === 0 && !snap.scheduler.webFallbackLastTickAt ? (
+          {!snap.scheduler.ical.worker?.icalSyncActive ? (
             <p className="mb-3 rounded-md border border-red-300 bg-red-50 p-2 text-xs text-red-800">
-              No scheduler is running — neither the dedicated pg-boss worker nor the in-web fallback has ticked.
-              Scheduled automation (iCal sync, laundry plan, reminders, campaigns, recurring jobs) is NOT running.
-              Redeploy with the worker enabled, or ensure the web container can reach the database.
-            </p>
-          ) : snap.scheduler.scheduleCount === 0 && snap.scheduler.webFallbackLastTickAt ? (
-            <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
-              Running via the in-web fallback (no dedicated worker container detected). Automation is active. For
-              best isolation, deploy the dedicated worker with <code className="mx-1">SNEEK_WORKERS_ENABLED=true</code>.
-              Last fallback tick: {new Date(snap.scheduler.webFallbackLastTickAt).toLocaleString()}.
+              Automatic iCal execution is unconfirmed. Check the dedicated worker command, safety switches,
+              and a fresh heartbeat advertising ical-sync. Stored schedules and manual sync do not prove unattended execution.
+              Web pages never run scheduled work.
             </p>
           ) : null}
+          <div className="mb-3 space-y-1 text-xs">
+            <p>iCal handler heartbeat: {snap.scheduler.ical.worker?.icalSyncActive ? "active" : "unconfirmed"}.
+              {" "}Cadence: every four hours in Australia/Sydney.</p>
+            <p>Latest AUTO run (across all feeds): {snap.scheduler.ical.recentAutoRuns === null ? "unavailable"
+              : snap.scheduler.ical.recentAutoRuns[0] ? `${snap.scheduler.ical.recentAutoRuns[0].status} at ${new Date(snap.scheduler.ical.recentAutoRuns[0].createdAt).toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}` : "none recorded"}.</p>
+            <p>Latest MANUAL run: {!snap.scheduler.ical.historyAvailable ? "unavailable"
+              : snap.scheduler.ical.latestManualRun ? `${snap.scheduler.ical.latestManualRun.status} at ${new Date(snap.scheduler.ical.latestManualRun.createdAt).toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}` : "none recorded"}.</p>
+            <p>Verify new successful AUTO records for every enabled feed after a scheduled tick with browsers closed.
+              {snap.scheduler.scheduleCount === null ? " Schedule data is unavailable." : ` Stored schedules: ${snap.scheduler.scheduleCount}.`}</p>
+          </div>
           <div className="mb-3 flex flex-wrap gap-2 text-xs">
             <BandPill status={snap.scheduler.resendConfigured ? "good" : "bad"}>
               RESEND_API_KEY {snap.scheduler.resendConfigured ? "configured" : "MISSING"}

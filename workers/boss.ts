@@ -76,12 +76,20 @@ const DISABLED_JOBS = new Set(
     .map((s) => s.trim())
     .filter(Boolean),
 );
+// Optional narrow deployment scope. An empty value preserves the full worker;
+// the existing disabled list and master switches always take precedence.
+const ENABLED_JOBS = new Set(
+  (process.env.SNEEK_ENABLED_JOBS || "").split(",").map((name) => name.trim()).filter(Boolean),
+);
+const registeredJobs = new Set<string>();
 
 function jobEnabled(name: string): boolean {
+  if (ENABLED_JOBS.size > 0 && !ENABLED_JOBS.has(name)) return false;
   if (DISABLED_JOBS.has(name)) {
     logger.warn({ jobName: name }, `[boss] Skipping ${name} — disabled via SNEEK_DISABLED_JOBS`);
     return false;
   }
+  registeredJobs.add(name);
   return true;
 }
 
@@ -660,8 +668,8 @@ async function main() {
   }
 
   const { startWorkerHeartbeat } = await import("@/lib/ops/worker-heartbeat");
-  await startWorkerHeartbeat(!DISABLED_JOBS.has("mobile-notification-dispatch"));
-  logger.info("All workers registered. Listening for jobs.");
+  await startWorkerHeartbeat(registeredJobs.has("mobile-notification-dispatch"), Array.from(registeredJobs));
+  logger.info({ registeredJobs: Array.from(registeredJobs) }, "All workers registered. Listening for jobs.");
 }
 
 main().catch((err) => {

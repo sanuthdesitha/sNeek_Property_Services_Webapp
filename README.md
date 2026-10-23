@@ -129,8 +129,10 @@ npm run workers:dev
 
 | Worker | Schedule |
 |--------|----------|
-| `ical-sync` | Every 40 minutes |
+| `ical-sync` | Every four hours, Australia/Sydney |
 | `reminder-dispatch` | Every 5 minutes |
 | `weekly-laundry-plan` | Monday 9am AEDT |
 | `stock-alerts` | Daily 7am AEDT |
 | `report-generate` | On-demand (triggered on job submission) |
+
+Automatic work requires a separate, long-running worker with explicit `SNEEK_WORKERS_ENABLED=true` and no master/per-job disable switch blocking it. Production uses `npm run workers:start`; `npm run workers:ical` limits this process to iCal only. The Dockerfile starts the web server, which never schedules work from page navigation. See [runtime verification](docs/ops/scheduler-and-mobile-outbox.md#unattended-ical-follow-up-2026-10-23) before calling a deployment healthy.

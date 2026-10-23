@@ -21,3 +21,11 @@ it("writes only when explicitly started by the worker and refreshes every minute
   stop(); await vi.advanceTimersByTimeAsync(60000); expect(m.upsert).toHaveBeenCalledTimes(2);
   vi.useRealTimers();
 });
+it("requires a fresh capability heartbeat to confirm the iCal handler", () => {
+  const row = { value: { registeredJobs: ["ical-sync"] }, updatedAt: now };
+  expect(summarizeWorkerHeartbeats([row], now).icalSyncActive).toBe(true);
+  expect(summarizeWorkerHeartbeats([row], new Date(now.getTime() + 180_000)).icalSyncActive).toBe(false);
+  expect(summarizeWorkerHeartbeats([{ ...row, value: { registeredJobs: ["mobile-notification-dispatch"] } }], now).icalSyncActive).toBe(false);
+  expect(summarizeWorkerHeartbeats([{ ...row, value: { registeredJobs: "ical-sync" } }], now).icalSyncActive).toBe(false);
+  expect(summarizeWorkerHeartbeats([{ ...row, value: null }], now).icalSyncActive).toBe(false);
+});
