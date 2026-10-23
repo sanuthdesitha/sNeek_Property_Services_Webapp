@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 export const WORKER_HEARTBEAT_PREFIX = "opsWorkerHeartbeat:";
 const STALE_AFTER_MS = 3 * 60_000;
-export type WorkerHealth = { status: "ACTIVE" | "STALE" | "MISSING"; lastSeenAt: string | null; mobileDispatcherActive: boolean };
+export type WorkerHealth = { status: "ACTIVE" | "STALE" | "MISSING"; lastSeenAt: string | null; mobileDispatcherActive: boolean; icalSyncActive: boolean };
 
 /** Pure read model: a schedule row is not proof of a live worker. */
 export function summarizeWorkerHeartbeats(rows: Array<{ value: unknown; updatedAt: Date }>, now = new Date()): WorkerHealth {
@@ -11,13 +11,18 @@ export function summarizeWorkerHeartbeats(rows: Array<{ value: unknown; updatedA
   const live = known.filter(row => now.getTime() - row.updatedAt.getTime() < STALE_AFTER_MS);
   const latest = known.reduce<Date | null>((result, row) => !result || row.updatedAt > result ? row.updatedAt : result, null);
   return { status: live.length ? "ACTIVE" : known.length ? "STALE" : "MISSING", lastSeenAt: latest?.toISOString() ?? null,
-    mobileDispatcherActive: live.some(row => (row.value as { mobileDispatcherEnabled?: boolean } | null)?.mobileDispatcherEnabled === true) };
+    mobileDispatcherActive: live.some(row => (row.value as { mobileDispatcherEnabled?: boolean } | null)?.mobileDispatcherEnabled === true),
+    // Older heartbeat versions cannot establish that this handler is enabled.
+    icalSyncActive: live.some(row => {
+      const jobs = (row.value as { registeredJobs?: unknown } | null)?.registeredJobs;
+      return Array.isArray(jobs) && jobs.includes("ical-sync");
+    }) };
 }
 
 /** Explicitly called after worker registration; importing this module is inert. */
-export async function startWorkerHeartbeat(mobileDispatcherEnabled: boolean) {
+export async function startWorkerHeartbeat(mobileDispatcherEnabled: boolean, registeredJobs: string[] = []) {
   const key = WORKER_HEARTBEAT_PREFIX + randomUUID();
-  const value = { mobileDispatcherEnabled };
+  const value = { mobileDispatcherEnabled, registeredJobs };
   const tick = async () => {
     await db.appSetting.upsert({ where: { key }, create: { key, value }, update: { value, updatedAt: new Date() } });
   };

@@ -1142,17 +1142,22 @@ export async function syncPropertyIcal(
     if (integration.lastSyncEtag) headers["If-None-Match"] = integration.lastSyncEtag;
     if (integration.lastSyncModified) headers["If-Modified-Since"] = integration.lastSyncModified;
 
-    // Hard timeout — a single dead/slow feed must not block the worker
-    // forever. 15s is well beyond a normal Hospitable response time.
+    // Keep the deadline through body consumption: fetch resolves on headers,
+    // so clearing it there lets a stalled body occupy a pool slot forever.
     const fetchController = new AbortController();
     const fetchTimer = setTimeout(() => fetchController.abort(), 15_000);
     let res: Response;
+    let text = "";
     try {
       res = await fetch(integration.icalUrl, {
         headers,
         cache: "no-store",
         signal: fetchController.signal,
       });
+      if (res.status !== 304) {
+        if (!res.ok) throw new Error(`HTTP ${res.status} fetching iCal`);
+        text = await res.text();
+      }
     } finally {
       clearTimeout(fetchTimer);
     }
@@ -1163,9 +1168,6 @@ export async function syncPropertyIcal(
       return { runId: run.id, summary };
     }
 
-    if (!res.ok) throw new Error(`HTTP ${res.status} fetching iCal`);
-
-    const text = await res.text();
     const etag = res.headers.get("etag") ?? undefined;
     const lastModified = res.headers.get("last-modified") ?? undefined;
 

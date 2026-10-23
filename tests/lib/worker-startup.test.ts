@@ -40,6 +40,9 @@ describe("standalone worker startup", () => {
   it("uses the same CLI config for development and leaves Next's guard intact", () => {
     const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
     expect(pkg.scripts["workers:dev"]).toContain("tsx watch --tsconfig tsconfig.scripts.json workers/boss.ts");
+    expect(pkg.scripts["workers:start"]).toBe("tsx --tsconfig tsconfig.scripts.json workers/boss.ts");
+    expect(pkg.scripts["workers:ical"]).toContain("SNEEK_ENABLED_JOBS=ical-sync npm run workers:start");
+    expect(compose).toContain("SNEEK_DISABLED_JOBS: ${SNEEK_DISABLED_JOBS:-}");
     expect(readFileSync(resolve(root, "tsconfig.json"), "utf8")).not.toContain('"server-only"');
   });
 });

@@ -27,6 +27,8 @@
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "playwright:install": "playwright install chromium",
     "workers:dev": "cross-env NODE_OPTIONS=\"--max-old-space-size=512\" tsx watch --tsconfig tsconfig.scripts.json workers/boss.ts",
+    "workers:start": "tsx --tsconfig tsconfig.scripts.json workers/boss.ts",
+    "workers:ical": "cross-env SNEEK_ENABLED_JOBS=ical-sync npm run workers:start",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",

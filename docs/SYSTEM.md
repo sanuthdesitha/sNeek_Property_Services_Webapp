@@ -227,13 +227,15 @@ Reads go through **`GET /api/uploads/access`** (`app/api/uploads/access/route.ts
 
 ### A7. Scheduler
 
-Background automation is defined once as the **`JOBS` registry** in `lib/ops/web-scheduler.ts` — an array of `{ name, minIntervalMs, hour?, dow?, run }` entries pinned to Sydney time. The web process advances it opportunistically: `kickWebScheduledOps()` is called from the root layout on server renders, throttled to one tick per 5 minutes, fire-and-forget. If a dedicated pg-boss worker is detected (rows in `pgboss.schedule`, or a pg-boss job created in the last 90 min), the web fallback **stands down automatically** so jobs never double-fire; `SNEEK_WEB_SCHEDULER_ENABLED=false` hard-disables it. The last 200 runs are kept in memory for the admin diagnostics view.
+Background automation is registered in **`workers/boss.ts`**, a dedicated pg-boss process with explicit Australia/Sydney schedules. `lib/ops/web-scheduler.ts` is an inert compatibility shim; page renders and Jobs navigation never schedule work. A Dockerfile-only deployment starts the web server and needs a separately configured worker service. Stored schedule rows survive stopped workers and cannot prove liveness. (2026-10)
 
-Current registry (all entries as of `9b89dc77`):
+`npm run workers:start` uses the CLI TypeScript configuration. Worker opt-in and master/per-job kill switches remain required. `SNEEK_ENABLED_JOBS` optionally limits registration to an allowlist, with `SNEEK_DISABLED_JOBS` taking precedence. `npm run workers:ical` selects only `ical-sync`; it does not opt the worker in or enable invoices, laundry planning, reminders, or status-changing sweeps. Compose forwards both lists and the master kill switch. Fresh shared heartbeats now advertise registered handlers; diagnostics distinguish worker liveness, iCal handler liveness, and recent AUTO/MANUAL sync history. Missing/unavailable evidence is not success. (2026-10)
+
+Selected schedules (see `workers/boss.ts` for the complete current registry):
 
 | Job | Cadence (Sydney) | What it does |
 |---|---|---|
-| `ical-sync` | every 20 min | `syncAllIcalIfDue` — each feed self-gates by its own due time (detail in Section B) |
+| `ical-sync` | every 4 h | `syncAllIcal` — enabled feeds with a URL, AUTO attribution (detail in Section B) |
 | `reminder-dispatch` | every 30 min | 24h/2h job reminders (`lib/ops/reminders.ts`) |
 | `cleaner-day-reminder` | every 30 min | day-of high-alert reminder to the assigned cleaner (web+email+sms per prefs); dispatcher gates on 6 AM / within-2h and de-dupes per cleaner+job per day |
 | `job-task-auto-approve` | hourly | auto-approves stale pending client job-task requests |
@@ -513,6 +515,8 @@ Each property can have one `Integration` row (provider default `ICAL_HOSPITABLE`
 5. **`pruneVanishedReservationJobs`** deletes jobs whose reservation disappeared from the feed (cancelled or re-UID'd), but only inside the window the feed actually covers and only for `UNASSIGNED/OFFERED/ASSIGNED` jobs — anything from `EN_ROUTE` onward is never auto-deleted. Assigned cleaners are notified first.
 
 Per-property sync behaviour flags (`lib/ical/options.ts`, stored in `Integration.notes` JSON): `ignorePastDates`, `autoCreateTurnoverJobs`, `updateExistingLinkedJobs`, `verifyFeedDuplicates`, `verifyExistingJobConflicts` (skips creating a job when another turnover already exists that day). The dedicated worker calls `syncAllIcal()` every four hours in Australia/Sydney for enabled integrations with a URL; the legacy `syncAllIcalIfDue` helper is not its handler. (2026-10) Standalone worker commands select the existing `tsconfig.scripts.json` so the `server-only` marker does not crash startup before schedule registration. The web compatibility scheduler is inert; a running, explicitly enabled dedicated worker is required. Safety switches, cadence and manual sync behavior are unchanged. See `docs/ops/scheduler-and-mobile-outbox.md` for deployment verification.
+
+The per-feed 15-second fetch deadline covers both response headers and the complete response body. Previously it ended at headers, so four stalled bodies could occupy all four pool slots indefinitely, preventing later feeds from starting; the outer worker timeout did not cancel that pending work. Stalled downloads now abort, record ERROR, and release capacity for the rest of the sweep. Existing job, assignment, laundry, pruning and notification policies are unchanged. Source/fixture reproduction does not establish the live incident's cause. (2026-10)
 
 #### Early check-in / late checkout rules, end-to-end
 
@@ -1607,6 +1611,8 @@ Effective Jackson Airbnb turnover forms add required Ring/Minut charging proof, 
 **Live API authorization and Admin rights (2026-10).** Protected API handlers authorize locally through `requireRole`/`requireSession` or audited wrappers, including live account/role validation, impersonation identity and OPS feature enforcement. Middleware supplies trusted path/method headers but no longer repeats API authorization via an HTTP session callback. Effective ADMIN and accounts holding ADMIN have full feature access independently of manager packs or policy-store availability; this never gives an impersonated target the actor’s owner rights. Revoked/inactive accounts remain unauthorized. Read-only impersonation, retained identity validation and route-specific sensitive-action checks remain enforced. Page navigation and retained-account resolution still use the trusted `NEXTAUTH_URL_INTERNAL` transport (the standard runner defaults to loopback at its Next port); those callbacks reject redirects and time out after five seconds. The Estate Jobs error card distinguishes session, permission, service and malformed-payload failures.
 
 ## Change Log
+
+- **2026-10-23 (unattended iCal follow-up):** Bound feed body downloads to the existing timeout; added explicit iCal-only worker scope and shared handler heartbeat/AUTO history diagnostics. Corrected stale fallback deployment guidance. Real disposable-database cron verification is separate from unverified production deployment.
 
 - **2026-10-09 (photo/video upload recovery):** Resume interrupted form captures using retained prepared bytes and confirmed parts, refresh expired transfer URLs, recover lost completion acknowledgements, and restore inline Retry after reload. Large originals may upload when phone video compression fails. Added photo/video interruption browser regressions and storage/auth boundary tests.
 

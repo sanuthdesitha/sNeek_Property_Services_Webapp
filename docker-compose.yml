@@ -51,12 +51,7 @@ services:
       VIDEO_MAX_UPLOAD_MB: ${VIDEO_MAX_UPLOAD_MB:-300}
       # The web process never runs pg-boss listeners itself.
       SNEEK_WORKERS_DISABLED: "true"
-      # In-web scheduled fallback: default ON. It auto-stands-down when the
-      # dedicated worker container is detected (shared pg-boss state), so they
-      # never double-fire. This guarantees automation even on a web-only deploy.
-      # Set SNEEK_WEB_SCHEDULER_ENABLED=false to hard-disable.
-      SNEEK_WEB_SCHEDULER_ENABLED: ${SNEEK_WEB_SCHEDULER_ENABLED:-true}
-      SNEEK_DISABLE_WEB_SCHEDULED_FALLBACK: ${SNEEK_DISABLE_WEB_SCHEDULED_FALLBACK:-0}
+      # Web requests never run scheduled work. Deploy the worker service too.
 
   worker:
     build:
@@ -107,6 +102,9 @@ services:
       # in its own container, isolated from the request-serving web app. Set
       # SNEEK_WORKERS_ENABLED=false in the environment to kill it again if needed.
       SNEEK_WORKERS_ENABLED: ${SNEEK_WORKERS_ENABLED:-true}
+      SNEEK_WORKERS_DISABLED: ${SNEEK_WORKERS_DISABLED:-false}
+      SNEEK_ENABLED_JOBS: ${SNEEK_ENABLED_JOBS:-}
+      SNEEK_DISABLED_JOBS: ${SNEEK_DISABLED_JOBS:-}
 
   postgres:
     image: postgres:16

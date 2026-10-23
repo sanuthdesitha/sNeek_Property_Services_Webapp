@@ -4,6 +4,7 @@ import { Role } from "@prisma/client";
 import { loadavg, totalmem, freemem, cpus, platform } from "os";
 import { readFile } from "node:fs/promises";
 import { db } from "@/lib/db";
+import { readIcalAutomationStatus } from "@/lib/ical/automation-status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -177,15 +178,14 @@ export async function GET() {
   // --- Scheduler health (shared pg-boss state) --------------------------
   // pg-boss stores schedules + job history in Postgres, shared between the
   // web app and the (separate) worker container. So this reflects the worker's
-  // state even though the in-process jobStats above do not. If `schedules` is
-  // empty, the worker has never registered its crons → it isn't running, which
-  // is the #1 reason scheduled emails stop going out.
+  // state even though the in-process jobStats above do not. Stored schedules
+  // survive stopped workers; only a fresh heartbeat establishes liveness.
   type ScheduleRow = { name: string; cron: string; updated_on: Date | null };
   const schedules = await db
     .$queryRawUnsafe<ScheduleRow[]>(
       `SELECT name, cron, updated_on FROM pgboss.schedule ORDER BY name`,
     )
-    .catch(() => [] as ScheduleRow[]);
+    .catch(() => null);
 
   // Recent email activity as a "are emails actually flowing" signal.
   const recentEmailCount = await db.notification
@@ -198,13 +198,14 @@ export async function GET() {
     })
     .catch(() => null);
 
-  const webFallbackLastTick = globalRef.__sneekWebSchedulerLastTick ?? null;
+  const ical = await readIcalAutomationStatus();
   const scheduler = {
     resendConfigured: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim()),
-    scheduleCount: schedules.length,
-    schedules: schedules.map((s) => ({ name: s.name, cron: s.cron, updatedOn: s.updated_on })),
+    scheduleCount: schedules?.length ?? null,
+    schedules: (schedules ?? []).map((s) => ({ name: s.name, cron: s.cron, updatedOn: s.updated_on })),
     emailsSentLast24h: recentEmailCount,
-    webFallbackLastTickAt: webFallbackLastTick ? new Date(webFallbackLastTick).toISOString() : null,
+    webFallbackLastTickAt: null,
+    ical,
   };
 
   const stealPercent = await stealPromise;
