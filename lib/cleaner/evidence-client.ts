@@ -1,3 +1,4 @@
+import { uploadRequest } from "@/lib/uploads/request";
 import type { SharedCleanerJobDraftRecord } from "./shared-job-draft";
 import { getEvidence, listEvidence, putEvidence, sameEvidenceScope, type EvidenceRecord, type EvidenceScope, type EvidenceReceipt } from "./evidence-store";
 import { destinationOf, destinationKey, destinationMedia, setDestinationMedia, evidenceDestinationSchema, isLegacyEvidenceKey, type EvidenceDestination } from "./evidence-destination";
@@ -101,12 +102,11 @@ export async function moveEvidenceBatch(scope: EvidenceScope,
 export async function attachEvidence(record: EvidenceRecord): Promise<EvidenceReceipt> {
   const expectedKey = record.receipt?.key ?? record.allocation?.key;
   if (!expectedKey) throw new Error("Upload receipt is missing.");
-  const response = await fetch(`/api/cleaner/jobs/${encodeURIComponent(record.jobId)}/evidence`, {
+  const { response, body } = await uploadRequest(`/api/cleaner/jobs/${encodeURIComponent(record.jobId)}/evidence`, {
     method: "POST", headers: { "Content-Type": "application/json", "X-Cleaner-Draft-Identity": record.draftIdentity },
     body: JSON.stringify({ captureId: record.id, fieldId: record.fieldId, destination: record.destination, templateId: record.templateId,
       formRevision: record.formRevision, key: expectedKey, name: record.filename }),
-  });
-  const body = await response.json().catch(() => null);
+  }, async response => ({ response, body: await response.json().catch(() => null) }));
   if (!response.ok) throw Object.assign(new Error(body?.error || "Evidence attachment was not confirmed. Retry from device recovery."), { code: body?.code });
   if (body?.ok !== true || body.captureId !== record.id || body.key !== expectedKey) {
     throw new Error("Evidence attachment could not be confirmed. Retry from device recovery.");
