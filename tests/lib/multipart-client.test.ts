@@ -125,7 +125,7 @@ it("bounds a stalled transfer and falls back without losing the capture", async 
   try {
     const fetcher = vi.fn(async (url: string, options?: RequestInit): Promise<Response> => {
       if (url.endsWith("presign-multipart")) return Response.json({ key: "jobs/user/clip.mp4", uploadId: "upload", partUrls: ["https://storage.test/part"] });
-      if (url === "https://storage.test/part") return new Promise((_resolve, reject) => options!.signal!.addEventListener("abort", () => reject(options!.signal!.reason), { once: true }));
+      if (url === "https://storage.test/part") return new Promise((_resolve, reject) => options?.signal?.addEventListener("abort", () => reject(options!.signal!.reason), { once: true }));
       if (url.startsWith("/api/uploads/part?")) return Response.json({ etag: "receipt" });
       return Response.json({ key: "jobs/user/clip.mp4", url: "https://cdn.test/clip.mp4" });
     });
@@ -141,7 +141,7 @@ it("keeps the durable allocation when a transfer is cancelled mid-request", asyn
   const fetcher = vi.fn(async (url: string, options?: RequestInit): Promise<Response> => {
     if (url.endsWith("presign-multipart")) return Response.json({ key: "jobs/user/clip.mp4", uploadId: "upload", partUrls: ["https://storage.test/part"] });
     return new Promise((_resolve, reject) => {
-      options!.signal!.addEventListener("abort", () => reject(options!.signal!.reason), { once: true });
+      options?.signal?.addEventListener("abort", () => reject(options!.signal!.reason), { once: true });
       controller.abort();
     });
   });
@@ -157,5 +157,177 @@ it("retains a durable upload when completion fails instead of deleting its parts
   });
   vi.stubGlobal("fetch", fetcher);
   await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, undefined, async () => {})).rejects.toThrow("Temporary completion failure");
+  expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
+});
+
+
+it("preserves saved parts when persisting a resumed allocation fails", async () => {
+  const fetcher = vi.fn(async () => Response.json({
+    key: "jobs/user/clip.mp4", uploadId: "upload",
+    partUrls: ["https://storage.test/part"],
+    uploadedParts: [{ PartNumber: 1, ETag: "saved", Size: 5 }],
+  }));
+  vi.stubGlobal("fetch", fetcher);
+  await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {
+    throw new Error("device storage unavailable");
+  }, { key: "jobs/user/clip.mp4", uploadId: "upload" })).rejects.toThrow("device storage unavailable");
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
+});
+
+it.each(["presign-multipart", "resume-multipart", "complete-multipart"])("bounds a stalled %s request and preserves durable recovery", async endpoint => {
+  vi.useFakeTimers();
+  try {
+    const fetcher = vi.fn(async (url: string, options?: RequestInit): Promise<Response> => {
+      if (url.endsWith(endpoint)) return new Promise((_resolve, reject) => options?.signal?.addEventListener("abort", () => reject(options!.signal!.reason), { once: true }));
+      if (url.endsWith("presign-multipart")) return Response.json({ key: "jobs/user/clip.mp4", uploadId: "upload", partUrls: ["https://storage.test/part"] });
+      if (url === "https://storage.test/part") return new Response(null, { headers: { etag: "receipt" } });
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const result = uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {},
+      endpoint === "resume-multipart" ? { key: "jobs/user/clip.mp4", uploadId: "upload" } : undefined);
+    const assertion = expect(result).rejects.toThrow(/timed out/i);
+    await vi.advanceTimersByTimeAsync(30_001);
+    await assertion;
+    expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
+    expect(fetcher.mock.calls.filter(([url]) => url.endsWith(endpoint))).toHaveLength(1);
+  } finally { vi.useRealTimers(); }
+});
+
+it("keeps the timeout active while reading a part proxy receipt", async () => {
+  vi.useFakeTimers();
+  try {
+    const fetcher = vi.fn(async (url: string, options?: RequestInit): Promise<Response> => {
+      if (url.endsWith("presign-multipart")) return Response.json({ key: "jobs/user/clip.mp4", uploadId: "upload", partUrls: ["https://storage.test/part"] });
+      if (url === "https://storage.test/part") throw new TypeError("CORS blocked");
+      if (url.startsWith("/api/uploads/part?")) return {
+        ok: true,
+        json: () => new Promise((_resolve, reject) => options?.signal?.addEventListener("abort", () => reject(options!.signal!.reason), { once: true })),
+      } as Response;
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const result = uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {});
+    const assertion = expect(result).rejects.toThrow(/timed out/i);
+    await vi.advanceTimersByTimeAsync(362_000);
+    await assertion;
+    expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/complete-multipart", expect.anything());
+    expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
+  } finally { vi.useRealTimers(); }
+});
+
+
+it("retries request timeouts for a part without allocating another upload", async () => {
+  const part = vi.fn().mockResolvedValueOnce(new Response(null, { status: 408 }))
+    .mockResolvedValueOnce(new Response(null, { headers: { etag: "receipt" } }));
+  const fetcher = transport(part);
+  await uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4");
+  expect(part).toHaveBeenCalledTimes(2);
+  expect(fetcher.mock.calls.filter(([url]) => url.endsWith("presign-multipart"))).toHaveLength(1);
+});
+
+it.each([{ key: "wrong/key", url: "https://cdn.test/video" }, { key: "jobs/user/clip.mp4" }])("rejects an invalid completion receipt and retains recovery", async invalid => {
+  const fetcher = transport(async () => new Response(null, { headers: { etag: "receipt" } }));
+  fetcher.mockImplementation(async (url: string) => {
+    if (url.endsWith("presign-multipart")) return Response.json({ key: "jobs/user/clip.mp4", uploadId: "upload", partUrls: ["https://storage.test/part"] });
+    if (url === "https://storage.test/part") return new Response(null, { headers: { etag: "receipt" } });
+    return Response.json(invalid);
+  });
+  await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {})).rejects.toThrow("invalid completion receipt");
+  expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
+});
+
+it("rejects an empty file before allocating storage", async () => {
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  await expect(uploadMultipart(new Blob([]), "empty.mp4", "video/mp4")).rejects.toThrow("empty file");
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("reports a non-JSON allocation rejection without sending file bytes", async () => {
+  const fetcher = vi.fn(async () => new Response("gateway rejected", { status: 503 }));
+  vi.stubGlobal("fetch", fetcher);
+  await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4")).rejects.toThrow("Upload request failed (503)");
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it.each([
+  { key: "" }, { uploadId: "" }, { partUrls: null }, { partUrls: [] }, { partUrls: [""] }, { partUrls: [42] },
+])("rejects an invalid allocation before transferring any bytes", async invalid => {
+  const fetcher = vi.fn(async () => Response.json({ key: "jobs/user/clip.mp4", uploadId: "upload", partUrls: ["https://storage.test/part"], ...invalid }));
+  vi.stubGlobal("fetch", fetcher);
+  await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4")).rejects.toThrow("invalid upload allocation");
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it.each([
+  { PartNumber: 0.5, ETag: "saved", Size: 5 }, { PartNumber: 0, ETag: "saved", Size: 5 },
+  { PartNumber: 2, ETag: "saved", Size: 5 }, { PartNumber: 1, ETag: "", Size: 5 },
+  { PartNumber: 1, ETag: "saved", Size: 4 },
+])("rejects invalid retained part metadata without resending the original", async part => {
+  const fetcher = vi.fn(async () => Response.json({ key: "jobs/user/clip.mp4", uploadId: "upload", partUrls: ["https://storage.test/part"], uploadedParts: [part] }));
+  vi.stubGlobal("fetch", fetcher);
+  await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {}, { key: "jobs/user/clip.mp4", uploadId: "upload" })).rejects.toThrow("invalid saved video parts");
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it("rejects duplicate retained parts rather than double-counting upload progress", async () => {
+  const part = { PartNumber: 1, ETag: "saved", Size: 5 };
+  const fetcher = vi.fn(async () => Response.json({ key: "jobs/user/clip.mp4", uploadId: "upload", partUrls: ["https://storage.test/part"], uploadedParts: [part, part] }));
+  vi.stubGlobal("fetch", fetcher);
+  const progress = vi.fn();
+  await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", progress, undefined, "jobs", async () => {}, { key: "jobs/user/clip.mp4", uploadId: "upload" })).rejects.toThrow("invalid saved video parts");
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(progress).not.toHaveBeenCalled();
+});
+
+it.each([undefined, ""])("rejects a recovered completion without a usable URL", async url => {
+  const fetcher = vi.fn(async () => Response.json({ completed: true, key: "jobs/user/clip.mp4", url }));
+  vi.stubGlobal("fetch", fetcher);
+  await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {}, { key: "jobs/user/clip.mp4", uploadId: "upload" })).rejects.toThrow("receipt is missing");
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it("reports full progress after exact-key completion recovery without sending parts", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ completed: true, key: "jobs/user/clip.mp4", url: "/video" })));
+  const progress = vi.fn();
+  await uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", progress, undefined, "jobs", async () => {}, { key: "jobs/user/clip.mp4", uploadId: "upload" });
+  expect(progress).toHaveBeenCalledOnce();
+  expect(progress).toHaveBeenCalledWith({ bytesUploaded: 5, totalBytes: 5, partsCompleted: 1, partsTotal: 1 });
+});
+
+it("reports confirmed progress and completes after a transient proxy rejection", async () => {
+  vi.useFakeTimers();
+  try {
+    let proxies = 0;
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.endsWith("presign-multipart")) return Response.json({ key: "jobs/user/clip.mp4", uploadId: "upload", partUrls: ["https://storage.test/part"] });
+      if (url === "https://storage.test/part") throw new TypeError("CORS blocked");
+      if (url.startsWith("/api/uploads/part?")) return ++proxies === 1 ? new Response(null, { status: 429 }) : Response.json({ etag: "receipt" });
+      if (url.endsWith("complete-multipart")) return Response.json({ key: "jobs/user/clip.mp4", url: "/video" });
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const progress = vi.fn();
+    const result = uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", progress, undefined, "jobs", async () => {});
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toHaveProperty("key", "jobs/user/clip.mp4");
+    expect(proxies).toBe(2);
+    expect(progress).toHaveBeenNthCalledWith(1, { bytesUploaded: 0, totalBytes: 5, partsCompleted: 0, partsTotal: 1 });
+    expect(progress).toHaveBeenLastCalledWith({ bytesUploaded: 5, totalBytes: 5, partsCompleted: 1, partsTotal: 1 });
+    expect(fetcher.mock.calls.filter(([url]) => url === "https://storage.test/part")).toHaveLength(1);
+  } finally { vi.useRealTimers(); }
+});
+
+it("stops immediately on a permanent proxy denial and keeps durable recovery metadata", async () => {
+  const fetcher = vi.fn(async (url: string) => {
+    if (url.endsWith("presign-multipart")) return Response.json({ key: "jobs/user/clip.mp4", uploadId: "upload", partUrls: ["https://storage.test/part"] });
+    if (url === "https://storage.test/part") throw new TypeError("CORS blocked");
+    return new Response(null, { status: 401 });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  await expect(uploadMultipart(new Blob(["video"]), "clip.mp4", "video/mp4", undefined, undefined, "jobs", async () => {})).rejects.toThrow("Part 1 upload failed (401)");
+  expect(fetcher).toHaveBeenCalledTimes(3);
   expect(fetcher).not.toHaveBeenCalledWith("/api/uploads/abort-multipart", expect.anything());
 });

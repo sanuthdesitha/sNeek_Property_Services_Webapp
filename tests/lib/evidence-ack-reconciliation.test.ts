@@ -139,3 +139,150 @@ it("fails closed on unauthorized reads even with an empty local journal",async()
   m.list.mockResolvedValue([]);fetcher.mockResolvedValue(new Response(JSON.stringify({error:"Not assigned"}),{status:403}));
   await expect(checkSubmissionEvidence(scope)).rejects.toThrow("Not assigned");expect(m.put).not.toHaveBeenCalled();
 });
+
+it("reports an unavailable journal during blocking recovery instead of claiming an empty device", async () => {
+  m.list.mockRejectedValue(new Error("Journal unavailable"));
+  await expect(reconcileEvidenceAcknowledgements(scope)).rejects.toThrow("Journal unavailable");
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(m.put).not.toHaveBeenCalled();
+});
+
+it("does not reconcile retained captures without browser coordination", async () => {
+  Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+  await expect(reconcileEvidenceAcknowledgements(scope)).rejects.toThrow("coordinate");
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("keeps originals and surfaces a blocking per-capture read failure", async () => {
+  m.get.mockRejectedValue(new Error("Capture unavailable"));
+  await expect(reconcileEvidenceAcknowledgements(scope)).rejects.toThrow("Capture unavailable");
+  expect(record.blob.size).toBeGreaterThan(0);
+  expect(m.put).not.toHaveBeenCalled();
+});
+
+it("reports a failed final journal read after blocking reconciliation", async () => {
+  m.list.mockResolvedValueOnce([record]).mockRejectedValueOnce(new Error("Final journal read unavailable"));
+  await expect(reconcileEvidenceAcknowledgements(scope)).rejects.toThrow("Final journal read unavailable");
+  expect(record.status).toBe("attached");
+  expect(record.blob.size).toBeGreaterThan(0);
+});
+
+it("retains known records if a nonblocking final journal read fails", async () => {
+  const original = record;
+  m.list.mockResolvedValueOnce([record]).mockRejectedValueOnce(new Error("Final journal read unavailable"));
+  const result = await checkSubmissionEvidence(scope);
+  expect(result.records).toEqual([original]);
+  expect(result.reconciled[0]).toMatchObject({ status: "attached", receipt: { key: media.key } });
+  expect(result.activeCaptureIds).toEqual([]);
+});
+
+it.each([0.5, -1, 1])("ignores invalid or stale receipt version %s", async version => {
+  record.destinationVersion = 2;
+  draft.evidenceReceipts.capture.version = version;
+  await reconcileEvidenceAcknowledgements(scope);
+  expect(m.put).not.toHaveBeenCalled();
+  expect(record.status).toBe("uploaded");
+});
+
+it("supports an original versionless receipt without inventing a newer version", async () => {
+  delete draft.evidenceReceipts.capture.version;
+  await reconcileEvidenceAcknowledgements(scope);
+  expect(record.status).toBe("attached");
+  expect(record.destinationVersion).toBe(0);
+});
+
+it.each([
+  { destination: { type: "unknown" } }, { detached: "false" }, { detached: false, fieldId: 23 },
+])("ignores malformed saved receipt fields without changing the journal", async invalid => {
+  Object.assign(draft.evidenceReceipts.capture, invalid);
+  await reconcileEvidenceAcknowledgements(scope);
+  expect(m.put).not.toHaveBeenCalled();
+  expect(record.status).toBe("uploaded");
+});
+
+it("does not invent canonical media when the server state is missing", async () => {
+  delete draft.state;
+  await reconcileEvidenceAcknowledgements(scope);
+  expect(m.put).not.toHaveBeenCalled();
+  expect(record.receipt?.key).toBe(media.key);
+});
+
+it("preserves a server-provided display name when restoring a receipt", async () => {
+  draft.state.uploads.photo = [{ ...media, name: "Office-approved photo" }];
+  await reconcileEvidenceAcknowledgements(scope);
+  expect(record.receipt?.name).toBe("Office-approved photo");
+});
+
+it("does not rewrite an identical attached record when reconciling again", async () => {
+  await reconcileEvidenceAcknowledgements(scope);
+  m.put.mockClear();
+  const result = await reconcileEvidenceAcknowledgementsWithChanges(scope);
+  expect(result.reconciled).toHaveLength(1);
+  expect(m.put).not.toHaveBeenCalled();
+});
+
+it("refreshes an attached receipt's destination and version without losing original bytes", async () => {
+  await reconcileEvidenceAcknowledgements(scope);
+  const original = record.blob;
+  draft.evidenceReceipts.capture = { ...draft.evidenceReceipts.capture, fieldId: "bedroom", destination: { type: "formField", fieldId: "bedroom" }, version: 1 };
+  draft.state.uploads = { bedroom: [media] };
+  m.put.mockClear();
+  await reconcileEvidenceAcknowledgements(scope);
+  expect(record).toMatchObject({ fieldId: "bedroom", destinationVersion: 1, destination: { type: "formField", fieldId: "bedroom" } });
+  expect(record.blob).toBe(original);
+  expect(m.put).toHaveBeenCalledOnce();
+});
+
+it("refreshes only a receipt version when media and destination already match", async () => {
+  await reconcileEvidenceAcknowledgements(scope);
+  draft.evidenceReceipts.capture.version = 1;
+  m.put.mockClear();
+  await reconcileEvidenceAcknowledgements(scope);
+  expect(record.destinationVersion).toBe(1);
+  expect(m.put).toHaveBeenCalledOnce();
+});
+
+it("leaves an attached record without a key untouched rather than projecting evidence", () => {
+  const current = { answers: { note: "Retain draft" }, uploads: {} };
+  expect(projectReconciledEvidence(current, [{ ...record, receipt: undefined, status: "attached" }], scope)).toEqual({ state: current, changed: false });
+});
+
+it.each([
+  { destination: { type: "unknown" } }, { detached: "false" }, { key: 4 }, { fieldId: 4 },
+])("excludes malformed server-only receipts from submission projection", async invalid => {
+  m.list.mockResolvedValue([]);
+  Object.assign(draft.evidenceReceipts.capture, invalid);
+  expect((await checkSubmissionEvidence(scope)).reconciled).toEqual([]);
+  expect(m.put).not.toHaveBeenCalled();
+});
+
+it.each([
+  null, { ...media, kind: "unknown" }, { ...media, url: 42 }, { ...media, url: "//external.invalid/photo" },
+  { ...media, url: "data:image/png;base64,unverified" },
+])("does not invent server-only evidence from malformed canonical media", async invalid => {
+  m.list.mockResolvedValue([]);
+  draft.state.uploads.photo = [invalid];
+  expect((await checkSubmissionEvidence(scope)).reconciled).toEqual([]);
+  expect(m.put).not.toHaveBeenCalled();
+});
+
+it("accepts a verified server-only receipt with a same-origin relative media URL", async () => {
+  m.list.mockResolvedValue([]);
+  draft.evidenceReceipts.capture.detached = false;
+  draft.state.uploads.photo = [{ ...media, url: "/media/confirmed-photo" }];
+  expect((await checkSubmissionEvidence(scope)).reconciled[0]).toMatchObject({ receipt: { url: "/media/confirmed-photo" }, status: "attached" });
+  expect(m.put).not.toHaveBeenCalled();
+});
+
+it("does not infer server-only evidence from an absent draft state", async () => {
+  m.list.mockResolvedValue([]);
+  delete draft.state;
+  expect((await checkSubmissionEvidence(scope)).reconciled).toEqual([]);
+});
+
+it.each([null, "invalid envelope", {}])("rejects an invalid server draft response even when no local records exist", async body => {
+  m.list.mockResolvedValue([]);
+  fetcher.mockResolvedValueOnce(Response.json(body));
+  await expect(checkSubmissionEvidence(scope)).rejects.toThrow("could not be checked");
+  expect(m.put).not.toHaveBeenCalled();
+});
