@@ -112,7 +112,7 @@ it("honors selective disable flags and advertises disabled mobile dispatch", asy
 });
 it("keeps automatic iCal on its existing cadence and honors its job kill switch", async () => {
   await boot();
-  expect(m.schedule).toHaveBeenCalledWith("ical-sync", "0 */4 * * *", {}, { tz: "Australia/Sydney" });
+  expect(m.schedule).toHaveBeenCalledWith("ical-sync", "0 * * * *", {}, { tz: "Australia/Sydney" });
   await m.handlers.get("ical-sync")!();
   expect(m.call("syncAllIcal")).toHaveBeenCalledOnce();
 

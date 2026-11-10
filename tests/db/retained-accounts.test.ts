@@ -8,6 +8,8 @@ vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get(_target, key) { const value
 vi.mock("@/lib/auth/auth-options", () => ({ createAuthOptions: () => ({ providers: [{ id: "credentials", options: { authorize: async ({ email }: any) => ({ id: email }) } }] }) }));
 import { authenticateRetainedIdentity as auth, linkRetainedAccounts as link, prepareRetainedIdentity, completeRetainedEnrollment, resolveRetainedAccount as resolve, revokeRetainedAccount as revoke } from "@/lib/auth/retained-accounts";
 const url = process.env.SNEEK_TEST_DATABASE_URL;
+// Fixture-only signing key, so the suite does not depend on the shell environment.
+process.env.NEXTAUTH_SECRET ??= "retained-accounts-fixture-signing-key";
 let owner: string, cleaner: string; let keys: string[];
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const credential = (email: string) => ({ email, password: "fixture-only" });

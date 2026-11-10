@@ -251,11 +251,15 @@ export async function sendCampaign(campaignId: string): Promise<CampaignSendResu
  * Picks up SCHEDULED campaigns whose scheduledFor has arrived, and sends them.
  * Called by the pg-boss `marketing-campaign-dispatch` job.
  */
+/** Matches the legacy dispatcher: a long-overdue campaign waits for a person. */
+const CAMPAIGN_MAX_OVERDUE_MS = 24 * 60 * 60_000;
+
 export async function dispatchDueCampaigns(now: Date = new Date()): Promise<{ dispatched: number; results: CampaignSendResult[] }> {
   const due = await (db as any).emailCampaign.findMany({
     where: {
       campaignStatus: "SCHEDULED",
-      scheduledFor: { lte: now },
+      // Overdue by more than a day: left for a person to reschedule.
+      scheduledFor: { lte: now, gte: new Date(now.getTime() - CAMPAIGN_MAX_OVERDUE_MS) },
     },
     select: { id: true },
     take: 20,

@@ -1,5 +1,16 @@
 # Dedicated scheduling and mobile notifications
 
+## Single-container deployments (2026-11-10)
+
+**This section supersedes the statements below that a web-only deployment runs no automation.** `npm run start` launches `scripts/embedded-worker.cjs`, which supervises `workers/boss.ts` as a sibling process of the web server. A Dockerfile-only or Dokploy application deployment therefore runs automation without a second service. Page rendering still never runs scheduled work.
+
+- Off switches: `SNEEK_WORKERS_DISABLED=true`, `SNEEK_EMBEDDED_WORKER=false`, `SNEEK_WORKERS_ENABLED=false`, `SNEEK_WEB_SCHEDULER_ENABLED=false`. Compose keeps the first on its `web` service because it has a dedicated `worker` service.
+- Scope: `SNEEK_ENABLED_JOBS` / `SNEEK_DISABLED_JOBS` apply unchanged.
+- First start creates the `pgboss` schema in the application database if it does not exist (pg-boss 9 does this itself); the database user needs permission to create a schema.
+- Startup log lines to look for: `[embedded-worker] Starting automation worker.`, `pg-boss started`, `All workers registered. Listening for jobs.` Then confirm a fresh heartbeat and new AUTO iCal runs in Admin → System diagnostics.
+- iCal sync is hourly on the hour, Sydney time.
+- After an outage, device pushes older than six hours are skipped and campaigns more than 24 hours overdue stay scheduled for manual rescheduling. Missed cron ticks are not replayed.
+
 Page rendering no longer runs scheduled operations. `lib/ops/web-scheduler.ts` is an inert compatibility shim. Its old environment flags cannot reactivate it. This removes the scheduler side effect from ordinary page views, including impersonation; other routes still require their own read/write review.
 
 ## Deployment prerequisite (not performed by this change)

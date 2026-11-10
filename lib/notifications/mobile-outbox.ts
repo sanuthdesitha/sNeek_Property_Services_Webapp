@@ -4,6 +4,18 @@ import { NOTIFICATION_CATEGORIES, type NotificationCategory } from "@/lib/settin
 import { deliverMobilePushNotification } from "./mobile-push";
 import { MOBILE_PENDING, MOBILE_CLAIMED, MOBILE_PREFIX, MOBILE_REVIEW_REQUIRED } from "./mobile-outbox-marker";
 
+/**
+ * A device alert about something that happened long ago is noise, and after a
+ * worker outage the whole backlog would otherwise arrive at once. The inbox row
+ * is untouched; only the late device push is skipped.
+ */
+export const MOBILE_PUSH_MAX_AGE_MS = 6 * 60 * 60_000;
+
+function isTooOldToPush(createdAt: Date | null | undefined, now: Date): boolean {
+  if (!createdAt) return false;
+  return now.getTime() - createdAt.getTime() > MOBILE_PUSH_MAX_AGE_MS;
+}
+
 /** Never scans historic unmarked rows or invokes a provider within a transaction. */
 export async function dispatchMobileOutbox(now = new Date()) {
   const startedAt = Date.now();
@@ -23,6 +35,13 @@ export async function dispatchMobileOutbox(now = new Date()) {
   });
   for (const notification of due) {
     const marker = notification.externalId!;
+    if (isTooOldToPush(notification.createdAt, now)) {
+      await db.notification.updateMany({
+        where: { id: notification.id, externalId: marker },
+        data: { externalId: `${MOBILE_PREFIX}SKIPPED` },
+      });
+      continue;
+    }
     const categoryName = marker.slice(MOBILE_PENDING.length + 1);
     const category = NOTIFICATION_CATEGORIES.includes(categoryName as NotificationCategory) ? categoryName as NotificationCategory : undefined;
     if (!category) {
