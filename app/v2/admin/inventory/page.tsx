@@ -1,5 +1,4 @@
 import { UrgentStockWorkspace } from "@/components/inventory/urgent-stock-workspace";
-import { OperationsDisclosure } from "@/components/operations/ui";
 import Link from "next/link";
 import { Role } from "@prisma/client";
 import {
@@ -15,7 +14,7 @@ import {
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { listSupplierCatalog } from "@/lib/inventory/suppliers";
-import { EPageHeader } from "@/components/v2/ui/primitives";
+import { ECard, EPageHeader } from "@/components/v2/ui/primitives";
 import { EKpiLink } from "@/components/v2/admin/estate-kit";
 import {
   InventoryChipTabs,
@@ -51,7 +50,9 @@ const TAB_KEYS: InventoryTab[] = [
   "suppliers",
 ];
 
-function normalizeTab(value: string | undefined): InventoryTab {
+function normalizeTab(value: string | undefined, canManageUrgentStock: boolean): InventoryTab {
+  // Urgent-stock administration is ADMIN-only on the server; mirror that here.
+  if (value === "urgent-stock") return canManageUrgentStock ? "urgent-stock" : "items";
   return (TAB_KEYS as string[]).includes(value ?? "") ? (value as InventoryTab) : "items";
 }
 
@@ -157,7 +158,8 @@ export default async function EstateInventoryPage({
 }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-  const tab = normalizeTab(searchParams?.tab);
+  const canManageUrgentStock = session.user.role === Role.ADMIN;
+  const tab = normalizeTab(searchParams?.tab, canManageUrgentStock);
   const filter = normalizePropertyInventoryFilter(searchParams?.filter);
 
   const { rows: propertyRows, totals: propertyTotals } = await getPropertyOverview();
@@ -240,7 +242,7 @@ export default async function EstateInventoryPage({
         }
       />
 
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-7">
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
         <EKpiLink
           label="Active items"
           value={itemCount}
@@ -291,8 +293,7 @@ export default async function EstateInventoryPage({
         />
       </section>
 
-      <InventoryChipTabs active={tab} />
-      {session.user.role === Role.ADMIN ? <OperationsDisclosure title="Report or review urgent stock"><UrgentStockWorkspace isAdmin panel /></OperationsDisclosure> : null}
+      <InventoryChipTabs active={tab} showUrgentStock={canManageUrgentStock} />
 
       <div className="min-w-0">
         {tab === "items" ? <EstateItems /> : null}
@@ -304,6 +305,11 @@ export default async function EstateInventoryPage({
         {tab === "scan-tasks" ? <EstateScanTasks /> : null}
         {tab === "shopping-runs" ? <EstateShoppingRuns /> : null}
         {tab === "suppliers" ? <EstateSuppliers /> : null}
+        {tab === "urgent-stock" ? (
+          <ECard className="p-4 sm:p-6">
+            <UrgentStockWorkspace isAdmin panel />
+          </ECard>
+        ) : null}
       </div>
     </div>
   );

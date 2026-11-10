@@ -1,5 +1,4 @@
 "use client";
-import { OperationsButton } from "@/components/operations/ui";
 
 /**
  * ONE PERSON, MORE THAN ONE JOB — the control that changes which one.
@@ -21,7 +20,7 @@ import { OperationsButton } from "@/components/operations/ui";
 import * as React from "react";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { Loader2, UserCog } from "lucide-react";
+import { Loader2, UserCog, Users } from "lucide-react";
 
 interface SwitchOption {
   role: string;
@@ -34,6 +33,19 @@ interface ActiveRoleState {
   /** The server's verdict on whether this person is more than one thing. */
   canSwitch: boolean;
   options: SwitchOption[];
+}
+
+/** Sidebar footer link, styled like its neighbour the look switch. */
+function SavedAccountsLink() {
+  return (
+    <a
+      href="/accounts"
+      className="mb-2 inline-flex min-h-8 items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-sidebar-fg))]/60 transition-colors hover:text-[hsl(var(--e-sidebar-fg))]"
+    >
+      <Users className="h-3.5 w-3.5" aria-hidden />
+      Saved accounts
+    </a>
+  );
 }
 
 export function RoleSwitcher() {
@@ -87,11 +99,11 @@ export function RoleSwitcher() {
     }
   }
 
-  if (!state || !state.canSwitch) return <OperationsButton asChild variant="ghost" className="my-2 w-full justify-start text-[hsl(var(--e-sidebar-fg))] hover:bg-[hsl(var(--e-sidebar-active))] hover:text-[hsl(var(--e-sidebar-fg))]"><a href="/accounts">Accounts</a></OperationsButton>;
+  if (!state || !state.canSwitch) return <SavedAccountsLink />;
 
   return (
     <div className="mb-3">
-      <OperationsButton asChild variant="ghost" className="my-2 w-full justify-start text-[hsl(var(--e-sidebar-fg))] hover:bg-[hsl(var(--e-sidebar-active))] hover:text-[hsl(var(--e-sidebar-fg))]"><a href="/accounts">Accounts</a></OperationsButton>
+      <SavedAccountsLink />
       <p className="mb-1.5 inline-flex items-center gap-1.5 text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-sidebar-fg))]/50">
         <UserCog className="h-3 w-3" aria-hidden />
         Working as

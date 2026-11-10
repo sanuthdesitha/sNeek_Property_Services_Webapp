@@ -8,7 +8,7 @@ import { OperationsDisclosure } from "@/components/operations/ui";
  * from getFinanceDashboardData / getFinanceHubSummary (passed in from the
  * server page — no client fetch, no charts). Pure Estate tokens.
  */
-import { TrendingUp, Wallet, Users, AlertTriangle } from "lucide-react";
+import { TrendingUp, Wallet, Users, AlertTriangle, Calculator } from "lucide-react";
 import { EStatCard, ECard, EEyebrow, EThread } from "@/components/v2/ui/primitives";
 
 type Bucket = { label: string; revenue: number };
@@ -124,8 +124,16 @@ export function FinanceOverview({ data, canReviewCosts = false }: { data: Financ
         />
       </div>
 
-      {canReviewCosts ? <OperationsDisclosure title="Review profit for an individual turnover"><TurnoverProfit panel /></OperationsDisclosure> : null}
       <BreakdownList eyebrow="Trend" title="Revenue by month" rows={data.revenueByMonth} />
+      {canReviewCosts ? (
+        <OperationsDisclosure
+          title="Review profit for an individual turnover"
+          description="Compare one job's recorded charge with its recorded costs. Nothing is repriced."
+          icon={<Calculator />}
+        >
+          <TurnoverProfit panel />
+        </OperationsDisclosure>
+      ) : null}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState, type ComponentProps, type ReactNode } from "react";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, Loader2 } from "lucide-react";
 import {
   EAlert,
   EButton,
@@ -73,24 +73,35 @@ export function OperationsPage({
   );
 }
 
-/** Load only when opened; retain drafts when collapsed within the same workspace. */
+/**
+ * A secondary tool inside an existing workspace. Loads only when opened and
+ * keeps its draft mounted while collapsed. Presented as an Estate card row:
+ * icon, title, one-line purpose and a chevron.
+ */
 export function OperationsDisclosure({
   title,
+  description,
+  icon,
   children,
 }: {
   title: string;
+  description?: string;
+  /** A rendered icon element; an element crosses the server/client boundary. */
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   const id = useId();
+  const descriptionId = `${id}-description`;
   const [open, setOpen] = useState(false);
   const [visited, setVisited] = useState(false);
   return (
-    <section className="ops-card space-y-4">
-      <h2>
-        <OperationsButton
+    <section className="ops-disclosure">
+      <h2 className="m-0">
+        <button
           type="button"
-          variant="ghost"
-          className="w-full justify-between"
+          className="ops-disclosure-toggle"
+          aria-label={title}
+          aria-describedby={description ? descriptionId : undefined}
           aria-expanded={open}
           aria-controls={id}
           onClick={() => {
@@ -98,11 +109,30 @@ export function OperationsDisclosure({
             setOpen((value) => !value);
           }}
         >
-          {title}
-          <span aria-hidden>{open ? "−" : "+"}</span>
-        </OperationsButton>
+          {icon ? (
+            <span className="ops-disclosure-icon" aria-hidden>
+              {icon}
+            </span>
+          ) : null}
+          <span className="min-w-0 flex-1">
+            <span className="ops-disclosure-title">{title}</span>
+            {description ? (
+              <span id={descriptionId} className="ops-disclosure-description">
+                {description}
+              </span>
+            ) : null}
+          </span>
+          <ChevronDown
+            aria-hidden
+            size={18}
+            className={cn(
+              "ops-disclosure-chevron",
+              open && "rotate-180",
+            )}
+          />
+        </button>
       </h2>
-      <div id={id} hidden={!open}>
+      <div id={id} hidden={!open} className="ops-disclosure-body">
         {visited ? children : null}
       </div>
     </section>

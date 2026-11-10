@@ -1,4 +1,5 @@
 "use client";
+import { Tags } from "lucide-react";
 import { LinenBags } from "@/components/operations/linen-bags";
 import { OperationsDisclosure } from "@/components/operations/ui";
 import { useEffect, useState } from "react";
@@ -43,16 +44,16 @@ export function LaundryInvestigation({ initialTasks, canReviewBags = false }: { 
     try { await navigator.clipboard.writeText(update); setCopyStatus("Update copied. Nothing was sent."); }
     catch { setCopyStatus("Clipboard unavailable. Select and copy the update below."); }
   }
-  return <section className="space-y-4" aria-label="Property laundry investigation">
+  return <section className="ops-content ops-card space-y-4" aria-label="Property laundry investigation">
     <h2 className="text-lg font-semibold">Investigate property laundry</h2>
     <div className="flex flex-wrap items-end gap-3">
-      <label>From date<input className="block rounded border p-2" type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
-      <label>Through date<input className="block rounded border p-2" type="date" value={through} onChange={event => setThrough(event.target.value)} /></label>
+      <label className="min-w-[10rem] flex-1 sm:flex-none">From date<input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
+      <label className="min-w-[10rem] flex-1 sm:flex-none">Through date<input type="date" value={through} onChange={event => setThrough(event.target.value)} /></label>
       <EButton variant="outline" disabled={busy} onClick={() => void loadRange()}>{busy ? "Loading history…" : "Load date range"}</EButton>
     </div>
     <p className="text-sm">{scope}</p>
     {error ? <p role="alert">{error} Previous records remain visible.</p> : null}
-    <label className="block">Property<select className="ml-2 rounded border p-2" value={property} onChange={event => {setProperty(event.target.value);setCopyStatus("");}}>
+    <label className="block max-w-md">Property<select value={property} onChange={event => {setProperty(event.target.value);setCopyStatus("");}}>
       <option value="">Choose a property</option>
       {Array.from(properties).sort((a,b)=>a[1].localeCompare(b[1])).map(([id,name])=><option key={id} value={id}>{name}</option>)}
     </select></label>
@@ -61,19 +62,19 @@ export function LaundryInvestigation({ initialTasks, canReviewBags = false }: { 
       <p>{selected.length} recorded run(s). Actions identify who recorded them; they do not establish who accepted custody.</p>
       <EButton variant="outline" onClick={() => void copy()}>Copy property update</EButton>
       {copyStatus ? <p role="status">{copyStatus}</p> : null}
-      <details><summary className="cursor-pointer underline">Review copyable update</summary><textarea className="mt-2 w-full rounded border p-2" rows={8} aria-label="Property update" readOnly value={update} /></details>
+      <details><summary>Review copyable update</summary><textarea rows={8} aria-label="Property update" readOnly value={update} /></details>
       {selected.map(task => {
         const facts = investigateLaundry(task), media = buildTaskMedia(task);
-        return <article key={task.id} className="space-y-3 rounded border p-4" aria-label={`Laundry run ${task.id}`}>
+        return <article key={task.id} className="space-y-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-4" aria-label={`Laundry run ${task.id}`}>
           <h3 className="font-semibold">{statusLabel(task.status)} · Pickup {investigationDate(task.pickupDate)}</h3>
           <p>Planned return: {investigationDate(task.dropoffDate)} · Supplier: {task.supplier?.name ?? "Not recorded"}</p>
-          {task.jobId ? <Link className="underline" href={`/v2/admin/jobs/${task.jobId}`}>Open linked job</Link> : null}
+          {task.jobId ? <Link href={`/v2/admin/jobs/${task.jobId}`}>Open linked job</Link> : null}
           <dl className="space-y-1 text-sm"><dt className="font-semibold">Readiness</dt><dd>{facts.ready}</dd><dt className="font-semibold">Current holder / location</dt><dd>{facts.holder}</dd><dt className="font-semibold">Next responsibility</dt><dd>{facts.next}</dd></dl>
           <div><h4 className="font-semibold">Recorded issues</h4>{facts.issues.length ? <ul>{facts.issues.map((issue,index)=><li key={index}>{issue}</li>)}</ul> : <p>None recorded.</p>}</div>
           {facts.milestones.length ? <ul className="text-sm">{facts.milestones.map(row=><li key={row.label}>{row.at} — {row.label}</li>)}</ul> : null}
-          {canReviewBags ? <OperationsDisclosure title="Individual bag history (optional)"><LinenBags initialTaskId={task.id} role="ADMIN" panel /></OperationsDisclosure> : null}
+          {canReviewBags ? <OperationsDisclosure title="Individual bag history (optional)" description="Observations of labelled bags recorded for this run." icon={<Tags />}><LinenBags initialTaskId={task.id} role="ADMIN" panel /></OperationsDisclosure> : null}
           <LaundryHandoffReceipts confirmations={task.confirmations ?? []} />
-          {media.length ? <details><summary className="cursor-pointer underline">Evidence ({media.length})</summary><MediaGallery items={media} title="Laundry investigation evidence" className="mt-2 grid grid-cols-3 gap-2" /></details> : <p className="text-sm">No recorded photo evidence.</p>}
+          {media.length ? <details><summary>Evidence ({media.length})</summary><MediaGallery items={media} title="Laundry investigation evidence" className="mt-2 grid grid-cols-3 gap-2" /></details> : <p className="text-sm">No recorded photo evidence.</p>}
         </article>;
       })}
     </> : null}

@@ -110,16 +110,22 @@ function PropertyCareEditor({
         backHref="/v2"
       >
         {error ? (
-          <OperationsNotice tone="danger">{error}</OperationsNotice>
+          <>
+            <OperationsNotice tone="danger">{error}</OperationsNotice>
+            <OperationsButton
+              variant="outline"
+              onClick={() => {
+                // Back to the loading state; a retry is offered only after a failure.
+                setError("");
+                void load().catch((e) => setError(e.message));
+              }}
+            >
+              Retry loading
+            </OperationsButton>
+          </>
         ) : (
           <OperationsLoading />
         )}
-        <OperationsButton
-          variant="outline"
-          onClick={() => void load().catch((e) => setError(e.message))}
-        >
-          Retry loading
-        </OperationsButton>
       </OperationsPage>
     );
   function downloadCoverage() {

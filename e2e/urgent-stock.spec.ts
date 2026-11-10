@@ -38,7 +38,7 @@ test("cleaner reports unknown supply, records open stages, confirms actual count
   const csrf = await (await context.request.get(`${origin}/api/auth/csrf`)).json();
   await context.request.post(`${origin}/api/auth/callback/credentials`, { form: { email: `${cleaner}@example.invalid`, password, csrfToken: csrf.csrfToken, json: "true", callbackUrl: `${origin}/urgent-stock` } });
   const page = await context.newPage(); await page.goto(`${origin}/v2/cleaner/supplies`);
-  await page.getByRole("button", { name: "Report or review urgent stock", exact: true }).click();
+  await page.getByRole("link", { name: "Urgent stock", exact: true }).click();
   await page.getByRole("combobox", { name: "Property", exact: true }).selectOption(property);
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   await page.getByRole("combobox", { name: "Item", exact: true }).selectOption(item);

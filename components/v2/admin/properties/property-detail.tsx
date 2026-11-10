@@ -1,4 +1,5 @@
 "use client";
+import { NotebookPen } from "lucide-react";
 
 import { useRestorableState } from "@/hooks/use-restorable-state";
 import { PropertyCareWorkspace } from "@/components/property-care/workspace";
@@ -79,7 +80,8 @@ import {
   type SetupGuideEntry,
 } from "./property-setup-guide-editor";
 
-type TabKey = "profile" | "jobs" | "checklist" | "access" | "inventory" | "billing";
+const PROPERTY_TAB_KEYS = ["profile", "jobs", "checklist", "access", "inventory", "billing"] as const;
+type TabKey = (typeof PROPERTY_TAB_KEYS)[number];
 
 const SYNC_TONE: Record<string, "success" | "danger" | "info" | "neutral"> = {
   SUCCESS: "success",
@@ -187,6 +189,15 @@ export function PropertyDetail({ propertyId, timeZone = "Australia/Sydney" }: { 
   const [loading, setLoading] = useState(true);
   const [notFoundState, setNotFoundState] = useState(false);
   const [tab, setTab] = useRestorableState<TabKey>("property-detail:tab", "profile");
+
+  // An explicit ?tab= in a link (for example Inventory → By Property) wins over
+  // the remembered tab. Runs after the restore effect declared above.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    if (requested && (PROPERTY_TAB_KEYS as readonly string[]).includes(requested)) {
+      setTab(requested as TabKey);
+    }
+  }, [propertyId, setTab]);
 
   // Edit form
   const [form, setForm] = useState({
@@ -1084,7 +1095,7 @@ export function PropertyDetail({ propertyId, timeZone = "Australia/Sydney" }: { 
       ) : null}
 
       {/* JOBS & HISTORY — chips, report downloads, forms deep links, quick links */}
-      {tab === "jobs" ? <div className="space-y-4"><OperationsDisclosure title="Property memory and care"><PropertyCareWorkspace propertyId={propertyId} timeZone={timeZone} panel /></OperationsDisclosure><PropertyDeepCleanPlanning propertyId={propertyId} /><PropertyCadenceLedger propertyId={propertyId} /><PropertyJobsHistory propertyId={propertyId} /></div> : null}
+      {tab === "jobs" ? <div className="space-y-4"><OperationsDisclosure title="Property memory and care" description="Standing notes, planned care tasks and what past cleans recorded here." icon={<NotebookPen />}><PropertyCareWorkspace propertyId={propertyId} timeZone={timeZone} panel /></OperationsDisclosure><PropertyDeepCleanPlanning propertyId={propertyId} /><PropertyCadenceLedger propertyId={propertyId} /><PropertyJobsHistory propertyId={propertyId} /></div> : null}
 
       {/* ACCESS GUIDE */}
       {tab === "access" ? (

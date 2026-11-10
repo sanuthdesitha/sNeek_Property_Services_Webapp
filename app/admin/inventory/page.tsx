@@ -1,4 +1,5 @@
 import { Role } from "@prisma/client";
+import Link from "next/link";
 import {
   AlertTriangle,
   Boxes,
@@ -12,6 +13,7 @@ import {
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/page-header";
+import { Button } from "@/components/ui/button";
 import { KpiTile } from "@/components/charts";
 import { listSupplierCatalog } from "@/lib/inventory/suppliers";
 import { listClientDeliveryProfiles } from "@/lib/commercial/delivery-profiles";
@@ -227,11 +229,18 @@ export default async function InventoryHubPage({
 
   return (
     <div className="space-y-6">
-      <a href="/urgent-stock" className="inline-block rounded border p-2 font-medium">Report or review urgent stock</a>
       <PageHeader
         icon={<Boxes />}
         title="Inventory & Supplies"
         description="Items, per-property stock, counts, shopping runs, delivery profiles, and suppliers — all in one place."
+        actions={
+          <Button asChild variant="outline" size="sm">
+            <Link href="/urgent-stock">
+              <AlertTriangle className="mr-2 h-4 w-4" />
+              Urgent stock
+            </Link>
+          </Button>
+        }
       />
 
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4 xl:grid-cols-7">
