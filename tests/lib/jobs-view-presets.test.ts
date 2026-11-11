@@ -69,7 +69,8 @@ describe("grouped view counts", () => {
     const sql = sqlText(viewRuleSql(rule, NOW));
     expect(sql.values).toEqual(["COMPLETED"]);
     expect(sql.text).toContain(`<> 'INVOICED'`);
-    expect(sql.text).toContain('NOT EXISTS (SELECT 1 FROM "ClientInvoiceLine" l WHERE l."jobId" = j."id")');
+    // A line on a VOID invoice does not count as invoiced (invoice generator rule).
+    expect(sql.text).toContain('NOT EXISTS (SELECT 1 FROM "ClientInvoiceLine" l JOIN "ClientInvoice" i ON i."id" = l."invoiceId" WHERE l."jobId" = j."id" AND i."status"::text <> \'VOID\')');
     expect(sqlText(viewRuleSql({}, NOW)).text).toBe("TRUE");
   });
 

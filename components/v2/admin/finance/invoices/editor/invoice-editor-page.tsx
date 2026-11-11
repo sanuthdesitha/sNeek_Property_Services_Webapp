@@ -180,6 +180,11 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
           <strong className="font-[600] text-[hsl(var(--e-foreground))]">Read only.</strong> {data.editLock.reason}
         </p>
       ) : null}
+      {data.startedWorkUnreadable ? (
+        <p role="alert" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] px-3 py-2 text-[0.8125rem] font-[550] text-[hsl(var(--e-danger))]">
+          {data.startedWorkUnreadable}
+        </p>
+      ) : null}
       {data.totalsMismatch ? (
         <p role="alert" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] px-3 py-2 text-[0.8125rem] font-[550] text-[hsl(var(--e-danger))]">
           This invoice&rsquo;s stored total does not match its lines. Do not send it. Edit any line or the GST switch to recalculate, then check again.

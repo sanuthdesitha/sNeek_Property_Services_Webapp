@@ -2,6 +2,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { jobsDateScopeRange } from "./date-scope";
+import { notInvoicedJobSql } from "./invoiced-rule";
 import { BUILT_IN_VIEWS, type BuiltInViewRule, type JobsViewCounts } from "./view-presets";
 
 /**
@@ -12,7 +13,8 @@ import { BUILT_IN_VIEWS, type BuiltInViewRule, type JobsViewCounts } from "./vie
  * - date: `scheduledDate` is a UTC date-only key, so a Sydney day range is
  *   `>= fromT00:00Z` and `< (to + 1 day)T00:00Z`;
  * - status: equality / membership;
- * - invoiced "no": not INVOICED and no invoice line.
+ * - invoiced "no": not INVOICED and no line on a non-VOID invoice
+ *   (`invoiced-rule.ts`).
  *
  * Only for administrators and operations managers, who see every job.
  */
@@ -34,8 +36,7 @@ export function viewRuleSql(rule: BuiltInViewRule, now: Date): Prisma.Sql {
     parts.push(Prisma.sql`j."status"::text IN (${Prisma.join(rule.statuses)})`);
   }
   if (rule.invoiced === "no") {
-    parts.push(Prisma.sql`j."status"::text <> 'INVOICED'`);
-    parts.push(Prisma.sql`NOT EXISTS (SELECT 1 FROM "ClientInvoiceLine" l WHERE l."jobId" = j."id")`);
+    parts.push(notInvoicedJobSql());
   }
   if (parts.length === 0) return Prisma.sql`TRUE`;
   return Prisma.join(parts, " AND ");

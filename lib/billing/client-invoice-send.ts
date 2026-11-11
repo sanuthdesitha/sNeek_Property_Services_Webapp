@@ -17,6 +17,7 @@ import { actionResult, type InvoiceActionResult } from "./invoice-action-result"
 import { emptyInvoiceRefusal } from "./client-invoice-guards";
 import { creditNoteTotalRefusal } from "./client-invoice-adjustments";
 import { creditLimitFor } from "./client-invoice-patch-rules";
+import { recordInvoiceAudit } from "./client-invoice-audit";
 
 /** The client portal's page for one invoice (also used for credit notes). */
 export function clientInvoiceUrl(origin: string, invoiceId: string): string {
@@ -29,6 +30,8 @@ export async function sendClientInvoice(input: {
   to?: unknown;
   /** Origin used for the link in the email body. */
   origin: string;
+  /** Who sent it, for the invoice's History. */
+  actorId?: string | null;
 }): Promise<InvoiceActionResult> {
   try {
     const [invoice, settings] = await Promise.all([getClientInvoice(input.invoiceId), getAppSettings()]);
@@ -119,6 +122,12 @@ export async function sendClientInvoice(input: {
       transactional: true,
     });
     if (!result.ok) {
+      await recordInvoiceAudit({
+        actorId: input.actorId,
+        invoiceId: invoice.id,
+        action: "CLIENT_INVOICE_SENT",
+        after: { outcome: "failed", error: result.error ?? "Email provider failed.", recipientCount: recipients.length },
+      });
       return actionResult({ error: result.error ?? "Email provider failed." }, 502);
     }
 
@@ -138,6 +147,15 @@ export async function sendClientInvoice(input: {
         status: NotificationStatus.SENT,
         sentAt: new Date(),
       },
+    });
+
+    // Who and when, the outcome and how many recipients; never the addresses'
+    // contents or the email body.
+    await recordInvoiceAudit({
+      actorId: input.actorId,
+      invoiceId: invoice.id,
+      action: "CLIENT_INVOICE_SENT",
+      after: { outcome: "sent", recipientCount: recipients.length, status: keepsStatus ? invoice.status : ClientInvoiceStatus.SENT },
     });
 
     return actionResult({ ok: true });

@@ -217,3 +217,9 @@ Backlog found so far, to be cleared under this rule:
 | GET/DELETE invoice routes answer 400 for unauthorised or forbidden | Invoices | With the invoice step |
 | Invoice page errors on a malformed started-work snapshot instead of showing it read-only | Invoices | With the invoice step |
 | Send and Xero push write no audit row; bulk audit rows do not appear in an invoice's history | Invoices | With the invoice step |
+
+## Owner requirements restated (2026-11-11)
+
+- Every one of the fifteen screens on the design canvas is built as rendered: Command, Jobs, Calendar, Live ops, Cases, Laundry, Lost and found, Urgent stock, Invoices and pay, Invoice editor, Accounts, Quality hub, Insights, Forms library, Template builder.
+- No existing function is lost. Each step ends with a parity table: every action, filter, link and view of the pre-redesign screen (read from `origin/main`) mapped to where it now lives. Before the final merge, one independent parity audit covers all eighteen original areas against `origin/main`, and anything missing is restored before merging.
+- When everything is built and the full verification passes (type check, full test suite including database tests, production build, browser pass at 390px and 1280px in light and dark), the branch is merged to `main` by pull request.

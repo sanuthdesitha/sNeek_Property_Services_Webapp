@@ -5,9 +5,9 @@ import { pushClientInvoiceToXeroOnce } from "@/lib/billing/client-invoice-xero";
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     // Shared with the bulk route: same lock, reservation and idempotency key.
-    const result = await pushClientInvoiceToXeroOnce(params.id);
+    const result = await pushClientInvoiceToXeroOnce(params.id, session.user.id);
     return NextResponse.json(result.body, { status: result.status });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

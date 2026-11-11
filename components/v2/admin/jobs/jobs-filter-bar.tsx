@@ -135,7 +135,7 @@ export function JobsFilterBar({ state, update, reference, optionsOpen, onToggleO
             <option value="no">Not invoiced</option>
           </select>
         </label>
-        <p className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">Invoiced means the job is marked invoiced or has an invoice line.</p>
+        <p className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">Invoiced means the job is marked invoiced or has a line on an invoice that is not void.</p>
       </EFilterPopover>
 
       <EButton variant="ghost" size="sm" disabled={!hasActiveFilters(state)} onClick={() => update(defaultJobsFilters())}>Clear filters</EButton>

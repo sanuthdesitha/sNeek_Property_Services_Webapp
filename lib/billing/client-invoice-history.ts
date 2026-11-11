@@ -53,6 +53,20 @@ export function describeInvoiceAudit(action: string, after: unknown): string {
       return "Started-work draft refreshed from jobs";
     case "CLIENT_INVOICE_BULK_ACTION":
       return `Bulk action: ${field(after, "action") ?? "unknown"}`;
+    case "CLIENT_INVOICE_BULK_ROW": {
+      const reason = field(after, "reason");
+      return `Bulk ${field(after, "action") ?? "action"}: ${field(after, "outcome") ?? "unknown"}${reason ? ` (${reason})` : ""}`;
+    }
+    case "CLIENT_INVOICE_SENT": {
+      const outcome = field(after, "outcome");
+      return outcome === "sent" ? "Sent to the client by email" : `Email send failed${field(after, "error") ? `: ${field(after, "error")}` : ""}`;
+    }
+    case "CLIENT_INVOICE_XERO_PUSH": {
+      const outcome = field(after, "outcome");
+      if (outcome === "pushed") return "Pushed to Xero";
+      if (outcome === "already-pushed") return "Xero push requested: already in Xero";
+      return `Xero push failed${field(after, "error") ? `: ${field(after, "error")}` : ""}`;
+    }
     case "CLIENT_INVOICE_BLANK_CREATED":
       return "Created as a blank invoice";
     case "CLIENT_INVOICE_CREDIT_NOTE_CREATED":

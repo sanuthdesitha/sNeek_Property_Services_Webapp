@@ -8,9 +8,9 @@
  * the same declarations, so a tab's number and the rows it shows answer the
  * same question.
  *
- * "Not invoiced" uses the existing Invoice filter ("no": not INVOICED and no
- * invoice line) restricted to Completed jobs. The existing filter counts a line
- * on a voided invoice as invoiced; that rule is kept, not reinterpreted here.
+ * "Not invoiced" uses the Invoice filter ("no": not INVOICED and no line on a
+ * non-VOID invoice, see `invoiced-rule.ts`) restricted to Completed jobs. A
+ * line on a voided invoice does not count, matching the invoice generator.
  */
 import type { JobStatus } from "@prisma/client";
 import { DEFAULT_JOBS_STATE, type JobsWorkspaceState } from "./workspace-state";

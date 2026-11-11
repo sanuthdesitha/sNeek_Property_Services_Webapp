@@ -32,6 +32,7 @@ export function hasPaymentEvidence(invoice: PaymentEvidenceFacts): boolean {
 }
 
 export type InvoiceEditLockKind =
+  | "review-unreadable"
   | "void"
   | "payment"
   | "xero-issued"
@@ -58,6 +59,27 @@ export const ISSUED_CREDIT_NOTE_REFUSAL =
   "This credit note has been sent to the client, so its content is locked.";
 export const VOID_INVOICE_REFUSAL = "This invoice is void. Generate a replacement rather than editing it.";
 
+export const STARTED_WORK_UNREADABLE_REFUSAL =
+  "The started-work review data on this invoice could not be read. It is shown read only and cannot be approved; office reconciliation is required.";
+
+/**
+ * Whether a started-work snapshot has the shape the review needs. The one
+ * validity rule: readStartedWorkReview throws on exactly what this rejects.
+ */
+export function isValidStartedWorkSnapshot(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const snapshot = value as { version?: unknown; jobs?: unknown; periodStart?: unknown; periodEnd?: unknown };
+  const day = (raw: unknown) => (typeof raw === "string" || raw instanceof Date) && Number.isFinite(new Date(raw).getTime());
+  return snapshot.version === 1 && Array.isArray(snapshot.jobs) && day(snapshot.periodStart) && day(snapshot.periodEnd);
+}
+
+/** True when the invoice carries a started-work snapshot that cannot be read. */
+export function startedWorkReviewUnreadable(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
+  const value = (metadata as Record<string, unknown>).startedWorkReview;
+  return Boolean(value) && !isValidStartedWorkSnapshot(value);
+}
+
 export type InvoiceContentLock = { editable: true } | { editable: false; kind: InvoiceEditLockKind; reason: string };
 
 /**
@@ -69,6 +91,10 @@ export type InvoiceContentLock = { editable: true } | { editable: false; kind: I
  */
 export function invoiceContentLock(invoice: InvoiceEditFacts): InvoiceContentLock {
   if (invoice.status === "VOID") return { editable: false, kind: "void", reason: VOID_INVOICE_REFUSAL };
+  // Unknown is never OK: an unreadable review snapshot keeps the invoice read only.
+  if (startedWorkReviewUnreadable(invoice.metadata)) {
+    return { editable: false, kind: "review-unreadable", reason: STARTED_WORK_UNREADABLE_REFUSAL };
+  }
   if (hasPaymentEvidence(invoice)) return { editable: false, kind: "payment", reason: PAYMENT_EVIDENCE_REFUSAL };
   if (invoice.xeroInvoiceId) return { editable: false, kind: "xero-issued", reason: XERO_ISSUED_REFUSAL };
   if (isXeroExportPending(invoice.metadata)) {

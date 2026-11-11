@@ -115,6 +115,8 @@ export type ClientInvoiceEditorData = {
   totalsMismatch: boolean;
   /** Note to the client printed on the PDF (the reference is on the row). */
   clientNote: string | null;
+  /** Set when the started-work snapshot cannot be read: read only, approval refused. */
+  startedWorkUnreadable: string | null;
   lines: EditorLine[];
   clientProperties: Array<{ id: string; name: string; suburb: string | null }>;
   editLock: InvoiceEditLock;

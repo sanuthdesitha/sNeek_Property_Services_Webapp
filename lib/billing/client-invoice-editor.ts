@@ -13,7 +13,7 @@ import { invoiceEditLock, isShoppingLockedLine } from "./client-invoice-guards";
 import { isDiscountLine } from "./client-invoice-adjustments";
 import { clientInvoiceApprovalChecks } from "./client-invoice-checks";
 import { clientInvoiceHistory } from "./client-invoice-history";
-import { readStartedWorkReview } from "./started-work-reconciliation";
+import { readStartedWorkReviewSafely } from "./started-work-reconciliation";
 import type {
   ClientInvoiceEditorData,
   EditorLine,
@@ -30,7 +30,7 @@ function failed(error: unknown, fallback: string): string {
 }
 
 function readStartedWork(invoice: LoadedInvoice): EditorStartedWork | null {
-  const review = readStartedWorkReview(invoice.metadata);
+  const { review } = readStartedWorkReviewSafely(invoice.metadata);
   return review ? { review, inspection: invoice.startedWorkStatus ?? null } : null;
 }
 
@@ -138,6 +138,7 @@ export async function loadClientInvoiceEditor(
     gstEnabled: invoice.gstEnabled !== false,
     totalsMismatch: invoice.totalsMismatch,
     clientNote: invoice.clientNote ?? null,
+    startedWorkUnreadable: readStartedWorkReviewSafely(invoice.metadata).error,
     lines: invoice.lines.map((line) => toEditorLine(line, timezone, startedWork)),
     clientProperties: properties.map((property) => ({ id: property.id, name: property.name, suburb: property.suburb ?? null })),
     editLock: invoiceEditLock(invoice, options.canManage),

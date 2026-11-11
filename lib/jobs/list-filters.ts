@@ -9,6 +9,7 @@
  * - `ids` restricts the result to selected jobs (export of a selection).
  */
 import { JobStatus, Role, type JobType } from "@prisma/client";
+import { INVOICED_JOB_WHERE, NOT_INVOICED_JOB_WHERE } from "./invoiced-rule";
 
 export type JobsWhereParams = {
   /** One status, several statuses, or null for any. */
@@ -105,10 +106,11 @@ export function buildJobsWhere(params: JobsWhereParams): JobsWhere {
     ];
   }
   // Keep invoice alternatives separate from search and the explicit status.
+  // A line on a VOID invoice does not count (same rule as the invoice generator).
   if (params.invoiced === "yes") {
-    where.AND = [{ OR: [{ status: JobStatus.INVOICED }, { invoiceLines: { some: {} } }] }];
+    where.AND = [INVOICED_JOB_WHERE];
   } else if (params.invoiced === "no") {
-    where.AND = [{ status: { not: JobStatus.INVOICED }, invoiceLines: { none: {} } }];
+    where.AND = [NOT_INVOICED_JOB_WHERE];
   }
 
   // Set before the CLEANER branch below so that branch always wins: a

@@ -143,7 +143,10 @@ export async function getBusinessInsights(
   const payload = periodPayload(period);
 
   const candidates: Finding[] = [
-    ...detectPropertyOverruns(properties, span),
+    ...detectPropertyOverruns(
+      properties.map((row) => ({ propertyId: row.id, propertyName: row.propertyName, hours: row.figures.hours })),
+      span,
+    ),
     ...detectIssueSurges(categoryRows(issues, previousIssues, labels), span, payload.previous?.label ?? null),
   ];
   if (access.finance) {

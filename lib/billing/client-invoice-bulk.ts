@@ -58,13 +58,13 @@ async function approveRow({ invoice, actor }: RowContext): Promise<ClientInvoice
   return isActionSuccess(result) ? done(invoice) : refused(invoice, actionError(result, "Approval was refused."));
 }
 
-async function sendRow({ invoice, origin }: RowContext): Promise<ClientInvoiceBulkResult> {
+async function sendRow({ invoice, origin, actor }: RowContext): Promise<ClientInvoiceBulkResult> {
   // A bulk send never re-sends: emailing a batch of clients a second copy is
   // what the row's own Re-send action exists to make deliberate.
   if (invoice.status === "SENT" || invoice.status === "PART_PAID") {
     return refused(invoice, "Already sent. Use Re-send on this invoice to email it again.");
   }
-  const result = await sendClientInvoice({ invoiceId: invoice.id, origin });
+  const result = await sendClientInvoice({ invoiceId: invoice.id, origin, actorId: actor.id });
   return isActionSuccess(result) ? done(invoice) : refused(invoice, actionError(result, "Sending was refused."));
 }
 
@@ -86,8 +86,8 @@ async function approveAndSendRow(context: RowContext): Promise<ClientInvoiceBulk
   return refused(invoice, `${approvedFirst}${sent.reason ?? "sending was refused."}`);
 }
 
-async function xeroPushRow({ invoice }: RowContext): Promise<ClientInvoiceBulkResult> {
-  const result = await pushClientInvoiceToXeroOnce(invoice.id);
+async function xeroPushRow({ invoice, actor }: RowContext): Promise<ClientInvoiceBulkResult> {
+  const result = await pushClientInvoiceToXeroOnce(invoice.id, actor.id);
   if (!isActionSuccess(result)) return refused(invoice, actionError(result, "The Xero push was refused."));
   if (result.body.alreadyPushed) return unchanged(invoice, "Already in Xero. Nothing was pushed.");
   return done(invoice);
@@ -153,6 +153,24 @@ export async function runClientInvoiceBulk(input: {
       },
     })
     .catch((error) => logger.error({ error }, "[invoice] bulk action completed but its audit entry could not be written"));
+
+  // The request row above uses entityId "bulk" for many invoices, so it never
+  // appeared in an invoice's own history. Each affected invoice also gets a
+  // row of its own (CLIENT_INVOICE_BULK_ROW) naming the action and its outcome.
+  const perInvoice = results.filter((row) => byId.has(row.id));
+  if (ids.length > 1 && perInvoice.length) {
+    await db.auditLog
+      .createMany({
+        data: perInvoice.map((row) => ({
+          userId: input.actor.id,
+          action: "CLIENT_INVOICE_BULK_ROW",
+          entity: "ClientInvoice",
+          entityId: row.id,
+          after: { action: input.request.action, outcome: row.outcome, reason: row.reason ?? null },
+        })),
+      })
+      .catch((error) => logger.error({ error }, "[invoice] bulk action completed but its per-invoice audit entries could not be written"));
+  }
 
   return { action: input.request.action, results, summary };
 }

@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { computeClientCharge } from "@/lib/finance/job-money";
 import { hasStartedWorkEvidence, snapshotStartedWork, type StartedWorkSnapshot } from "./started-work-review";
+import { STARTED_WORK_UNREADABLE_REFUSAL, isValidStartedWorkSnapshot } from "./client-invoice-guards";
 
 export type StartedWorkReview = {
   version: 1;
@@ -18,10 +19,23 @@ type Invoice = { status?: string; clientId: string; metadata: unknown; lines: Ar
 export function readStartedWorkReview(metadata: unknown): StartedWorkReview | null {
   const value = (metadata as { startedWorkReview?: StartedWorkReview } | null)?.startedWorkReview;
   if (!value) return null;
-  if (value.version !== 1 || !Array.isArray(value.jobs) || !Number.isFinite(new Date(value.periodStart).getTime()) || !Number.isFinite(new Date(value.periodEnd).getTime())) {
+  if (!isValidStartedWorkSnapshot(value)) {
     throw new Error("Started-work review snapshot is invalid. Office reconciliation is required.");
   }
   return value;
+}
+
+/**
+ * Like readStartedWorkReview, but never throws: an unreadable snapshot comes
+ * back as an explicit error, so a page can show the invoice read only instead
+ * of failing. Financial actions still call readStartedWorkReview and refuse.
+ */
+export function readStartedWorkReviewSafely(metadata: unknown): { review: StartedWorkReview | null; error: string | null } {
+  try {
+    return { review: readStartedWorkReview(metadata), error: null };
+  } catch {
+    return { review: null, error: STARTED_WORK_UNREADABLE_REFUSAL };
+  }
 }
 
 export async function loadStartedWorkReview(invoice: Invoice, tx: Prisma.TransactionClient) {
@@ -56,7 +70,9 @@ export async function loadStartedWorkReview(invoice: Invoice, tx: Prisma.Transac
 }
 
 export async function inspectStartedWorkReview(invoice: Invoice, tx: Prisma.TransactionClient) {
-  const review = readStartedWorkReview(invoice.metadata);
+  const { review, error: unreadable } = readStartedWorkReviewSafely(invoice.metadata);
+  // Unreadable: reported, never treated as reviewed (approval stays refused).
+  if (unreadable) return { requiresReview: true, changedJobIds: [], jobs: [], error: unreadable, unreadable: true };
   if (!review) return null;
   try {
     const state = await loadStartedWorkReview(invoice, tx);

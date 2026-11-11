@@ -51,7 +51,7 @@ const NAV: NavItem[] = [
   // and coaching. /quality/issues, /accountability and /qa-performance
   // redirect to its tabs.
   { href: "/v2/admin/quality", label: "Quality", icon: ShieldCheck, group: "Quality" },
-  { href: "/v2/admin/reports", label: "Reports", icon: FileText, group: "Quality" },
+  { href: "/v2/admin/reports", label: "Insights", icon: FileText, group: "Quality" },
 
   // One entry for client invoices, cleaner invoices, pay runs and adjustments.
   // /v2/admin/payroll and /v2/admin/cleaner-invoices redirect to their tabs.

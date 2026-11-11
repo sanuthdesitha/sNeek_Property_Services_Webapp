@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { assertStartedWorkReviewed } from "@/lib/billing/started-work-reconciliation";
 import { pushClientCreditNoteToXero, pushClientInvoiceToXero } from "@/lib/xero/client";
 import { emptyInvoiceRefusal } from "./client-invoice-guards";
+import { recordInvoiceAudit } from "./client-invoice-audit";
 import { xeroCreditNoteLineItem, xeroInvoiceReference } from "./client-invoice-xero-mapping";
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 import { actionResult, type InvoiceActionResult } from "./invoice-action-result";
@@ -19,7 +20,23 @@ function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-export async function pushClientInvoiceToXeroOnce(invoiceId: string): Promise<InvoiceActionResult> {
+/** Push once, and record who asked and what happened in the invoice's History. */
+export async function pushClientInvoiceToXeroOnce(invoiceId: string, actorId?: string | null): Promise<InvoiceActionResult> {
+  const result = await pushOnce(invoiceId);
+  const body = result.body as { alreadyPushed?: boolean; xeroInvoiceId?: string; error?: string };
+  const outcome = result.status >= 400 ? "failed" : body.alreadyPushed ? "already-pushed" : "pushed";
+  if (result.status !== 404) {
+    await recordInvoiceAudit({
+      actorId,
+      invoiceId,
+      action: "CLIENT_INVOICE_XERO_PUSH",
+      after: { outcome, xeroInvoiceId: body.xeroInvoiceId ?? null, ...(outcome === "failed" ? { error: body.error ?? null } : {}) },
+    });
+  }
+  return result;
+}
+
+async function pushOnce(invoiceId: string): Promise<InvoiceActionResult> {
   try {
     const [invoice, integrations] = await Promise.all([
       db.clientInvoice.findUnique({

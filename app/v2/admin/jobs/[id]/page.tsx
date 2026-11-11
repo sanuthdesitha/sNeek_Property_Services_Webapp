@@ -63,6 +63,7 @@ import { ReportActions } from "@/components/v2/admin/jobs/report-actions";
 import { FormsQaCentre } from "@/components/v2/admin/jobs/forms-qa-centre";
 import { TaskEvidence } from "@/components/v2/admin/jobs/task-evidence";
 import { JobReminderButton } from "@/components/v2/admin/jobs/job-reminder-button";
+import { isLiveInvoiceLine } from "@/lib/jobs/invoiced-rule";
 
 export const metadata = { title: "Job · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -819,6 +820,8 @@ export default async function AdminJobDetailPage({
   const linkedCases = job.issueTickets ?? [];
   const linkedInvoiceLines = job.invoiceLines ?? [];
   const hasLinkedRefs = linkedCases.length > 0 || linkedInvoiceLines.length > 0;
+  // Lines on voided invoices stay listed, but they do not make the job invoiced.
+  const onlyVoidInvoiceLines = linkedInvoiceLines.length > 0 && !linkedInvoiceLines.some(isLiveInvoiceLine);
 
   const tab = resolveJobDetailTab(searchParams?.tab);
   const tabHref = (key: string) => jobDetailTabHref(job.id, key);
@@ -1726,6 +1729,10 @@ export default async function AdminJobDetailPage({
               {linkedInvoiceLines.length === 0 ? (
                 <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Not invoiced yet.</p>
               ) : (
+                <>
+                {onlyVoidInvoiceLines ? (
+                  <p className="mb-1.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Not on a live invoice. Every line below is on a voided invoice.</p>
+                ) : null}
                 <ul className="space-y-1.5">
                   {linkedInvoiceLines.map((line) => (
                     <li key={line.id} className="flex flex-wrap items-center justify-between gap-2 text-[0.8125rem]">
@@ -1775,6 +1782,7 @@ export default async function AdminJobDetailPage({
                     </li>
                   ))}
                 </ul>
+                </>
               )}
             </div>
           </ECardBody>

@@ -8,6 +8,13 @@ import { loadClientInvoiceEditor } from "@/lib/billing/client-invoice-editor";
 import { canManageInvoices } from "@/lib/billing/client-invoice-access";
 import { securitySchema, verifyInvoiceSecurity } from "@/lib/billing/client-invoice-patch-rules";
 
+/** 401/403 for the session guards, like the other invoice routes; 400 otherwise. */
+function authStatus(message: string): number {
+  if (message === "UNAUTHORIZED") return 401;
+  if (message === "FORBIDDEN") return 403;
+  return 400;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -26,8 +33,9 @@ export async function GET(
       return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
     }
     return NextResponse.json(invoice);
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message ?? "Could not load invoice." }, { status: 400 });
+  } catch (err: unknown) {
+    const message = err instanceof Error && err.message ? err.message : "Could not load invoice.";
+    return NextResponse.json({ error: message }, { status: authStatus(message) });
   }
 }
 
@@ -71,7 +79,8 @@ export async function DELETE(
       await tx.clientInvoice.delete({ where: { id: params.id } });
     });
     return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message ?? "Could not delete invoice." }, { status: 400 });
+  } catch (err: unknown) {
+    const message = err instanceof Error && err.message ? err.message : "Could not delete invoice.";
+    return NextResponse.json({ error: message }, { status: authStatus(message) });
   }
 }
