@@ -24,6 +24,12 @@ stock, holiday rates, care, stay preparation, linen custody and profit review.
 - Default to an existing tab or section, rather than another top-level entry link.
   Property care belongs in Jobs & history; stock needs in supplies; bag observations
   in laundry; individual turnover cost review in Finance overview.
+- A tool with its own list and form (urgent stock) is a tab of the workspace it
+  belongs to. Never place a panel between a tab bar and the active tab's content.
+  A disclosure goes after the content it supplements, or first inside the tab
+  that owns it.
+- Give every `OperationsDisclosure` a one-line `description` saying what the tool
+  does and what it does not change, and an icon passed as an element.
 - Use `OperationsDisclosure` to defer requests until opened and retain draft state
   when collapsed. Its title supplies the section h2. Pass `panel` to operational
   workspaces inside it so they inherit the portal and omit standalone back/title UI.

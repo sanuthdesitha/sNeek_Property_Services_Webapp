@@ -433,3 +433,40 @@ Final upload follow-up coverage: 341 focused tests and 11 browser fixture tests 
 - Also fixed: `npm run db:seed` / `db:seed:demo` crashed on the `server-only` guard; four draft-lifecycle tests used a submit fixture without the server clock-out confirmation introduced on 9 October; the retained-accounts database test depended on an ambient `NEXTAUTH_SECRET`.
 - Verified: real supervisor run against a fresh migrated disposable database on `127.0.0.1:55439` logged `pg-boss started` and `All workers registered`, stored the `ical-sync` schedule as `0 * * * *` Australia/Sydney with 42 schedules in total, and wrote a heartbeat advertising `ical-sync`. Focused tests for the supervisor, start script, worker startup/registration, mobile outbox and campaign sender pass. Baseline full suite before these edits: 7,240 passed, 12 failed in three files (the four stale lifecycle tests, three missing-secret failures, and five caused by this change's first draft of the start script); all three files pass after the fixes. Standalone TypeScript passes.
 - Not verified: the production deployment, its environment switches, feed responses, or an unattended AUTO run in production. After deploying, confirm the three startup log lines and a new AUTO sync run in Admin → System diagnostics.
+
+### Follow-up: placement, Estate conformity and portal sweep (2026-11-10/11)
+
+Request: check recent features, make them match the Estate UI and sit in practical places. Method: seeded disposable database `127.0.0.1:55439/sneek_ui`, production build served by the real start command, Chromium.
+
+**Found and fixed**
+
+- Urgent stock was a card wedged between the tab bar and the active tab on Inventory and Supplies. It is now a tab on both (ADMIN-only on Inventory, enforced by the server tab normaliser as well as the tab list).
+- The shared feature disclosure used a text "+"/"−" ghost button. It is now an Estate card row with icon, purpose line and chevron; its accessible name is unchanged. Bag tracking, turnover profit and client property care moved after the workspace they supplement.
+- Classic Inventory, Restock, admin Property and client Property had bare links above the heading; they are header actions now. The Cleaners page's bare "addresses" link is a header action and the addresses page uses Estate primitives.
+- Estate screens using plain utilities rendered classic grey/teal. The skin now maps the classic variables to Estate tokens and sets `color-scheme: dark` in Obsidian.
+- `Permissions-Policy` had `camera=()` and `microphone=()`. The crawl logged "camera is not allowed in this document" on the cleaner Quick scan page. Same-origin camera and microphone are allowed again; a middleware test asserts it.
+- `/v2/admin/properties/[id]?tab=…` was ignored (the Inventory → By Property link pointed at it). Explicit links now win over the remembered tab.
+- Page-header actions could not wrap, so Properties, Reports, Live map, Route map and Website overflowed at 390px (65–189px). The Reports theme row also overflowed. Both wrap now.
+- Approvals had no page heading; the cleaner job title and the onboarding survey number were not the page `h1`.
+- The cleaner job page opened with a seven-step status rail that pushed the stage controls below the first phone screen. It is a slim segmented bar below 640px.
+- Laundry calendar took "today" from the runtime clock, so a browser in another timezone failed hydration (React #425/#422 in the crawl). It uses the Sydney day on both sides.
+- Property care showed "Retry loading" while still loading; it appears only after a failure.
+- iCal: an unchanged feed cleared its ETag/Last-Modified, forcing a full re-import next run; interrupted runs stayed `RUNNING` forever. Both fixed with tests.
+
+**Verified**
+
+- TypeScript `--noEmit`: pass. ESLint on touched files: 0 errors, 5 existing-style warnings.
+- Full Vitest suite on disposable PostgreSQL: 7,267 passed, 1 failed, 2 skipped across 659 files. The one failure was the addresses page test asserting the old empty-state text; it is updated and passes. The suite was not rerun in full after that one-line test edit.
+- Production build: pass, 765/765 pages.
+- Real start command with the embedded worker: web ready, `pg-boss started`, 42 schedules, fresh heartbeat.
+- Production crawl at 390px, after the fixes that preceded it: admin 153 pages, cleaner 29, client 30, laundry 13, QA 7. No failed API calls and no page errors except the laundry calendar hydration error fixed above. Remaining pages without an `h1`: the onboarding wizard and the form builder (full-screen editors), left as they are.
+- After the final rebuild: 16 changed screens × 390px/1280px × light/dark = 64 checks, all with no horizontal overflow, exactly one `h1` and no console errors. Screenshots inspected by eye: admin Inventory urgent-stock tab (1280 dark), cleaner job (390 dark), plus earlier captures of Inventory, Finance with the profit panel open, cleaner Supplies urgent tab (390 light), and admin Property.
+
+**Not done / limits**
+
+- The maintenance portal was not crawled (no seeded maintenance login). The classic (v1) portals were changed only where a feature link was misplaced; they were not crawled.
+- The seeded data is small. Screens that need real volumes, submitted forms, laundry runs, invoices or media were checked for loading and layout, not for every state.
+- Keyboard operation and draft retention were not re-exercised by hand in this pass; the existing component tests for those behaviours pass.
+- `e2e/urgent-stock.spec.ts` was updated for the tab but the real-database Playwright suites were not run.
+- Raw-styled markup remains inside some panels (`property-deep-clean-planning`, `vision-settings`, `photo-review-panel`, `quantity-exceptions`, `started-work-review`). The theme bridge gives them Estate colours; their layout was not redesigned.
+- Nothing was deployed. Production behaviour, including the iCal feeds, is unverified until this branch is deployed and an AUTO sync run appears in Admin → System diagnostics.

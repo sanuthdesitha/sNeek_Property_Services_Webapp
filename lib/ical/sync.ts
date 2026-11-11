@@ -1164,7 +1164,16 @@ export async function syncPropertyIcal(
 
     if (res.status === 304) {
       summary.warnings.push("Feed not modified since the last successful sync.");
-      await finalizeRun({ runId: run.id, integrationId, summary, snapshot });
+      // Keep the validators that produced this 304. Clearing them forced a full
+      // download and re-import on the very next run.
+      await finalizeRun({
+        runId: run.id,
+        integrationId,
+        summary,
+        snapshot,
+        etag: integration.lastSyncEtag ?? undefined,
+        lastModified: integration.lastSyncModified ?? undefined,
+      });
       return { runId: run.id, summary };
     }
 
@@ -1590,7 +1599,42 @@ async function withConcurrency<T>(
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
+/** Longer than any run can take: the worker aborts a handler after ten minutes. */
+const INTERRUPTED_RUN_AFTER_MS = 20 * 60_000;
+
+/**
+ * A run whose process died (deploy, crash, restart) never reaches its error
+ * handler, so it stays RUNNING and its feed stays SYNCING indefinitely. Record
+ * the truth before the next pass: the run was interrupted and did not finish.
+ */
+export async function closeInterruptedIcalRuns(now = new Date()): Promise<number> {
+  const startedBefore = new Date(now.getTime() - INTERRUPTED_RUN_AFTER_MS);
+  const interrupted = await db.icalSyncRun.findMany({
+    where: { status: "RUNNING", createdAt: { lt: startedBefore } },
+    select: { id: true, integrationId: true },
+    take: 200,
+  });
+  const error = "Sync was interrupted before it finished (the worker stopped or restarted).";
+  for (const run of interrupted) {
+    const closed = await db.icalSyncRun.updateMany({
+      where: { id: run.id, status: "RUNNING" },
+      data: { status: "ERROR", error, completedAt: now },
+    });
+    if (closed.count === 0) continue;
+    await db.integration.updateMany({
+      where: { id: run.integrationId, syncStatus: SyncStatus.SYNCING },
+      data: { syncStatus: SyncStatus.ERROR, syncError: error },
+    });
+  }
+  return interrupted.length;
+}
+
 export async function syncAllIcal(): Promise<void> {
+  try {
+    await closeInterruptedIcalRuns();
+  } catch (err) {
+    logger.error({ err }, "Could not close interrupted iCal runs");
+  }
   const integrations = await db.integration.findMany({
     where: { isEnabled: true, icalUrl: { not: null } },
     select: { id: true, propertyId: true },

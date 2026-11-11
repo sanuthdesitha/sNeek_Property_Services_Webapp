@@ -61,7 +61,7 @@ export function JobHeader({ api }: { api: WorkspaceApi }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <JobStatusIcon status={status} />
-            <p className="e-display-sm leading-tight">{propertyCode || "Job"}</p>
+            <h1 className="e-display-sm leading-tight">{propertyCode || "Job"}</h1>
             <EBadge tone={statusTone(status)} soft>
               {titleCase(status || "")}
             </EBadge>

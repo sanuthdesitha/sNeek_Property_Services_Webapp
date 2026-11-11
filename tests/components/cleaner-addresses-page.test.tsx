@@ -38,5 +38,5 @@ it("denies unauthenticated access before reading residential data", async () => 
 it("renders the empty team without requesting unrelated profile fields", async () => {
   mocks.findMany.mockResolvedValue([]);
   render(await Page());
-  expect(screen.getByText("No active cleaners.")).toBeInTheDocument();
+  expect(screen.getByText("No active cleaners")).toBeInTheDocument();
 });

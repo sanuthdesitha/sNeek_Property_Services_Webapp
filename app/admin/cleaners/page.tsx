@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { canActAs } from "@/lib/auth/roles";
 import { JobStatus, PayAdjustmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -108,5 +109,14 @@ export default async function CleanersHubPage() {
     };
   });
 
-  return <div className="space-y-4">{canViewAddresses ? <Link href="/v2/admin/cleaners/addresses" className="underline">Cleaner addresses for route planning</Link> : null}<CleanersHub rows={rows} /></div>;
+  return (
+    <div className="space-y-4">
+      <CleanersHub rows={rows} />
+      {canViewAddresses ? (
+        <Button asChild variant="outline" size="sm">
+          <Link href="/v2/admin/cleaners/addresses">Cleaner home addresses for route planning</Link>
+        </Button>
+      ) : null}
+    </div>
+  );
 }

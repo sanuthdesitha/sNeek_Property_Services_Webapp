@@ -212,10 +212,10 @@ export function ReportsManager() {
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[hsl(var(--e-border))] pt-4">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <p className={LABEL_CLS}>Regenerate theme</p>
             <select
-              className={`${INPUT_CLS} w-auto min-w-[200px]`}
+              className={`${INPUT_CLS} w-auto min-w-0 max-w-full sm:min-w-[200px]`}
               value={exportThemeId}
               onChange={(event) => setExportThemeId(event.target.value)}
             >

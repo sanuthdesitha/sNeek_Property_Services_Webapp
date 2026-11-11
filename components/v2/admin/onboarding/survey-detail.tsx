@@ -399,7 +399,7 @@ export function SurveyDetail({ id }: { id: string }) {
       {/* ── Heading ── */}
       <div>
         <EEyebrow>Onboarding</EEyebrow>
-        <h2 className="e-display-md mt-1">{survey.surveyNumber}</h2>
+        <h1 className="e-display-md mt-1">{survey.surveyNumber}</h1>
         <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
           {survey.propertyName ?? survey.propertyAddress ?? "No property name"}
           {survey.propertySuburb ? ` — ${survey.propertySuburb}` : ""}

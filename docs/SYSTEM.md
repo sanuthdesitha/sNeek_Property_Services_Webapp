@@ -1604,6 +1604,21 @@ See [the complete commit review](qa/recent-changes-review-2026-10-09.md),
 [operational UI rules](style/operational-ui.md), and root `AGENTS.md` for scope,
 verification, preserved business safeguards and future implementation requirements.
 
+### Placement and Estate conformity pass (2026-11)
+
+- **Urgent stock is a tab.** Admin Inventory (`/v2/admin/inventory?tab=urgent-stock`, ADMIN only, mirrored by the server tab normaliser) and cleaner Supplies (`/v2/cleaner/supplies?tab=urgent-stock`) host the existing urgent-stock workspace as a tab. It no longer sits between the tab bar and the active tab's content. The in-job entry on the cleaner's ongoing job is unchanged.
+- **`OperationsDisclosure`** renders as an Estate card row: optional icon element, title, a one-line `description`, and a chevron. The button's accessible name is still exactly the title. It still loads on first open and keeps drafts mounted. Pass icons as elements (`icon={<Tags />}`); a component reference cannot cross from a server page.
+- **Where the secondary tools sit:** bag tracking follows the cleaner's stage content and follows the runs on Laundry → Tracking; turnover profit follows the Finance overview breakdowns; client property care follows the client's property summary; admin property care stays first in Property → Jobs & history.
+- **Classic pages:** urgent stock and property care links are header actions using the classic `Button`, not bare links above the heading.
+- **Theme bridge.** Inside `[data-skin="estate"]` the classic variables (`--border`, `--muted-foreground`, `--background`, `--primary`, …) resolve to Estate tokens, so plain utilities such as `border` or `text-muted-foreground` match Estate in light and Obsidian. Obsidian also sets `color-scheme: dark`. Prefer Estate primitives in new code; the bridge exists so a stray utility cannot reintroduce classic grey or teal.
+- **Camera and microphone.** `Permissions-Policy` is `camera=(self), microphone=(self), geolocation=(self)`. The earlier empty camera/microphone allowlists blocked `getUserMedia` on every page, which disabled the live barcode scanner, guided photo capture and in-app video evidence (each fell back to the file picker).
+- **Property page links.** `/v2/admin/properties/[id]?tab=…` opens that tab; an explicit link wins over the remembered tab. The Inventory → By Property link relies on this.
+- **Headings.** Approvals has its page heading; the cleaner job title is the page `h1`.
+- **Cleaner job status on phones.** `JobStatusProgress compact` shows the status line and a slim seven-segment bar below 640px and the full rail from 640px, so the cleaner's first screen shows the stage controls.
+- **Chip tabs** scroll the active tab into view when the row overflows on a phone.
+
+**iCal follow-up (2026-11).** An unchanged feed (HTTP 304) keeps its ETag/Last-Modified validators; they were being cleared, forcing a full download and re-import on the next run. Before each automatic pass, runs still `RUNNING` after 20 minutes are recorded as `ERROR` ("interrupted") and their feed leaves `SYNCING`, so a restart mid-sync no longer leaves a permanently running record.
+
 ### Cleaner workflow presentation and charging (2026-10)
 
 The Estate cleaner heading includes the Sydney job date. The dashboard route is a compact next-stop link to the existing route workflow; totals refresh while visible. Today's brief groups secondary details into disclosures and explains charging evidence. The cleaner journey uses SVG step icons and identity/job-scoped return-stage memory, reset by a full refresh. Travel's Start driving opens the existing route with this assigned job selected; an already active route remains authoritative.
@@ -1619,6 +1634,8 @@ Effective Jackson Airbnb turnover forms add required Ring/Minut charging proof, 
 **Live API authorization and Admin rights (2026-10).** Protected API handlers authorize locally through `requireRole`/`requireSession` or audited wrappers, including live account/role validation, impersonation identity and OPS feature enforcement. Middleware supplies trusted path/method headers but no longer repeats API authorization via an HTTP session callback. Effective ADMIN and accounts holding ADMIN have full feature access independently of manager packs or policy-store availability; this never gives an impersonated target the actor’s owner rights. Revoked/inactive accounts remain unauthorized. Read-only impersonation, retained identity validation and route-specific sensitive-action checks remain enforced. Page navigation and retained-account resolution still use the trusted `NEXTAUTH_URL_INTERNAL` transport (the standard runner defaults to loopback at its Next port); those callbacks reject redirects and time out after five seconds. The Estate Jobs error card distinguishes session, permission, service and malformed-payload failures.
 
 ## Change Log
+
+- **2026-11-10 (placement and Estate pass):** Urgent stock became a tab on Inventory and Supplies; the shared feature disclosure was restyled and repositioned; classic theme variables are bridged to Estate tokens; same-origin camera/microphone restored; property `?tab=` links, Approvals heading, compact cleaner job status, and iCal validator/interrupted-run fixes. Verification: `docs/qa/recent-changes-review-2026-10-09.md`.
 
 - **2026-11-10 (automation restored):** `npm run start` now supervises the automation worker as a sibling process, so a single-container deployment runs iCal sync and every other scheduled job again. iCal sync is hourly. Stale device pushes (over six hours) and campaigns more than a day overdue are not replayed after an outage. Fixed the seed command and four stale cleaner draft-lifecycle tests. Production deployment is not verified from this environment.
 

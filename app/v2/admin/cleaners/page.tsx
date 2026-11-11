@@ -12,7 +12,8 @@ import {
   EstateCleanersRoster,
   type EstateCleanerRow,
 } from "@/components/v2/admin/cleaners/cleaners-roster";
-import { EPageHeader } from "@/components/v2/ui/primitives";
+import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
+import { MapPin } from "lucide-react";
 
 export const metadata = { title: "Cleaners · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -119,8 +120,17 @@ export default async function EstateCleanersPage() {
         eyebrow="Workforce"
         title="Cleaners"
         description="The whole cleaning team — performance, workload, pay and quick actions."
+        actions={
+          canViewAddresses ? (
+            <EButton asChild variant="outline" size="sm">
+              <Link href="/v2/admin/cleaners/addresses">
+                <MapPin className="h-4 w-4" aria-hidden />
+                Home addresses
+              </Link>
+            </EButton>
+          ) : null
+        }
       />
-      {canViewAddresses ? <Link href="/v2/admin/cleaners/addresses" className="underline">Cleaner addresses for route planning</Link> : null}
       <EstateCleanersRoster rows={rows} />
     </div>
   );

@@ -1652,7 +1652,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       <BackLink />
 
       <JobHeader api={api} />
-      <JobStatusProgress status={status} />
+      <JobStatusProgress status={status} compact />
       {!locked ? <DraftSaveStatus state={draftSave} onRetry={() => flushDraft()} /> : null}
       {!onlineAction.online ? <EAlert tone="info" title="Working offline">
         You can continue your draft and retain photos on this device. Clock changes, job offers, laundry updates and submission need a connection and are never queued automatically.
