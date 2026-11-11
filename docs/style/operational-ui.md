@@ -237,3 +237,9 @@ These match the approved concept (`table.t`, `.chip`, `.bulk`, `.b`) using Estat
 - A disabled menu item that is planned says so (`hint: "Coming in a later step"`) rather than disappearing silently.
 - `EStageBar` (`components/v2/ui/stage-bar.tsx`) is a read-only stage strip. Map stages from stored state only: "done" needs a recorded fact (e.g. a Xero invoice id), an unconfirmed step is "pending", an optional step that left no record is "passed", and a terminal state (void) replaces the strip. Every stage carries its state in words.
 - A record editor page (first: `/v2/admin/finance/invoices/[id]`) keeps the list's URL state in `?back=` for its back link, offers the list's own primary action plus a "more" menu, and saves explicitly unless the write is last-write guarded. Show the server's lock reason when the record is read-only.
+
+### Peek panels and view tabs (2026-11, first used on Jobs)
+
+- `ESidePanel` (`components/v2/ui/side-panel.tsx`) previews one record beside a list: a column from `lg`, a full-height modal sheet below it. Keep the record id in the URL (`?open=<id>`), key the panel by that id, and load secondary tabs only when chosen; abort a tab's read when the record changes and check the response still belongs to the open record. Focus goes to the panel title on open and back to the opener on Escape or close.
+- Clicking a row may open the panel, but the row must also have a real control (the record name as a button) for keyboards; nested checkboxes, buttons and menus never open it.
+- View tabs are filter presets defined once on the server side of the list (`lib/jobs/view-presets.ts`); a tab applies exactly its filters, is current only while the filters match, and shows a count only when one grouped server query produced it.

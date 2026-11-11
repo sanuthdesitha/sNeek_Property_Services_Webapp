@@ -45,38 +45,61 @@ export type InvoiceEditFacts = PaymentEvidenceFacts & {
   status: string;
   xeroInvoiceId: string | null;
   metadata: unknown;
+  /** INVOICE when absent (rows read before credit notes existed). */
+  kind?: string | null;
 };
 
-/** Statuses whose content the screen offers to edit (the list's "edit" rule). */
+/** Statuses whose content may be edited, on screen and by the PATCH. */
 export const EDITABLE_INVOICE_STATUSES: ReadonlySet<string> = new Set(["DRAFT", "APPROVED"]);
 
+export const ISSUED_INVOICE_REFUSAL =
+  "This invoice has been sent to the client, so its content is locked. Corrections go through a credit note: use Issue credit note under More actions.";
+export const ISSUED_CREDIT_NOTE_REFUSAL =
+  "This credit note has been sent to the client, so its content is locked.";
+export const VOID_INVOICE_REFUSAL = "This invoice is void. Generate a replacement rather than editing it.";
+
+export type InvoiceContentLock = { editable: true } | { editable: false; kind: InvoiceEditLockKind; reason: string };
+
 /**
- * Whether the editor offers in-place editing, and if not, why. The first four
- * reasons are the PATCH refusals themselves. "issued" is the screen's existing
- * rule (the list only offered editing on drafts and approved invoices; a sent
- * invoice is reversed to draft first). "view-only" is the operations-manager
- * feature level: middleware refuses their PATCH.
+ * Whether the invoice's CONTENT (lines, GST, discount, client reference, note
+ * to client, order) may change at all, whoever asks. The PATCH refuses content
+ * edits with exactly this reason, and the editor shows the same reason, so the
+ * screen and the server can never disagree. Status moves and payments are not
+ * content: they follow the transition graph.
  */
-export function invoiceEditLock(invoice: InvoiceEditFacts, canManage: boolean): InvoiceEditLock {
-  if (invoice.status === "VOID") {
-    return { editable: false, kind: "void", reason: "This invoice is void. Generate a replacement rather than editing it." };
-  }
+export function invoiceContentLock(invoice: InvoiceEditFacts): InvoiceContentLock {
+  if (invoice.status === "VOID") return { editable: false, kind: "void", reason: VOID_INVOICE_REFUSAL };
   if (hasPaymentEvidence(invoice)) return { editable: false, kind: "payment", reason: PAYMENT_EVIDENCE_REFUSAL };
   if (invoice.xeroInvoiceId) return { editable: false, kind: "xero-issued", reason: XERO_ISSUED_REFUSAL };
   if (isXeroExportPending(invoice.metadata)) {
     return { editable: false, kind: "xero-pending", reason: XERO_RESERVATION_REFUSAL };
   }
   if (!EDITABLE_INVOICE_STATUSES.has(invoice.status)) {
-    return {
-      editable: false,
-      kind: "issued",
-      reason: "This invoice has been sent to the client. To change it, use Reverse to draft under More actions.",
-    };
+    const reason = invoice.kind === "CREDIT_NOTE" ? ISSUED_CREDIT_NOTE_REFUSAL : ISSUED_INVOICE_REFUSAL;
+    return { editable: false, kind: "issued", reason };
   }
+  return { editable: true };
+}
+
+/**
+ * Whether the editor offers in-place editing, and if not, why: the content
+ * lock above, then the operations-manager feature level ("view-only":
+ * middleware refuses their PATCH).
+ */
+export function invoiceEditLock(invoice: InvoiceEditFacts, canManage: boolean): InvoiceEditLock {
+  const content = invoiceContentLock(invoice);
+  if (!content.editable) return content;
   if (!canManage) {
     return { editable: false, kind: "view-only", reason: "Your access to invoices is view only." };
   }
   return { editable: true };
+}
+
+export const EMPTY_INVOICE_REFUSAL = "This invoice has no lines. Add at least one line before approving or sending it.";
+
+/** A blank draft with no lines cannot be approved, sent, paid or pushed. */
+export function emptyInvoiceRefusal(invoice: { lines: readonly unknown[] }): string | null {
+  return invoice.lines.length === 0 ? EMPTY_INVOICE_REFUSAL : null;
 }
 
 /** Lines tied to a reviewed shopping allocation: amounts and grouping are locked. */

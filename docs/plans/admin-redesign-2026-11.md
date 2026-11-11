@@ -125,6 +125,8 @@ Today the page only manages the per-job client PDF and shows no figures.
 - Bulk reminders through one endpoint with per-row results. Board view lanes come from the server and support drag between statuses that the transition rules allow.
 - Job detail: tabs load their own data instead of loading all eleven on every request; the duplicated Quality block is merged.
 
+> **List built 2026-11-11, awaiting the final build and browser pass.** Delivered: header with the real match count, built-in view tabs with totals from one grouped query plus personal saved views, visible filter chips (Status over all eleven statuses), server-sorted table grouped by Sydney day with one row action and a menu, Guest in and Charge columns, the reusable `ESidePanel` peek (`?open=`) with Summary / People / Money / Activity on demand and ranked cleaner suggestions, bulk bar with `POST /api/admin/jobs/bulk-remind` (per-row outcomes) and selection export, server board lanes with drag through the reviewed status change; `jobs-workspace.tsx` split (largest file 260 lines); the job detail's duplicated Quality block merged. Deviations: no bulk Reschedule (no bulk-safe service); suggestions omit distance and QA score; Cleaner / Guest in / Charge not sortable; saved-view tabs carry no count; "Not invoiced" = Completed + the existing Invoice "no" rule. Not done in this step: lazy-loading the detail page's tabs. Details: `docs/SYSTEM.md`, "Jobs list: view tabs, visible filters, peek panel and server board".
+
 ### 3. Calendar
 
 - Day, Week, Month and Agenda. Week is laid out by cleaner (or by property) with an Unassigned lane.

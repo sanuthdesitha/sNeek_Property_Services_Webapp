@@ -10,7 +10,14 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
-import { invoiceAmountOwing, OUTSTANDING_INVOICE_STATUSES } from "@/lib/finance/receivables";
+import {
+  OUTSTANDING_INVOICE_STATUSES,
+  REDUCING_CREDIT_NOTES_SELECT,
+  creditedAmountOf,
+  invoiceAmountOwing,
+  isFullyCredited,
+} from "@/lib/finance/receivables";
+import { FALLBACK_INVOICE_TIMEZONE, invoiceDueDay, paymentTermsDaysFrom } from "./invoice-due";
 import { ListQueryError, listResponse, readQueryValue, type ListQuery } from "@/lib/admin/list-query";
 import {
   CLIENT_INVOICE_STATUSES,
@@ -27,8 +34,6 @@ import {
 
 const DAY_MS = 86_400_000;
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
-/** Same fallback the PDF renderer uses when no terms are configured. */
-const FALLBACK_PAYMENT_TERMS_DAYS = 14;
 
 /** A real calendar day, not just the right shape (rejects 2026-13-01, 2026-02-30). */
 const calendarDay = z
@@ -78,20 +83,21 @@ export type ListContext = {
   overdueCreatedBefore: Date;
   /** Unexported invoices whose Xero reservation is PENDING (incl. failed pushes). */
   pendingXeroIds: string[];
+  /** Sent or part-paid invoices whose approved/sent credit notes cover them: nothing is owed. */
+  fullyCreditedIds: string[];
 };
 
 export function startOfTodayIn(timezone: string, now: Date): Date {
   return fromZonedTime(`${formatInTimeZone(now, timezone, "yyyy-MM-dd")}T00:00:00`, timezone);
 }
 
-type TermsContext = Omit<ListContext, "pendingXeroIds">;
+type TermsContext = Omit<ListContext, "pendingXeroIds" | "fullyCreditedIds">;
 
 /** Timezone and payment terms, read from settings exactly as the PDF reads them. */
 async function loadTermsContext(now: Date): Promise<TermsContext> {
   const settings = await getAppSettings();
-  const timezone = settings.timezone || "Australia/Sydney";
-  const configuredTerms = settings.invoicing?.defaultPaymentTermsDays;
-  const paymentTermsDays = typeof configuredTerms === "number" ? configuredTerms : FALLBACK_PAYMENT_TERMS_DAYS;
+  const timezone = settings.timezone || FALLBACK_INVOICE_TIMEZONE;
+  const paymentTermsDays = paymentTermsDaysFrom(settings.invoicing?.defaultPaymentTermsDays);
   return {
     timezone,
     paymentTermsDays,
@@ -99,15 +105,31 @@ async function loadTermsContext(now: Date): Promise<TermsContext> {
   };
 }
 
+/** Ids of outstanding invoices that credit notes fully cover (see isFullyCredited). */
+async function loadFullyCreditedIds(): Promise<string[]> {
+  const credited = await db.clientInvoice.findMany({
+    where: {
+      kind: "INVOICE",
+      status: { in: [...OUTSTANDING_INVOICE_STATUSES] as ClientInvoiceStatus[] },
+      creditNotes: { some: REDUCING_CREDIT_NOTES_SELECT.where },
+    },
+    select: { id: true, totalAmount: true, paidAmount: true, creditNotes: REDUCING_CREDIT_NOTES_SELECT },
+  });
+  return credited
+    .filter((row) => isFullyCredited({ ...row, creditedAmount: creditedAmountOf(row.creditNotes) }))
+    .map((row) => row.id);
+}
+
 export async function loadListContext(now: Date): Promise<ListContext> {
-  const [terms, pending] = await Promise.all([
+  const [terms, pending, fullyCreditedIds] = await Promise.all([
     loadTermsContext(now),
     db.clientInvoice.findMany({
       where: { xeroInvoiceId: null, metadata: { path: ["xeroExportState"], equals: "PENDING" } },
       select: { id: true },
     }),
+    loadFullyCreditedIds(),
   ]);
-  return { ...terms, pendingXeroIds: pending.map((row) => row.id) };
+  return { ...terms, pendingXeroIds: pending.map((row) => row.id), fullyCreditedIds };
 }
 
 function xeroWhere(filters: ClientInvoiceListFilters, context: ListContext): Prisma.ClientInvoiceWhereInput {
@@ -143,6 +165,7 @@ function baseWhere(filters: ClientInvoiceListFilters, context: ListContext): Pri
     and.push({
       OR: [
         { invoiceNumber: contains },
+        { clientReference: contains },
         { client: { name: contains } },
         { client: { email: contains } },
       ],
@@ -160,10 +183,13 @@ function needsActionWhere(context: ListContext): Prisma.ClientInvoiceWhereInput 
   };
 }
 
+/** Sent or part-paid invoices past their due day; never a credit note or a fully credited invoice. */
 export function overdueWhere(context: ListContext): Prisma.ClientInvoiceWhereInput {
   return {
+    kind: "INVOICE",
     status: { in: [...OUTSTANDING_INVOICE_STATUSES] as ClientInvoiceStatus[] },
     createdAt: { lt: context.overdueCreatedBefore },
+    ...(context.fullyCreditedIds.length ? { id: { notIn: context.fullyCreditedIds } } : {}),
   };
 }
 
@@ -215,6 +241,10 @@ const ROW_SELECT = {
   xeroInvoiceId: true,
   xeroExportedAt: true,
   metadata: true,
+  kind: true,
+  clientReference: true,
+  creditsInvoice: { select: { id: true, invoiceNumber: true } },
+  creditNotes: { select: { id: true, invoiceNumber: true, status: true, totalAmount: true }, orderBy: { createdAt: "asc" } },
   client: { select: { id: true, name: true, email: true } },
 } satisfies Prisma.ClientInvoiceSelect;
 
@@ -239,15 +269,19 @@ export function clientInvoiceXeroState(invoice: {
 }
 
 function toRow(invoice: SelectedInvoice, context: TermsContext): ClientInvoiceListRow {
-  const dueAt = new Date(invoice.createdAt.getTime() + context.paymentTermsDays * DAY_MS);
-  const outstanding = (OUTSTANDING_INVOICE_STATUSES as readonly string[]).includes(invoice.status);
+  const creditNote = invoice.kind === "CREDIT_NOTE";
+  const creditedAmount = creditNote ? 0 : creditedAmountOf(invoice.creditNotes);
+  const owingFacts = { totalAmount: invoice.totalAmount, paidAmount: invoice.paidAmount, creditedAmount };
+  const fullyCredited = !creditNote && isFullyCredited(owingFacts);
+  const outstanding = !creditNote && !fullyCredited && (OUTSTANDING_INVOICE_STATUSES as readonly string[]).includes(invoice.status);
   return {
     id: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
     status: invoice.status as ClientInvoiceStatusValue,
     totalAmount: Number(invoice.totalAmount ?? 0),
     paidAmount: invoice.paidAmount ?? null,
-    amountOwing: invoiceAmountOwing(invoice),
+    // A credit note is never owed; its approved/sent amount reduces its invoice.
+    amountOwing: creditNote ? 0 : invoiceAmountOwing(owingFacts),
     periodStart: iso(invoice.periodStart),
     periodEnd: iso(invoice.periodEnd),
     sentAt: iso(invoice.sentAt),
@@ -256,12 +290,23 @@ function toRow(invoice: SelectedInvoice, context: TermsContext): ClientInvoiceLi
     paymentMethod: invoice.paymentMethod,
     paymentReference: invoice.paymentReference,
     createdAt: invoice.createdAt.toISOString(),
-    dueDate: formatInTimeZone(dueAt, context.timezone, "yyyy-MM-dd"),
+    dueDate: invoiceDueDay(invoice.createdAt, context.paymentTermsDays, context.timezone),
     overdue: outstanding && invoice.createdAt.getTime() < context.overdueCreatedBefore.getTime(),
     xeroInvoiceId: invoice.xeroInvoiceId,
     xeroExportedAt: iso(invoice.xeroExportedAt),
     xeroState: clientInvoiceXeroState(invoice),
     client: { id: invoice.client.id, name: invoice.client.name, email: invoice.client.email ?? null },
+    kind: creditNote ? "CREDIT_NOTE" : "INVOICE",
+    clientReference: invoice.clientReference ?? null,
+    creditedAmount,
+    fullyCredited,
+    credits: invoice.creditsInvoice ? { id: invoice.creditsInvoice.id, invoiceNumber: invoice.creditsInvoice.invoiceNumber } : null,
+    creditedBy: invoice.creditNotes.map((note) => ({
+      id: note.id,
+      invoiceNumber: note.invoiceNumber,
+      status: note.status as ClientInvoiceStatusValue,
+      totalAmount: Number(note.totalAmount ?? 0),
+    })),
   };
 }
 
@@ -368,8 +413,13 @@ export async function listClientInvoicesForExport(input: {
   return invoices.map((invoice) => toRow(invoice, context));
 }
 
-function csvCell(value: string | number | null | undefined): string {
+/** An amount we formatted ourselves: never a formula, even when negative. */
+type CsvAmount = { amount: number };
+
+function csvCell(value: string | number | CsvAmount | null | undefined): string {
   if (value === null || value === undefined) return "";
+  // A credit note's "-50.00" is a number, not a formula, so it is not escaped.
+  if (typeof value === "object") return value.amount.toFixed(2);
   let text = String(value);
   // A leading formula character would execute in a spreadsheet.
   if (/^[=+\-@\t\r]/.test(text) && typeof value === "string") text = `'${text}`;
@@ -392,6 +442,10 @@ export function clientInvoicesCsv(rows: ClientInvoiceListRow[]): string {
     "Owing",
     "Xero state",
     "Xero invoice ID",
+    "Kind",
+    "Credits invoice",
+    "Credited",
+    "Client reference",
   ];
   const lines = rows.map((row) =>
     [
@@ -406,11 +460,15 @@ export function clientInvoicesCsv(rows: ClientInvoiceListRow[]): string {
       row.createdAt,
       row.dueDate,
       row.sentAt ?? "",
-      row.totalAmount.toFixed(2),
-      row.paidAmount === null ? "" : row.paidAmount.toFixed(2),
-      row.amountOwing.toFixed(2),
+      { amount: row.totalAmount },
+      row.paidAmount === null ? "" : { amount: row.paidAmount },
+      { amount: row.amountOwing },
       row.xeroState,
       row.xeroInvoiceId,
+      row.kind === "CREDIT_NOTE" ? "Credit note" : "Invoice",
+      row.credits?.invoiceNumber ?? "",
+      { amount: row.creditedAmount },
+      row.clientReference,
     ]
       .map(csvCell)
       .join(","),

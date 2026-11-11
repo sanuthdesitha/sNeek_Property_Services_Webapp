@@ -49,7 +49,10 @@ export type ClientInvoiceListRow = {
   status: ClientInvoiceStatusValue;
   totalAmount: number;
   paidAmount: number | null;
-  /** Total less payments received, never below zero (lib/finance/receivables). */
+  /**
+   * Total less payments received and approved/sent credit notes, never below
+   * zero (lib/finance/receivables). Always 0 on a credit note.
+   */
   amountOwing: number;
   periodStart: string | null;
   periodEnd: string | null;
@@ -69,7 +72,24 @@ export type ClientInvoiceListRow = {
   xeroExportedAt: string | null;
   xeroState: ClientInvoiceXeroState;
   client: { id: string; name: string; email: string | null };
+  kind: ClientInvoiceKindValue;
+  /** The client's reference / PO number. */
+  clientReference: string | null;
+  /** Approved or sent credit notes against this invoice (positive). 0 on a credit note. */
+  creditedAmount: number;
+  /**
+   * Display state, not a status: unpaid and fully covered by credit notes.
+   * The status stays SENT/PART_PAID so the transition graph is unchanged.
+   */
+  fullyCredited: boolean;
+  /** On a credit note: the invoice it credits. */
+  credits: ClientInvoiceLink | null;
+  /** On an invoice: every credit note raised against it (any status). */
+  creditedBy: Array<ClientInvoiceLink & { status: ClientInvoiceStatusValue; totalAmount: number }>;
 };
+
+export type ClientInvoiceKindValue = "INVOICE" | "CREDIT_NOTE";
+export type ClientInvoiceLink = { id: string; invoiceNumber: string };
 
 export type ClientInvoiceCounts = {
   all: number;

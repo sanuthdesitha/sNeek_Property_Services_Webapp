@@ -33,4 +33,9 @@ export type InvoiceActor = {
   role: string;
   name?: string | null;
   email?: string | null;
+  /**
+   * The real person's id when the session is an impersonation. Actions that
+   * need the administrator's own PIN or password are refused while set.
+   */
+  impersonatedBy?: string | null;
 };

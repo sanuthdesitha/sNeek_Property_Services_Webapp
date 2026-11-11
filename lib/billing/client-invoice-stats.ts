@@ -5,8 +5,11 @@
  *                      on no non-void invoice. A count, not a dollar figure:
  *                      the charge depends on rates the generator resolves.
  *   Drafts to review — DRAFT invoices and their stored totals.
- *   Outstanding      — owing on SENT and PART_PAID invoices (lib/finance/receivables),
- *                      with the overdue count from the PDF's due-date rule.
+ *   Outstanding      — owing on SENT and PART_PAID invoices less payments and
+ *                      approved/sent credit notes (lib/finance/receivables);
+ *                      fully credited invoices are not counted. Overdue count
+ *                      from the PDF's due-date rule.
+ *   Drafts include draft credit notes, whose negative totals net the sum.
  *   Paid this month  — invoices whose status is PAID and whose paid stamp falls
  *                      in this calendar month (organisation timezone), as
  *                      recorded here. Nothing is read from Xero.
@@ -50,12 +53,16 @@ export async function getClientInvoiceStats(now = new Date()): Promise<ClientInv
     getOutstandingReceivables(),
     db.clientInvoice.count({ where: overdueWhere(context) }),
     db.clientInvoice.findFirst({
-      where: { status: { in: [...OUTSTANDING_INVOICE_STATUSES] as ClientInvoiceStatus[] } },
+      where: {
+        kind: "INVOICE",
+        status: { in: [...OUTSTANDING_INVOICE_STATUSES] as ClientInvoiceStatus[] },
+        ...(context.fullyCreditedIds.length ? { id: { notIn: context.fullyCreditedIds } } : {}),
+      },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { invoiceNumber: true, createdAt: true, client: { select: { name: true } } },
     }),
     db.clientInvoice.aggregate({
-      where: { status: ClientInvoiceStatus.PAID, paidAt: { gte: monthStart } },
+      where: { kind: "INVOICE", status: ClientInvoiceStatus.PAID, paidAt: { gte: monthStart } },
       _count: { _all: true },
       _sum: { totalAmount: true },
     }),

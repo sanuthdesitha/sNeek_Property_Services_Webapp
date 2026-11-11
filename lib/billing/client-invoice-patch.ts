@@ -15,6 +15,7 @@ import {
   reverseRefusalReason,
 } from "@/lib/finance/invoice-transitions";
 import { calculateShoppingAwareInvoiceTotals } from "@/lib/billing/shopping-client-charges";
+import { creditedAmountOf } from "@/lib/finance/receivables";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { assertStartedWorkReviewed, readStartedWorkReview } from "@/lib/billing/started-work-reconciliation";
@@ -23,16 +24,36 @@ import {
   PAYMENT_EVIDENCE_REFUSAL,
   XERO_ISSUED_REFUSAL,
   XERO_RESERVATION_REFUSAL,
+  emptyInvoiceRefusal,
   hasPaymentEvidence,
+  invoiceContentLock,
   isShoppingLockedLine,
   isXeroExportPending,
 } from "./client-invoice-guards";
+import {
+  DISCOUNT_BELOW_ZERO_REFUSAL,
+  DISCOUNT_CATEGORY,
+  LIVE_CREDIT_NOTES_REFUSAL,
+  creditNoteTotalRefusal,
+  invoiceGoesBelowZero,
+  resolveDiscount,
+} from "./client-invoice-adjustments";
+import {
+  addDiscountSchema,
+  contentEditRequested,
+  creditLimitFor,
+  kindRuleRefusal,
+  securitySchema,
+  verifyInvoiceSecurity,
+} from "./client-invoice-patch-rules";
 
 const lineUpdateSchema = z.object({
   id: z.string().cuid(),
   description: z.string().trim().min(1).optional(),
   quantity: z.number().positive().optional(),
-  unitPrice: z.number().min(0).optional(),
+  // Sign is checked per kind (kindRuleRefusal): charges on an invoice are zero
+  // or more, credit-note lines zero or less.
+  unitPrice: z.number().finite().optional(),
   // Grouping hint for a MANUAL line. null clears it. Rejected on a job-backed
   // line: that line already knows its property through the job, and letting an
   // override win would let an invoice claim work happened somewhere it did not.
@@ -79,9 +100,17 @@ const patchSchema = z.object({
   addLine: z.object({
     description: z.string().trim().min(1),
     quantity: z.number().positive().default(1),
-    unitPrice: z.number().min(0),
+    unitPrice: z.number().finite(),
     category: z.string().default("SERVICE"),
   }).optional(),
+  /** A DISCOUNT line: a positive amount or a percentage of the current subtotal. */
+  addDiscount: addDiscountSchema.optional(),
+  /** The client's reference / PO number. Content: locked once sent. */
+  clientReference: z.string().trim().max(100).nullable().optional(),
+  /** Note to the client printed on the PDF. Content: locked once sent. */
+  clientNote: z.string().trim().max(2000).nullable().optional(),
+  /** PIN or password, required to remove a line. Verified, never stored or logged. */
+  security: securitySchema,
   removeLineId: z.string().cuid().optional(),
   // Full ordered list of line ids → persisted as sortOrder (group by property + drag).
   reorderLineIds: z.array(z.string().cuid()).optional(),
@@ -93,6 +122,14 @@ const patchSchema = z.object({
    */
   forceStatus: z.boolean().optional(),
 });
+
+function removalRequest(body: unknown): { security: { pin?: string; password?: string } | undefined } | null {
+  if (!body || typeof body !== "object") return null;
+  const raw = body as { removeLineId?: unknown; security?: unknown };
+  if (raw.removeLineId === undefined || raw.removeLineId === null) return null;
+  const parsed = securitySchema.safeParse(raw.security);
+  return { security: parsed.success ? parsed.data : undefined };
+}
 
 /** Thrown inside the transaction so a refused PATCH rolls back earlier line changes. */
 class RefusedInvoicePatch extends Error {
@@ -111,6 +148,13 @@ export async function patchClientInvoice(input: {
   actor: InvoiceActor;
 }): Promise<InvoiceActionResult> {
   const afterCommit: Array<() => Promise<unknown>> = [];
+  // Removing a line needs the administrator's own PIN or password, checked
+  // here on the server before the row lock is taken (bcrypt is slow).
+  const removal = removalRequest(input.body);
+  if (removal) {
+    const refusal = await verifyInvoiceSecurity(input.actor, removal.security);
+    if (refusal) return refusal;
+  }
   try {
     const response = await db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${input.invoiceId} FOR UPDATE`;
@@ -153,9 +197,12 @@ async function patchLockedInvoice(
       return actionResult({ error: "Shopping allocations are locked to their reviewed amounts. Void this invoice and review the shopping charge before generating its replacement." }, 409);
     }
     if (body.addLine?.category.startsWith("SHOPPING_")) return actionResult({ error: "Add shopping charges through the shopping run review so expenses and time are tracked once." }, 400);
+    if (body.addLine?.category === DISCOUNT_CATEGORY) return actionResult({ error: "Add a discount with Add discount." }, 400);
+    const kindRefusal = kindRuleRefusal(existing, body);
+    if (kindRefusal) return kindRefusal;
 
     if (isXeroExportPending(existing.metadata)) return actionResult({ error: XERO_RESERVATION_REFUSAL }, 409);
-    const editsContent = Boolean(body.updateLines?.length || body.addLine || body.removeLineId || body.reorderLineIds?.length || body.gstEnabled !== undefined);
+    const editsContent = contentEditRequested(body);
     if (body.status === "APPROVED" || body.status === "SENT" || body.status === "PAID" || body.status === "PART_PAID" || body.recordPayment) {
       if (editsContent && readStartedWorkReview(existing.metadata)) throw new Error("Save and review draft edits before performing a financial action.");
       await assertStartedWorkReviewed(existing, db, body.status === "APPROVED" && !body.recordPayment);
@@ -166,6 +213,18 @@ async function patchLockedInvoice(
     if (hasPaymentEvidence(existing) && (editsContent || body.reverse || body.forceStatus || body.status === "VOID")) {
       return actionResult({ error: PAYMENT_EVIDENCE_REFUSAL }, 409);
     }
+    // The shared content lock (also the editor's read-only reason): once SENT,
+    // PART_PAID, PAID or VOID, content changes go through a credit note.
+    if (editsContent) {
+      const lock = invoiceContentLock(existing);
+      if (!lock.editable) return actionResult({ error: lock.reason }, 409);
+    }
+    if (body.status === ClientInvoiceStatus.VOID && existing.status !== ClientInvoiceStatus.VOID && existing.kind === "INVOICE") {
+      const liveCredits = await db.clientInvoice.count({ where: { creditsInvoiceId: params.id, status: { not: ClientInvoiceStatus.VOID } } });
+      if (liveCredits > 0) return actionResult({ error: LIVE_CREDIT_NOTES_REFUSAL }, 409);
+    }
+    const discount = body.addDiscount ? resolveDiscount(body.addDiscount, existing.lines) : null;
+    if (discount && !discount.ok) return actionResult({ error: discount.error }, 400);
 
     if (body.forceStatus && body.status && !canTransitionInvoice(existing.status, body.status)) {
       return actionResult({ error: "Financial lifecycle overrides are disabled. Use a reconciled correction." }, 409);
@@ -225,7 +284,7 @@ async function patchLockedInvoice(
     }
 
     // Handle line operations in a transaction
-    if (body.updateLines?.length || body.addLine || body.removeLineId || body.reorderLineIds?.length) {
+    if (body.updateLines?.length || body.addLine || body.addDiscount || body.removeLineId || body.reorderLineIds?.length) {
       await db.$transaction(async (tx) => {
         if (body.reorderLineIds?.length) {
           // Persist the given order as sortOrder (0-based); ignore ids not on
@@ -252,6 +311,22 @@ async function patchLockedInvoice(
               unitPrice: body.addLine.unitPrice,
               lineTotal,
               category: body.addLine.category,
+            },
+          });
+        }
+        if (discount?.ok) {
+          const lastOrder = existing.lines.reduce((max, line) => Math.max(max, line.sortOrder), 0);
+          const amount = discount.amount;
+          await tx.clientInvoiceLine.create({
+            data: {
+              invoiceId: params.id,
+              description: body.addDiscount?.description ?? (discount.percent !== null ? `Discount (${discount.percent}%)` : "Discount"),
+              quantity: 1,
+              unitPrice: 0 - amount,
+              lineTotal: 0 - amount,
+              category: DISCOUNT_CATEGORY,
+              discountPercent: discount.percent,
+              sortOrder: lastOrder + 1,
             },
           });
         }
@@ -283,12 +358,35 @@ async function patchLockedInvoice(
       gstEnabled = body.gstEnabled;
     }
 
-    if (body.updateLines?.length || body.addLine || body.removeLineId || body.gstEnabled !== undefined) {
+    let lineCount = existing.lines.length;
+    if (body.updateLines?.length || body.addLine || body.addDiscount || body.removeLineId || body.gstEnabled !== undefined) {
       const updatedLines = await db.clientInvoiceLine.findMany({ where: { invoiceId: params.id } });
+      lineCount = updatedLines.length;
+      if (invoiceGoesBelowZero(updatedLines, existing.kind)) return actionResult({ error: DISCOUNT_BELOW_ZERO_REFUSAL }, 409);
       subtotal = updatedLines.reduce((sum, l) => sum + Number(l.lineTotal), 0);
-      const breakdown = calculateShoppingAwareInvoiceTotals(updatedLines, gstEnabled);
+      const breakdown = calculateShoppingAwareInvoiceTotals(updatedLines, gstEnabled, { kind: existing.kind });
       gstAmount = breakdown.gstAmount;
       totalAmount = breakdown.totalAmount;
+    }
+    const issuesDocument = body.status === "APPROVED" || body.status === "SENT" || body.status === "PAID" || body.status === "PART_PAID" || Boolean(body.recordPayment);
+    if (issuesDocument && body.status !== existing.status) {
+      const empty = emptyInvoiceRefusal({ lines: new Array(lineCount) });
+      if (empty) return actionResult({ error: empty }, 409);
+    }
+    // A credit note may never credit more than its invoice has left: checked on
+    // every content edit (an over-limit draft may only shrink) and again when
+    // it is approved or sent, under the original invoice's row lock.
+    if (existing.kind === "CREDIT_NOTE" && (editsContent || (issuesDocument && body.status !== existing.status))) {
+      const limit = await creditLimitFor(db, existing);
+      if (!limit) return actionResult({ error: "The invoice this credit note credits could not be found." }, 409);
+      const refusal = creditNoteTotalRefusal({
+        total: totalAmount,
+        remaining: limit.remaining,
+        originalNumber: limit.originalNumber,
+        previousTotal: editsContent && !issuesDocument ? existing.totalAmount : undefined,
+        requireCredit: issuesDocument,
+      });
+      if (refusal) return actionResult({ error: refusal }, 409);
     }
 
     const statusData: Record<string, unknown> = {};
@@ -351,7 +449,11 @@ async function patchLockedInvoice(
       const rp = body.recordPayment;
       const prevPaid = Number(existing.paidAmount ?? 0);
       const newPaid = Number((prevPaid + rp.amount).toFixed(2));
-      const fullySettled = newPaid + 0.005 >= Number(existing.totalAmount ?? 0);
+      // Approved or sent credit notes reduce what has to be paid to settle it.
+      const credited = creditedAmountOf(
+        await db.clientInvoice.findMany({ where: { creditsInvoiceId: params.id }, select: { status: true, totalAmount: true } }),
+      );
+      const fullySettled = newPaid + credited + 0.005 >= Number(existing.totalAmount ?? 0);
       paymentStatus = fullySettled ? ClientInvoiceStatus.PAID : ClientInvoiceStatus.PART_PAID;
       const paidDate = rp.paidDate ? new Date(rp.paidDate) : new Date();
       const priorLedger = Array.isArray((existing.metadata as any)?.payments)
@@ -451,6 +553,8 @@ async function patchLockedInvoice(
         ...paymentUpdate,
         ...(mergedMetadata !== undefined ? { metadata: mergedMetadata as any } : {}),
         ...(body.gstEnabled !== undefined ? { gstEnabled } : {}),
+        ...(body.clientReference !== undefined ? { clientReference: body.clientReference || null } : {}),
+        ...(body.clientNote !== undefined ? { clientNote: body.clientNote || null } : {}),
         subtotal,
         gstAmount,
         totalAmount,

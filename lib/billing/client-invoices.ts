@@ -16,6 +16,8 @@ import { assertHolidayRateSnapshots } from "@/lib/finance/holiday-rates";
 import { issueInvoiceNumber } from "@/lib/billing/invoice-sequence";
 import { buildMaintenanceInvoiceLines } from "@/lib/billing/maintenance-billing";
 import { groupInvoiceLines, shouldGroupInvoice } from "@/lib/billing/invoice-grouping";
+import { isCreditNoteDocument, pdfClientNoteHtml, pdfDocumentTitle, pdfDueLine, pdfHeaderExtrasHtml, pdfMoney } from "./client-invoice-pdf-parts";
+import { paymentTermsDaysFrom } from "./invoice-due";
 
 /**
  * Jobs eligible to be billed on a client invoice: any job that has actually
@@ -36,9 +38,8 @@ export const BILLABLE_JOB_STATUSES: JobStatus[] = [
   JobStatus.INVOICED,
 ];
 
-function money(value: number) {
-  return `$${value.toFixed(2)}`;
-}
+// Discount and credit lines print as "-$12.50".
+const money = pdfMoney;
 
 function escapeHtml(value: string) {
   return value
@@ -189,8 +190,9 @@ export function invoiceTotalsMismatch(invoice: {
   lines: Parameters<typeof calculateShoppingAwareInvoiceTotals>[0];
   gstEnabled: boolean | null;
   totalAmount: number;
+  kind?: string | null;
 }): boolean {
-  const expected = calculateShoppingAwareInvoiceTotals(invoice.lines, invoice.gstEnabled ?? true);
+  const expected = calculateShoppingAwareInvoiceTotals(invoice.lines, invoice.gstEnabled ?? true, { kind: invoice.kind });
   return Math.abs(expected.totalAmount - Number(invoice.totalAmount)) > 0.011;
 }
 
@@ -700,6 +702,9 @@ export async function getClientInvoice(invoiceId: string) {
         },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
+      // Credit notes: both directions of the link, for the editor and the PDF.
+      creditsInvoice: { select: { id: true, invoiceNumber: true, status: true, totalAmount: true } },
+      creditNotes: { select: { id: true, invoiceNumber: true, status: true, totalAmount: true }, orderBy: { createdAt: "asc" } },
     },
   });
   if (!invoice) return null;
@@ -711,7 +716,7 @@ export async function getClientInvoice(invoiceId: string) {
   const lineSum = Number(
     invoice.lines.reduce((sum, line) => sum + Number(line.lineTotal), 0).toFixed(2)
   );
-  const expected = calculateShoppingAwareInvoiceTotals(invoice.lines, invoice.gstEnabled ?? true);
+  const expected = calculateShoppingAwareInvoiceTotals(invoice.lines, invoice.gstEnabled ?? true, { kind: invoice.kind });
   const totalsMismatch = invoiceTotalsMismatch(invoice);
   if (totalsMismatch) {
     logger.warn(
@@ -756,7 +761,9 @@ export function buildClientInvoiceHtml(
     bankAccountName?: string;
     paymentNote?: string;
     defaultPaymentTermsDays?: number;
-  }
+  },
+  /** Organisation timezone for the due day (the list's rule). */
+  timezone?: string | null,
 ) {
   function lineRowHtml(line: (typeof invoice.lines)[number], showProperty: boolean) {
     // The property is dropped from the row when the SECTION already names it —
@@ -823,14 +830,13 @@ export function buildClientInvoiceHtml(
         `
       : "";
 
-  const termsDays = invoicingSettings?.defaultPaymentTermsDays ?? 14;
-  const dueDate = format(
-    new Date(new Date(invoice.createdAt).getTime() + termsDays * 86400000),
-    "dd MMM yyyy"
-  );
+  const termsDays = paymentTermsDaysFrom(invoicingSettings?.defaultPaymentTermsDays);
+  const dueLine = pdfDueLine(invoice, termsDays, timezone);
+  const creditNote = isCreditNoteDocument(invoice);
 
+  // A credit note asks for no payment, so it carries no bank details.
   const paymentHtml =
-    invoicingSettings?.bankAccountNumber
+    !creditNote && invoicingSettings?.bankAccountNumber
       ? `
         <div style="margin-top:32px;padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
           <p style="margin:0 0 8px;font-weight:700;font-size:14px;">Payment Details</p>
@@ -859,10 +865,11 @@ export function buildClientInvoiceHtml(
             ${invoicingSettings?.companyAddress ? `<p style="margin:2px 0;font-size:12px;color:#6b7280;">${escapeHtml(invoicingSettings.companyAddress)}</p>` : ""}
           </div>
           <div style="text-align:right;">
-            <p style="margin:0;font-size:22px;font-weight:700;color:#111827;">TAX INVOICE</p>
+            <p style="margin:0;font-size:22px;font-weight:700;color:#111827;">${pdfDocumentTitle(invoice)}</p>
             <p style="margin:4px 0 0;font-size:14px;"><strong>${escapeHtml(invoice.invoiceNumber)}</strong></p>
             <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">Date: ${format(new Date(invoice.createdAt), "dd MMM yyyy")}</p>
-            <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">Due: ${dueDate}</p>
+            ${dueLine ? `<p style="margin:4px 0 0;font-size:13px;color:#6b7280;">${dueLine}</p>` : ""}
+            ${pdfHeaderExtrasHtml(invoice)}
             <p style="margin:6px 0 0;display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:700;background:${invoice.status === "PAID" ? "#d1fae5" : invoice.status === "SENT" ? "#dbeafe" : "#fef3c7"};color:${invoice.status === "PAID" ? "#065f46" : invoice.status === "SENT" ? "#1e40af" : "#92400e"};">${escapeHtml(invoice.status)}</p>
           </div>
         </div>
@@ -897,12 +904,13 @@ export function buildClientInvoiceHtml(
             </div>
             ${gstSummaryHtml}
             <div style="display:flex;justify-content:space-between;padding:12px 0;border-top:2px solid #111827;font-size:18px;">
-              <span><strong>Total (AUD)</strong></span>
+              <span><strong>${creditNote ? "Total credit (AUD)" : "Total (AUD)"}</strong></span>
               <strong>${money(invoice.totalAmount)}</strong>
             </div>
           </div>
         </div>
 
+        ${pdfClientNoteHtml(invoice)}
         ${paymentHtml}
       </body>
     </html>
@@ -915,7 +923,9 @@ export async function renderClientInvoicePdf(
   logoUrl?: string | null,
   invoicingSettings?: Parameters<typeof buildClientInvoiceHtml>[3]
 ) {
-  return renderPdfFromHtml(buildClientInvoiceHtml(invoice, companyName, logoUrl, invoicingSettings), "client invoice PDF generation");
+  // The due day is read in the organisation timezone, as the list reads it.
+  const timezone = (await getAppSettings()).timezone || null;
+  return renderPdfFromHtml(buildClientInvoiceHtml(invoice, companyName, logoUrl, invoicingSettings, timezone), "client invoice PDF generation");
 }
 
 export async function buildClientInvoiceXeroCsv(invoice: NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>) {
