@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { getAppSettings, saveAppSettings, type AppSettings } from "@/lib/settings";
 import { EMAIL_AUTO_KIND_KEYS, type EmailAutoKind } from "./email-kinds";
 import { NOTIFICATION_CATALOG, catalogTemplateHref } from "./catalog";
-import type { NotificationTypeEntry, TransportSwitch } from "./catalog-types";
+import type { TransportSwitch } from "./catalog-types";
+import type { CatalogTypeView, ResolvedSwitch } from "./catalog-view-types";
 import { transportPath } from "./transport-paths";
 import type { NotificationTypeControls } from "./type-controls";
 
@@ -13,16 +14,6 @@ import type { NotificationTypeControls } from "./type-controls";
  * them (email automation kinds, scheduled notifications, the SMS provider) and
  * changes one of them in place. No new copy of those settings is kept.
  */
-export type ResolvedSwitch = {
-  id: string;
-  label: string;
-  /** null = no single on/off value (per-client or per-event; edited elsewhere). */
-  enabled: boolean | null;
-  editable: boolean;
-  href: string | null;
-  note: string | null;
-};
-
 const SCHEDULED_LABEL: Record<string, string> = {
   reminder24hEnabled: "24-hour reminders",
   reminder2hEnabled: "2-hour reminders",
@@ -52,14 +43,6 @@ function resolveSwitch(item: TransportSwitch, settings: AppSettings): ResolvedSw
       return null;
   }
 }
-
-export type CatalogTypeView = NotificationTypeEntry & {
-  resolvedSwitches: ResolvedSwitch[];
-  respectsPreferencesNow: boolean | null;
-  disabledTransports: string[];
-  externalPaths: Partial<Record<"EMAIL" | "SMS" | "WEB_PUSH", "pipeline" | "direct">>;
-  templateHref: string | null;
-};
 
 export async function catalogView(controls: NotificationTypeControls): Promise<CatalogTypeView[]> {
   const settings = await getAppSettings();

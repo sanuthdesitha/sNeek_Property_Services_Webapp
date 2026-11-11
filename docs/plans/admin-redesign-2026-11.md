@@ -331,3 +331,8 @@ For the parity audit: the Cases "Refresh" button was replaced by automatic refre
 8. Scheduled Xero checks are shown clearly as the system, not as a person: recorded and displayed as "System: Xero sync (scheduled)" wherever they appear.
 
 Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notifications step; 4, 6 and 8 in the "Finance decisions" step. 1 and 7 need no change.
+
+## Owner decisions, fourth set (2026-11-11): Cases
+
+1. The office can raise a QA issue against a cleaner by hand from a case ("Raise QA issue for cleaner" in the case's Next steps). It creates a normal QA issue linked to the case's job and cleaner, attributed to the person who raised it and marked as raised from a case; any deduction still goes through the existing proposal and approval. Built in the follow-up step with the Live ops additions.
+2. The "Resolved" queue includes closed cases. As built; no change.

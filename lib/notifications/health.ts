@@ -1,40 +1,18 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
-import { summarizeWorkerHeartbeats, WORKER_HEARTBEAT_PREFIX, type WorkerHealth } from "@/lib/ops/worker-heartbeat";
+import { summarizeWorkerHeartbeats, WORKER_HEARTBEAT_PREFIX } from "@/lib/ops/worker-heartbeat";
 import { getSmsProviderState } from "./sms";
 import { isWebPushConfigured } from "./web-push";
 import { fallbackTypes } from "./catalog";
-import type { NotificationTransport } from "./catalog-types";
-import { directPathBanners, outboxTransportsFromEnv, OUTBOX_TRANSPORTS_ENV, type PathBanner } from "./transport-paths";
+import type { NotificationHealth, TransportHealth } from "./health-types";
+import { directPathBanners, outboxTransportsFromEnv, OUTBOX_TRANSPORTS_ENV } from "./transport-paths";
 
 /**
  * Read model for the Health tab. Reports whether credentials are PRESENT,
  * never their values, plus switches, queue depth, failures and the worker.
  * What cannot be known from the database is said, not guessed.
  */
-export type TransportHealth = {
-  transport: NotificationTransport;
-  configured: boolean | null;
-  configuredNote: string;
-  enabledNote: string;
-  onPipeline: boolean;
-  queued: number;
-  oldestQueuedAt: string | null;
-  failures24h: number;
-};
-
-export type NotificationHealth = {
-  checkedAt: string;
-  transports: TransportHealth[];
-  envFlags: Array<{ name: string; value: string; effect: string }>;
-  masterSwitches: { email: boolean; sms: boolean; push: boolean; automaticEmail: boolean };
-  worker: WorkerHealth & { intentDispatcherActive: boolean | null };
-  intentStatusCounts: Record<string, number>;
-  banners: PathBanner[];
-  unknowns: string[];
-};
-
 /** Non-secret switches only; their values are shown as set. Secrets are never listed here. */
 const ENV_FLAGS: Array<{ name: string; effect: string }> = [
   { name: OUTBOX_TRANSPORTS_ENV, effect: "Which external transports (EMAIL, SMS, WEB_PUSH) the pipeline sends. Empty = pipeline sends inbox rows only; fallback types use the direct path." },

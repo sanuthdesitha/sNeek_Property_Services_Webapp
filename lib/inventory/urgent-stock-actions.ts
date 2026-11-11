@@ -46,6 +46,9 @@ export function urgentNextAction(stage: UrgentStockStage): UrgentNextAction {
   }
 }
 
+export const URGENT_SORTS = ["neededBy", "reported", "item", "property", "stage", "onHand", "toBuy"] as const;
+export type UrgentSort = (typeof URGENT_SORTS)[number];
+
 /** The stage chips on the Urgent needs tab. */
 export const URGENT_FILTERS = ["open", "REPORTED", "ACKNOWLEDGED", "ORDERED", "DELIVERED", "closed", "all"] as const;
 export type UrgentFilter = (typeof URGENT_FILTERS)[number];

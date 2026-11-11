@@ -14,6 +14,18 @@ import { formatInTimeZone } from "date-fns-tz";
 
 export type MessageAudience = "guest" | "client";
 
+/** How the office says it made contact; the app itself sent nothing. */
+export const CONTACT_CHANNELS = ["EMAIL", "PHONE", "SMS", "IN_PERSON", "OTHER"] as const;
+export type ContactChannel = (typeof CONTACT_CHANNELS)[number];
+
+export const CONTACT_CHANNEL_LABEL: Record<ContactChannel, string> = {
+  EMAIL: "Email",
+  PHONE: "Phone call",
+  SMS: "Text message",
+  IN_PERSON: "In person",
+  OTHER: "Other",
+};
+
 export type MessageDraftInput = {
   audience: MessageAudience;
   itemName: string;

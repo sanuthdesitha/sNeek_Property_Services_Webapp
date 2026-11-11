@@ -51,6 +51,8 @@ export type SettingsDestination = {
   description: string;
   group: SettingsGroup;
   adminOnly: boolean;
+  /** A destination that lives on its own page instead of a settings tab. */
+  href?: string;
 };
 
 export const SETTINGS_DESTINATIONS = [
@@ -75,6 +77,18 @@ export const SETTINGS_DESTINATIONS = [
     description: "Show or hide widgets on the public website.",
     group: "brand",
     adminOnly: true,
+  },
+  {
+    // The one notifications area: every notification type, its switches, the
+    // delivery log, transport health and organisation preferences. The tabs
+    // below keep working at their old URLs.
+    key: "notifications-area",
+    label: "All notifications",
+    description:
+      "Every notification type, who receives it, its switches, delivery log and health.",
+    group: "notifications",
+    adminOnly: false,
+    href: "/v2/admin/notifications",
   },
   {
     key: "notifications",
@@ -236,6 +250,8 @@ export function availableSettings(isAdmin: boolean) {
 }
 
 export function settingsHref(key: string, jobId?: string) {
+  const destination: SettingsDestination | undefined = SETTINGS_DESTINATIONS.find((section) => section.key === key);
+  if (destination?.href) return destination.href;
   const query = new URLSearchParams({ tab: key });
   if (key === "holiday-rates" && jobId) query.set("jobId", jobId);
   return `/v2/admin/settings?${query}`;

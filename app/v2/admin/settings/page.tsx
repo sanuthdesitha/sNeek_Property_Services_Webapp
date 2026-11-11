@@ -6,7 +6,7 @@ import { getPropertyFormConfig } from "@/lib/property-form/config-store";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
+import { EAlert, EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import Link from "next/link";
 import { getAppSettings } from "@/lib/settings";
 import { CompanySection } from "@/components/v2/admin/settings/company-section";
@@ -231,6 +231,13 @@ export default async function SettingsPage({
           }}
           readOnly={!isAdmin}
         />
+      ) : null}
+
+      {["notifications", "message-channels", "finance-notifications", "notification-tools"].includes(activeTab) ? (
+        <EAlert tone="info" title="Notifications now have one area">
+          Every notification type, its switches, the delivery log and transport health are in{" "}
+          <Link href="/v2/admin/notifications" className="font-medium underline">Notifications</Link>. These controls are also there; this tab keeps working.
+        </EAlert>
       ) : null}
 
       {activeTab === "notifications" && isAdmin ? (

@@ -12,6 +12,7 @@ import { db } from "@/lib/db";
 import { guestEditPatch, guestFieldsFromBooking, type GuestEdit } from "./guest";
 import { isResolvedStatus } from "./status";
 import { checkLostFoundTransition } from "./transitions";
+import type { ContactChannel } from "./message";
 
 type Tx = Prisma.TransactionClient;
 
@@ -132,8 +133,7 @@ export async function applyLostFoundChange(itemId: string, actorId: string, chan
   });
 }
 
-export const CONTACT_CHANNELS = ["EMAIL", "PHONE", "SMS", "IN_PERSON", "OTHER"] as const;
-export type ContactChannel = (typeof CONTACT_CHANNELS)[number];
+export { CONTACT_CHANNELS, type ContactChannel } from "./message";
 
 export type WorkflowEvent = {
   action: "OFFER_RETURN" | "GUEST_CONTACTED" | "CLIENT_CONTACTED";

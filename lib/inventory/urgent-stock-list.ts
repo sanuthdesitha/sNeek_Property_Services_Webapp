@@ -17,8 +17,9 @@ import { isUrgentStockClosed, type UrgentStockStage } from "./urgent-stock-polic
 import { requireUrgentStockAdmin, urgentStockCleanDeadline, urgentStockCleanWhere, type StockActor } from "./urgent-stock";
 import { CLOSED_STAGES, neededByState, stagesForFilter, suggestedBuy, URGENT_FILTERS, type NeededByState, type UrgentFilter } from "./urgent-stock-actions";
 
-export const URGENT_SORTS = ["neededBy", "reported", "item", "property", "stage", "onHand", "toBuy"] as const;
-export type UrgentSort = (typeof URGENT_SORTS)[number];
+import { URGENT_SORTS, type UrgentSort } from "./urgent-stock-actions";
+
+export { URGENT_SORTS, type UrgentSort } from "./urgent-stock-actions";
 
 export type UrgentListFilters = { filter: UrgentFilter; q: string; propertyId: string | null };
 

@@ -3,6 +3,7 @@ import "server-only";
 import { FormTemplateVersionKind } from "@prisma/client";
 import { db } from "@/lib/db";
 import { countQuestions } from "./template-questions";
+import { toEditableSchema } from "./editable-schema";
 import { TemplateServiceError } from "./template-errors";
 
 export type TemplateVersionSummary = {
@@ -62,8 +63,9 @@ export async function listTemplateVersionHistory(templateId: string): Promise<Te
 }
 
 export type TemplateVersionDetail = TemplateVersionSummary & {
+  /** In the builder's editable (normalised) shape, ready to render. */
   schema: unknown;
-  /** The live schema now, for "changes against live". */
+  /** The live schema now, same shape, for "changes against live". */
   liveSchema: unknown;
   createdByName: string | null;
 };
@@ -89,8 +91,8 @@ export async function readTemplateVersion(templateId: string, versionId: string)
     createdById: row.createdById,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    schema: row.schema,
-    liveSchema: template.schema,
+    schema: toEditableSchema(row.schema),
+    liveSchema: toEditableSchema(template.schema),
     createdByName: author?.name ?? author?.email ?? null,
   };
 }

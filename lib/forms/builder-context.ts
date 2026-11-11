@@ -19,7 +19,11 @@ export type BuilderUsage = {
   /** Required questions of the LIVE version never answered in the usage window. */
   neverAnswered: Array<{ id: string; label: string }>;
   usageSample: number;
+  /** Organisation timezone for history times. */
+  timezone: string;
 };
+
+export const DEFAULT_TIMEZONE = "Australia/Sydney";
 
 export type BuilderContext = {
   templateId: string;
@@ -84,6 +88,7 @@ async function loadBuilderUsage(templateId: string, liveSchema: unknown): Promis
       usage: self ? usageOf(self) : { kind: "not-live" },
       neverAnswered: (figure?.neverAnswered ?? []).map((question) => ({ id: question.id, label: question.label })),
       usageSample: figure?.usageSample ?? 0,
+      timezone: settings.timezone || DEFAULT_TIMEZONE,
     };
   } catch {
     return null;

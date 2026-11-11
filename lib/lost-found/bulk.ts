@@ -5,22 +5,12 @@
  * timeline entry) as the panel, so an item that may not move is refused with
  * the rule's own reason and never reported as done.
  */
-import type { LostFoundStatus } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { applyLostFoundChange, LostFoundRuleError } from "./mutations";
+import { LOST_FOUND_BULK_ACTIONS, LOST_FOUND_BULK_MAX, LOST_FOUND_BULK_TARGET, type LostFoundBulkResult } from "./bulk-types";
 
-export const LOST_FOUND_BULK_ACTIONS = ["move-to-storage", "mark-unclaimed", "donate", "dispose"] as const;
-export type LostFoundBulkAction = (typeof LOST_FOUND_BULK_ACTIONS)[number];
-
-export const LOST_FOUND_BULK_TARGET: Record<LostFoundBulkAction, LostFoundStatus> = {
-  "move-to-storage": "IN_STORAGE",
-  "mark-unclaimed": "UNCLAIMED",
-  donate: "DONATED",
-  dispose: "DISPOSED",
-};
-
-export const LOST_FOUND_BULK_MAX = 100;
+export { LOST_FOUND_BULK_ACTIONS, LOST_FOUND_BULK_MAX, LOST_FOUND_BULK_TARGET, type LostFoundBulkAction, type LostFoundBulkResult } from "./bulk-types";
 
 export const lostFoundBulkInput = z.object({
   action: z.enum(LOST_FOUND_BULK_ACTIONS),
@@ -28,8 +18,6 @@ export const lostFoundBulkInput = z.object({
   /** The same optional note the single action takes (the resolution note for decisions). */
   note: z.string().trim().max(4000).optional().nullable(),
 }).strict();
-
-export type LostFoundBulkResult = { id: string; outcome: "done" | "unchanged" | "refused"; message: string };
 
 export async function runLostFoundBulk(actorId: string, raw: unknown): Promise<{ results: LostFoundBulkResult[] }> {
   const input = lostFoundBulkInput.parse(raw);
