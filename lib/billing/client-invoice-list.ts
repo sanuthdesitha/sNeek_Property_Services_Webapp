@@ -17,7 +17,7 @@ import {
   invoiceAmountOwing,
   isFullyCredited,
 } from "@/lib/finance/receivables";
-import { FALLBACK_INVOICE_TIMEZONE, invoiceDueDay, paymentTermsDaysFrom } from "./invoice-due";
+import { FALLBACK_INVOICE_TIMEZONE, effectivePaymentTermsDays, invoiceDueDay, paymentTermsDaysFrom } from "./invoice-due";
 import { readStoredXeroSync } from "./client-invoice-xero-sync-rules";
 import { ListQueryError, listResponse, readQueryValue, type ListQuery } from "@/lib/admin/list-query";
 import {
@@ -79,9 +79,12 @@ export function parseClientInvoiceFilters(
 
 export type ListContext = {
   timezone: string;
+  /** The organisation default terms (an invoice may use its snapshot or its client's terms). */
   paymentTermsDays: number;
-  /** Invoices created before this instant are past their printed due day. */
-  overdueCreatedBefore: Date;
+  /** Start of today in the organisation timezone: an invoice whose due instant is before it is overdue. */
+  startOfToday: Date;
+  /** Outstanding invoices past their own due day (per-invoice terms; see invoice-due.ts). */
+  overdueIds: string[];
   /** Unexported invoices whose Xero reservation is PENDING (incl. failed pushes). */
   pendingXeroIds: string[];
   /** Sent or part-paid invoices whose approved/sent credit notes cover them: nothing is owed. */
@@ -92,18 +95,38 @@ export function startOfTodayIn(timezone: string, now: Date): Date {
   return fromZonedTime(`${formatInTimeZone(now, timezone, "yyyy-MM-dd")}T00:00:00`, timezone);
 }
 
-type TermsContext = Omit<ListContext, "pendingXeroIds" | "fullyCreditedIds">;
+type TermsContext = Omit<ListContext, "pendingXeroIds" | "fullyCreditedIds" | "overdueIds">;
 
-/** Timezone and payment terms, read from settings exactly as the PDF reads them. */
+/** Timezone and the organisation's default terms, read from settings exactly as the PDF reads them. */
 async function loadTermsContext(now: Date): Promise<TermsContext> {
   const settings = await getAppSettings();
   const timezone = settings.timezone || FALLBACK_INVOICE_TIMEZONE;
   const paymentTermsDays = paymentTermsDaysFrom(settings.invoicing?.defaultPaymentTermsDays);
-  return {
-    timezone,
-    paymentTermsDays,
-    overdueCreatedBefore: new Date(startOfTodayIn(timezone, now).getTime() - paymentTermsDays * DAY_MS),
-  };
+  return { timezone, paymentTermsDays, startOfToday: startOfTodayIn(timezone, now) };
+}
+
+/**
+ * Outstanding invoices whose due instant (created + their own terms) is before
+ * the start of today: the same test as `invoiceDueDay(...) < today`, with the
+ * terms resolved per invoice (snapshot, else client terms, else the default),
+ * so it is done in SQL rather than as one cut-off date.
+ */
+async function loadOverdueIds(terms: TermsContext): Promise<string[]> {
+  const rows = await db.$queryRaw<Array<{ id: string }>>`
+    SELECT i."id" FROM "ClientInvoice" i JOIN "Client" c ON c."id" = i."clientId"
+    WHERE i."kind"::text = 'INVOICE'
+      AND i."status"::text IN ('SENT', 'PART_PAID')
+      AND i."createdAt" + (COALESCE(i."paymentTermsDays", c."paymentTermsDays", ${terms.paymentTermsDays}::double precision) * INTERVAL '1 day') < ${terms.startOfToday}`;
+  return rows.map((row) => row.id);
+}
+
+/** The terms an invoice's due day uses (invoice-due.ts, effectivePaymentTermsDays). */
+function rowTermsDays(invoice: { paymentTermsDays: number | null; client: { paymentTermsDays: number | null } }, context: TermsContext): number {
+  return effectivePaymentTermsDays({
+    invoiceTermsDays: invoice.paymentTermsDays,
+    clientTermsDays: invoice.client.paymentTermsDays,
+    organisationDefaultDays: context.paymentTermsDays,
+  });
 }
 
 /** Ids of outstanding invoices that credit notes fully cover (see isFullyCredited). */
@@ -122,15 +145,16 @@ async function loadFullyCreditedIds(): Promise<string[]> {
 }
 
 export async function loadListContext(now: Date): Promise<ListContext> {
-  const [terms, pending, fullyCreditedIds] = await Promise.all([
-    loadTermsContext(now),
+  const terms = await loadTermsContext(now);
+  const [pending, fullyCreditedIds, overdueIds] = await Promise.all([
     db.clientInvoice.findMany({
       where: { xeroInvoiceId: null, metadata: { path: ["xeroExportState"], equals: "PENDING" } },
       select: { id: true },
     }),
     loadFullyCreditedIds(),
+    loadOverdueIds(terms),
   ]);
-  return { ...terms, pendingXeroIds: pending.map((row) => row.id), fullyCreditedIds };
+  return { ...terms, pendingXeroIds: pending.map((row) => row.id), fullyCreditedIds, overdueIds };
 }
 
 function xeroWhere(filters: ClientInvoiceListFilters, context: ListContext): Prisma.ClientInvoiceWhereInput {
@@ -197,8 +221,8 @@ export function overdueWhere(context: ListContext): Prisma.ClientInvoiceWhereInp
   return {
     kind: "INVOICE",
     status: { in: [...OUTSTANDING_INVOICE_STATUSES] as ClientInvoiceStatus[] },
-    createdAt: { lt: context.overdueCreatedBefore },
-    ...(context.fullyCreditedIds.length ? { id: { notIn: context.fullyCreditedIds } } : {}),
+    // Past its own due day (per-invoice terms, resolved in SQL); never fully credited.
+    id: { in: context.overdueIds, ...(context.fullyCreditedIds.length ? { notIn: context.fullyCreditedIds } : {}) },
   };
 }
 
@@ -254,7 +278,8 @@ const ROW_SELECT = {
   clientReference: true,
   creditsInvoice: { select: { id: true, invoiceNumber: true } },
   creditNotes: { select: { id: true, invoiceNumber: true, status: true, totalAmount: true }, orderBy: { createdAt: "asc" } },
-  client: { select: { id: true, name: true, email: true } },
+  paymentTermsDays: true,
+  client: { select: { id: true, name: true, email: true, paymentTermsDays: true } },
 } satisfies Prisma.ClientInvoiceSelect;
 
 type SelectedInvoice = Prisma.ClientInvoiceGetPayload<{ select: typeof ROW_SELECT }>;
@@ -290,6 +315,7 @@ function toRow(invoice: SelectedInvoice, context: TermsContext): ClientInvoiceLi
   const owingFacts = { totalAmount: invoice.totalAmount, paidAmount: invoice.paidAmount, creditedAmount };
   const fullyCredited = !creditNote && isFullyCredited(owingFacts);
   const outstanding = !creditNote && !fullyCredited && (OUTSTANDING_INVOICE_STATUSES as readonly string[]).includes(invoice.status);
+  const termsDays = rowTermsDays(invoice, context);
   return {
     id: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
@@ -306,8 +332,9 @@ function toRow(invoice: SelectedInvoice, context: TermsContext): ClientInvoiceLi
     paymentMethod: invoice.paymentMethod,
     paymentReference: invoice.paymentReference,
     createdAt: invoice.createdAt.toISOString(),
-    dueDate: invoiceDueDay(invoice.createdAt, context.paymentTermsDays, context.timezone),
-    overdue: outstanding && invoice.createdAt.getTime() < context.overdueCreatedBefore.getTime(),
+    dueDate: invoiceDueDay(invoice.createdAt, termsDays, context.timezone),
+    paymentTermsDays: termsDays,
+    overdue: outstanding && invoice.createdAt.getTime() + termsDays * DAY_MS < context.startOfToday.getTime(),
     xeroInvoiceId: invoice.xeroInvoiceId,
     xeroExportedAt: iso(invoice.xeroExportedAt),
     xeroState: clientInvoiceXeroState(invoice),
@@ -396,7 +423,8 @@ export async function getClientInvoiceListRow(
     db.clientInvoice.findUnique({ where: { id }, select: ROW_SELECT }),
   ]);
   if (!invoice) return null;
-  return { row: toRow(invoice, terms), timezone: terms.timezone, paymentTermsDays: terms.paymentTermsDays };
+  const row = toRow(invoice, terms);
+  return { row, timezone: terms.timezone, paymentTermsDays: row.paymentTermsDays };
 }
 
 /** Upper bound on rows in one CSV export; larger exports are refused, not cut. */

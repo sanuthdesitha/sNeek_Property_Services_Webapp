@@ -86,6 +86,8 @@ export type ClientInvoiceListRow = {
    * Derived from current settings exactly as the PDF is; not a stored field.
    */
   dueDate: string;
+  /** The terms this row's due day uses: the invoice's snapshot, else its client's terms, else the default. */
+  paymentTermsDays: number;
   overdue: boolean;
   xeroInvoiceId: string | null;
   xeroExportedAt: string | null;

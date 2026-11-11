@@ -120,7 +120,14 @@ export function useCalendarState(): CalendarStateApi {
 
   useEffect(() => {
     const sync = () => {
-      current.current = readCalendarState(new URLSearchParams(window.location.search), readStoredPrefs(), readCalendarRestore());
+      const params = new URLSearchParams(window.location.search);
+      current.current = readCalendarState(params, readStoredPrefs(), readCalendarRestore());
+      // A restored view/date goes back into the URL, so links and Back match the screen.
+      if ((!params.get("view") && current.current.view) || (!params.get("date") && current.current.date)) {
+        const clean = writeCalendarState(params, current.current).toString();
+        window.history.replaceState(window.history.state, "", `${window.location.pathname}${clean ? `?${clean}` : ""}${window.location.hash}`);
+      }
+      storeRestore(current.current);
       setState(current.current);
       setReady(true);
     };
