@@ -18,6 +18,8 @@ import { calculateShoppingAwareInvoiceTotals } from "@/lib/billing/shopping-clie
 import { creditedAmountOf } from "@/lib/finance/receivables";
 import { creditNoteVoidRebillRefusal, refreshCreditCoverage, returnInvoicedJobsToBillable } from "./invoice-job-release";
 import { termsSnapshotFor } from "./invoice-terms";
+import { sendClientPaymentReceipt } from "./client-payment-receipt";
+import { SYSTEM_ACTOR_LABELS, SYSTEM_XERO_SYNC_ACTOR, systemActorMarker } from "@/lib/audit/system-actor";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { assertStartedWorkReviewed, readStartedWorkReview } from "@/lib/billing/started-work-reconciliation";
@@ -492,7 +494,9 @@ async function patchLockedInvoice(
           paidDate: paidDate.toISOString(),
           recordedAt: new Date().toISOString(),
           recordedById: session.user.id,
-          recordedByName: xeroPayment ? "Xero sync" : session.user.name || session.user.email || "Admin",
+          recordedByName: xeroPayment
+            ? (xeroPayment.trigger === "scheduled" ? SYSTEM_ACTOR_LABELS[SYSTEM_XERO_SYNC_ACTOR] : "Xero sync")
+            : session.user.name || session.user.email || "Admin",
           receiptKey: rp.receiptKey?.trim() || null,
           ...(xeroPayment ? { source: "XERO", xeroPaymentId: xeroPayment.paymentId, trigger: xeroPayment.trigger } : {}),
         },
@@ -617,9 +621,10 @@ async function patchLockedInvoice(
     // After the write, best-effort: the money is already recorded, and failing
     // the response over a mail error would tell the admin the payment did not
     // save when it did.
-    // Not for a payment read from Xero: the client paid through their own bank
-    // and nobody here chose to email them (an automatic email is a separate
-    // decision for the owner).
+    // A payment read from Xero gets the same receipt (owner decision
+    // 2026-11-11), but the Xero sync sends it once it knows the invoice is not
+    // left as "needs review" (client-invoice-xero-sync.ts), so it is not sent
+    // from here.
     const receiptPayment = xeroPayment ? undefined : body.recordPayment;
     if (receiptPayment) {
       afterCommit.push(() => sendClientPaymentReceipt({
@@ -696,6 +701,9 @@ async function patchLockedInvoice(
             paidAmount: (paymentUpdate as any).paidAmount,
             status: updated.status,
             ...(xeroPayment ? { source: "XERO", xeroPaymentId: xeroPayment.paymentId, trigger: xeroPayment.trigger, paidDate: (paymentUpdate as { paidDate?: Date }).paidDate?.toISOString() ?? null } : {}),
+            // A scheduled check is recorded under an administrator account (the
+            // row needs a user) but is the system's action, and shows as such.
+            ...(xeroPayment?.trigger === "scheduled" ? systemActorMarker(SYSTEM_XERO_SYNC_ACTOR) : {}),
             ...(paidWithoutSending ? { note: "Marked paid without sending" } : {}),
           } as any,
         },
@@ -753,58 +761,4 @@ async function xeroPaymentRefusal(
     return actionResult({ error: "The Xero payment is more than this invoice still owes here.", code: XERO_PAYMENT_EXCEEDS_OWING }, 409);
   }
   return null;
-}
-
-/**
- * Email the client that their payment landed.
- *
- * Reads the invoice AFTER the write so the outstanding figure on the receipt is
- * the one that now stands — computing it from the request body would state a
- * balance that was already out of date by the time it was sent.
- */
-async function sendClientPaymentReceipt(input: {
-  invoiceId: string;
-  amount: number;
-  method: string;
-  paidDate: Date;
-  reference: string | null;
-}): Promise<void> {
-  const invoice = await db.clientInvoice.findUnique({
-    where: { id: input.invoiceId },
-    select: {
-      invoiceNumber: true,
-      totalAmount: true,
-      paidAmount: true,
-      client: { select: { name: true, email: true } },
-    },
-  });
-  if (!invoice?.client?.email) return;
-
-  const { sendEmailDetailed } = await import("@/lib/notifications/email");
-  const { getAppSettings } = await import("@/lib/settings");
-  const { buildClientPaymentReceipt } = await import("@/lib/finance/payment-notices");
-  const settings = await getAppSettings();
-
-  const email = buildClientPaymentReceipt({
-    recipientName: invoice.client.name,
-    invoiceNumber: invoice.invoiceNumber,
-    amount: input.amount,
-    method: input.method,
-    paidDate: input.paidDate,
-    reference: input.reference,
-    companyName: settings.companyName,
-    outstanding: Math.max(
-      0,
-      Number(invoice.totalAmount ?? 0) - Number(invoice.paidAmount ?? 0)
-    ),
-  });
-
-  await sendEmailDetailed({
-    kind: "auto_invoice",
-    to: invoice.client.email,
-    subject: email.subject,
-    html: email.html,
-    // A finance document. A stale suppression must not eat a payment receipt.
-    transactional: true,
-  });
 }

@@ -40,6 +40,15 @@ const ERROR_HELP: Record<string, string> = {
   unauthorized: "You need to be signed in as an admin to connect Xero.",
 };
 
+/** What /api/xero/status returns (lib/xero/client.ts, XeroStatus). */
+type XeroStatusView = {
+  connected: boolean;
+  tenantName?: string;
+  lastSyncAt?: string;
+  hasRefreshToken?: boolean;
+  signIn?: "ok" | "no-refresh-token" | "lapsed";
+};
+
 /**
  * Xero — connect status via /api/xero/status|connect|disconnect and invoice
  * defaults via GET/PATCH /api/admin/integrations/settings ({ xero: {...} }).
@@ -53,7 +62,7 @@ export function XeroSection() {
     contactFallbackEmail: "",
     itemCodeByService: {},
   });
-  const [connection, setConnection] = useState<{ connected: boolean; tenantName?: string; lastSyncAt?: string } | null>(null);
+  const [connection, setConnection] = useState<XeroStatusView | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingCfg, setSavingCfg] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -224,6 +233,22 @@ export function XeroSection() {
             </EButton>
           )}
         </div>
+        {isConnected && connection?.signIn && connection.signIn !== "ok" ? (
+          <EAlert
+            tone={connection.signIn === "lapsed" ? "danger" : "warning"}
+            title={connection.signIn === "lapsed" ? "Xero sign-in lapsed — reconnect" : "Reconnect Xero once to keep it signed in"}
+            className="mt-4"
+          >
+            <p>
+              {connection.signIn === "lapsed"
+                ? "The stored Xero sign-in has expired and cannot renew itself, so pushes and the hourly Xero check cannot reach Xero."
+                : "This connection was made without a refresh token, so it stops working about 30 minutes after it was made. Reconnecting once stores a refresh token and keeps it signed in."}
+            </p>
+            <EButton variant="gold" className="mt-3" onClick={connect} disabled={connecting}>
+              <Link2 className="h-4 w-4" /> {connecting ? "Opening Xero…" : "Reconnect Xero"}
+            </EButton>
+          </EAlert>
+        ) : null}
         <hr className="e-thread my-5" />
         <p className="text-[0.8125rem] font-medium">What gets synced</p>
         <ul className="mt-2 space-y-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">

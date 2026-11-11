@@ -6,6 +6,7 @@
  */
 import { db } from "@/lib/db";
 import type { HistoryEntry } from "./client-invoice-editor-types";
+import { auditActorLabel } from "@/lib/audit/system-actor";
 
 const HISTORY_LIMIT = 50;
 
@@ -63,7 +64,17 @@ export function describeInvoiceAudit(action: string, after: unknown): string {
     }
     case "CLIENT_INVOICE_SENT": {
       const outcome = field(after, "outcome");
-      return outcome === "sent" ? "Sent to the client by email" : `Email send failed${field(after, "error") ? `: ${field(after, "error")}` : ""}`;
+      if (outcome !== "sent") return `Email send failed${field(after, "error") ? `: ${field(after, "error")}` : ""}`;
+      return (after as { resend?: unknown } | null)?.resend === true ? "Sent to the client again by email" : "Sent to the client by email";
+    }
+    case "CLIENT_INVOICE_PAYMENT_RECEIPT": {
+      const outcome = field(after, "outcome");
+      const detail = field(after, "error") ?? field(after, "reason");
+      if (outcome === "sent") return "Payment receipt emailed to the client";
+      if (outcome === "no-recipient") return "Payment receipt not sent: the client has no email address";
+      if (outcome === "withheld") return `Payment receipt withheld${detail ? `: ${detail}` : ""}`;
+      if (outcome === "skipped") return `Payment receipt not sent${detail ? ` (${detail})` : ""}`;
+      return `Payment receipt failed${detail ? `: ${detail}` : ""}`;
     }
     case "CLIENT_INVOICE_XERO_PUSH": {
       const outcome = field(after, "outcome");
@@ -97,9 +108,9 @@ function auditEntry(row: AuditRow): HistoryEntry {
     id: `audit:${row.id}`,
     at: row.createdAt.toISOString(),
     label: describeInvoiceAudit(row.action, row.after),
-    // A scheduled Xero check is attributed to an administrator account (an
+    // A scheduled Xero check is stored under an administrator account (an
     // audit row needs a user) but was not done by that person.
-    actor: field(row.after, "trigger") === "scheduled" ? "Xero sync (scheduled)" : row.user?.name || row.user?.email || null,
+    actor: auditActorLabel(row.after, row.user),
     source: "audit",
   };
 }

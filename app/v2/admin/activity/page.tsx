@@ -4,6 +4,7 @@ import { toZonedTime } from "date-fns-tz";
 import { Role, Prisma } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { SYSTEM_ACTOR_LABELS, systemActorOf } from "@/lib/audit/system-actor";
 import {
   EBadge,
   ECard,
@@ -169,13 +170,13 @@ export default async function V2AdminActivityPage({
                     <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-[hsl(var(--e-muted))] sm:px-6 [&::-webkit-details-marker]:hidden">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[0.8125rem] text-[hsl(var(--e-foreground))]">
-                          <span className="font-[550]">{entry.user?.name ?? "System"}</span>{" "}
+                          <span className="font-[550]">{systemActorOf(entry.after) ? SYSTEM_ACTOR_LABELS[systemActorOf(entry.after)!] : entry.user?.name ?? "System"}</span>{" "}
                           <span className="text-[hsl(var(--e-muted-foreground))]">
                             {entry.action.replace(/[._]/g, " ").toLowerCase()}
                           </span>
                         </p>
                         <p className="mt-0.5 truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                          {entry.user?.email ?? ""}
+                          {systemActorOf(entry.after) ? "" : entry.user?.email ?? ""}
                           {entry.ipAddress ? ` · ${entry.ipAddress}` : ""}
                         </p>
                       </div>

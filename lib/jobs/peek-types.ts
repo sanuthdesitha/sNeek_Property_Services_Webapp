@@ -68,6 +68,8 @@ export const cleanerSuggestionsResponseSchema = z.discriminatedUnion("kind", [
       assignable: z.boolean(),
       blocker: z.object({ kind: z.enum(["clash", "unavailable"]), reason: z.string() }).nullable(),
       reasons: z.array(z.string()),
+      travel: z.object({ km: z.number(), basis: z.enum(["previous_job", "home"]), fromLabel: z.string() }).nullish(),
+      qa: z.object({ score: z.number().nullable(), reviewed: z.number(), periodDays: z.number() }).nullish(),
     })),
   }),
 ]);

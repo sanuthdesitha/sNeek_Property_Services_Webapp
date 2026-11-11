@@ -18,7 +18,9 @@ import { NUDGE_COOL_DOWN_MINUTES, NUDGE_LABELS } from "@/lib/laundry/nudge-rules
  * per-recipient states. The routes decide who may call them:
  * - staff message and laundry nudge: ADMIN and OPS_MANAGER (both can already
  *   message staff and remind cleaners);
- * - client delay notice: ADMIN only, pending the owner's decision.
+ * - client delay notice: ADMIN only, pending the owner's decision;
+ * - clock-paused notice: sent by the ADMIN-only Live ops clock pause
+ *   (lib/jobs/admin-clock-pause.ts).
  */
 const transportsSchema = z.array(z.enum(["PUSH", "EMAIL"])).min(1).max(2);
 const keySchema = z.string().trim().min(8).max(80).regex(/^[A-Za-z0-9:_-]+$/).optional();

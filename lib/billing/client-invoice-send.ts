@@ -5,7 +5,7 @@
  * VOID/PAID refusals, the PART_PAID status hold and the notification record.
  * A provider failure is reported as a refusal (502), never as sent.
  */
-import { ClientInvoiceStatus, NotificationChannel, NotificationStatus } from "@prisma/client";
+import { ClientInvoiceStatus, NotificationChannel, NotificationStatus, type Prisma } from "@prisma/client";
 import { getClientInvoice, renderClientInvoicePdf } from "@/lib/billing/client-invoices";
 import { getAppSettings } from "@/lib/settings";
 import { resolveClientDeliveryRecipients } from "@/lib/commercial/delivery-profiles";
@@ -18,6 +18,44 @@ import { emptyInvoiceRefusal } from "./client-invoice-guards";
 import { creditNoteTotalRefusal } from "./client-invoice-adjustments";
 import { creditLimitFor } from "./client-invoice-patch-rules";
 import { recordInvoiceAudit } from "./client-invoice-audit";
+import { termsSnapshotFor } from "./invoice-terms";
+import { refreshCreditCoverage } from "./invoice-job-release";
+
+/**
+ * Stamp a successful send under the row lock. `sentAt` is the FIRST time the
+ * document went to the client: "Invoiced this month" and the issued record read
+ * it, so a re-send never moves it. Re-sends are kept in metadata.resentAt[]
+ * (and each has its own History row). The first send also snapshots the
+ * payment terms, and a credit note being issued refreshes whether its invoice
+ * is now fully credited. Returns true for a re-send.
+ */
+async function recordSent(invoiceId: string, keepsStatus: boolean, actorId: string | null): Promise<boolean> {
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${invoiceId} FOR UPDATE`;
+    const current = await tx.clientInvoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+      select: { clientId: true, status: true, kind: true, creditsInvoiceId: true, sentAt: true, paymentTermsDays: true, metadata: true },
+    });
+    const now = new Date();
+    const resend = current.sentAt !== null;
+    const metadata = (current.metadata && typeof current.metadata === "object" && !Array.isArray(current.metadata) ? current.metadata : {}) as Record<string, unknown>;
+    const resentAt = Array.isArray(metadata.resentAt) ? (metadata.resentAt as unknown[]) : [];
+    const nextStatus = keepsStatus ? current.status : ClientInvoiceStatus.SENT;
+    const termsSnapshot = await termsSnapshotFor(tx, current, nextStatus);
+    await tx.clientInvoice.update({
+      where: { id: invoiceId },
+      data: {
+        ...(keepsStatus ? {} : { status: ClientInvoiceStatus.SENT }),
+        ...(resend ? { metadata: { ...metadata, resentAt: [...resentAt, now.toISOString()].slice(-50) } as Prisma.InputJsonValue } : { sentAt: now }),
+        ...(termsSnapshot !== undefined ? { paymentTermsDays: termsSnapshot } : {}),
+      },
+    });
+    if (current.kind === "CREDIT_NOTE" && current.creditsInvoiceId && current.status !== nextStatus && actorId) {
+      await refreshCreditCoverage(tx, { invoiceId: current.creditsInvoiceId, actorId });
+    }
+    return resend;
+  });
+}
 
 /** The client portal's page for one invoice (also used for credit notes). */
 export function clientInvoiceUrl(origin: string, invoiceId: string): string {
@@ -64,7 +102,7 @@ export async function sendClientInvoice(input: {
     // send is allowed — but the status must NOT move. Writing SENT here would
     // discard the fact that money has already come in against it, which is
     // exactly what the graph refuses when it says PART_PAID cannot go back to
-    // SENT. Only `sentAt` is restamped.
+    // SENT. `sentAt` stays the FIRST send (see recordSent below).
     const keepsStatus = invoice.status === ClientInvoiceStatus.PART_PAID;
 
     const empty = emptyInvoiceRefusal(invoice);
@@ -131,13 +169,7 @@ export async function sendClientInvoice(input: {
       return actionResult({ error: result.error ?? "Email provider failed." }, 502);
     }
 
-    await db.clientInvoice.update({
-      where: { id: invoice.id },
-      data: {
-        ...(keepsStatus ? {} : { status: ClientInvoiceStatus.SENT }),
-        sentAt: new Date(),
-      },
-    });
+    const resend = await recordSent(invoice.id, keepsStatus, input.actorId ?? null);
 
     await db.notification.create({
       data: {
@@ -155,7 +187,7 @@ export async function sendClientInvoice(input: {
       actorId: input.actorId,
       invoiceId: invoice.id,
       action: "CLIENT_INVOICE_SENT",
-      after: { outcome: "sent", recipientCount: recipients.length, status: keepsStatus ? invoice.status : ClientInvoiceStatus.SENT },
+      after: { outcome: "sent", recipientCount: recipients.length, status: keepsStatus ? invoice.status : ClientInvoiceStatus.SENT, resend },
     });
 
     return actionResult({ ok: true });

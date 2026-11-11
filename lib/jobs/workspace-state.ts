@@ -31,6 +31,8 @@ export type JobsDensity = "compact" | "default" | "comfortable";
 export const JOBS_SORT_VALUES = [
   "soonest", "latest", "created", "property", "property_desc", "client", "client_desc",
   "type", "type_desc", "status", "status_desc",
+  // Computed on the server over the whole filtered set (list-computed-sort.ts).
+  "cleaner", "cleaner_desc", "guestIn", "guestIn_desc", "charge", "charge_desc",
 ] as const;
 const enums = {
   dateScope: ["all", "today", "tomorrow", "week", "upcoming", "past"],

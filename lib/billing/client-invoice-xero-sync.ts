@@ -26,6 +26,8 @@ import {
 } from "@/lib/xero/client";
 import type { XeroDocumentRead, XeroPayment } from "@/lib/xero/xero-documents";
 import { recordInvoiceAudit } from "./client-invoice-audit";
+import { SYSTEM_XERO_SYNC_ACTOR, systemActorMarker } from "@/lib/audit/system-actor";
+import { sendClientPaymentReceipt, type PaymentReceiptOutcome } from "./client-payment-receipt";
 import { XERO_PAYMENT_EXCEEDS_OWING, patchClientInvoice } from "./client-invoice-patch";
 import {
   decideXeroSync,
@@ -109,6 +111,7 @@ async function auditSync(candidate: Candidate, state: StoredXeroSync, previous: 
       xeroStatus: state.xeroStatus,
       paymentsRecorded: state.recordedPayments,
       trigger: context.trigger,
+      ...(context.trigger === "scheduled" ? systemActorMarker(SYSTEM_XERO_SYNC_ACTOR) : {}),
     },
   });
 }
@@ -131,8 +134,9 @@ async function recordPayments(
   candidate: Candidate,
   payments: XeroPayment[],
   context: RunContext,
-): Promise<{ recorded: number; refusal: string | null }> {
+): Promise<{ recorded: number; refusal: string | null; newlyRecorded: XeroPayment[] }> {
   let recorded = 0;
+  const newlyRecorded: XeroPayment[] = [];
   for (const payment of payments) {
     const result = await patchClientInvoice({
       invoiceId: candidate.id,
@@ -152,11 +156,51 @@ async function recordPayments(
       const refusal = code === XERO_PAYMENT_EXCEEDS_OWING
         ? "A Xero payment is more than this invoice still owes here (perhaps it was also recorded by hand)."
         : `A Xero payment could not be recorded: ${actionError(result, "it was refused.")}`;
-      return { recorded, refusal };
+      return { recorded, refusal, newlyRecorded };
     }
-    if (!(result.body as { alreadyRecorded?: boolean }).alreadyRecorded) recorded += 1;
+    if (!(result.body as { alreadyRecorded?: boolean }).alreadyRecorded) {
+      recorded += 1;
+      newlyRecorded.push(payment);
+    }
   }
-  return { recorded, refusal: null };
+  return { recorded, refusal: null, newlyRecorded };
+}
+
+/**
+ * The client's receipt for each Xero payment recorded in this read: the same
+ * function "Record payment" uses. Sent only after the invoice's state is known
+ * and never when it is left as "needs review" (withheld, and recorded). One
+ * receipt per Xero payment id: a payment id already in the ledger is never
+ * recorded again, so it never reaches here twice. A failed email never undoes
+ * the payment; the outcome is written to the invoice's History.
+ */
+async function sendXeroReceipts(candidate: Candidate, payments: XeroPayment[], state: XeroSyncState, context: RunContext) {
+  const marker = context.trigger === "scheduled" ? systemActorMarker(SYSTEM_XERO_SYNC_ACTOR) : {};
+  for (const payment of payments) {
+    let outcome: PaymentReceiptOutcome | { outcome: "withheld"; reason: string };
+    if (state === "NEEDS_REVIEW") {
+      outcome = { outcome: "withheld", reason: "The invoice needs review, so no receipt was sent." };
+    } else {
+      try {
+        outcome = await sendClientPaymentReceipt({
+          invoiceId: candidate.id,
+          amount: payment.amount,
+          method: "XERO",
+          paidDate: payment.date ? new Date(payment.date) : context.now,
+          reference: payment.reference ?? `Xero payment ${payment.paymentId}`,
+        });
+      } catch (error) {
+        outcome = { outcome: "failed", error: error instanceof Error ? error.message : "Receipt could not be sent." };
+      }
+    }
+    if (outcome.outcome === "failed") logger.error({ invoiceId: candidate.id, xeroPaymentId: payment.paymentId }, "[xero-invoice-sync] payment recorded but the client receipt failed");
+    await recordInvoiceAudit({
+      actorId: context.actor?.id,
+      invoiceId: candidate.id,
+      action: "CLIENT_INVOICE_PAYMENT_RECEIPT",
+      after: { ...outcome, source: "XERO", xeroPaymentId: payment.paymentId, trigger: context.trigger, ...marker },
+    });
+  }
 }
 
 async function applyRead(candidate: Candidate, read: XeroDocumentRead, context: RunContext): Promise<XeroSyncRowResult> {
@@ -183,8 +227,12 @@ async function applyRead(candidate: Candidate, read: XeroDocumentRead, context: 
   if (!context.actor) {
     return store(candidate, unknownState(previous, "Xero state unknown: no active administrator account to record Xero's payments under.", context.now), context, "unknown");
   }
-  const { recorded, refusal } = await recordPayments(candidate, decision.payments, context);
-  if (refusal) return store(candidate, synced("NEEDS_REVIEW", refusal, recorded), context, "needs-review");
+  const { recorded, refusal, newlyRecorded } = await recordPayments(candidate, decision.payments, context);
+  if (refusal) {
+    const reviewed = await store(candidate, synced("NEEDS_REVIEW", refusal, recorded), context, "needs-review");
+    await sendXeroReceipts(candidate, newlyRecorded, "NEEDS_REVIEW", context);
+    return reviewed;
+  }
   const after = await db.clientInvoice.findUnique({ where: { id: candidate.id }, select: { status: true } });
   const paidHere = after?.status === ClientInvoiceStatus.PAID;
   let state: StoredXeroSync;
@@ -194,6 +242,7 @@ async function applyRead(candidate: Candidate, read: XeroDocumentRead, context: 
     state = synced(paidHere && document.status === "PAID" ? "PAID_IN_XERO" : "IN_XERO", null, recorded);
   }
   const result = await store(candidate, state, context, OUTCOME_FOR_STATE[state.state]);
+  await sendXeroReceipts(candidate, newlyRecorded, state.state, context);
   return recorded > 0 && state.state !== "NEEDS_REVIEW" ? { ...result, outcome: "recorded" } : result;
 }
 
@@ -235,7 +284,12 @@ async function scheduledCandidates(): Promise<{ candidates: Candidate[]; eligibl
   };
 }
 
-/** The earliest active administrator: the account a scheduled run records payments under. */
+/**
+ * The earliest active administrator: the account a scheduled run's rows are
+ * stored under, because AuditLog needs a user. Every such row carries
+ * `systemActor: "SYSTEM_XERO_SYNC"` and is shown as "System: Xero sync
+ * (scheduled)", never as that person (lib/audit/system-actor.ts).
+ */
 async function scheduledActor(): Promise<InvoiceActor | null> {
   const admin = await db.user.findFirst({
     where: { role: Role.ADMIN, isActive: true },

@@ -7,6 +7,18 @@ import { isWebPushConfigured } from "./web-push";
 import { fallbackTypes } from "./catalog";
 import type { NotificationHealth, TransportHealth } from "./health-types";
 import { directPathBanners, outboxTransportsFromEnv, OUTBOX_TRANSPORTS_ENV } from "./transport-paths";
+import { getXeroStatus, xeroSignInMessage } from "@/lib/xero/client";
+
+/** The Xero sign-in line for Health; never throws (an unreadable state is null). */
+async function xeroHealth(now: Date): Promise<NotificationHealth["xero"]> {
+  try {
+    const status = await getXeroStatus(now);
+    if (!status?.signIn) return null;
+    return { signIn: status.signIn, message: xeroSignInMessage(status.signIn) };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Read model for the Health tab. Reports whether credentials are PRESENT,
@@ -38,7 +50,8 @@ async function intentQueue(transport: string, since: Date) {
 export async function readNotificationHealth(now = new Date()): Promise<NotificationHealth> {
   const since = new Date(now.getTime() - DAY_MS);
   const outbox = outboxTransportsFromEnv();
-  const [settings, sms, webPush, heartbeats, inbox, email, smsQueue, push, mobilePending, mobileOldest, mobileFailures, directFailures, statusGroups] = await Promise.all([
+  const [xero, settings, sms, webPush, heartbeats, inbox, email, smsQueue, push, mobilePending, mobileOldest, mobileFailures, directFailures, statusGroups] = await Promise.all([
+    xeroHealth(now),
     getAppSettings(),
     getSmsProviderState(),
     isWebPushConfigured(),
@@ -78,6 +91,7 @@ export async function readNotificationHealth(now = new Date()): Promise<Notifica
     worker: { ...worker, intentDispatcherActive: knowsJobs ? liveJobs.some((jobs) => Array.isArray(jobs) && jobs.includes("notification-intent-dispatch")) : null },
     intentStatusCounts: Object.fromEntries(statusGroups.map((row) => [row.status, row._count._all])),
     banners: directPathBanners(fallbackTypes()),
+    xero,
     unknowns: [
       "Direct browser pushes record no outcome, so their failures are not counted.",
       "Provider delivery is only known where the email provider's webhook reports it.",

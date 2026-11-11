@@ -74,6 +74,17 @@ export function AccountsFilters({
         >
           Documents
         </button>
+        {visibility.pay ? (
+          <button
+            type="button"
+            aria-pressed={view.noRate}
+            title="No default pay rate set"
+            onClick={() => onChange({ noRate: !view.noRate })}
+            className={cn(E_CHIP_CLASS, view.noRate && E_CHIP_ON_CLASS)}
+          >
+            No pay rate
+          </button>
+        ) : null}
         {roles.length > 1 ? (
           <EFilterPopover label="Role" value={view.role ? ROLE_LABELS[view.role as Role] : null}>
             <div role="radiogroup" aria-label="Role" className="flex min-w-[12rem] flex-col gap-1 p-1">

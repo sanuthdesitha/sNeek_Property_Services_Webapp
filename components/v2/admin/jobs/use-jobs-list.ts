@@ -15,6 +15,7 @@ import {
   JOBS_PAGE_SIZE,
   jobsLoadFailureMessage,
   jobsResponseSchema,
+  jobsSortRefusal,
   validPage,
   type JobListRow,
   type JobsPagination,
@@ -65,7 +66,9 @@ export function useJobsList(query: string, ready: boolean): JobsListData {
     try {
       const response = await fetch(`/api/jobs?${current}`, { cache: "no-store", signal: controller.signal });
       if (!response.ok) {
-        failure = jobsLoadFailureMessage(response.status);
+        const refusal = response.status === 400 ? jobsSortRefusal(400, await response.json().catch(() => null)) : null;
+        if (obsolete()) return;
+        failure = refusal ?? jobsLoadFailureMessage(response.status);
         throw new Error("Jobs request failed");
       }
       failure = "Jobs returned an unexpected response. Please retry.";

@@ -12,6 +12,8 @@ export type AccountsView = {
   q: string;
   status: AccountStatusFilter;
   documents: boolean;
+  /** `rate=none`: people with no default pay rate. */
+  noRate: boolean;
   role: string;
   sort: AccountSort;
   dir: "asc" | "desc";
@@ -19,7 +21,7 @@ export type AccountsView = {
   open: string | null;
 };
 
-export const DEFAULT_VIEW: AccountsView = { tab: "everyone", q: "", status: "all", documents: false, role: "", sort: "name", dir: "asc", page: 1, open: null };
+export const DEFAULT_VIEW: AccountsView = { tab: "everyone", q: "", status: "all", documents: false, noRate: false, role: "", sort: "name", dir: "asc", page: 1, open: null };
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
 
 export function readAccountsView(search: string): AccountsView {
@@ -33,6 +35,7 @@ export function readAccountsView(search: string): AccountsView {
     q: params.get("q") ?? "",
     status: (ACCOUNT_STATUS_FILTERS as readonly string[]).includes(status) ? (status as AccountStatusFilter) : "all",
     documents: params.get("documents") === "1",
+    noRate: params.get("rate") === "none",
     role: params.get("role") ?? "",
     sort: (ACCOUNT_SORTS as readonly string[]).includes(sort) ? (sort as AccountSort) : DEFAULT_VIEW.sort,
     dir: params.get("dir") === "desc" ? "desc" : "asc",
@@ -47,6 +50,7 @@ export function listQueryString(view: AccountsView, pageSize: number): string {
   if (view.q.trim()) params.set("q", view.q.trim());
   if (view.status !== "all") params.set("status", view.status);
   if (view.documents) params.set("documents", "1");
+  if (view.noRate) params.set("rate", "none");
   if (view.role) params.set("role", view.role);
   return params.toString();
 }
@@ -57,6 +61,7 @@ export function viewSearch(view: AccountsView): string {
   if (view.q) params.set("q", view.q);
   if (view.status !== "all") params.set("status", view.status);
   if (view.documents) params.set("documents", "1");
+  if (view.noRate) params.set("rate", "none");
   if (view.role) params.set("role", view.role);
   if (view.sort !== DEFAULT_VIEW.sort || view.dir !== DEFAULT_VIEW.dir) {
     params.set("sort", view.sort);

@@ -420,3 +420,10 @@ Waves (one wave holds the database at a time):
 - The fifth-set items: "Add to shopping run", "Ask cleaner to buy", the job on a need, and the drawn tab names.
 
 Items in these waves that change a business rule, money, or who can do what are built because the owner asked for the design to be made real; each is listed in the final summary with exactly what rule was added.
+
+## Owner decisions, seventh set (2026-11-11): Lost and found and Urgent stock
+
+1. Operations managers can see and act on Urgent stock (tab, badge, and the service that refused them). Built in Wave F, gated by their inventory permission pack like the rest of Stock.
+2. Build "Add to shopping run" and "Ask cleaner to buy" (already Wave F).
+3. Holding period: the lead's choice. Items still at "New" are flagged after 14 days too, counted from the found date; an unprocessed item is the case most worth flagging.
+4. Guest messages are sent from the app, and the drafted message always has a copy option beside Send, for every role that can open the item.

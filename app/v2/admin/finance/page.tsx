@@ -50,10 +50,11 @@ async function readXero(): Promise<XeroConnectionSummary> {
   try {
     const status = await getXeroStatus();
     if (!status) return { state: "not-connected" };
+    if (status.signIn === "lapsed") return { state: "lapsed", tenantName: status.tenantName ?? null };
     // The last whole hourly check against Xero that read everything it asked
     // for; not XeroConnection.lastSyncAt, which only records a token refresh.
     const sync = await readXeroSyncStatus().catch(() => ({ lastSuccessAt: null }));
-    return { state: "connected", tenantName: status.tenantName ?? null, lastSyncAt: sync.lastSuccessAt };
+    return { state: "connected", tenantName: status.tenantName ?? null, lastSyncAt: sync.lastSuccessAt, renewable: status.hasRefreshToken !== false };
   } catch {
     return { state: "unknown" };
   }

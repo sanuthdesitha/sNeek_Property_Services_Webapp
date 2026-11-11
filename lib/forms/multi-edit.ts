@@ -44,7 +44,8 @@ export type MultiEditValue = {
 
 export type MultiEditPatch = Partial<MultiEditValue>;
 
-export type Cadence = "every" | "conditional" | number;
+/** "every" clean, "monthly" (first clean of each calendar month), every Nth clean, or "conditional" (checklist exception). */
+export type Cadence = "every" | "conditional" | "monthly" | number;
 
 export type SharedValue<K extends MultiEditKey> = { mixed: true } | { mixed: false; value: MultiEditValue[K] };
 
@@ -99,6 +100,7 @@ export function multiEditKeysFor(fields: readonly FormField[]): MultiEditKey[] {
 export function cadenceOf(field: FormField): Cadence {
   if (field.frequency === "ROTATIONAL") return field.rotationEveryNCleans ?? 4;
   if (field.frequency === "CONDITIONAL") return "conditional";
+  if (field.frequency === "MONTHLY") return "monthly";
   return "every";
 }
 
@@ -142,6 +144,9 @@ function applyCadence(field: FormField, cadence: Cadence): FormField {
     delete next.rotationEveryNCleans;
   } else if (cadence === "conditional") {
     next.frequency = "CONDITIONAL" as FieldFrequency;
+    delete next.rotationEveryNCleans;
+  } else if (cadence === "monthly") {
+    next.frequency = "MONTHLY";
     delete next.rotationEveryNCleans;
   } else {
     next.frequency = "ROTATIONAL";

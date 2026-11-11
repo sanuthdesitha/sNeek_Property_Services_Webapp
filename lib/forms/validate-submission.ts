@@ -10,6 +10,7 @@ import { isDeviceStatusField, incompleteDeviceExceptions } from "./device-status
 //
 // The server stays authoritative — this only mirrors it for inline UX.
 import { isUploadFieldType } from "./field-types";
+import { structuredAnswerError } from "./structured-answers";
 import {
   collectRequiredAnswerFields,
   collectRequiredUploadFields,
@@ -38,7 +39,11 @@ export type FormErrorRule =
   | "date"
   | "option"
   | "scale-range"
-  | "max-files";
+  | "max-files"
+  // Structured types (lib/forms/structured-answers.ts): enforced from the
+  // first release, never an extended warning.
+  | "table"
+  | "stock-count";
 
 export interface FormFieldError {
   fieldId: string;
@@ -249,6 +254,10 @@ export function collectFormErrors(
         }
       }
 
+      // Table / stock count shape, row limits and required cells.
+      const structured = structuredAnswerError(field, answers[String(field.id)]);
+      if (structured) push({ fieldId: String(field.id), sectionId, sectionLabel, label, ...structured });
+
       if (options.extended) {
         const extended = extendedFieldError(field, type, answers[String(field.id)], uploadCounts[String(field.id)] ?? 0);
         if (extended) push({ fieldId: String(field.id), sectionId, sectionLabel, label, ...extended });
@@ -383,6 +392,38 @@ export function collectUploadMinimumErrors(
       if (!(need > have)) continue;
       errors.push({ fieldId: id, sectionId: section.id, sectionLabel: section.title || section.label,
         label: field.label || id, message: `Add at least ${need} ${type === "photo" ? "photo" : "file"}${need === 1 ? "" : "s"} — ${have} added.`, rule: "minimum" });
+    }
+  }
+  return errors;
+}
+
+/**
+ * Only the structured-type errors ("table", "stock-count") for the visible
+ * questions — the submit route rejects these (they are new rules for new
+ * types, see lib/forms/structured-answers.ts). Empty for a form without them.
+ */
+export function collectStructuredAnswerErrors(
+  templateSchema: unknown,
+  answers: AnswerMap,
+  property: Record<string, unknown>,
+  laundryReady?: boolean,
+): FormFieldError[] {
+  const errors: FormFieldError[] = [];
+  const schema = templateSchema as { sections?: unknown } | null;
+  for (const section of Array.isArray(schema?.sections) ? (schema!.sections as any[]) : []) {
+    if (!isTemplateNodeVisible(section, answers, property, laundryReady)) continue;
+    for (const field of flattenFieldsOneLevel(section?.fields)) {
+      if (!field?.id || (field.type !== "table" && field.type !== "stock_count")) continue;
+      if (!isFlattenedFieldVisible(field, answers, property, laundryReady)) continue;
+      const problem = structuredAnswerError(field, answers[String(field.id)]);
+      if (!problem) continue;
+      errors.push({
+        fieldId: String(field.id),
+        sectionId: typeof section?.id === "string" ? section.id : undefined,
+        sectionLabel: section?.title || section?.label,
+        label: typeof field.label === "string" && field.label.trim() ? field.label.trim() : String(field.id),
+        ...problem,
+      });
     }
   }
   return errors;

@@ -25,7 +25,12 @@ export type ClientProfitRow = {
   totalCost: number;
   grossMargin: number;
   marginPct: number | null;
+  /** Cleans left out of cleaner cost because a payee has no pay rate set. */
+  uncostedNoPayRate?: number;
 };
+
+/** Accounts, cleaners with no pay rate (same as lib/finance/summary NO_PAY_RATE_ACCOUNTS_HREF). */
+const NO_PAY_RATE_HREF = "/v2/admin/accounts?tab=cleaners&rate=none";
 
 function money(n: number): string {
   const sign = n < 0 ? "-" : "";
@@ -120,6 +125,12 @@ export function ClientProfit({
               <span className="text-[0.8125rem] font-[550] text-[hsl(var(--e-foreground))]">Total cost</span>
               <span className="e-numeral text-[1rem] text-[hsl(var(--e-foreground))]">−{money(data.totalCost).replace(/^-/, "")}</span>
             </div>
+            {data.uncostedNoPayRate ? (
+              <p role="note" className="px-3.5 pt-1 text-[0.75rem] text-[hsl(var(--e-warning))]">
+                {data.uncostedNoPayRate} clean{data.uncostedNoPayRate === 1 ? "" : "s"} not costed: no pay rate set.{" "}
+                <a href={NO_PAY_RATE_HREF} className="underline underline-offset-2">Set pay rates</a>
+              </p>
+            ) : null}
           </div>
         </div>
       </ECardBody>

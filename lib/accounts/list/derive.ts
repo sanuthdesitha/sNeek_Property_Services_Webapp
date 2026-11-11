@@ -87,6 +87,8 @@ export function filterRows(rows: AccountRow[], filters: AccountFilters): Account
     if (filters.role && row.role !== filters.role) return false;
     if (filters.status !== "all" && row.status !== filters.status.toUpperCase()) return false;
     if (filters.documents && !documentsNeedAttention(row.documents)) return false;
+    // `rate` is only on the row when the viewer may see pay; null = no rate set.
+    if (filters.noRate && row.rate !== null) return false;
     return matchesSearch(row, filters.q);
   });
 }

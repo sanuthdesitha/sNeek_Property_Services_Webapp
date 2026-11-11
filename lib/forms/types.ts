@@ -33,7 +33,10 @@ export type FormFieldType =
   | "barcode"
   // advanced
   | "location"
-  | "instruction";
+  | "instruction"
+  // structured (see lib/forms/structured-answers.ts)
+  | "table"
+  | "stock_count";
 
 export type FieldConditionOperator =
   | "equals"
@@ -91,9 +94,14 @@ export function isAnswerCondition(condition: FormCondition | null | undefined): 
  *  - "ROTATIONAL": only when due, every `rotationEveryNCleans` completed cleans
  *    of the property (filtered at read time, tracked per property);
  *  - "CONDITIONAL": generated from the checklist library; shown when the
- *    matching exception is reported (its `conditional` carries the rule).
+ *    matching exception is reported (its `conditional` carries the rule);
+ *  - "MONTHLY": calendar cadence — shown on the first clean of each calendar
+ *    month at the property (organisation timezone), judged from the
+ *    property's last-shown date for the question
+ *    (`PropertyRotationState.lastCompletedAt`, see
+ *    lib/accountability/rotation-schema.ts).
  */
-export type FieldFrequency = "EVERY_CLEAN" | "ROTATIONAL" | "CONDITIONAL";
+export type FieldFrequency = "EVERY_CLEAN" | "ROTATIONAL" | "CONDITIONAL" | "MONTHLY";
 
 /** Smallest and largest "every Nth clean" the builder offers. */
 export const ROTATION_MIN_CLEANS = 2;
@@ -143,6 +151,65 @@ export interface FormTheme {
 }
 
 export type FieldSeverity = "low" | "medium" | "high";
+
+/* ── Table question ("table") ─────────────────────────────────────────────
+ * Answer shape: an array of row objects keyed by column id, e.g.
+ * [{ "c1": "Fridge", "c2": 3, "c3": true }]. Fixed rows answer row i of
+ * `rowLabels`; "cleaner can add rows" lets the cleaner add between
+ * `minRows` and `maxRows` rows. Validated by lib/forms/structured-answers.ts.
+ */
+export type TableCellType = "text" | "number" | "yesno" | "choice";
+
+export interface TableColumn {
+  id: string;
+  label: string;
+  cellType: TableCellType;
+  required?: boolean;
+  /** Choice cells only. */
+  options?: string[];
+}
+
+export interface TableConfig {
+  columns: TableColumn[];
+  rowMode: "fixed" | "dynamic";
+  /** Fixed rows: one label per row, shown to the cleaner. */
+  rowLabels?: string[];
+  /** "Cleaner can add rows": limits on how many rows. */
+  minRows?: number;
+  maxRows?: number;
+}
+
+/** Answer of a "stock_count" question: the item counted and how many are there. */
+export interface StockCountAnswer {
+  itemId: string;
+  count: number;
+}
+
+/* ── Question effects ─────────────────────────────────────────────────────
+ * What submitting an answer does beyond storing it. Each effect runs through
+ * an existing service (lib/forms/form-effects.ts):
+ *  - "urgent-stock-below" (Stock count only): a count below `threshold`
+ *    raises an urgent stock NEED through lib/inventory/urgent-stock.ts once per
+ *    submission and item. It orders nothing.
+ *  - "damage-report" (Yes / No only): the answer `when` prompts the cleaner
+ *    into the job's damage report; if none is submitted, the submit route
+ *    opens the private damage case it already opens for reported damage.
+ */
+export interface UrgentStockEffect {
+  kind: "urgent-stock-below";
+  threshold: number;
+}
+
+export interface DamageReportEffect {
+  kind: "damage-report";
+  when: "yes" | "no";
+  /** Prefilled area / room; falls back to the question's location tag or section. */
+  area?: string;
+  /** Prefilled damage category. */
+  category?: string;
+}
+
+export type FieldEffect = UrgentStockEffect | DamageReportEffect;
 
 export interface FormField {
   id: string;
@@ -210,6 +277,14 @@ export interface FormField {
   frequency?: FieldFrequency;
   /** With frequency "ROTATIONAL": due every N completed cleans. */
   rotationEveryNCleans?: number;
+  /** "table" questions: columns and rows. */
+  table?: TableConfig;
+  /** "stock_count" questions: the inventory item counted (InventoryItem id). */
+  stockItemId?: string;
+  /** "stock_count": the item's name when it was chosen (display only). */
+  stockItemName?: string;
+  /** What submitting this answer does (see FieldEffect). */
+  effects?: FieldEffect[];
 }
 
 export interface FormSection {

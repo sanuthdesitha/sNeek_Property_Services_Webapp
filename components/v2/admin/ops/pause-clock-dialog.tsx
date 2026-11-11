@@ -67,7 +67,7 @@ export function PauseClockDialog({ job, timeZone, onClose, onPaused }: Props) {
 
   const formId = `${reasonId}-form`;
   const footer = done ? (
-    <EButton size="sm" onClick={onClose}>Close</EButton>
+    <EButton size="sm" onClick={onClose}>Done</EButton>
   ) : (
     <>
       <EButton size="sm" variant="outline" disabled={sending} onClick={onClose}>Cancel</EButton>

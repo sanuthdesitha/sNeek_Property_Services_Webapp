@@ -12,18 +12,23 @@ const XERO_REVOKE_URL = "https://identity.xero.com/connect/revocation";
 const CREDENTIAL_KEY = "integrationCredentials";
 
 /**
- * OAuth scopes we request. Restricted to exactly the scopes this Xero app
- * exposes (its Authorisation list): only the granular accounting scopes are
- * available — NOT accounting.transactions, openid, profile, email, or
- * offline_access — so requesting any of those returns "invalid_scope".
+ * OAuth scopes we request.
  *   - accounting.contacts → create/read client & cleaner contacts
  *   - accounting.invoices → create/read invoices (ACCREC) & bills (ACCPAY)
+ *   - offline_access      → a refresh token, so the connection stays signed in
+ *     (without it the access token lapses after ~30 minutes and the hourly
+ *     Xero check reports "state unknown" until someone reconnects).
  *
- * NOTE: without offline_access no refresh token is issued, so the access token
- * is short-lived (~30 min). We handle a missing refresh token gracefully; push
- * an invoice shortly after connecting, or reconnect if it lapses.
+ * offline_access is a standard Xero scope; it was missing, so no refresh token
+ * was ever issued (an existing problem, fixed 2026-11-11). The owner must
+ * reconnect Xero ONCE after this ships so a refresh token is stored. If a Xero
+ * app ever refuses it with "invalid_scope", set XERO_REQUEST_OFFLINE_ACCESS=false
+ * to connect without it (the old, lapsing behaviour) while the app is fixed.
  */
-const XERO_SCOPES = "accounting.contacts accounting.invoices";
+export function xeroScopes(env: Record<string, string | undefined> = process.env): string {
+  const base = "accounting.contacts accounting.invoices";
+  return env.XERO_REQUEST_OFFLINE_ACCESS === "false" ? base : `offline_access ${base}`;
+}
 
 /** Pull a human-readable message out of Xero's various error response shapes. */
 function extractXeroError(raw: string): string {
@@ -125,7 +130,13 @@ async function refreshXeroToken(conn: { id: string; refreshToken: string }): Pro
       }),
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // A refused refresh (expired or revoked refresh token) means the
+      // connection has lapsed: recorded so Settings and the Finance header can
+      // say "reconnect" instead of a generic "unknown".
+      await db.xeroConnection.update({ where: { id: conn.id }, data: { lastSyncError: `${XERO_SIGN_IN_LAPSED_PREFIX} refresh refused (${res.status})` } }).catch(() => {});
+      return null;
+    }
 
     const data = await res.json() as {
       access_token: string;
@@ -142,6 +153,7 @@ async function refreshXeroToken(conn: { id: string; refreshToken: string }): Pro
         refreshToken: data.refresh_token,
         expiresAt,
         lastSyncAt: new Date(),
+        lastSyncError: null,
       },
     });
 
@@ -189,7 +201,7 @@ export async function getXeroAuthUrl(redirectUri: string, state: string): Promis
     response_type: "code",
     client_id: clientId,
     redirect_uri: redirectUri,
-    scope: XERO_SCOPES,
+    scope: xeroScopes(),
     state,
   });
 
@@ -261,7 +273,7 @@ export async function exchangeXeroCode(code: string, redirectUri: string): Promi
         accessToken: tokenData.access_token,
         refreshToken: tokenData.refresh_token ?? "",
         expiresAt,
-        scopes: XERO_SCOPES.split(" "),
+        scopes: xeroScopes().split(" "),
         isActive: true,
       },
       update: {
@@ -269,7 +281,9 @@ export async function exchangeXeroCode(code: string, redirectUri: string): Promi
         refreshToken: tokenData.refresh_token ?? "",
         expiresAt,
         tenantName: tenant.tenantName,
+        scopes: xeroScopes().split(" "),
         isActive: true,
+        lastSyncError: null,
       },
     });
 
@@ -306,17 +320,57 @@ export async function disconnectXero(): Promise<void> {
   });
 }
 
+/** Prefix on XeroConnection.lastSyncError when a token refresh was refused. */
+export const XERO_SIGN_IN_LAPSED_PREFIX = "SIGN_IN_LAPSED:";
+
+export type XeroSignIn = "ok" | "no-refresh-token" | "lapsed";
+
+export type XeroStatus = {
+  connected: boolean;
+  tenantName?: string;
+  lastSyncAt?: string;
+  /** Whether the stored connection can renew itself (a refresh token was issued). */
+  hasRefreshToken?: boolean;
+  /**
+   * ok: signed in and renewable. no-refresh-token: works until the access token
+   * expires, then lapses ("Reconnect Xero once to keep it signed in").
+   * lapsed: the access token has expired and cannot be renewed ("Xero sign-in
+   * lapsed — reconnect").
+   */
+  signIn?: XeroSignIn;
+};
+
+/** Pure: the sign-in state of a stored connection at `now`. */
+export function xeroSignInState(
+  conn: { refreshToken: string; expiresAt: Date; lastSyncError: string | null },
+  now: Date = new Date(),
+): XeroSignIn {
+  const expired = conn.expiresAt.getTime() <= now.getTime();
+  if (!conn.refreshToken) return expired ? "lapsed" : "no-refresh-token";
+  if (expired && conn.lastSyncError?.startsWith(XERO_SIGN_IN_LAPSED_PREFIX)) return "lapsed";
+  return "ok";
+}
+
+/** Plain words for a sign-in state, or null when nothing needs saying. */
+export function xeroSignInMessage(signIn: XeroSignIn | undefined): string | null {
+  if (signIn === "lapsed") return "Xero sign-in lapsed — reconnect";
+  if (signIn === "no-refresh-token") return "Reconnect Xero once to keep it signed in";
+  return null;
+}
+
 /**
  * Get Xero connection status.
  */
-export async function getXeroStatus(): Promise<{ connected: boolean; tenantName?: string; lastSyncAt?: string } | null> {
-  const conn = await db.xeroConnection.findFirst({ where: { isActive: true } });
+export async function getXeroStatus(now: Date = new Date()): Promise<XeroStatus | null> {
+  const conn = await db.xeroConnection.findFirst({ where: { isActive: true }, orderBy: { createdAt: "desc" } });
   if (!conn) return null;
 
   return {
     connected: true,
     tenantName: conn.tenantName,
     lastSyncAt: conn.lastSyncAt?.toISOString(),
+    hasRefreshToken: Boolean(conn.refreshToken),
+    signIn: xeroSignInState(conn, now),
   };
 }
 
@@ -619,7 +673,12 @@ async function xeroGet(path: string, options: XeroReadOptions = {}): Promise<Xer
     } catch (error) {
       return { ok: false, failure: { kind: "network", reason: `Could not read the Xero connection: ${error instanceof Error ? error.message : String(error)}` } };
     }
-    if (!tokenData) return { ok: false, failure: { kind: "not-connected", reason: "No active Xero connection, or its sign-in has lapsed." } };
+    if (!tokenData) {
+      // An active connection whose token could not be renewed has lapsed: say
+      // "reconnect", not a generic "unknown".
+      const lapsed = await hasActiveXeroConnection().catch(() => false);
+      return { ok: false, failure: { kind: "not-connected", reason: lapsed ? "Xero sign-in lapsed — reconnect Xero in Settings." : "No active Xero connection." } };
+    }
     let res: Response;
     try {
       res = await fetch(`${XERO_BASE}${path}`, {

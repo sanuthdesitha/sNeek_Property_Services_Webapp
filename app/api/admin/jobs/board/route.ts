@@ -5,10 +5,10 @@ import { resolveRouteRole } from "@/lib/auth/route-role";
 import { db } from "@/lib/db";
 import { isListQueryError } from "@/lib/admin/list-query";
 import { JOBS_BOARD_LANES, JOBS_BOARD_LANE_LIMIT } from "@/lib/jobs/board-lanes";
-import { JOB_INCLUDE } from "@/lib/jobs/list-include";
 import { buildJobsWhere, isJobsFilterError, parseStatusList, readJobsFilterParams } from "@/lib/jobs/list-filters";
 import { withListExtras } from "@/lib/jobs/list-row-extras";
-import { buildJobsOrderBy, readJobsOrder } from "@/lib/jobs/list-sort";
+import { readJobsListOrder } from "@/lib/jobs/list-sort";
+import { findJobsPage, isJobsSortTooLargeError } from "@/lib/jobs/list-computed-sort";
 import { withTimingBadges } from "@/lib/jobs/timing-badges";
 
 /**
@@ -26,9 +26,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const filters = readJobsFilterParams(searchParams);
     const status = parseStatusList(searchParams.get("status"));
-    const order = readJobsOrder(searchParams);
+    const order = readJobsListOrder(searchParams);
     const where = buildJobsWhere({ ...filters, status, role, userId: session.user.id });
-    const orderBy = buildJobsOrderBy(order, filters.statusGroup);
 
     const grouped = await db.job.groupBy({ by: ["status"], where, _count: { _all: true } });
     const countByStatus = new Map(grouped.map((row) => [String(row.status), row._count._all]));
@@ -36,11 +35,14 @@ export async function GET(req: NextRequest) {
     const lanes = await Promise.all(
       JOBS_BOARD_LANES.map(async (lane) => {
         const count = lane.statuses.reduce((sum, value) => sum + (countByStatus.get(value) ?? 0), 0);
-        const jobs = count === 0 ? [] : await db.job.findMany({
+        // Same order as the list, computed sorts included (whole lane, then cut).
+        const jobs = count === 0 ? [] : await findJobsPage({
           where: { AND: [where, { status: { in: lane.statuses } }] },
-          include: JOB_INCLUDE,
-          orderBy,
+          order,
+          statusGroup: filters.statusGroup,
+          skip: 0,
           take: JOBS_BOARD_LANE_LIMIT,
+          totalCount: count,
         });
         return { id: lane.id, label: lane.label, statuses: lane.statuses, count, jobs: await withListExtras(jobs.map(withTimingBadges)) };
       }),
@@ -48,6 +50,9 @@ export async function GET(req: NextRequest) {
     const total = Array.from(countByStatus.values()).reduce((sum, value) => sum + value, 0);
     return NextResponse.json({ lanes, total, laneLimit: JOBS_BOARD_LANE_LIMIT }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (err: unknown) {
+    if (isJobsSortTooLargeError(err)) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+    }
     if (isListQueryError(err) || isJobsFilterError(err)) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }

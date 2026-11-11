@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { FIELD_TYPES } from "./field-types";
 import { jobFormPropertySelect } from "./job-form-property";
+import { duplicateStockCountItems, structuredFieldIssues } from "./structured-schema-checks";
 import type { FieldConditionOperator, FieldFrequency, SectionRepeatBy } from "./types";
 
 const conditionZ = z
@@ -112,7 +113,7 @@ export const CONDITION_OPERATORS: ReadonlySet<FieldConditionOperator> = new Set<
   "lt",
 ]);
 
-const FREQUENCIES: ReadonlySet<FieldFrequency> = new Set<FieldFrequency>(["EVERY_CLEAN", "ROTATIONAL", "CONDITIONAL"]);
+const FREQUENCIES: ReadonlySet<FieldFrequency> = new Set<FieldFrequency>(["EVERY_CLEAN", "ROTATIONAL", "CONDITIONAL", "MONTHLY"]);
 const REPEAT_BY: ReadonlySet<SectionRepeatBy> = new Set<SectionRepeatBy>(["bedrooms", "bathrooms"]);
 const REPEAT_SUFFIX = /__(?:bed|bath)\d+$/;
 const MAX_SAVE_ISSUES = 20;
@@ -174,6 +175,9 @@ function fieldIssues(field: Node, path: string, repeated: boolean, out: SchemaSa
       out.push({ path: `${path}.rotationEveryNCleans`, message: `${name} repeats on an invalid number of cleans.` });
     }
   }
+  for (const message of structuredFieldIssues(field)) {
+    out.push({ path, message: `${name} ${message}` });
+  }
   if (repeated && typeof field.id === "string" && REPEAT_SUFFIX.test(field.id)) {
     out.push({ path, message: `${name} sits in a per-room section, so its key cannot already end with a room number.` });
   }
@@ -210,5 +214,8 @@ export function validateFormSchemaForSave(schema: unknown): SchemaSaveResult {
       });
     });
   });
+  for (const duplicate of duplicateStockCountItems(schema)) {
+    issues.push({ path: "sections", message: `${duplicate.labels.map((label) => `"${label}"`).join(" and ")} count the same stock item; keep one.` });
+  }
   return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues: issues.slice(0, MAX_SAVE_ISSUES) };
 }

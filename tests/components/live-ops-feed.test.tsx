@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/lib/maps/loader", () => ({ ensureGoogleMaps: () => Promise.reject(new Error("no key")) }));
@@ -125,7 +125,13 @@ describe("Live ops shared feed", () => {
     renderWorkspace();
     await screen.findByText(/Jane C\. · Coogee Terrace/);
     fireEvent.click(screen.getByRole("button", { name: "Decline" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Continuation request is no longer pending.");
+    // Declining now asks for the reason the cleaner sees (owner decision, third set item 5).
+    const dialog = await screen.findByRole("dialog", { name: "Decline with a reason" });
+    fireEvent.change(within(dialog).getByLabelText("Reason (required)"), { target: { value: "Finish today, the guest arrives at 3" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Decline request" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Continuation request is no longer pending.");
+    expect(within(dialog).getByLabelText("Reason (required)")).toHaveValue("Finish today, the guest arrives at 3");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
   });
 

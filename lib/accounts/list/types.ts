@@ -30,6 +30,12 @@ export type AccountFilters = {
   /** Only people whose documents are missing, expired or expiring. */
   documents: boolean;
   role: Role | "";
+  /**
+   * Only people with no default pay rate (User.hourlyRate unset), `rate=none`.
+   * Linked from the Finance figures that leave such cleans uncosted. Applies
+   * only when the viewer may see pay.
+   */
+  noRate?: boolean;
 };
 
 export type AccountRow = {
@@ -82,7 +88,14 @@ export function parseAccountFilters(source: Source): AccountFilters {
     throw new ListQueryError(`The ${tab} tab cannot be filtered by role "${rawRole}".`, "filter");
   }
   const q = (readQueryValue(source, "q") ?? "").slice(0, 120);
-  return { tab, q, status: rawStatus as AccountStatusFilter, documents: readQueryValue(source, "documents") === "1", role: rawRole as Role | "" };
+  return {
+    tab,
+    q,
+    status: rawStatus as AccountStatusFilter,
+    documents: readQueryValue(source, "documents") === "1",
+    role: rawRole as Role | "",
+    noRate: readQueryValue(source, "rate") === "none",
+  };
 }
 
 /** Sort columns the viewer can actually see; anything else is refused (400). */

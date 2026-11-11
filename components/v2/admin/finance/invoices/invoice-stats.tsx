@@ -1,15 +1,24 @@
 "use client";
 
 /**
- * The four stat cards above the client-invoice table. Every figure is a stored
+ * The stat cards above the client-invoice table. Every figure is a stored
  * aggregate from GET /api/admin/invoices?view=stats; each caption says what it
  * counts. A failed read says so rather than showing zeros.
  */
 import { useEffect, useState } from "react";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
-import type { ClientInvoiceStats } from "@/lib/billing/client-invoice-stats";
+import type { ClientInvoiceStats, InvoicedThisMonth } from "@/lib/billing/client-invoice-stats";
 import { fmtDay, money } from "./invoice-model";
+
+/** Says exactly what the figure counts: first sends this month, less credit notes sent. */
+function invoicedCaption(figure: InvoicedThisMonth): string {
+  const invoices = `${figure.invoiceCount} invoice${figure.invoiceCount === 1 ? "" : "s"} first sent since ${fmtDay(figure.monthStart)}`;
+  const credits = figure.creditNoteCount > 0
+    ? `, less ${figure.creditNoteCount} credit note${figure.creditNoteCount === 1 ? "" : "s"} (${money(figure.creditTotal)})`
+    : "";
+  return `${invoices}${credits}, incl. GST. Approved but unsent is not counted`;
+}
 
 type StatsState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; stats: ClientInvoiceStats };
 
@@ -62,9 +71,9 @@ export function InvoiceStats({ reloadToken, onCreateDraft, canCreate }: { reload
       </p>
     );
   }
-  const { readyToBill, drafts, outstanding, paidThisMonth } = state.stats;
+  const { readyToBill, drafts, outstanding, paidThisMonth, invoicedThisMonth } = state.stats;
   return (
-    <section aria-label="Client invoice figures" className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <section aria-label="Client invoice figures" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <StatCard
         label="Ready to bill"
         value={readyToBill.jobs}
@@ -86,6 +95,13 @@ export function InvoiceStats({ reloadToken, onCreateDraft, canCreate }: { reload
             : "Nothing sent is waiting on payment"
         }
       />
+      {invoicedThisMonth ? (
+        <StatCard
+          label="Invoiced this month"
+          value={money(invoicedThisMonth.total)}
+          caption={invoicedCaption(invoicedThisMonth)}
+        />
+      ) : null}
       <StatCard
         label="Paid this month"
         value={money(paidThisMonth.total)}

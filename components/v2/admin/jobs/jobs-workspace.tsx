@@ -35,6 +35,7 @@ import { useJobsBoard, type JobsBoardLane } from "./use-jobs-board";
 import { useJobsList } from "./use-jobs-list";
 import { useJobsReferenceData } from "./use-jobs-reference-data";
 import { useJobsSavedViews } from "./use-jobs-saved-views";
+import { useSavedViewCounts } from "./use-saved-view-counts";
 import { useJobsScrollRestoration } from "./use-jobs-scroll-restoration";
 import { useJobsWorkspaceState } from "./use-jobs-workspace-state";
 import { usePeekParam } from "./use-peek-param";
@@ -75,6 +76,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
   const boardQuery = boardParams.toString();
 
   const list = useJobsList(listQuery, ready);
+  const savedCounts = useSavedViewCounts(viewsContext ? savedViews.data?.views ?? null : null, list.loadedAt);
   const board = useJobsBoard(boardQuery, ready && state.view === "board");
   const loading = list.status === "loading";
 
@@ -148,6 +150,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
           state={state}
           update={update}
           counts={list.counts}
+          savedCounts={savedCounts}
           savedViews={viewsContext ? savedViews : null}
           selectedSavedId={selectedSavedId}
           onSelectSaved={setSelectedSavedId}

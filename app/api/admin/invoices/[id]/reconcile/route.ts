@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { releaseInvoiceConsumables } from "@/lib/billing/client-invoices";
 import { LIVE_CREDIT_NOTES_REFUSAL } from "@/lib/billing/client-invoice-adjustments";
+import { termsSnapshotFor } from "@/lib/billing/invoice-terms";
 import { creditNoteVoidRebillRefusal, refreshCreditCoverage, returnInvoicedJobsToBillable } from "@/lib/billing/invoice-job-release";
 
 const schema = z.object({
@@ -74,9 +75,10 @@ export async function POST(
         if (liveCredits > 0) throw new Error(LIVE_CREDIT_NOTES_REFUSAL);
       }
       await releaseInvoiceConsumables(transaction, invoice.id);
+      const termsSnapshot = await termsSnapshotFor(transaction, invoice, "VOID");
       await transaction.clientInvoice.update({
         where: { id: invoice.id },
-        data: { status: "VOID" },
+        data: { status: "VOID", ...(termsSnapshot !== undefined ? { paymentTermsDays: termsSnapshot } : {}) },
       });
       // One invoiced rule: a voided invoice stops billing its jobs; a voided
       // credit note may stop its invoice being fully credited.

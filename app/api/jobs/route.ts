@@ -12,7 +12,8 @@ import { withTimingBadges } from "@/lib/jobs/timing-badges";
 import { Role, JobStatus } from "@prisma/client";
 import { isListQueryError } from "@/lib/admin/list-query";
 import { buildJobsWhere, isJobsFilterError, parseIdList, parseStatusList, readJobsFilterParams } from "@/lib/jobs/list-filters";
-import { buildJobsOrderBy, readJobsOrder, readLegacyJobsOrder } from "@/lib/jobs/list-sort";
+import { buildJobsOrderBy, readJobsListOrder, readLegacyJobsOrder } from "@/lib/jobs/list-sort";
+import { findJobsPage, isJobsSortTooLargeError } from "@/lib/jobs/list-computed-sort";
 import { withListExtras } from "@/lib/jobs/list-row-extras";
 import { loadJobViewCounts } from "@/lib/jobs/view-counts";
 import { JOB_INCLUDE } from "@/lib/jobs/list-include";
@@ -39,15 +40,18 @@ export async function GET(req: NextRequest) {
       // refused (400) rather than silently widened to every job or reordered.
       const status = parseStatusList(searchParams.get("status"));
       const ids = parseIdList(searchParams.get("ids"));
-      const order = readJobsOrder(searchParams);
+      // Cleaner, Guest in and Charge are ordered over the whole filtered set
+      // before paging (`list-computed-sort.ts`); the rest are Prisma orders.
+      const order = readJobsListOrder(searchParams);
       const where = buildJobsWhere({ ...filters, status, ids, role, userId: session.user.id });
-      const orderBy = buildJobsOrderBy(order, filters.statusGroup);
-      const [totalCount, jobs, counts] = await Promise.all([
+      const [totalCount, counts] = await Promise.all([
         db.job.count({ where }),
-        db.job.findMany({ where, include: JOB_INCLUDE, orderBy, skip: (page - 1) * limit, take: limit }),
         // View-tab totals are requested only by the redesigned Jobs page.
         searchParams.get("counts") === "1" ? loadJobViewCounts() : Promise.resolve(undefined),
       ]);
+      const jobs = await findJobsPage({
+        where, order, statusGroup: filters.statusGroup, skip: (page - 1) * limit, take: limit, totalCount,
+      });
 
       const rows = jobs.map(withTimingBadges);
       const totalPages = Math.max(1, Math.ceil(totalCount / limit));
@@ -74,6 +78,9 @@ export async function GET(req: NextRequest) {
       // price and colleagues' pay are then removed for a cleaner.
       .map((job) => (role === Role.CLEANER ? redactJobForCleaner(job, session.user.id) : job)));
   } catch (err: any) {
+    if (isJobsSortTooLargeError(err)) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+    }
     if (isListQueryError(err) || isJobsFilterError(err)) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }

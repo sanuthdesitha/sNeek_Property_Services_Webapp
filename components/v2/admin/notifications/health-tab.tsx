@@ -60,6 +60,11 @@ export function HealthTab({ isAdmin, onToast }: { isAdmin: boolean; onToast: (to
       {health ? (
         <>
           {health.banners.map((banner) => <EAlert key={banner.key} tone="warning" title="Direct path in use">{banner.message}</EAlert>)}
+          {health.xero?.message ? (
+            <EAlert tone={health.xero.signIn === "lapsed" ? "danger" : "warning"} title={health.xero.message}>
+              Xero payment checks and the receipts they send depend on it. <a className="underline" href="/v2/admin/settings?tab=xero">Open Xero settings</a>
+            </EAlert>
+          ) : null}
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {health.transports.map((transport) => (
               <article key={transport.transport} className="space-y-2 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-4 text-sm">

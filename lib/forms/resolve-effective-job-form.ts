@@ -3,7 +3,7 @@ import { withDeviceApplicability } from "./device-status";
 import "server-only";
 import { withLaundryAreaEvidence } from "./laundry-area";
 import type { JobType } from "@prisma/client";
-import { collectRotationalItems, filterRotationalSchema } from "@/lib/accountability/rotation-schema";
+import { collectMonthlyItems, collectRotationalItems, filterRotationalSchema } from "@/lib/accountability/rotation-schema";
 import { db } from "@/lib/db";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { assembleJobForm } from "./assemble-job-form";
@@ -15,8 +15,13 @@ import { buildReworkFormSchema, ensureReworkFormTemplate, findReworkFormTemplate
 export async function resolveEffectiveJobForm(
   job: { jobType: JobType; propertyId: string; formTemplateId?: string | null;
     isRework: boolean; reworkAreas?: unknown; internalNotes?: string | null; property?: { name?: unknown; bedrooms?: unknown; bathrooms?: unknown } },
-  settings: { propertyFormTemplateOverrides?: TemplateOverridesMap | null },
-  options: { provisionReworkAnchor?: boolean; database?: Pick<typeof db, "formTemplate"> & Partial<Pick<typeof db, "propertyRotationState" | "property">> } = {}
+  settings: { propertyFormTemplateOverrides?: TemplateOverridesMap | null; timezone?: string | null },
+  options: {
+    provisionReworkAnchor?: boolean;
+    database?: Pick<typeof db, "formTemplate"> & Partial<Pick<typeof db, "propertyRotationState" | "property">>;
+    /** Clock for "Monthly" questions (tests); defaults to now. */
+    now?: Date;
+  } = {}
 ) {
   const database = options.database ?? db;
   const templates = await database.formTemplate.findMany({
@@ -49,13 +54,20 @@ export async function resolveEffectiveJobForm(
   if (template) template = { ...template, schema: withDeviceApplicability(template.schema, job.property) };
   const fullRotationSections = (template?.schema as any)?.sections ?? [];
   const rotationalItems = collectRotationalItems(template?.schema);
-  if (template && rotationalItems.length > 0 && !job.isRework) {
+  const monthlyItems = collectMonthlyItems(template?.schema);
+  if (template && (rotationalItems.length > 0 || monthlyItems.length > 0) && !job.isRework) {
     if (!database.propertyRotationState) throw new Error("Rotation state reader is unavailable");
+    const keys = Array.from(new Set([...rotationalItems.map(item => item.key), ...monthlyItems]));
+    // Monthly questions also read the last-shown date; forms without one keep
+    // the exact read they always made.
     const states = await database.propertyRotationState.findMany({
-      where: { propertyId: job.propertyId, itemKey: { in: rotationalItems.map(item => item.key) } },
-      select: { itemKey: true, cleansSinceDone: true },
+      where: { propertyId: job.propertyId, itemKey: { in: keys } },
+      select: monthlyItems.length > 0 ? { itemKey: true, cleansSinceDone: true, lastCompletedAt: true } : { itemKey: true, cleansSinceDone: true },
     });
-    template = { ...template, schema: filterRotationalSchema(template.schema, states) };
+    const monthly = monthlyItems.length > 0
+      ? { now: options.now ?? new Date(), timeZone: settings.timezone || "Australia/Sydney" }
+      : undefined;
+    template = { ...template, schema: filterRotationalSchema(template.schema, states, monthly) };
   }
   if (template) template = { ...template, schema: withDeviceChargingEvidence(template.schema, job) };
   return {

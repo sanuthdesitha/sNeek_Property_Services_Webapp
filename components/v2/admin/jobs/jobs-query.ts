@@ -7,7 +7,7 @@ import { z } from "zod";
 import { jobsDateScopeRange } from "@/lib/jobs/date-scope";
 import { jobGuestInSchema, jobListChargeSchema } from "@/lib/jobs/peek-types";
 import { BUILT_IN_VIEWS, type BuiltInViewId } from "@/lib/jobs/view-presets";
-import type { JobsColumnSort } from "@/lib/jobs/list-sort";
+import { JOBS_COLUMN_SORTS, type JobsColumnSort } from "@/lib/jobs/list-sort";
 import type { JobsWorkspaceState } from "@/lib/jobs/workspace-state";
 
 export const JOBS_PAGE_SIZE = 50;
@@ -20,9 +20,8 @@ export function tableSortFromState(sort: string): JobsTableSort | null {
   if (sort === "soonest") return { key: "when", dir: "asc" };
   if (sort === "latest") return { key: "when", dir: "desc" };
   const [key, suffix] = sort.split("_");
-  if (key === "property" || key === "client" || key === "type" || key === "status") {
-    return { key, dir: suffix === "desc" ? "desc" : "asc" };
-  }
+  const column = (JOBS_COLUMN_SORTS as readonly string[]).includes(key) && key !== "when" ? (key as JobsColumnSort) : null;
+  if (column) return { key: column, dir: suffix === "desc" ? "desc" : "asc" };
   return null;
 }
 
@@ -117,6 +116,16 @@ export function validPage(data: JobsResponse, requestedPage: number): boolean {
   return page.page === requestedPage && page.limit === JOBS_PAGE_SIZE && data.jobs.length <= JOBS_PAGE_SIZE
     && page.totalPages === Math.max(1, Math.ceil(page.totalCount / page.limit))
     && page.hasMore === (page.page < page.totalPages);
+}
+
+/**
+ * A 400 from a computed sort (Guest in, Charge) over too many jobs carries the
+ * server's own sentence asking to narrow the filters; show it as written.
+ */
+export function jobsSortRefusal(status: number, body: unknown): string | null {
+  if (status !== 400 || !body || typeof body !== "object") return null;
+  const record = body as { code?: unknown; error?: unknown };
+  return record.code === "SORT_SET_TOO_LARGE" && typeof record.error === "string" ? record.error : null;
 }
 
 export function jobsLoadFailureMessage(status: number): string {

@@ -72,7 +72,7 @@ export function AccountsMessageDialog({ open, rows, onClose, onRunningChange }: 
       onClose={close}
       eyebrow="Accounts"
       title="Message selected staff"
-      footer={done ? <EButton size="sm" onClick={close}>Close</EButton> : (
+      footer={done ? <EButton size="sm" onClick={close}>Done</EButton> : (
         <>
           <EButton size="sm" variant="outline" disabled={sending} onClick={close}>Cancel</EButton>
           <EButton type="submit" form={formId} size="sm" disabled={!canSend}>{sending ? "Sending request…" : `Message ${plan.recipients.length}`}</EButton>

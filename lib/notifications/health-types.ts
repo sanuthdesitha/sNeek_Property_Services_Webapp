@@ -22,6 +22,11 @@ export type NotificationHealth = {
   worker: WorkerHealth & { intentDispatcherActive: boolean | null };
   intentStatusCounts: Record<string, number>;
   banners: PathBanner[];
+  /**
+   * Xero sign-in (scheduled Xero checks and payment receipts depend on it).
+   * null when Xero is not connected or its state could not be read.
+   */
+  xero: { signIn: "ok" | "no-refresh-token" | "lapsed"; message: string | null } | null;
   unknowns: string[];
 };
 

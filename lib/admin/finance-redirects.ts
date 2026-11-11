@@ -4,7 +4,7 @@
  * merged page's tab, since it named a tab of a page that no longer exists.
  */
 export function financeTabRedirect(
-  tab: "payroll" | "cleaner-invoices",
+  tab: "payroll" | "cleaner-invoices" | "invoices",
   searchParams?: Record<string, string | string[] | undefined>,
 ): string {
   const params = new URLSearchParams();

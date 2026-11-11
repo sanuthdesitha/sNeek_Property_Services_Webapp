@@ -13,6 +13,7 @@
 import { formTemplateSchemaZ } from "./template-schema";
 import { lintTemplateSchema } from "./lint-template";
 import { getFieldTypeDef } from "./field-types";
+import { duplicateStockCountItems, structuredFieldIssues } from "./structured-schema-checks";
 
 export type TemplateCheckSeverity = "error" | "warning";
 
@@ -85,6 +86,9 @@ function fieldTypeIssues(field: SchemaNode, sectionId: string | undefined): Temp
       });
     }
   }
+  for (const message of structuredFieldIssues(field)) {
+    issues.push({ rule: "question-setup", severity: "error", message: `"${labelOf(field)}" ${message}`, sectionId, fieldId });
+  }
   if (def.hasRange && typeof field.min === "number" && typeof field.max === "number" && field.min > field.max) {
     issues.push({
       rule: "inverted-range",
@@ -111,6 +115,13 @@ function registryIssues(schema: unknown): TemplateCheckIssue[] {
         if (isNode(child)) issues.push(...fieldTypeIssues(child, sectionId));
       }
     }
+  }
+  for (const duplicate of duplicateStockCountItems(schema)) {
+    issues.push({
+      rule: "duplicate-stock-count",
+      severity: "error",
+      message: `${duplicate.labels.map((label) => `"${label}"`).join(" and ")} count the same stock item; keep one.`,
+    });
   }
   return issues;
 }
@@ -146,4 +157,25 @@ export function checkTemplateWithDraft(liveSchema: unknown, draftSchema: unknown
       ? []
       : checkTemplateSchema(draftSchema).issues.map((issue) => ({ ...issue, message: `Draft: ${issue.message}` }));
   return summariseIssues([...live, ...draft]);
+}
+
+/** A required question the usage check found never answered (lib/forms/submission-stats.ts). */
+export type NeverAnsweredQuestion = { id: string; label: string };
+
+/**
+ * The library's Checks for one form: the validator result plus the usage
+ * check folded in as WARNINGS (rule "never-answered"), with the usage check's
+ * own thresholds and exclusions (USAGE_CHECK_DAYS, USAGE_CHECK_MIN_SUBMISSIONS,
+ * always-shown required questions only). `null` = the usage check did not run
+ * for this form, so nothing is added and nothing is claimed.
+ */
+export function withUsageWarnings(result: TemplateCheckResult, neverAnswered: NeverAnsweredQuestion[] | null): TemplateCheckResult {
+  if (!neverAnswered || neverAnswered.length === 0) return result;
+  const usage = neverAnswered.map<TemplateCheckIssue>((question) => ({
+    rule: "never-answered",
+    severity: "warning",
+    message: `"${question.label}" was never answered in recent submissions.`,
+    fieldId: question.id,
+  }));
+  return summariseIssues([...result.issues, ...usage]);
 }

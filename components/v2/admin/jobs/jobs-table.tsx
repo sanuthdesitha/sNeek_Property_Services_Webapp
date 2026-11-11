@@ -12,7 +12,8 @@ import { EPill } from "@/components/v2/ui/pill";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
 import { EButton } from "@/components/v2/ui/primitives";
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
-import { groupJobsBySydneyDay } from "@/lib/jobs/date-grouping";
+import { NO_DATE_KEY, groupJobsBySydneyDay } from "@/lib/jobs/date-grouping";
+import { jobsDayGroupLabel } from "@/lib/jobs/list-day-label";
 import { SYDNEY_TZ } from "@/lib/time/sydney-range";
 import type { JobsColumnSort } from "@/lib/jobs/list-sort";
 import type { JobsColumns } from "@/lib/jobs/workspace-state";
@@ -41,6 +42,13 @@ export function GuestInCell({ job }: { job: JobListRow }) {
       {guest.sameDay ? <EPill tone="warn">Same day</EPill> : null}
     </span>
   );
+}
+
+function DayGroupLabel({ dayKey, now }: { dayKey: string; now: Date }) {
+  if (dayKey === NO_DATE_KEY) return <>No date</>;
+  const label = jobsDayGroupLabel(dayKey, now);
+  if (!label.isToday) return <>{label.text}</>;
+  return <span className="text-[hsl(var(--e-primary))]">{label.text} · today</span>;
 }
 
 type JobsTableProps = {
@@ -97,7 +105,7 @@ export function JobsTable(props: JobsTableProps) {
     list.push({ key: "type", header: "Type", sortKey: "type", className: "whitespace-nowrap", cell: (job) => jobTypeLabel(job.jobType) });
     if (visible.cleaner) {
       list.push({
-        key: "cleaner", header: "Cleaner",
+        key: "cleaner", header: "Cleaner", sortKey: "cleaner",
         cell: (job) => {
           if (canQuickAssign(job)) {
             return <EButton size="sm" variant="outline" onClick={() => onQuickAssign(job)} aria-label={`Assign a cleaner to ${job.property?.name ?? "this job"}`}>Assign</EButton>;
@@ -112,8 +120,8 @@ export function JobsTable(props: JobsTableProps) {
       // The workflow vector is decorative; the written pill carries the status.
       cell: (job) => <span className="inline-flex items-center gap-1.5"><span aria-hidden className="inline-flex"><JobStatusIcon status={job.status} /></span><JobStatusPill status={job.status} /></span>,
     });
-    if (showGuestIn) list.push({ key: "guest", header: "Guest in", cell: (job) => <GuestInCell job={job} /> });
-    if (showCharge) list.push({ key: "charge", header: "Charge", align: "right", cell: (job) => <ChargeCell job={job} /> });
+    if (showGuestIn) list.push({ key: "guest", header: "Guest in", sortKey: "guestIn", cell: (job) => <GuestInCell job={job} /> });
+    if (showCharge) list.push({ key: "charge", header: "Charge", sortKey: "charge", align: "right", cell: (job) => <ChargeCell job={job} /> });
     list.push({
       key: "actions", header: <span className="sr-only">Actions</span>, className: "w-[44px]",
       cell: (job) => <ERowMenu label={`More actions for ${job.property?.name ?? "job"}`} items={menuItems(job)} />,
@@ -121,11 +129,13 @@ export function JobsTable(props: JobsTableProps) {
     return list;
   }, [visible, showGuestIn, showCharge, onOpen, onQuickAssign, menuItems]);
 
-  const groups = useMemo(
-    () => groupJobsBySydneyDay(props.jobs.map((job) => ({ ...job, scheduledDate: job.scheduledDate ?? null })), new Date())
-      .map((group) => ({ key: group.dayKey, label: group.label, rows: group.jobs as JobListRow[] })),
-    [props.jobs],
-  );
+  // Day rows read "Thursday 12 November" as drawn; today is marked like the
+  // Calendar's day header ("· today"), not with a Today/Tomorrow prefix.
+  const groups = useMemo(() => {
+    const now = new Date();
+    return groupJobsBySydneyDay(props.jobs.map((job) => ({ ...job, scheduledDate: job.scheduledDate ?? null })), now)
+      .map((group) => ({ key: group.dayKey, label: <DayGroupLabel dayKey={group.dayKey} now={now} />, rows: group.jobs as JobListRow[] }));
+  }, [props.jobs]);
 
   return (
     <EDataTable<JobListRow, JobsColumnSort>

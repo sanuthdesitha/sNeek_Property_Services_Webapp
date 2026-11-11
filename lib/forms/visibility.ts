@@ -1,4 +1,5 @@
 import { isDeviceStatusField, isDeviceAnswerComplete } from "./device-status";
+import { isStockCountAnswered, isTableAnswered } from "./structured-answers";
 import { isUploadFieldType } from "./field-types";
 import { isSelfInspectionSection } from "./self-inspection";
 
@@ -276,6 +277,8 @@ export function isRequiredAnswerMissing(
   if (fieldType === "checkbox" && ticksBlock && !options?.inSelfInspectionSection) {
     return value !== true;
   }
+  // A stock count is answered only by a valid number, not by the item alone.
+  if (fieldType === "stock_count") return !isStockCountAnswered(value);
   return (
     value == null ||
     (typeof value === "string" && value.trim().length === 0) ||
@@ -322,10 +325,14 @@ export function collectRequiredAnswerFields(
 
       const value = answers[String(field.id)];
       if (
-        (isDeviceStatusField(field) ? isDeviceAnswerComplete(value) : !isRequiredAnswerMissing(fieldType, value, {
-          inSelfInspectionSection,
-          requiredChecklistTicksBlockSubmit,
-        }))
+        (isDeviceStatusField(field)
+          ? isDeviceAnswerComplete(value)
+          : fieldType === "table"
+            ? isTableAnswered(value, field.table)
+            : !isRequiredAnswerMissing(fieldType, value, {
+                inSelfInspectionSection,
+                requiredChecklistTicksBlockSubmit,
+              }))
       ) {
         continue;
       }

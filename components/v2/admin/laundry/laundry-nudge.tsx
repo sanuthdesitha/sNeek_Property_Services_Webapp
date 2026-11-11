@@ -63,7 +63,7 @@ function NudgeDialog({ task, kind, onClose }: { task: RunPanelTask; kind: Laundr
       onClose={onClose}
       eyebrow={task.property?.name ?? "Laundry run"}
       title={label.title}
-      footer={done ? <EButton size="sm" onClick={onClose}>Close</EButton> : (
+      footer={done ? <EButton size="sm" onClick={onClose}>Done</EButton> : (
         <>
           <EButton size="sm" variant="outline" disabled={sending} onClick={onClose}>Cancel</EButton>
           <EButton size="sm" disabled={sending || transports.length === 0} onClick={() => void submit()}>{sending ? "Requesting…" : label.button}</EButton>

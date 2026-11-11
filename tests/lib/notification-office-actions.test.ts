@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const m = vi.hoisted(() => ({ users: vi.fn(), task: vi.fn(), job: vi.fn(), audit: vi.fn(), office: vi.fn(), setting: vi.fn() }));
+const m = vi.hoisted(() => ({ users: vi.fn(), task: vi.fn(), job: vi.fn(), audit: vi.fn(), recentAudit: vi.fn(), office: vi.fn(), setting: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: {
   user: { findMany: m.users }, laundryTask: { findUnique: m.task }, job: { findUnique: m.job },
-  auditLog: { create: m.audit }, appSetting: { findUnique: m.setting },
+  auditLog: { create: m.audit, findFirst: m.recentAudit }, appSetting: { findUnique: m.setting },
 } }));
 vi.mock("@/lib/notifications/office-sends", () => ({ sendOfficeNotification: m.office }));
 
@@ -14,6 +14,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   m.setting.mockResolvedValue(null);
   m.office.mockResolvedValue([]);
+  m.recentAudit.mockResolvedValue(null);
 });
 
 describe("message to selected staff", () => {

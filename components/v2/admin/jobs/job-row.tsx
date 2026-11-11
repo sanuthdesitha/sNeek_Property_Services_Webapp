@@ -38,9 +38,20 @@ const PILL_TONE: Record<Tone, EPillTone> = {
   neutral: "neutral", primary: "info", gold: "gold", success: "ok", warning: "warn", danger: "bad", info: "info", aubergine: "neutral",
 };
 
-/** The status pill: written status, tone from the shared job status tones. */
+/**
+ * Jobs-surface override of the shared tones: the approved Jobs design draws
+ * "Unassigned" in the danger tone. The shared `JOB_STATUS_TONES` (used by
+ * other portals) is unchanged; only the Jobs list, board and peek read this.
+ */
+export const JOBS_PILL_TONE_OVERRIDES: Readonly<Record<string, EPillTone>> = { UNASSIGNED: "bad" };
+
+export function jobsPillTone(status: string): EPillTone {
+  return JOBS_PILL_TONE_OVERRIDES[status] ?? PILL_TONE[statusTone(status)];
+}
+
+/** The status pill: written status (never colour alone), tone as drawn for Jobs. */
 export function JobStatusPill({ status }: { status: string }) {
-  return <EPill tone={PILL_TONE[statusTone(status)]}>{statusLabel(status)}</EPill>;
+  return <EPill tone={jobsPillTone(status)}>{statusLabel(status)}</EPill>;
 }
 
 export function scheduledLabel(value: unknown, pattern = "EEE dd MMM"): string {

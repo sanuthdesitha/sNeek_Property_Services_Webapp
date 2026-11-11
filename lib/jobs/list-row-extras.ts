@@ -51,11 +51,17 @@ export function guestInForJob(job: Pick<ExtrasInput, "internalNotes" | "sameDayC
   };
 }
 
-export async function withListExtras<T extends ExtrasInput>(jobs: T[]): Promise<Array<T & { guestIn: JobGuestIn; charge: JobListCharge }>> {
-  if (jobs.length === 0) return [];
+type ChargeInputs = Parameters<typeof computeClientCharge>[1];
+type ChargeJob = Pick<ExtrasInput, "jobType" | "propertyId" | "fixedPrice">;
+
+/**
+ * The rate tables `computeClientCharge` reads for a set of jobs: the same
+ * inputs the invoice generator and dashboards pass. One read per table.
+ * Shared by the list's Charge column and the Charge sort, so both use one rule.
+ */
+export async function loadChargeInputs(jobs: ReadonlyArray<Pick<ExtrasInput, "jobType" | "propertyId">>): Promise<ChargeInputs> {
   const propertyIds = Array.from(new Set(jobs.map((job) => job.propertyId)));
   const jobTypes = Array.from(new Set(jobs.map((job) => job.jobType)));
-  // Same inputs the invoice generator and dashboards pass to computeClientCharge.
   const [propertyRates, priceBook] = await Promise.all([
     db.propertyClientRate.findMany({
       where: { propertyId: { in: propertyIds }, jobType: { in: jobTypes }, isActive: true },
@@ -66,15 +72,17 @@ export async function withListExtras<T extends ExtrasInput>(jobs: T[]): Promise<
       select: { jobType: true, baseRate: true },
     }),
   ]);
-  return jobs.map((job) => {
-    const result = computeClientCharge(
-      { jobType: job.jobType, propertyId: job.propertyId, fixedPrice: job.fixedPrice },
-      { propertyRates, priceBook },
-    );
-    return {
-      ...job,
-      guestIn: guestInForJob(job),
-      charge: { amount: result.amount, source: result.source, missing: result.rateMissing || result.amount === null },
-    };
-  });
+  return { propertyRates, priceBook };
+}
+
+/** The list charge for one job: a missing rate stays null with `missing: true`. */
+export function chargeForJob(job: ChargeJob, inputs: ChargeInputs): JobListCharge {
+  const result = computeClientCharge({ jobType: job.jobType, propertyId: job.propertyId, fixedPrice: job.fixedPrice }, inputs);
+  return { amount: result.amount, source: result.source, missing: result.rateMissing || result.amount === null };
+}
+
+export async function withListExtras<T extends ExtrasInput>(jobs: T[]): Promise<Array<T & { guestIn: JobGuestIn; charge: JobListCharge }>> {
+  if (jobs.length === 0) return [];
+  const inputs = await loadChargeInputs(jobs);
+  return jobs.map((job) => ({ ...job, guestIn: guestInForJob(job), charge: chargeForJob(job, inputs) }));
 }

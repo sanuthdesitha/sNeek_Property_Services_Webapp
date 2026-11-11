@@ -78,3 +78,13 @@ it("records an explicit future-start confirmation and queues the jobs-category o
  expect(mocks.db.notification.createMany.mock.calls[0][0].data[0]).toMatchObject({ subject: "Future job started early", externalId: "mobile-outbox:pending:jobs" });
  expect(mocks.createLog).toHaveBeenCalledTimes(1);
 });
+it("resumes a job an administrator paused: the closed log stays and a new log starts (Live ops Pause clock)", async () => {
+ // lib/jobs/admin-clock-pause.ts closes the open log and moves IN_PROGRESS → PAUSED, exactly like the cleaner's own pause.
+ mocks.job.mockResolvedValue({ id: "job", status: JobStatus.PAUSED, jobType: "GENERAL_CLEAN", scheduledDate: new Date("2020-01-01"), internalNotes: null, property: { name: "Property", laundryEnabled: false } });
+ mocks.log.mockResolvedValue(null); // no open log: the office closed it
+ const response = await POST(new NextRequest("http://localhost/api/cleaner/jobs/job/start", { method: "POST", body: JSON.stringify({ propertyCodeConfirmed: true }) }), { params: { id: "job" } });
+ expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+ expect(mocks.createLog).toHaveBeenCalledTimes(1);
+ expect(mocks.createLog.mock.calls[0][0].data).toMatchObject({ jobId: "job", userId: "cleaner" });
+ expect(mocks.update.mock.calls.some(([arg]) => arg.data.status === JobStatus.IN_PROGRESS)).toBe(true);
+});

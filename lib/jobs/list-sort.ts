@@ -7,21 +7,50 @@
  * aliases of When ascending / descending: the classic jobs page and saved
  * views still send them.
  *
- * Cleaner, Guest in and Charge are deliberately NOT sortable: a job can have
- * several cleaners, the arriving guest lives inside the notes JSON and the
- * charge is computed from rate tables, so none of them is a database column
- * the server can order honestly.
+ * Cleaner, Guest in and Charge are not database columns. They are sortable
+ * on the paginated list and the board only, through the computed sort in
+ * `list-computed-sort.ts`, which orders the WHOLE filtered set before paging
+ * (Guest in and Charge refuse a filtered set above a stated cap rather than
+ * sorting only the current page). `readJobsOrder` keeps refusing them so the
+ * legacy array contract and any Prisma-only caller never receive one.
  */
 import { parseListQuery, type SortDirection } from "@/lib/admin/list-query";
 
 export const JOBS_SORTABLE = ["when", "property", "client", "type", "status", "created", "soonest", "latest"] as const;
 export type JobsSortKey = (typeof JOBS_SORTABLE)[number];
 
+/** Sorts computed on the server over the whole filtered set (not Prisma columns). */
+export const JOBS_COMPUTED_SORTS = ["cleaner", "guestIn", "charge"] as const;
+export type JobsComputedSortKey = (typeof JOBS_COMPUTED_SORTS)[number];
+
 /** Column sort keys the Jobs table header offers. */
-export const JOBS_COLUMN_SORTS = ["when", "property", "client", "type", "status"] as const;
+export const JOBS_COLUMN_SORTS = ["when", "property", "client", "type", "cleaner", "status", "guestIn", "charge"] as const;
 export type JobsColumnSort = (typeof JOBS_COLUMN_SORTS)[number];
 
 export type JobsOrder = { key: Exclude<JobsSortKey, "soonest" | "latest">; dir: SortDirection };
+export type JobsComputedOrder = { key: JobsComputedSortKey; dir: SortDirection };
+/** An order the paginated list and the board accept. */
+export type JobsListOrder = JobsOrder | JobsComputedOrder;
+
+export function isComputedJobsOrder(order: JobsListOrder | null): order is JobsComputedOrder {
+  return order !== null && (JOBS_COMPUTED_SORTS as readonly string[]).includes(order.key);
+}
+
+/**
+ * Strict read for the paginated list and the board: the Prisma sorts plus the
+ * computed ones. Unknown values still throw ListQueryError (400).
+ */
+export function readJobsListOrder(searchParams: URLSearchParams): JobsListOrder | null {
+  const rawSort = searchParams.get("sort");
+  if (rawSort !== null && (JOBS_COMPUTED_SORTS as readonly string[]).includes(rawSort)) {
+    const query = parseListQuery(
+      { sort: rawSort, ...(searchParams.get("dir") ? { dir: searchParams.get("dir") as string } : {}) },
+      { sortable: JOBS_COMPUTED_SORTS, defaultSort: "cleaner", defaultDir: "asc" },
+    );
+    return { key: query.sort, dir: query.dir };
+  }
+  return readJobsOrder(searchParams);
+}
 
 /** Strict read for the paginated list: unknown sort or dir throws ListQueryError. */
 export function readJobsOrder(searchParams: URLSearchParams): JobsOrder | null {

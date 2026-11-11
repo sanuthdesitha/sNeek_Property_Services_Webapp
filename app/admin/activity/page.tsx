@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { SYSTEM_ACTOR_LABELS, systemActorOf } from "@/lib/audit/system-actor";
 import { requireRole } from "@/lib/auth/session";
 import { Role, Prisma } from "@prisma/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -165,14 +166,14 @@ export default async function AdminActivityPage({
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm text-foreground">
                           <span className="font-semibold">
-                            {entry.user?.name ?? "System"}
+                            {systemActorOf(entry.after) ? SYSTEM_ACTOR_LABELS[systemActorOf(entry.after)!] : entry.user?.name ?? "System"}
                           </span>{" "}
                           <span className="text-muted-foreground">
                             {entry.action.replace(/[._]/g, " ").toLowerCase()}
                           </span>
                         </p>
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {entry.user?.email ?? ""}
+                          {systemActorOf(entry.after) ? "" : entry.user?.email ?? ""}
                           {entry.ipAddress ? ` · ${entry.ipAddress}` : ""}
                         </p>
                       </div>

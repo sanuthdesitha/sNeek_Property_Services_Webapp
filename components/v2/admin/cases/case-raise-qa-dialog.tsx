@@ -125,7 +125,7 @@ export function CaseRaiseQaDialog({ open, detail, onClose, onRaised }: { open: b
       onClose={close}
       eyebrow="Next step"
       title="Raise QA issue for cleaner"
-      footer={done ? <EButton size="sm" onClick={close}>Close</EButton> : (
+      footer={done ? <EButton size="sm" onClick={close}>Done</EButton> : (
         <>
           <EButton size="sm" variant="outline" disabled={sending} onClick={close}>Cancel</EButton>
           <EButton type="submit" form={formId} size="sm" disabled={!canSubmit}>{sending ? "Raising…" : "Raise issue"}</EButton>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { systemActorOf } from "@/lib/audit/system-actor";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
@@ -28,8 +29,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
 
+    // Rows a scheduled job stored under this account (AuditLog needs a user)
+    // are the system's actions, not this person's: they are not listed here.
+    const ownRows = auditRows.filter((row) => !(row.userId === params.id && row.entity !== "User" && systemActorOf(row.after)));
     const items = [
-      ...auditRows.map((row) => {
+      ...ownRows.map((row) => {
         // VA portal actions carry the delegation in `after` (actorLabel,
         // onBehalfOfClientId — see auditClientPortalAction). Surfacing it makes
         // the row read "did X for client Y" instead of a bare entity id.

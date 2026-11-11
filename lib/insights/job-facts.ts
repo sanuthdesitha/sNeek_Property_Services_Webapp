@@ -113,6 +113,17 @@ export function deriveCharge(row: InsightsJobRow, rates: ClientChargeRates): Kno
   return charge.amount === null ? missing("no_client_rate") : known(charge.amount);
 }
 
+/**
+ * True when a clean cannot be costed because a payee has no known pay rate: no
+ * assignment snapshot, no per-cleaner job-type rate, no User.hourlyRate and no
+ * custom payout (`rateMissing` from computeCleanerPay, which would otherwise
+ * price it at the default rate). Insights and the Finance summary both use this
+ * test, so the two pages leave out the same cleans.
+ */
+export function payRateUnknown(pays: ReadonlyArray<{ rateMissing: boolean }>): boolean {
+  return pays.some((pay) => pay.rateMissing);
+}
+
 export function deriveCost(row: InsightsJobRow, context: FactContext): Known<number> {
   const active = row.assignments.filter((a) => !a.removedAt);
   if (active.length === 0) return missing("no_cleaner");
@@ -140,7 +151,7 @@ export function deriveCost(row: InsightsJobRow, context: FactContext): Known<num
     timerHoursByCleaner,
   });
   const assigned = payees.filter((payee) => payee.assigned);
-  if (assigned.some((payee) => payee.basePay.rateMissing)) return missing("no_pay_rate");
+  if (payRateUnknown(assigned.map((payee) => payee.basePay))) return missing("no_pay_rate");
   const unpaidHours = assigned.some(
     (payee) => payee.basePay.source === "JOBTYPE_RATE" && payee.basePay.basis === "TIMER" && payee.basePay.hours <= 0,
   );

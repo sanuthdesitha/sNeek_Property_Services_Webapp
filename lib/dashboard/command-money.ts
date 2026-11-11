@@ -20,7 +20,15 @@ export function viewerSeesMoney(viewer: CommandViewer): boolean {
 
 async function invoiceRows(now: Date): Promise<MoneyRow[]> {
   const stats = await getClientInvoiceStats(now);
+  const invoiced = stats.invoicedThisMonth;
   return [
+    {
+      // Owner decision 2026-11-11 (third set, item 4): first sent this month,
+      // less credit notes sent this month, void excluded (client-invoice-stats).
+      key: "invoiced", label: "Invoiced this month", value: money(invoiced.total),
+      note: `${invoiced.invoiceCount} invoice${invoiced.invoiceCount === 1 ? "" : "s"} first sent since ${invoiced.monthStart}${invoiced.creditNoteCount > 0 ? `, less ${invoiced.creditNoteCount} credit note${invoiced.creditNoteCount === 1 ? "" : "s"}` : ""}`,
+      href: "/v2/admin/finance?tab=invoices&status=active",
+    },
     {
       key: "paid", label: "Paid this month", value: money(stats.paidThisMonth.total),
       note: `${stats.paidThisMonth.count} invoice${stats.paidThisMonth.count === 1 ? "" : "s"} recorded paid since ${stats.paidThisMonth.monthStart}`,

@@ -19,7 +19,9 @@ import { InvoiceCadenceSettings } from "./invoice-cadence";
 
 export type XeroConnectionSummary =
   /** lastSyncAt: the last successful whole Xero status check, or null when none is stored. */
-  | { state: "connected"; tenantName: string | null; lastSyncAt: string | null }
+  | { state: "connected"; tenantName: string | null; lastSyncAt: string | null; renewable?: boolean }
+  /** Connected, but the access token expired and cannot be renewed. */
+  | { state: "lapsed"; tenantName: string | null }
   | { state: "not-connected" }
   | { state: "unknown" };
 
@@ -31,12 +33,28 @@ function relativeTime(iso: string): string {
   return `${Math.round(hours / 24)} days ago`;
 }
 
+const XERO_SETTINGS_HREF = "/v2/admin/settings?tab=xero";
+
 export function XeroConnectionBadge({ xero }: { xero: XeroConnectionSummary }) {
+  if (xero.state === "lapsed") {
+    return (
+      <a href={XERO_SETTINGS_HREF} className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[hsl(var(--e-ring))]">
+        <EPill tone="warn">Xero sign-in lapsed — reconnect</EPill>
+      </a>
+    );
+  }
   if (xero.state === "connected") {
     return (
-      <EPill tone="ok">
-        Xero connected{xero.lastSyncAt ? ` · last checked ${relativeTime(xero.lastSyncAt)}` : ""}
-      </EPill>
+      <span className="inline-flex flex-wrap items-center gap-1.5">
+        <EPill tone="ok">
+          Xero connected{xero.lastSyncAt ? ` · last checked ${relativeTime(xero.lastSyncAt)}` : ""}
+        </EPill>
+        {xero.renewable === false ? (
+          <a href={XERO_SETTINGS_HREF} className="rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-[hsl(var(--e-ring))]">
+            <EPill tone="warn">Reconnect once to keep it signed in</EPill>
+          </a>
+        ) : null}
+      </span>
     );
   }
   if (xero.state === "not-connected") return <EPill tone="warn">Xero not connected</EPill>;

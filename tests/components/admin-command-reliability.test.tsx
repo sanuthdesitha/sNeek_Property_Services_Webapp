@@ -32,7 +32,7 @@ const QUEUE: WorkQueuePayload = {
       id: "continuation:c1", kind: "continuation", category: "dispatch", urgency: "now", count: 1, href: "/v2/admin/jobs/j2",
       title: "Jane C. asks to continue on 2026-11-12", detail: "Coogee Terrace · 2 h left · reason: oven not finished",
       actions: [
-        { kind: "request", label: "Decline", method: "PATCH", endpoint: "/api/admin/job-continuations/c1", body: { decision: "REJECT" }, doneLabel: "Continuation declined" },
+        { kind: "request", label: "Decline", method: "PATCH", endpoint: "/api/admin/job-continuations/c1", body: { decision: "REJECT" }, doneLabel: "Continuation declined", reason: { field: "decisionNote", subject: "Jane C. · Coogee Terrace" } },
         { kind: "request", label: "Approve", method: "PATCH", endpoint: "/api/admin/job-continuations/c1", body: { decision: "APPROVE" }, doneLabel: "Continuation approved", primary: true },
       ],
     },
@@ -117,7 +117,12 @@ describe("work queue actions", () => {
     fetchMock.mockImplementation(async () => new Response(JSON.stringify({ error: "Continuation request is no longer pending." }), { status: 400 }));
     render(<WorkQueue initial={QUEUE} timeZone={TZ} readOnly={false} />);
     fireEvent.click(screen.getByRole("button", { name: "Decline" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Continuation request is no longer pending.");
+    // Declining asks for the reason first (owner decision); the server's refusal shows in the dialog.
+    const dialog = await screen.findByRole("dialog", { name: "Decline with a reason" });
+    fireEvent.change(within(dialog).getByLabelText("Reason (required)"), { target: { value: "Please finish today" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Decline request" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Continuation request is no longer pending.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.getByText("Jane C. asks to continue on 2026-11-12")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
   });

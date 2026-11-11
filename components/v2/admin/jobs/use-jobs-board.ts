@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { jobListRowSchema } from "./jobs-query";
+import { jobListRowSchema, jobsSortRefusal } from "./jobs-query";
 
 const laneSchema = z.object({
   id: z.enum(["unassigned", "scheduled", "inprogress", "done"]),
@@ -47,7 +47,11 @@ export function useJobsBoard(query: string, enabled: boolean): JobsBoardData {
     const obsolete = () => controller.signal.aborted || current !== latest.current;
     try {
       const response = await fetch(`/api/admin/jobs/board?${current}`, { cache: "no-store", signal: controller.signal });
-      if (!response.ok) throw new Error(response.status === 403 ? "This account cannot view the board." : `The board could not load (${response.status}).`);
+      if (!response.ok) {
+        const refusal = response.status === 400 ? jobsSortRefusal(400, await response.json().catch(() => null)) : null;
+        if (obsolete()) return;
+        throw new Error(refusal ?? (response.status === 403 ? "This account cannot view the board." : `The board could not load (${response.status}).`));
+      }
       const body: unknown = await response.json();
       if (obsolete()) return;
       const parsed = boardSchema.parse(body);

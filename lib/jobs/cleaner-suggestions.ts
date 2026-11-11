@@ -11,10 +11,24 @@
  * outside the cleaner's saved hours, is returned as a blocked suggestion with
  * the reason, never silently dropped and never offered for assignment.
  *
- * Deliberately not used: travel distance (there is no distance service over
- * the stored coordinates) and QA scores (no batch function exists; the
- * per-job authority lookup would cost one query per job).
+ * - travel: a straight-line distance from the cleaner's previous job that day
+ *   or their saved home location, only when both ends are stored
+ *   (`cleaner-suggestions-signals.ts`, which names the basis);
+ * - QA: the Quality hub's 30-day average score, "–" below its minimum.
+ *
+ * Travel and QA are optional inputs: a caller that does not load them (the
+ * calendar's move check) gets exactly the verdicts it had before.
  */
+import {
+  qaReason,
+  rankableQa,
+  travelForCandidate,
+  travelReason,
+  type GeoPoint,
+  type SuggestionQa,
+  type SuggestionTravel,
+} from "./cleaner-suggestions-signals";
+
 export type AvailabilitySlot = { start: string; end: string };
 
 export type SuggestionAvailability = {
@@ -31,6 +45,8 @@ export type SuggestionJob = {
   endTime: string | null;
   dueTime: string | null;
   estimatedHours: number | null;
+  /** The job's property coordinates, when stored. */
+  location?: GeoPoint | null;
 };
 
 export type SuggestionOtherJob = {
@@ -40,6 +56,8 @@ export type SuggestionOtherJob = {
   endTime: string | null;
   dueTime: string | null;
   estimatedHours: number | null;
+  /** That job's property coordinates, when stored. */
+  location?: GeoPoint | null;
 };
 
 export type SuggestionCandidate = {
@@ -49,6 +67,10 @@ export type SuggestionCandidate = {
   availability: SuggestionAvailability | null;
   otherJobsThatDay: SuggestionOtherJob[];
   priorCleansHere: number;
+  /** Home coordinates saved on the cleaner's account, when set. */
+  home?: GeoPoint | null;
+  /** Quality hub figure; omitted by callers that do not load it. */
+  qa?: SuggestionQa | null;
 };
 
 export type SuggestionBlocker = { kind: "clash" | "unavailable"; reason: string };
@@ -59,6 +81,9 @@ export type CleanerSuggestion = {
   assignable: boolean;
   blocker: SuggestionBlocker | null;
   reasons: string[];
+  /** Straight-line distance and its basis, or null when a location is unknown. */
+  travel?: SuggestionTravel | null;
+  qa?: SuggestionQa | null;
 };
 
 type Window = { start: number; end: number };
@@ -168,14 +193,37 @@ function evaluate(job: SuggestionJob, candidate: SuggestionCandidate): CleanerSu
   const reasons = blocker
     ? [blocker.reason, historyReason(candidate.priorCleansHere)]
     : [availability.reason, historyReason(candidate.priorCleansHere), ...clash.reasons];
-  return { cleanerId: candidate.id, name: candidate.name, assignable: blocker === null, blocker, reasons };
+  const suggestion: CleanerSuggestion = { cleanerId: candidate.id, name: candidate.name, assignable: blocker === null, blocker, reasons };
+  if (job.location !== undefined || candidate.home !== undefined) {
+    suggestion.travel = travelForCandidate({
+      destination: job.location, startTime: job.startTime, otherJobsThatDay: candidate.otherJobsThatDay, home: candidate.home,
+    });
+    const travel = travelReason(suggestion.travel);
+    if (travel) reasons.push(travel);
+  }
+  if (candidate.qa !== undefined) {
+    suggestion.qa = candidate.qa;
+    const qa = qaReason(candidate.qa);
+    if (qa) reasons.push(qa);
+  }
+  return suggestion;
+}
+
+/** Unknown sorts after known; smaller first. */
+function nullableAscending(left: number | null | undefined, right: number | null | undefined): number {
+  if (left == null && right == null) return 0;
+  if (left == null) return 1;
+  if (right == null) return -1;
+  return left - right;
 }
 
 export type RankOptions = { limit?: number; blockedLimit?: number };
 
 /**
  * Rank candidates: assignable first, ordered by cleans at this property
- * (most first), then fewer other jobs that day, then name. Up to `limit`
+ * (most first), then fewer other jobs that day, then the shorter known
+ * straight-line distance, then the higher QA score shown (unknown distance
+ * or score after known), then name. Up to `limit`
  * assignable suggestions, followed by up to `blockedLimit` blocked ones (the
  * most experienced here first) so the office can see why they are not offered.
  */
@@ -186,8 +234,12 @@ export function rankCleanerSuggestions(job: SuggestionJob, candidates: Suggestio
   const compare = (a: CleanerSuggestion, b: CleanerSuggestion) => {
     const left = byId.get(a.cleanerId)!;
     const right = byId.get(b.cleanerId)!;
+    const leftQa = rankableQa(left.qa);
+    const rightQa = rankableQa(right.qa);
     return right.priorCleansHere - left.priorCleansHere
       || left.otherJobsThatDay.length - right.otherJobsThatDay.length
+      || nullableAscending(a.travel?.km, b.travel?.km)
+      || nullableAscending(leftQa === null ? null : -leftQa, rightQa === null ? null : -rightQa)
       || a.name.localeCompare(b.name)
       || a.cleanerId.localeCompare(b.cleanerId);
   };

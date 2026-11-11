@@ -1,7 +1,9 @@
 import { format } from "date-fns";
 import { Role } from "@prisma/client";
 import { Banknote, FileWarning, TrendingUp, Wallet } from "lucide-react";
+import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/auth/session";
+import { financeTabRedirect } from "@/lib/admin/finance-redirects";
 import { getFinanceDashboardData } from "@/lib/finance/dashboard";
 import { getFinanceHubSummary } from "@/lib/finance/hub";
 import { PageHeader } from "@/components/ui/page-header";
@@ -28,9 +30,15 @@ function money(value: number) {
 export default async function FinanceHubPage({
   searchParams,
 }: {
-  searchParams?: { tab?: string };
+  searchParams?: { tab?: string } & Record<string, string | string[] | undefined>;
 }) {
   await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+
+  // Client invoice management moved to Invoices and pay, whose actions follow
+  // the step (c) rules (credit notes for sent invoices, no empty invoices).
+  // The classic list offered actions the API now refuses, so its tab
+  // redirects there (same roles; the v2 page re-checks the finance pack).
+  if (searchParams?.tab === "invoices") redirect(financeTabRedirect("invoices", searchParams));
 
   const tab = normalizeTab(searchParams?.tab);
 

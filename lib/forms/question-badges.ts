@@ -10,13 +10,19 @@
  *  - "'No' asks for details" (detailsWhenNo);
  *  - device status, high priority, QA scored;
  *  - "Never answered in 90 days" only from the library's usage check
- *    (lib/forms/submission-stats.ts), passed in by the caller.
+ *    (lib/forms/submission-stats.ts), passed in by the caller;
+ *  - "Monthly" (frequency MONTHLY, first counted clean of each month);
+ *  - effects: "Raises urgent stock below N", "'Yes' opens a damage report"
+ *    (lib/forms/form-effects.ts — run by the submit route);
+ *  - "Counts <item>" on a Stock count, "N columns" on a Table.
  *
  * PURE.
  */
 import { getFieldTypeDef } from "./field-types";
 import { isDeviceStatusField } from "./device-status";
 import { describePropertyCondition } from "./property-conditions";
+import { effectBadgeLabel, fieldEffects } from "./form-effects";
+import { readTableConfig } from "./structured-answers";
 import { isAnswerCondition, isPropertyFieldCondition, type FieldCondition, type FormField, type FormSchema } from "./types";
 
 export type BadgeTone = "neutral" | "ok" | "warn" | "bad" | "info" | "gold";
@@ -111,6 +117,18 @@ export function questionBadges(field: FormField, context: BadgeContext): Questio
   if (context.neverAnswered.has(field.id)) badges.push({ key: "never", label: "Never answered in 90 days", tone: "bad" });
   if (field.frequency === "ROTATIONAL") {
     badges.push({ key: "rotation", label: `Every ${ordinal(field.rotationEveryNCleans ?? 4)} clean`, tone: "gold" });
+  }
+  if (field.frequency === "MONTHLY") badges.push({ key: "rotation", label: "Monthly", tone: "gold" });
+  if (field.type === "stock_count") {
+    badges.push({ key: "stock-item", label: field.stockItemName ? `Counts ${field.stockItemName}` : "No item chosen", tone: field.stockItemId ? "neutral" : "bad" });
+  }
+  if (field.type === "table") {
+    const table = readTableConfig(field.table);
+    const rows = table.rowMode === "fixed" ? `${table.rowLabels?.length ?? 0} rows` : "cleaner adds rows";
+    badges.push({ key: "table", label: `${table.columns.length} column${table.columns.length === 1 ? "" : "s"} · ${rows}`, tone: "neutral" });
+  }
+  for (const effect of fieldEffects(field)) {
+    badges.push({ key: `effect-${effect.kind}`, label: effectBadgeLabel(effect), tone: effect.kind === "damage-report" ? "warn" : "neutral" });
   }
   if (isAnswerCondition(field.conditional)) {
     badges.push({ key: "rule", label: describeAnswerRule(field.conditional, context.labels), tone: "info" });
