@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 
 const mode = process.argv[2];
 
@@ -127,6 +127,15 @@ if (mode === "build") {
   console.log(
     `[run-next] Starting next build — heap ${memMb}MB, timeout ${Math.round(buildTimeoutMs / 60000)} min.`
   );
+}
+
+if (mode === "start") {
+  // Production automation runs beside the web server, never inside a request.
+  // The supervisor applies the operator switches and exits with this process.
+  const supervisor = path.resolve(process.cwd(), "scripts", "embedded-worker.cjs");
+  spawn(process.execPath, [supervisor], { stdio: "inherit", env }).on("error", (error) => {
+    console.error(`[run-next] Could not launch the automation worker supervisor: ${error.message}`);
+  });
 }
 
 const result = spawnSync(process.execPath, [`--max-old-space-size=${memMb}`, ...args], {

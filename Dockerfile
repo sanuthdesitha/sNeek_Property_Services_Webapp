@@ -40,4 +40,6 @@ EXPOSE 3000
 # Or via package.json:
 #   npm run db:deploy
 # See docs/ops/vps-triage.md §14.
+# `npm run start` also supervises the automation worker (iCal sync, reminders,
+# notification dispatch). Set SNEEK_WORKERS_DISABLED=true to run web only.
 CMD ["npm", "run", "start"]

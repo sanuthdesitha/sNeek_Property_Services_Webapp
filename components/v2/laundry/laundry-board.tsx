@@ -1,4 +1,5 @@
 "use client";
+import { Tags } from "lucide-react";
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
 
 import { statusBlockStyle } from "@/lib/jobs/status-presentation";
@@ -1242,11 +1243,6 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
 
   return (
     <div className="min-w-0 space-y-4 [overflow-wrap:anywhere]">
-      {bagTrackingRole ? (
-        <OperationsDisclosure title="Track individual bags (optional)">
-          <LinenBags role={bagTrackingRole} panel />
-        </OperationsDisclosure>
-      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-2">
         {control}
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1492,6 +1488,15 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
           })}
         </div>
       )}
+      {bagTrackingRole ? (
+        <OperationsDisclosure
+          title="Track individual bags (optional)"
+          description="An observation log for physically labelled bags. It does not advance a run or prove acceptance."
+          icon={<Tags />}
+        >
+          <LinenBags role={bagTrackingRole} panel />
+        </OperationsDisclosure>
+      ) : null}
       {modal}
       {deleteModal}
     </div>

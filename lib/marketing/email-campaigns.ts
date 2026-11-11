@@ -195,11 +195,18 @@ export async function dispatchEmailCampaignById(campaignId: string) {
   }
 }
 
+/**
+ * A campaign more than a day past its send time is left scheduled for a person
+ * to reschedule. After a worker outage it must not go out days or weeks late.
+ */
+export const CAMPAIGN_MAX_OVERDUE_MS = 24 * 60 * 60_000;
+
 export async function dispatchScheduledEmailCampaigns(now = new Date()) {
+  const oldestSendable = new Date(now.getTime() - CAMPAIGN_MAX_OVERDUE_MS);
   const campaigns = await db.emailCampaign.findMany({
     where: {
       status: "scheduled",
-      scheduledAt: { lte: now },
+      scheduledAt: { lte: now, gte: oldestSendable },
       // The newer marketing engine (dispatchDueCampaigns) claims on the
       // `campaignStatus` dimension of THIS SAME row. If it owns the row, defer
       // to it — otherwise a row that is both legacy-"scheduled" and

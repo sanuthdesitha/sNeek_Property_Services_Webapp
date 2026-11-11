@@ -161,6 +161,10 @@ export function EAvatar({
 }
 
 /* ── Chip tab bar (link-driven, keeps the Estate shell via /v2 hrefs) ──── */
+function revealActiveChip(element: HTMLAnchorElement | null) {
+  element?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+}
+
 export function EChipTabs({
   tabs,
   className,
@@ -176,6 +180,8 @@ export function EChipTabs({
             key={tab.key}
             href={tab.href}
             scroll={false}
+            // On a phone the row scrolls sideways; keep the current tab in view.
+            ref={tab.active ? revealActiveChip : undefined}
             aria-current={tab.active ? "page" : undefined}
             className={cn(
               "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--e-radius)] px-3 py-1.5 text-[0.8125rem] font-[550] tracking-[0.01em] transition-colors duration-[160ms]",

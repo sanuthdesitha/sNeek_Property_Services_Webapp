@@ -1,3 +1,4 @@
+import { NotebookPen } from "lucide-react";
 import { PropertyCareWorkspace } from "@/components/property-care/workspace";
 import { OperationsDisclosure } from "@/components/operations/ui";
 import Link from "next/link";
@@ -220,10 +221,6 @@ export default async function EstateClientPropertyDetailPage({
           </div>
         </ECard>
       </div>
-
-      <OperationsDisclosure title="Planned and completed property care">
-        <PropertyCareWorkspace propertyId={params.id} timeZone={settings.timezone} panel />
-      </OperationsDisclosure>
 
       {/* Stats */}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -605,6 +602,14 @@ export default async function EstateClientPropertyDetailPage({
           </ECard>
         </div>
       </div>
+
+      <OperationsDisclosure
+        title="Planned and completed property care"
+        description="Extra care booked for this property and what has been carried out."
+        icon={<NotebookPen />}
+      >
+        <PropertyCareWorkspace propertyId={params.id} timeZone={settings.timezone} panel />
+      </OperationsDisclosure>
     </div>
   );
 }

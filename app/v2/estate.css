@@ -106,6 +106,42 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* ── Base-theme bridge ──────────────────────────────────────────────────────
+   Estate screens sometimes use plain utilities (`border`, `text-muted-foreground`,
+   `bg-background`, `text-primary`). Those read the classic theme variables, so
+   they showed classic grey/teal inside Estate, most visibly in Obsidian. Point
+   the classic names at the Estate tokens within the skin; var() resolves per
+   element, so the dark rule below is followed automatically. */
+[data-skin="estate"] {
+  --background: var(--e-background);
+  --foreground: var(--e-foreground);
+  --surface: var(--e-surface);
+  --surface-raised: var(--e-surface-raised);
+  --card: var(--e-surface);
+  --card-foreground: var(--e-foreground);
+  --muted: var(--e-muted);
+  --muted-foreground: var(--e-muted-foreground);
+  --secondary: var(--e-secondary);
+  --secondary-foreground: var(--e-secondary-foreground);
+  --primary: var(--e-accent-portal);
+  --primary-foreground: var(--e-accent-portal-foreground);
+  --primary-soft: var(--e-accent-portal-soft);
+  --accent: var(--e-accent);
+  --accent-foreground: var(--e-accent-foreground);
+  --destructive: var(--e-danger);
+  --destructive-foreground: var(--e-danger-foreground);
+  --danger: var(--e-danger);
+  --success: var(--e-success);
+  --warning: var(--e-warning);
+  --info: var(--e-info);
+  --border: var(--e-border);
+  --border-strong: var(--e-border-strong);
+  --input: var(--e-input);
+  --ring: var(--e-ring);
+}
+/* Native pickers, unstyled fields and scrollbars follow Obsidian. */
+.dark [data-skin="estate"], [data-skin="estate"][data-mode="dark"] { color-scheme: dark; }
+
 /* ── Dark ("Obsidian") — when the estate scope is inside a .dark tree ── */
 .dark [data-skin="estate"], [data-skin="estate"][data-mode="dark"] {
   --e-background:        160 16% 6%;

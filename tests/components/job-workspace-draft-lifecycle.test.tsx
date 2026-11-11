@@ -151,7 +151,8 @@ async function submit() {
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit fixture" })); });
   expect(calls("/submit", "POST")).toHaveLength(1);
   currentStatus = "SUBMITTED";
-  await act(async () => { submitResponse.resolve(json({ ok: true, submissionId: "submission" })); });
+  await act(async () => { // The server confirms the stopped clock; only then is checkout GPS requested.
+    submitResponse.resolve(json({ ok: true, submissionId: "submission", clockOut: { timeLogId: "time-log" } })); });
   expect(device.gps).toHaveBeenCalledTimes(1);
   // Shared cleanup belongs to the submit transaction, never a delayed browser DELETE.
   expect(calls("/draft", "DELETE")).toHaveLength(0);

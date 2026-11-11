@@ -21,7 +21,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts",
+    "db:seed": "tsx --tsconfig tsconfig.scripts.json prisma/seed.ts",
     "db:seed:demo": "node ./scripts/run-seed-demo.cjs",
     "db:generate": "prisma generate",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",

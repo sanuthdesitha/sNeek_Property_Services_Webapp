@@ -93,6 +93,14 @@ export function CleanerRestockClient() {
         icon={<PackagePlus />}
         title="Restock inventory"
         description="Topped up supplies at a property? Record what you added so on-hand counts stay accurate — any time, in or out of a job."
+        actions={
+          <Button asChild variant="outline" size="sm">
+            <a href="/urgent-stock">
+              <AlertTriangle className="mr-2 h-4 w-4" />
+              Report urgent stock
+            </a>
+          </Button>
+        }
       />
 
       <Card>

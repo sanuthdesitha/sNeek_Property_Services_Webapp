@@ -1,4 +1,5 @@
 "use client";
+import { Tags } from "lucide-react";
 import { JobStatusProgress } from "@/components/shared/job-status-progress";
 import { LinenBags } from "@/components/operations/linen-bags";
 import { reconcileEvidenceState } from "@/lib/cleaner/evidence-destination";
@@ -1651,7 +1652,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
       <BackLink />
 
       <JobHeader api={api} />
-      <JobStatusProgress status={status} />
+      <JobStatusProgress status={status} compact />
       {!locked ? <DraftSaveStatus state={draftSave} onRetry={() => flushDraft()} /> : null}
       {!onlineAction.online ? <EAlert tone="info" title="Working offline">
         You can continue your draft and retain photos on this device. Clock changes, job offers, laundry updates and submission need a connection and are never queued automatically.
@@ -1705,7 +1706,6 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         </EAlert>
       ) : null}
 
-      {job?.laundryTask?.id ? <OperationsDisclosure key={job.laundryTask.id} title="Track individual bags (optional)"><LinenBags initialTaskId={job.laundryTask.id} role="CLEANER" panel /></OperationsDisclosure> : null}
       <StageNav api={api} />
 
       <div>
@@ -1717,6 +1717,17 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
 
         <StageFooterNav api={api} />
       </div>
+
+      {job?.laundryTask?.id ? (
+        <OperationsDisclosure
+          key={job.laundryTask.id}
+          title="Track individual bags (optional)"
+          description="Note labelled bags you saw at this property. This does not change the laundry run."
+          icon={<Tags />}
+        >
+          <LinenBags initialTaskId={job.laundryTask.id} role="CLEANER" panel />
+        </OperationsDisclosure>
+      ) : null}
 
       {!locked && ((laundryPhoto.length > 0 && (!laundryEnabled || laundryOutcome !== "READY_FOR_PICKUP")) || (carryPhotos.length > 0 && (!carryHasNew || !carryNotes.some(note => note.trim())))) ? <EAlert tone="info" title="Unused attachments">
         These photos need an active laundry outcome or next-clean flag. Remove these successful attachments if they are no longer needed.

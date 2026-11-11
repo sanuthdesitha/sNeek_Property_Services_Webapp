@@ -20,6 +20,20 @@
 .ops-content :where(input, select, textarea, summary, a):focus-visible { outline: 2px solid hsl(var(--e-ring, var(--ring))); outline-offset: 3px; }
 .ops-content :where(input, select, textarea):disabled { opacity: .6; cursor: not-allowed; }
 .ops-card { padding: 1rem; border: 1px solid hsl(var(--e-border, var(--border))); border-radius: var(--e-radius-lg, .75rem); background: hsl(var(--e-surface, var(--background))); }
+/* Collapsible secondary tool, presented as an Estate card row. */
+.ops-disclosure { border: 1px solid hsl(var(--e-border, var(--border))); border-radius: var(--e-radius-lg, .75rem); background: hsl(var(--e-surface, var(--background))); color: hsl(var(--e-foreground, var(--foreground))); min-width: 0; }
+.ops-disclosure-toggle { display: flex; align-items: center; gap: .75rem; width: 100%; min-height: 56px; padding: .75rem 1rem; border: 0; border-radius: inherit; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ops-disclosure-toggle:hover { background: hsl(var(--e-muted, var(--muted)) / .5); }
+.ops-disclosure-toggle:focus-visible { outline: 2px solid hsl(var(--e-ring, var(--ring))); outline-offset: 2px; }
+.ops-disclosure-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border: 1px solid hsl(var(--e-border, var(--border))); border-radius: 9999px; color: hsl(var(--e-accent-portal, var(--primary))); }
+.ops-disclosure-icon svg { width: 1.125rem; height: 1.125rem; stroke-width: 1.75; }
+.ops-disclosure-title { display: block; font-size: .9375rem; font-weight: 600; letter-spacing: -.005em; overflow-wrap: anywhere; }
+.ops-disclosure-description { display: block; margin-top: .125rem; font-size: .8125rem; font-weight: 400; line-height: 1.4; color: hsl(var(--e-text-secondary, var(--muted-foreground))); }
+.ops-disclosure-chevron { flex: none; color: hsl(var(--e-muted-foreground, var(--muted-foreground))); transition: transform 150ms ease; }
+.ops-disclosure-body:not([hidden]) { padding: 1rem; border-top: 1px solid hsl(var(--e-border, var(--border))); }
+@media (min-width: 640px) { .ops-disclosure-toggle { padding: .875rem 1.25rem; } .ops-disclosure-body:not([hidden]) { padding: 1.25rem; } }
+@media (prefers-reduced-motion: reduce) { .ops-disclosure-chevron { transition: none; } }
+@media print { .ops-disclosure-toggle { display: none; } }
 .ops-content :where(details > summary) { cursor: pointer; min-height: 44px; padding-block: .5rem; font-weight: 600; }
 .ops-content :where(details[open] > summary) { margin-bottom: .75rem; }
 .ops-content :where(a:not([class*="inline-flex"])) { color: hsl(var(--e-accent-portal, var(--primary))); text-underline-offset: 3px; }

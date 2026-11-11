@@ -1,4 +1,5 @@
 "use client";
+import { toZonedTime } from "date-fns-tz";
 
 /**
  * Native Estate laundry calendar — a month grid + agenda of laundry pickups and
@@ -21,7 +22,6 @@ import {
   format,
   isSameDay,
   isSameMonth,
-  isToday,
   startOfMonth,
   startOfWeek,
 } from "date-fns";
@@ -128,9 +128,18 @@ function useCalendarFeed(monthAnchor: Date) {
   return { tasks, loading, load };
 }
 
+/**
+ * "Today" as the Sydney calendar day. The server and a browser in another
+ * timezone (or either side of midnight) otherwise disagree about the current
+ * day and month, and the first render fails to hydrate.
+ */
+function sydneyToday(): Date {
+  return toZonedTime(new Date(), "Australia/Sydney");
+}
+
 export function LaundryCalendar() {
-  const [monthAnchor, setMonthAnchor] = React.useState(() => startOfMonth(new Date()));
-  const [selected, setSelected] = React.useState<Date>(() => new Date());
+  const [monthAnchor, setMonthAnchor] = React.useState(() => startOfMonth(sydneyToday()));
+  const [selected, setSelected] = React.useState<Date>(() => sydneyToday());
   const { tasks, loading, load } = useCalendarFeed(monthAnchor);
 
   const entries = React.useMemo(() => buildEntries(tasks), [tasks]);
@@ -182,7 +191,7 @@ export function LaundryCalendar() {
             size="sm"
             className="w-full sm:w-auto"
             onClick={() => {
-              const now = new Date();
+              const now = sydneyToday();
               setMonthAnchor(startOfMonth(now));
               setSelected(now);
             }}
@@ -242,7 +251,7 @@ export function LaundryCalendar() {
                     <span
                       className="e-tnum text-[0.75rem] font-[550]"
                       style={{
-                        color: isToday(day) ? "hsl(var(--e-gold-ink))" : "hsl(var(--e-foreground))",
+                        color: isSameDay(day, sydneyToday()) ? "hsl(var(--e-gold-ink))" : "hsl(var(--e-foreground))",
                       }}
                     >
                       {format(day, "d")}

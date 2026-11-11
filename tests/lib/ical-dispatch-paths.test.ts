@@ -5,15 +5,16 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn(),
   createRun: vi.fn(), updateRun: vi.fn(), requireRole: vi.fn(), fetch: vi.fn(),
+  findRuns: vi.fn(), updateRuns: vi.fn(), updateIntegrations: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ db: {
-  integration: { findMany: mocks.findMany, findUnique: mocks.findUnique, update: mocks.update },
-  icalSyncRun: { create: mocks.createRun, update: mocks.updateRun },
+  integration: { findMany: mocks.findMany, findUnique: mocks.findUnique, update: mocks.update, updateMany: mocks.updateIntegrations },
+  icalSyncRun: { create: mocks.createRun, update: mocks.updateRun, findMany: mocks.findRuns, updateMany: mocks.updateRuns },
 } }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.requireRole }));
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { syncAllIcal } from "@/lib/ical/sync";
+import { closeInterruptedIcalRuns, syncAllIcal, syncPropertyIcal } from "@/lib/ical/sync";
 import { POST } from "@/app/api/admin/properties/[id]/integration/route";
 
 beforeEach(() => {
@@ -28,6 +29,9 @@ beforeEach(() => {
   mocks.updateRun.mockResolvedValue({});
   mocks.fetch.mockResolvedValue(new Response(null, { status: 304 }));
   mocks.requireRole.mockResolvedValue({ user: { id: "admin" } });
+  mocks.findRuns.mockResolvedValue([]);
+  mocks.updateRuns.mockResolvedValue({ count: 1 });
+  mocks.updateIntegrations.mockResolvedValue({ count: 1 });
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -82,4 +86,47 @@ it("releases every pool slot when feeds send headers but stall their response bo
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("keeps the feed validators after an unchanged response so the next run stays conditional", async () => {
+  mocks.findUnique.mockResolvedValue({
+    id: "feed", propertyId: "property", isEnabled: true, icalUrl: "https://calendar.example.test/feed.ics",
+    notes: null, lastSyncEtag: '"v7"', lastSyncModified: "Tue, 10 Nov 2026 00:00:00 GMT",
+  });
+  await syncPropertyIcal("feed", { mode: "AUTO" });
+  expect(mocks.fetch.mock.calls[0][1].headers).toMatchObject({ "If-None-Match": '"v7"' });
+  expect(mocks.update).toHaveBeenCalledWith({ where: { id: "feed" }, data: expect.objectContaining({
+    syncStatus: "SUCCESS", lastSyncEtag: '"v7"', lastSyncModified: "Tue, 10 Nov 2026 00:00:00 GMT",
+  }) });
+});
+
+it("records a run whose worker died as an error instead of leaving it running forever", async () => {
+  const now = new Date("2026-11-10T02:00:00Z");
+  mocks.findRuns.mockResolvedValue([{ id: "stuck", integrationId: "feed" }]);
+  expect(await closeInterruptedIcalRuns(now)).toBe(1);
+  expect(mocks.findRuns).toHaveBeenCalledWith(expect.objectContaining({
+    where: { status: "RUNNING", createdAt: { lt: new Date("2026-11-10T01:40:00Z") } },
+  }));
+  expect(mocks.updateRuns).toHaveBeenCalledWith({
+    where: { id: "stuck", status: "RUNNING" },
+    data: expect.objectContaining({ status: "ERROR", completedAt: now, error: expect.stringContaining("interrupted") }),
+  });
+  expect(mocks.updateIntegrations).toHaveBeenCalledWith({
+    where: { id: "feed", syncStatus: "SYNCING" },
+    data: expect.objectContaining({ syncStatus: "ERROR" }),
+  });
+});
+
+it("does not touch a feed whose interrupted run was already closed by another worker", async () => {
+  mocks.findRuns.mockResolvedValue([{ id: "stuck", integrationId: "feed" }]);
+  mocks.updateRuns.mockResolvedValue({ count: 0 });
+  await closeInterruptedIcalRuns(new Date("2026-11-10T02:00:00Z"));
+  expect(mocks.updateIntegrations).not.toHaveBeenCalled();
+});
+
+it("still syncs every feed when closing interrupted runs fails", async () => {
+  mocks.findRuns.mockRejectedValue(new Error("history unavailable"));
+  mocks.findMany.mockResolvedValue([{ id: "good", propertyId: "two" }]);
+  await syncAllIcal();
+  expect(mocks.updateRun).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "run-good" }, data: expect.objectContaining({ status: "SUCCESS" }) }));
 });

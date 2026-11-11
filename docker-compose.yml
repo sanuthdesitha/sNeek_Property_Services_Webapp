@@ -49,9 +49,9 @@ services:
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
       NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
       VIDEO_MAX_UPLOAD_MB: ${VIDEO_MAX_UPLOAD_MB:-300}
-      # The web process never runs pg-boss listeners itself.
+      # This stack has a dedicated worker service, so the web container must
+      # not also start the embedded worker that `npm run start` supervises.
       SNEEK_WORKERS_DISABLED: "true"
-      # Web requests never run scheduled work. Deploy the worker service too.
 
   worker:
     build:

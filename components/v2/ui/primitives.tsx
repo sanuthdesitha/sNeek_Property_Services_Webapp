@@ -187,7 +187,10 @@ export function EPageHeader({
             <p className="mt-1 text-[0.9375rem] text-[hsl(var(--e-muted-foreground))]">{description}</p>
           ) : null}
         </div>
-        {actions ? <div className="flex flex-shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+        {/* max-w-full lets a long action row wrap on a phone instead of widening the page. */}
+        {actions ? (
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:flex-shrink-0">{actions}</div>
+        ) : null}
       </div>
       <div className="e-signature-rule" />
     </div>

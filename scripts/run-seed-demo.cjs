@@ -2,7 +2,7 @@ const { spawnSync } = require("node:child_process");
 
 const result = spawnSync(
   "tsx",
-  ["prisma/seed.ts"],
+  ["--tsconfig", "tsconfig.scripts.json", "prisma/seed.ts"],
   {
     stdio: "inherit",
     shell: process.platform === "win32",

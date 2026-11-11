@@ -1,13 +1,12 @@
 import { UrgentStockWorkspace } from "@/components/inventory/urgent-stock-workspace";
-import { OperationsDisclosure } from "@/components/operations/ui";
 import Link from "next/link";
 import { Role } from "@prisma/client";
-import { Package, PackageSearch, ScanLine, ShoppingCart } from "lucide-react";
+import { AlertTriangle, Package, PackageSearch, ScanLine, ShoppingCart } from "lucide-react";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import { db } from "@/lib/db";
-import { EPageHeader } from "@/components/v2/ui/primitives";
+import { ECard, EPageHeader } from "@/components/v2/ui/primitives";
 import { EChipTabs } from "@/components/v2/admin/estate-kit";
 import { ShoppingLauncher } from "@/components/v2/cleaner/shopping-launcher";
 import { OnHandView } from "@/components/v2/cleaner/on-hand-view";
@@ -18,7 +17,7 @@ import { QuickScanLauncher } from "@/components/v2/cleaner/quick-scan-launcher";
 export const metadata = { title: "Supplies · Estate cleaner" };
 export const dynamic = "force-dynamic";
 
-type SuppliesTab = "quick-scan" | "restock" | "shopping" | "stock-runs" | "my-stock";
+type SuppliesTab = "quick-scan" | "restock" | "shopping" | "stock-runs" | "my-stock" | "urgent-stock";
 
 /**
  * Merged cleaner supplies hub — Restock + Shopping + Stock counts on one screen,
@@ -47,6 +46,10 @@ export default async function CleanerSuppliesPage({
   ];
   if (showShopping) tabs.push({ key: "shopping", label: "Shopping", icon: <ShoppingCart className="h-4 w-4" /> });
   if (showStockRuns) tabs.push({ key: "stock-runs", label: "Stock counts", icon: <PackageSearch className="h-4 w-4" /> });
+
+  // Reporting a shortage is always available; the workspace checks the
+  // cleaner's assignment to each property on the server.
+  tabs.push({ key: "urgent-stock", label: "Urgent stock", icon: <AlertTriangle className="h-4 w-4" /> });
 
   const requested = (searchParams?.tab ?? "").toLowerCase();
   const active: SuppliesTab = tabs.some((t) => t.key === requested)
@@ -90,6 +93,8 @@ export default async function CleanerSuppliesPage({
   const description =
     active === "my-stock" ? "Record supplies you personally hold before delivering them to a property." : active === "quick-scan"
       ? "Scan a shelf label to add, remove, set or move stock. Pick the action once, then keep scanning."
+      : active === "urgent-stock"
+      ? "Tell the office about a shortage at a property you clean, and follow what happens to it."
       : active === "restock"
       ? "Topped up supplies at a property? Record what you added so on-hand counts stay accurate."
       : active === "shopping"
@@ -151,10 +156,13 @@ export default async function CleanerSuppliesPage({
         />
       ) : null}
 
-      <OperationsDisclosure title="Report or review urgent stock"><UrgentStockWorkspace isAdmin={false} panel /></OperationsDisclosure>
-
       {active === "quick-scan" ? <QuickScanLauncher properties={properties} /> : null}
       {active === "restock" ? <RestockPanel /> : null}
+      {active === "urgent-stock" ? (
+        <ECard className="p-4 sm:p-6">
+          <UrgentStockWorkspace isAdmin={false} panel />
+        </ECard>
+      ) : null}
       {active === "my-stock" ? <OnHandView key={session.user.id} properties={properties} /> : null}
 
       {active === "shopping" ? (

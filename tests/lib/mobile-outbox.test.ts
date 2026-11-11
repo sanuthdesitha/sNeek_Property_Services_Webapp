@@ -19,6 +19,16 @@ beforeEach(() => {
   });
 });
 describe("post-commit mobile outbox", () => {
+  it("skips a device push that is hours late instead of delivering a backlog", async () => {
+    const sevenHoursAgo = new Date(NOW.getTime() - 7 * 60 * 60_000);
+    const fiveHoursAgo = new Date(NOW.getTime() - 5 * 60 * 60_000);
+    m.rows = [row({ id: "old", createdAt: sevenHoursAgo }), row({ id: "recent", createdAt: fiveHoursAgo })];
+    await dispatchMobileOutbox(NOW);
+    expect(m.deliver).toHaveBeenCalledTimes(1);
+    expect(m.deliver.mock.calls[0][1].id).toBe("recent");
+    expect(m.rows[0].externalId).toBe("mobile-outbox:SKIPPED");
+    expect(m.rows[1].externalId).toBe("mobile-outbox:ACCEPTED");
+  });
   it("only marks inserts; aborted/uncommitted inserts never become dispatchable", async () => {
     const pendingTransaction = markMobileOutboxRows(row());
     expect(pendingTransaction.externalId).toBe(mobilePendingMarker("jobs"));

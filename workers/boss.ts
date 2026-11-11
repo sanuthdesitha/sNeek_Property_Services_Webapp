@@ -209,7 +209,10 @@ async function main() {
   logger.info("pg-boss started");
 
   if (jobEnabled("ical-sync")) {
-    await boss.schedule("ical-sync", "0 */4 * * *", {}, { tz: TZ });
+    // Hourly: a same-day booking must reach the schedule well before its
+    // turnover. Unchanged feeds answer with a cheap conditional response, each
+    // feed has a 15s deadline, and at most four are fetched at a time.
+    await boss.schedule("ical-sync", "0 * * * *", {}, { tz: TZ });
     await boss.work("ical-sync", safeHandler("ical-sync", async () => {
       logger.info("Running iCal sync");
       await syncAllIcal();

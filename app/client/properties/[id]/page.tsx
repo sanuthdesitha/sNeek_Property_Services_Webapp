@@ -43,7 +43,6 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
 
   return (
     <div className="space-y-6">
-      <Link className="underline" href={`/property-care?propertyId=${params.id}`}>Planned and completed property care</Link>
       <div className="space-y-3">
         <Button asChild variant="outline" size="sm">
           <Link href="/client/properties">
@@ -55,6 +54,14 @@ export default async function ClientPropertyDetailPage({ params }: { params: { i
           icon={<Building2 />}
           title={property.name}
           description={`${property.address}, ${property.suburb}, ${property.state} ${property.postcode}`}
+          actions={
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/property-care?propertyId=${params.id}`}>
+                <ClipboardList className="mr-2 h-4 w-4" />
+                Property care
+              </Link>
+            </Button>
+          }
         />
       </div>
 

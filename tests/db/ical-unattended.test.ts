@@ -46,7 +46,7 @@ it.skipIf(process.env.ICAL_SCHEDULE_SMOKE !== "1")("executes two unattended cron
     child.stderr?.on("data", chunk => { logs += chunk.toString(); });
     await waitFor(async () => logs.includes("All workers registered"), 20_000);
     const schedules = await db.$queryRawUnsafe<Array<{ name: string; cron: string; timezone: string }>>("SELECT name, cron, timezone FROM pgboss.schedule");
-    expect(schedules).toEqual([{ name: "ical-sync", cron: "0 */4 * * *", timezone: "Australia/Sydney" }]);
+    expect(schedules).toEqual([{ name: "ical-sync", cron: "0 * * * *", timezone: "Australia/Sydney" }]);
     // Accelerate only this disposable DB's cron row. No send(), handler call,
     // manual endpoint, page render, or application cadence override is used.
     await db.$executeRawUnsafe("UPDATE pgboss.schedule SET cron = '* * * * *' WHERE name = 'ical-sync'");
@@ -62,7 +62,7 @@ it.skipIf(process.env.ICAL_SCHEDULE_SMOKE !== "1")("executes two unattended cron
     expect(await db.job.count()).toBe(0);
     expect(await db.laundryTask.count()).toBe(0);
     expect(await db.clientInvoice.count()).toBe(0);
-    console.log(JSON.stringify({ evidence: "real unattended cron", acceleratedFixtureCadence: "every minute", productionCadence: "0 */4 * * * Australia/Sydney", runs: runs.map(run => ({ mode: run.mode, status: run.status, createdAt: run.createdAt, completedAt: run.completedAt })), fetches }));
+    console.log(JSON.stringify({ evidence: "real unattended cron", acceleratedFixtureCadence: "every minute", productionCadence: "0 * * * * Australia/Sydney", runs: runs.map(run => ({ mode: run.mode, status: run.status, createdAt: run.createdAt, completedAt: run.completedAt })), fetches }));
   } finally {
     if (child?.pid && child.exitCode === null) process.kill(-child.pid, "SIGTERM");
     await new Promise<void>(resolve => server.close(() => resolve()));

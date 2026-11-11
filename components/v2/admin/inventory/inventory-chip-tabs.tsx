@@ -5,7 +5,7 @@
  * links inside /v2 so the Estate shell is preserved.
  */
 import { useSearchParams } from "next/navigation";
-import { Boxes, Building2, ClipboardCheck, ClipboardList, Package, PackageCheck, Truck } from "lucide-react";
+import { AlertTriangle, Boxes, Building2, ClipboardCheck, ClipboardList, Package, PackageCheck, Truck } from "lucide-react";
 import { EChipTabs } from "@/components/v2/admin/estate-kit";
 
 export type InventoryTab =
@@ -15,7 +15,8 @@ export type InventoryTab =
   | "stock-counts"
   | "scan-tasks"
   | "shopping-runs"
-  | "suppliers";
+  | "suppliers"
+  | "urgent-stock";
 
 const TABS: Array<{ key: InventoryTab; label: string; icon: React.ReactNode }> = [
   { key: "items", label: "Items", icon: <Package className="h-4 w-4" /> },
@@ -27,7 +28,21 @@ const TABS: Array<{ key: InventoryTab; label: string; icon: React.ReactNode }> =
   { key: "suppliers", label: "Suppliers", icon: <Truck className="h-4 w-4" /> },
 ];
 
-export function InventoryChipTabs({ active }: { active: InventoryTab }) {
+/** Offered only where the server also grants urgent-stock administration. */
+const URGENT_STOCK_TAB = {
+  key: "urgent-stock" as const,
+  label: "Urgent stock",
+  icon: <AlertTriangle className="h-4 w-4" />,
+};
+
+export function InventoryChipTabs({
+  active,
+  showUrgentStock = false,
+}: {
+  active: InventoryTab;
+  showUrgentStock?: boolean;
+}) {
+  const tabs = showUrgentStock ? [...TABS, URGENT_STOCK_TAB] : TABS;
   const searchParams = useSearchParams();
   function hrefFor(key: InventoryTab) {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
@@ -38,7 +53,7 @@ export function InventoryChipTabs({ active }: { active: InventoryTab }) {
   }
   return (
     <EChipTabs
-      tabs={TABS.map((t) => ({
+      tabs={tabs.map((t) => ({
         key: t.key,
         label: t.label,
         href: hrefFor(t.key),

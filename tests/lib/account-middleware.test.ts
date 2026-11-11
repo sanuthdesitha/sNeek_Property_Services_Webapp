@@ -57,3 +57,12 @@ it("uses the browser origin behind a proxy for missing-context protection and re
  const page = new NextRequest(`http://0.0.0.0:3000/_accounts/${id}/v2/admin`, { headers: { host: "app.example.invalid", "x-forwarded-proto": "https" } });
  expect((await middleware(page, event)).headers.get("location")).toBe(`https://app.example.invalid/_accounts/${id}/unauthorized`);
 });
+it("lets the app's own pages use the camera and microphone, and no other origin", async () => {
+ const response = await middleware(request("/login"), event);
+ const policy = response.headers.get("permissions-policy") ?? "";
+ // The live barcode scanner, guided capture and video evidence call getUserMedia.
+ expect(policy).toContain("camera=(self)");
+ expect(policy).toContain("microphone=(self)");
+ expect(policy).toContain("geolocation=(self)");
+ expect(policy).not.toContain("*");
+});

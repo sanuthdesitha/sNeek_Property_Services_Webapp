@@ -7,6 +7,8 @@ const require = createRequire(import.meta.url);
 const source = readFileSync("scripts/run-next.cjs", "utf8");
 function launch(args: string[], env: Record<string, string> = {}) {
   const spawnSync = vi.fn(() => ({ status: 0 }));
+  // The automation worker supervisor is launched beside the server.
+  const spawn = vi.fn(() => ({ on: vi.fn() }));
   const runtime = {
     argv: ["node", "scripts/run-next.cjs", "start", ...args],
     env,
@@ -16,9 +18,11 @@ function launch(args: string[], env: Record<string, string> = {}) {
   };
   new Function("require", "process", source)(
     (name: string) =>
-      name === "node:child_process" ? { spawnSync } : require(name),
+      name === "node:child_process" ? { spawn, spawnSync } : require(name),
     runtime,
   );
+  expect(spawn).toHaveBeenCalledTimes(1);
+  expect(String((spawn.mock.calls[0] as unknown as [string, string[]])[1][0])).toMatch(/embedded-worker\.cjs$/);
   return spawnSync.mock.calls[0] as unknown as [
     string,
     string[],

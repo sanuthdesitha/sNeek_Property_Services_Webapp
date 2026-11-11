@@ -18,6 +18,8 @@ import {
   type PortalVersion,
 } from "@/lib/portal-version";
 
+export const PERMISSIONS_POLICY = "camera=(self), microphone=(self), geolocation=(self)";
+
 async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?: Awaited<ReturnType<typeof validateActiveSession>> }) {
     const { pathname } = req.nextUrl;
     const token = req.nextauth.token;
@@ -410,7 +412,10 @@ function applySecurityHeaders(response: NextResponse) {
     // they fall back to default-src 'self' and the blob: frame is blocked.
     "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; frame-src 'self' blob:; object-src 'self' blob:; form-action 'self'; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; worker-src 'self' blob:; connect-src 'self' https: wss:;"
   );
-  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)");
+  // Same-origin only. The app's own pages need the camera for the live barcode
+  // scanner and guided photo capture, and the microphone for in-app video
+  // evidence; an empty allowlist blocked those and forced the file picker.
+  response.headers.set("Permissions-Policy", PERMISSIONS_POLICY);
   return response;
 }
 
