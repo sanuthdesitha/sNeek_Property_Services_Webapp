@@ -8,6 +8,7 @@ import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { rescheduleWindowError } from "@/lib/phase4/analytics";
 import { addDaysToKey } from "@/lib/time/sydney-range";
 import { calendarMoveBlock } from "./move-rules";
+import { plannedTimeChange } from "./time-drop";
 import { dayKeyToUtcDate, isDayKey, mediumDayLabel, utcDateToDayKey } from "./range";
 import type { CheckMoveRequest, CheckMoveResponse, MoveWarning } from "./types";
 
@@ -23,6 +24,11 @@ import type { CheckMoveRequest, CheckMoveResponse, MoveWarning } from "./types";
  *   suggestions panel shows), what happens to a booking-driven turnover, and
  *   which notices the existing services send;
  * - the plan: the exact reschedule and assign calls the page then makes.
+ *
+ * A move may also change the time (a Day-view drop's `toStartTime`, or a Jobs
+ * bulk Reschedule `shiftMinutes`): the proposal comes from `plannedTimeChange`
+ * (the job keeps its length), the clash check uses the new window, and the
+ * plan passes `startTime` / `dueTime` to the same reschedule service.
  */
 export type CheckMoveResult = { kind: "not_found" } | { kind: "invalid"; message: string } | { kind: "ok"; result: CheckMoveResponse };
 
@@ -106,13 +112,21 @@ export async function checkCalendarMove(input: CheckMoveRequest): Promise<CheckM
   const toCleanerId = input.toCleanerId && input.toCleanerId !== fromCleanerId ? input.toCleanerId : null;
   const meta = parseJobInternalNotes(job.internalNotes);
   const blockers: string[] = [];
+  const timeChange = plannedTimeChange(job, { toStartTime: input.toStartTime, shiftMinutes: input.shiftMinutes });
+  if (timeChange.kind === "refused") blockers.push(timeChange.reason);
+  const timeChanges = timeChange.kind === "change";
+  const rescheduleNeeded = dateChanges || timeChanges;
   const names = new Map(job.assignments.map((row) => [row.userId, personName(row.user)]));
 
   const rule = calendarMoveBlock({ status: String(job.status), skipped: job.cleanSkipStatus === "SKIPPED", isDraft: meta.isDraft });
   if (rule) blockers.push(rule);
-  if (!dateChanges && !toCleanerId) blockers.push("Nothing would change: the job is already on that day with those cleaners.");
-  if (dateChanges) {
-    const windowError = rescheduleWindowError(job.startTime, job.dueTime);
+  if (!rescheduleNeeded && !toCleanerId && timeChange.kind !== "refused") {
+    blockers.push("Nothing would change: the job is already on that day with those cleaners.");
+  }
+  if (rescheduleNeeded) {
+    const windowError = timeChange.kind === "change"
+      ? rescheduleWindowError(timeChange.startTime, timeChange.dueTime)
+      : rescheduleWindowError(job.startTime, job.dueTime);
     if (windowError) blockers.push(`${windowError} Fix the job's times on its Schedule tab first.`);
   }
 
@@ -136,20 +150,22 @@ export async function checkCalendarMove(input: CheckMoveRequest): Promise<CheckM
   const warnings: MoveWarning[] = [];
   if (blockers.length === 0) {
     const afterIds = assign?.userIds ?? job.assignments.map((row) => row.userId);
-    // A date change affects everyone on the job; a cleaner change only the new cleaner.
-    const affected = dateChanges ? afterIds : toCleanerId ? [toCleanerId] : [];
+    // A date or time change affects everyone on the job; a cleaner change only the new cleaner.
+    const affected = rescheduleNeeded ? afterIds : toCleanerId ? [toCleanerId] : [];
+    const startTime = timeChange.kind === "change" ? timeChange.startTime : job.startTime;
+    const dueTime = timeChange.kind === "change" ? timeChange.dueTime : job.dueTime;
     warnings.push(...await rosterAndClashWarnings(
-      { id: job.id, propertyId: job.propertyId, dayKey: toDate, startTime: job.startTime, endTime: job.endTime, dueTime: job.dueTime, estimatedHours: job.estimatedHours },
+      { id: job.id, propertyId: job.propertyId, dayKey: toDate, startTime, endTime: job.endTime, dueTime, estimatedHours: job.estimatedHours },
       affected,
       names,
     ));
-    if (dateChanges && job.reservationId) {
+    if (rescheduleNeeded && job.reservationId) {
       warnings.push({
         kind: "booking",
         text: `This job follows a booking whose turnover is ${mediumDayLabel(fromDate)}. After a manual move the calendar sync keeps your date: it will not move the job back or create a second job, and it stops updating this job's date and times if the booking changes.`,
       });
     }
-    if (dateChanges) {
+    if (rescheduleNeeded) {
       warnings.push({ kind: "notice", text: "The reschedule notifies the assigned cleaners and sends the client's schedule-update email when that is switched on." });
     }
     if (toCleanerId) {
@@ -165,10 +181,19 @@ export async function checkCalendarMove(input: CheckMoveRequest): Promise<CheckM
       fromDate,
       toDate,
       toCleanerName: toCleanerId ? names.get(toCleanerId) ?? null : null,
+      ...(timeChange.kind === "change"
+        ? { time: { fromStart: job.startTime, toStart: timeChange.startTime, fromDue: job.dueTime, toDue: timeChange.dueTime } }
+        : {}),
       blockers,
       warnings,
       plan: {
-        reschedule: dateChanges ? { date: toDate, expectedUpdatedAt: job.updatedAt.toISOString() } : null,
+        reschedule: rescheduleNeeded
+          ? {
+              date: toDate,
+              expectedUpdatedAt: job.updatedAt.toISOString(),
+              ...(timeChange.kind === "change" ? { startTime: timeChange.startTime, dueTime: timeChange.dueTime } : {}),
+            }
+          : null,
         assign: blockers.length === 0 ? assign : null,
       },
     },

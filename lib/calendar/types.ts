@@ -103,6 +103,10 @@ export const checkMoveRequestSchema = z.object({
   fromCleanerId: z.string().max(128).nullable().optional(),
   /** The cleaner row it was dropped on (null: keep the job's cleaners). */
   toCleanerId: z.string().max(128).nullable().optional(),
+  /** Day view: the start time the drop proposes (HH:mm); the job keeps its length. */
+  toStartTime: z.string().max(5).nullable().optional(),
+  /** Jobs bulk Reschedule: minutes to move the job's own start (and due) time. */
+  shiftMinutes: z.number().int().min(-720).max(720).nullable().optional(),
 });
 export type CheckMoveRequest = z.infer<typeof checkMoveRequestSchema>;
 
@@ -119,13 +123,24 @@ export const checkMoveResponseSchema = z.object({
   toDate: z.string(),
   /** Name of the cleaner the job would go to, when the move changes cleaners. */
   toCleanerName: z.string().nullable(),
+  /** Present when the move changes the time: before and after (HH:mm). */
+  time: z.object({
+    fromStart: z.string().nullable(), toStart: z.string(),
+    fromDue: z.string().nullable(), toDue: z.string().nullable(),
+  }).optional(),
   /** Refusals: when any is present the move cannot be made. */
   blockers: z.array(z.string()),
   /** Facts to read before confirming (clashes, roster, booking, notifications). */
   warnings: z.array(moveWarningSchema),
   /** What the existing services will be asked to do, in order. */
   plan: z.object({
-    reschedule: z.object({ date: z.string(), expectedUpdatedAt: z.string() }).nullable(),
+    reschedule: z.object({
+      date: z.string(),
+      expectedUpdatedAt: z.string(),
+      /** Sent only when the time changes (the service keeps the job's times otherwise). */
+      startTime: z.string().optional(),
+      dueTime: z.string().nullable().optional(),
+    }).nullable(),
     assign: z.object({ userIds: z.array(z.string()), primaryUserId: z.string().nullable() }).nullable(),
   }),
 });

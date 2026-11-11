@@ -997,3 +997,32 @@ Tests updated on purpose
 
 Not verified
 - Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard drag, camera scanner on a phone, overflow) deferred to the final pass. Database tests not run (no disposable database in this session).
+
+## Live ops follow-up step (2026-11-11)
+
+Scope: owner decisions third set items 2, 3, 5 and fourth set item 1, plus the deferred Laundry nudges, Accounts bulk Message and the Cases Refresh parity item. See `docs/SYSTEM.md`, "Live ops follow-up: delay notice, clock pause, decline reason, QA issue from a case, laundry nudges, bulk message (2026-11-11)". No schema change.
+
+Behaviour changed on purpose
+- `PATCH /api/admin/job-continuations/[id]` refuses `REJECT` without a non-blank `decisionNote` (400); `decideContinuationRequest` refuses it too. Approve unchanged.
+- The laundry nudge route refuses a second nudge of the same kind for the same run within 30 minutes (409 with the first time) unless the idempotency key is the same.
+- `clockOutCleaner` takes an optional `note` (only written when given; the cleaner's Stop is unchanged).
+- The client delay notice and laundry nudge audit rows record the idempotency key.
+- Quality hub Issues search also matches an exact issue id; Issues table gains a "Raised from" column.
+- `CaseLinkedContext.cleaners` entries carry the user id.
+
+New server surface
+- `GET /api/admin/notifications/actions/client-delay` (ADMIN; preview, sends nothing).
+- `POST /api/admin/jobs/[id]/pause-clock` (ADMIN; 409 "No running clock").
+- `POST /api/admin/quality/issues` and `GET /api/admin/quality/issues/case-options` (ADMIN; OPS_MANAGER with quality at manage).
+- Catalog entry `jobs.clock_paused_by_office`.
+
+Tests updated on purpose
+- `tests/components/live-ops-feed.test.tsx` and `tests/components/admin-command-reliability.test.tsx`: Decline now goes through the reason dialog before the server's refusal is shown (same intent: the row stays and shows the server's reason).
+- `tests/lib/notification-office-actions.test.ts`: the db mock gained `auditLog.findFirst` for the cool-down read.
+- `tests/api/cleaner-start-preserves-briefing.test.ts`: added a case resuming a job the office paused.
+
+New tests
+- `tests/api/admin-clock-pause.test.ts`, `tests/api/admin-client-delay-notice.test.ts`, `tests/api/admin-continuation-decline-reason.test.ts`, `tests/api/raise-qa-issue-from-case.test.ts`, `tests/lib/laundry-nudges.test.ts`, `tests/components/live-ops-follow-up.test.tsx`, `tests/components/cases-refresh-and-qa.test.tsx`, `tests/components/office-actions-ui.test.tsx`.
+
+Not verified
+- Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard, overflow) deferred to the final pass at the owner's request. No real message was sent (providers mocked in tests).
