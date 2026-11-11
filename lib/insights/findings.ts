@@ -119,7 +119,7 @@ export function detectLowMargins(rows: readonly PropertyMarginInput[], span: Day
       detector: "low_margin",
       headline: `${row.propertyName} made a ${margin}% margin.`,
       detail: `At or below the ${LOW_MARGIN_MAX_PCT}% floor over ${plural(row.margin.basisCount, "clean")}.`,
-      basis: "Scheduled charge less recorded cleaner pay, over cleans with both.",
+      basis: "Revenue (invoiced, or the scheduled charge where not yet invoiced) less recorded cleaner pay, over cleans with both.",
       link: { label: "See cleans", href: jobsHref(span, { propertyId: row.propertyId }) },
       score: 1 + (LOW_MARGIN_MAX_PCT - margin) / LOW_MARGIN_MAX_PCT,
     });

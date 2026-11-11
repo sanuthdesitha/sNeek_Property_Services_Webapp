@@ -36,7 +36,18 @@ function figureHeader(money: boolean): string[] {
     "Cleans", "Planned h", "Actual h", "Actual vs planned %", "Overruns", "Hours basis (cleans)", "Hours excluded",
     "On time %", "QA score", "Reviewed", "Issues", "Rework jobs", "Rework rate %",
   ];
-  return money ? [...base, "Revenue (scheduled charge, AUD)", "Cleaner cost (AUD)", "Margin %", "Margin basis (cleans)", "Margin excluded"] : base;
+  return money
+    ? [
+        ...base,
+        "Revenue (AUD, ex GST)",
+        "Invoiced (AUD, ex GST, net of credit notes)",
+        "Not yet invoiced (AUD, at current rates)",
+        "Cleaner cost (AUD)",
+        "Margin %",
+        "Margin basis (cleans)",
+        "Margin excluded",
+      ]
+    : base;
 }
 
 function figureCells(figures: EntityFigures, money: boolean): Cell[] {
@@ -61,6 +72,8 @@ function figureCells(figures: EntityFigures, money: boolean): Cell[] {
   return [
     ...cells,
     value(m?.revenue),
+    m ? m.revenueSplit.invoiced : "",
+    m ? m.revenueSplit.notYetInvoiced : "",
     value(m?.cleanerCost),
     value(m?.margin),
     m?.margin.basisCount ?? "",
@@ -101,8 +114,10 @@ export function jobTypesCsv(rows: readonly JobTypeRow[], money: boolean): string
   );
 }
 
-const CARD_LABEL: Record<keyof BusinessCards, string> = {
-  revenue: "Revenue (scheduled charge, AUD)",
+type CardKey = Exclude<keyof BusinessCards, "revenueSplit">;
+
+const CARD_LABEL: Record<CardKey, string> = {
+  revenue: "Revenue (AUD, ex GST: invoiced + not yet invoiced at current rates)",
   margin: "Gross margin %",
   cleans: "Cleans done",
   onTime: "On time %",
@@ -110,7 +125,7 @@ const CARD_LABEL: Record<keyof BusinessCards, string> = {
   reworkRate: "Rework rate %",
 };
 
-const CARD_ORDER: Array<keyof BusinessCards> = ["revenue", "margin", "cleans", "onTime", "hoursRatio", "reworkRate"];
+const CARD_ORDER: CardKey[] = ["revenue", "margin", "cleans", "onTime", "hoursRatio", "reworkRate"];
 
 export function businessCsv(payload: Pick<BusinessPayload, "cards" | "period">): string {
   const rows: Cell[][] = [];
@@ -127,6 +142,11 @@ export function businessCsv(payload: Pick<BusinessPayload, "cards" | "period">):
       card.delta === null ? "" : card.delta,
       card.delta === null ? "" : card.deltaKind === "percent" ? "% change" : card.deltaKind === "points" ? "points" : "count",
     ]);
+  }
+  const split = payload.cards.revenueSplit;
+  if (split) {
+    rows.push(["Revenue invoiced (AUD, ex GST, net of credit notes)", split.invoiced, split.invoicedCleans, "", "", "", "", ""]);
+    rows.push(["Revenue not yet invoiced (AUD, at current rates)", split.notYetInvoiced, split.notYetInvoicedCleans, "", "", "", "", ""]);
   }
   return toCsv(
     ["Figure", `Value (${payload.period.label})`, "Basis", "Excluded", "Excluded reasons", `Previous (${payload.period.previous?.label ?? "none"})`, "Change", "Change unit"],

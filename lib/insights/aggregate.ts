@@ -3,7 +3,9 @@
  *
  * Every rate and total is computed over the records that carry its inputs;
  * the rest are excluded and counted by reason (see ./measure). Definitions:
- *  - Revenue: sum of scheduled charges over cleans with a charge.
+ *  - Revenue: invoiced amounts (ex GST, net of credit notes) for invoiced
+ *    cleans plus scheduled charges for cleans not yet invoiced (split kept in
+ *    `revenueSplit`); over cleans with a charge.
  *  - Cleaner cost: sum of recorded pay over cleans with a cost.
  *  - Margin: (revenue − cleaner cost) ÷ revenue, ONLY over cleans where both
  *    are known, as a percentage. No margin when that revenue is not positive.
@@ -22,7 +24,7 @@ import { cleanTotals, type CleanFact, type CleanTotals } from "@/lib/quality/cle
 import type { PeriodRange } from "@/lib/quality/period";
 import type { JobFact } from "./job-facts";
 import { buildMeasure, roundTo, sum, tally, type Known } from "./measure";
-import type { EntityFigures, ExclusionCounts, ExclusionReason, HoursFigures, Measure, MoneyFigures } from "./types";
+import type { EntityFigures, ExclusionCounts, ExclusionReason, HoursFigures, Measure, MoneyFigures, RevenueSplit } from "./types";
 
 export const OVERRUN_TOLERANCE_MINUTES = 5;
 
@@ -62,6 +64,17 @@ export function hoursFigures(items: readonly HoursItem[], minBasis: number): Hou
   };
 }
 
+export function revenueSplit(facts: readonly JobFact[]): RevenueSplit {
+  const invoiced = facts.filter((fact) => fact.chargeSource === "invoiced" && fact.charge.reason === null);
+  const scheduled = facts.filter((fact) => fact.chargeSource === "scheduled" && fact.charge.reason === null);
+  return {
+    invoiced: roundCents(sum(invoiced.map((fact) => fact.charge.value as number))),
+    invoicedCleans: invoiced.length,
+    notYetInvoiced: roundCents(sum(scheduled.map((fact) => fact.charge.value as number))),
+    notYetInvoicedCleans: scheduled.length,
+  };
+}
+
 export function moneyFigures(facts: readonly JobFact[], minBasis: number): MoneyFigures {
   const revenue = tally(facts.map((fact) => fact.charge));
   const cost = tally(facts.map((fact) => fact.cost));
@@ -71,6 +84,7 @@ export function moneyFigures(facts: readonly JobFact[], minBasis: number): Money
   const margin = bothRevenue > 0 ? roundTo(((bothRevenue - bothCost) / bothRevenue) * 100, 1) : null;
   return {
     revenue: buildMeasure(roundCents(sum(revenue.values)), revenue.values.length, revenue.excluded, minBasis),
+    revenueSplit: revenueSplit(facts),
     cleanerCost: buildMeasure(roundCents(sum(cost.values)), cost.values.length, cost.excluded, minBasis),
     margin: buildMeasure(margin, both.length, excluded, minBasis),
   };

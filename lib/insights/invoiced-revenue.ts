@@ -52,6 +52,5 @@ export function invoicedRevenueByJob(lines: readonly InvoicedLineRow[]): Map<str
     const net = Number(line.lineTotal) * remainingShare(line.invoice);
     byJob.set(line.jobId, (byJob.get(line.jobId) ?? 0) + net);
   }
-  for (const [jobId, amount] of byJob) byJob.set(jobId, roundCents(amount));
-  return byJob;
+  return new Map(Array.from(byJob.entries(), ([jobId, amount]) => [jobId, roundCents(amount)]));
 }

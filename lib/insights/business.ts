@@ -26,12 +26,14 @@ import { countMeasure, MIN_BASIS_SUMMARY, sum, withDelta } from "./measure";
 import { periodPayload, type ClosedRange, type InsightsPeriod } from "./period";
 import { clientPayment, loadReceivablesFacts, type ReceivablesFacts } from "./receivables";
 import { propertySortValue, sortRows } from "./sort";
-import type { EntityFigures, InsightsAccess, MeasureWithDelta, PeriodPayload } from "./types";
+import type { EntityFigures, InsightsAccess, MeasureWithDelta, PeriodPayload, RevenueSplit } from "./types";
 
 export const PROPERTY_PREVIEW_ROWS = 5;
 
 export type BusinessCards = {
   revenue?: MeasureWithDelta;
+  /** Invoiced vs not yet invoiced, for the revenue card's basis line. */
+  revenueSplit?: RevenueSplit;
   margin?: MeasureWithDelta;
   cleans: MeasureWithDelta;
   onTime: MeasureWithDelta;
@@ -67,6 +69,7 @@ export function businessCards(current: EntityFigures, previous: EntityFigures | 
   };
   if (current.money) {
     cards.revenue = withDelta(current.money.revenue, previous?.money?.revenue ?? null, "percent");
+    cards.revenueSplit = current.money.revenueSplit;
     cards.margin = withDelta(current.money.margin, previous?.money?.margin ?? null, "points");
   }
   return cards;

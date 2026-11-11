@@ -8,7 +8,7 @@
  * same thing on both pages. A client filter narrows to that client's
  * properties.
  */
-import type { Prisma } from "@prisma/client";
+import type { ClientInvoiceStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { loadCategoryLabels } from "@/lib/quality/facts";
@@ -17,6 +17,9 @@ import { cleanWhere, issueWhere } from "@/lib/quality/where";
 import type { PeriodRange } from "@/lib/quality/period";
 import { deriveJobFact, type FactContext, type InsightsJobRow, type JobFact } from "./job-facts";
 import { InsightsQueryError } from "./period";
+import { invoicedRevenueByJob, type InvoicedLineRow } from "./invoiced-revenue";
+import { LIVE_INVOICE_LINE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
+import { CREDIT_REDUCING_STATUSES } from "@/lib/finance/receivables";
 
 /** A safety cap on one read. A period that hits it is refused rather than half-counted. */
 export const MAX_CLEANS_PER_READ = 20_000;
@@ -59,8 +62,39 @@ function clientIssueWhere(filters: InsightsFilters): Prisma.QaIssueWhereInput {
   return filters.clientId ? { property: { clientId: filters.clientId } } : {};
 }
 
-async function loadFactContext(propertyIds: string[]): Promise<FactContext> {
-  const [settings, propertyRates, priceBook] = await Promise.all([
+/** Ids per IN (...) read: keeps each invoice-line query bounded. */
+const INVOICED_READ_CHUNK = 2_000;
+
+/**
+ * Invoiced amounts for these jobs: their lines on LIVE invoices (the one
+ * invoiced rule), each net of the invoice's approved/sent credit notes.
+ */
+export async function loadInvoicedRevenue(jobIds: readonly string[]): Promise<Map<string, number>> {
+  const lines: InvoicedLineRow[] = [];
+  for (let start = 0; start < jobIds.length; start += INVOICED_READ_CHUNK) {
+    const chunk = jobIds.slice(start, start + INVOICED_READ_CHUNK);
+    const rows = await db.clientInvoiceLine.findMany({
+      where: { jobId: { in: [...chunk] }, ...LIVE_INVOICE_LINE_WHERE },
+      select: {
+        jobId: true,
+        lineTotal: true,
+        invoice: {
+          select: {
+            id: true,
+            subtotal: true,
+            creditNotes: { where: { kind: "CREDIT_NOTE", status: { in: [...CREDIT_REDUCING_STATUSES] as ClientInvoiceStatus[] } }, select: { subtotal: true } },
+          },
+        },
+      },
+    });
+    lines.push(...rows);
+  }
+  return invoicedRevenueByJob(lines);
+}
+
+async function loadFactContext(propertyIds: string[], jobIds: string[]): Promise<FactContext> {
+  const [invoicedByJob, settings, propertyRates, priceBook] = await Promise.all([
+    loadInvoicedRevenue(jobIds),
     getAppSettings(),
     propertyIds.length
       ? db.propertyClientRate.findMany({
@@ -73,6 +107,7 @@ async function loadFactContext(propertyIds: string[]): Promise<FactContext> {
   return {
     rates: { propertyRates, priceBook },
     cleanerJobHourlyRates: settings.cleanerJobHourlyRates ?? {},
+    invoicedByJob,
   };
 }
 
@@ -87,7 +122,7 @@ export async function loadJobFacts(range: PeriodRange, filters: InsightsFilters)
   if (rows.length > MAX_CLEANS_PER_READ) {
     throw new InsightsQueryError("There are too many cleans in this period to analyse at once. Choose a shorter period.");
   }
-  const context = await loadFactContext(Array.from(new Set(rows.map((row) => row.propertyId))));
+  const context = await loadFactContext(Array.from(new Set(rows.map((row) => row.propertyId))), rows.map((row) => row.id));
   return rows.map((row) => deriveJobFact(row as InsightsJobRow, context));
 }
 

@@ -149,6 +149,36 @@ export async function reportUrgentStock(actor: StockActor, raw: unknown) {
   const input = urgentStockReportInput.parse(raw);
   return db.$transaction(async (tx) => {
     await scope(tx, actor, input.propertyId);
+    return reportWithinScope(tx, actor, input);
+  });
+}
+
+/**
+ * Wave B (forms): the same report, raised by a submitted job form's Stock
+ * count question for the cleaner who submitted it. The cleaner's active-job
+ * scope no longer holds once the job is SUBMITTED, so scope is proven by the
+ * submission instead: it must exist, be submitted by this cleaner and belong
+ * to a job at this property. The actor is still revalidated (active, holds the
+ * cleaner role). Idempotent through the usual request receipt.
+ */
+export async function reportUrgentStockFromSubmission(input: { cleanerId: string; submissionId: string; report: unknown }) {
+  const report = urgentStockReportInput.parse(input.report);
+  const actor: StockActor = { id: input.cleanerId, role: Role.CLEANER };
+  return db.$transaction(async (tx) => {
+    await actorRole(tx, actor);
+    const submission = await tx.formSubmission.findUnique({
+      where: { id: input.submissionId },
+      select: { submittedById: true, job: { select: { propertyId: true } } },
+    });
+    if (!submission || submission.submittedById !== input.cleanerId || submission.job?.propertyId !== report.propertyId) {
+      throw new Error("FORBIDDEN");
+    }
+    return reportWithinScope(tx, actor, report);
+  });
+}
+
+async function reportWithinScope(tx: Tx, actor: StockActor, input: z.infer<typeof urgentStockReportInput>) {
+  {
     const request = await receipt(tx, actor, input.requestId, input);
     if (request.previous) return request.previous;
     const key = urgentStockPairKey(input.propertyId, input.itemId);
@@ -171,7 +201,7 @@ export async function reportUrgentStock(actor: StockActor, raw: unknown) {
     if (!previous) await notify(tx, need, "Reported need remains open");
     await save(tx, request.key, { fingerprint: request.fingerprint, result: need });
     return need;
-  });
+  }
 }
 
 export const urgentStockActionInput = z.object({

@@ -22,6 +22,8 @@ export type MoveRequest = {
   toDate: string;
   fromCleanerId: string | null;
   toCleanerId: string | null;
+  /** Day view: the start the drop proposes (HH:mm). Omitted: keep the job's times. */
+  toStartTime?: string | null;
 };
 
 export type MoveState =
@@ -64,6 +66,7 @@ export function useCalendarMove(onSaved: () => void): CalendarMoveApi {
     try {
       const result = await postJson("/api/admin/calendar/check-move", {
         jobId: move.job.id, toDate: move.toDate, fromCleanerId: move.fromCleanerId, toCleanerId: move.toCleanerId,
+        ...(move.toStartTime ? { toStartTime: move.toStartTime } : {}),
       });
       if (!result.ok) {
         setState({ phase: "refused", request: move, reasons: [errorText(result.body, `The move could not be checked (${result.status}).`)] });
@@ -91,6 +94,8 @@ export function useCalendarMove(onSaved: () => void): CalendarMoveApi {
       if (reschedule) {
         const result = await postJson(`/api/admin/phase4/reschedule/${encodeURIComponent(move.job.id)}/apply`, {
           date: reschedule.date, expectedUpdatedAt: reschedule.expectedUpdatedAt, reason: MOVE_REASON,
+          // Only a time move carries times; otherwise the service keeps the job's own.
+          ...(reschedule.startTime !== undefined ? { startTime: reschedule.startTime, dueTime: reschedule.dueTime ?? null } : {}),
         });
         if (!result.ok) {
           setState({ phase: "failed", request: move, check, message: `Not moved: ${errorText(result.body, "the reschedule was refused.")}` });

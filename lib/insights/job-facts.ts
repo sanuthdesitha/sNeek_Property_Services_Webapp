@@ -4,11 +4,14 @@
  * number.
  *
  * Definitions (repeated on screen as basis lines):
- *  - Charge (revenue): the SCHEDULED CHARGE for the clean from the canonical
- *    client-charge rule, `computeClientCharge` (fixed job price → property rate
- *    → price book), exactly as invoice generation prices a job. Not invoiced
- *    or received money. Missing when no rate resolves; a skipped clean is not
- *    billed and is excluded.
+ *  - Charge (revenue): for an INVOICED clean, the amount it was invoiced for
+ *    (ex GST, net of approved/sent credit notes; see ./invoiced-revenue), the
+ *    fixed record. For a clean NOT yet invoiced, the SCHEDULED CHARGE from the
+ *    canonical client-charge rule, `computeClientCharge` (fixed job price →
+ *    property rate → price book), exactly as invoice generation prices a job:
+ *    "Not yet invoiced (at current rates)". `chargeSource` says which. Missing
+ *    when not invoiced and no rate resolves; a skipped clean that was not
+ *    invoiced is not billed and is excluded.
  *  - Cleaner cost: the recorded pay for the clean from the canonical per-job
  *    pay summary, `computeJobPaySummary` (rate snapshot on the assignment ×
  *    allocated hours, or clocked hours when none are allocated, or the custom /
@@ -71,7 +74,12 @@ export type InsightsJobRow = {
 export type FactContext = {
   rates: ClientChargeRates;
   cleanerJobHourlyRates: Record<string, Partial<Record<JobType, number>>>;
+  /** Net invoiced amount (ex GST) per invoiced job (./invoiced-revenue). Absent = none invoiced. */
+  invoicedByJob?: ReadonlyMap<string, number>;
 };
+
+/** Where a clean's charge came from. */
+export type ChargeSource = "invoiced" | "scheduled";
 
 /** One cleaner's share of a clean: allocated minutes (split as pay splits them) and own logged minutes. */
 export type CleanerShare = { cleanerId: string; plannedMinutes: Known<number>; actualMinutes: Known<number> };
@@ -93,6 +101,8 @@ export type JobFact = {
   cleanerIds: string[];
   shares: CleanerShare[];
   charge: Known<number>;
+  /** "invoiced" (fixed record) or "scheduled" (not yet invoiced, current rates); null when no charge. */
+  chargeSource: ChargeSource | null;
   cost: Known<number>;
   plannedMinutes: Known<number>;
   actualMinutes: Known<number>;
@@ -104,7 +114,9 @@ function activeUserIds(assignments: ReadonlyArray<{ userId: string; removedAt: D
   return Array.from(new Set(assignments.filter((a) => !a.removedAt).map((a) => a.userId)));
 }
 
-export function deriveCharge(row: InsightsJobRow, rates: ClientChargeRates): Known<number> {
+export function deriveCharge(row: InsightsJobRow, rates: ClientChargeRates, invoicedByJob?: ReadonlyMap<string, number>): Known<number> {
+  const invoiced = invoicedByJob?.get(row.id);
+  if (invoiced !== undefined) return known(invoiced);
   if (row.cleanSkipStatus === "SKIPPED") return missing("skipped_clean");
   const charge = computeClientCharge(
     { jobType: row.jobType, propertyId: row.propertyId, fixedPrice: row.fixedPrice },
@@ -212,6 +224,7 @@ export function deriveJobFact(row: InsightsJobRow, context: FactContext): JobFac
   const dayKey = sydneyDateKey(row.scheduledDate);
   const planned = plannedTotalMinutes(row);
   const review = pickAuthoritativeReview(row.qaReviews);
+  const charge = deriveCharge(row, context.rates, context.invoicedByJob);
   return {
     jobId: row.id,
     jobNumber: row.jobNumber,
@@ -227,7 +240,8 @@ export function deriveJobFact(row: InsightsJobRow, context: FactContext): JobFac
     reworkOriginalCleanerIds: row.reworkOfJob ? activeUserIds(row.reworkOfJob.assignments) : [],
     cleanerIds: activeUserIds(row.assignments),
     shares: deriveShares(row, planned),
-    charge: deriveCharge(row, context.rates),
+    charge,
+    chargeSource: charge.reason !== null ? null : context.invoicedByJob?.has(row.id) ? "invoiced" : "scheduled",
     cost: deriveCost(row, context),
     plannedMinutes: planned,
     actualMinutes: deriveActual(row),

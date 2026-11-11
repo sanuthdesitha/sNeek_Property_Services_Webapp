@@ -43,8 +43,8 @@ function MoneyChart({ data }: { data: BusinessPayload }) {
         }))}
       />
       <p className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
-        Weeks start on Monday (Sydney). Each week counts only cleans with both a scheduled charge and recorded pay, so the
-        two bars compare the same cleans.
+        Weeks start on Monday (Sydney). Each week counts only cleans with both a charge (invoiced, or the scheduled charge
+        where not yet invoiced) and recorded pay, so the two bars compare the same cleans.
       </p>
     </ECard>
   );

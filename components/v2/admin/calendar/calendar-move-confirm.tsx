@@ -21,6 +21,10 @@ const WARNING_PREFIX: Record<MoveWarning["kind"], string> = {
 
 export function moveQuestion(check: CheckMoveResponse): string {
   const dateChanges = check.toDate !== check.fromDate;
+  if (check.time) {
+    const when = `${mediumDayLabel(check.toDate)} at ${check.time.toStart}`;
+    return check.toCleanerName ? `Move ${check.propertyName} to ${when}, ${check.toCleanerName}?` : `Move ${check.propertyName} to ${when}?`;
+  }
   if (dateChanges && check.toCleanerName) return `Move ${check.propertyName} to ${mediumDayLabel(check.toDate)}, ${check.toCleanerName}?`;
   if (dateChanges) return `Move ${check.propertyName} to ${mediumDayLabel(check.toDate)}?`;
   return `Give ${check.propertyName} on ${mediumDayLabel(check.toDate)} to ${check.toCleanerName ?? "the chosen cleaner"}?`;
@@ -47,6 +51,12 @@ export function CalendarMoveConfirm({ state, onConfirm, onClose }: { state: Move
         {state.phase === "failed" ? (
           <p role="alert" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger)/0.4)] bg-[hsl(var(--e-danger-soft))] p-3 text-[0.8125rem] text-[hsl(var(--e-danger))]">
             {state.message}
+          </p>
+        ) : null}
+
+        {check?.time && state.phase !== "failed" ? (
+          <p className="e-tnum text-[0.8125rem]">
+            Time: {check.time.fromStart ?? "not set"}{check.time.fromDue ? `–${check.time.fromDue}` : ""} → {check.time.toStart}{check.time.toDue ? `–${check.time.toDue}` : ""} (the job keeps its length).
           </p>
         ) : null}
 

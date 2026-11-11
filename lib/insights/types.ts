@@ -111,9 +111,23 @@ export type HoursFigures = {
   averageOverMinutes: number | null;
 };
 
+/**
+ * Revenue split by source, over the cleans the revenue measure counts:
+ * invoiced (ex GST, net of credit notes, the fixed record) and not yet
+ * invoiced (scheduled charge at current rates).
+ */
+export type RevenueSplit = {
+  invoiced: number;
+  invoicedCleans: number;
+  notYetInvoiced: number;
+  notYetInvoicedCleans: number;
+};
+
 /** Money figures; present only for viewers with the finance feature. */
 export type MoneyFigures = {
+  /** Invoiced revenue plus not-yet-invoiced scheduled charges (see RevenueSplit). */
   revenue: Measure;
+  revenueSplit: RevenueSplit;
   cleanerCost: Measure;
   /** Percentage, over jobs where both revenue and cost are known. */
   margin: Measure;

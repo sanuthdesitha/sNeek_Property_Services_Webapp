@@ -6,17 +6,23 @@ import { generateJobReport } from "@/lib/reports/generator";
 
 import type { LowStockRow } from "@/lib/inventory/stock";
 import { reconcileSubmissionLowStock, queueLowStockReview } from "./submission-low-stock";
+import { raiseFormUrgentStock, queueUrgentStockReview, type FormUrgentStock } from "./submission-urgent-stock";
 
 const PREFIX = "cleaner_submission_followups_v1:";
 type Followups = { jobId: string; submissionId: string; status: "PENDING" | "RUNNING" | "DONE";
   propertyId?: string; lowStockRows?: LowStockRow[]; lowStockDone?: boolean; qaDone: boolean; reportDone: boolean; attempts: number; lease?: string; leasedAt?: string;
-  retryAt?: string; failedStages?: string[] };
+  retryAt?: string; failedStages?: string[];
+  /** Stock count questions below their threshold ("raises an urgent stock need"). */
+  urgentStock?: FormUrgentStock; urgentStockDone?: boolean; urgentStockErrors?: string[] };
 
 /** This durable receipt commits with the submitted form. It never submits forms
  * or sends client messages; retries repair internal QA/report scaffolding and reconcile restocking through the notification outbox. */
-export async function enqueueSubmissionFollowups(tx: Prisma.TransactionClient, input: { jobId: string; submissionId: string; propertyId?: string; lowStockRows?: LowStockRow[] }) {
+export async function enqueueSubmissionFollowups(tx: Prisma.TransactionClient, input: { jobId: string; submissionId: string; propertyId?: string; lowStockRows?: LowStockRow[]; urgentStock?: FormUrgentStock }) {
   const key = `${PREFIX}${input.submissionId}`;
-  const value: Followups = { ...input, status: "PENDING", lowStockDone: !input.lowStockRows?.length, qaDone: false, reportDone: false, attempts: 0 };
+  const value: Followups = {
+    ...input, status: "PENDING", lowStockDone: !input.lowStockRows?.length, qaDone: false, reportDone: false, attempts: 0,
+    ...(input.urgentStock ? { urgentStockDone: input.urgentStock.requests.length === 0 } : {}),
+  };
   await tx.appSetting.upsert({ where: { key }, create: { key, value }, update: {} });
 }
 
@@ -58,7 +64,21 @@ export async function processSubmissionFollowups(now = new Date(), submissionId?
         try { await queueLowStockReview(claimed); } catch { failedStages.push("LOW_STOCK_REVIEW_NOTICE"); }
       }
     }
-    claimed.status = claimed.qaDone && claimed.reportDone && (!claimed.lowStockRows?.length || claimed.lowStockDone) ? "DONE" : "PENDING";
+    if (claimed.urgentStock && !claimed.urgentStockDone) {
+      // One urgent need per item per submission (idempotent request ids); a
+      // failure is kept on the receipt, retried, and told to the office.
+      const result = await raiseFormUrgentStock(claimed.submissionId, claimed.urgentStock);
+      claimed.urgentStockErrors = result.errors;
+      if (result.errors.length === 0) claimed.urgentStockDone = true;
+      else {
+        failedStages.push("URGENT_STOCK");
+        if ((claimed.attempts ?? 1) === 1) {
+          try { await queueUrgentStockReview({ jobId: claimed.jobId, submissionId: claimed.submissionId }); } catch { failedStages.push("URGENT_STOCK_REVIEW_NOTICE"); }
+        }
+      }
+    }
+    claimed.status = claimed.qaDone && claimed.reportDone && (!claimed.lowStockRows?.length || claimed.lowStockDone) &&
+      (!claimed.urgentStock || claimed.urgentStockDone) ? "DONE" : "PENDING";
     claimed.failedStages = failedStages;
     claimed.retryAt = new Date(now.getTime() + 5 * 60_000).toISOString();
     // An expired worker may finish late. It must not overwrite a newer lease.

@@ -228,11 +228,11 @@ export const OFFICE_NOTIFICATION_TYPES: NotificationTypeEntry[] = [
     transports: ["INBOX"],
     defaultTransports: ["INBOX"],
     path: "PIPELINE",
-    eventKeys: ["urgent_stock.open_need"],
+    eventKeys: ["urgent_stock.open_need", "submission.urgent_stock_review"],
     switches: [{ kind: "NONE" }],
     template: { kind: "NONE" },
     preferences: "RESPECTS",
-    producers: ["lib/inventory/urgent-stock.ts"],
+    producers: ["lib/inventory/urgent-stock.ts", "lib/cleaner/submission-urgent-stock.ts"],
   },
   {
     key: "stock.shopping_and_orders",

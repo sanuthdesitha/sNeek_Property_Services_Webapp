@@ -340,10 +340,14 @@ For the parity audit: the Cases "Refresh" button was replaced by automatic refre
 
 Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notifications step; 4, 6 and 8 in the "Finance decisions" step. 1 and 7 need no change.
 
+**Status, items 2, 3 and 5 (Live ops follow-up, 2026-11-11, uncommitted step, no schema change; build, full suite and browser pass pending).** 2: "Notify client" on a late exception for administrators (others keep the Messages link): confirm from a server preview (client logins, exact wording with the ETA in minutes, switched-off transports, the send's refusal such as "client switched notifications off"), explicit transports, truthful states, idempotent per job and day; a notice already requested today shows on the row and needs "Send another". 3: "Pause clock" (ADMIN only; operations managers refused) through `POST /api/admin/jobs/[id]/pause-clock`, which uses the cleaner's own `clockOutCleaner` (same lock, duration and IN_PROGRESS → PAUSED rule), marks the log "Paused by the office: <reason>", audits it and notifies the cleaner, who resumes with the existing Resume clock; "Review clock" kept. 5: decline needs a reason (server 400 without one; Live ops and Command share one dialog; both job pages require it); the cleaner sees it in the decline notification. Also in this step: Laundry "Ask cleaner" / "Request photo" (where the exception applies, 30-minute cool-down; "Chase supplier" still blocked), Accounts bulk "Message", Cases manual Refresh restored. Waiting for the owner: may operations managers pause a clock or send the delay notice; should "Request photo" for a missing drop-off photo reach the driver instead of the job's cleaners. Details: `docs/SYSTEM.md`, "Live ops follow-up".
+
 ## Owner decisions, fourth set (2026-11-11): Cases
 
 1. The office can raise a QA issue against a cleaner by hand from a case ("Raise QA issue for cleaner" in the case's Next steps). It creates a normal QA issue linked to the case's job and cleaner, attributed to the person who raised it and marked as raised from a case; any deduction still goes through the existing proposal and approval. Built in the follow-up step with the Live ops additions.
 2. The "Resolved" queue includes closed cases. As built; no change.
+
+**Status, item 1 (2026-11-11, Live ops follow-up step, no schema change).** Built: "Raise QA issue for cleaner" in the case's Next steps when the linked job has an assigned cleaner; `POST /api/admin/quality/issues` (ADMIN, OPS_MANAGER with quality at manage; not QA inspectors) creates a normal QA issue for the job and cleaner, `raisedById` the actor, marked `case:<caseId>` in the existing `itemKey`, with an internal case note linking to it and an audit row; no deduction (propose deduction stays the existing approval path), no review or score change; the dialog says it counts in the cleaner's quality figures; idempotent (client key, plus same case/cleaner/category within 2 minutes under a lock). Quality shows "Raised from case" with a link back. Details: `docs/SYSTEM.md`, "Live ops follow-up".
 
 ### More items waiting for the owner (from the notifications step)
 
@@ -427,3 +431,12 @@ Items in these waves that change a business rule, money, or who can do what are 
 2. Build "Add to shopping run" and "Ask cleaner to buy" (already Wave F).
 3. Holding period: the lead's choice. Items still at "New" are flagged after 14 days too, counted from the found date; an unprocessed item is the case most worth flagging.
 4. Guest messages are sent from the app, and the drafted message always has a copy option beside Send, for every role that can open the item.
+
+### More items waiting for the owner (from the follow-up actions step)
+
+| Item | Question |
+| --- | --- |
+| Clock pause is administrator only | Let operations managers pause a clock too? |
+| Client delay notice is administrator only | Let operations managers send it too? |
+| "Request photo" for a missing drop-off photo goes to the job's cleaners | Should it go to the laundry driver instead? |
+| The cleaner sees the reason for an office clock pause only in the notification, not on their job screen | Show it on the job screen too? |

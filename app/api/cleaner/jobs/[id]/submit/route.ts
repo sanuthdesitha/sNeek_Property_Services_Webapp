@@ -34,7 +34,9 @@ import { buildClockReview } from "@/lib/time/clock-rules";
 import { sumRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { clearSharedCleanerJobDraft, getSharedCleanerJobDraft, withSharedCleanerJobDraftLock } from "@/lib/cleaner/shared-job-draft";
 import { collectRequiredAnswerFields, collectRequiredUploadFields, flattenFieldsOneLevel } from "@/lib/forms/visibility";
-import { collectUploadMinimumErrors } from "@/lib/forms/validate-submission";
+import { collectStructuredAnswerErrors, collectUploadMinimumErrors } from "@/lib/forms/validate-submission";
+import { planSubmissionEffects, schemaUsesEffectsOrStockCounts } from "@/lib/forms/form-effects";
+import { damageItemsForEffects, urgentRequestsForEffects } from "@/lib/forms/submission-effects";
 import { extendedValidationOutcome } from "@/lib/forms/submission-warnings";
 import { sanitizeNoPhotoReasons } from "@/lib/forms/no-photo-reasons";
 import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form";
@@ -528,6 +530,16 @@ export async function POST(
         { status: 400 }
       );
     }
+    // Table and Stock count answers (lib/forms/structured-answers.ts): new
+    // types, so their rules are enforced from the start. Empty for any form
+    // without them.
+    const structuredErrors = collectStructuredAnswerErrors(effectiveSchema, answers, formProperty, legacyReady);
+    if (structuredErrors.length > 0) {
+      return NextResponse.json(
+        { error: structuredErrors.map((field) => `${field.label}: ${field.message}`).join("; "), invalidFields: structuredErrors },
+        { status: 400 }
+      );
+    }
     // Final self-inspection gate (Accountability Phase 3). The 14 checkboxes are
     // required in the schema, but an unticked checkbox can arrive as `false`
     // (which the generic required-answer check treats as answered), so this is
@@ -697,6 +709,23 @@ export async function POST(
       );
     }
 
+    // Question effects (lib/forms/form-effects.ts). Only forms with a Stock
+    // count or an effect do any of this; decided inside this transaction and
+    // recorded on the submission as `__formEffects`.
+    const effectsPlan = schemaUsesEffectsOrStockCounts(effectiveSchema)
+      ? planSubmissionEffects(effectiveSchema, answers, formProperty, legacyReady)
+      : null;
+    const submittedDamageItemCount = [
+      ...(Array.isArray(body.draftDamageItems) ? body.draftDamageItems : []),
+      ...(body.draftDamagePayload ? [body.draftDamagePayload] : []),
+    ].filter((item) => item && typeof item.title === "string" && item.title.trim().length > 0).length;
+    const formDamage = effectsPlan
+      ? await damageItemsForEffects(db, { jobId: job.id, cleanerId: session.user.id, prompts: effectsPlan.damage, submittedDamageItems: submittedDamageItemCount })
+      : { items: [], outcomes: [] };
+    const formUrgent = effectsPlan
+      ? await urgentRequestsForEffects(db, { propertyId: job.propertyId, requests: effectsPlan.urgentStock })
+      : { queued: [], outcomes: [] };
+
     // Media, stock, clock and laundry persist atomically with the final receipt.
     const inventoryUsage = sanitizeInventoryUsage(body.data as Record<string, unknown>);
     let stockCorrectionRequired = false;
@@ -725,6 +754,10 @@ export async function POST(
               // from the client. Absent when the answers broke no extended rule.
               __validationWarnings:
                 extendedValidation.warnings.length > 0 ? extendedValidation.warnings : undefined,
+              // Controlled system key: what the form's effects decided (server-computed).
+              __formEffects: effectsPlan
+                ? { stockCounts: effectsPlan.stockCounts, damage: formDamage.outcomes, urgentStock: formUrgent.outcomes }
+                : undefined,
               // Controlled system key: the server-sanctioned waivers only —
               // whatever the client sent under this key is overridden.
               __noPhotoReasons:
@@ -911,6 +944,9 @@ export async function POST(
       ...(body.draftDamagePayload ? [body.draftDamagePayload] : []),
     ].filter((item) => item && typeof item.title === "string" && item.title.trim().length > 0)
       .filter((item, index, items) => items.findIndex(candidate => JSON.stringify(candidate) === JSON.stringify(item)) === index);
+    // "Opens a damage report" answers with no report from the cleaner: the
+    // same private case path, one item per answer (form-effects.ts).
+    for (const item of formDamage.items) damageItems.push({ ...item, estimatedCost: null, mediaKeys: [] });
 
     // Persist damage with the clean; maintenance and notifications run after commit.
     for (const damage of damageItems) {
@@ -1073,7 +1109,12 @@ export async function POST(
 
 
     await clearSharedCleanerJobDraft(params.id, db);
-    await enqueueSubmissionFollowups(db, { jobId: job.id, submissionId: submission.id, propertyId: job.propertyId, lowStockRows });
+    await enqueueSubmissionFollowups(db, {
+      jobId: job.id, submissionId: submission.id, propertyId: job.propertyId, lowStockRows,
+      ...(formUrgent.queued.length > 0
+        ? { urgentStock: { cleanerId: session.user.id, observedAt: submission.createdAt.toISOString(), requests: formUrgent.queued } }
+        : {}),
+    });
 
     // This callback runs only after the submission and receipt have committed.
     afterCommit.push(async () => {
