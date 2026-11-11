@@ -11,6 +11,7 @@ import { EDataTable, type EDataColumn, type TableSort } from "@/components/v2/ui
 import { EPill } from "@/components/v2/ui/pill";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
 import { EButton } from "@/components/v2/ui/primitives";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
 import { groupJobsBySydneyDay } from "@/lib/jobs/date-grouping";
 import { SYDNEY_TZ } from "@/lib/time/sydney-range";
 import type { JobsColumnSort } from "@/lib/jobs/list-sort";
@@ -106,7 +107,11 @@ export function JobsTable(props: JobsTableProps) {
         },
       });
     }
-    list.push({ key: "status", header: "Status", sortKey: "status", cell: (job) => <JobStatusPill status={job.status} /> });
+    list.push({
+      key: "status", header: "Status", sortKey: "status",
+      // The workflow vector is decorative; the written pill carries the status.
+      cell: (job) => <span className="inline-flex items-center gap-1.5"><span aria-hidden className="inline-flex"><JobStatusIcon status={job.status} /></span><JobStatusPill status={job.status} /></span>,
+    });
     if (showGuestIn) list.push({ key: "guest", header: "Guest in", cell: (job) => <GuestInCell job={job} /> });
     if (showCharge) list.push({ key: "charge", header: "Charge", align: "right", cell: (job) => <ChargeCell job={job} /> });
     list.push({
@@ -134,7 +139,7 @@ export function JobsTable(props: JobsTableProps) {
       selection={{
         selected: props.selected,
         onChange: props.onSelectionChange,
-        rowLabel: (job) => `Select ${job.property?.name ?? "job"} ${job.jobNumber ?? ""}`.trim(),
+        rowLabel: (job) => `Select ${job.property?.name ?? "job"}`,
         disabled: props.selectionDisabled,
       }}
       onRowClick={onOpen}

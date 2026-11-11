@@ -264,6 +264,14 @@ enum ClientInvoiceStatus {
   VOID
 }
 
+/// INVOICE bills the client; CREDIT_NOTE corrects an issued invoice by
+/// reducing what is owed on it (negative lines, its own number). A credit note
+/// never edits the invoice it credits.
+enum ClientInvoiceKind {
+  INVOICE
+  CREDIT_NOTE
+}
+
 enum JobTaskSource {
   ADMIN
   CLIENT
@@ -3316,7 +3324,7 @@ model PropertyClientRate {
 /// same second must never be handed the same number, and a read-modify-write
 /// against a JSON blob cannot promise that.
 model InvoiceSequence {
-  /// "CLIENT" | "CLEANER"
+  /// "CLIENT" | "CLEANER" | "CREDIT_NOTE"
   key        String   @id
   prefix     String   @default("INV-")
   lastNumber Int      @default(0)
@@ -3425,16 +3433,30 @@ model ClientInvoice {
   paidDate              DateTime?
   stripePaymentIntentId String?
   metadata              Json?
+  /// INVOICE for every row created before credit notes existed.
+  kind                  ClientInvoiceKind   @default(INVOICE)
+  /// Set only on a CREDIT_NOTE: the issued invoice it reduces.
+  creditsInvoiceId      String?
+  /// The client's own reference or purchase order number, printed on the PDF
+  /// and sent to Xero as the reference.
+  clientReference       String?             @db.VarChar(100)
+  /// A note to the client printed on the PDF. Not the internal metadata.notes.
+  clientNote            String?             @db.Text
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 
   client              Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // NoAction (checked at the end of the statement) so deleting a client still
+  // cascades through an invoice and its credit notes together.
+  creditsInvoice      ClientInvoice?       @relation("ClientInvoiceCredits", fields: [creditsInvoiceId], references: [id], onDelete: NoAction)
+  creditNotes         ClientInvoice[]      @relation("ClientInvoiceCredits")
   lines               ClientInvoiceLine[]
   shoppingSettlements ShoppingSettlement[]
   payments            ClientPayment[]
 
   @@index([status])
   @@index([clientId, status])
+  @@index([creditsInvoiceId])
 }
 
 // A cleaner's own invoice, snapshotted when they "send" it, so admin can review
@@ -3504,6 +3526,10 @@ model ClientInvoiceLine {
   /// happened somewhere it did not. This exists so a hand-added charge can sit
   /// under the property it relates to instead of sinking into "Other charges".
   propertyId    String?
+  /// A DISCOUNT line entered as a percentage keeps that percentage here; its
+  /// stored lineTotal is the amount worked out when it was added. Null for a
+  /// discount entered as an amount, and for every other line.
+  discountPercent Float?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

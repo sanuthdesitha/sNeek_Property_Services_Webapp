@@ -9,7 +9,8 @@ import * as React from "react";
 import { ShieldAlert } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EButton, EEyebrow } from "@/components/v2/ui/primitives";
-import { EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
+import { LabeledField } from "../hub/labeled-field";
 import type { QualityIssueRow } from "@/lib/quality/issue-rows";
 import { RECTIFICATION_STATUSES, titleCaseKey } from "@/lib/quality/types";
 import { keyList } from "./issue-format";
@@ -149,16 +150,16 @@ export function IssueActions({
         <fieldset disabled={busy} className={PANEL}>
           <legend className="sr-only">Mark rectification</legend>
           <div className="flex flex-wrap items-end gap-2">
-            <EField label="Status" className="min-w-[200px] flex-1">
+            <LabeledField label="Status" className="min-w-[200px] flex-1">
               <ESelect value={rectStatus} onChange={(event) => setRectStatus(event.target.value)}>
                 {RECTIFICATION_STATUSES.map((status) => (
                   <option key={status} value={status}>{titleCaseKey(status)}</option>
                 ))}
               </ESelect>
-            </EField>
-            <EField label="Minutes">
+            </LabeledField>
+            <LabeledField label="Minutes">
               <EInput type="number" min="0" className="w-28" value={rectMinutes} onChange={(event) => setRectMinutes(event.target.value)} />
-            </EField>
+            </LabeledField>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <PhotoPicker
@@ -188,12 +189,12 @@ export function IssueActions({
         <fieldset disabled={busy} className={PANEL}>
           <legend className="sr-only">Propose deduction</legend>
           <div className="flex flex-wrap items-end gap-2">
-            <EField label="Amount ($)">
+            <LabeledField label="Amount ($)">
               <EInput type="number" min="0" step="0.01" className="w-32" value={dedAmount} onChange={(event) => setDedAmount(event.target.value)} />
-            </EField>
-            <EField label="Note" className="min-w-[220px] flex-1">
+            </LabeledField>
+            <LabeledField label="Note" className="min-w-[220px] flex-1">
               <EInput value={dedNote} onChange={(event) => setDedNote(event.target.value)} placeholder="Reason for the deduction" />
-            </EField>
+            </LabeledField>
           </div>
           <EButton size="sm" variant="gold" disabled={busy} onClick={proposeDeduction}>
             {busy ? "Saving…" : "Propose deduction"}
@@ -207,9 +208,9 @@ export function IssueActions({
       {action === "escalate" ? (
         <fieldset disabled={busy} className={PANEL}>
           <legend className="sr-only">Escalate</legend>
-          <EField label="Escalation reason">
+          <LabeledField label="Escalation reason">
             <ETextarea rows={3} value={escReason} onChange={(event) => setEscReason(event.target.value)} placeholder="Why this is being escalated…" />
-          </EField>
+          </LabeledField>
           <EButton size="sm" variant="gold" disabled={busy} onClick={escalate}>
             {busy ? "Saving…" : "Escalate issue"}
           </EButton>

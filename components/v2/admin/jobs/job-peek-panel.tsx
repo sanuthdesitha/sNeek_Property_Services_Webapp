@@ -45,6 +45,9 @@ export function JobPeekPanel({ jobId, row, readOnly, onClose, onChanged }: PeekP
   if (!jobId) return null;
   return (
     <ESidePanel
+      // Re-keyed per job: focus moves to the new job's title and Escape returns
+      // to the row that opened this job.
+      key={jobId}
       open
       label="Job preview"
       title={title}

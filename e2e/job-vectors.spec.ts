@@ -155,19 +155,16 @@ test("vector workflow, live status and consolidated filters", async ({ browser }
   await page.getByRole("textbox", { name: "Search jobs" }).fill(job);
   await expect(page.locator('[data-motion="plan"]').first()).toBeVisible({ timeout: 30_000 });
   await screenshots(page, "filters");
-  const summary = page.locator("summary").filter({ hasText: "Filters ·" });
-  await summary.focus();
-  await page.keyboard.press("Enter");
-  await expect(page.getByRole("textbox", { name: "Search jobs" })).not.toBeVisible();
+  // Filters are visible chips now (2026-11 redesign); no disclosure to collapse.
+  await expect(page.getByRole("button", { name: /^Status/ })).toBeVisible();
   await db.job.update({ where: { id: job }, data: { status: "EN_ROUTE" } });
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect(page.locator('[data-motion="travel"]').first()).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Jobs options" }).click();
-  await page.getByRole("menuitem", { name: "View options" }).click();
+  await page.getByRole("button", { name: "Columns", exact: true }).click();
   await expect(page.getByRole("heading", { name: "View options", exact: true })).toBeFocused();
   await expect(page.getByText("Team default", { exact: true })).toBeVisible();
   await screenshots(page, "view-options");
-  await page.getByRole("button", { name: "Board view" }).click();
+  await page.getByRole("button", { name: "Board", exact: true }).click();
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.getByText("Team default", { exact: true })).not.toBeVisible();
   await expect(page.locator('[data-motion="travel"]').first()).toBeVisible();

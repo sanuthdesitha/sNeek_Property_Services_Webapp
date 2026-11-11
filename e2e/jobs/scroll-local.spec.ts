@@ -8,7 +8,7 @@ class JobsScrollPage {
     await this.page.route("**/api/jobs?*", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ jobs, pagination: { page: 1, limit: 50, totalCount: 40, totalPages: 1, hasMore: false } }) }));
   }
   async open() { await this.page.goto("/v2/admin/jobs?dateScope=all&jobsState=1"); await this.loaded(); }
-  async loaded() { await expect(this.page.getByRole("button", { name: "Manage Scroll property 39", exact: true })).toBeAttached(); }
+  async loaded() { await expect(this.page.getByRole("button", { name: "Preview Scroll property 39", exact: true })).toBeAttached(); }
   async scrollTo(y: number) {
     await this.page.evaluate(value => window.scrollTo({ top: value, behavior: "instant" }), y);
     await expect.poll(() => this.page.evaluate(() => window.scrollY)).toBe(y);
