@@ -2,7 +2,7 @@
 
 /**
  * ESTATE cleaner — Contact sheet. A bottom sheet listing the tap-to-dial
- * numbers for a job (client / office / guest). Pure props, mobile-first, 48px
+ * numbers for a job (client / office / departing guest / arriving guest). Pure props, mobile-first, 48px
  * tap targets. Rows without a phone number are hidden. Styled on Estate tokens.
  */
 import * as React from "react";
@@ -12,8 +12,12 @@ export interface JobContact {
   clientName?: string | null;
   clientPhone?: string | null;
   companyPhone?: string | null;
+  /** The guest ARRIVING after this clean. */
   guestName?: string | null;
   guestPhone?: string | null;
+  /** The guest LEAVING before this clean. */
+  departingGuestName?: string | null;
+  departingGuestPhone?: string | null;
 }
 
 type Row = { key: string; label: string; sublabel?: string | null; phone: string };
@@ -33,12 +37,23 @@ function buildRows(contact: JobContact): Row[] {
   if (companyPhone) {
     rows.push({ key: "office", label: "Office", sublabel: "Dispatch", phone: companyPhone });
   }
+  // Departing first: that is who a cleaner needs on arrival (still inside,
+  // keys, something left behind). Both are labelled so they cannot be confused.
+  const departingGuestPhone = (contact.departingGuestPhone ?? "").trim();
+  if (departingGuestPhone) {
+    rows.push({
+      key: "departing-guest",
+      label: (contact.departingGuestName ?? "").trim() || "Guest",
+      sublabel: "Departing guest",
+      phone: departingGuestPhone,
+    });
+  }
   const guestPhone = (contact.guestPhone ?? "").trim();
   if (guestPhone) {
     rows.push({
       key: "guest",
       label: (contact.guestName ?? "").trim() || "Guest",
-      sublabel: "Guest",
+      sublabel: "Arriving guest",
       phone: guestPhone,
     });
   }

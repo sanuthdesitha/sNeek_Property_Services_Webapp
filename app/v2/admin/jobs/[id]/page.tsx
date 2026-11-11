@@ -15,7 +15,7 @@ import { resolveStartBriefingItems, startBriefingHash } from "@/lib/forms/start-
 import { jobDetailTabHref, resolveJobDetailTab } from "@/lib/jobs/detail-tabs";
 import { ClockRecordsEditor, GpsRecordEditor } from "@/components/v2/admin/jobs/job-clock-gps-editor";
 import { ClockLocationsMap } from "@/components/shared/clock-locations-map";
-import { buildGuestCountLabel, buildGuestSummary } from "@/lib/jobs/guest-summary";
+import { buildGuestCountLabel, buildGuestSummary, telHref } from "@/lib/jobs/guest-summary";
 import {
   EBadge,
   EButton,
@@ -766,6 +766,7 @@ export default async function AdminJobDetailPage({
   // checkout triggered the job — i.e. the guest who just left — so it must not
   // be read as "the guest for this job". See lib/jobs/guest-summary.ts.
   const nextGuest = buildGuestSummary(jobMeta.reservationContext);
+  const departingGuestTel = telHref(job.reservation?.guestPhone);
 
   // Counts for the departing booking, shown in the secondary block below.
   const departingGuestCountLabel = job.reservation
@@ -1011,10 +1012,45 @@ export default async function AdminJobDetailPage({
               {/* DEPARTING booking — the reservation this job hangs off. Kept
                   because admin asked to see everything, but clearly demoted so
                   it can never be mistaken for the arriving guest again. */}
+              {job.reservation && (job.reservation.guestName || job.reservation.guestPhone || job.reservation.guestEmail) ? (
+                <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <EBadge tone="neutral" soft>Departing</EBadge>
+                    <span className="tabular-nums text-[hsl(var(--e-muted-foreground))]">
+                      {job.reservation.checkoutAtLocal
+                        ? format(new Date(job.reservation.checkoutAtLocal), "d MMM HH:mm")
+                        : format(new Date(job.reservation.endDate), "d MMM")}
+                    </span>
+                  </div>
+                  <p className="mt-1 font-[600] text-[0.9375rem]">{job.reservation.guestName ?? "Guest"}</p>
+                  {departingGuestCountLabel ? (
+                    <p className="text-[hsl(var(--e-muted-foreground))]">{departingGuestCountLabel}</p>
+                  ) : null}
+                  <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+                    {departingGuestTel ? (
+                      <a
+                        href={`tel:${departingGuestTel}`}
+                        className="inline-flex items-center gap-1 font-[550] text-[hsl(var(--e-accent-portal))] hover:underline"
+                      >
+                        <Phone className="h-3.5 w-3.5" /> {job.reservation.guestPhone}
+                      </a>
+                    ) : job.reservation.guestPhone ? (
+                      <span>{job.reservation.guestPhone}</span>
+                    ) : (
+                      <span className="text-[hsl(var(--e-muted-foreground))]">No phone number on the booking</span>
+                    )}
+                    {job.reservation.guestEmail ? (
+                      <a href={`mailto:${job.reservation.guestEmail}`} className="text-[hsl(var(--e-muted-foreground))] hover:underline">
+                        {job.reservation.guestEmail}
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               {job.reservation ? (
                 <details className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
                   <summary className="cursor-pointer text-[hsl(var(--e-muted-foreground))]">
-                    Departing booking{job.reservation.guestName ? ` — ${job.reservation.guestName}` : ""}
+                    Departing booking details
                   </summary>
                   <div className="mt-2 space-y-1">
                     <p className="tabular-nums text-[hsl(var(--e-muted-foreground))]">

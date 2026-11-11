@@ -10,7 +10,7 @@ import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { getJobTimingHighlights, parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
-import { buildCleanerGuestSummary, cleanerPreparationContext } from "@/lib/jobs/guest-summary";
+import { buildCleanerDepartingGuest, buildCleanerGuestSummary, cleanerPreparationContext } from "@/lib/jobs/guest-summary";
 import {
   guestSummaryFromReservation,
   resolveFinalCheckupItems,
@@ -62,6 +62,19 @@ export async function GET(
             // Job-start gate context (accountability): expected duration, laundry
             // bag identity, sofa beds, and setup reference images. `name` (already
             // selected) carries the property short code (e.g. "J04").
+          },
+        },
+        // The booking whose check-out created this job: the DEPARTING guest.
+        // Only what a cleaner may see; never email, profile link or code.
+        reservation: {
+          select: {
+            guestName: true,
+            guestPhone: true,
+            checkoutAtLocal: true,
+            endDate: true,
+            adults: true,
+            children: true,
+            infants: true,
           },
         },
         assignments: {
@@ -424,9 +437,13 @@ export async function GET(
     const companyPhone = settings.companyPhone?.trim() ? settings.companyPhone.trim() : null;
     const guestName = jobMeta.reservationContext?.guestName ?? null;
     const guestPhone = jobMeta.reservationContext?.guestPhone ?? null;
+    // The guest LEAVING before this clean, from the job's own reservation.
+    const departingGuest = buildCleanerDepartingGuest(job.reservation);
+    const departingGuestName = departingGuest?.name ?? null;
+    const departingGuestPhone = departingGuest?.phoneLabel ?? null;
     const contact =
-      clientName || clientPhone || companyPhone || guestName || guestPhone
-        ? { clientName, clientPhone, companyPhone, guestName, guestPhone }
+      clientName || clientPhone || companyPhone || guestName || guestPhone || departingGuestPhone
+        ? { clientName, clientPhone, companyPhone, guestName, guestPhone, departingGuestName, departingGuestPhone }
         : null;
     // The guest ARRIVING after this clean, trimmed for cleaner eyes. Name and
     // phone were already exposed above via `contact`; this adds only the
@@ -542,6 +559,7 @@ export async function GET(
       nfcArrival,
       contact,
       nextGuest,
+      departingGuest,
       jobMeta: {
         ...(cleanerViewer ? redactJobMetaForCleaner(jobMeta, session.user.id) : jobMeta),
         reservationContext: preparationContext,

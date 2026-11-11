@@ -9,10 +9,12 @@
 import * as React from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, Copy, KeyRound, MapPin, PhoneCall, Shirt, Package, User, UserRound, X } from "lucide-react";
-import type { GuestSummary } from "@/lib/jobs/guest-summary";
+import type { DepartingGuestSummary, GuestSummary } from "@/lib/jobs/guest-summary";
 
 /** The trimmed arriving-guest summary the cleaner API returns as `nextGuest`. */
 export type CleanerNextGuest = GuestSummary;
+/** The guest checking out before this clean, as the cleaner API returns it. */
+export type CleanerDepartingGuest = DepartingGuestSummary;
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
 import { EAccessInfo } from "@/components/v2/shared/access-info";
 import PropertyAccessGuide from "@/components/v2/cleaner/property-access-guide";
@@ -200,7 +202,7 @@ function NextGuestBlock({ nextGuest }: { nextGuest?: CleanerNextGuest | null }) 
 
   return (
     <div className="space-y-2">
-      <SectionHeading icon={<UserRound className="h-3.5 w-3.5" />}>Next guest</SectionHeading>
+      <SectionHeading icon={<UserRound className="h-3.5 w-3.5" />}>Arriving guest</SectionHeading>
       <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
         <p className="text-[0.875rem] font-[600] text-[hsl(var(--e-foreground))]">
           {nextGuest.name ?? "Guest"}
@@ -215,7 +217,7 @@ function NextGuestBlock({ nextGuest }: { nextGuest?: CleanerNextGuest | null }) 
             Arrives {arrival}
           </p>
         ) : null}
-        <p>Incoming stay: {nextGuest.stayNights == null ? "Unknown nights" : `${nextGuest.stayNights} nights (iCal dates)`}</p>
+        <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Incoming stay: {nextGuest.stayNights == null ? "Unknown nights" : `${nextGuest.stayNights} nights (iCal dates)`}</p>
         {nextGuest.preparationGuestCount != null ? (
           <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
             Prepare for {nextGuest.preparationGuestCount}
@@ -228,9 +230,61 @@ function NextGuestBlock({ nextGuest }: { nextGuest?: CleanerNextGuest | null }) 
             className="mt-2 inline-flex items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-1.5 text-[0.8125rem] font-[550] text-[hsl(var(--e-primary))]"
           >
             <PhoneCall className="h-3.5 w-3.5" />
-            Call guest
+            Call arriving guest
           </a>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The guest LEAVING before this clean. Shown above the arriving guest and
+ * labelled, so the number a cleaner calls about keys or a late check-out is
+ * never mistaken for the next guest's.
+ */
+function DepartingGuestBlock({ departingGuest }: { departingGuest?: CleanerDepartingGuest | null }) {
+  if (!departingGuest) return null;
+  const checkout = (() => {
+    const withTime = Boolean(departingGuest.checkoutAtLocal);
+    const value = departingGuest.checkoutAtLocal ?? departingGuest.checkoutDate;
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return withTime
+      ? parsed.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+      : parsed.toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" });
+  })();
+
+  return (
+    <div className="space-y-2">
+      <SectionHeading icon={<UserRound className="h-3.5 w-3.5" />}>Departing guest</SectionHeading>
+      <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3">
+        <p className="text-[0.875rem] font-[600] text-[hsl(var(--e-foreground))]">
+          {departingGuest.name ?? "Guest"}
+        </p>
+        {checkout ? (
+          <p className="mt-0.5 text-[0.8125rem] tabular-nums text-[hsl(var(--e-muted-foreground))]">
+            Checks out {checkout}
+          </p>
+        ) : null}
+        {departingGuest.guestCountLabel ? (
+          <p className="mt-0.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            {departingGuest.guestCountLabel}
+          </p>
+        ) : null}
+        {departingGuest.phone ? (
+          <a
+            href={`tel:${departingGuest.phone}`}
+            className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-1.5 text-[0.8125rem] font-[550] text-[hsl(var(--e-primary))]"
+          >
+            <PhoneCall className="h-3.5 w-3.5" />
+            Call departing guest
+            <span className="tabular-nums font-[450] text-[hsl(var(--e-muted-foreground))]">{departingGuest.phoneLabel}</span>
+          </a>
+        ) : (
+          <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No phone number on the booking.</p>
+        )}
       </div>
     </div>
   );
@@ -268,6 +322,7 @@ export function PropertyInfoDrawer({
   keyPickupLocation,
   contact,
   nextGuest,
+  departingGuest,
   readFirstItems,
   restockNeeds,
   showAccess = true,
@@ -286,6 +341,8 @@ export function PropertyInfoDrawer({
   /** Arriving guest, from the API's `nextGuest`. Optional so other call sites
    *  (and any cached payload predating the field) compile and simply omit it. */
   nextGuest?: CleanerNextGuest | null;
+  /** Guest checking out before this clean, from the API's `departingGuest`. */
+  departingGuest?: CleanerDepartingGuest | null;
   readFirstItems: ReadFirstItem[];
   restockNeeds: { name: string; needed: number; unit?: string | null }[];
 }) {
@@ -345,6 +402,8 @@ export function PropertyInfoDrawer({
           <AddressBlock property={property} />
 
           <ClientBlock contact={contact} />
+
+          <DepartingGuestBlock departingGuest={departingGuest} />
 
           <NextGuestBlock nextGuest={nextGuest} />
 

@@ -632,3 +632,13 @@ Request: decisions on the five open items (access codes get a window from accept
 - Client lists with switches turned off in the browser; the projections are unit-tested.
 - The mobile app, the production database, the storage bucket's public/private setting, and deployment. Nothing was deployed.
 
+### Follow-up: departing guest contact (2026-11-11)
+
+Request: show the departing guest's contact details where only the upcoming guest's were shown.
+
+- Change: `buildCleanerDepartingGuest`; `departingGuest` and departing contact fields on the cleaner job form response; "Departing guest" row in the cleaner Call sheet and block in the property info drawer; departing guest contact shown openly on the Estate admin job detail.
+- Tests: `tests/lib/departing-guest-summary.test.ts`, `tests/components/cleaner-contact-sheet-guests.test.tsx`.
+- TypeScript: pass. Vitest: 7,289 passed without a database plus 124 database-backed tests on disposable port 55439; 2 skipped. Production build: pass, 765 pages.
+- Chromium on the production build at 390px and 1280px, light and dark, with a fixture booking on the job: the Call sheet (opened by keyboard) listed the departing guest; the drawer showed the block with a working `tel:` link and check-out time; the admin card showed name, phone and email; one h1 and no horizontal overflow on each. The cleaner API response contained neither the guest's email nor the reservation code.
+- Not verified: a job with both an arriving and a departing guest in the browser (the fixture has no incoming booking; ordering and labels are covered by the component test); the classic pages, which were not changed; the mobile app; production data. Check-out time is shown in the viewer's device timezone, the same as the existing arrival time.
+

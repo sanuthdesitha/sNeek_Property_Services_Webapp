@@ -1694,6 +1694,16 @@ Owner decisions on the items the portal review left open, and the remaining item
 
 **Left as is.** The mobile push device endpoint moves an existing token to the signed-in account. A token identifies one phone and is known only to that phone, so this is the correct handover when a different person signs in on it; refusing it would keep sending the previous person's notifications to the device.
 
+### Departing guest contact (2026-11)
+
+A turnover job hangs off the reservation whose check-out created it (`Job.reservation`): the guest who is LEAVING. The arriving guest comes from `jobMeta.reservationContext`. Only the arriving guest's contact was shown to cleaners, and the office saw the departing guest's only inside a collapsed disclosure.
+
+- `buildCleanerDepartingGuest` in `lib/jobs/guest-summary.ts` builds the cleaner's view from the reservation: name, phone, check-out time (or check-out day), party size. As with the arriving guest, never the email, profile link or reservation code. A booking with neither a name nor a phone is not shown as a guest.
+- `GET /api/jobs/[id]/form` selects only those reservation fields and returns `departingGuest`, and adds `departingGuestName`/`departingGuestPhone` to `contact`.
+- Cleaner: the Call sheet lists "Departing guest" before "Arriving guest", each labelled; the property info drawer has a "Departing guest" block above "Arriving guest" (renamed from "Next guest").
+- Office: the Estate job detail's Guests (iCal) card shows the departing guest's name, phone and email in the open, under a "Departing" badge; the remaining booking fields stay in the "Departing booking details" disclosure.
+- The classic (`/admin`, `/cleaner`) job pages are unchanged.
+
 ### Cleaner workflow presentation and charging (2026-10)
 
 The Estate cleaner heading includes the Sydney job date. The dashboard route is a compact next-stop link to the existing route workflow; totals refresh while visible. Today's brief groups secondary details into disclosures and explains charging evidence. The cleaner journey uses SVG step icons and identity/job-scoped return-stage memory, reset by a full refresh. Travel's Start driving opens the existing route with this assigned job selected; an already active route remains authoritative.
@@ -1709,6 +1719,8 @@ Effective Jackson Airbnb turnover forms add required Ring/Minut charging proof, 
 **Live API authorization and Admin rights (2026-10).** Protected API handlers authorize locally through `requireRole`/`requireSession` or audited wrappers, including live account/role validation, impersonation identity and OPS feature enforcement. Middleware supplies trusted path/method headers but no longer repeats API authorization via an HTTP session callback. Effective ADMIN and accounts holding ADMIN have full feature access independently of manager packs or policy-store availability; this never gives an impersonated target the actor’s owner rights. Revoked/inactive accounts remain unauthorized. Read-only impersonation, retained identity validation and route-specific sensitive-action checks remain enforced. Page navigation and retained-account resolution still use the trusted `NEXTAUTH_URL_INTERNAL` transport (the standard runner defaults to loopback at its Next port); those callbacks reject redirects and time out after five seconds. The Estate Jobs error card distinguishes session, permission, service and malformed-payload failures.
 
 ## Change Log
+
+- **2026-11-11 (departing guest contact):** Cleaners see the departing guest's name, phone and check-out in the Call sheet and property info drawer, labelled separately from the arriving guest; the office sees the departing guest's contact in the open on the Estate job detail. No schema change. See "Departing guest contact".
 
 - **2026-11-11 (access window, reimbursement approval, upload ownership):** Cleaner access details are limited to acceptance until the day after the clean; laundry sees cleaner access entries with a tidier stop panel; cleaner out-of-pocket shopping waits for office approval; submitted file keys must have been uploaded by the caller, a co-cleaner on the job or the office; field roles cannot upload to office folders; client list endpoints, stock and shopping routes, cases, task requests and invoice payment follow the per-client visibility switches; `allowInventoryThresholdEdits` is enforced; laundry pings attach to the driver's own work; cleaner request bounds and future-dated ping rejection. No schema change. See "Access window, reimbursement approval, upload ownership and portal follow-ups".
 

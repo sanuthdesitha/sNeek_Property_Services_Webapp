@@ -187,3 +187,58 @@ export function buildCleanerGuestSummary(context?: JobReservationContext | null)
   );
   return trimmed;
 }
+
+/** The booking a turnover job hangs off: the guest who is checking OUT. */
+export interface DepartingReservation {
+  guestName?: string | null;
+  guestPhone?: string | null;
+  checkoutAtLocal?: Date | string | null;
+  endDate?: Date | string | null;
+  adults?: number | null;
+  children?: number | null;
+  infants?: number | null;
+}
+
+export interface DepartingGuestSummary {
+  name: string | null;
+  /** Digits-and-plus only, safe for a tel: href. Null when unusable. */
+  phone: string | null;
+  /** Human-readable phone exactly as supplied. */
+  phoneLabel: string | null;
+  /** ISO check-out time when the feed gave one, else null. Callers format it. */
+  checkoutAtLocal: string | null;
+  /** ISO check-out day from the booking dates, else null. */
+  checkoutDate: string | null;
+  guestCountLabel: string | null;
+  hasAnything: boolean;
+}
+
+function isoOrNull(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+/**
+ * What a CLEANER should see about the guest leaving before this clean: who
+ * they are, when they check out, and a number to call (still inside, left
+ * something behind, keys not returned). Like the arriving-guest summary it
+ * leaves out the guest's email, profile link and reservation code.
+ */
+export function buildCleanerDepartingGuest(reservation?: DepartingReservation | null): DepartingGuestSummary | null {
+  if (!reservation) return null;
+  const phoneLabel = cleanText(reservation.guestPhone);
+  const summary: DepartingGuestSummary = {
+    name: cleanText(reservation.guestName),
+    phone: telHref(phoneLabel),
+    phoneLabel,
+    checkoutAtLocal: isoOrNull(reservation.checkoutAtLocal),
+    checkoutDate: isoOrNull(reservation.endDate),
+    guestCountLabel: buildGuestCountLabel(reservation),
+    hasAnything: false,
+  };
+  // A bare check-out date with no person attached is not a guest to show.
+  summary.hasAnything = Boolean(summary.name || summary.phoneLabel);
+  return summary.hasAnything ? summary : null;
+}
+
