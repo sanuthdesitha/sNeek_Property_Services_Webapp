@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getApiErrorStatus } from "@/lib/api/http";
 import { getAppSettings } from "@/lib/settings";
+import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +21,12 @@ export async function GET() {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const now = new Date();
 
-    const dayStart = new Date(now);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
+    // Today's stops by the Sydney calendar day. This read the SERVER's local
+    // midnight, so on a UTC host "today" ran from 10/11am Sydney time and a
+    // morning stop showed under the wrong day.
+    const todayKey = sydneyTodayKey(now);
+    const dayStart = sydneyDayStart(todayKey);
+    const dayEnd = sydneyDayStart(addDaysToKey(todayKey, 1));
 
     const [drivers, tasks, settings] = await Promise.all([
       db.cleanerLocationPing.findMany({

@@ -119,6 +119,43 @@ function stageHeuristicPercent(job: ProgressJob): number {
 }
 
 /**
+ * Checklist progress from the cleaner's live draft alone: required items
+ * answered over required items visible, or null when there is no draft, no
+ * template or nothing required. Never falls back to a time estimate, so a
+ * caller can say which basis it is showing.
+ */
+export async function computeChecklistProgressPercent(
+  job: ProgressJob,
+  settings: AppSettings,
+  property: Record<string, unknown> = {}
+): Promise<number | null> {
+  try {
+    const draft = await getSharedCleanerJobDraft(job.id);
+    if (!draft?.state || typeof draft.state !== "object") return null;
+    const answers =
+      draft.state.answers && typeof draft.state.answers === "object" && !Array.isArray(draft.state.answers)
+        ? (draft.state.answers as Record<string, unknown>)
+        : {};
+    const uploadsRaw =
+      draft.state.uploads && typeof draft.state.uploads === "object" && !Array.isArray(draft.state.uploads)
+        ? (draft.state.uploads as Record<string, unknown>)
+        : {};
+    const uploadCounts: Record<string, number> = {};
+    for (const [fieldId, media] of Object.entries(uploadsRaw)) {
+      uploadCounts[fieldId] = Array.isArray(media) ? media.length : 0;
+    }
+    const template = await resolveJobTemplate(job, settings);
+    if (!template?.schema) return null;
+    const { done, total } = countRequiredProgress(template.schema, answers, uploadCounts, property);
+    if (total <= 0) return null;
+    return Math.min(100, Math.max(0, Math.round((done / total) * 100)));
+  } catch {
+    // Progress is decorative, never fatal.
+    return null;
+  }
+}
+
+/**
  * progressPercent for an IN_PROGRESS job (null otherwise). Cheap: one
  * AppSetting read for the draft + at most two FormTemplate lookups.
  */
@@ -128,34 +165,6 @@ export async function computeJobProgressPercent(
   property: Record<string, unknown> = {}
 ): Promise<number | null> {
   if (job.status !== "IN_PROGRESS") return null;
-
-  try {
-    const draft = await getSharedCleanerJobDraft(job.id);
-    if (draft?.state && typeof draft.state === "object") {
-      const answers =
-        draft.state.answers && typeof draft.state.answers === "object" && !Array.isArray(draft.state.answers)
-          ? (draft.state.answers as Record<string, unknown>)
-          : {};
-      const uploadsRaw =
-        draft.state.uploads && typeof draft.state.uploads === "object" && !Array.isArray(draft.state.uploads)
-          ? (draft.state.uploads as Record<string, unknown>)
-          : {};
-      const uploadCounts: Record<string, number> = {};
-      for (const [fieldId, media] of Object.entries(uploadsRaw)) {
-        uploadCounts[fieldId] = Array.isArray(media) ? media.length : 0;
-      }
-
-      const template = await resolveJobTemplate(job, settings);
-      if (template?.schema) {
-        const { done, total } = countRequiredProgress(template.schema, answers, uploadCounts, property);
-        if (total > 0) {
-          return Math.min(100, Math.max(0, Math.round((done / total) * 100)));
-        }
-      }
-    }
-  } catch {
-    // Fall through to the heuristic — progress is decorative, never fatal.
-  }
-
-  return stageHeuristicPercent(job);
+  const checklist = await computeChecklistProgressPercent(job, settings, property);
+  return checklist ?? stageHeuristicPercent(job);
 }

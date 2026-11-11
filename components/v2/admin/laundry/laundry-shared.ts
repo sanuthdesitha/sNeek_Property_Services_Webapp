@@ -81,6 +81,8 @@ export type LaundryTaskDTO = {
   droppedAt?: string | null;
   noPickupRequired?: boolean;
   createdAt?: string | null;
+  /** The version loaded; sent back as the stale-write guard on edits and moves. */
+  updatedAt?: string | null;
   property?: {
     id?: string;
     name?: string | null;
@@ -90,8 +92,8 @@ export type LaundryTaskDTO = {
     keyLostMode?: boolean;
     client?: { id?: string; name?: string | null; email?: string | null } | null;
   } | null;
-  supplier?: { id?: string; name?: string | null; pricePerKg?: number | null } | null;
-  job?: { scheduledDate?: string | null; status?: string | null } | null;
+  supplier?: { id?: string; name?: string | null; pricePerKg?: number | null; avgTurnaround?: number | null } | null;
+  job?: { id?: string; jobNumber?: string | null; scheduledDate?: string | null; status?: string | null } | null;
   confirmations?: Array<{
     id: string;
     photoUrl?: string | null;

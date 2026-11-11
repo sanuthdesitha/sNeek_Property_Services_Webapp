@@ -15,6 +15,7 @@ import { canActAs } from "@/lib/auth/roles";
 import { getOpsAccess } from "@/lib/rbac/ops-access";
 import { opsLevelAllows } from "@/lib/rbac/ops-catalog";
 import type { AccountListVisibility } from "./list/types";
+import type { PersonCapabilities } from "./person-types";
 
 export type AccountsViewer = {
   id: string;
@@ -26,7 +27,16 @@ export type AccountsViewer = {
   visibility: AccountListVisibility;
 };
 
-type SessionUser = { id: string; role: Role | string; heldRoles?: (Role | string)[] };
+export function personCapabilities(viewer: AccountsViewer): PersonCapabilities {
+  return {
+    isAdmin: viewer.isAdmin,
+    canWriteNotes: viewer.canWriteNotes,
+    canUploadDocuments: viewer.canUploadDocuments,
+    canResendInvite: viewer.canWriteNotes,
+  };
+}
+
+type SessionUser ={ id: string; role: Role | string; heldRoles?: (Role | string)[] };
 
 export async function resolveAccountsViewer(user: SessionUser): Promise<AccountsViewer> {
   const held = (user.heldRoles ?? [user.role]) as Role[];

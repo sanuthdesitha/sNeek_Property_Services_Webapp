@@ -126,6 +126,8 @@ describe("client payment route", () => {
     m.findMany.mockResolvedValue([{ status: "SENT", totalAmount: -100 }]);
     expect((await request()).status).toBe(200);
     expect(m.intent).toHaveBeenCalledWith(expect.objectContaining({ amount: 10000 }));
+    // The attempt row records the amount charged, not the invoice total (fixed 2026-11-11).
+    expect(m.paymentCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ amount: 100 }) });
   });
 
   it("refuses when credits leave nothing owed", async () => {

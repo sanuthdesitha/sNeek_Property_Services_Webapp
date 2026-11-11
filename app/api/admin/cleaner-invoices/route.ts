@@ -1,51 +1,45 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { publicUrl } from "@/lib/s3";
+import { isListQueryError, parseListQuery } from "@/lib/admin/list-query";
+import {
+  cleanerInvoicePayees,
+  cleanerInvoiceStats,
+  listCleanerInvoices,
+  parseCleanerInvoiceFilters,
+  withPayees,
+} from "@/lib/cleaner/invoice-admin-list";
+import { CLEANER_INVOICE_SORTS } from "@/lib/cleaner/invoice-admin-list-types";
 
 export const dynamic = "force-dynamic";
 
-/** Payee-submitted invoices (cleaners AND QA inspectors) for admin review +
- *  Xero push. The query is deliberately unfiltered by role — every payee who
- *  invoices must appear here. */
-export async function GET() {
+/**
+ * Payee-submitted invoices (cleaners AND QA inspectors) for admin review.
+ *
+ *  - `?paginated=1` → `{ rows, total, page, pageSize, pageCount, sort, dir, counts }`
+ *    with status / cleaner / from / to / q filters (the redesigned tab).
+ *  - `?view=stats` → the four stat cards; `?view=context` → payees for the filter.
+ *  - no parameters → the original response, unchanged: the newest 200 rows as a
+ *    bare array (the classic /admin/cleaner-invoices screen still reads it).
+ */
+export async function GET(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const rows = await db.cleanerInvoiceSubmission.findMany({
-      orderBy: [{ createdAt: "desc" }],
-      take: 200,
-    });
-    const cleanerIds = Array.from(new Set(rows.map((r) => r.cleanerId)));
-    const users = cleanerIds.length
-      ? await db.user.findMany({
-          where: { id: { in: cleanerIds } },
-          select: { id: true, name: true, email: true, role: true },
-        })
-      : [];
-    const byId = new Map(users.map((u) => [u.id, u]));
-    return NextResponse.json(
-      rows.map((r) => {
-        const u = byId.get(r.cleanerId);
-        return {
-          ...r,
-          cleanerName: u?.name || u?.email || "Payee",
-          // CLEANER or QA_INSPECTOR — an inspections-only invoice has no cleans,
-          // so the reviewer needs to know which kind of payee raised it.
-          cleanerRole: u?.role ?? null,
-          // The payee's receipt/screenshot for their "I've been paid" claim.
-          // Resolved here because the reviewer confirming the claim has to be
-          // able to look at the proof, not just read that it exists.
-          paidClaimedProofUrls: Array.isArray(r.paidClaimedProofKeys)
-            ? r.paidClaimedProofKeys
-                .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-                .map((key) => ({ key, url: publicUrl(key) }))
-            : [],
-        };
-      }),
-    );
-  } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message ?? "Could not list submitted invoices." }, { status });
+    const params = new URL(req.url).searchParams;
+    const view = params.get("view");
+    if (view === "stats") return NextResponse.json(await cleanerInvoiceStats());
+    if (view === "context") return NextResponse.json({ payees: await cleanerInvoicePayees() });
+    if (params.get("paginated") === "1") {
+      const query = parseListQuery(params, { sortable: CLEANER_INVOICE_SORTS, defaultSort: "submitted", defaultDir: "desc" });
+      return NextResponse.json(await listCleanerInvoices({ query, filters: parseCleanerInvoiceFilters(params) }));
+    }
+    const rows = await db.cleanerInvoiceSubmission.findMany({ orderBy: [{ createdAt: "desc" }], take: 200 });
+    return NextResponse.json(await withPayees(rows));
+  } catch (err: unknown) {
+    if (isListQueryError(err)) return NextResponse.json({ error: err.message }, { status: 400 });
+    const message = err instanceof Error && err.message ? err.message : "Could not list submitted invoices.";
+    const status = message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
+    return NextResponse.json({ error: message }, { status });
   }
 }

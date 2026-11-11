@@ -157,6 +157,8 @@ export function LaundryEditDialog({
         ...(trimmedBags ? { bagCount: parsedBags } : {}),
         ...(evidencePhotoKeys.length ? { evidencePhotoKeys } : {}),
         ...(form.evidenceNote.trim() ? { evidenceNote: form.evidenceNote.trim() } : {}),
+        // Refuse rather than overwrite a run that changed after this dialog opened.
+        ...(task.updatedAt ? { expectedUpdatedAt: task.updatedAt } : {}),
       }),
     });
     const body = await res.json().catch(() => ({}));

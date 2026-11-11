@@ -73,6 +73,10 @@ Risk: highest of all phases. Sub-phases: (a) list, paging, sort, bulk and merge 
 
 > **(c) built 2026-11-11, awaiting the final build and browser pass.** Delivered: blank invoice and credit note in "New invoice ▾", "Issue credit note" on sent invoices (Reverse kept only for approved ones), credit notes on their own `CN-` sequence with limit checks and owing reduced, Xero credit notes (`ACCRECCREDIT`, mocked only), discount lines, client reference / PO and note to client on the PDF, the server-side content lock and PIN checks, one due-date rule for list and PDF, client-facing email link; plus history rows for send, Xero push and bulk, and 401/403 on the invoice route. "Fully credited" is a display state, not a status. Migration `20261111180000_client_invoice_credit_notes`. Details: `docs/SYSTEM.md`, "Credit notes, blank invoices, discounts and server-side invoice locks".
 
+> **(d) built 2026-11-11, mocked Xero only, awaiting the final build and browser pass.** Hourly `xero-invoice-sync` worker job and "Refresh from Xero" (editor, list header, bulk) read Xero invoices and credit notes; new Xero payments are recorded through the existing payment path (method XERO, Xero payment id recorded once, PAID by payments + credits); void/deleted in Xero, differing totals, over/prepayments, unknown credits, vanished payments, payments that would exceed the total and Xero-paid-but-not-settled are left as "Needs review: …"; failed reads are "Xero state unknown: …" and change nothing else. Real states on the list, filter, editor card, stage bar and header badge. Fixed with it: Stripe webhook records the amount charged and settles by payments + credits; the pay route records the amount charged. No payment receipt email is sent for Xero payments (owner to decide). Nothing was run against real Xero; first-run checks are in the review record. Details: `docs/SYSTEM.md`, "Xero status and payment pull; cleaner invoices on the shared design".
+
+> **(e) built 2026-11-11, awaiting the final build and browser pass.** APPROVED step (ADMIN only), one transition table (`lib/cleaner/invoice-transitions.ts`) for routes, bulk and screen, an audit row per transition; push and payment need APPROVED. Cleaner invoices tab on `EDataTable` with chips and real counts, search, payee and period filters, server paging and sort, one action per row, bulk approve / push to Xero / CSV with per-row outcomes, real stat cards, Predicted view unchanged; review page `/v2/admin/finance/cleaner-invoices/[id]` and admin PDF (from the submission snapshot). Deviations: no bulk Record payment (no bulk-safe path); the payee name is not sortable (not a column); the admin PDF is an office copy built from the snapshot, not a re-run of the cleaner's live calculation (which would print a different document); a rejected claim returns an unpushed invoice to SUBMITTED, so it needs approving again. Details: same SYSTEM section.
+
 ### 16, 17, 18. Forms: QA templates, forms and stats, templates
 
 Today: no bulk edit, groups, undo, drag, or version history; a save overwrites the published row; the server does not run the validation the phone runs (ranges, email format, details-when-no are client only); option membership is never checked; barcode is a text box; phone, date/time and barcode have no tests; rotation and property conditions cannot be edited in the builder; QA template edits do not bump the version and ops managers see buttons that return 403; a full duplicate of the builder still exists under `components/forms`.
@@ -142,10 +146,14 @@ Today the page only manages the per-job client PDF and shows no figures.
 
 ### 1. Command
 
+> **Built 2026-11-11, awaiting the final build and browser pass.** Date heading with real summary, portal-search box, New job, four filtered counters, the work queue (`lib/dashboard/work-queue*.ts`, every old attention kind kept, inline continuation / reimbursement / assign decisions on existing endpoints, role and pack filtering server-side), Today by cleaner, Money this month (finance/payroll only), and the old page's status, on-shift, upcoming, feedback and laundry figures below the fold. Sections load and refresh independently (`GET /api/admin/command/[section]`). Deviations: "Invoiced" shown as "Paid this month"; expiry reminder is link-only; Approvals, Cases and Lost and found links are unfiltered until those pages gain selection parameters. Details: `docs/SYSTEM.md`, "Command and Live ops".
+
 - One work queue from `lib/dashboard/work-queue.ts`, merging the attention summary, Live ops' immediate-attention list and the approvals that can be decided inline. Each item has a type, urgency, link with filters applied, and at most one inline action that calls the existing approval or assignment service.
 - KPI tiles link to pre-filtered pages. "Today by cleaner" strip. Each section loads independently, so one failed query shows one failed section.
 
 ### 4. Live ops
+
+> **Built 2026-11-11, awaiting the final build and browser pass.** "Live ops" heading, real summary and stream indicator, layer chips, Plan routes; real-count chips; exceptions (late, off site with the clock running, continuation, not started) with their actions; on-site progress incl. laundry routes; map with the selected person's card; one shared feed; field status; "Also needs attention" to Command; `/ops/map` redirect; Sydney day. Deviations: "Pause clock" is "Review clock" (no admin pause endpoint); "Tell client" opens the job's Messages tab (no admin delay-notice endpoint). Details: `docs/SYSTEM.md`, "Command and Live ops".
 
 - Map first with an exceptions list beside it: late, off site with the clock running, continuation requests, not started. Each has its actions.
 - One live feed shared by the map and the list. Counters are real counts. Planning lists move to Command. `/ops/map` redirects here. Sydney day boundaries use the shared helper.
@@ -186,6 +194,8 @@ Today the page only manages the per-job client PDF and shows no figures.
 - Pay rate becomes editable: `PATCH /api/admin/users/[id]/pay` (ADMIN only) with an effective date, audited, never changing rate snapshots on paid or issued work.
 - The receivables figure leaves this page. Client users get a profile link. Operations managers see only the controls they can use.
 
+Status (2026-11-11): built, browser pass pending. Not built: the pay rate's effective date (needs an effective-dated rate table, i.e. a schema migration; today a new rate applies from saving) and bulk "Message" (no staff messaging path takes a list of accounts through the notification pipeline). Also fixed here: last-active-admin guard, the VA account menu's missing PIN, client-login profile.
+
 ## Owner decisions (2026-11-11)
 
 1. Credit notes: approved as the way to correct a sent invoice, replacing "Reverse" for anything already sent.
@@ -223,6 +233,12 @@ Backlog found so far, to be cleared under this rule:
 | GET/DELETE invoice routes answer 400 for unauthorised or forbidden | Invoices | With the invoice step |
 | Invoice page errors on a malformed started-work snapshot instead of showing it read-only | Invoices | With the invoice step |
 | Send and Xero push write no audit row; bulk audit rows do not appear in an invoice's history | Invoices | With the invoice step |
+| Stripe webhook marked the invoice paid at its full total whatever was charged, ignored credits and never updated a PART_PAID invoice | Invoices | Fixed in Money (d) |
+| Client pay route stored the invoice total, not the amount charged, on its payment attempt | Invoices | Fixed in Money (d) |
+| Header "Xero connected · last sync" showed a token-refresh time | Invoices | Fixed in Money (d) |
+| Rejecting a payee's payment claim on an invoice already in Xero was refused | Cleaner invoices | Fixed in Money (e) |
+| The admin PATCH let a PAID_CLAIMED invoice be sent back or voided (releasing work the payee says was paid) | Cleaner invoices | Fixed in Money (e) |
+| Cleaner portal showed a reversed invoice as "Submitted" | Cleaner invoices | Fixed in Money (e) |
 
 ## Owner requirements restated (2026-11-11)
 
@@ -256,3 +272,12 @@ Each of these would change a business rule, money, or who can see or do what, so
 6. **Build:** per-client payment terms (used for due dates, overdue and the slow-payer finding) and the monthly Insights email (schedule, stored recipients, a settings entry, sent through the notification pipeline).
 
 Build order for these: a "Finance decisions" step (2 to 6, includes a migration for per-client terms and email settings) and a "Notifications in one place" step (1), each after the step currently holding the schema.
+
+### More items waiting for the owner (from the Accounts step)
+
+| Item | Question |
+| --- | --- |
+| Pay rate has no "applies from" date | Build effective-dated pay rates? Needs a migration. Today a new rate applies from the moment it is saved; amounts already paid never change |
+| "Resend invite" sends a sign-up code, not a fresh invitation link | Intended? |
+| Operations managers see pay rate and bank details whatever their payroll permission | Keep, or restrict to those with payroll access? |
+| No bulk "Message" to staff | Build once staff are recipients on the notification pipeline (part of "Notifications in one place") |

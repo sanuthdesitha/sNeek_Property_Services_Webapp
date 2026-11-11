@@ -3,61 +3,34 @@
 import { useRestorableState } from "@/hooks/use-restorable-state";
 
 /**
- * Client tab switch for the admin cleaner-invoices page. Two surfaces over the
- * same cleaner-invoice domain:
- *   • "Submitted" — the existing CleanerInvoicesWorkspace (invoices cleaners have
- *     actually sent: review, Xero push, mark paid, reverse/delete). Untouched.
- *   • "Predicted" — the native ExpectedInvoicesPanel: what each active cleaner is
- *     expected to invoice this period BEFORE they submit (money to prepare +
- *     per-invoice transparency + submitted-vs-expected reconciliation).
- *
- * A local segmented control (not EChipTabs, which is href/navigation-driven)
- * keeps both views mounted-on-demand within one page without a route change.
+ * The Cleaner invoices tab's two views over the same domain:
+ *   • "Submitted" — invoices payees have sent: the paged table, review page,
+ *     approve, Xero, payment, reverse, delete.
+ *   • "Predicted" — what each active payee is expected to invoice before they
+ *     submit (unchanged in function).
+ * The switch uses the shared filter chips (toggle buttons) and remembers the
+ * last view.
  */
-import * as React from "react";
-import { FileCheck2, LineChart } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { EFilterChips } from "@/components/v2/ui/filter-chips";
 import { CleanerInvoicesWorkspace } from "@/components/v2/admin/cleaner-invoices/cleaner-invoices-workspace";
 import { ExpectedInvoicesPanel } from "@/components/v2/admin/cleaner-invoices/expected-invoices-panel";
 
-type TabKey = "submitted" | "predicted";
+type ViewKey = "submitted" | "predicted";
 
-const TABS: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
-  { key: "submitted", label: "Submitted", icon: <FileCheck2 className="h-3.5 w-3.5" /> },
-  { key: "predicted", label: "Predicted", icon: <LineChart className="h-3.5 w-3.5" /> },
-];
-
-export function CleanerInvoicesTabs() {
-  const [tab, setTab] = useRestorableState<TabKey>("cleaner-invoices-tabs:tab", "submitted");
-
+export function CleanerInvoicesTabs({ role }: { role: string }) {
+  const [view, setView] = useRestorableState<ViewKey>("cleaner-invoices-tabs:tab", "submitted");
   return (
-    <div className="space-y-6">
-      <div className="-mx-1 overflow-x-auto px-1 pb-1">
-        <div className="inline-flex min-w-full items-center gap-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
-          {TABS.map((t) => {
-            const active = tab === t.key;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setTab(t.key)}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--e-radius)] px-3.5 py-1.5 text-[0.8125rem] font-[550] tracking-[0.01em] transition-colors duration-[160ms]",
-                  active
-                    ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
-                    : "text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-surface))] hover:text-[hsl(var(--e-foreground))]"
-                )}
-              >
-                {t.icon}
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {tab === "submitted" ? <CleanerInvoicesWorkspace /> : <ExpectedInvoicesPanel />}
+    <div className="space-y-4">
+      <EFilterChips
+        label="Cleaner invoice view"
+        chips={[
+          { key: "submitted", label: "Submitted" },
+          { key: "predicted", label: "Predicted" },
+        ]}
+        active={view}
+        onChange={setView}
+      />
+      {view === "predicted" ? <ExpectedInvoicesPanel /> : <CleanerInvoicesWorkspace role={role} />}
     </div>
   );
 }

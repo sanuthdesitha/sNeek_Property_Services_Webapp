@@ -28,7 +28,9 @@ const TESTABLE_ROLES: { role: Role; label: string; portal: string }[] = [
   { role: Role.OPS_MANAGER, label: "Ops manager", portal: "/v2/admin" },
 ];
 
-export default async function TestAsPage() {
+export default async function TestAsPage({ searchParams }: { searchParams?: { user?: string } }) {
+  // Opened from a person in Accounts: show just that person (same guards, same picker).
+  const focusId = typeof searchParams?.user === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(searchParams.user) ? searchParams.user : null;
   const session = await requireRealSession();
   if (session.user.role !== Role.ADMIN) {
     return (
@@ -69,7 +71,7 @@ export default async function TestAsPage() {
 
   const groups = TESTABLE_ROLES.map((r) => ({
     ...r,
-    users: users.filter((u) => u.role === r.role) as TestAsCandidate[],
+    users: users.filter((u) => u.role === r.role && (!focusId || u.id === focusId)) as TestAsCandidate[],
   }));
 
   return (
@@ -89,11 +91,18 @@ export default async function TestAsPage() {
         name. Test sessions expire on their own after an hour.
       </EAlert>
 
+      {focusId ? (
+        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+          Showing one person from Accounts.{" "}
+          <a className="underline" href="/v2/admin/system/test-as">Show everyone</a>
+        </p>
+      ) : null}
+
       {groups.every((g) => g.users.length === 0) ? (
         <ECard>
           <ECardBody>
             <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-              No active non-admin accounts to test as yet.
+              {focusId ? "That person cannot be tested as (only active, non-admin accounts can)." : "No active non-admin accounts to test as yet."}
             </p>
           </ECardBody>
         </ECard>

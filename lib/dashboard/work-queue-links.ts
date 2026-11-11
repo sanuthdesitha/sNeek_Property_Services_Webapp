@@ -3,7 +3,8 @@
  * what the row or tile counts, using that page's existing URL parameters:
  * Jobs (`statusChip`, `dateFrom`, `dateTo`; see lib/jobs/workspace-state),
  * Invoices (`tab=invoices&status=`; see use-invoice-list), the Quality hub
- * (`tab=review`). Pages with no selection parameter today (Cases, Approvals,
+ * (`tab=review`), Cases (`queue=open`, `open=<caseId>`, from the Cases step
+ * built in parallel). Pages with no selection parameter today (Approvals,
  * Lost and found) get their plain list; noted for their redesign steps.
  */
 import { addDaysToKey } from "@/lib/time/sydney-range";
@@ -46,7 +47,11 @@ export const INVOICES_SENT_HREF = "/v2/admin/finance?tab=invoices&status=SENT";
 export const PAY_REQUESTS_HREF = "/v2/admin/finance?tab=adjustments";
 export const PAYROLL_HREF = "/v2/admin/finance?tab=payroll";
 export const APPROVALS_HREF = "/v2/admin/approvals";
-export const CASES_HREF = "/v2/admin/cases";
+export const CASES_HREF = "/v2/admin/cases?queue=open";
+
+export function caseHref(caseId: string): string {
+  return `/v2/admin/cases?open=${encodeURIComponent(caseId)}`;
+}
 export const LAUNDRY_HREF = "/v2/admin/laundry";
 export const LOST_FOUND_HREF = "/v2/admin/lost-found";
 export const INVENTORY_HREF = "/v2/admin/inventory";

@@ -833,3 +833,80 @@ Verified
 
 Not verified
 - Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, real pointer drag) deferred by the owner to the final pass. Drag was tested with synthetic pointer events in jsdom only. No database-backed test: queries are covered through mocks and TypeScript.
+
+## Follow-up: Accounts (admin redesign step 11, 2026-11-11)
+
+Scope: `/v2/admin/accounts` rebuilt as drawn (one table, role tabs with counts including Needs attention, filters, export, bulk bar, person panel with sections edited in place) and the full account page reusing the same sections; `PATCH /api/admin/users/[id]/pay`; `POST /api/admin/users/bulk`; `GET /api/admin/users/export`; `GET /api/admin/users?paginated=1` and `GET /api/admin/users/[id]`. Details in `docs/SYSTEM.md` → "Accounts: one table for every login…". No schema change.
+
+Rules kept
+- Role/permission, impersonation, 2FA/PIN and pay arithmetic unchanged. ADMIN-only writes stay ADMIN-only (pay rate is new and ADMIN-only); OPS_MANAGER keeps the office note and resend invite and sees no control that would answer 403. Bank/ABN and rate visibility unchanged (ADMIN, OPS_MANAGER). The paginated list, export and person read never select password hashes, 2FA secrets, invitation tokens or the admin PIN.
+- Rate change writes only `User.hourlyRate` plus an audit row; payroll payouts, cleaner invoice submissions, assignment snapshots and settled pay are untouched (tested). No "Applies from" date (needs an effective-dated rate table, i.e. a migration).
+
+Existing problems fixed (with tests)
+- No guard against disabling or demoting the last active admin (race between two admins): added, in-transaction under an advisory lock, for the account PATCH and bulk disable.
+- VA screens' account menu (`account-actions-menu.tsx`) sent Reset password, Reset 2FA and Delete without the PIN/password the routes verify, so they always failed (423); Reset password also asked for a password the route ignores. Fixed.
+- Client logins had no profile (the detail page 404'd for CLIENT): they now have the panel and the page.
+- Edited ABN and extended-profile bank details were never displayed on the account page (it showed only the User-row fields); both are shown now, labelled by source.
+- Account activity timestamps were formatted in the browser's timezone; now Australia/Sydney.
+
+Verification
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors at the time of the last run.
+- New tests: `tests/lib/accounts-list-rules.test.ts` (tabs, old `?tab=` mapping, Needs attention rules, counts, missing figures, column omission, filters, sort allow-list and nulls-last, paging, CSV escaping and omitted columns), `tests/api/admin-users-list.test.ts` (old array shape unchanged, paginated shape, 400 on unknown/hidden sort, office roles only, export), `tests/api/admin-user-pay.test.ts` (ADMIN only, bounds, audit, frozen records untouched, snapshot and job-type rate win in `computeCleanerPay`), `tests/api/admin-users-bulk.test.ts` (per-person outcomes, self and last-admin refused, OPS limits, cap), `tests/api/admin-user-guards.test.ts` (last-admin on PATCH; reset password, reset 2FA and delete still 423 without PIN/password), `tests/components/accounts-person-panel.test.tsx` (failed save keeps draft, freeze during save, late response not applied to another person, OPS controls, admin actions, PIN sent, client login panel), `tests/components/accounts-hub.test.tsx` (old tab link, counts and summary, one h1, dash for missing, OPS sees no Invite / admin bulk actions, export href), `tests/components/account-actions-menu.test.tsx` (VA menu sends the PIN). Existing related files (notes, accounts stats, VA team manager, test-as unlock, impersonation, ops policy/middleware/guards, sensitive-action grants and the files grep found for users/roles/VA/impersonation): all passed; two database suites were skipped (no disposable database in this run).
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard) deferred by the owner to the final pass. No database-backed test of the list queries; they are covered through mocks and TypeScript.
+
+## Command and Live ops redesign (2026-11-11)
+
+Scope: `/v2/admin` (Command) and `/v2/admin/ops` (Live ops) rebuilt to the approved designs; `/v2/admin/ops/map` redirects. Details in `docs/SYSTEM.md`, "Command and Live ops: work queue, filtered counters, one live feed (2026-11)".
+
+Rules kept
+- Inline actions call existing endpoints with their existing bodies only: continuation approve/decline, shopping reimbursement approve (`READY`), assignment through the Jobs peek panel. No assignment, continuation, pay, clock or notification rule changed; no schema change.
+- Access: live `requireRole` on the page and on `GET /api/admin/command/[section]` (mapped to the dashboard pack) and `GET /api/admin/ops/live-board` (same pack as the Live ops page). Queue rows, tiles and actions are filtered server-side by the viewer's ops packs; money needs finance (pay also payroll); a read-only impersonation gets no actions.
+- Unknown is never zero: failed tiles show "—", failed queue sources are named, failed money figures are listed, a failed section shows its own Retry; a refused action keeps its row with the server's reason.
+
+Behaviour changed on purpose
+- The old Command failed as a whole on any query error; sections now fail alone. `tests/components/admin-command-reliability.test.tsx` was rewritten for this (its legacy guarantees kept: no false empty state, no private error text, every approval category surfaced with its link, no "all clear" while work is pending).
+- "Money this month" and the revenue-today figure are shown only to finance/payroll viewers (previously anyone who could open Command saw revenue today and outstanding invoices). Owner to confirm.
+- "Invoiced" in the design is shown as "Paid this month" (no existing invoiced-this-month figure; adding one is a money rule).
+- Live ops planning lists (dispatch blockers, QA and stale cases, new leads, laundry exceptions, expiring documents, immediate attention) are now rows in Command's work queue; Live ops keeps a counted "Also needs attention" link row.
+
+Existing problems fixed (with tests)
+- Live ops "today" used the server's local clock; counters were lengths of lists capped at 8; two components polled the same location feed; stale-case links used a `?jobId=` filter the Cases page ignores; leads and documents linked to list pages instead of the record.
+- `getAdminAttentionSummary` (new cases since yesterday) and the cleaner and client attention cut-offs used server-local day boundaries; now Sydney keys (`tests/lib/immediate-attention-days.test.ts`).
+
+Verification
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors at the last run.
+- New tests: `tests/lib/work-queue-rules.test.ts`, `tests/lib/work-queue.test.ts`, `tests/lib/command-sections.test.ts`, `tests/lib/live-board-rules.test.ts`, `tests/lib/live-board.test.ts`, `tests/lib/live-feed-and-redirect.test.ts`, `tests/lib/immediate-attention-days.test.ts`, `tests/api/command-section-route.test.ts`, `tests/components/live-ops-feed.test.tsx`, rewritten `tests/components/admin-command-reliability.test.tsx`. Existing related suites (attention counts, dashboard metrics, live status/positions, live-location auth, client/cleaner attention, client job progress, ops policy, portal search, route plan) pass.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, map rendering with a real Maps key, the SSE stream against a live server) deferred to the final pass. No database-backed test of the new queries.
+
+## Follow-up: Money (d) Xero status and payment pull, (e) cleaner invoices on the shared design (2026-11-11)
+
+Scope: details in `docs/SYSTEM.md` → "Xero status and payment pull; cleaner invoices on the shared design". No schema change and no migration (state in `ClientInvoice.metadata.xeroSync`, Xero payments in `metadata.payments[]`, last run in `AppSetting` `xeroInvoiceSync`, `APPROVED` as a string status).
+
+What changed
+- Xero reads for ACCREC invoices (batched by IDs, ≤ 50) and ACCRECCREDIT credit notes; typed failures for every read problem; a 429 retried once after Retry-After ≤ 60 s.
+- Hourly `xero-invoice-sync` worker job (:20 Sydney) and `POST /api/admin/invoices/xero-sync`; new Xero payments recorded through `patchClientInvoice` (method XERO, Xero payment id once, existing PAID settlement); discrepancies (void/deleted in Xero, totals differ, over/prepayments, credits not known here, vanished payment, would exceed total, Xero PAID but not settled) left for review; failed reads stored as "Xero state unknown: …". No client receipt email for a payment read from Xero.
+- Screens: real Xero states in the list column, Xero filter, CSV, editor card (with Refresh from Xero), stage-bar notes, header badge (stored last successful run only).
+- Pre-existing fixes: Stripe webhook records the amount charged and settles by payments + credits, idempotent per checkout session, never assumes the full amount; `POST /api/client/invoices/[id]/pay` stores the amount charged on its attempt row. What clients are charged is unchanged. The header badge's "last sync" was a token-refresh time; the cleaner portal showed a reversed invoice as "Submitted"; rejecting a payment claim on an invoice already in Xero was refused (now returns it to In Xero); the PATCH accepted a send-back or void of a PAID_CLAIMED invoice (releasing work the payee says was paid), which the screen never offered — now refused.
+- Cleaner invoices: APPROVED step (ADMIN only, 403 for operations managers), one transition table used by every route, the bulk route and the screen, audit row per transition; push and payment need APPROVED (legacy XERO_PUSHED rows can still be paid); paged list with chips, search, payee and period filters, real stats, bulk approve / push / CSV with per-row outcomes; review page with stage bar, snapshot lines, notes, proof, comparison and history; admin PDF from the submission snapshot. A payee may claim payment on APPROVED. The old 834- and 677-line components are split (largest new file 315 lines).
+
+Verified (this run)
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors in these paths (errors seen only in other engineers' in-flight files: `lib/dashboard/work-queue-sources.ts`, and transient TS6053 for deleted accounts components).
+- New tests: `tests/lib/xero-invoice-sync-rules.test.ts`, `tests/lib/xero-read-transport.test.ts`, `tests/lib/xero-invoice-sync-service.test.ts`, `tests/api/invoice-xero-payment-path.test.ts`, `tests/api/invoice-xero-sync-route.test.ts`, `tests/lib/stripe-checkout-payment.test.ts`, `tests/lib/client-invoice-xero-display.test.ts`, `tests/lib/cleaner-invoice-transitions.test.ts`, `tests/api/cleaner-invoice-list-bulk-pdf.test.ts`, `tests/api/cleaner-invoice-pay-claim-approved.test.ts`, `tests/components/cleaner-invoice-review.test.tsx`, plus the worker schedule test added to `tests/lib/worker-registration.test.ts`.
+- Existing tests updated on purpose: `cleaner-invoice-admin-transitions` and `cleaner-invoice-export-guards` (push and payment now need APPROVED; fixtures moved to APPROVED/XERO_PUSHED, SUBMITTED added to the refusals), `cleaner-invoice-delivery-review` (rewritten for the paged table; same rules), `admin-attention-money` (badge statuses now the Needs action set), `invoice-step-c-history-owing` (asserts the amount charged on the attempt row), `worker-registration` (mocks the new job).
+- 100 files covering touched code (xero, invoice, cleaner-invoice, payroll, settlement, attention, worker/scheduler, stripe, ops catalog, approvals, editor and list components): 1,164 passed, 3 skipped; the skipped database suite `tests/db/client-invoice-started-jobs.test.ts` was then run on a fresh disposable database on 127.0.0.1:55439 (migrations deployed): 3 passed; database dropped afterwards.
+
+Not verified
+- Nothing was exercised against real Xero or Stripe (no provider credentials here). Every Xero rule is covered with a mocked client only.
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard) deferred by the owner to the final pass.
+
+First real Xero run: what to check
+- Response shape: that `GET Invoices?IDs=…&page=1` returns `Payments` (PaymentID, Date, Amount, Status), `AmountPaid`, `AmountCredited` and `UpdatedDateUTC` for each invoice; if Payments are absent in the list response, every invoice with Xero payments will read "Xero state unknown: listed payments but no amount paid" or record nothing — check one invoice paid in Xero.
+- That ids are matched (case-insensitive) and none come back "missing".
+- Totals: invoices pushed GST-exclusive may differ from the stored total by Xero's per-line rounding; any difference over half a cent is flagged "Totals differ" — review the first few flagged before deciding whether a tolerance is needed (owner decision).
+- Rate limits: with many invoices, watch for "rate limit" unknowns; the run is bounded to 200 invoices + 20 credit notes per hour.
+- The token: without `offline_access` there is no refresh token, so after ~30 minutes every scheduled run reads "No active Xero connection, or its sign-in has lapsed" (state unknown) until someone reconnects. Expect this to be the common state until offline access is granted in the Xero app.
+- Who appears in History: scheduled runs are attributed to the earliest active administrator account and labelled "Xero sync (scheduled)".

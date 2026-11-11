@@ -28,7 +28,7 @@ import { getAdminAttentionCounts, getMoneyAttentionCounts } from "@/lib/admin/at
 beforeEach(() => {
   m.invoiceCount.mockReset().mockResolvedValue(5);
   m.submissionCount.mockImplementation(async ({ where }: { where: { status: unknown } }) =>
-    JSON.stringify(where.status) === JSON.stringify({ in: ["SUBMITTED", "PAID_CLAIMED"] }) ? 3 : 1,
+    JSON.stringify(where.status) === JSON.stringify({ in: ["SENDING", "SUBMITTED", "APPROVED", "XERO_EXPORTING", "PAID_CLAIMED"] }) ? 3 : 1,
   );
 });
 

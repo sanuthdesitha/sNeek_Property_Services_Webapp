@@ -52,7 +52,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         { status: 409 }
       );
     }
-    if (existing.status !== "SUBMITTED" && existing.status !== "XERO_PUSHED") {
+    // APPROVED (2026-11-11) sits between SUBMITTED and XERO_PUSHED, both of
+    // which could already be claimed, so an approved invoice can be too.
+    if (existing.status !== "SUBMITTED" && existing.status !== "APPROVED" && existing.status !== "XERO_PUSHED") {
       return NextResponse.json(
         { error: `An invoice in ${existing.status} state cannot be claimed as paid.` },
         { status: 409 }

@@ -8,6 +8,7 @@ import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
 import { publicUrl } from "@/lib/s3";
+import { filterTasksVisibleToUser, laundryWeekTaskInclude, withHandoffActorNames } from "@/lib/laundry/week-feed";
 
 const updateLaundryTaskSchema = z.object({
   pickupDate: z.string().datetime().optional(),
@@ -30,6 +31,9 @@ const updateLaundryTaskSchema = z.object({
   evidencePhotoKeys: z.array(z.string().trim().min(1)).max(8).optional(),
   receiptImageKey: z.string().trim().optional().nullable(),
   evidenceNote: z.string().trim().max(2000).optional().nullable(),
+  // Optional stale-write guard (the version the screen loaded). When sent, an
+  // edit to a run that changed since is refused instead of overwriting it.
+  expectedUpdatedAt: z.string().datetime().optional(),
 });
 
 function parseNotesJson(notes: string | null | undefined) {
@@ -75,6 +79,25 @@ async function createRoleNotifications(roles: Role[], subject: string, body: str
       sentAt: new Date(),
     })),
   });
+}
+
+/**
+ * GET — one run in the same shape as the week feed (handoff names resolved),
+ * so a linked `?open=<taskId>` can show the run panel when the run is not in
+ * the day on screen. Office roles only, like the rest of this route.
+ */
+export async function GET(_req: NextRequest, { params }: { params: { taskId: string } }) {
+  try {
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const task = await db.laundryTask.findUnique({ where: { id: params.taskId }, include: laundryWeekTaskInclude });
+    if (!task) return NextResponse.json({ error: "Laundry task not found." }, { status: 404 });
+    const [visible] = await withHandoffActorNames(filterTasksVisibleToUser([task], session.user.role, session.user.id));
+    if (!visible) return NextResponse.json({ error: "Laundry task not found." }, { status: 404 });
+    return NextResponse.json(visible);
+  } catch (err: any) {
+    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    return NextResponse.json({ error: err.message }, { status });
+  }
 }
 
 export async function PATCH(
@@ -238,10 +261,14 @@ export async function PATCH(
         confirmedAt: true,
         pickedUpAt: true,
         droppedAt: true,
+        updatedAt: true,
       },
     });
     if (!existingTask) {
       return NextResponse.json({ error: "Laundry task not found." }, { status: 404 });
+    }
+    if (body.expectedUpdatedAt && existingTask.updatedAt.getTime() !== new Date(body.expectedUpdatedAt).getTime()) {
+      return NextResponse.json({ error: "This run changed since you opened it. Refresh and review it before saving again." }, { status: 409 });
     }
 
     if (body.status === LaundryStatus.SKIPPED_PICKUP && !body.skipReasonCode && !existingTask.skipReasonCode) {

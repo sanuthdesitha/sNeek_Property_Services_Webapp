@@ -81,9 +81,9 @@ export default async function V2RouteMapPage({
               <Link href={`/v2/admin/jobs/route-map?date=${tomorrowDate}`}>Tomorrow</Link>
             </EButton>
             <EButton asChild size="sm" variant="outline">
-              <Link href={`/v2/admin/ops/map?date=${date}`}>
+              <Link href="/v2/admin/ops">
                 <MapPinned className="h-4 w-4" />
-                Live ops map
+                Live ops
               </Link>
             </EButton>
           </form>

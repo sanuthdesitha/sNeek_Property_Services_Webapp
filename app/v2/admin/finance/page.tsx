@@ -189,10 +189,11 @@ export default async function AdminFinancePage({ searchParams }: { searchParams?
         {tab === "cleaner-invoices" ? (
           <div className="space-y-4">
             <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-              Predict what each cleaner will invoice before they submit, then review and settle the invoices they have sent — push
-              to Xero, mark paid, reverse or delete (a reversed or deleted invoice lets the cleaner resend a corrected one).
+              Predict what each cleaner will invoice before they submit, then review and settle the invoices they have sent —
+              approve{session.user.role === Role.ADMIN ? "" : " (administrators only)"}, push to Xero, record payment, reverse or
+              delete (a reversed or deleted invoice lets the cleaner resend a corrected one).
             </p>
-            <CleanerInvoicesTabs />
+            <CleanerInvoicesTabs role={session.user.role} />
           </div>
         ) : null}
         {tab === "payroll" ? <PayRunsTab /> : null}

@@ -18,6 +18,7 @@ import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
+import { CLEANER_NEEDS_ACTION_STATUSES } from "@/lib/cleaner/invoice-transitions";
 
 const TZ = "Australia/Sydney";
 
@@ -52,7 +53,7 @@ export type AdminAttentionCounts = {
   finance: number;
   /** Client invoices not yet sent: DRAFT (to review) or APPROVED (to send). */
   clientInvoicesToSend: number;
-  /** Payee invoices awaiting the business (SUBMITTED or PAID_CLAIMED). */
+  /** Payee invoices awaiting the business (CLEANER_NEEDS_ACTION_STATUSES). */
   cleanerInvoices: number;
   /** New, uncontacted leads. */
   growth: number;
@@ -70,7 +71,10 @@ export type MoneyAttentionCounts = {
 export async function getMoneyAttentionCounts(): Promise<MoneyAttentionCounts> {
   const [clientInvoicesToSend, cleanerInvoices] = await Promise.all([
     db.clientInvoice.count({ where: { status: { in: [ClientInvoiceStatus.DRAFT, ClientInvoiceStatus.APPROVED] } } }),
-    db.cleanerInvoiceSubmission.count({ where: { status: { in: ["SUBMITTED", "PAID_CLAIMED"] } } }),
+    // The cleaner-invoice tab's own "Needs action" chip, so badge and chip
+    // agree: APPROVED still needs the office until it is paid or in Xero, and
+    // a delivery review or a pending export needs someone too.
+    db.cleanerInvoiceSubmission.count({ where: { status: { in: [...CLEANER_NEEDS_ACTION_STATUSES] } } }),
   ]);
   return { clientInvoicesToSend, cleanerInvoices };
 }

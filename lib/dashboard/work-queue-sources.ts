@@ -130,9 +130,9 @@ export async function staleCaseItems(ctx: QueueContext): Promise<WorkQueueItem[]
     overlap: true,
     title: `Case open since ${formatInTimeZone(item.createdAt, ctx.timeZone, "d MMM")}: ${item.title}`,
     detail: [item.property?.name, item.caseType, item.severity].filter(Boolean).join(" · "),
-    href: links.CASES_HREF,
+    href: links.caseHref(item.id),
     actions: [
-      { kind: "link", label: "Open case", href: links.CASES_HREF },
+      { kind: "link", label: "Open case", href: links.caseHref(item.id) },
       ...(item.jobId ? [{ kind: "link" as const, label: "Open job", href: links.jobHref(item.jobId) }] : []),
     ],
   }));
@@ -236,9 +236,12 @@ export async function lostItemItems(ctx: QueueContext): Promise<WorkQueueItem[]>
     db.lostFoundItem.count({ where }),
     db.lostFoundItem.findMany({
       where, orderBy: { createdAt: "desc" }, take: PER_KIND_ROW_CAP,
-      select: { id: true, itemName: true, guestName: true, guestContact: true, createdAt: true, property: { select: { name: true } } },
+      select: { id: true, itemName: true, guestName: true, guestContact: true, createdAt: true, propertyId: true },
     }),
   ]);
+  const propertyIds = Array.from(new Set(rows.map((item) => item.propertyId).filter((id): id is string => Boolean(id))));
+  const properties = propertyIds.length ? await db.property.findMany({ where: { id: { in: propertyIds } }, select: { id: true, name: true } }) : [];
+  const propertyName = new Map(properties.map((property) => [property.id, property.name]));
   const items = rows.map((item) => {
     const contact = links.contactHref(item.guestContact);
     const actions: WorkQueueAction[] = [{ kind: "link", label: "Open", href: links.LOST_FOUND_HREF }];
@@ -246,7 +249,7 @@ export async function lostItemItems(ctx: QueueContext): Promise<WorkQueueItem[]>
     return row("lost-item", {
       id: `lost:${item.id}`,
       title: `Lost item reported: ${item.itemName}`,
-      detail: [item.property?.name, item.guestName ? `guest ${item.guestName}` : "guest not recorded", `reported ${formatInTimeZone(item.createdAt, ctx.timeZone, "d MMM")}`].filter(Boolean).join(" · "),
+      detail: [item.propertyId ? propertyName.get(item.propertyId) : null, item.guestName ? `guest ${item.guestName}` : "guest not recorded", `reported ${formatInTimeZone(item.createdAt, ctx.timeZone, "d MMM")}`].filter(Boolean).join(" · "),
       href: links.LOST_FOUND_HREF,
       actions,
     });

@@ -274,6 +274,8 @@ const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   "": "dashboard",
   activity: "dashboard",
   "nav-attention": "dashboard",
+  // Command sections (GET /api/admin/command/[section]); rows inside are filtered per pack.
+  command: "dashboard",
   "live-locations": "dashboard",
   dispatch: "jobs",
   jobs: "jobs",
@@ -454,6 +456,8 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
   // The merged "Invoices and pay" page: its payee tabs belong to payroll, as
   // their APIs do. Only the page reads the tab; an API path cannot be steered
   // by a query string.
+  // The cleaner invoice review page belongs to payroll, like its tab and API.
+  if (/^\/admin\/finance\/cleaner-invoices(?:\/|$)/.test(path)) return "payroll";
   if (/^\/admin\/finance\/?$/.test(path)) {
     return FINANCE_PAYROLL_TABS.has(url.searchParams.get("tab") ?? "") ? "payroll" : "finance";
   }

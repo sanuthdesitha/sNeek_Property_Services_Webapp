@@ -86,8 +86,8 @@ export function LaundryNewRun({ onApplied }: { onApplied: () => void }) {
 
   return (
     <>
-      <EButton variant="gold" size="sm" onClick={() => void generate()} disabled={generating}>
-        <CalendarPlus className="h-3.5 w-3.5" /> {generating ? "Building…" : "New run"}
+      <EButton variant="outline" size="sm" onClick={() => void generate()} disabled={generating}>
+        <CalendarPlus className="h-3.5 w-3.5" /> {generating ? "Building…" : "Generate week"}
       </EButton>
 
       <EModal

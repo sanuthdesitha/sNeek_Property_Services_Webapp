@@ -9,9 +9,7 @@ import { listDisputes } from "@/lib/phase4/disputes";
 import { parseCaseDescription } from "@/lib/issues/case-utils";
 import type { ClientPortalVisibility } from "@/lib/settings";
 import type { ImmediateAttentionItem } from "@/components/shared/immediate-attention-panel";
-import { toZonedTime } from "date-fns-tz";
-
-const TZ = "Australia/Sydney";
+import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 
 const ACTIVE_JOB_STATUSES: JobStatus[] = [
   JobStatus.UNASSIGNED,
@@ -27,19 +25,21 @@ const ACTIVE_JOB_STATUSES: JobStatus[] = [
   JobStatus.QA_REVIEW,
 ];
 
-function startOfTodaySydney() {
-  const now = toZonedTime(new Date(), TZ);
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+// scheduledDate is a UTC-midnight calendar key; createdAt/reviewedAt are
+// instants. The old helpers built "today" from the server's local clock
+// (new Date(y, m, d) on a Sydney-zoned copy), which put the boundary hours off
+// on any server not running in Sydney. Keys come from the shared helpers now.
+function startOfTodaySydney(now = new Date()) {
+  return new Date(`${sydneyTodayKey(now)}T00:00:00.000Z`);
 }
 
-function startOfTomorrowSydney() {
-  const start = startOfTodaySydney();
-  return new Date(start.getTime() + 86_400_000);
+function startOfTomorrowSydney(now = new Date()) {
+  return new Date(`${addDaysToKey(sydneyTodayKey(now), 1)}T00:00:00.000Z`);
 }
 
-function startOfYesterdaySydney() {
-  const start = startOfTodaySydney();
-  return new Date(start.getTime() - 86_400_000);
+/** The instant yesterday began in Sydney (for timestamp columns). */
+function startOfYesterdaySydney(now = new Date()) {
+  return sydneyDayStart(addDaysToKey(sydneyTodayKey(now), -1));
 }
 
 function nonZero(items: ImmediateAttentionItem[]) {
