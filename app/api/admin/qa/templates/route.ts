@@ -4,6 +4,8 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { buildDefaultQaTemplateSchema, jobTypeLabel } from "@/lib/qa/templates";
+import { qaRevisionCounts } from "@/lib/qa/template-admin";
+import { findQaTemplateConflicts } from "@/lib/qa/template-conflicts";
 
 const schema = z.object({
   name: z.string().trim().min(1).max(160).optional(),
@@ -28,7 +30,15 @@ export async function GET() {
         take: 500,
       }),
     ]);
-    return NextResponse.json({ templates, properties, jobTypes: Object.values(JobType) });
+    // Revisions come from the audit log; a failed read is reported as unknown,
+    // never as zero revisions.
+    const revisions = await qaRevisionCounts(templates.map((template) => template.id)).catch(() => null);
+    return NextResponse.json({
+      templates: templates.map((template) => ({ ...template, revisions: revisions ? revisions.get(template.id) ?? 0 : null })),
+      properties,
+      jobTypes: Object.values(JobType),
+      conflicts: findQaTemplateConflicts(templates.map((template) => ({ ...template, serviceType: String(template.serviceType) }))),
+    });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

@@ -35,6 +35,7 @@ import { AccountabilitySection } from "@/components/v2/admin/settings/accountabi
 import { FinalCheckupSettingsSection } from "@/components/v2/admin/settings/final-checkup-settings";
 import { NoPhotoSection } from "@/components/v2/admin/settings/no-photo-section";
 import { NotificationAudienceSection } from "@/components/v2/admin/settings/notification-audience-section";
+import { LostFoundSettingsSection } from "@/components/v2/admin/settings/lost-found-section";
 
 export const metadata = { title: "Settings · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -320,6 +321,8 @@ export default async function SettingsPage({
           readOnly={!isAdmin}
         />
       ) : null}
+
+      {activeTab === "lost-found" && isAdmin ? <LostFoundSettingsSection /> : null}
 
       {activeTab === "laundry" && isAdmin ? (
         <LaundrySection

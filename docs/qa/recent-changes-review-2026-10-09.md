@@ -928,3 +928,25 @@ Verified (this run)
 
 Not verified
 - Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, overflow, draft retention) deferred by the owner to the final pass. No database run: routes and services are tested with mocked Prisma only.
+
+## Follow-up: Notifications in one place (admin redesign, owner decision second set item 1, 2026-11-11)
+
+Changed
+- Manual job reminder (`lib/jobs/job-reminder.ts`) on the notification pipeline via `lib/notifications/office-sends.ts`: explicit `JOB_ASSIGNED_CLEANER` scope (`recipient-scopes.ts`), re-checked in `deliverInboxIntent` / `deliverProviderIntent`; INBOX intent delivered inline (`inline-dispatch.ts`) with an explicit `mobilePushCategory` so the phone app's row (`PUSH`, `SENT`, `mobile-outbox:pending:jobs`) is still produced; email / browser push via the pipeline only when `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS` lists them, else the previous direct send (claimed once, recorded). Truthful per-recipient outcomes in the response and the audit row; pipeline failure reports everyone as not reminded.
+- Envelope: optional `mobilePushCategory`, `recipientPreferences: "IGNORE"` (existing envelopes and hashes unchanged).
+- Catalog `lib/notifications/catalog*.ts` (45 types) + per-type controls (`type-controls.ts`, AppSetting, audited) + switch resolver (`catalog-switches.ts`).
+- `/v2/admin/notifications` extended (Comms center becomes the one area): Types, Delivery log, Health, Preferences. Every former Comms center control kept (control center and overrides → Preferences; classic log, review queue, Clear log → Delivery log; manual dispatch, resend, test push → Health). Nav entry "Notifications" (Configuration); settings destination "All notifications"; notification settings tabs show a pointer and keep working.
+- New routes: `GET/PATCH /api/admin/notifications/catalog`, `POST .../catalog/test`, `GET .../deliveries`, `GET .../health`, `POST .../actions/{staff-message,laundry-nudge,client-delay,guest-message}`.
+- Composer sends (`/api/admin/messages/send`) recorded in the delivery log.
+
+Parity (former Comms center, `git show origin/main:components/v2/admin/comms/comms-center.tsx`)
+- Control center → Preferences (same component). Manual dispatch → Health disclosure (same component). Delivery log → Delivery log tab "Classic log" disclosure (same component) plus the new unified table. Delivery queue → Delivery log "Review queue" disclosure (same component; `e2e/notifications/intent-queue-local.spec.ts` updated to the new location). Header "Test push" → Health. Header "Clear logs" → Delivery log "Clear log", same endpoint and confirmation (no PIN existed). Header "Refresh" → each tab's reload / Retry.
+
+Verified (this run)
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- New tests: `tests/lib/notification-catalog.test.ts`, `tests/lib/notification-office-sends.test.ts`, `tests/lib/notification-entity-scope.test.ts`, `tests/lib/notification-paths-controls.test.ts`, `tests/lib/notification-delivery-log.test.ts`, `tests/lib/notification-office-actions.test.ts`, `tests/api/notifications-area-routes.test.ts`, `tests/api/messages-send-record.test.ts`, `tests/components/notifications-area.test.tsx`.
+- Existing tests updated on purpose: `tests/api/jobs-bulk-remind.test.ts` and `tests/api/audit-v03-notification-producers.test.ts` (the reminder's inbox row is now a pipeline intent; same recipients, category, wording and "not sent" absorption).
+- 67 notification-related test files (notification, outbox, intent, reminder, push, email, SMS, mobile, worker, dispatch, settings navigation): 66 passed, 1 skipped (DB suite); plus every test importing the changed modules: 24 passed, 4 skipped (DB suites).
+
+Not verified
+- DB suites (`tests/db/*`) skipped: no `SNEEK_TEST_DATABASE_URL` set in this run (other engineers' fixtures share the working tree). Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, overflow, draft retention) deferred to the final pass. No real message sent; providers mocked. Production env (`SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS`, worker jobs, provider keys) not inspected.

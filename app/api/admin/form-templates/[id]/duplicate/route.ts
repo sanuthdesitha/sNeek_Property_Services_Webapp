@@ -17,12 +17,14 @@ import { templateErrorResponse } from "@/lib/forms/template-errors";
  * it.
  */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
     await requireRole([Role.ADMIN]);
-    const copy = await duplicateFormTemplate(params.id);
+    // `{ from: "draft" }` (the builder): copy the unpublished draft when there is one.
+    const body = (await req.json().catch(() => ({}))) as { from?: unknown };
+    const copy = await duplicateFormTemplate(params.id, { fromDraft: body?.from === "draft" });
     return NextResponse.json({ template: copy }, { status: 201 });
   } catch (err: unknown) {
     return templateErrorResponse(err);

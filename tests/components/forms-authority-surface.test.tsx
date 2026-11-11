@@ -28,11 +28,15 @@ it.each([null,{user:{role:"CLEANER"}},{user:{role:"OPS_MANAGER",primaryRole:"OPS
  expect(screen.queryByRole("button",{name:/Save/})).toBeNull();
  expect(m.fetch.mock.calls.every(([,options])=>!options?.method||options.method==="GET")).toBe(true);
 });
-it.each([{role:"ADMIN",primaryRole:"ADMIN"},{role:"OPS_MANAGER",primaryRole:"ADMIN"}])("legacy builder remains usable for admitted admin %j",async user=>{
+// 2026-11 builder step: the classic page's own builder (which wrote the live
+// form) was retired; admitted admins keep the page, and template creation and
+// editing open the estate builder.
+it.each([{role:"ADMIN",primaryRole:"ADMIN"},{role:"OPS_MANAGER",primaryRole:"ADMIN"}])("legacy forms page remains usable for admitted admin %j",async user=>{
  m.session={user};render(<FormsPage/>);
  expect(await screen.findByRole("heading",{name:"Forms"})).toBeVisible();
  expect(screen.queryByRole("link",{name:"View form templates and submissions"})).toBeNull();
- expect(screen.getByRole("button",{name:"Create template"})).toBeEnabled();
+ expect(screen.getAllByRole("link",{name:/New template/i}).every((link)=>link.getAttribute("href")==="/v2/admin/forms/new")).toBe(true);
+ expect(m.fetch.mock.calls.every(([,options])=>!options?.method||options.method==="GET")).toBe(true);
 });
 it("defaults the job forms library to read only while preserving search and refresh",async()=>{
  render(<JobFormsLibrary canWrite={false}/>);expect(await screen.findByText("Turnover proof")).toBeVisible();

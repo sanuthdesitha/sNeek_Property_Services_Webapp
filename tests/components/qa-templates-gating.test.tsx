@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({ role: vi.fn(), fetch: vi.fn() }));
@@ -28,15 +28,19 @@ afterEach(() => {
 it("hides create, edit and reset and locks the switch when the API would refuse the write", async () => {
   render(<QaTemplatesManager canWrite={false} />);
   expect(await screen.findByText("Default QA")).toBeVisible();
-  for (const name of [/New template/, /Edit/, /Reset/]) expect(screen.queryByRole("button", { name })).toBeNull();
+  for (const name of [/New template/, /Edit/, /Reset/, /More actions/]) expect(screen.queryByRole("button", { name })).toBeNull();
   expect(screen.getByText("Read only")).toBeVisible();
   expect(screen.getByRole("switch")).toBeDisabled();
 });
 
+// 2026-11 builder step: Edit and Reset moved into the row's "More actions"
+// menu beside Duplicate and Delete; the admin still gets every control.
 it("keeps every control for admins", async () => {
   render(<QaTemplatesManager canWrite />);
   expect(await screen.findByText("Default QA")).toBeVisible();
-  for (const name of [/New template/, /Edit/, /Reset/]) expect(screen.getByRole("button", { name })).toBeEnabled();
+  expect(screen.getByRole("button", { name: /New template/ })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "More actions for Default QA" }));
+  for (const name of ["Edit", "Duplicate", "Reset to default", "Delete"]) expect(screen.getByRole("menuitem", { name })).toBeVisible();
   expect(screen.getByRole("switch")).toBeEnabled();
 });
 

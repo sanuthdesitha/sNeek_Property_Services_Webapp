@@ -277,6 +277,8 @@ Each of these would change a business rule, money, or who can see or do what, so
 
 Build order for these: a "Finance decisions" step (2 to 6, includes a migration for per-client terms and email settings) and a "Notifications in one place" step (1), each after the step currently holding the schema.
 
+**Status, item 1 (Notifications in one place, 2026-11-11, uncommitted step, no schema change).** Done: manual job reminders run on the notification pipeline (assigned-cleaner scope re-checked at dispatch; inbox intent explicitly declares the phone push; email and browser push fall back to the direct path while `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS` leaves them off, with a Health banner, so nothing stopped); a catalog of all 45 notification types with a completeness test; `/v2/admin/notifications` is the one area (Types, Delivery log, Health, Preferences) with a nav entry and a settings destination; server functions and routes for staff message, laundry cleaner nudge, client delay notice (ADMIN only) and guest message (ADMIN only) ready for buttons. The owner's "switch the needed transports on" was NOT done by code: switching the outbox transports on is a production env change (see SYSTEM.md, "Notifications in one place", operator note), and turning EMAIL on also releases any old queued low-stock email intents. Still waiting for the owner: whether operations managers may send the client delay notice and guest messages; whether manual reminders should respect personal preferences (switch exists, default off); whether to set `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS=EMAIL,WEB_PUSH`; "Chase supplier" has no recipient (suppliers have no account). Other producers stay direct (listed in the catalog); moving each needs a stable event receipt and, for non-office recipients, a scope.
+
 ### More items waiting for the owner (from the Accounts step)
 
 | Item | Question |
@@ -336,3 +338,12 @@ Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notification
 
 1. The office can raise a QA issue against a cleaner by hand from a case ("Raise QA issue for cleaner" in the case's Next steps). It creates a normal QA issue linked to the case's job and cleaner, attributed to the person who raised it and marked as raised from a case; any deduction still goes through the existing proposal and approval. Built in the follow-up step with the Live ops additions.
 2. The "Resolved" queue includes closed cases. As built; no change.
+
+### More items waiting for the owner (from the notifications step)
+
+| Item | Question |
+| --- | --- |
+| Reminder email and browser push still use the direct path in production | Moving them fully onto the pipeline means setting `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS=EMAIL,WEB_PUSH` on the server. That would also send any old low-stock email intents already waiting in the queue. An environment decision for the owner |
+| Client delay notice and guest messages are administrator only | Should operations managers send them too? (They can already message clients from Messages) |
+| Manual reminders ignore the cleaner's personal notification preferences | A switch now exists in Notifications, default off |
+| "Chase supplier" for laundry | Blocked: suppliers have no contact to send to. Add a contact email or phone to suppliers? |

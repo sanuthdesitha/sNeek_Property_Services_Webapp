@@ -21,7 +21,7 @@ import { URGENT_SORTS, type UrgentSort } from "./urgent-stock-actions";
 
 export { URGENT_SORTS, type UrgentSort } from "./urgent-stock-actions";
 
-export type UrgentListFilters = { filter: UrgentFilter; q: string; propertyId: string | null };
+export type UrgentListFilters = { filter: UrgentFilter; q: string; propertyId: string | null; /** One need (the panel's deep link). */ id?: string | null };
 
 export type UrgentNeedListRow = {
   id: string;
@@ -63,12 +63,13 @@ export const DUE_SOON_HOURS = 48;
 export function parseUrgentFilters(source: URLSearchParams): UrgentListFilters {
   const raw = source.get("stage") ?? "open";
   const filter = (URGENT_FILTERS as readonly string[]).includes(raw) ? (raw as UrgentFilter) : "open";
-  return { filter, q: (source.get("q") ?? "").trim().slice(0, 200), propertyId: source.get("propertyId")?.trim() || null };
+  return { filter, q: (source.get("q") ?? "").trim().slice(0, 200), propertyId: source.get("propertyId")?.trim() || null, id: source.get("id")?.trim() || null };
 }
 
 function baseWhere(filters: UrgentListFilters): Prisma.UrgentStockNeedWhereInput {
   const where: Prisma.UrgentStockNeedWhereInput = {};
   if (filters.propertyId) where.propertyId = filters.propertyId;
+  if (filters.id) where.id = filters.id;
   if (filters.q) {
     where.OR = [
       { itemName: { contains: filters.q, mode: "insensitive" } },

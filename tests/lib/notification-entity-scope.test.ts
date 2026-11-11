@@ -1,0 +1,147 @@
+// @vitest-environment node
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const m = vi.hoisted(() => ({
+  user: vi.fn(), assignment: vi.fn(), job: vi.fn(), task: vi.fn(), intent: vi.fn(), intentUpdate: vi.fn(), attemptUpdate: vi.fn(),
+  create: vi.fn(), eventPreference: vi.fn(), canDeliver: vi.fn(), settings: vi.fn(), email: vi.fn(),
+}));
+vi.mock("@/lib/db", () => {
+  const client = {
+    $queryRaw: vi.fn().mockResolvedValue([]),
+    user: { findUnique: m.user }, jobAssignment: { findFirst: m.assignment }, job: { findUnique: m.job }, laundryTask: { findUnique: m.task },
+    notificationIntent: { findUnique: m.intent, update: m.intentUpdate }, notificationAttempt: { update: m.attemptUpdate },
+    notificationPreference: { findUnique: m.eventPreference }, notification: { create: m.create },
+  };
+  return { db: { ...client, $transaction: (run: (tx: typeof client) => unknown) => run(client) } };
+});
+vi.mock("@/lib/notifications/preferences", () => ({ canDeliverNotification: m.canDeliver }));
+vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
+vi.mock("@/lib/notifications/email", () => ({ sendEmailDetailed: m.email }));
+vi.mock("@/lib/notifications/sms", () => ({ sendSmsDetailed: vi.fn() }));
+vi.mock("@/lib/notifications/web-push", () => ({ sendWebPush: vi.fn() }));
+
+import { deliverInboxIntent } from "@/lib/notifications/intent-store";
+import { deliverProviderIntent } from "@/lib/notifications/intent-provider";
+import { notificationEnvelopeHash, notificationEnvelopeSchema } from "@/lib/notifications/intent-contract";
+import { authorizeEntityRecipient } from "@/lib/notifications/recipient-scopes";
+import { markMobileOutboxRows, mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
+import { db } from "@/lib/db";
+
+const envelope = (overrides: Record<string, unknown> = {}) => notificationEnvelopeSchema.parse({
+  version: 1, eventId: "job-reminder:job-1:PUSH:key", eventKey: "job.reminder.manual", entity: { type: "Job", id: "job-1" }, actorId: "admin-1",
+  recipient: { userId: "cleaner-1", role: "CLEANER", scope: { kind: "ENTITY", type: "JOB_ASSIGNED_CLEANER", id: "job-1" } },
+  severity: "ACTION", category: "jobs", transport: "INBOX", subject: "Unfinished job reminder", body: "Please submit.", jobId: "job-1",
+  mobilePushCategory: "jobs", recipientPreferences: "IGNORE", ...overrides,
+});
+function stageIntent(value: ReturnType<typeof envelope>) {
+  m.intent.mockResolvedValue({ id: "intent-1", status: "PROCESSING", leaseToken: "lease", attemptCount: 1, transport: value.transport, envelope: value, envelopeHash: notificationEnvelopeHash(value) });
+}
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.stubEnv("SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS", "EMAIL");
+  m.user.mockResolvedValue({ id: "cleaner-1", role: "CLEANER", isActive: true, clientId: null, email: "ana@example.invalid", phone: null });
+  m.assignment.mockResolvedValue({ id: "assignment-1" });
+  m.create.mockImplementation(({ data }: { data: { id: string } }) => Promise.resolve({ id: data.id }));
+  m.intentUpdate.mockResolvedValue({});
+  m.attemptUpdate.mockResolvedValue({});
+  m.canDeliver.mockResolvedValue(true);
+  m.settings.mockResolvedValue({});
+  m.email.mockResolvedValue({ ok: true, externalId: "resend-1" });
+});
+
+describe("inbox delivery for the assigned-cleaner scope", () => {
+  it("creates the row the phone app and inbox read: PUSH, SENT, with the mobile outbox marker", async () => {
+    stageIntent(envelope());
+    await deliverInboxIntent("intent-1", "lease");
+    const row = m.create.mock.calls[0][0].data;
+    expect(row).toMatchObject({ id: "intent-intent-1", userId: "cleaner-1", jobId: "job-1", channel: "PUSH", status: "SENT", externalId: mobilePendingMarker("jobs") });
+    // The DB middleware leaves an explicit pipeline marker alone, so the mobile outbox picks it up.
+    expect(markMobileOutboxRows(row)).toEqual(row);
+    expect(m.intentUpdate.mock.calls[0][0].data).toMatchObject({ status: "ACCEPTED" });
+    expect(m.canDeliver).not.toHaveBeenCalled();
+  });
+
+  it("adds no phone push when the producer did not declare one", async () => {
+    const value = envelope();
+    delete (value as { mobilePushCategory?: string }).mobilePushCategory;
+    stageIntent(value);
+    await deliverInboxIntent("intent-1", "lease");
+    expect(m.create.mock.calls[0][0].data).not.toHaveProperty("externalId");
+  });
+
+  it("skips a cleaner whose assignment was removed after queueing", async () => {
+    m.assignment.mockResolvedValue(null);
+    stageIntent(envelope());
+    await deliverInboxIntent("intent-1", "lease");
+    expect(m.create).not.toHaveBeenCalled();
+    expect(m.intentUpdate.mock.calls[0][0].data).toMatchObject({ status: "SKIPPED", lastErrorCode: "recipient_not_in_scope" });
+  });
+
+  it("skips a deactivated cleaner and a role change", async () => {
+    m.user.mockResolvedValue({ id: "cleaner-1", role: "CLEANER", isActive: false });
+    stageIntent(envelope());
+    await deliverInboxIntent("intent-1", "lease");
+    m.user.mockResolvedValue({ id: "cleaner-1", role: "CLIENT", isActive: true });
+    await deliverInboxIntent("intent-1", "lease");
+    expect(m.create).not.toHaveBeenCalled();
+    expect(m.intentUpdate.mock.calls.map((call) => call[0].data.lastErrorCode)).toEqual(["recipient_unavailable", "recipient_unavailable"]);
+  });
+
+  it("still refuses unknown entity scopes", async () => {
+    stageIntent(envelope({ recipient: { userId: "cleaner-1", role: "CLEANER", scope: { kind: "ENTITY", type: "Job", id: "job-1" } } }));
+    await deliverInboxIntent("intent-1", "lease");
+    expect(m.create).not.toHaveBeenCalled();
+    expect(m.intentUpdate.mock.calls[0][0].data).toMatchObject({ status: "SKIPPED", lastErrorCode: "unsupported_recipient_scope" });
+  });
+
+  it("applies preferences when the envelope does not say IGNORE", async () => {
+    m.canDeliver.mockResolvedValue(false);
+    const value = envelope();
+    delete (value as { recipientPreferences?: string }).recipientPreferences;
+    stageIntent(value);
+    await deliverInboxIntent("intent-1", "lease");
+    expect(m.create).not.toHaveBeenCalled();
+    expect(m.intentUpdate.mock.calls[0][0].data).toMatchObject({ status: "SKIPPED", lastErrorCode: "recipient_preference" });
+  });
+});
+
+describe("provider delivery for the assigned-cleaner scope", () => {
+  const email = () => envelope({ transport: "EMAIL", emailHtml: "<p>Reminder</p>", emailKind: "job_reminder", mobilePushCategory: undefined });
+  it("re-checks the assignment at send time before calling the provider", async () => {
+    expect(await deliverProviderIntent(email())).toEqual({ kind: "ACCEPTED", providerReference: "resend-1" });
+    m.assignment.mockResolvedValue(null);
+    expect(await deliverProviderIntent(email())).toEqual({ kind: "SKIPPED", errorCode: "recipient_not_in_scope" });
+    expect(m.email).toHaveBeenCalledTimes(1);
+  });
+  it("sends nothing when the outbox email transport is off", async () => {
+    vi.stubEnv("SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS", "");
+    expect(await deliverProviderIntent(email())).toEqual({ kind: "SKIPPED", errorCode: "transport_not_enabled" });
+    expect(m.email).not.toHaveBeenCalled();
+  });
+});
+
+describe("recipient scope rules", () => {
+  const recipient = (type: string, id: string, role = "CLEANER") => ({ userId: "u1", role: role as "CLEANER", scope: { kind: "ENTITY" as const, type, id } });
+  it("staff messages reach staff by name only, never clients", async () => {
+    m.user.mockResolvedValue({ id: "u1", role: "CLEANER", isActive: true, clientId: null });
+    expect(await authorizeEntityRecipient(db, recipient("STAFF_MEMBER", "u1"))).toMatchObject({ ok: true });
+    expect(await authorizeEntityRecipient(db, recipient("STAFF_MEMBER", "someone-else"))).toMatchObject({ ok: false });
+    m.user.mockResolvedValue({ id: "u1", role: "CLIENT", isActive: true, clientId: "c1" });
+    expect(await authorizeEntityRecipient(db, recipient("STAFF_MEMBER", "u1", "CLIENT"))).toMatchObject({ ok: false, errorCode: "recipient_not_in_scope" });
+  });
+  it("client contacts must belong to the job's client", async () => {
+    m.user.mockResolvedValue({ id: "u1", role: "CLIENT", isActive: true, clientId: "c1" });
+    m.job.mockResolvedValue({ property: { clientId: "c1" } });
+    expect(await authorizeEntityRecipient(db, recipient("JOB_CLIENT_CONTACT", "job-1", "CLIENT"))).toMatchObject({ ok: true });
+    m.job.mockResolvedValue({ property: { clientId: "c2" } });
+    expect(await authorizeEntityRecipient(db, recipient("JOB_CLIENT_CONTACT", "job-1", "CLIENT"))).toMatchObject({ ok: false });
+  });
+  it("laundry nudges reach only the cleaners assigned to the task's job", async () => {
+    m.task.mockResolvedValue({ jobId: "job-9" });
+    expect(await authorizeEntityRecipient(db, recipient("LAUNDRY_TASK_CLEANER", "task-1"))).toMatchObject({ ok: true });
+    expect(m.assignment).toHaveBeenCalledWith(expect.objectContaining({ where: { jobId: "job-9", userId: "cleaner-1", removedAt: null } }));
+    m.task.mockResolvedValue(null);
+    expect(await authorizeEntityRecipient(db, recipient("LAUNDRY_TASK_CLEANER", "missing"))).toMatchObject({ ok: false });
+  });
+});

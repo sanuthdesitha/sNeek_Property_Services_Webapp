@@ -27,6 +27,7 @@ describe.skipIf(!url)("stay preparation read-only scoped integration", () => {
   await m.client.job.create({ data: { id: jobId, jobNumber: jobId, propertyId, jobType: "AIRBNB_TURNOVER", status: "ASSIGNED", scheduledDate: new Date(), assignments: { create: { userId: cleaner.id, responseStatus: "ACCEPTED" } } } });
  });
  beforeEach(async () => {
+  await m.client.urgentStockEvent.deleteMany({ where: { propertyId } }); await m.client.urgentStockNeed.deleteMany({ where: { propertyId } });
   await m.client.appSetting.deleteMany({ where: { OR: [{ key: { startsWith: prefix } }, { key: `stay_preparation_v1:${propertyId}` }, { key: `job_submission_stock_v1:${jobId}` }] } });
   await m.client.notification.deleteMany({ where: { userId: adminId } });
   await m.client.stockTx.deleteMany({ where: { propertyStock: { propertyId } } });
@@ -35,6 +36,7 @@ describe.skipIf(!url)("stay preparation read-only scoped integration", () => {
   await m.client.job.update({ where: { id: jobId }, data: { status: "ASSIGNED", cleanSkipStatus: "NONE", scheduledDate: new Date(), startTime: "12:00", internalNotes: null, sameDayCheckin: false } });
  });
  afterAll(async () => {
+  await m.client.urgentStockEvent.deleteMany({ where: { propertyId } }); await m.client.urgentStockNeed.deleteMany({ where: { propertyId } });
   await m.client.appSetting.deleteMany({ where: { OR: [{ key: { startsWith: prefix } }, { key: `stay_preparation_v1:${propertyId}` }, { key: `job_submission_stock_v1:${jobId}` }] } });
   await m.client.notification.deleteMany({ where: { userId: { in: [adminId, cleanerId, strangerId] } } });
   await m.client.auditLog.deleteMany({ where: { userId: adminId } });

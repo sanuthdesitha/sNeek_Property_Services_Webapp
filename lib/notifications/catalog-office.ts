@@ -210,7 +210,7 @@ export const OFFICE_NOTIFICATION_TYPES: NotificationTypeEntry[] = [
     transports: ["INBOX", "EMAIL", "WEB_PUSH"],
     defaultTransports: ["INBOX"],
     path: "PIPELINE",
-    eventKeys: ["submission.low_stock", "submission.shopping_run", "submission.restock_review"],
+    eventKeys: ["submission.low_stock", "submission.shopping_run", "submission.low_stock_review"],
     switches: [{ kind: "EMAIL_KIND", emailKind: "inventory_update" }],
     template: { kind: "NONE" },
     preferences: "RESPECTS",

@@ -8,10 +8,12 @@ vi.mock("@/lib/auth/session", () => ({ requireRole: async (roles: string[]) => {
 } }));
 // The estate editor also reads the template's draft version (2026-11 forms library).
 vi.mock("@/lib/db", () => ({ db: { formTemplate: { findUnique: m.findUnique }, formTemplateVersion: { findMany: m.drafts } } }));
-vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("NOT_FOUND"); } }));
+vi.mock("next/navigation", () => ({
+  notFound: () => { throw new Error("NOT_FOUND"); },
+  redirect: (url: string) => { throw new Error(`REDIRECT:${url}`); },
+}));
 vi.mock("@/components/v2/admin/forms/management/new-form-launcher", () => ({ NewFormLauncher: () => null }));
 vi.mock("@/components/v2/admin/forms/builder/form-builder", () => ({ EstateFormBuilder: () => null }));
-vi.mock("@/components/forms/form-builder", () => ({ FormBuilder: () => null }));
 import Layout from "@/app/admin/forms/new/layout";
 import NewPage from "@/app/v2/admin/forms/new/page";
 import EditPage from "@/app/v2/admin/forms/[id]/edit/page";
@@ -41,15 +43,21 @@ it("returns protected new editor content only after ADMIN admission", async () =
   expect(await Layout({ children: "protected editor" })).toBe("protected editor");
   expect((await NewPage()).type).toBeTypeOf("function");
 });
-it.each([["estate", EditPage], ["legacy", LegacyEditPage]] as const)("loads %s editor for ADMIN with template version preserved", async (_name, render) => {
-  const page = await render(params);
+it("loads the estate editor for ADMIN with template version preserved", async () => {
+  const page = await EditPage(params);
   expect(page.props.templateId).toBe("template");
   expect(page.props.initialUpdatedAt).toBe("2026-10-03T00:00:00.000Z");
   expect(page.props.initialSchema.standardSections).toBe(false);
 });
-it.each([["estate", EditPage], ["legacy", LegacyEditPage]] as const)("returns not-found for missing %s template after ADMIN admission", async (_name, render) => {
+// 2026-11 builder step: the classic builder was retired. Its edit route now
+// admits ADMIN exactly as before and then redirects to the same form in v2.
+it("redirects the legacy editor to the estate builder for the same form, keeping the query", async () => {
+  await expect(LegacyEditPage({ ...params, searchParams: { from: "email" } })).rejects.toThrow("REDIRECT:/v2/admin/forms/template/edit?from=email");
+  expect(m.findUnique).not.toHaveBeenCalled();
+});
+it("returns not-found for a missing estate template after ADMIN admission", async () => {
   m.findUnique.mockResolvedValue(null);
-  await expect(render(params)).rejects.toThrow("NOT_FOUND");
+  await expect(EditPage(params)).rejects.toThrow("NOT_FOUND");
 });
 
 it("opens the estate editor on the unpublished draft, with the draft's token", async () => {

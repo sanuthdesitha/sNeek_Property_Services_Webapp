@@ -1,99 +1,40 @@
 "use client";
 
 /**
- * ESTATE v2 form builder — the native Estate rebuild of the v1
- * components/forms/form-builder.tsx. Two/three-pane layout: field palette (L),
- * canvas (C), properties panel (R), with a theme drawer and a read-only live
- * preview toggle. Same data model + endpoints as v1:
- *   PUT    /api/admin/form-templates/[id]/draft   (save draft — never live)
- *   POST   /api/admin/form-templates/[id]/publish (publish the draft / archive)
- *   POST   /api/admin/form-templates/[id]/duplicate
- * Reorder is button-driven (no HTML5 drag-drop). No imports from
- * @/components/{admin,ui,shared,forms}/** or @/app/admin/**.
+ * Form template builder (/v2/admin/forms/[id]/edit), as drawn in the
+ * approved "Template builder" design: header; Outline (sections and "Add a
+ * question") · Questions of the selected section · Settings for the selection
+ * and "Cleaner sees". At phone width the three panes become steps.
+ *
+ * Everything edits the template's DRAFT (autosaved with the stale-write
+ * token; lib/forms/template-drafts.ts). Publishing is the only step that
+ * changes what jobs resolve to. State lives in:
+ *   use-builder-document — the document + undo/redo
+ *   use-draft-autosave   — saving the draft, conflicts, leave warning
+ *   use-builder-editing  — selection and schema operations
+ *   use-builder-lifecycle — publish, archive, duplicate, discard, conflict exits
  */
 import * as React from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import {
-  ArrowLeft,
-  Eye,
-  LayoutList,
-  Layers,
-  ListChecks,
-  Camera,
-  Palette,
-  X,
-} from "lucide-react";
-import type { FieldCondition, FormField, FormFieldType, FormSchema } from "@/lib/forms/types";
-import { getFieldTypeDef, isUploadFieldType } from "@/lib/forms/field-types";
-import { isStandardSectionId, standardSectionDeleteWarning } from "@/lib/forms/standard-sections";
-import { lintTemplateSchema, type LintIssue } from "@/lib/forms/lint-template";
-import { EButton, EBadge, EEyebrow } from "@/components/v2/ui/primitives";
-import { EInput, ESelect, EConfirmModal } from "@/components/v2/admin/estate-kit";
-import { FieldPalette } from "./field-palette";
-import { BuilderCanvas } from "./builder-canvas";
+import { closestCenter, DndContext, KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+import { EButton } from "@/components/v2/ui/primitives";
+import { checkTemplateSchema } from "@/lib/forms/template-checks";
+import { buildBadgeContext } from "@/lib/forms/question-badges";
+import type { FormSchema } from "@/lib/forms/types";
+import type { BuilderUsage } from "@/lib/forms/builder-context";
+import { cn } from "@/lib/utils";
+import { BuilderHeader, publishTarget, type BuilderStatus } from "./builder-header";
+import { BuilderOverlays, type Overlay } from "./builder-overlays";
+import { CleanerPreview } from "./cleaner-preview";
+import { MultiEditPanel } from "./multi-edit-panel";
+import { OutlinePane } from "./outline-pane";
 import { PropertiesPanel } from "./properties-panel";
-import { ThemeEditor } from "./theme-editor";
-import { InventorySettingsCard } from "./inventory-settings";
-import { FormPreview } from "./form-preview";
-import { TemplateImpactPanel } from "./template-impact";
-import { DIVIDER_LABEL } from "./blocks";
-
-/* Job service types — must match the Prisma JobType enum (see v1 new page). */
-const SERVICE_TYPES: ReadonlyArray<readonly [string, string]> = [
-  ["AIRBNB_TURNOVER", "Airbnb Turnover"],
-  ["DEEP_CLEAN", "Deep Clean"],
-  ["END_OF_LEASE", "End of Lease"],
-  ["GENERAL_CLEAN", "General Clean"],
-  ["POST_CONSTRUCTION", "Post-Construction"],
-  ["PRESSURE_WASH", "Pressure Wash"],
-  ["WINDOW_CLEAN", "Window Clean"],
-  ["LAWN_MOWING", "Lawn Mowing"],
-  ["SPECIAL_CLEAN", "Special Clean"],
-  ["COMMERCIAL_RECURRING", "Commercial Recurring"],
-  ["CARPET_STEAM_CLEAN", "Carpet Steam Clean"],
-  ["MOLD_TREATMENT", "Mold Treatment"],
-  ["UPHOLSTERY_CLEANING", "Upholstery Cleaning"],
-  ["TILE_GROUT_CLEANING", "Tile & Grout Cleaning"],
-  ["GUTTER_CLEANING", "Gutter Cleaning"],
-  ["SPRING_CLEANING", "Spring Cleaning"],
-];
-
-function newFieldId() {
-  return `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-}
-
-function arrayMove<T>(list: T[], from: number, to: number): T[] {
-  const next = list.slice();
-  const [item] = next.splice(from, 1);
-  next.splice(to, 0, item);
-  return next;
-}
-
-/**
- * Fresh ids always; the "(copy)" label suffix only when duplicating a single
- * field, where the twin sits next to its original and needs telling apart.
- * Duplicating a whole SECTION keeps every field label as-is — the section
- * title already carries the "(copy)" marker, and suffixing 20 items inside
- * just creates 20 labels someone has to clean up by hand.
- */
-function duplicateField(field: FormField, opts?: { keepLabel?: boolean }): FormField {
-  return {
-    ...(JSON.parse(JSON.stringify(field)) as FormField),
-    id: newFieldId(),
-    label: opts?.keepLabel ? field.label : `${field.label} (copy)`,
-    children: field.children?.map((child) => ({ ...(JSON.parse(JSON.stringify(child)) as FormField), id: newFieldId() })),
-  };
-}
-
-function makeField(type: FormFieldType): FormField {
-  return {
-    id: newFieldId(),
-    type,
-    label: `New ${getFieldTypeDef(type)?.label ?? type} field`,
-    ...(getFieldTypeDef(type)?.defaultConfig ?? {}),
-  };
-}
+import { QuestionsPane, type BulkAction } from "./questions-pane";
+import type { RowAction } from "./question-row";
+import { useBuilderDocument } from "./use-builder-document";
+import { useBuilderEditing } from "./use-builder-editing";
+import { useBuilderLifecycle } from "./use-builder-lifecycle";
+import { useDraftAutosave } from "./use-draft-autosave";
 
 export interface EstateFormBuilderProps {
   templateId: string;
@@ -108,713 +49,251 @@ export interface EstateFormBuilderProps {
   initialUpdatedAt?: string;
   /** The template has unpublished changes saved as a draft version. */
   initialHasDraft?: boolean;
+  initialDraftSavedAt?: string | null;
+  /** Where the live version is used; null = could not be read. */
+  usage?: BuilderUsage | null;
 }
 
-export function EstateFormBuilder({
-  templateId,
-  initialName,
-  initialKind,
-  initialServiceType,
-  initialVersion,
-  initialSchema,
-  initialIsActive,
-  initialArchived,
-  initialUpdatedAt,
-  initialHasDraft = false,
-}: EstateFormBuilderProps) {
-  const router = useRouter();
-  const [name, setName] = React.useState(initialName);
-  const [serviceType, setServiceType] = React.useState(initialServiceType);
-  const [schema, setSchema] = React.useState<FormSchema>(initialSchema);
-  const [dirty, setDirty] = React.useState(false);
-  const [saving, setSaving] = React.useState(false);
-  const [savedAt, setSavedAt] = React.useState<Date | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [publishNotice, setPublishNotice] = React.useState<string | null>(null);
-  const [isActive, setIsActive] = React.useState(initialIsActive);
-  const [archived, setArchived] = React.useState(initialArchived);
-  const [hasDraft, setHasDraft] = React.useState(initialHasDraft);
-  // The version currently on the server, as far as this editor knows. Sent
-  // with every save and advanced from the save response, so a long editing
-  // session does not start failing its own concurrency check.
-  const [baseUpdatedAt, setBaseUpdatedAt] = React.useState(initialUpdatedAt);
-  const [stale, setStale] = React.useState(false);
-  const [selectedFieldId, setSelectedFieldId] = React.useState<string | null>(null);
-  const [showPreview, setShowPreview] = React.useState(false);
-  const [showTheme, setShowTheme] = React.useState(false);
-  // Standard sections (arrival evidence / exceptions / sign-off) carry the
-  // template's evidence gates — deleting one is confirmed, never silent.
-  const [pendingRemoveSectionId, setPendingRemoveSectionId] = React.useState<string | null>(null);
-  const [showLint, setShowLint] = React.useState(true);
-  // Bumped after every save / publish so the "where this template applies"
-  // panel re-resolves against the runtime rule instead of showing stale advice.
-  const [impactKey, setImpactKey] = React.useState(0);
+type Pane = "outline" | "questions" | "settings";
+const PANES: Array<{ key: Pane; label: string }> = [
+  { key: "outline", label: "Outline" },
+  { key: "questions", label: "Questions" },
+  { key: "settings", label: "Settings / Preview" },
+];
 
-  const mutate = React.useCallback((fn: (s: FormSchema) => FormSchema) => {
-    setSchema((prev) => fn(prev));
-    setDirty(true);
-  }, []);
+const BANNER_TONE = {
+  danger: "border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))]",
+  warning: "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]",
+  success: "border-[hsl(var(--e-success))] bg-[hsl(var(--e-success-soft))]",
+} as const;
 
-  /* ── selected field lookup ── */
-  const selected = React.useMemo(() => {
-    if (!selectedFieldId) return null;
-    for (const section of schema.sections) {
-      const field = section.fields.find((f) => f.id === selectedFieldId);
-      if (field) return { section, field };
-    }
-    return null;
-  }, [selectedFieldId, schema.sections]);
+function Banner({ tone, children }: { tone: keyof typeof BANNER_TONE; children: React.ReactNode }) {
+  return (
+    <div role={tone === "success" ? "status" : "alert"} className={cn("rounded-[var(--e-radius)] border-l-[3px] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-foreground))]", BANNER_TONE[tone])}>
+      {children}
+    </div>
+  );
+}
 
-  /* ── stats ── */
-  const flatFields = schema.sections.flatMap((s) => s.fields.flatMap((f) => [f, ...(f.children ?? [])]));
-  const totalFields = flatFields.length;
-  const requiredPhotoCount = flatFields.reduce((sum, f) => {
-    if (!isUploadFieldType(f.type)) return sum;
-    if (f.required) return sum + Math.max(1, f.minPhotos ?? 1);
-    return sum + (f.minPhotos ?? 0);
-  }, 0);
-  // Condition sources: the type + options ride along so the condition editor can
-  // offer the real answer values (Yes/No, the dropdown's options) instead of a
-  // free-text box where a typo silently produces a rule that never fires.
-  const allFields = flatFields.map((f) => ({ id: f.id, label: f.label, type: f.type, options: f.options }));
+export function EstateFormBuilder(props: EstateFormBuilderProps) {
+  const { templateId } = props;
+  const document = useBuilderDocument({ name: props.initialName, serviceType: props.initialServiceType, schema: props.initialSchema });
+  const [status, setStatus] = React.useState<BuilderStatus>({
+    liveVersion: props.initialVersion,
+    isActive: props.initialIsActive,
+    archived: props.initialArchived,
+    hasDraft: Boolean(props.initialHasDraft),
+  });
+  const autosave = useDraftAutosave({
+    templateId,
+    doc: document.doc,
+    revision: document.revision,
+    initialToken: props.initialUpdatedAt,
+    initialSavedAt: props.initialDraftSavedAt ? new Date(props.initialDraftSavedAt) : null,
+    enabled: !props.initialArchived,
+    onSaved: () => setStatus((prev) => (prev.hasDraft ? prev : { ...prev, hasDraft: true })),
+  });
+  const editing = useBuilderEditing(document);
+  const lifecycle = useBuilderLifecycle({ templateId, document, autosave, status, setStatus });
+  const [overlay, setOverlay] = React.useState<Overlay>({ kind: "none" });
+  const [pane, setPane] = React.useState<Pane>("questions");
+  const close = React.useCallback(() => setOverlay({ kind: "none" }), []);
 
-  /* ── governance lint (duplicate ids, dangling conditionals, legacy shapes) ── */
-  const lintIssues = React.useMemo<LintIssue[]>(() => lintTemplateSchema(schema), [schema]);
-  const blockingIssues = lintIssues.filter((i) => i.severity === "error");
-  const warningIssues = lintIssues.filter((i) => i.severity === "warning");
+  const schema = document.doc.schema;
+  const checks = React.useMemo(() => checkTemplateSchema(schema), [schema]);
+  const badgeContext = React.useMemo(() => buildBadgeContext(schema, (props.usage?.neverAnswered ?? []).map((q) => q.id)), [schema, props.usage]);
+  const conditionFields = React.useMemo(
+    () => schema.sections.flatMap((section) => section.fields.flatMap((field) => [field, ...(field.children ?? [])])).map((f) => ({ id: f.id, label: f.label, type: f.type, options: f.options })),
+    [schema],
+  );
+  const unsaved = autosave.state.status !== "saved";
+  const shownStatus: BuilderStatus = { ...status, hasDraft: status.hasDraft || unsaved };
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const onDragEnd = (event: DragEndEvent) => {
+    if (event.over) editing.drop(event.active.id, event.over.id);
+  };
+  const fieldsFor = (ids: string[]) => schema.sections.flatMap((section) => section.fields.filter((field) => ids.includes(field.id)));
+  const leave = () => !unsaved || window.confirm("Some edits are not saved yet. Leave anyway?");
 
-  /* ── section ops ── */
-  function addSection() {
-    mutate((s) => ({ ...s, sections: [...s.sections, { id: `s-${Date.now()}`, title: "New section", fields: [] }] }));
-  }
-  function removeSection(sectionId: string) {
-    // A standard section is template-owned but load-bearing: confirm first.
-    if (isStandardSectionId(sectionId)) {
-      setPendingRemoveSectionId(sectionId);
-      return;
-    }
-    commitRemoveSection(sectionId);
-  }
-  function commitRemoveSection(sectionId: string) {
-    mutate((s) => ({ ...s, sections: s.sections.filter((x) => x.id !== sectionId) }));
-    if (selected?.section.id === sectionId) setSelectedFieldId(null);
-  }
-  function duplicateSection(sectionId: string) {
-    mutate((s) => {
-      const idx = s.sections.findIndex((x) => x.id === sectionId);
-      if (idx === -1) return s;
-      const src = s.sections[idx];
-      const copy = {
-        ...(JSON.parse(JSON.stringify(src)) as typeof src),
-        id: `s-${Date.now()}`,
-        title: `${src.title} (copy)`,
-        fields: src.fields.map((f) => duplicateField(f, { keepLabel: true })),
-      };
-      const sections = s.sections.slice();
-      sections.splice(idx + 1, 0, copy);
-      return { ...s, sections };
-    });
-  }
-  function moveSection(sectionId: string, dir: -1 | 1) {
-    mutate((s) => {
-      const idx = s.sections.findIndex((x) => x.id === sectionId);
-      const to = idx + dir;
-      if (idx === -1 || to < 0 || to >= s.sections.length) return s;
-      return { ...s, sections: arrayMove(s.sections, idx, to) };
-    });
-  }
-  function updateSectionTitle(sectionId: string, title: string) {
-    mutate((s) => ({ ...s, sections: s.sections.map((x) => (x.id === sectionId ? { ...x, title } : x)) }));
-  }
-  function updateSectionConditional(sectionId: string, conditional: FieldCondition | undefined) {
-    mutate((s) => ({
-      ...s,
-      sections: s.sections.map((x) => {
-        if (x.id !== sectionId) return x;
-        const next = { ...x };
-        if (conditional) next.conditional = conditional;
-        else delete next.conditional;
-        return next;
-      }),
-    }));
-  }
-  function toggleSectionCollapsible(sectionId: string, collapsible: boolean) {
-    mutate((s) => ({
-      ...s,
-      sections: s.sections.map((x) => {
-        if (x.id !== sectionId) return x;
-        const next = { ...x };
-        if (collapsible) next.collapsible = true;
-        else delete next.collapsible;
-        return next;
-      }),
-    }));
-  }
-  function updateSectionDescription(sectionId: string, description: string) {
-    mutate((s) => ({
-      ...s,
-      sections: s.sections.map((x) => (x.id === sectionId ? { ...x, description: description || undefined } : x)),
-    }));
-  }
-
-  /* ── field ops ── */
-  function addField(sectionId: string, type: FormFieldType = "text") {
-    const field = makeField(type);
-    mutate((s) => ({ ...s, sections: s.sections.map((x) => (x.id === sectionId ? { ...x, fields: [...x.fields, field] } : x)) }));
-    setSelectedFieldId(field.id);
-  }
-  function addBlock(kind: "heading" | "divider") {
-    const targetId = selected?.section.id ?? schema.sections[0]?.id;
-    if (!targetId) {
-      addSection();
-      return;
-    }
-    const field: FormField =
-      kind === "heading"
-        ? { id: newFieldId(), type: "instruction", label: "Section heading", helpText: "Add a short instruction or note here." }
-        : { id: newFieldId(), type: "instruction", label: DIVIDER_LABEL };
-    mutate((s) => ({ ...s, sections: s.sections.map((x) => (x.id === targetId ? { ...x, fields: [...x.fields, field] } : x)) }));
-    setSelectedFieldId(field.id);
-  }
-  function quickAdd(type: FormFieldType) {
-    const targetId = selected?.section.id ?? schema.sections[0]?.id;
-    if (!targetId) {
-      addSection();
-      return;
-    }
-    addField(targetId, type);
-  }
-  function updateField(sectionId: string, field: FormField) {
-    mutate((s) => ({
-      ...s,
-      sections: s.sections.map((x) =>
-        x.id === sectionId ? { ...x, fields: x.fields.map((f) => (f.id === selected?.field.id ? field : f)) } : x
-      ),
-    }));
-    // Keep selection pointing at the (possibly re-keyed) field.
-    if (selected && field.id !== selected.field.id) setSelectedFieldId(field.id);
-  }
-  function removeField(sectionId: string, fieldId: string) {
-    mutate((s) => ({
-      ...s,
-      sections: s.sections.map((x) => (x.id === sectionId ? { ...x, fields: x.fields.filter((f) => f.id !== fieldId) } : x)),
-    }));
-    if (selectedFieldId === fieldId) setSelectedFieldId(null);
-  }
-  function duplicateFieldInSection(sectionId: string, fieldId: string) {
-    mutate((s) => ({
-      ...s,
-      sections: s.sections.map((x) => {
-        if (x.id !== sectionId) return x;
-        const idx = x.fields.findIndex((f) => f.id === fieldId);
-        if (idx === -1) return x;
-        const fields = x.fields.slice();
-        fields.splice(idx + 1, 0, duplicateField(x.fields[idx]));
-        return { ...x, fields };
-      }),
-    }));
-  }
-  function moveField(sectionId: string, fieldId: string, dir: -1 | 1) {
-    mutate((s) => ({
-      ...s,
-      sections: s.sections.map((x) => {
-        if (x.id !== sectionId) return x;
-        const idx = x.fields.findIndex((f) => f.id === fieldId);
-        const to = idx + dir;
-        if (idx === -1 || to < 0 || to >= x.fields.length) return x;
-        return { ...x, fields: arrayMove(x.fields, idx, to) };
-      }),
-    }));
-  }
-
-  // RE-SEED ON NEW PROPS. State is initialised from props exactly once, so a
-  // navigation that re-renders this page with fresher data used to leave the
-  // editor showing the older document — and saving from there wrote it back.
-  // Only while clean: a dirty editor holds unsaved work that belongs to the
-  // person typing, and throwing it away to show a newer version would trade
-  // one kind of data loss for another. A dirty editor that has gone stale is
-  // told so instead, and the server refuses the write regardless.
-  const seededRef = React.useRef(initialUpdatedAt);
-  React.useEffect(() => {
-    if (initialUpdatedAt === seededRef.current) return;
-    seededRef.current = initialUpdatedAt;
-    if (dirty) {
-      setStale(true);
-      return;
-    }
-    setName(initialName);
-    setServiceType(initialServiceType);
-    setSchema(initialSchema);
-    setIsActive(initialIsActive);
-    setArchived(initialArchived);
-    setHasDraft(initialHasDraft);
-    setBaseUpdatedAt(initialUpdatedAt);
-    setStale(false);
-    // `dirty` is read, not tracked: this must run when the SERVER version
-    // changes, not when the user types.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialUpdatedAt]);
-
-  /* ── persistence ── */
-  async function save() {
-    setSaving(true);
-    setError(null);
-    try {
-      // Saves the DRAFT version only: what cleaners receive changes when the
-      // draft is published, never on save.
-      const res = await fetch(`/api/admin/form-templates/${templateId}/draft`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          name,
-          serviceType,
-          schema,
-          ...(baseUpdatedAt ? { expectedUpdatedAt: baseUpdatedAt } : {}),
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        if (res.status === 409 && body?.code === "STALE_TEMPLATE") {
-          setStale(true);
-          // Deliberately NOT retried and NOT force-saved. The whole point is
-          // that this editor no longer knows what it would be overwriting.
-          throw new Error(body.error);
-        }
-        throw new Error(body.error ?? `Save failed (${res.status})`);
-      }
-      // Advance to the version we just wrote, so the next save in this
-      // session passes its own check.
-      const saved = await res.json().catch(() => null);
-      if (saved?.updatedAt) setBaseUpdatedAt(new Date(saved.updatedAt).toISOString());
-      setHasDraft(true);
-      setSavedAt(new Date());
-      setDirty(false);
-      setStale(false);
-      setImpactKey((k) => k + 1);
-      // Invalidate the client Router Cache. Without this, Next keeps serving
-      // the pre-save RSC payload for this URL, so navigating back re-mounts
-      // the builder on the OLD document — which is exactly how a freshly
-      // duplicated template appeared to revert to the one it was copied from.
-      router.refresh();
-    } catch (err: any) {
-      setError(err?.message ?? "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function togglePublish() {
-    await changePublishState(isActive ? "archive" : "publish");
-  }
-
-  async function changePublishState(action: "publish" | "archive") {
-    setError(null);
-    try {
-      const res = await fetch(`/api/admin/form-templates/${templateId}/publish`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        // Publishing sends the edit token so a draft changed elsewhere since
-        // this editor loaded is not published unseen (409, like a save).
-        body: JSON.stringify({ action, ...(action === "publish" && baseUpdatedAt ? { expectedUpdatedAt: baseUpdatedAt } : {}) }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        if (res.status === 409 && body?.code === "STALE_TEMPLATE") setStale(true);
-        throw new Error(body.error ?? `Action failed (${res.status})`);
-      }
-      const { template, archivedPrevious, editToken } = await res.json();
-      if (action === "publish") setHasDraft(false);
-      setIsActive(Boolean(template?.isActive));
-      setArchived(Boolean(template?.archivedAt));
-      // Publishing writes to the row, so the base version this editor sends
-      // on its next save has to move with it — otherwise the concurrency
-      // guard fires on the editor's own publish and looks like a phantom
-      // conflict.
-      const nextToken =
-        typeof editToken === "string" ? editToken : template?.updatedAt ? new Date(template.updatedAt).toISOString() : undefined;
-      if (nextToken) {
-        setBaseUpdatedAt(nextToken);
-        // The refreshed server payload carries this same token; it is this
-        // editor's own write, not a change made elsewhere.
-        seededRef.current = nextToken;
-      }
-      setImpactKey((k) => k + 1);
-      router.refresh();
-      if (action === "publish" && Number(archivedPrevious) > 0) {
-        setPublishNotice(
-          `Published. ${archivedPrevious} previously published template${
-            Number(archivedPrevious) === 1 ? " was" : "s were"
-          } archived so jobs resolve to this one.`
-        );
-      } else if (action === "publish") {
-        setPublishNotice("Published — live for jobs that have no property-specific form.");
-      } else {
-        setPublishNotice(null);
-      }
-    } catch (err: any) {
-      setError(err?.message ?? "Publish failed");
-    }
+  const rowAction = (fieldId: string, action: RowAction) => {
+    if (action === "edit") return (editing.focus(fieldId), setPane("settings"));
+    if (action === "up" || action === "down") return editing.moveBy(fieldId, action === "up" ? -1 : 1);
+    if (action === "duplicate") return editing.duplicate([fieldId]);
+    if (action === "move") return setOverlay({ kind: "move", ids: [fieldId] });
+    if (action === "copy") return setOverlay({ kind: "copy", ids: [fieldId] });
+    if (action === "block") return setOverlay({ kind: "save-block", ids: [fieldId] });
+    setOverlay({ kind: "delete", ids: [fieldId] });
+  };
+  const bulk = (action: BulkAction) => {
+    const ids = editing.selectedIds;
+    if (action === "duplicate") return editing.duplicate(ids);
+    if (action === "move") return setOverlay({ kind: "move", ids });
+    if (action === "copy") return setOverlay({ kind: "copy", ids });
+    if (action === "block") return setOverlay({ kind: "save-block", ids });
+    setOverlay({ kind: "delete", ids });
+  };
+  const target = publishTarget(shownStatus);
+  const focusedSectionRepeat = editing.focused?.section.repeatBy;
+  const resetSnapshot = React.useRef<{ key: string; fields: ReturnType<typeof fieldsFor> } | null>(null);
+  const selectionKey = editing.selectedIds.join(",");
+  if (editing.selectedIds.length > 1 && resetSnapshot.current?.key !== selectionKey) {
+    resetSnapshot.current = { key: selectionKey, fields: fieldsFor(editing.selectedIds) };
   }
 
   return (
-    <div className="flex h-[calc(100vh-var(--e-shell-top,7rem))] min-h-[36rem] flex-col">
-      {/* ── Top bar ── */}
-      <div className="flex flex-wrap items-center gap-3 border-b border-[hsl(var(--e-border))] pb-3">
-        <EButton variant="ghost" size="icon" asChild aria-label="Back to forms">
-          <Link href="/v2/admin/forms">
-            <ArrowLeft className="size-4" />
-          </Link>
-        </EButton>
-
-        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="min-w-0 sm:max-w-xs sm:flex-1">
-            <EEyebrow className="mb-0.5">Template · {initialKind} · v{initialVersion}</EEyebrow>
-            <EInput
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                setDirty(true);
-              }}
-              placeholder="Template name"
-              className="text-[1rem] font-semibold"
-              aria-label="Template name"
-            />
+    <div className="flex flex-col gap-3.5" onKeyDown={document.onKeyDown}>
+      <BuilderHeader
+        name={document.doc.name}
+        status={shownStatus}
+        usage={props.usage?.usage}
+        saveState={autosave.state}
+        canUndo={document.canUndo}
+        canRedo={document.canRedo}
+        busy={lifecycle.busy}
+        onUndo={document.undo}
+        onRedo={document.redo}
+        onVersions={() => setOverlay({ kind: "versions" })}
+        onTest={() => setOverlay({ kind: "test" })}
+        onPublish={() => {
+          lifecycle.setError(null);
+          setOverlay({ kind: "publish" });
+        }}
+        onLeave={leave}
+        menuItems={[
+          { key: "settings", label: "Form settings (name, service type, theme)", onSelect: () => setOverlay({ kind: "settings" }) },
+          { key: "checks", label: `Checks (${checks.errors} problems, ${checks.warnings} warnings)`, onSelect: () => setOverlay({ kind: "checks" }) },
+          { key: "duplicate", label: "Duplicate form", onSelect: () => void lifecycle.duplicate(), separated: true },
+          status.archived
+            ? { key: "unarchive", label: "Unarchive", onSelect: () => void lifecycle.setArchived("unarchive") }
+            : { key: "archive", label: "Archive", onSelect: () => void lifecycle.setArchived("archive"), disabled: !status.isActive, hint: "Only a live form can be archived." },
+          { key: "discard", label: "Discard unpublished changes", danger: true, disabled: !status.hasDraft, onSelect: () => setOverlay({ kind: "discard" }) },
+        ]}
+      />
+      {autosave.state.status === "conflict" ? (
+        <Banner tone="warning">
+          <p className="font-[600]">This form changed in another tab or by another admin since you opened it.</p>
+          <p className="mt-0.5">Your edits are not saved and autosave has stopped, so nothing of theirs is overwritten. Choose:</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <EButton size="sm" variant="outline" onClick={() => window.confirm("Reload and lose the edits made in this tab?") && window.location.reload()}>Reload theirs</EButton>
+            <EButton size="sm" onClick={() => void lifecycle.keepMineAsCopy()} disabled={lifecycle.busy}>Keep mine as a copy</EButton>
           </div>
-          <div className="hidden items-center gap-3 text-[0.75rem] text-[hsl(var(--e-text-faint))] lg:flex">
-            <span className="inline-flex items-center gap-1">
-              <Layers className="size-3.5" /> {schema.sections.length}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <ListChecks className="size-3.5" /> {totalFields}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Camera className="size-3.5" /> {requiredPhotoCount}
-            </span>
-          </div>
-        </div>
+        </Banner>
+      ) : null}
+      {autosave.state.status === "failed" ? (
+        <Banner tone="danger">
+          <span className="font-[600]">The draft was not saved.</span> {autosave.state.error} Your edits are kept here.{" "}
+          <EButton size="sm" variant="outline" className="ml-1" onClick={() => void autosave.flush()}>Retry</EButton>
+        </Banner>
+      ) : null}
+      {status.archived ? <Banner tone="warning">This form is archived: autosave is off. Unarchive it (More menu) to edit and publish again.</Banner> : null}
+      {lifecycle.error && overlay.kind !== "publish" ? <Banner tone="danger">{lifecycle.error}</Banner> : null}
+      {lifecycle.notice ?? editing.notice ? <Banner tone="success">{lifecycle.notice ?? editing.notice}</Banner> : null}
 
-        <div className="flex flex-wrap items-center gap-2">
-          {archived ? (
-            <EBadge tone="neutral" soft>
-              Archived
-            </EBadge>
-          ) : isActive ? (
-            <EBadge tone="success" soft>
-              Published
-            </EBadge>
-          ) : (
-            <EBadge tone="warning" soft>
-              Draft
-            </EBadge>
-          )}
-          {hasDraft && isActive && !archived ? (
-            <EBadge tone="info" soft>
-              Unpublished changes
-            </EBadge>
-          ) : null}
-          {dirty ? (
-            <EBadge tone="warning" soft>
-              Unsaved
-            </EBadge>
-          ) : savedAt ? (
-            <EBadge tone="success" soft>
-              Saved
-            </EBadge>
-          ) : null}
-
-          <EButton variant={showPreview ? "gold" : "outline"} size="sm" onClick={() => setShowPreview((p) => !p)}>
-            {showPreview ? <LayoutList className="size-4" /> : <Eye className="size-4" />}
-            {showPreview ? "Editor" : "Preview"}
-          </EButton>
-          <EButton variant="outline" size="sm" onClick={() => setShowTheme(true)}>
-            <Palette className="size-4" /> Theme &amp; settings
-          </EButton>
-          {isActive && hasDraft ? (
-            <EButton
-              variant="gold"
-              size="sm"
-              onClick={() => void changePublishState("publish")}
-              disabled={dirty || saving}
-              title={dirty ? "Save the draft first; publishing makes the saved draft live." : "Publish the saved draft — new jobs get it as a new version."}
-            >
-              Publish changes
-            </EButton>
-          ) : null}
-          {/* A draft is edited-but-invisible: publishing is the step admins miss,
-              so it is the emphasised action until the template is live. */}
-          <EButton
-            variant={isActive ? "outline" : "gold"}
-            size="sm"
-            onClick={togglePublish}
-            title={
-              isActive
-                ? "Archive this template — jobs stop resolving to it."
-                : "Publish — make these edits live for jobs of this service type."
-            }
-          >
-            {isActive ? "Archive" : "Publish (make live)"}
-          </EButton>
-          <EButton size="sm" onClick={save} disabled={saving || !dirty}>
-            {saving ? "Saving…" : "Save draft"}
-          </EButton>
-        </div>
-      </div>
-
-      {/* Service type row */}
-      <div className="flex items-center gap-3 border-b border-[hsl(var(--e-border))] py-2">
-        <span className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Service type</span>
-        <ESelect
-          value={serviceType}
-          onChange={(e) => {
-            setServiceType(e.target.value);
-            setDirty(true);
-          }}
-          className="h-8 max-w-xs text-[0.8125rem]"
-        >
-          {SERVICE_TYPES.map(([v, label]) => (
-            <option key={v} value={v}>
-              {label}
-            </option>
-          ))}
-        </ESelect>
-      </div>
-
-      {/* A stale editor is the dangerous state, so it gets a louder banner
-          than an ordinary error and an explicit way out. Reloading is the
-          only safe resolution: this editor cannot know what it would be
-          overwriting, so there is deliberately no "save anyway". */}
-      {stale ? (
-        <div className="mt-2 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2">
-          <p className="text-[0.8125rem] font-[600] text-[hsl(var(--e-foreground))]">
-            This template changed since you opened it
-          </p>
-          <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-            Saving from here would overwrite that change. Reload to see the current
-            version — any edits you have made in this tab since opening it will be lost,
-            so copy anything you need first.
-          </p>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="mt-2 text-[0.8125rem] font-[550] text-[hsl(var(--e-primary))] hover:underline"
-          >
-            Reload the current version
+      <nav aria-label="Builder panes" className="flex gap-1 border-b border-[hsl(var(--e-border))] lg:hidden">
+        {PANES.map((entry) => (
+          <button key={entry.key} type="button" onClick={() => setPane(entry.key)} aria-current={pane === entry.key ? "page" : undefined} className={cn("min-h-11 border-b-2 px-3 text-[0.8125rem] font-[500]", pane === entry.key ? "border-[hsl(var(--e-primary))] font-[600] text-[hsl(var(--e-primary))]" : "border-transparent text-[hsl(var(--e-muted-foreground))]")}>
+            {entry.label}
           </button>
-        </div>
-      ) : null}
+        ))}
+      </nav>
 
-      {error ? (
-        <p className="mt-2 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-foreground))]">
-          {error}
-        </p>
-      ) : null}
-
-      {publishNotice ? (
-        <p className="mt-2 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-success))] bg-[hsl(var(--e-success-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-foreground))]">
-          {publishNotice}
-        </p>
-      ) : null}
-
-      {/* Guard rail: which jobs/properties these edits will (and will not) reach. */}
-      <TemplateImpactPanel templateId={templateId} refreshKey={impactKey} />
-
-      {/* ── Template lint: blocking errors + advisory warnings ── */}
-      {lintIssues.length > 0 && showLint ? (
-        <div
-          className={`mt-2 rounded-[var(--e-radius)] border-l-[3px] px-3 py-2 ${
-            blockingIssues.length > 0
-              ? "border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))]"
-              : "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]"
-          }`}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <p className="text-[0.8125rem] font-[600] text-[hsl(var(--e-foreground))]">
-              {blockingIssues.length > 0
-                ? `${blockingIssues.length} blocking issue${blockingIssues.length === 1 ? "" : "s"}`
-                : `${warningIssues.length} warning${warningIssues.length === 1 ? "" : "s"}`}
-              {blockingIssues.length > 0 && warningIssues.length > 0
-                ? ` · ${warningIssues.length} warning${warningIssues.length === 1 ? "" : "s"}`
-                : ""}
-            </p>
-            <button
-              type="button"
-              onClick={() => setShowLint(false)}
-              className="text-[0.75rem] text-[hsl(var(--e-text-secondary))] hover:underline"
-            >
-              Hide
-            </button>
-          </div>
-          <ul className="mt-1 space-y-0.5">
-            {lintIssues.slice(0, 12).map((issue, i) => (
-              <li
-                key={`${issue.rule}-${issue.fieldId ?? issue.sectionId ?? i}`}
-                className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]"
-              >
-                <span className="font-[600] text-[hsl(var(--e-foreground))]">
-                  {issue.severity === "error" ? "Error" : "Warning"}
-                </span>{" "}
-                — {issue.message}
-              </li>
-            ))}
-            {lintIssues.length > 12 ? (
-              <li className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-                …and {lintIssues.length - 12} more.
-              </li>
-            ) : null}
-          </ul>
-        </div>
-      ) : null}
-
-      {/* ── Body ── */}
-      {showPreview ? (
-        <div className="min-h-0 flex-1 overflow-y-auto bg-[hsl(var(--e-surface-sunken))] p-4 md:p-8">
-          <p className="mb-3 text-center text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-text-faint))]">
-            Live preview — try it exactly as the cleaner will (answers aren&apos;t saved)
-          </p>
-          <FormPreview schema={schema} name={name} />
-        </div>
-      ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)_340px]">
-          <aside className="hidden border-r border-[hsl(var(--e-border))] lg:block">
-            <FieldPalette onAdd={quickAdd} onAddBlock={addBlock} />
-          </aside>
-
-          <main
-            className="min-h-0 overflow-y-auto bg-[hsl(var(--e-surface-sunken))] p-4 md:p-6"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setSelectedFieldId(null);
-            }}
-          >
-            <BuilderCanvas
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <div className="flex min-w-0 flex-col gap-3.5 lg:flex-row lg:items-start">
+          <div className={cn("lg:block lg:w-[220px] lg:flex-none", pane === "outline" ? "block" : "hidden")}>
+            <OutlinePane
               schema={schema}
-              selectedFieldId={selectedFieldId}
-              onSelectField={setSelectedFieldId}
-              onUpdateSectionTitle={updateSectionTitle}
-              onUpdateSectionDescription={updateSectionDescription}
-              onUpdateSectionConditional={updateSectionConditional}
-              onToggleSectionCollapsible={toggleSectionCollapsible}
-              conditionFields={allFields}
-              onAddSection={addSection}
-              onRemoveSection={removeSection}
-              onDuplicateSection={duplicateSection}
-              onMoveSection={moveSection}
-              onAddField={addField}
-              onRemoveField={removeField}
-              onDuplicateField={duplicateFieldInSection}
-              onMoveField={moveField}
+              activeSectionId={editing.activeSection?.id ?? null}
+              onSelectSection={(id) => { editing.selectSection(id); setPane("questions"); }}
+              onAddSection={editing.addSection}
+              onAddQuestion={(type) => { editing.addQuestion(type); setPane("settings"); }}
+              onAddBlock={editing.addBlock}
+              onInsertBlock={() => setOverlay({ kind: "insert-block" })}
+              disabled={lifecycle.busy}
             />
-          </main>
-
-          <aside className="hidden border-l border-[hsl(var(--e-border))] lg:block">
-            {selected ? (
-              <PropertiesPanel
-                key={selected.field.id}
-                field={selected.field}
-                onUpdate={(field) => updateField(selected.section.id, field)}
-                onRemove={() => removeField(selected.section.id, selected.field.id)}
-                onDuplicate={() => duplicateFieldInSection(selected.section.id, selected.field.id)}
-                availableFields={allFields.filter((f) => f.id !== selected.field.id)}
+          </div>
+          <div className={cn("min-w-0 lg:flex lg:flex-1", pane === "questions" ? "flex" : "hidden")}>
+            <QuestionsPane
+              section={editing.activeSection}
+              sectionIndex={editing.sectionIndex}
+              sectionCount={schema.sections.length}
+              badgeContext={badgeContext}
+              conditionFields={conditionFields}
+              selectedIds={editing.selectedIds}
+              focusedId={editing.focusedId}
+              disabled={lifecycle.busy}
+              onSelectAll={editing.selectAll}
+              onToggle={editing.toggle}
+              onFocus={editing.focus}
+              onClearSelection={editing.clearSelection}
+              onRowAction={rowAction}
+              onBulk={bulk}
+              onSectionChange={editing.changeSection}
+              onSectionMove={editing.moveSection}
+              onSectionDuplicate={editing.duplicateSection}
+              onSectionRemove={() => editing.activeSection && setOverlay({ kind: "delete-section", sectionId: editing.activeSection.id })}
+            />
+          </div>
+          <aside aria-label="Settings for selection" className={cn("flex-col gap-3.5 lg:flex lg:w-[330px] lg:flex-none", pane === "settings" ? "flex" : "hidden")}>
+            {editing.selectedIds.length > 1 ? (
+              <MultiEditPanel
+                fields={editing.selectedFields}
+                conditionFields={conditionFields}
+                onApply={editing.applyPatch}
+                onReset={() => {
+                  const snapshot = resetSnapshot.current?.fields ?? [];
+                  document.editSchema((current) => ({ ...current, sections: current.sections.map((section) => ({ ...section, fields: section.fields.map((field) => snapshot.find((s) => s.id === field.id) ?? field) })) }));
+                }}
               />
+            ) : editing.focused ? (
+              <div className="max-h-[70vh] overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] lg:max-h-[calc(100vh-14rem)]">
+                <PropertiesPanel
+                  key={editing.focused.field.id}
+                  field={editing.focused.field}
+                  onUpdate={(next) => editing.updateField(editing.focused!.field.id, next)}
+                  onRemove={() => setOverlay({ kind: "delete", ids: [editing.focused!.field.id] })}
+                  onDuplicate={() => editing.duplicate([editing.focused!.field.id])}
+                  availableFields={conditionFields.filter((f) => f.id !== editing.focused!.field.id)}
+                  repeatNote={focusedSectionRepeat ? `Asked once per ${focusedSectionRepeat === "bathrooms" ? "bathroom" : "bedroom"}, with its section.` : undefined}
+                />
+              </div>
             ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-                <LayoutList className="size-8 text-[hsl(var(--e-text-faint))]" />
-                <p className="text-[0.875rem] font-[550] text-[hsl(var(--e-foreground))]">No field selected</p>
-                <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-                  Select a field in the canvas to edit its properties here.
-                </p>
+              <div className="rounded-[12px] border border-dashed border-[hsl(var(--e-border-strong))] p-4 text-center text-[0.8125rem] text-[hsl(var(--e-text-faint))]">
+                Select a question to edit it, or tick several to edit them together.
               </div>
             )}
+            <CleanerPreview section={editing.activeSection} theme={schema.theme} checks={checks} onShowChecks={() => setOverlay({ kind: "checks" })} />
           </aside>
         </div>
-      )}
+      </DndContext>
 
-      {/* Mobile properties panel */}
-      {!showPreview && selected ? (
-        <div className="border-t border-[hsl(var(--e-border))] lg:hidden">
-          <div className="max-h-[55vh] overflow-y-auto">
-            <PropertiesPanel
-              key={`m-${selected.field.id}`}
-              field={selected.field}
-              onUpdate={(field) => updateField(selected.section.id, field)}
-              onRemove={() => removeField(selected.section.id, selected.field.id)}
-              onDuplicate={() => duplicateFieldInSection(selected.section.id, selected.field.id)}
-              availableFields={allFields.filter((f) => f.id !== selected.field.id)}
-            />
-          </div>
-        </div>
-      ) : null}
-
-      {/* Standard-section delete confirmation */}
-      <EConfirmModal
-        open={Boolean(pendingRemoveSectionId)}
-        onClose={() => setPendingRemoveSectionId(null)}
-        title="Remove standard section"
-        description={
-          pendingRemoveSectionId ? standardSectionDeleteWarning(pendingRemoveSectionId) : undefined
-        }
-        confirmLabel="Remove section"
-        danger
-        onConfirm={() => {
-          if (pendingRemoveSectionId) commitRemoveSection(pendingRemoveSectionId);
-          setPendingRemoveSectionId(null);
-        }}
+      <BuilderOverlays
+        overlay={overlay}
+        close={close}
+        templateId={templateId}
+        kind={props.initialKind}
+        timezone={props.usage?.timezone ?? "Australia/Sydney"}
+        doc={document.doc}
+        checks={checks}
+        publishVersion={target}
+        busy={lifecycle.busy}
+        publishError={lifecycle.error}
+        hasUnsavedEdits={unsaved}
+        activeSectionId={editing.activeSection?.id ?? null}
+        activeSectionTitle={editing.activeSection?.title ?? ""}
+        fieldsFor={fieldsFor}
+        onEdit={document.edit}
+        onPublish={(note) => void lifecycle.publish(note).then((ok) => ok && close())}
+        onRestored={() => lifecycle.adoptServerDraft()}
+        onInsertBlock={editing.insertBlockFields}
+        onMove={editing.moveTo}
+        onDelete={editing.remove}
+        onDeleteSection={editing.removeSection}
+        onDiscard={() => void lifecycle.discardDraft()}
       />
-
-      {/* Theme drawer */}
-      {showTheme ? (
-        <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
-          <div className="fixed inset-0 bg-[hsl(160_18%_8%/0.45)] backdrop-blur-[2px]" onClick={() => setShowTheme(false)} />
-          <div className="relative z-10 h-full w-full max-w-md overflow-y-auto border-l border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] shadow-[var(--e-elevation-3)]">
-            <div className="flex items-center justify-between border-b border-[hsl(var(--e-border))] px-5 py-4">
-              <div>
-                <EEyebrow>Appearance &amp; settings</EEyebrow>
-                <h2 className="e-display-sm">Form theme &amp; settings</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowTheme(false)}
-                aria-label="Close"
-                className="flex size-8 items-center justify-center rounded-full border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))]"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-            <div className="space-y-6 px-5 py-5">
-              <ThemeEditor theme={schema.theme} onChange={(theme) => mutate((s) => ({ ...s, theme }))} />
-
-              <div className="border-t border-[hsl(var(--e-border))] pt-5">
-                <EEyebrow className="mb-3">Template settings</EEyebrow>
-                <div className="space-y-4">
-                  {/* Inventory item selection (R8a) — stored on the schema like theme. */}
-                  <InventorySettingsCard
-                    config={schema.inventoryConfig}
-                    onChange={(inventoryConfig) =>
-                      mutate((s) => {
-                        const next = { ...s };
-                        if (inventoryConfig) next.inventoryConfig = inventoryConfig;
-                        else delete next.inventoryConfig;
-                        return next;
-                      })
-                    }
-                  />
-
-                  {/* Laundry is not builder-configurable (R8b) — surfaced so admins
-                      know where the switch actually lives. */}
-                  <div className="rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] p-3">
-                    <p className="text-[0.75rem] font-[600] text-[hsl(var(--e-text-secondary))]">
-                      Laundry update: automatic
-                    </p>
-                    <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-                      Airbnb turnovers only (per-property toggle in Property settings). Rework jobs
-                      never show it.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

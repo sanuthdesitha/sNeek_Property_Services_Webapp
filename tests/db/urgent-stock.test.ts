@@ -25,6 +25,7 @@ describe.skipIf(!url)("urgent stock transactional integration", () => {
   await m.client.job.create({ data: { id: jobId, jobNumber: jobId, propertyId, jobType: "AIRBNB_TURNOVER", status: "ASSIGNED", scheduledDate: new Date(), assignments: { create: { userId: cleaner.id, responseStatus: "ACCEPTED" } } } });
  });
  beforeEach(async () => {
+  await m.client.urgentStockEvent.deleteMany({ where: { propertyId } }); await m.client.urgentStockNeed.deleteMany({ where: { propertyId } });
   await m.client.appSetting.deleteMany({ where: { key: { startsWith: prefix } } });
   await m.client.notificationIntent.deleteMany({ where: { recipientId: adminId } });
   await m.client.notification.deleteMany({ where: { userId: adminId } });
@@ -34,6 +35,7 @@ describe.skipIf(!url)("urgent stock transactional integration", () => {
   await m.client.job.update({ where: { id: jobId }, data: { status: "ASSIGNED", cleanSkipStatus: "NONE", scheduledDate: new Date(), startTime: "12:00" } });
  });
  afterAll(async () => {
+  await m.client.urgentStockEvent.deleteMany({ where: { propertyId } }); await m.client.urgentStockNeed.deleteMany({ where: { propertyId } });
   await m.client.appSetting.deleteMany({ where: { key: { startsWith: prefix } } });
   await m.client.notificationIntent.deleteMany({ where: { recipientId: adminId } });
   await m.client.notification.deleteMany({ where: { userId: { in: [adminId, cleanerId, strangerId] } } });
@@ -50,8 +52,10 @@ describe.skipIf(!url)("urgent stock transactional integration", () => {
   expect(a.id).toBe(b.id); expect(a.observedCount).toBeNull(); expect(a.purchaseQuantity).toBeNull();
   const others = await Promise.all([report(admin, input()), report(cleaner, input())]);
   expect(others.every(row => row.id === a.id)).toBe(true);
-  expect(await m.client.appSetting.count({ where: { key: { startsWith: prefix + "open:" } } })).toBe(1);
-  expect(await m.client.appSetting.count({ where: { key: { startsWith: prefix + "event:" } } })).toBe(3);
+  // Needs and history now live in tables (same one-open-need and append-only rules).
+  expect(await m.client.urgentStockNeed.count({ where: { propertyId, openPairKey: { not: null } } })).toBe(1);
+  expect(await m.client.urgentStockEvent.count({ where: { propertyId } })).toBe(3);
+  expect(await m.client.appSetting.count({ where: { key: { startsWith: prefix + "need:" } } })).toBe(0);
   expect((await m.client.propertyStock.findFirst({ where: { propertyId } })).onHand).toBe(10);
   expect(await m.client.stockTx.count({ where: { propertyStock: { propertyId } } })).toBe(0);
   await expect(report(cleaner, { ...request, note: "Changed retry" })).rejects.toThrow("CONFLICT");
@@ -92,13 +96,13 @@ describe.skipIf(!url)("urgent stock transactional integration", () => {
  });
  it("keeps ordered/delivered open, rejects stale versions and rolls back invalid confirmation", async () => {
   let need = await report(cleaner, input()); const initial = need;
-  for (const stage of ["ACKNOWLEDGED", "ORDERED", "DELIVERED"]) { need = await act(cleaner, action(need, stage)); expect(await m.client.appSetting.count({ where: { key: { startsWith: prefix + "open:" } } })).toBe(1); }
+  for (const stage of ["ACKNOWLEDGED", "ORDERED", "DELIVERED"]) { need = await act(cleaner, action(need, stage)); expect(await m.client.urgentStockNeed.count({ where: { propertyId, openPairKey: { not: null } } })).toBe(1); }
   await expect(act(admin, action(initial, "ADMIN_RESOLVED"))).rejects.toThrow("CONFLICT");
   await expect(act(cleaner, action(need, "PROPERTY_CONFIRMED", { observedCount: 2, observedAt: new Date().toISOString(), needResolved: false }))).rejects.toThrow("Confirm a fresh");
   expect((await m.client.propertyStock.findFirst({ where: { propertyId } })).onHand).toBe(10);
   expect(await m.client.stockTx.count({ where: { propertyStock: { propertyId } } })).toBe(0);
   const closed = await act(cleaner, action(need, "PROPERTY_CONFIRMED", { observedCount: 12, observedAt: new Date().toISOString(), needResolved: true }));
-  expect(closed.stage).toBe("PROPERTY_CONFIRMED"); expect(await m.client.appSetting.count({ where: { key: { startsWith: prefix + "open:" } } })).toBe(0);
+  expect(closed.stage).toBe("PROPERTY_CONFIRMED"); expect(await m.client.urgentStockNeed.count({ where: { propertyId, openPairKey: { not: null } } })).toBe(0);
   const newNeed = await report(cleaner, input()); expect(newNeed.id).not.toBe(closed.id);
   expect((await list(admin, propertyId, closed.id)).events).toHaveLength(5);
  });

@@ -5,6 +5,21 @@ import { requireRole } from "@/lib/auth/session";
 import { resolveTemplate, type VariableContext } from "@/lib/messages/variables";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
+import { db } from "@/lib/db";
+
+/**
+ * Records a composer send in the delivery log (notifications area) with the
+ * provider's truthful result. No user is attached: the recipient here is a
+ * typed address, and the optional recipientUserId is not verified. Best-effort:
+ * a failed record never changes the send's response.
+ */
+async function recordComposerSend(channel: "EMAIL" | "SMS", subject: string | undefined, ok: boolean, error: string | undefined, externalId?: string | null) {
+  await db.notification.create({ data: {
+    userId: null, channel, subject: subject ?? "Composer message", body: "Sent from the message composer.",
+    status: ok ? "SENT" : "FAILED", sentAt: ok ? new Date() : undefined, errorMsg: ok ? undefined : error ?? "Delivery failed.",
+    externalId: externalId ?? undefined, deliveryStatus: ok && externalId ? "PENDING" : undefined,
+  } }).catch(() => undefined);
+}
 
 const schema = z.object({
   templateId: z.string().optional(),
@@ -75,6 +90,7 @@ export async function POST(req: NextRequest) {
       subject: resolvedSubject ?? "(no subject)",
       html: resolvedBody.replace(/\n/g, "<br/>"),
     });
+    if (!result.skipped) await recordComposerSend("EMAIL", resolvedSubject, result.ok, result.error, result.externalId);
     return NextResponse.json({
       ok: result.ok,
       channel: "EMAIL",
@@ -94,6 +110,7 @@ export async function POST(req: NextRequest) {
     );
   }
   const smsResult = await sendSmsDetailed(recipientPhone, resolvedBody);
+  if (smsResult.status === "sent" || smsResult.status === "failed") await recordComposerSend("SMS", resolvedSubject, smsResult.ok, smsResult.error);
   return NextResponse.json({
     ok: smsResult.ok,
     channel: "SMS",

@@ -51,7 +51,9 @@ export type DeliveryLogRow = {
   retry: { intentId: string; updatedAt: string; action: "RETRY_KNOWN_REJECTION" | "RECONCILE_INBOX" } | null;
 };
 
-const SENSITIVE = /\b(code|pin|passcode|password|lockbox|lock box|key ?safe|keysafe|gate|alarm|access)\b([^A-Za-z0-9]{0,12})([A-Za-z0-9#*-]{3,})/gi;
+// A keyword, a short gap without digits (e.g. " code: "), then a token holding a digit.
+const SENSITIVE_CODE = /\b(code|pin|passcode|lockbox|lock box|key ?safe|keysafe|gate|alarm|access)\b([^0-9\n]{0,15}?)([A-Za-z#*-]*\d[A-Za-z0-9#*-]*)/gi;
+const SENSITIVE_PASSWORD = /\b(password|passcode|pwd)\b(\s*[:=]?\s*)(\S+)/gi;
 
 /**
  * Masks what looks like an access code, PIN or password after its keyword and
@@ -61,7 +63,8 @@ const SENSITIVE = /\b(code|pin|passcode|password|lockbox|lock box|key ?safe|keys
 export function redactSensitiveText(text: string | null | undefined): string {
   if (!text) return "";
   return text
-    .replace(SENSITIVE, (_match, word: string, gap: string) => `${word}${gap}•••`)
+    .replace(SENSITIVE_PASSWORD, (_match, word: string, gap: string) => `${word}${gap}•••`)
+    .replace(SENSITIVE_CODE, (_match, word: string, gap: string) => `${word}${gap}•••`)
     .replace(/(https?:\/\/[^\s?#]+)\?[^\s]*/g, "$1?…");
 }
 

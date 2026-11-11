@@ -111,6 +111,10 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
   const safeNote = input.note ? escapeHtml(input.note) : null;
   const controls = await getNotificationTypeControls();
 
+  // The pipeline enqueue is one transaction: if it fails, nothing was queued
+  // or sent for anyone, so every cleaner is reported as not reminded (and the
+  // audit says why) instead of failing the whole request.
+  let pipelineError: string | null = null;
   const outcomes = await sendOfficeNotification({
     typeKey: JOB_REMINDER_TYPE_KEY,
     eventKey: JOB_REMINDER_TYPE_KEY,
@@ -145,6 +149,9 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
     })),
     respectsPreferences: typeRespectsPreferences(controls, JOB_REMINDER_TYPE_KEY),
     disabledTransports: controls.disabledTransports[JOB_REMINDER_TYPE_KEY] ?? [],
+  }).catch((): RecipientOutcome[] => {
+    pipelineError = "pipeline_unavailable";
+    return [];
   });
 
   const sent: string[] = [];
@@ -173,6 +180,7 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
         // Which path each transport used (pipeline or direct) and its state.
         outcomes: outcomes.map((outcome) => ({ userId: outcome.userId, transport: outcome.transport, path: outcome.path, state: outcome.state, errorCode: outcome.errorCode ?? null })),
         note: input.note ?? null,
+        error: pipelineError,
       } as Prisma.InputJsonValue,
     },
   });

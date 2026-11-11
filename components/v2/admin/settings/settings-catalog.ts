@@ -185,6 +185,13 @@ export const SETTINGS_DESTINATIONS = [
     adminOnly: true,
   },
   {
+    key: "lost-found",
+    label: "Lost and found",
+    description: "How long found items are held before they are flagged for a decision.",
+    group: "operations",
+    adminOnly: true,
+  },
+  {
     key: "property-form",
     label: "Property form",
     description:

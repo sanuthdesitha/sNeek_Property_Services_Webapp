@@ -110,7 +110,7 @@ export const PEOPLE_NOTIFICATION_TYPES: NotificationTypeEntry[] = [
     template: { kind: "MESSAGE_TEMPLATE" },
     preferences: "RESPECTS",
     producers: ["app/api/admin/messages/route.ts", "app/api/admin/messages/job/[jobId]/route.ts", "app/api/admin/messages/send/route.ts", "app/api/admin/booking-requests/route.ts"],
-    notes: "The composer (messages/send) sends to any typed address or number; it records no audit row and no delivery row today.",
+    notes: "The composer (messages/send) sends to any typed address or number. Since 2026-11-11 each composer send is recorded in the delivery log with the provider result (no account attached); it still writes no audit row.",
   },
   {
     key: "account.security",

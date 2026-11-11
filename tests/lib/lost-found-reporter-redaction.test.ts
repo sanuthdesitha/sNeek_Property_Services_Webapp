@@ -18,6 +18,36 @@ describe("lost-found detail for the reporting cleaner", () => {
     expect(redactItemForReporter(row)).toMatchObject({ itemName: "Watch", guestName: null, guestContact: null, estimatedValue: null });
   });
 
+  it("removes the redesign's office fields too: email, source, booking, storage, client, address", () => {
+    const full = {
+      ...row,
+      guestEmail: "alex@example.com",
+      guestSource: "BOOKING",
+      reservationId: "res-1",
+      booking: { id: "res-1", guestName: "Alex Guest", guestPhone: "+61 400", guestEmail: "alex@example.com", reservationCode: "HM1", source: "airbnb", startDate: "s", endDate: "e", partyLabel: "2 adults" },
+      jobHasBooking: true,
+      storageLocation: "Shelf B2",
+      clientName: "Harbour Stays",
+      propertyAddress: "1 Test St",
+    } as any;
+    const redacted = redactItemForReporter(full);
+    expect(redacted).toMatchObject({ guestEmail: null, guestSource: null, reservationId: null, booking: null, jobHasBooking: null, storageLocation: null, clientName: null, propertyAddress: null, estimatedValue: null });
+    expect(JSON.stringify(redacted)).not.toMatch(/alex|Alex|HM1|Harbour|Shelf|\+61/);
+  });
+
+  it("blanks the system entry that copied the guest from the booking", () => {
+    const events = [{ id: "e1", userId: "cleaner" }, { id: "e2", userId: null }] as any;
+    const detail = {
+      ...row,
+      events: [
+        { id: "e1", action: "REPORTED", note: null, meta: { photoCount: 1 }, actorName: "Sam", createdAt: "t1" },
+        { id: "e2", action: "GUEST_IMPORTED", note: "Guest details added from booking HM1.", meta: { reservationId: "res-1", reservationCode: "HM1" }, actorName: null, createdAt: "t2" },
+      ],
+    } as any;
+    const result = redactItemWithEventsForReporter(detail, events, "cleaner");
+    expect(result.events[1]).toMatchObject({ action: "GUEST_IMPORTED", note: null, meta: null });
+  });
+
   it("keeps comments and the cleaner's own entries, blanks office workflow notes", () => {
     const events = [
       { id: "e1", userId: "cleaner" },

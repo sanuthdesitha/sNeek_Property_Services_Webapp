@@ -22,7 +22,7 @@ import {
   GraduationCap,
   UsersRound,
   Map, Wrench, Sparkles, ClipboardList, FileText,
-  Tags, Truck, Eye, UserCircle,
+  Tags, Truck, Eye, UserCircle, Bell,
 } from "lucide-react";
 
 const NAV: NavItem[] = [
@@ -62,6 +62,8 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/delivery-profiles", label: "Delivery profiles", icon: Truck, group: "Commercial" },
 
   { href: "/v2/admin/settings", label: "Settings", icon: Settings, group: "Configuration" },
+  // The one notifications area (types, delivery log, health, preferences).
+  { href: "/v2/admin/notifications", label: "Notifications", icon: Bell, group: "Configuration" },
   { href: "/v2/admin/ai", label: "AI configuration", icon: Sparkles, group: "Configuration" },
   // One Forms library: job forms, QA templates, checklist blocks, message
   // templates and results. The old entries' routes redirect to its tabs.

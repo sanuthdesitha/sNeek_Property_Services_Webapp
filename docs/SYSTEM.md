@@ -2036,7 +2036,99 @@ Cleared under the owner's standing rule (fix existing problems by default, with 
 
 Tests: `tests/lib/jobs-invoiced-rule.test.ts`, `tests/lib/jobs-view-presets.test.ts` (updated: it encoded the void rule), `tests/api/jobs-bulk-remind.test.ts` (extended), `tests/api/audit-v03-notification-producers.test.ts` (response shape updated), `tests/components/estate-field-label.test.tsx`, `tests/api/qa-issues-sydney-range.test.ts`, `tests/components/quality-hub-coaching-access.test.tsx`, `tests/api/legacy-template-versions-gone.test.ts`.
 
+## Notifications in one place (2026-11-11)
+
+Owner decision (second set, item 1): move job reminders onto the notification pipeline, keep every notification that works today going out, and control all notifications from one area. No schema change; nothing that was on was switched off and nothing that was off was switched on.
+
+**Catalog.** `lib/notifications/catalog.ts` (data in `catalog-jobs.ts`, `catalog-office.ts`, `catalog-people.ts`, `catalog-actions.ts`; types in `catalog-types.ts`) lists every notification type: stable key, trigger, audience, transports it can use and uses by default, path (pipeline / pipeline with direct fallback / direct / not sent today), pipeline event keys, the existing switches that govern it, its template and whether personal preferences apply. It was built by reading every producer (each file that calls a low-level send helper). `tests/lib/notification-catalog.test.ts` scans `app/`, `lib/` and `workers/` for those helper calls and fails when a file sends something no entry lists, or a pipeline event key has no entry.
+
+**Pipeline extension (smallest safe one).**
+- Recipient scopes (`lib/notifications/recipient-scopes.ts`): `JOB_ASSIGNED_CLEANER` (assignment on the job not removed, account active), `LAUNDRY_TASK_CLEANER`, `STAFF_MEMBER` (active staff account addressed by id; never clients or VAs) and `JOB_CLIENT_CONTACT` (active CLIENT login of the job's client). Each is an explicit ENTITY scope checked when the intent is queued and again at dispatch (`deliverInboxIntent`, `deliverProviderIntent`); the recorded role must still match. Unknown entity scopes stay refused; `ADMIN_OPERATIONS` keeps its original rule.
+- Envelope (`intent-contract.ts`), two optional fields, absent on every existing envelope (hashes unchanged): `mobilePushCategory` (INBOX only: the delivered inbox row carries `mobile-outbox:pending:<category>`, the explicit declaration the marker comment asks for, so the phone app keeps its push) and `recipientPreferences: "IGNORE"` (office-directed types that do not respect personal preferences).
+- `lib/notifications/office-sends.ts`: office-initiated sends. "Push" = pipeline INBOX intent delivered at once (`inline-dispatch.ts`, the worker's own claim/deliver/reconcile steps; left for the five-minute worker if that fails) + phone push via the mobile outbox + browser push. Browser push and email go through the pipeline only when their transport is listed in `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS`; otherwise the direct send is kept (`transport-paths.ts`), claimed once per event and recipient (`dispatch-once.ts`) and the direct email is recorded as a `Notification` row. Every outcome is truthful: `queued`, `inbox_available`, `provider_accepted`, `requested` (browser push gives no receipt), `already_requested`, `uncertain`, `skipped`, `failed`, `switched_off`; never "sent" or "delivered" on request.
+- Manual job reminder (`lib/jobs/job-reminder.ts`, single and bulk routes): now on the pipeline with `JOB_ASSIGNED_CLEANER`, per-cleaner outcomes and the path in the audit row (`JOB_REMINDER_SENT`), optional `idempotencyKey` (bulk derives one per job). If the pipeline enqueue fails, every cleaner is reported "Not sent" with `error: "pipeline_unavailable"` (nothing was queued). Bulk wording: "Push requested", "Email queued" (pipeline) or "Email accepted by the provider" (direct); delivery never confirmed.
+- Composer sends (`/api/admin/messages/send`) are now recorded in the delivery log with the provider result (no account attached; still no audit row).
+
+**Per-type controls** (`lib/notifications/type-controls.ts`, AppSetting `notificationTypeControls`, audited `NOTIFICATION_TYPE_CONTROLS_UPDATED`, stale-write refused): `respectsPreferences` for ADMIN_SWITCH types (default off = previous behaviour: manual reminders ignore personal category preferences; the email chokepoint's own gates still apply) and `disabledTransports` for types with a type switch (default none). Existing switches are changed in place through the notifications area (`catalog-switches.ts`): the automatic email kind switches and the scheduled-notification switches, audited as `SETTINGS_UPDATE`.
+
+**The notifications area** (`/v2/admin/notifications`, the former Comms center, extended; nav entry "Notifications" in Configuration; settings catalog destination "All notifications" first in the Notifications group; old settings tabs keep working with a pointer). One h1, tabs via `?tab=` (no tab = Types):
+- Types: the catalog table (group chips, transports with on/off state, path, template link to the Forms page's Message templates tab, preferences); side panel with trigger, recipient rule, transports and their path, switches (administrators edit; operations managers read), the preferences switch, "Send test to me" (signed-in user only, STAFF_MEMBER scope, `[Test]`, refused while impersonating) and the last 20 deliveries.
+- Delivery log: `GET /api/admin/notifications/deliveries` merges pipeline intents, `Notification` rows and `NotificationLog` rows (template engine, email provider webhook) with real totals, time sort, filters (type, state, transport, recipient, dates, source), drill-in metadata (`?detail=`; no bodies, HTML, addresses or provider references; codes, PINs and link tokens masked by `redactSensitiveText`), retry only through the existing review endpoint (known rejection / inbox reconcile), the existing "Clear log" with its confirmation, and lazy disclosures for the review queue and the classic log.
+- Health: `GET /api/admin/notifications/health`: per transport configured or not (presence only), pipeline switch, queue depth, oldest waiting, failures in 24 h; worker heartbeat (phone dispatcher, pipeline dispatcher where reported); master switches; non-secret env flags; direct-path banners; what cannot be known. Run-now dispatch, resend, test push and provider tests moved here as disclosures.
+- Preferences: the control center and profile overrides, and for administrators the scheduled notifications, message channels and finance templates (same components and endpoints as the settings tabs); personal preferences stay on Accounts.
+
+Access mirrors the existing APIs: reads ADMIN and OPS_MANAGER (ops pack "communications" via the middleware), switch changes ADMIN only and never while impersonating.
+
+**Office actions for later buttons** (`lib/notifications/office-actions.ts`, `guest-message.ts`; routes under `/api/admin/notifications/actions/`): staff message (ADMIN, OPS_MANAGER), laundry cleaner nudge (ADMIN, OPS_MANAGER), client delay notice (ADMIN only, honours the client's "notifications off"), guest message for a lost and found item (ADMIN only; email/SMS chokepoints; per-sender and per-item limits counted from the audit log; masked address in the audit). All refuse impersonation, take explicit transports and return truthful outcomes. No buttons were built.
+
+**Env switches and their effect.**
+
+| Variable | Effect |
+| --- | --- |
+| `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS` | Comma list of `EMAIL`, `SMS`, `WEB_PUSH` the pipeline hands to providers. Empty (default): pipeline sends inbox rows only; fallback types send browser push and email directly (banner in Health). Adding `EMAIL` also lets the existing pipeline producers' email intents (low stock from submissions) go out. |
+| `SNEEK_WORKERS_ENABLED`, `SNEEK_WORKERS_DISABLED`, `SNEEK_EMBEDDED_WORKER`, `SNEEK_WEB_SCHEDULER_ENABLED` | Whether the worker runs (scheduled notifications, mobile outbox every minute, pipeline dispatcher every five minutes). |
+| `SNEEK_DISABLED_JOBS`, `SNEEK_ENABLED_JOBS` | Per-job switches; `mobile-notification-dispatch` and `notification-intent-dispatch` must not be disabled. |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Email provider (presence only shown). |
+| `TWILIO_*` / `CELLCAST_*` with the SMS provider setting | SMS provider. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (or Integrations credentials) | Browser push. |
+| `EXPO_PUSH_API_URL`, `APP_URL` | Phone push endpoint and link base. |
+
+**Operator note (production check so everything that sent before still sends).** Nothing must be changed for current behaviour: with `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS` unset, reminder browser push and email keep the direct path. Check: (1) the worker is running (Health shows ACTIVE) and `SNEEK_DISABLED_JOBS` does not contain `mobile-notification-dispatch` (phone pushes) or `notification-intent-dispatch` (pipeline inbox rows that could not be delivered at once, and the existing low stock / urgent stock / failed pickup inbox notices); (2) `RESEND_API_KEY` present; (3) VAPID keys present if browser push was working; (4) the SMS provider set and configured if SMS was used. To move reminder email and browser push onto the pipeline, set `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS=EMAIL,WEB_PUSH` on the worker and web containers; this also starts sending the email part of "Low stock from a cleaner submission", including any EMAIL intents already sitting QUEUED from before (a backlog of old alerts; check Health's EMAIL queue count first and review them in the Delivery log), which is the owner's call.
+
+**Catalog (45 types).** Path "before" is the path before this change; bold transports are used by default.
+
+| Key | Name | Audience | Transports (default in bold) | Path before → after | Prefs |
+| --- | --- | --- | --- | --- | --- |
+| `job.reminder.manual` | Unfinished job reminder (Send reminder) | CLEANER | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, EMAIL | Direct → Pipeline (direct fallback) | Admin switch (default off) |
+| `job.reminder.scheduled` | 24-hour and 2-hour job reminders | CLEANER, CLIENT | **EMAIL**, **SMS** | Direct → Direct | Email settings only |
+| `job.reminder.unfinished_daily` | Daily unfinished-job nudge | CLEANER | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH** | Direct → Direct | No |
+| `job.cleaner_day_reminder` | Cleaner day-before reminder | CLEANER | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, EMAIL, SMS | Direct → Direct | Yes |
+| `job.offer` | Job offer / assignment | CLEANER | **INBOX**, **MOBILE_PUSH**, **EMAIL**, SMS | Direct → Direct | Email settings only |
+| `job.changed` | Job changed after the cleaner was told | CLEANER | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, **EMAIL** | Direct → Direct | Yes |
+| `job.skipped_or_cancelled` | Shift cancelled or job skipped | CLEANER | **INBOX**, **MOBILE_PUSH** | Direct → Direct | No |
+| `job.clock_changes` | Clock and pause changes | CLEANER, STAFF_ADMIN | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH** | Direct → Direct | No |
+| `job.cleaner_requests_decided` | Cleaner request decided | CLEANER | **INBOX**, **MOBILE_PUSH**, WEB_PUSH, **EMAIL** | Direct → Direct | Email settings only |
+| `job.qa_and_accountability` | QA result, rework and coaching notices | CLEANER, STAFF_ADMIN | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, **EMAIL** | Direct → Direct | Yes |
+| `job.cleaner_invoice` | Cleaner invoice notices | CLEANER, STAFF_ADMIN | **EMAIL** | Direct → Direct | Email settings only |
+| `office.cleaner_requests` | Cleaner requests for the office | STAFF_ADMIN | **INBOX**, **MOBILE_PUSH**, WEB_PUSH, EMAIL | Direct → Direct | Yes |
+| `office.field_alerts` | Field alerts (GPS, safety, maintenance, damage) | STAFF_ADMIN | **INBOX**, **MOBILE_PUSH**, **EMAIL**, SMS | Direct → Direct | Email settings only |
+| `office.cases` | Case created, updated or followed up | STAFF_ADMIN, CLIENT, CLEANER | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, **EMAIL** | Direct → Direct | Yes |
+| `office.client_requests` | Client requests and messages for the office | STAFF_ADMIN | **INBOX**, **MOBILE_PUSH**, **EMAIL** | Direct → Direct | Email settings only |
+| `office.sla_and_summaries` | SLA breaches, attention summary, briefing and tomorrow prep | STAFF_ADMIN, CLEANER, LAUNDRY | **INBOX**, **MOBILE_PUSH**, **EMAIL**, SMS | Direct → Direct | Email settings only |
+| `office.new_profile` | New profile created | STAFF_ADMIN, CLIENT, CLEANER | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, **EMAIL** | Direct → Direct | Yes |
+| `office.reports_generated` | Report generated (manual share needed) | STAFF_ADMIN | **INBOX**, **MOBILE_PUSH** | Direct → Direct | No |
+| `laundry.updates` | Laundry status, catch-up and sync notices | LAUNDRY, CLEANER, STAFF_ADMIN | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, EMAIL | Direct → Direct | Yes |
+| `laundry.failed_pickup` | Failed laundry pickup | STAFF_ADMIN | **INBOX** | Pipeline → Pipeline | Yes |
+| `laundry.report_email` | Laundry report email | PUBLIC, LAUNDRY | **EMAIL** | Direct → Direct | Email settings only |
+| `stock.alerts` | Low and critical stock alerts | STAFF_ADMIN | **INBOX**, **MOBILE_PUSH**, **EMAIL** | Direct → Direct | Email settings only |
+| `stock.submission_low_stock` | Low stock from a cleaner submission | STAFF_ADMIN | **INBOX**, EMAIL, WEB_PUSH | Pipeline → Pipeline | Yes |
+| `stock.urgent_need` | Urgent stock need | STAFF_ADMIN | **INBOX** | Pipeline → Pipeline | Yes |
+| `stock.shopping_and_orders` | Shopping runs, purchase orders and reimbursements | STAFF_ADMIN, CLIENT, PUBLIC | **INBOX**, **MOBILE_PUSH**, **EMAIL**, SMS | Direct → Direct | Email settings only |
+| `maintenance.assignment` | Maintenance job assigned | MAINTENANCE | **INBOX**, **MOBILE_PUSH**, **EMAIL** | Direct → Direct | Email settings only |
+| `office.ical_alerts` | iCal sync alerts | STAFF_ADMIN | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, **EMAIL**, SMS | Direct → Direct | Yes |
+| `office.lost_found_report` | Lost and found item reported | STAFF_ADMIN | **INBOX**, **EMAIL** | Direct → Direct | Email settings only |
+| `client.job_updates` | Client job updates (on the way, arrived, started, done, delayed) | CLIENT | **INBOX**, **MOBILE_PUSH**, **EMAIL**, SMS | Direct → Direct | Yes |
+| `client.lifecycle_email` | Client lifecycle emails (booked, reminder, rescheduled, cancelled) | CLIENT | **EMAIL** | Direct → Direct | Email settings only |
+| `client.post_job` | Post-job automation and follow-ups | CLIENT | **EMAIL**, SMS | Direct → Direct | Email settings only |
+| `client.documents` | Quotes, reports, invoices and documents to clients | CLIENT, PUBLIC | **EMAIL** | Direct → Direct | Email settings only |
+| `client.approvals` | Approval requests to clients | CLIENT | **INBOX**, **MOBILE_PUSH**, **EMAIL** | Direct → Direct | Email settings only |
+| `client.office_messages` | Office messages to clients and contacts | CLIENT, PUBLIC | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, **EMAIL**, SMS | Direct → Direct | Yes |
+| `account.security` | Sign-in codes, password reset and two-step verification | CLIENT, CLEANER, STAFF_ADMIN, LAUNDRY, MAINTENANCE, QA, PUBLIC | **EMAIL** | Direct → Direct | No |
+| `account.invitations` | Account invitations | CLIENT, CLEANER, STAFF_ADMIN, PUBLIC | **EMAIL** | Direct → Direct | No |
+| `money.finance_events` | Finance event templates (invoices, payroll, payouts, Xero) | STAFF_ADMIN, CLIENT | EMAIL, SMS | Not sent today → Not sent today | Yes |
+| `workforce.updates` | Workforce: chat, learning, documents and hiring | CLEANER, STAFF_ADMIN, PUBLIC | **INBOX**, **MOBILE_PUSH**, WEB_PUSH, **EMAIL**, SMS | Direct → Direct | Email settings only |
+| `leads.alerts` | New lead and quote response alerts | STAFF_ADMIN, PUBLIC | **EMAIL** | Direct → Direct | Email settings only |
+| `marketing.campaigns` | Email and SMS campaigns | CLIENT, PUBLIC | **EMAIL**, SMS | Direct → Direct | Email settings only |
+| `system.provider_tests` | Provider and device test sends | STAFF_ADMIN | **EMAIL**, SMS, WEB_PUSH, MOBILE_PUSH | Direct → Direct | No |
+| `office.staff_message` | Message to selected staff | CLEANER, LAUNDRY, MAINTENANCE, QA, STAFF_ADMIN | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, EMAIL | new → Pipeline (direct fallback) | Admin switch (default off) |
+| `laundry.cleaner_nudge` | Laundry nudge to the cleaner | CLEANER | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, EMAIL | new → Pipeline (direct fallback) | Admin switch (default off) |
+| `client.delay_notice` | Client delay notice | CLIENT | **INBOX**, **MOBILE_PUSH**, **WEB_PUSH**, **EMAIL** | new → Pipeline (direct fallback) | Admin switch (default off) |
+| `guest.message` | Message to a guest (lost and found) | PUBLIC | **EMAIL**, SMS | new → Direct | Email settings only |
+
+
 ## Change Log
+
+- **2026-11-11 (Notifications in one place):** Manual job reminders run on the notification pipeline with an explicit assigned-cleaner recipient scope (re-checked at dispatch), an explicit phone-push declaration on the inbox intent and a direct fallback for email / browser push while `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS` leaves them off (banner in Health); truthful per-recipient states. New catalog of all 45 notification types with a completeness test; `/v2/admin/notifications` (former Comms center) becomes the one area: Types, Delivery log (pipeline + direct + provider events, masked), Health, Preferences; nav entry and settings destination added, old settings tabs kept. Per-type controls (reminder "respect preferences", default off). Office actions for later buttons: staff message, laundry nudge, client delay notice (ADMIN), guest message (ADMIN, rate-limited). Composer sends recorded. See "Notifications in one place (2026-11-11)".
 
 - **2026-11-11 (Cases and Laundry):** Cases became a four-column inbox (queues with real counts incl. Needs my reply, summary list with server paging and sort, conversation with reply/internal note/template/attach, details with fields derived from the linked job, linked new case, bulk assign/status/close with per-row outcomes); Laundry became a day Pipeline (four lanes with exceptions and real counts, run side panel with every old action, checked moves with per-row outcomes) with By property, Drivers live, Costs and invoices, Suppliers and Statistics tabs (old tab ids and the stats URL redirect). Live laundry stops use the Sydney day. No schema change. Verification: `docs/qa/recent-changes-review-2026-10-09.md`.
 
