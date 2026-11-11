@@ -1,0 +1,53 @@
+/* One activity bar for uploads, exports and generated documents.
+   Estate tokens where the Estate skin is present; classic tokens otherwise. */
+.activity-bar-layer {
+  position: fixed; inset-inline: 0; z-index: 70; display: flex; justify-content: center;
+  padding-inline: 1rem; pointer-events: none;
+  /* Clear the phone tab bar. */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 5rem);
+}
+@media (min-width: 1024px) { .activity-bar-layer { bottom: 1.5rem; } }
+/* Two classes so the skin's own root colours never override the card. */
+.activity-bar-layer .activity-bar {
+  position: relative; overflow: hidden; pointer-events: auto;
+  display: flex; align-items: center; gap: .75rem;
+  width: 100%; max-width: 28rem; min-height: 3rem; padding: .625rem .75rem .75rem 1rem;
+  border: 1px solid hsl(var(--e-border-strong, var(--border)));
+  border-radius: var(--e-radius-lg, .75rem);
+  background-color: hsl(var(--e-surface, var(--card)));
+  color: hsl(var(--e-foreground, var(--foreground)));
+  box-shadow: 0 10px 30px -12px rgb(0 0 0 / .35);
+  font-family: var(--e-font-sans, inherit); font-size: .875rem; line-height: 1.35;
+  animation: activity-bar-in 180ms ease-out;
+}
+.activity-bar-icon { flex: none; display: inline-flex; color: hsl(var(--e-gold-ink, var(--primary))); }
+.activity-bar[data-tone="success"] .activity-bar-icon { color: hsl(var(--e-success, var(--success, var(--primary)))); }
+.activity-bar[data-tone="danger"] .activity-bar-icon { color: hsl(var(--e-danger, var(--destructive))); }
+.activity-bar[data-tone="danger"] { border-color: hsl(var(--e-danger, var(--destructive)) / .5); }
+.activity-bar-message { flex: 1; min-width: 0; font-weight: 550; overflow-wrap: anywhere; }
+.activity-bar-count { flex: none; font-size: .75rem; font-variant-numeric: tabular-nums; color: hsl(var(--e-muted-foreground, var(--muted-foreground))); }
+.activity-bar-dismiss {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; margin: -.25rem -.25rem -.25rem 0; border: 0; border-radius: 9999px;
+  background: transparent; color: hsl(var(--e-muted-foreground, var(--muted-foreground))); cursor: pointer;
+}
+.activity-bar-dismiss:hover { background: hsl(var(--e-muted, var(--muted))); color: inherit; }
+.activity-bar-dismiss:focus-visible { outline: 2px solid hsl(var(--e-ring, var(--ring))); outline-offset: 2px; }
+.activity-bar-track { position: absolute; inset-inline: 0; bottom: 0; height: 3px; background: hsl(var(--e-muted, var(--muted))); }
+.activity-bar-fill {
+  height: 100%; background: hsl(var(--e-gold, var(--primary)));
+  transition: width 240ms ease-out;
+}
+.activity-bar[data-tone="success"] .activity-bar-fill { background: hsl(var(--e-success, var(--success, var(--primary)))); }
+.activity-bar[data-tone="danger"] .activity-bar-fill { background: hsl(var(--e-danger, var(--destructive))); }
+.activity-bar-fill[data-indeterminate="true"] { width: 35%; animation: activity-bar-slide 1.4s ease-in-out infinite; }
+.activity-bar-spin { animation: activity-bar-spin 900ms linear infinite; }
+@keyframes activity-bar-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes activity-bar-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
+@keyframes activity-bar-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .activity-bar, .activity-bar-spin { animation: none; }
+  .activity-bar-fill { transition: none; }
+  .activity-bar-fill[data-indeterminate="true"] { animation: none; width: 100%; opacity: .45; }
+}
+@media print { .activity-bar-layer { display: none; } }

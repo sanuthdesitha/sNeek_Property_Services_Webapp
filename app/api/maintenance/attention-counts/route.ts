@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { MaintenanceAction, MaintenanceStatus, Role } from "@prisma/client";
+import { maintenanceItemScope } from "@/lib/maintenance/item-scope";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 
@@ -28,15 +29,18 @@ const OPEN_STATUSES = [
 
 export async function GET() {
   try {
-    await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
+    // Badges count the viewer's own queue; a worker never sees business totals.
+    const scope = maintenanceItemScope(session.user);
 
     const [openItems, replacements] = await Promise.all([
       db.propertyMaintenanceItem
-        .count({ where: { status: { in: OPEN_STATUSES } } })
+        .count({ where: { ...scope, status: { in: OPEN_STATUSES } } })
         .catch(() => 0),
       db.propertyMaintenanceItem
         .count({
           where: {
+            ...scope,
             status: { in: OPEN_STATUSES },
             recommendedAction: { in: [MaintenanceAction.REPLACE, MaintenanceAction.RESTOCK] },
           },

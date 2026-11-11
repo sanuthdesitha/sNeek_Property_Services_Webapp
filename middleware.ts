@@ -353,8 +353,13 @@ export default async function middleware(original: NextRequest, event: NextFetch
       if (original.method === "GET" && !path.startsWith("/_next/")) return NextResponse.redirect(new URL(bindAccountUrl(referringContext.contextId, publicOrigin)(path + original.nextUrl.search), publicOrigin));
     }
     const request = new NextRequest(original, { headers });
-    const response = await (normalMiddleware as any)(request, event) as NextResponse;
-    if (response?.headers.get("x-middleware-next") === "1") {
+    const response = await (normalMiddleware as any)(request, event) as NextResponse | undefined;
+    // NextAuth returns nothing for its own /api/auth/* base path. Returning that
+    // as-is forwarded the ORIGINAL headers, so the trusted path metadata was
+    // missing (and client-supplied values survived) on self-service routes such
+    // as two-factor and passkey settings; operations managers were refused there.
+    if (!response) return NextResponse.next({ request: { headers } });
+    if (response.headers.get("x-middleware-next") === "1") {
       const next = NextResponse.next({ request: { headers } });
       response.headers.forEach((value, key) => { if (!key.startsWith("x-middleware-")) next.headers.set(key, value); });
       return next;

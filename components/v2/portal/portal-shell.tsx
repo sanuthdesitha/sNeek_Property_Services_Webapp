@@ -30,6 +30,11 @@ export interface NavItem {
    * Ungrouped entries always remain visible outside search filtering.
    */
   group?: string;
+  /**
+   * The destination's server guard accepts administrators only. Hidden from
+   * everyone else so the menu never offers a page that will refuse them.
+   */
+  adminOnly?: boolean;
 }
 
 export function PortalShell({
@@ -50,9 +55,15 @@ export function PortalShell({
   children: React.ReactNode;
 }) {
   const { canAccess, levels } = useOpsAccess();
-  const nav = suppliedNav.map((item) => ({ ...item, href: opsNavigationHref(levels, item.href) ?? item.href })).filter((item) => canAccess(item.href));
   const pathname = usePathname();
   const { data: session } = useSession();
+  // Until the session is known nothing is hidden; the server guard still applies.
+  const viewerRole = session?.user?.role;
+  const hideAdminOnly = Boolean(viewerRole) && viewerRole !== "ADMIN";
+  const nav = suppliedNav
+    .filter((item) => !(item.adminOnly && hideAdminOnly))
+    .map((item) => ({ ...item, href: opsNavigationHref(levels, item.href) ?? item.href }))
+    .filter((item) => canAccess(item.href));
   const displayName = user?.name ?? session?.user?.name ?? "";
   const displayRole = user?.role ?? roleLabel ?? "";
   const initials = displayName.trim().slice(0, 2).toUpperCase();

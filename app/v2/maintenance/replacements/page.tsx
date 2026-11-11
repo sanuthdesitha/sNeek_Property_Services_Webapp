@@ -1,4 +1,5 @@
-import { MaintenanceStatus, MaintenanceAction, Role } from "@prisma/client";
+import { MaintenanceStatus, MaintenanceAction, Role, type Prisma } from "@prisma/client";
+import { maintenanceItemScope } from "@/lib/maintenance/item-scope";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EBadge, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
@@ -40,10 +41,12 @@ type ReplacementRow = {
   property: { name: string | null; suburb: string | null } | null;
 };
 
-async function getReplacements(): Promise<ReplacementRow[]> {
+async function getReplacements(
+  scope: Prisma.PropertyMaintenanceItemWhereInput,
+): Promise<ReplacementRow[]> {
   return db.propertyMaintenanceItem
     .findMany({
-      where: { recommendedAction: { in: [MaintenanceAction.REPLACE, MaintenanceAction.RESTOCK] } },
+      where: { ...scope, recommendedAction: { in: [MaintenanceAction.REPLACE, MaintenanceAction.RESTOCK] } },
       orderBy: [{ status: "asc" }, { createdAt: "desc" }],
       take: 50,
       select: {
@@ -65,8 +68,8 @@ function formatCost(item: ReplacementRow): string | null {
 }
 
 export default async function MaintenanceReplacementsPage() {
-  await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
-  const items = await getReplacements();
+  const session = await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
+  const items = await getReplacements(maintenanceItemScope(session.user));
 
   return (
     <div className="space-y-6">

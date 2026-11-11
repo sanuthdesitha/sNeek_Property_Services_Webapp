@@ -1,5 +1,8 @@
 import { enforceOpsRequest } from "@/lib/rbac/ops-access";
 import { getServerSession } from "next-auth";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { pageDenialDestination, REQUEST_PATH_HEADER } from "./page-denial";
 import { authOptions } from "./auth-options";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -117,10 +120,26 @@ export async function requireRealSession() {
  * that is guarded per-job in lib/qa/self-review.ts. A role gate cannot see a
  * conflict that depends on who cleaned which property.
  */
+/**
+ * A page render is redirected to an explanation; an API request throws so its
+ * handler can answer 403. The path comes from middleware, never from the client.
+ */
+function denyRole(): never {
+  let requestPath: string | null = null;
+  try {
+    requestPath = headers().get(REQUEST_PATH_HEADER);
+  } catch {
+    // Outside a request (scripts, tests): there is no page to redirect.
+  }
+  const destination = pageDenialDestination(requestPath);
+  if (destination) redirect(destination);
+  throw new Error("FORBIDDEN");
+}
+
 export async function requireRole(allowedRoles: Role[]) {
   const session = await requireSession();
   if (!canActAs(session.user.heldRoles ?? [session.user.role as Role], allowedRoles)) {
-    throw new Error("FORBIDDEN");
+    denyRole();
   }
   return session;
 }

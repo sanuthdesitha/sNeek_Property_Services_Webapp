@@ -69,10 +69,10 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/qa-templates", label: "QA templates", icon: ClipboardCheck, group: "Configuration" },
   { href: "/v2/admin/forms", label: "Forms & stats", icon: ClipboardList, group: "Configuration" },
   { href: "/v2/admin/templates", label: "Templates", icon: FileText, group: "Configuration" },
-  { href: "/v2/admin/activity", label: "Activity log", icon: Activity, group: "Configuration" },
-  { href: "/v2/admin/system/test-as", label: "Test as", icon: Eye, group: "Configuration" },
+  { href: "/v2/admin/activity", label: "Activity log", icon: Activity, group: "Configuration", adminOnly: true },
+  { href: "/v2/admin/system/test-as", label: "Test as", icon: Eye, group: "Configuration", adminOnly: true },
   { href: "/v2/admin/profile", label: "My profile", icon: UserCircle, group: "Configuration" },
-  { href: "/v2/admin/diagnostics", label: "Diagnostics", icon: ShieldCheck, group: "Configuration" },
+  { href: "/v2/admin/diagnostics", label: "Diagnostics", icon: ShieldCheck, group: "Configuration", adminOnly: true },
 ];
 
 // Which attention count badges which nav item. Pages without an unambiguous

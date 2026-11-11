@@ -206,3 +206,10 @@ Keep persistent view administration behind the page-heading three-dot menu → V
 Browser/install icons use the existing Company & brand light-background logo. Keep the manifest identity stable; version image URLs when saved branding changes. Generate actual square PNGs with an opaque background, preserve artwork proportions and reserve Android maskable safe space. Do not offer duplicate favicon/mobile-logo settings for the same brand identity. Existing installed shortcuts may retain an old icon until the user re-adds them.
 
 Mobile grid panels must use an explicit shrinkable base track (`grid-cols-1`) and `min-w-0` on spanning children. Wrap card-header actions. Keep wide tables scrollable inside their panel; verify actual panel bounds at phone widths, since page-level overflow clipping can hide broken layouts.
+
+### Progress and refused access (2026-11)
+
+- Do not add a spinner list, per-file progress bar or progress toast for an upload, export or generated document. The single activity bar reports them. A component that knows bytes sent or a compression phase calls `publishActivityBatch` while it runs and `endActivityBatch` with its done/failed counts when it stops. Keep cancel, retry and failure messages beside the control that owns them.
+- Never show an invented percentage. Show finished units out of started units, a measured byte fraction, or an indeterminate track.
+- A destination whose server guard is ADMIN-only sets `adminOnly` on its navigation entry. Do not rely on the guard alone: a menu must not offer a page that will refuse the person.
+- Every maintenance-portal read of `PropertyMaintenanceItem` spreads `maintenanceItemScope(session.user)` into its `where`.

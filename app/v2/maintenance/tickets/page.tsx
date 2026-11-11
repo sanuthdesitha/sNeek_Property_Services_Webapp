@@ -1,4 +1,5 @@
 import { Role } from "@prisma/client";
+import { maintenanceItemScope } from "@/lib/maintenance/item-scope";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EPageHeader } from "@/components/v2/ui/primitives";
@@ -13,7 +14,7 @@ export default async function MaintenanceTicketsPage({ searchParams = {} }: { se
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? Math.min(requestedPage, 100_000) : 1;
   // Match the worker detail API's existing userIsAssignedWorker predicate.
   // Admin/ops retain the business-wide view; access instructions stay in detail.
-  const where = session.user.role === Role.MAINTENANCE ? { assignedWorker: { userId: session.user.id } } : {};
+  const where = maintenanceItemScope(session.user);
   const [tickets, totalCount] = await Promise.all([db.propertyMaintenanceItem.findMany({
     where,
     orderBy: [{ status: "asc" }, { priority: "desc" }, { createdAt: "desc" }],

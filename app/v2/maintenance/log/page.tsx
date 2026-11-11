@@ -1,4 +1,5 @@
-import { MaintenanceStatus, MaintenanceOutcome, Role } from "@prisma/client";
+import { MaintenanceStatus, MaintenanceOutcome, Role, type Prisma } from "@prisma/client";
+import { maintenanceItemScope } from "@/lib/maintenance/item-scope";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EBadge, ECard, ECardBody, EEmptyState, EPageHeader, EThread } from "@/components/v2/ui/primitives";
@@ -22,10 +23,10 @@ type LogRow = {
   property: { name: string | null; suburb: string | null } | null;
 };
 
-async function getLog(): Promise<LogRow[]> {
+async function getLog(scope: Prisma.PropertyMaintenanceItemWhereInput): Promise<LogRow[]> {
   return db.propertyMaintenanceItem
     .findMany({
-      where: { status: { in: [MaintenanceStatus.RESOLVED, MaintenanceStatus.DISMISSED] } },
+      where: { ...scope, status: { in: [MaintenanceStatus.RESOLVED, MaintenanceStatus.DISMISSED] } },
       orderBy: [{ resolvedAt: "desc" }],
       take: 40,
       select: {
@@ -45,8 +46,8 @@ function formatDate(d: Date | null): string {
 }
 
 export default async function MaintenanceLogPage() {
-  await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
-  const log = await getLog();
+  const session = await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
+  const log = await getLog(maintenanceItemScope(session.user));
 
   return (
     <div className="space-y-6">

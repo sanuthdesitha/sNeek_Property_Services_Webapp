@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
-import { MaintenanceStatus, MaintenancePriority, MaintenanceAction, Role } from "@prisma/client";
+import { MaintenanceStatus, MaintenancePriority, MaintenanceAction, Role, type Prisma } from "@prisma/client";
+import { maintenanceItemScope } from "@/lib/maintenance/item-scope";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import {
@@ -57,7 +58,7 @@ type OpenItem = {
   property: { name: string | null; suburb: string | null } | null;
 };
 
-async function getMaintenance() {
+async function getMaintenance(scope: Prisma.PropertyMaintenanceItemWhereInput) {
   const today = sydneyTodayKey();
   const todayStart = sydneyDayStart(today);
   const todayEnd = sydneyDayStart(addDaysToKey(today, 1));
@@ -66,7 +67,7 @@ async function getMaintenance() {
   const [openItems, openCount, dueToday, replacements, closedWeek] = await Promise.all([
     db.propertyMaintenanceItem
       .findMany({
-        where: { status: { in: OPEN_STATUSES } },
+        where: { ...scope, status: { in: OPEN_STATUSES } },
         orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
         take: 20,
         select: {
@@ -78,20 +79,21 @@ async function getMaintenance() {
         },
       })
       .catch(() => null),
-    db.propertyMaintenanceItem.count({ where: { status: { in: OPEN_STATUSES } } }).catch(() => null),
+    db.propertyMaintenanceItem.count({ where: { ...scope, status: { in: OPEN_STATUSES } } }).catch(() => null),
     db.propertyMaintenanceItem
-      .count({ where: { status: { in: OPEN_STATUSES }, scheduledFor: { gte: todayStart, lt: todayEnd } } })
+      .count({ where: { ...scope, status: { in: OPEN_STATUSES }, scheduledFor: { gte: todayStart, lt: todayEnd } } })
       .catch(() => null),
     db.propertyMaintenanceItem
       .count({
         where: {
+          ...scope,
           status: { in: OPEN_STATUSES },
           recommendedAction: { in: [MaintenanceAction.REPLACE, MaintenanceAction.RESTOCK] },
         },
       })
       .catch(() => null),
     db.propertyMaintenanceItem
-      .count({ where: { status: MaintenanceStatus.RESOLVED, resolvedAt: { gte: weekStart } } })
+      .count({ where: { ...scope, status: MaintenanceStatus.RESOLVED, resolvedAt: { gte: weekStart } } })
       .catch(() => null),
   ]);
 
@@ -99,8 +101,10 @@ async function getMaintenance() {
 }
 
 export default async function MaintenanceTodayPage() {
-  await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
-  const { openItems, openCount, dueToday, replacements, closedWeek } = await getMaintenance();
+  const session = await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
+  const { openItems, openCount, dueToday, replacements, closedWeek } = await getMaintenance(
+    maintenanceItemScope(session.user),
+  );
   const unavailable = [openItems, openCount, dueToday, replacements, closedWeek].some((value) => value === null);
   const countLabel = (value: number | null) => value === null ? <span className="text-sm">Unavailable</span> : String(value);
 
@@ -115,7 +119,7 @@ export default async function MaintenanceTodayPage() {
       {unavailable ? <div role="alert" className="border-l-4 border-red-600 px-4 py-3 text-sm">
         Some maintenance data could not be loaded. <a href="/v2/maintenance" className="underline">Retry</a>
       </div> : null}
-      <section className="grid gap-4 sm:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <EStatCard label="Open tickets" value={countLabel(openCount)} delta="active" deltaTone="neutral" icon={<Wrench className="h-4 w-4" />} />
         <EStatCard label="Due today" value={countLabel(dueToday)} delta="scheduled" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
         <EStatCard label="Replacements" value={countLabel(replacements)} delta="to order / restock" deltaTone="neutral" icon={<Package className="h-4 w-4" />} />

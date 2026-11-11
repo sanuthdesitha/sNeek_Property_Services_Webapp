@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { Role } from "@prisma/client";
+import { maintenanceItemScope } from "@/lib/maintenance/item-scope";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { VisitWorkspace } from "@/components/v2/maintenance/visit-workspace";
@@ -12,11 +13,12 @@ export const dynamic = "force-dynamic";
 // from GET /api/maintenance/[id] (same contract v1 used) and drives the on-site
 // flow: start/complete visit, GPS pings, before/after photos, notes, resolve.
 export default async function MaintenanceVisitPage({ params }: { params: { id: string } }) {
-  await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
 
+  // A worker opening someone else's visit gets "not found", not its title.
   const item = await db.propertyMaintenanceItem
-    .findUnique({
-      where: { id: params.id },
+    .findFirst({
+      where: { ...maintenanceItemScope(session.user), id: params.id },
       select: {
         id: true,
         title: true,

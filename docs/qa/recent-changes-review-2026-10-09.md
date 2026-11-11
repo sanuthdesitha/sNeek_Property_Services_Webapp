@@ -470,3 +470,38 @@ Request: check recent features, make them match the Estate UI and sit in practic
 - `e2e/urgent-stock.spec.ts` was updated for the tab but the real-database Playwright suites were not run.
 - Raw-styled markup remains inside some panels (`property-deep-clean-planning`, `vision-settings`, `photo-review-panel`, `quantity-exceptions`, `started-work-review`). The theme bridge gives them Estate colours; their layout was not redesigned.
 - Nothing was deployed. Production behaviour, including the iCal feeds, is unverified until this branch is deployed and an AUTO sync run appears in Admin → System diagnostics.
+
+### Follow-up: remaining portals, operations-manager access, maintenance and the activity bar (2026-11-11)
+
+Request: apply the same checks and fixes to the cleaner, client, laundry, operations-manager and maintenance portals, and replace the upload/loading indicators with one summary bar in the Estate style. Starting point: `main` at `0062632` after PR 28. Method as before: disposable seeded database on `127.0.0.1:55439`, production build served locally, Chromium. A maintenance worker login and five maintenance items were added to the fixture database only.
+
+**Operations manager**
+
+- Compared every parameterless GET API (218 routes) as ADMIN and as OPS_MANAGER. Fourteen differed. Twelve are intended ADMIN-only areas (Ollama setup, holiday rates, integration credentials, permission packs, settings audit, invoice numbering, system diagnostics, Test-as unlock, turnover profit, urgent-stock administration, bag custody, Xero). Two were defects: `/api/auth/2fa/settings` (401) and `/api/auth/webauthn/credentials` (403). Cause and fix are in `docs/SYSTEM.md`; both return 200 for a manager now.
+- `/v2/admin/activity` and `/v2/admin/diagnostics` rendered "Application error: a server-side exception" for a manager. They, the form builder and Cleaner addresses now redirect to an explanation. Activity log, Diagnostics and Test as are hidden from a manager's menu and still shown to an administrator. An administrator opening a cleaner-only page gets `/unauthorized` instead of a server error.
+
+**Maintenance**
+
+- Defect: the worker dashboard, Replacements, Log, the visit page shell and the badge-count API listed every maintenance item in the business. Verified with an unassigned fixture item titled "SECRET other contractor job": after the fix it appears on none of the four worker screens, its visit page does not render its title, and the badge counts are the worker's own (3 and 3).
+- Tickets list, dashboard stat grid and visit page order reworked as described in `docs/SYSTEM.md`.
+- Note: `recommendedAction` defaults to `REPLACE` in the schema, so an item created without an action counts as a replacement. Left unchanged; it is existing data policy, not something this pass should silently alter.
+
+**Activity bar**
+
+- Browser check with simulated slow responses at 390px dark (cleaner job page) and 1280px light (admin Reports): five concurrent uploads produced one bar reading "Uploading 3 of 5 files" with "2/5", then "5 files uploaded" (with "· Report PDF ready" when a report ran alongside), and it closed by itself. Four uploads with two HTTP 500s produced one alert: "2 of 4 uploads did not finish. Check the details and retry." No toast was rendered in either run. Screenshots of the working (390 dark) and failed (1280 light) states were inspected.
+- The cleaner capture now reports to the bar. Its integration is covered by component and unit tests; it was not exercised with a real camera or real storage here, because no storage provider is configured in this environment.
+
+**Verified**
+
+- TypeScript `--noEmit`: pass. ESLint on touched files: 0 errors, 1 pre-existing warning.
+- Full Vitest suite on disposable PostgreSQL: **7,314 passed, 2 skipped, 661 files passed**. Run before the final one-line stat-card class change; TypeScript and the production build were rerun after it.
+- Production build: pass, 765/765 pages (one earlier attempt failed on a Google Fonts download and passed on retry without changes).
+- Crawl at 1280px after the fixes: cleaner 29 pages, client 30, laundry 13, QA 7, maintenance 9, operations manager 134. No failed API calls, page errors or horizontal overflow. Pages without an `h1` remain the onboarding wizard and form builder.
+- Crawl at 390px for maintenance (9 pages): clean.
+
+**Not done / limits**
+
+- Laundry and QA were swept for errors and layout; their list queries were not audited for per-worker scoping the way maintenance was.
+- The classic (v1) portals were not crawled. Classic screens keep their own upload widgets (`components/ui/upload-dropzone.tsx` and the v1 cleaner job page show per-file progress); the single bar still summarises their requests, but those inline bars were not removed.
+- Custom operations-manager permission packs (View only, Off) were not exercised in the browser; the fixture manager has the default full pack. The existing middleware and policy tests for packs pass.
+- The real-database Playwright suites were not run. Nothing was deployed.
