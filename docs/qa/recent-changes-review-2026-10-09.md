@@ -1052,3 +1052,31 @@ Verified: `npx tsc --noEmit -p .` clean; the Quality, pay-adjustment, accountabi
 
 Not verified
 - Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard, overflow, the row menu inside the scrolling table) deferred to the final pass at the owner's request.
+
+## Jobs and Calendar design completion, Wave A (2026-11-11)
+
+Scope: Wave A of the owner's sixth decision set. See `docs/SYSTEM.md`, "Jobs and Calendar: design completion, Wave A (2026-11)". No schema change; scheduling, assignment, status and charge rules unchanged; all writes go through the existing reschedule, job-create and assign code.
+
+Rules added or access changed
+- New `POST /api/admin/jobs/view-counts` (ADMIN, OPS_MANAGER; read-only, POST for the body): saved-view tab totals. An operations manager with Jobs "view" gets none (POST needs manage) — fails closed.
+- New `POST /api/admin/jobs/bulk-reschedule` (ADMIN; OPS_MANAGER with Jobs manage AND Calendar manage, matching the single reschedule and the Calendar move check). At most 100 jobs.
+- New `POST /api/admin/jobs/import` (ADMIN, OPS_MANAGER with Jobs manage, as job creation). At most 200 rows / 200 KB. Each created row writes an `AuditLog` receipt (`JOB_CSV_IMPORT_ROW`).
+- `POST /api/admin/calendar/check-move` accepts `toStartTime` / `shiftMinutes`; a time move of a job with a separate end time is refused (the reschedule service writes only start and due).
+- Guest in and Charge sorts refuse a filtered set above 5,000 jobs (400, `SORT_SET_TOO_LARGE`).
+- The admin job create moved unchanged into `lib/jobs/admin-create.ts`; `POST /api/admin/jobs` calls it.
+
+Behaviour changed on purpose
+- Cleaner, Guest in and Charge headers sort (list and board). Day rows read "Thursday 12 November", today "… · today". Unassigned is in the danger tone on the Jobs list, board and peek only. Bulk bar gains Reschedule. "Import or bulk create" opens a dialog instead of linking to the New job page. Suggested cleaners add a straight-line distance with its basis and the 30-day QA score, and use them as tie-breaks. Calendar chips drag on touch after press-and-hold and show a grip; Day-view drops can change the time; the Calendar keeps its view (always) and date (same session, same day) across a refresh — a documented exception in `docs/style/operational-ui.md`.
+
+Tests updated on purpose
+- `tests/lib/jobs-list-route-v2.test.ts`: cleaner/guestIn/charge are no longer "unknown sorts"; the refusal cases use other unknown values.
+- `tests/components/jobs-workspace-url.test.tsx`: the three headers now sort and send `sort=charge|cleaner|guestIn`; the bulk bar includes Reschedule; "Import or bulk create" is a button opening the dialog with the bulk-create deep link.
+- `tests/api/calendar-check-move.test.ts`: added time-change cases.
+
+New tests
+- `tests/lib/jobs-computed-sort.test.ts`, `tests/lib/jobs-saved-view-counts.test.ts`, `tests/lib/cleaner-suggestions-signals.test.ts`, `tests/lib/jobs-bulk-reschedule.test.ts`, `tests/lib/calendar-time-drop.test.ts`, `tests/lib/jobs-csv-import.test.ts`, `tests/lib/jobs-admin-create-once.test.ts`, `tests/lib/jobs-day-label.test.ts`, `tests/lib/calendar-touch-drag.test.ts`, `tests/lib/jobs-wave-a-route-coverage.test.ts`, `tests/components/calendar-touch-time-restore.test.tsx`.
+
+Verified: `npx tsc --noEmit -p .` clean; the Jobs, Calendar, suggestions, saved-views and view-memory test files plus the new ones pass, except failures that are not Wave A's: `tests/lib/jobs-invoiced-rule.test.ts`, `tests/lib/jobs-route-filters.test.ts` (3 cases) and `tests/lib/jobs-view-presets.test.ts` (1 case) assert the previous `lib/jobs/invoiced-rule.ts` shape, which changed in an earlier commit outside this wave (Finance path). The Cleaner sort SQL was planned (EXPLAIN only) on the disposable 55439 database; no rows were read or written.
+
+Not verified
+- Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard, overflow; real touch devices for press-and-hold and scroll suppression; Day-view drop positions with real layout) deferred to the final pass at the owner's request. No import was run against a real database.
