@@ -1,22 +1,12 @@
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
-import { EPageHeader } from "@/components/v2/ui/primitives";
-import { AccountabilityDashboard } from "@/components/v2/admin/quality/accountability-dashboard";
+import { redirect } from "next/navigation";
+import { qualityTabRedirect } from "@/lib/quality/redirects";
 
-export const metadata = { title: "Accountability · Estate admin" };
-export const dynamic = "force-dynamic";
-
-export default async function V2AdminAccountabilityPage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-
-  return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Quality"
-        title="Accountability"
-        description="Per-cleaner quality accountability — scores, ratings, streaks, issues, coaching and bonus proposals."
-      />
-      <AccountabilityDashboard />
-    </div>
-  );
+// Accountability is the Cleaners tab of the Quality hub. Laundry team metrics
+// moved to /v2/admin/laundry/stats.
+export default function V2AdminAccountabilityRedirect({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
+  redirect(qualityTabRedirect("cleaners", searchParams));
 }

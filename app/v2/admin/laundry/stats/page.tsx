@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { EAlert, EButton, ECard, EPageHeader, EStatCard } from "@/components/v2/ui/primitives";
 import { ETableShell } from "@/components/v2/admin/estate-kit";
+import { LaundryTeamMetricsPanel } from "@/components/v2/admin/laundry/laundry-team-metrics";
 import { EBar, EColumnChart } from "@/components/v2/admin/forms/management/estate-stats-bars";
 import {
   buildLaundryOpsStats,
@@ -259,6 +260,9 @@ export default async function EstateLaundryStatsPage() {
           Figures read “dropped / total” — a gap means bags are still out.
         </p>
       </ECard>
+
+      {/* Moved from the old Accountability page (now the Quality hub). */}
+      <LaundryTeamMetricsPanel />
     </div>
   );
 }

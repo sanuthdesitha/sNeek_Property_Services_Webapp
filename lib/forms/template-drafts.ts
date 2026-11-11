@@ -109,7 +109,8 @@ async function writeDraft(tx: Tx, input: SaveDraftInput): Promise<{ draft: Templ
     name: input.name ?? current?.name ?? null,
     serviceType: input.serviceType ?? current?.serviceType ?? null,
     note: input.note === undefined ? current?.note ?? null : input.note,
-    restoredFromVersionId: input.restoredFromVersionId ?? null,
+    restoredFromVersionId:
+      input.restoredFromVersionId === undefined ? current?.restoredFromVersionId ?? null : input.restoredFromVersionId,
     createdById: input.actorId,
   };
   let saved: DraftRow;

@@ -19,6 +19,61 @@ function pickAuthoritativeReview(reviews: PerfReviewLite[]): PerfReviewLite | nu
   });
 }
 
+/** Jobs the accountability streak reads: the cleaner's latest completed+reviewed. */
+export const ACCOUNTABILITY_STREAK_LOOKBACK = 10;
+
+export const ACCOUNTABILITY_STREAK_JOB_SELECT = {
+  qaReviews: { select: { score: true, kind: true, createdAt: true, managementReview: true } },
+  qaIssues: { select: { severity: true } },
+  feedback: { select: { rating: true } },
+  satisfactionRating: { select: { score: true } },
+} as const;
+
+export type AccountabilityStreakJob = {
+  qaReviews: PerfReviewLite[];
+  qaIssues: Array<{ severity: string }>;
+  feedback: { rating: number | null } | null;
+  satisfactionRating: { score: number | null } | null;
+};
+
+export type AccountabilityStreakSummary = {
+  currentStreak: number;
+  last5Avg: number | null;
+  last10Avg: number | null;
+};
+
+/**
+ * Streak and last-5/last-10 averages from a cleaner's most recent completed,
+ * reviewed jobs (newest first). Shared by getPerformanceMetrics and the Quality
+ * hub's batched reader so both answer with the same rule.
+ */
+export function summariseAccountabilityStreak(
+  jobs: readonly AccountabilityStreakJob[],
+  streakMinScore: number,
+): AccountabilityStreakSummary {
+  const streakScores = jobs
+    .map((j) => pickAuthoritativeReview(j.qaReviews)?.score)
+    .filter((s): s is number => typeof s === "number");
+  const last5 = streakScores.slice(0, 5);
+  const last10 = streakScores.slice(0, 10);
+  const last5Avg = last5.length > 0 ? last5.reduce((a, b) => a + b, 0) / last5.length : null;
+  const last10Avg = last10.length > 0 ? last10.reduce((a, b) => a + b, 0) / last10.length : null;
+  const streakRecords: CleanRecord[] = jobs.map((j) => {
+    const review = pickAuthoritativeReview(j.qaReviews);
+    return {
+      score: review?.score ?? null,
+      hadCritical:
+        (review?.managementReview ?? false) ||
+        j.qaIssues.some((i) => i.severity === "CRITICAL"),
+      hadComplaint:
+        (j.feedback?.rating != null && j.feedback.rating <= 2) ||
+        (j.satisfactionRating?.score != null && j.satisfactionRating.score <= 2),
+      hadMissingEvidence: false,
+    };
+  });
+  return { currentStreak: computeStreak(streakRecords, streakMinScore), last5Avg, last10Avg };
+}
+
 /**
  * Wrap a Prisma promise so a failure logs (instead of silently producing `null`
  * metrics) and returns the fallback. Critical for diagnosing schema-mismatch
@@ -299,15 +354,10 @@ export async function getPerformanceMetrics(
         qaReviews: { some: {} },
       },
       orderBy: { completedAt: "desc" },
-      take: 10,
-      select: {
-        qaReviews: { select: { score: true, kind: true, createdAt: true, managementReview: true } },
-        qaIssues: { select: { severity: true } },
-        feedback: { select: { rating: true } },
-        satisfactionRating: { select: { score: true } },
-      },
+      take: ACCOUNTABILITY_STREAK_LOOKBACK,
+      select: ACCOUNTABILITY_STREAK_JOB_SELECT,
     }),
-    [] as any[],
+    [] as AccountabilityStreakJob[],
   );
   const streakMinScore = await safeQuery(
     "accountabilitySettings",
@@ -315,27 +365,7 @@ export async function getPerformanceMetrics(
     97,
   );
 
-  const streakScores = streakJobs
-    .map((j: any) => pickAuthoritativeReview(j.qaReviews as PerfReviewLite[])?.score)
-    .filter((s): s is number => typeof s === "number");
-  const last5 = streakScores.slice(0, 5);
-  const last10 = streakScores.slice(0, 10);
-  const last5Avg = last5.length > 0 ? last5.reduce((a, b) => a + b, 0) / last5.length : null;
-  const last10Avg = last10.length > 0 ? last10.reduce((a, b) => a + b, 0) / last10.length : null;
-  const streakRecords: CleanRecord[] = streakJobs.map((j: any) => {
-    const review = pickAuthoritativeReview(j.qaReviews as PerfReviewLite[]);
-    return {
-      score: review?.score ?? null,
-      hadCritical:
-        (review?.managementReview ?? false) ||
-        j.qaIssues.some((i: any) => i.severity === "CRITICAL"),
-      hadComplaint:
-        (j.feedback?.rating != null && j.feedback.rating <= 2) ||
-        (j.satisfactionRating?.score != null && j.satisfactionRating.score <= 2),
-      hadMissingEvidence: false,
-    };
-  });
-  const currentStreak = computeStreak(streakRecords, streakMinScore);
+  const { currentStreak, last5Avg, last10Avg } = summariseAccountabilityStreak(streakJobs, streakMinScore);
 
   // 1. Quality score — average QA submission score for jobs cleaner was assigned
   //    to, dampened by confirmed reworks (each rework removes 5 pts, majors 10).

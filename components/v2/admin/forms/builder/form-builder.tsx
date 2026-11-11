@@ -5,8 +5,8 @@
  * components/forms/form-builder.tsx. Two/three-pane layout: field palette (L),
  * canvas (C), properties panel (R), with a theme drawer and a read-only live
  * preview toggle. Same data model + endpoints as v1:
- *   PATCH  /api/admin/form-templates/[id]        (save draft)
- *   POST   /api/admin/form-templates/[id]/publish (publish / archive)
+ *   PUT    /api/admin/form-templates/[id]/draft   (save draft — never live)
+ *   POST   /api/admin/form-templates/[id]/publish (publish the draft / archive)
  *   POST   /api/admin/form-templates/[id]/duplicate
  * Reorder is button-driven (no HTML5 drag-drop). No imports from
  * @/components/{admin,ui,shared,forms}/** or @/app/admin/**.
@@ -104,8 +104,10 @@ export interface EstateFormBuilderProps {
   initialSchema: FormSchema;
   initialIsActive: boolean;
   initialArchived: boolean;
-  /** ISO `updatedAt` of the row this render was built from. */
+  /** Edit token this render was built from (draft's updatedAt, else the template's). */
   initialUpdatedAt?: string;
+  /** The template has unpublished changes saved as a draft version. */
+  initialHasDraft?: boolean;
 }
 
 export function EstateFormBuilder({
@@ -118,6 +120,7 @@ export function EstateFormBuilder({
   initialIsActive,
   initialArchived,
   initialUpdatedAt,
+  initialHasDraft = false,
 }: EstateFormBuilderProps) {
   const router = useRouter();
   const [name, setName] = React.useState(initialName);
@@ -130,6 +133,7 @@ export function EstateFormBuilder({
   const [publishNotice, setPublishNotice] = React.useState<string | null>(null);
   const [isActive, setIsActive] = React.useState(initialIsActive);
   const [archived, setArchived] = React.useState(initialArchived);
+  const [hasDraft, setHasDraft] = React.useState(initialHasDraft);
   // The version currently on the server, as far as this editor knows. Sent
   // with every save and advanced from the save response, so a long editing
   // session does not start failing its own concurrency check.
@@ -343,6 +347,7 @@ export function EstateFormBuilder({
     setSchema(initialSchema);
     setIsActive(initialIsActive);
     setArchived(initialArchived);
+    setHasDraft(initialHasDraft);
     setBaseUpdatedAt(initialUpdatedAt);
     setStale(false);
     // `dirty` is read, not tracked: this must run when the SERVER version
@@ -355,8 +360,10 @@ export function EstateFormBuilder({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/form-templates/${templateId}`, {
-        method: "PATCH",
+      // Saves the DRAFT version only: what cleaners receive changes when the
+      // draft is published, never on save.
+      const res = await fetch(`/api/admin/form-templates/${templateId}/draft`, {
+        method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name,
@@ -379,6 +386,7 @@ export function EstateFormBuilder({
       // session passes its own check.
       const saved = await res.json().catch(() => null);
       if (saved?.updatedAt) setBaseUpdatedAt(new Date(saved.updatedAt).toISOString());
+      setHasDraft(true);
       setSavedAt(new Date());
       setDirty(false);
       setStale(false);
@@ -396,27 +404,42 @@ export function EstateFormBuilder({
   }
 
   async function togglePublish() {
+    await changePublishState(isActive ? "archive" : "publish");
+  }
+
+  async function changePublishState(action: "publish" | "archive") {
     setError(null);
-    const action = isActive ? "archive" : "publish";
     try {
       const res = await fetch(`/api/admin/form-templates/${templateId}/publish`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action }),
+        // Publishing sends the edit token so a draft changed elsewhere since
+        // this editor loaded is not published unseen (409, like a save).
+        body: JSON.stringify({ action, ...(action === "publish" && baseUpdatedAt ? { expectedUpdatedAt: baseUpdatedAt } : {}) }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        if (res.status === 409 && body?.code === "STALE_TEMPLATE") setStale(true);
         throw new Error(body.error ?? `Action failed (${res.status})`);
       }
-      const { template, archivedPrevious } = await res.json();
+      const { template, archivedPrevious, editToken } = await res.json();
+      if (action === "publish") setHasDraft(false);
       setIsActive(Boolean(template?.isActive));
       setArchived(Boolean(template?.archivedAt));
       // Publishing writes to the row, so the base version this editor sends
       // on its next save has to move with it — otherwise the concurrency
       // guard fires on the editor's own publish and looks like a phantom
       // conflict.
-      if (template?.updatedAt) setBaseUpdatedAt(new Date(template.updatedAt).toISOString());
+      const nextToken =
+        typeof editToken === "string" ? editToken : template?.updatedAt ? new Date(template.updatedAt).toISOString() : undefined;
+      if (nextToken) {
+        setBaseUpdatedAt(nextToken);
+        // The refreshed server payload carries this same token; it is this
+        // editor's own write, not a change made elsewhere.
+        seededRef.current = nextToken;
+      }
       setImpactKey((k) => k + 1);
+      router.refresh();
       if (action === "publish" && Number(archivedPrevious) > 0) {
         setPublishNotice(
           `Published. ${archivedPrevious} previously published template${
@@ -484,6 +507,11 @@ export function EstateFormBuilder({
               Draft
             </EBadge>
           )}
+          {hasDraft && isActive && !archived ? (
+            <EBadge tone="info" soft>
+              Unpublished changes
+            </EBadge>
+          ) : null}
           {dirty ? (
             <EBadge tone="warning" soft>
               Unsaved
@@ -501,6 +529,17 @@ export function EstateFormBuilder({
           <EButton variant="outline" size="sm" onClick={() => setShowTheme(true)}>
             <Palette className="size-4" /> Theme &amp; settings
           </EButton>
+          {isActive && hasDraft ? (
+            <EButton
+              variant="gold"
+              size="sm"
+              onClick={() => void changePublishState("publish")}
+              disabled={dirty || saving}
+              title={dirty ? "Save the draft first; publishing makes the saved draft live." : "Publish the saved draft — new jobs get it as a new version."}
+            >
+              Publish changes
+            </EButton>
+          ) : null}
           {/* A draft is edited-but-invisible: publishing is the step admins miss,
               so it is the emphasised action until the template is live. */}
           <EButton

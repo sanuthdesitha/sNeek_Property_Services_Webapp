@@ -7,6 +7,9 @@
  *   POST  /api/admin/qa/templates          { name?, serviceType, propertyId?, templateSchema? }
  *   PATCH /api/admin/qa/templates/[id]     { name?, isActive?, templateSchema? }
  * (No DELETE endpoint exists for QA templates — deactivate instead.)
+ * POST and PATCH are ADMIN only. `canWrite` (decided on the server from the
+ * viewer's held roles) hides create/edit/reset and locks the active switch for
+ * everyone else, so an operations manager is not offered buttons that 403.
  * Estate token scope only; no components/ui/* dependency.
  */
 import { useEffect, useMemo, useState } from "react";
@@ -83,7 +86,7 @@ function fieldMax(field: LooseField): string {
   return typeof m === "number" ? String(m) : "";
 }
 
-export function QaTemplatesManager() {
+export function QaTemplatesManager({ canWrite = false }: { canWrite?: boolean }) {
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [properties, setProperties] = useState<PropertyOption[]>([]);
@@ -320,9 +323,11 @@ export function QaTemplatesManager() {
           <EButton size="sm" variant="outline" onClick={() => void load()} disabled={loading}>
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </EButton>
-          <EButton size="sm" variant="gold" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-3.5 w-3.5" /> New template
-          </EButton>
+          {canWrite ? (
+            <EButton size="sm" variant="gold" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" /> New template
+            </EButton>
+          ) : null}
         </div>
       </div>
 
@@ -368,17 +373,25 @@ export function QaTemplatesManager() {
                   v{template.version}
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <ESwitch checked={template.isActive} onCheckedChange={() => void toggleActive(template)} />
+                  <ESwitch
+                    checked={template.isActive}
+                    disabled={!canWrite}
+                    onCheckedChange={() => void toggleActive(template)}
+                  />
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-1.5">
-                    <EButton size="sm" variant="outline" onClick={() => openEdit(template)}>
-                      <Pencil className="h-3.5 w-3.5" /> Edit
-                    </EButton>
-                    <EButton size="sm" variant="ghost" onClick={() => setResetFor(template)}>
-                      <RefreshCw className="h-3.5 w-3.5" /> Reset
-                    </EButton>
-                  </div>
+                  {canWrite ? (
+                    <div className="flex items-center justify-end gap-1.5">
+                      <EButton size="sm" variant="outline" onClick={() => openEdit(template)}>
+                        <Pencil className="h-3.5 w-3.5" /> Edit
+                      </EButton>
+                      <EButton size="sm" variant="ghost" onClick={() => setResetFor(template)}>
+                        <RefreshCw className="h-3.5 w-3.5" /> Reset
+                      </EButton>
+                    </div>
+                  ) : (
+                    <span className="block text-right text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Read only</span>
+                  )}
                 </td>
               </tr>
             ))}

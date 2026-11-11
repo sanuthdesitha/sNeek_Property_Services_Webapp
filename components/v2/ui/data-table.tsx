@@ -61,7 +61,20 @@ export type EDataTableProps<TRow, TSort extends string = string> = {
   /** Minimum table width before the region scrolls. */
   minWidth?: string;
   className?: string;
+  /**
+   * Optional group rows (e.g. one per day). Every row in `rows` must appear in
+   * exactly one group, in display order; the page checkbox still uses `rows`.
+   */
+  groups?: Array<{ key: string; label: React.ReactNode; rows: TRow[] }>;
+  /** Mouse convenience: clicking a row's non-interactive area. Keep a real control in the row for keyboards. */
+  onRowClick?: (row: TRow) => void;
+  /** The row shown elsewhere (e.g. in a side panel), highlighted. */
+  activeRowKey?: string | null;
+  /** Cell padding, e.g. for a density preference. */
+  cellPadding?: string;
 };
+
+const INTERACTIVE = "a, button, input, select, textarea, label, [role='menuitem'], [role='checkbox']";
 
 const ALIGN: Record<NonNullable<EDataColumn<unknown>["align"]>, string> = {
   left: "text-left",
@@ -164,6 +177,10 @@ export function EDataTable<TRow, TSort extends string = string>({
   emptyDescription,
   minWidth = "52rem",
   className,
+  groups,
+  onRowClick,
+  activeRowKey = null,
+  cellPadding = "px-3 py-2.5",
 }: EDataTableProps<TRow, TSort>) {
   const hasRows = rows.length > 0;
 
@@ -193,6 +210,51 @@ export function EDataTable<TRow, TSort extends string = string>({
     const active = sort?.key === column.sortKey;
     const dir: SortDirection = active ? (sort?.dir === "asc" ? "desc" : "asc") : (column.firstDir ?? "asc");
     onSortChange({ key: column.sortKey, dir });
+  }
+
+  function renderRow(row: TRow) {
+    const id = rowKey(row);
+    const checked = selection?.selected.has(id) ?? false;
+    const active = activeRowKey !== null && activeRowKey === id;
+    return (
+      <tr
+        key={id}
+        data-active={active || undefined}
+        onClick={onRowClick ? (event) => {
+          if ((event.target as HTMLElement).closest(INTERACTIVE)) return;
+          onRowClick(row);
+        } : undefined}
+        className={cn(
+          "hover:bg-[hsl(var(--e-surface-raised)/0.6)]",
+          onRowClick && "cursor-pointer",
+          (checked || active) && "bg-[hsl(var(--e-primary-soft))] hover:bg-[hsl(var(--e-primary-soft))]",
+          active && "shadow-[inset_3px_0_0_hsl(var(--e-primary))]",
+        )}
+      >
+        {selection ? (
+          <td className={cn("w-[34px] align-middle", cellPadding)}>
+            <input
+              type="checkbox"
+              className="h-[15px] w-[15px] accent-[hsl(var(--e-primary))]"
+              aria-label={selection.rowLabel(row)}
+              checked={checked}
+              disabled={selection.disabled}
+              onChange={() => {
+                const next = new Set(selection.selected);
+                if (checked) next.delete(id);
+                else next.add(id);
+                selection.onChange(next);
+              }}
+            />
+          </td>
+        ) : null}
+        {columns.map((column) => (
+          <td key={column.key} className={cn("align-middle", cellPadding, ALIGN[column.align ?? "left"], column.className)}>
+            {column.cell(row)}
+          </td>
+        ))}
+      </tr>
+    );
   }
 
   return (
@@ -254,39 +316,22 @@ export function EDataTable<TRow, TSort extends string = string>({
             </tr>
           </thead>
           <tbody className="divide-y divide-[hsl(var(--e-border))]">
-            {rows.map((row) => {
-              const id = rowKey(row);
-              const checked = selection?.selected.has(id) ?? false;
-              return (
-                <tr
-                  key={id}
-                  className={cn("hover:bg-[hsl(var(--e-surface-raised)/0.6)]", checked && "bg-[hsl(var(--e-primary-soft))] hover:bg-[hsl(var(--e-primary-soft))]")}
-                >
-                  {selection ? (
-                    <td className="w-[34px] px-3 py-2.5 align-middle">
-                      <input
-                        type="checkbox"
-                        className="h-[15px] w-[15px] accent-[hsl(var(--e-primary))]"
-                        aria-label={selection.rowLabel(row)}
-                        checked={checked}
-                        disabled={selection.disabled}
-                        onChange={() => {
-                          const next = new Set(selection.selected);
-                          if (checked) next.delete(id);
-                          else next.add(id);
-                          selection.onChange(next);
-                        }}
-                      />
-                    </td>
-                  ) : null}
-                  {columns.map((column) => (
-                    <td key={column.key} className={cn("px-3 py-2.5 align-middle", ALIGN[column.align ?? "left"], column.className)}>
-                      {column.cell(row)}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
+            {(groups ?? [{ key: "", label: null, rows }]).map((group) => (
+              <React.Fragment key={group.key || "rows"}>
+                {groups ? (
+                  <tr>
+                    <th
+                      scope="colgroup"
+                      colSpan={columns.length + (selection ? 1 : 0)}
+                      className="bg-[hsl(var(--e-background))] px-3 py-1.5 text-left text-[0.8125rem] font-[600] text-[hsl(var(--e-foreground))]"
+                    >
+                      {group.label}
+                    </th>
+                  </tr>
+                ) : null}
+                {group.rows.map((row) => renderRow(row))}
+              </React.Fragment>
+            ))}
           </tbody>
         </table>
       </div>

@@ -36,6 +36,8 @@ export type AdminAttentionCounts = {
   quality: number;
   /** QA issues awaiting rectification (rectificationStatus PENDING). */
   qaIssues: number;
+  /** Quality hub entry: `quality` + `qaIssues` (both real counts, no overlap). */
+  qualityHub: number;
   /** Cases not yet triaged (CaseState OPEN or TRIAGE). */
   cases: number;
   /** Lost & found items still only REPORTED. */
@@ -165,6 +167,7 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
       payClaims,
     quality: openQaAssignments,
     qaIssues: pendingQaIssues,
+    qualityHub: openQaAssignments + pendingQaIssues,
     cases: openCases,
     lostFound: reportedLostFound,
     laundry: flaggedLaundry,

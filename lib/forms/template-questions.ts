@@ -12,6 +12,7 @@
  *
  * PURE: no database.
  */
+import { isReadOnlyFieldType } from "./field-types";
 
 export type SchemaNode = Record<string, unknown>;
 
@@ -148,4 +149,9 @@ export function searchableQuestionText(schema: unknown): string {
     if (typeof question.field.label === "string") parts.push(question.field.label);
   }
   return normalizeWording(parts.join(" \n "));
+}
+
+/** Questions a cleaner answers: every field and sub-field except read-only blocks. */
+export function countQuestions(schema: unknown): number {
+  return listQuestions(schema).filter((q) => !isReadOnlyFieldType(typeof q.field.type === "string" ? q.field.type : null)).length;
 }

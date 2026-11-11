@@ -1184,7 +1184,31 @@ export default async function AdminJobDetailPage({
             />
           </ECardBody>
         </ECard>
-
+        {/* Photo review and the QA score were a second "Quality" block further
+            down the page; merged here so the tab renders once, in this order. */}
+        <PhotoReviewPanel jobId={job.id} />
+        {/* QA */}
+        <ECard>
+          <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><ShieldCheck className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Quality</ECardTitle></ECardHeader>
+          <ECardBody className="space-y-1 pt-0 text-[0.8125rem]">
+            {qa ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="e-numeral text-[1.25rem] leading-none">{Math.round(qa.score)}</span>
+                  <EBadge tone={qa.passed ? "success" : "danger"} soft>{qa.passed ? "Passed" : "Failed"}</EBadge>
+                  <EBadge tone="neutral" soft>{qa.kind}</EBadge>
+                </div>
+                {qa.notes ? <p className="pt-1 text-[hsl(var(--e-muted-foreground))]">{qa.notes}</p> : null}
+                <p className="text-[hsl(var(--e-text-faint))]">{format(new Date(qa.createdAt), "d MMM yyyy")}</p>
+              </>
+            ) : (
+              <p className="text-[hsl(var(--e-muted-foreground))]">No QA review yet.</p>
+            )}
+            <div className="pt-2">
+              <QuickQaReview jobId={job.id} jobStatus={job.status} hasReview={!!qa} defaultScore={qa ? Math.round(qa.score) : 90} />
+            </div>
+          </ECardBody>
+        </ECard>
       </div>
       ) : null}
 
@@ -1255,35 +1279,6 @@ export default async function AdminJobDetailPage({
         <ECard>
           <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Billing &amp; pay ledger</ECardTitle></ECardHeader>
           <ECardBody className="pt-0"><JobDetailManage job={manageJob} section="billing" /></ECardBody>
-        </ECard>
-      </div>
-      ) : null}
-
-      {/* ── Quality (continued) ──────────────────────────────────────────── */}
-      {tab === "quality" ? (
-      <div className="space-y-4">
-        <PhotoReviewPanel jobId={job.id} />
-        {/* QA */}
-        <ECard>
-          <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><ShieldCheck className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Quality</ECardTitle></ECardHeader>
-          <ECardBody className="space-y-1 pt-0 text-[0.8125rem]">
-            {qa ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <span className="e-numeral text-[1.25rem] leading-none">{Math.round(qa.score)}</span>
-                  <EBadge tone={qa.passed ? "success" : "danger"} soft>{qa.passed ? "Passed" : "Failed"}</EBadge>
-                  <EBadge tone="neutral" soft>{qa.kind}</EBadge>
-                </div>
-                {qa.notes ? <p className="pt-1 text-[hsl(var(--e-muted-foreground))]">{qa.notes}</p> : null}
-                <p className="text-[hsl(var(--e-text-faint))]">{format(new Date(qa.createdAt), "d MMM yyyy")}</p>
-              </>
-            ) : (
-              <p className="text-[hsl(var(--e-muted-foreground))]">No QA review yet.</p>
-            )}
-            <div className="pt-2">
-              <QuickQaReview jobId={job.id} jobStatus={job.status} hasReview={!!qa} defaultScore={qa ? Math.round(qa.score) : 90} />
-            </div>
-          </ECardBody>
         </ECard>
       </div>
       ) : null}

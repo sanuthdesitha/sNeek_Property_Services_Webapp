@@ -72,7 +72,7 @@ export function buildImpactNotes(impact: TemplateImpact): Note[] {
     if (impact.isGlobalDefault) {
       notes.push({
         tone: "success",
-        text: "This is the live default for its service type — any property without its own override renders these edits.",
+        text: "This is the live default for its service type — once you publish, any property without its own override renders these edits. Saving alone keeps them as a draft.",
       });
     } else {
       notes.push({
@@ -109,7 +109,7 @@ export function buildImpactNotes(impact: TemplateImpact): Note[] {
   } else {
     notes.push({
       tone: "info",
-      text: `${impact.openJobsUsingThis} open job${impact.openJobsUsingThis === 1 ? "" : "s"} will render these edits (jobs pick the template up live, no re-assignment needed).`,
+      text: `${impact.openJobsUsingThis} open job${impact.openJobsUsingThis === 1 ? "" : "s"} will render these edits once you publish them (jobs pick the published template up live, no re-assignment needed).`,
     });
   }
 

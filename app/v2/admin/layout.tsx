@@ -10,8 +10,6 @@ import {
   Inbox,
   Building2,
   ShieldCheck,
-  ShieldAlert,
-  Trophy,
   Activity,
   ClipboardCheck,
   Shirt,
@@ -24,7 +22,7 @@ import {
   GraduationCap,
   UsersRound,
   Map, Wrench, Sparkles, ClipboardList, FileText,
-  Tags, Truck, ListChecks, Eye, UserCircle,
+  Tags, Truck, Eye, UserCircle,
 } from "lucide-react";
 
 const NAV: NavItem[] = [
@@ -49,10 +47,10 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/onboarding", label: "Property onboarding", icon: ClipboardList, group: "People & property" },
   { href: "/v2/admin/hiring", label: "Hiring", icon: Briefcase, group: "People & property" },
 
+  // One Quality hub: review queue, issues, cleaners, inspectors, categories
+  // and coaching. /quality/issues, /accountability and /qa-performance
+  // redirect to its tabs.
   { href: "/v2/admin/quality", label: "Quality", icon: ShieldCheck, group: "Quality" },
-  { href: "/v2/admin/quality/issues", label: "QA Issues", icon: ShieldAlert, group: "Quality" },
-  { href: "/v2/admin/quality/accountability", label: "Accountability", icon: Trophy, group: "Quality" },
-  { href: "/v2/admin/quality/qa-performance", label: "QA Performance", icon: Activity, group: "Quality" },
   { href: "/v2/admin/reports", label: "Reports", icon: FileText, group: "Quality" },
 
   // One entry for client invoices, cleaner invoices, pay runs and adjustments.
@@ -65,10 +63,9 @@ const NAV: NavItem[] = [
 
   { href: "/v2/admin/settings", label: "Settings", icon: Settings, group: "Configuration" },
   { href: "/v2/admin/ai", label: "AI configuration", icon: Sparkles, group: "Configuration" },
-  { href: "/v2/admin/checklists", label: "Checklists library", icon: ListChecks, group: "Configuration" },
-  { href: "/v2/admin/qa-templates", label: "QA templates", icon: ClipboardCheck, group: "Configuration" },
-  { href: "/v2/admin/forms", label: "Forms & stats", icon: ClipboardList, group: "Configuration" },
-  { href: "/v2/admin/templates", label: "Templates", icon: FileText, group: "Configuration" },
+  // One Forms library: job forms, QA templates, checklist blocks, message
+  // templates and results. The old entries' routes redirect to its tabs.
+  { href: "/v2/admin/forms", label: "Forms", icon: ClipboardList, group: "Configuration" },
   { href: "/v2/admin/activity", label: "Activity log", icon: Activity, group: "Configuration", adminOnly: true },
   { href: "/v2/admin/system/test-as", label: "Test as", icon: Eye, group: "Configuration", adminOnly: true },
   { href: "/v2/admin/profile", label: "My profile", icon: UserCircle, group: "Configuration" },
@@ -81,8 +78,8 @@ const NAV: NavItem[] = [
 const COUNT_KEY_BY_HREF: Record<string, keyof AdminAttentionCounts> = {
   "/v2/admin/jobs": "jobs",
   "/v2/admin/approvals": "approvals",
-  "/v2/admin/quality": "quality",
-  "/v2/admin/quality/issues": "qaIssues",
+  // Unclaimed inspections + QA issues awaiting rectification.
+  "/v2/admin/quality": "qualityHub",
   "/v2/admin/cases": "cases",
   "/v2/admin/lost-found": "lostFound",
   "/v2/admin/laundry": "laundry",

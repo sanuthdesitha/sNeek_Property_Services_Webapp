@@ -1,12 +1,13 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ role: "ADMIN", findUnique: vi.fn() }));
+const m = vi.hoisted(() => ({ role: "ADMIN", findUnique: vi.fn(), drafts: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: async (roles: string[]) => {
   if (!m.role) throw new Error("UNAUTHORIZED");
   if (!roles.includes(m.role)) throw new Error("FORBIDDEN");
   return { user: { id: "viewer", role: m.role } };
 } }));
-vi.mock("@/lib/db", () => ({ db: { formTemplate: { findUnique: m.findUnique } } }));
+// The estate editor also reads the template's draft version (2026-11 forms library).
+vi.mock("@/lib/db", () => ({ db: { formTemplate: { findUnique: m.findUnique }, formTemplateVersion: { findMany: m.drafts } } }));
 vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("NOT_FOUND"); } }));
 vi.mock("@/components/v2/admin/forms/management/new-form-launcher", () => ({ NewFormLauncher: () => null }));
 vi.mock("@/components/v2/admin/forms/builder/form-builder", () => ({ EstateFormBuilder: () => null }));
@@ -17,7 +18,7 @@ import EditPage from "@/app/v2/admin/forms/[id]/edit/page";
 import LegacyEditPage from "@/app/admin/forms/[id]/edit/page";
 const params = { params: { id: "template" } };
 beforeEach(() => {
-  vi.clearAllMocks(); m.role = "ADMIN";
+  vi.clearAllMocks(); m.role = "ADMIN"; m.drafts.mockResolvedValue([]);
   m.findUnique.mockResolvedValue({ id: "template", name: "Inspection", kind: "CUSTOM", serviceType: "GENERAL_CLEAN", schema: { standardSections: false, sections: [] }, isActive: false, archivedAt: null, version: 2, updatedAt: new Date("2026-10-03T00:00:00Z") });
 });
 const gates = [
@@ -49,4 +50,14 @@ it.each([["estate", EditPage], ["legacy", LegacyEditPage]] as const)("loads %s e
 it.each([["estate", EditPage], ["legacy", LegacyEditPage]] as const)("returns not-found for missing %s template after ADMIN admission", async (_name, render) => {
   m.findUnique.mockResolvedValue(null);
   await expect(render(params)).rejects.toThrow("NOT_FOUND");
+});
+
+it("opens the estate editor on the unpublished draft, with the draft's token", async () => {
+  m.drafts.mockResolvedValue([{ id: "d", version: 2, schema: { standardSections: false, sections: [{ id: "s", title: "Draft section", fields: [] }] }, name: "Inspection (draft)", serviceType: "DEEP_CLEAN", note: null, restoredFromVersionId: null, updatedAt: new Date("2026-10-05T00:00:00Z") }]);
+  const page = await EditPage(params);
+  expect(page.props.initialHasDraft).toBe(true);
+  expect(page.props.initialUpdatedAt).toBe("2026-10-05T00:00:00.000Z");
+  expect(page.props.initialName).toBe("Inspection (draft)");
+  expect(page.props.initialServiceType).toBe("DEEP_CLEAN");
+  expect(page.props.initialSchema.sections[0].title).toBe("Draft section");
 });

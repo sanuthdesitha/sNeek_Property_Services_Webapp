@@ -1,28 +1,79 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
+import { canActAs } from "@/lib/auth/roles";
+import { getOpsAccess } from "@/lib/rbac/ops-access";
+import { canUseOpsPath } from "@/lib/rbac/ops-catalog";
+import { resolveFormsTab, type FormsLibraryTab } from "@/lib/admin/forms-redirects";
+import { getFormsTabCounts } from "@/lib/forms/library-tab-counts";
 import { EPageHeader } from "@/components/v2/ui/primitives";
-import { EstateFormsList } from "@/components/v2/admin/forms/management/estate-forms-list";
+import { QaTemplatesManager } from "@/components/v2/admin/qa/qa-templates-manager";
+import { FormsTabNav, FORMS_TAB_LABEL } from "@/components/v2/admin/forms/library/forms-tab-nav";
+import { JobFormsLibrary } from "@/components/v2/admin/forms/library/job-forms-library";
+import { NewFormMenu } from "@/components/v2/admin/forms/library/new-form-menu";
+import { FormStatsPanel } from "@/components/v2/admin/forms/library/form-stats-panel";
+import { ChecklistBlocksTab, MessageTemplatesTab } from "@/components/v2/admin/forms/library/forms-subviews";
 
 export const metadata = { title: "Forms · Estate admin" };
 export const dynamic = "force-dynamic";
 
-export default async function EstateFormsPage({
-  searchParams,
-}: {
-  searchParams: { tab?: string };
-}) {
-  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+/**
+ * Forms library: job forms, QA templates, checklist blocks, message templates
+ * and results on one page. /v2/admin/qa-templates, /v2/admin/templates,
+ * /v2/admin/checklists and /v2/admin/forms/stats redirect to their tabs.
+ * Old `?tab=` values still land on their content (`templates` → Job forms,
+ * `checklists` → the per-service checklists view of Checklist blocks).
+ *
+ * ADMIN: every tab and every write. OPS_MANAGER: the tabs their packs allow
+ * (QA templates = quality, Message templates = communications, the rest =
+ * forms, mirrored in lib/rbac/ops-catalog.ts), read-only wherever the API
+ * refuses them a write.
+ */
+const TAB_ORDER: FormsLibraryTab[] = ["forms", "qa", "blocks", "messages", "stats"];
 
-  const tab = searchParams.tab === "checklists" ? "checklists" : "templates";
+type SearchParams = { tab?: string; view?: string; templateId?: string; weeks?: string };
+
+export default async function EstateFormsPage({ searchParams }: { searchParams: SearchParams }) {
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const canWrite = canActAs(session.user.heldRoles ?? [session.user.role], [Role.ADMIN]);
+
+  const levels = await getOpsAccess(session.user);
+  const allowed = TAB_ORDER.filter((key) => !levels || canUseOpsPath(levels, `/v2/admin/forms?tab=${key}`));
+  const requested = resolveFormsTab(searchParams?.tab);
+  const tab: FormsLibraryTab | null = searchParams?.tab
+    ? allowed.includes(requested.tab)
+      ? requested.tab
+      : null
+    : (allowed[0] ?? null);
+  const counts = await getFormsTabCounts({ forms: allowed.includes("forms"), qa: allowed.includes("qa") });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <EPageHeader
-        eyebrow="Standards"
         title="Forms"
-        description="Job form templates and the per-service checklists they are built from — publish what cleaners fill in on site."
+        description="Every form in one library: job checklists, QA inspection templates and message templates"
+        actions={canWrite ? <NewFormMenu canQa={allowed.includes("qa")} canMessages={allowed.includes("messages")} /> : undefined}
       />
-      <EstateFormsList tab={tab} canWrite={(session.user.heldRoles ?? [session.user.role]).includes(Role.ADMIN)} />
+      <FormsTabNav active={tab ?? "forms"} tabs={allowed} counts={{ forms: counts.forms, qa: counts.qa }} />
+      <div className="min-w-0">
+        <h2 className="sr-only">{tab ? FORMS_TAB_LABEL[tab] : "Not available"}</h2>
+        {tab === null ? (
+          <p role="alert" className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
+            This section is not available to your account.
+          </p>
+        ) : null}
+        {tab === "forms" ? <JobFormsLibrary canWrite={canWrite} /> : null}
+        {tab === "qa" ? (
+          <div className="space-y-4">
+            <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+              Inspection scoring forms per job type, with optional per-property overrides.
+            </p>
+            <QaTemplatesManager canWrite={canWrite} />
+          </div>
+        ) : null}
+        {tab === "blocks" ? <ChecklistBlocksTab view={requested.legacyChecklists || searchParams?.view === "service" ? "service" : "library"} /> : null}
+        {tab === "messages" ? <MessageTemplatesTab view={searchParams?.view === "messages" ? "messages" : "notifications"} /> : null}
+        {tab === "stats" ? <FormStatsPanel searchParams={{ templateId: searchParams?.templateId, weeks: searchParams?.weeks }} /> : null}
+      </div>
     </div>
   );
 }

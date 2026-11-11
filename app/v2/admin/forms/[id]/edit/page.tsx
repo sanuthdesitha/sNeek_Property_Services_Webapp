@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import type { FormSchema } from "@/lib/forms/types";
 import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
 import { EstateFormBuilder } from "@/components/v2/admin/forms/builder/form-builder";
+import { readTemplateDraft, templateEditToken } from "@/lib/forms/template-drafts";
 
 export const metadata = { title: "Edit form template · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -29,13 +30,18 @@ export default async function EstateFormEditPage({ params }: { params: { id: str
 
   if (!template) notFound();
 
+  // The builder edits the template's DRAFT version when one exists (saving
+  // writes the draft; publishing makes it live), so reopening the builder
+  // shows the unpublished changes rather than the live form.
+  const draft = await readTemplateDraft(template.id);
+
   // Canonicalise through the SAME normalizer the cleaner read + submit routes
   // use, so the builder edits exactly the schema the runtime enforces: legacy
   // `label`/`upload`/`{fieldId,equals}` shapes are rewritten, and the standard
   // sections (arrival evidence / exceptions / sign-off) are visible + editable
   // instead of being invisibly injected downstream. Templates that already
   // carry `standardSections: false` keep their baked copies untouched.
-  const normalized = normalizeFormSchema(template.schema);
+  const normalized = normalizeFormSchema(draft ? draft.schema : template.schema);
   const rawSchema = { ...normalized } as any;
   const sections = Array.isArray(rawSchema?.sections)
     ? rawSchema.sections.map((s: any, idx: number) => ({
@@ -71,9 +77,9 @@ export default async function EstateFormEditPage({ params }: { params: { id: str
   return (
     <EstateFormBuilder
       templateId={template.id}
-      initialName={template.name}
+      initialName={draft?.name ?? template.name}
       initialKind={String(template.kind)}
-      initialServiceType={String(template.serviceType)}
+      initialServiceType={String(draft?.serviceType ?? template.serviceType)}
       initialVersion={template.version}
       initialSchema={initialSchema}
       initialIsActive={template.isActive}
@@ -82,7 +88,10 @@ export default async function EstateFormEditPage({ params }: { params: { id: str
       // the server can refuse a write from an editor that has gone stale —
       // which a back-navigation reliably produces, because Next serves the
       // pre-edit RSC payload from the client Router Cache.
-      initialUpdatedAt={template.updatedAt.toISOString()}
+      // With a draft, the draft's own updatedAt is the token (see
+      // lib/forms/template-drafts.ts).
+      initialUpdatedAt={templateEditToken(template.updatedAt, draft)}
+      initialHasDraft={Boolean(draft)}
     />
   );
 }

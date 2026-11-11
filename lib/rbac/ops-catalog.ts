@@ -404,6 +404,12 @@ export type OpsRequestFeature = OpsFeature | "owner" | "unmapped" | null;
 /** Stable route ownership; special cases precede their parent section. */
 /** Tabs of /admin/finance owned by the payroll feature. */
 export const FINANCE_PAYROLL_TABS: ReadonlySet<string> = new Set(["cleaner-invoices", "payroll", "adjustments", "time"]);
+/**
+ * The merged Forms library page: QA templates stay a quality feature and
+ * message templates a communications feature, as their old pages and their
+ * APIs are. Every other tab (job forms, checklist blocks, results) is forms.
+ */
+export const FORMS_TAB_FEATURES: Readonly<Record<string, OpsFeature>> = { qa: "quality", messages: "communications" };
 
 export function opsRequestFeature(input: string): OpsRequestFeature {
   const url = new URL(input, "http://internal");
@@ -447,6 +453,9 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
   // by a query string.
   if (/^\/admin\/finance\/?$/.test(path)) {
     return FINANCE_PAYROLL_TABS.has(url.searchParams.get("tab") ?? "") ? "payroll" : "finance";
+  }
+  if (/^\/admin\/forms\/?$/.test(path)) {
+    return FORMS_TAB_FEATURES[url.searchParams.get("tab") ?? ""] ?? "forms";
   }
   if (/^\/(?:api\/)?admin(?:\/|$)/.test(path)) {
     const section =
@@ -549,6 +558,12 @@ export function opsNavigationHref(
   // A manager with payroll but not finance still reaches the payee tabs.
   if (/^\/(?:v2\/)?admin\/finance$/.test(href) && canUseOpsPath(levels, `${href}?tab=cleaner-invoices`)) {
     return `${href}?tab=cleaner-invoices`;
+  }
+  // A manager with QA templates or message templates but not forms still
+  // reaches those tabs of the merged Forms page.
+  if (/^\/(?:v2\/)?admin\/forms$/.test(href)) {
+    const tab = Object.keys(FORMS_TAB_FEATURES).find((key) => canUseOpsPath(levels, `${href}?tab=${key}`));
+    if (tab) return `${href}?tab=${tab}`;
   }
   if (/^\/(?:v2\/)?admin\/settings$/.test(href)) {
     const tab = Object.keys(SETTINGS_TABS).find((key) =>
