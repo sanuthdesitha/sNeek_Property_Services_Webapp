@@ -31,6 +31,7 @@ import { GET as listGet, POST as officeCreate } from "@/app/api/admin/lost-found
 import { POST as bulkPost } from "@/app/api/admin/lost-found/bulk/route";
 import { POST as eventsPost } from "@/app/api/lost-found/[id]/events/route";
 import { LostFoundRuleError } from "@/lib/lost-found/mutations";
+import { GET as messageGet } from "@/app/api/admin/lost-found/[id]/message/route";
 
 const json = (url: string, body: unknown) => new NextRequest(url, { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } });
 
@@ -98,5 +99,19 @@ describe("bulk and workflow routes", () => {
     const closed = await eventsPost(json("https://app.invalid/api/lost-found/i1/events", { action: "GUEST_CONTACTED", channel: "EMAIL" }), { params: { id: "i1" } });
     expect(closed.status).toBe(409);
     expect(m.workflow).toHaveBeenCalledWith("i1", "office", expect.objectContaining({ action: "GUEST_CONTACTED", channel: "EMAIL" }));
+  });
+});
+
+describe("message guest / tell client", () => {
+  it("drafts the message but never claims the app can send or deliver it", async () => {
+    m.db.lostFoundItem.findUnique.mockResolvedValue({ id: "i1", itemName: "Watch", createdAt: "2026-11-10T00:00:00.000Z", foundLocation: "Bedside", propertyId: "p1", propertyName: "Bondi", propertyAddress: "1 Test St", guestName: "Priya Shah", guestEmail: null, guestContact: "priya@example.invalid or 0400 111 222" });
+    m.db.property.findUnique.mockResolvedValue({ name: "Bondi", client: { name: "Harbour Stays", email: "office@harbour.invalid", phone: null } });
+    const guest = await (await messageGet(new NextRequest("https://app.invalid/api/admin/lost-found/i1/message?audience=guest"), { params: { id: "i1" } })).json();
+    expect(guest.send).toEqual({ available: false, reason: expect.stringMatching(/cannot send/) });
+    expect(guest.recipient).toEqual({ name: "Priya Shah", email: "priya@example.invalid", phone: "0400111222" });
+    expect(guest.draft.body).toContain("Watch (Bedside)");
+    const client = await (await messageGet(new NextRequest("https://app.invalid/api/admin/lost-found/i1/message?audience=client"), { params: { id: "i1" } })).json();
+    expect(client.recipient).toEqual({ name: "Harbour Stays", email: "office@harbour.invalid", phone: null });
+    expect(client.send.available).toBe(false);
   });
 });
