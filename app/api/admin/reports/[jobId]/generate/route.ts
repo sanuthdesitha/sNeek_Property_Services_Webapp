@@ -1,10 +1,7 @@
-import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
-import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
+import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
-import { generateJobReport } from "@/lib/reports/generator";
-import { getAppSettings } from "@/lib/settings";
+import { regenerateReport, ReportActionError } from "@/lib/reports/admin-report-actions";
 
 export async function POST(
   req: NextRequest,
@@ -12,24 +9,6 @@ export async function POST(
 ) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-
-    const job = await db.job.findUnique({
-      where: { id: params.jobId },
-      select: {
-        id: true,
-        property: {
-          select: {
-            name: true,
-            client: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-        },
-      },
-    });
-    if (!job) {
-      return NextResponse.json({ error: "Job not found" }, { status: 404 });
-    }
 
     const url = new URL(req.url);
     let themeId: string | null = url.searchParams.get("themeId");
@@ -42,27 +21,7 @@ export async function POST(
       }
     }
 
-    await generateJobReport(params.jobId, themeId || undefined);
-    const settings = await getAppSettings();
-    const requiresAdminInitiation = settings.strictClientAdminOnly;
-
-    const report = await db.report.findUnique({
-      where: { jobId: params.jobId },
-      select: { pdfUrl: true, updatedAt: true, sentToClient: true, sentAt: true },
-    });
-
-    if (requiresAdminInitiation && report) {
-      await db.notification.create({
-        data: {
-          externalId: mobilePendingMarker("reports"),
-          channel: NotificationChannel.PUSH,
-          subject: "Report generated (manual client share required)",
-          body: `Report ${params.jobId} generated. Use Share action to send to client.`,
-          status: NotificationStatus.SENT,
-          sentAt: new Date(),
-        },
-      });
-    }
+    const { report, requiresAdminInitiation } = await regenerateReport(params.jobId, themeId);
 
     return NextResponse.json({
       ok: true,
@@ -76,6 +35,9 @@ export async function POST(
       },
     });
   } catch (err: any) {
+    if (err instanceof ReportActionError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
   }

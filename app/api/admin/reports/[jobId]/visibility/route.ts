@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
+import { setReportVisibility } from "@/lib/reports/admin-report-actions";
 
 const schema = z.object({
   clientVisible: z.boolean().optional(),
@@ -18,20 +18,7 @@ export async function PATCH(
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = schema.parse(await req.json().catch(() => ({})));
-    const report = await db.report.update({
-      where: { jobId: params.jobId },
-      data: {
-        clientVisible: body.clientVisible,
-        cleanerVisible: body.cleanerVisible,
-        laundryVisible: body.laundryVisible,
-        visibilityNote: body.visibilityNote === null ? null : body.visibilityNote || undefined,
-        visibilityUpdatedAt: new Date(),
-        visibilityUpdatedById: session.user.id,
-      },
-      include: {
-        visibilityUpdatedBy: { select: { id: true, name: true, email: true } },
-      },
-    });
+    const report = await setReportVisibility(params.jobId, body, session.user.id);
     return NextResponse.json(report);
   } catch (err: any) {
     const status =

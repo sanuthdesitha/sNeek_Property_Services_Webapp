@@ -125,6 +125,16 @@ function availabilityVerdict(job: SuggestionJob, window: Window | null, availabi
   return { blocker: { kind: "unavailable", reason }, reason };
 }
 
+/**
+ * The roster's verdict for a whole day, with no job time: a blocker when the
+ * cleaner has a saved roster and no hours on that day. Used by the calendar to
+ * mark days a cleaner is not rostered, with the same wording as suggestions.
+ */
+export function dayAvailabilityBlocker(dayKey: string, availability: SuggestionAvailability | null): SuggestionBlocker | null {
+  const job: SuggestionJob = { id: "", dayKey, startTime: null, endTime: null, dueTime: null, estimatedHours: null };
+  return availabilityVerdict(job, null, availability).blocker;
+}
+
 type ClashVerdict = { blocker: SuggestionBlocker | null; reasons: string[] };
 
 function clashVerdict(window: Window | null, others: SuggestionOtherJob[]): ClashVerdict {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
+import { deleteReport } from "@/lib/reports/admin-report-actions";
 
 export async function DELETE(
   _req: NextRequest,
@@ -9,7 +9,7 @@ export async function DELETE(
 ) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    await db.report.delete({ where: { jobId: params.jobId } });
+    await deleteReport(params.jobId);
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     const status =
@@ -17,4 +17,3 @@ export async function DELETE(
     return NextResponse.json({ error: err.message }, { status });
   }
 }
-
