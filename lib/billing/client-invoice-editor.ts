@@ -10,6 +10,7 @@ import { isShoppingDisbursement } from "@/lib/finance/shopping-accounting";
 import { getClientInvoice } from "./client-invoices";
 import { getClientInvoiceListRow } from "./client-invoice-list";
 import { invoiceEditLock, isShoppingLockedLine } from "./client-invoice-guards";
+import { isDiscountLine } from "./client-invoice-adjustments";
 import { clientInvoiceApprovalChecks } from "./client-invoice-checks";
 import { clientInvoiceHistory } from "./client-invoice-history";
 import { readStartedWorkReview } from "./started-work-reconciliation";
@@ -50,6 +51,8 @@ function toEditorLine(line: LoadedLine, timezone: string, startedWork: EditorSta
     category: line.category,
     note: line.note ?? null,
     shoppingLocked: isShoppingLockedLine(line),
+    discount: isDiscountLine(line),
+    discountPercent: line.discountPercent ?? null,
     job: line.job
       ? {
           id: line.job.id,
@@ -134,6 +137,7 @@ export async function loadClientInvoiceEditor(
     totalAmount: Number(invoice.totalAmount),
     gstEnabled: invoice.gstEnabled !== false,
     totalsMismatch: invoice.totalsMismatch,
+    clientNote: invoice.clientNote ?? null,
     lines: invoice.lines.map((line) => toEditorLine(line, timezone, startedWork)),
     clientProperties: properties.map((property) => ({ id: property.id, name: property.name, suburb: property.suburb ?? null })),
     editLock: invoiceEditLock(invoice, options.canManage),

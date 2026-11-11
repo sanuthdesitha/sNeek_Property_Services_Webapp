@@ -27,8 +27,36 @@ export function getInvoice<TBody>(id: string, signal?: AbortSignal) {
   return send<TBody>(`/api/admin/invoices/${id}`, { signal, cache: "no-store" });
 }
 
-export function deleteInvoiceRequest(id: string) {
-  return send(`/api/admin/invoices/${id}`, { method: "DELETE" });
+export type SecurityCredentials = { pin?: string; password?: string };
+
+/** Words for the server's security refusal codes (same wording as verifyAdminSecurity). */
+export function securityRefusalMessage(error: string | undefined, fallback: string): string {
+  if (error === "INVALID_SECURITY_VERIFICATION") return "That PIN or password was not accepted.";
+  if (error === "PIN_OR_PASSWORD_REQUIRED") return "Enter your PIN or password.";
+  if (error === "FORBIDDEN") return "You cannot do this here. Stop impersonating and sign in as yourself.";
+  return error || fallback;
+}
+
+/** The PIN or password is verified by the server, not only by the dialog. */
+export function deleteInvoiceRequest(id: string, security?: SecurityCredentials) {
+  return send(`/api/admin/invoices/${id}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ security: security ?? {} }),
+  });
+}
+
+/** A DRAFT credit note against a sent invoice; answers with its id. */
+export function createCreditNoteRequest(id: string) {
+  return send<{ id?: string; invoiceNumber?: string; exceedsRemaining?: boolean; remaining?: number }>(
+    `/api/admin/invoices/${encodeURIComponent(id)}/credit-note`,
+    { method: "POST" },
+  );
+}
+
+/** A blank DRAFT for a client and period (yyyy-MM-dd days); answers with its id. */
+export function createBlankInvoiceRequest(input: { clientId: string; periodStart: string; periodEnd: string }) {
+  return send<{ id?: string; invoiceNumber?: string }>("/api/admin/invoices", json("POST", { kind: "BLANK", ...input }));
 }
 
 export function sendInvoiceRequest(id: string, to: string) {

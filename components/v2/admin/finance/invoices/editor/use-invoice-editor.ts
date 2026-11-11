@@ -16,7 +16,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ClientInvoiceEditorData } from "@/lib/billing/client-invoice-editor-types";
-import { getInvoiceEditor, patchInvoice } from "../invoice-requests";
+import { getInvoiceEditor, patchInvoice, securityRefusalMessage } from "../invoice-requests";
 import { EMPTY_NEW_LINE, dirtyLineIds, newLineStarted, pruneDrafts, type LineDraft, type LineDrafts } from "./line-drafts";
 
 export type SaveStatus =
@@ -119,7 +119,8 @@ export function useInvoiceEditor(initial: ClientInvoiceEditorData): InvoiceEdito
         }
         if (!result.ok) {
           // A refusal rolls the whole PATCH back, so retrying is safe.
-          setStatus({ kind: "failed", what, message: result.body.error ?? `Not saved (error ${result.status}).`, retry });
+          // Security refusals arrive as codes; everything else is already in words.
+          setStatus({ kind: "failed", what, message: securityRefusalMessage(result.body.error, `Not saved (error ${result.status}).`), retry });
           return false;
         }
         options.onSuccess?.();

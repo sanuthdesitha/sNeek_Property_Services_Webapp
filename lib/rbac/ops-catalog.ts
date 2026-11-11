@@ -323,6 +323,9 @@ const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   checklists: "forms",
   reports: "reports",
   "report-themes": "reports",
+  // Insights (/v2/admin/reports) reads its figures from /api/admin/insights;
+  // financial figures additionally need `finance` (lib/insights/access).
+  insights: "reports",
   quotes: "quotes",
   leads: "quotes",
   finance: "finance",

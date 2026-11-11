@@ -29,8 +29,13 @@ import {
   INVOICE_PAGE_SIZE,
 } from "./use-invoice-list";
 
-/** Opens the generator when the page is reached through "New invoice → From finished jobs". */
+/** Opens a "New invoice" dialog when the page is reached through that menu (?new=jobs|blank|credit). */
 const NEW_INVOICE_PARAM = "new";
+const NEW_INVOICE_DIALOGS = {
+  jobs: { kind: "generate" },
+  blank: { kind: "blank" },
+  credit: { kind: "new-credit-note" },
+} as const satisfies Record<string, InvoiceDialog>;
 
 function useFormContext(): InvoiceFormContext | null {
   const [context, setContext] = useState<InvoiceFormContext | null>(null);
@@ -78,15 +83,16 @@ export function InvoiceList() {
     setStatsToken((token) => token + 1);
   }, [reload]);
 
-  // "New invoice → From finished jobs" arrives as ?new=jobs.
+  // "New invoice → …" arrives as ?new=jobs, ?new=blank or ?new=credit.
   useEffect(() => {
     if (!context || typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get(NEW_INVOICE_PARAM) !== "jobs") return;
+    const requested = params.get(NEW_INVOICE_PARAM);
+    if (requested !== "jobs" && requested !== "blank" && requested !== "credit") return;
     params.delete(NEW_INVOICE_PARAM);
     const query = params.toString();
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
-    setDialog({ kind: "generate" });
+    setDialog(NEW_INVOICE_DIALOGS[requested]);
   });
 
   const runDirect = useCallback(
@@ -132,6 +138,7 @@ export function InvoiceList() {
         case "reverse":
         case "reconcile":
         case "delete":
+        case "credit-note":
           setDialog({ kind: key, invoice });
           return;
         default:

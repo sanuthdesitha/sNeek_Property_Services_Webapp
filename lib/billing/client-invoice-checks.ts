@@ -6,6 +6,8 @@
  * Enforced by the approve PATCH (client-invoice-patch.ts):
  *   - a pending Xero export reservation (isXeroExportPending)
  *   - the started-work review (startedWorkRefusal, read without the job locks)
+ *   - at least one line (emptyInvoiceRefusal: a blank draft cannot be approved)
+ *   - on a credit note, the credit limit (creditNoteTotalRefusal)
  * Not enforced by approval, shown as "Check" only:
  *   - every job line still resolves a client rate (computeClientCharge, the
  *     generator's missing-rate rule)
@@ -17,13 +19,17 @@
 import { db } from "@/lib/db";
 import { computeClientCharge } from "@/lib/finance/job-money";
 import { billedJobLinesWhere, invoiceTotalsMismatch } from "./client-invoices";
-import { isXeroExportPending } from "./client-invoice-guards";
+import { emptyInvoiceRefusal, isXeroExportPending } from "./client-invoice-guards";
+import { creditNoteTotalRefusal, creditableRemaining } from "./client-invoice-adjustments";
+import { creditedAmountOf } from "@/lib/finance/receivables";
 import { startedWorkRefusal } from "./started-work-reconciliation";
 import type { ApprovalCheck, ApprovalChecks } from "./client-invoice-editor-types";
 
 export type CheckableInvoice = {
   id: string;
   status: string;
+  kind?: string | null;
+  creditsInvoiceId?: string | null;
   clientId: string;
   metadata: unknown;
   gstEnabled: boolean | null;
@@ -31,7 +37,8 @@ export type CheckableInvoice = {
   lines: Array<{ id: string; jobId: string | null; quantity: number; unitPrice: number; lineTotal: number; category: string }>;
 };
 
-type CheckClient = Pick<typeof db, "job" | "propertyClientRate" | "priceBook" | "clientInvoiceLine" | "$queryRaw">;
+type CheckClient = Pick<typeof db, "job" | "propertyClientRate" | "priceBook" | "clientInvoiceLine" | "$queryRaw"> &
+  Partial<Pick<typeof db, "clientInvoice">>;
 
 function failed(error: unknown): string {
   return error instanceof Error && error.message ? error.message : "The check could not be completed.";
@@ -127,6 +134,46 @@ export async function otherInvoiceCheck(invoice: CheckableInvoice, client: Check
   }
 }
 
+export function linesCheck(invoice: CheckableInvoice): ApprovalCheck {
+  const refusal = emptyInvoiceRefusal(invoice);
+  return {
+    key: "lines",
+    state: refusal ? "refused" : "ok",
+    enforced: true,
+    label: refusal ? "This invoice has no lines" : "The invoice has lines",
+    detail: refusal,
+  };
+}
+
+/** A credit note may not credit more than its invoice has left (read without the lock). */
+export async function creditLimitCheck(invoice: CheckableInvoice, client: CheckClient): Promise<ApprovalCheck> {
+  const base = { key: "credit-limit" as const, enforced: true };
+  try {
+    const original = invoice.creditsInvoiceId && client.clientInvoice
+      ? await client.clientInvoice.findUnique({
+          where: { id: invoice.creditsInvoiceId },
+          select: {
+            invoiceNumber: true,
+            totalAmount: true,
+            creditNotes: { where: { id: { not: invoice.id } }, select: { status: true, totalAmount: true } },
+          },
+        })
+      : null;
+    if (!original) return { ...base, state: "unknown", label: "The credited invoice could not be read", detail: null };
+    const remaining = creditableRemaining(original.totalAmount, creditedAmountOf(original.creditNotes));
+    const refusal = creditNoteTotalRefusal({
+      total: invoice.totalAmount,
+      remaining,
+      originalNumber: original.invoiceNumber,
+      requireCredit: true,
+    });
+    if (refusal) return { ...base, state: "refused", label: "The credit is not within the limit", detail: refusal };
+    return { ...base, state: "ok", label: `Within what ${original.invoiceNumber} has left to credit ($${remaining.toFixed(2)})`, detail: null };
+  } catch (error) {
+    return { ...base, state: "unknown", label: "The credit limit could not be checked", detail: failed(error) };
+  }
+}
+
 export function totalsCheck(invoice: CheckableInvoice): ApprovalCheck {
   const mismatch = invoiceTotalsMismatch(invoice);
   return {
@@ -149,6 +196,9 @@ export async function clientInvoiceApprovalChecks(
     const xero = await xeroReservationCheck(invoice);
     // Only listed when it applies; it is otherwise noise beside the design's four.
     if (xero.state !== "ok") items.push(xero);
+    const lines = linesCheck(invoice);
+    if (lines.state !== "ok") items.push(lines);
+    if (invoice.kind === "CREDIT_NOTE") items.push(await creditLimitCheck(invoice, client));
     items.push(await startedWorkCheck(invoice, client));
   }
   items.push(advisory[0], advisory[1], totalsCheck(invoice));

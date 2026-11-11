@@ -1,40 +1,32 @@
 "use client";
 
 /**
- * Per-line confirmations: removing a line (PIN or password, verified by the
- * security endpoint first, exactly as the old editor did) and choosing the
+ * Per-line confirmations: removing a line (PIN or password, sent with the
+ * removal and verified by the invoice route on the server) and choosing the
  * property a manual line groups under.
  */
 import { useState } from "react";
 import { EButton } from "@/components/v2/ui/primitives";
-import { EConfirmModal, EField, EModal, ESelect, verifyAdminSecurity } from "@/components/v2/admin/estate-kit";
+import { EConfirmModal, EField, EModal, ESelect } from "@/components/v2/admin/estate-kit";
 import type { ClientInvoiceEditorData, EditorLine } from "@/lib/billing/client-invoice-editor-types";
 
-type Credentials = { pin?: string; password?: string };
+export type Credentials = { pin?: string; password?: string };
 
 export function RemoveLineDialog({
   line,
   busy,
   onClose,
-  onVerified,
-  onRefused,
+  onConfirm,
 }: {
   line: EditorLine | null;
   busy: boolean;
   onClose: () => void;
-  onVerified: (line: EditorLine) => void;
-  onRefused: (message: string) => void;
+  /** Sends the removal with the credentials; the server checks them. */
+  onConfirm: (line: EditorLine, credentials: Credentials) => void;
 }) {
-  async function confirm(credentials?: Credentials) {
+  function confirm(credentials?: Credentials) {
     if (!line) return;
-    try {
-      // The invoice route takes no security payload of its own.
-      await verifyAdminSecurity(credentials);
-    } catch (error) {
-      onRefused(error instanceof Error && error.message ? error.message : "Your PIN or password could not be verified.");
-      return;
-    }
-    onVerified(line);
+    onConfirm(line, credentials ?? {});
   }
   return (
     <EConfirmModal

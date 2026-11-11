@@ -198,3 +198,22 @@ To be built together with blank invoices and credit notes, after the Forms migra
 5. Note to client: stored on the invoice, editable while DRAFT or APPROVED, printed on the PDF.
 
 Also in that step: the PDF and the list use the same organisation-timezone rule for the due date, and the emailed invoice link points to the current invoice page.
+
+## Standing rule from the owner (2026-11-11): fix existing problems by default
+
+When a step finds a problem that was already in the code, it is fixed in that step (or the next one touching that area) with a test, and reported as fixed. It is no longer listed as "noticed, not fixed". Exceptions that still need the owner: anything that changes a business rule, money, or who can see or do what.
+
+Backlog found so far, to be cleared under this rule:
+
+| Problem | Area | Status |
+| --- | --- | --- |
+| A job whose only invoice line is on a voided invoice counts as invoiced, so it never shows as unbilled | Jobs filter, ready-to-bill | Assigned |
+| Single-job reminder records the push notice as sent before delivery and bypasses the notification pipeline | Jobs | Assigned |
+| `EField` labels are not tied to their inputs | Shared admin kit | Assigned |
+| `GET /api/admin/qa/issues` end date uses server-local time, not Sydney | Quality | Assigned |
+| Coaching tab fails quietly for an operations manager without the workforce pack | Quality | Assigned |
+| Old template-versions API switches which form jobs resolve to, with no screen | Forms | Assigned |
+| Saving through the old form PATCH still writes the live form and records no version | Forms | With the builder step |
+| GET/DELETE invoice routes answer 400 for unauthorised or forbidden | Invoices | With the invoice step |
+| Invoice page errors on a malformed started-work snapshot instead of showing it read-only | Invoices | With the invoice step |
+| Send and Xero push write no audit row; bulk audit rows do not appear in an invoice's history | Invoices | With the invoice step |

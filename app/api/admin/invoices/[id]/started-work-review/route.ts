@@ -35,7 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           const job = state.current.find(row => row.jobId === line.jobId);
           return job ? { ...line, lineTotal: job.agreedAmount } : line;
         });
-        totals = calculateShoppingAwareInvoiceTotals(lines, invoice.gstEnabled ?? true);
+        totals = calculateShoppingAwareInvoiceTotals(lines, invoice.gstEnabled ?? true, { kind: invoice.kind });
       }
       if (body.action === "CONFIRM") {
         for (const line of invoice.lines) {

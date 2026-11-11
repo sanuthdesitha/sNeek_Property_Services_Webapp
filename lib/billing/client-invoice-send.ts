@@ -14,6 +14,14 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { db } from "@/lib/db";
 import { assertStartedWorkReviewed } from "@/lib/billing/started-work-reconciliation";
 import { actionResult, type InvoiceActionResult } from "./invoice-action-result";
+import { emptyInvoiceRefusal } from "./client-invoice-guards";
+import { creditNoteTotalRefusal } from "./client-invoice-adjustments";
+import { creditLimitFor } from "./client-invoice-patch-rules";
+
+/** The client portal's page for one invoice (also used for credit notes). */
+export function clientInvoiceUrl(origin: string, invoiceId: string): string {
+  return `${origin}/v2/client/finance/invoices/${encodeURIComponent(invoiceId)}`;
+}
 
 export async function sendClientInvoice(input: {
   invoiceId: string;
@@ -56,6 +64,24 @@ export async function sendClientInvoice(input: {
     // SENT. Only `sentAt` is restamped.
     const keepsStatus = invoice.status === ClientInvoiceStatus.PART_PAID;
 
+    const empty = emptyInvoiceRefusal(invoice);
+    if (empty) return actionResult({ error: empty }, 409);
+    // Sending a draft credit note issues it, so the credit limit applies here
+    // exactly as it does to approving one (under the original's row lock).
+    if (invoice.kind === "CREDIT_NOTE" && invoice.status === ClientInvoiceStatus.DRAFT) {
+      const refusal = await db.$transaction(async (tx) => {
+        const limit = await creditLimitFor(tx, invoice);
+        if (!limit) return "The invoice this credit note credits could not be found.";
+        return creditNoteTotalRefusal({
+          total: invoice.totalAmount,
+          remaining: limit.remaining,
+          originalNumber: limit.originalNumber,
+          requireCredit: true,
+        });
+      });
+      if (refusal) return actionResult({ error: refusal }, 409);
+    }
+
     const explicitTo = typeof input.to === "string" ? input.to.trim() : "";
     const recipients = explicitTo
       ? [explicitTo]
@@ -73,8 +99,9 @@ export async function sendClientInvoice(input: {
       clientName: invoice.client.name,
       invoiceNumber: invoice.invoiceNumber,
       totalAmount: invoice.totalAmount.toFixed(2),
-      actionLabel: "View invoice",
-      actionUrl: `${input.origin}/admin/invoices`,
+      actionLabel: invoice.kind === "CREDIT_NOTE" ? "View credit note" : "View invoice",
+      // The client-facing invoice page in the client portal, never an admin page.
+      actionUrl: clientInvoiceUrl(input.origin, invoice.id),
     });
 
     const result = await sendEmailDetailed({

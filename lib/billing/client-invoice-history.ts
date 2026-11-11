@@ -53,6 +53,10 @@ export function describeInvoiceAudit(action: string, after: unknown): string {
       return "Started-work draft refreshed from jobs";
     case "CLIENT_INVOICE_BULK_ACTION":
       return `Bulk action: ${field(after, "action") ?? "unknown"}`;
+    case "CLIENT_INVOICE_BLANK_CREATED":
+      return "Created as a blank invoice";
+    case "CLIENT_INVOICE_CREDIT_NOTE_CREATED":
+      return `Credit note created against ${field(after, "creditsInvoiceNumber") ?? "an invoice"}`;
     default:
       return action;
   }

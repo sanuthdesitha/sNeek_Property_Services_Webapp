@@ -5,8 +5,9 @@
  * "Billing schedule" (the draft cadence settings) and "New invoice".
  *
  * The schedule opens in a dialog that stays mounted once opened, so unsaved
- * ticks survive closing it. "New invoice" offers the existing generator only;
- * blank invoices and credit notes are listed but disabled until a later step.
+ * ticks survive closing it. "New invoice" offers the generator (from finished
+ * jobs), a blank invoice and a credit note; each opens its dialog on the
+ * client-invoice tab.
  */
 import * as React from "react";
 import { useRouter } from "next/navigation";
@@ -131,8 +132,16 @@ export function MoneyHeaderActions({ xero, canBill }: { xero: XeroConnectionSumm
                 label: "From finished jobs",
                 onSelect: () => router.push("/v2/admin/finance?tab=invoices&new=jobs", { scroll: false }),
               },
-              { key: "blank", label: "Blank invoice", disabled: true, hint: "Coming in a later step" },
-              { key: "credit", label: "Credit note", disabled: true, hint: "Coming in a later step" },
+              {
+                key: "blank",
+                label: "Blank invoice",
+                onSelect: () => router.push("/v2/admin/finance?tab=invoices&new=blank", { scroll: false }),
+              },
+              {
+                key: "credit",
+                label: "Credit note",
+                onSelect: () => router.push("/v2/admin/finance?tab=invoices&new=credit", { scroll: false }),
+              },
             ]}
           />
         </>

@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { getPrimaryGateway, createPaymentAdapter } from "@/lib/payments/service";
 import { getAppBaseUrl } from "@/lib/app-url";
+import { invoiceAmountOwing, readCreditedAmount } from "@/lib/finance/receivables";
 
 const paySchema = z.object({
   returnUrl: z.string().url(),
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
 
     if (!invoice) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
+    if (invoice.kind === "CREDIT_NOTE") return NextResponse.json({ error: "A credit note is not paid." }, { status: 400 });
     if (invoice.status === "PAID") return NextResponse.json({ error: "Invoice already paid." }, { status: 400 });
     // Only an invoice that has actually been issued can be paid. This checked
     // PAID alone, so a DRAFT or VOID id would still open a payment intent for a
@@ -57,7 +59,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Invalid return address." }, { status: 400 });
     }
     // A part-paid invoice is charged what is still owed, not the full total again.
-    const outstanding = Math.max(0, invoice.totalAmount - (invoice.paidAmount ?? 0));
+    // Approved or sent credit notes reduce it too (the one owing rule).
+    const outstanding = invoiceAmountOwing({
+      totalAmount: invoice.totalAmount,
+      paidAmount: invoice.paidAmount,
+      creditedAmount: await readCreditedAmount(invoice.id),
+    });
     if (outstanding <= 0) {
       return NextResponse.json({ error: "Invoice already paid." }, { status: 400 });
     }

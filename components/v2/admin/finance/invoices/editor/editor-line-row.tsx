@@ -43,6 +43,7 @@ function LineBadges({ line }: { line: EditorLine }) {
   return (
     <>
       {line.shoppingLocked ? <EPill tone="gold">Shopping · locked</EPill> : null}
+      {line.discount ? <EPill tone="info">{line.discountPercent !== null ? `Discount · ${line.discountPercent}%` : "Discount"}</EPill> : null}
       {line.startedWork === "unfinished" ? <EPill tone="warn">Started, not finished: review</EPill> : null}
       {line.startedWork === "changed" ? <EPill tone="warn">Changed since review</EPill> : null}
     </>
@@ -64,7 +65,7 @@ function JobLink({ line }: { line: EditorLine }) {
 function lineMenu(line: EditorLine, props: LineRowProps): ERowMenuItem[] {
   const items: ERowMenuItem[] = [];
   if (line.job) items.push({ key: "job", label: "Open job", href: `/v2/admin/jobs/${encodeURIComponent(line.job.id)}` });
-  if (props.editable && !line.job && !line.shoppingLocked) {
+  if (props.editable && !line.job && !line.shoppingLocked && !line.discount) {
     items.push({ key: "group", label: "Group under a property…", onSelect: props.onRegroup });
   }
   if (props.editable && !line.shoppingLocked) {
@@ -83,6 +84,8 @@ export function EditorLineRow(props: LineRowProps) {
   const dirty = draftDiffers(line, draft);
   const menu = lineMenu(line, props);
   const label = line.description || "line";
+  // A discount keeps the amount it was given; remove and re-add it to change it.
+  const amountEditable = editable && !line.shoppingLocked && !line.discount;
   const errorId = error ? `line-error-${line.id}` : undefined;
 
   return (
@@ -132,7 +135,7 @@ export function EditorLineRow(props: LineRowProps) {
       </td>
       <td className={cn(CELL, "whitespace-nowrap e-tnum")}>{line.job ? fmtDay(line.job.scheduledDay) : "—"}</td>
       <td className={cn(CELL, "text-right e-tnum")}>
-        {editable && !line.shoppingLocked ? (
+        {amountEditable ? (
           <input
             className={cn(INPUT, "w-[4.5rem] text-right")}
             inputMode="decimal"
@@ -146,7 +149,7 @@ export function EditorLineRow(props: LineRowProps) {
         )}
       </td>
       <td className={cn(CELL, "text-right e-tnum")}>
-        {editable && !line.shoppingLocked ? (
+        {amountEditable ? (
           <input
             className={cn(INPUT, "w-[6rem] text-right")}
             inputMode="decimal"

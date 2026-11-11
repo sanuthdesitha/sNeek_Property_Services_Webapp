@@ -38,7 +38,10 @@ export function daysBetween(today: string, day: string): number {
 }
 
 function DueCell({ invoice, today, termsDays }: { invoice: InvoiceRow; today: string; termsDays: number }) {
-  if (invoice.status === "VOID") return <span className="text-[hsl(var(--e-muted-foreground))]">—</span>;
+  // Nothing falls due on a void invoice, a credit note or a fully credited invoice.
+  if (invoice.status === "VOID" || invoice.kind === "CREDIT_NOTE" || invoice.fullyCredited) {
+    return <span className="text-[hsl(var(--e-muted-foreground))]">—</span>;
+  }
   if (invoice.status === "PAID") {
     return <span className="text-[hsl(var(--e-muted-foreground))]">Paid {fmtDate(invoice.paidDate ?? invoice.paidAt)}</span>;
   }
@@ -55,6 +58,24 @@ function DueCell({ invoice, today, termsDays }: { invoice: InvoiceRow; today: st
     return <span className="e-tnum font-[600] text-[hsl(var(--e-danger))]">{Math.abs(days)} d overdue</span>;
   }
   return <span className="e-tnum">{days === 0 ? "Due today" : `In ${days} day${days === 1 ? "" : "s"}`}</span>;
+}
+
+/** The kind and the credit-note link, both ways, under the number. */
+function CreditLinks({ invoice }: { invoice: InvoiceRow }) {
+  if (invoice.kind === "CREDIT_NOTE") {
+    return (
+      <span className="block text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+        Credit note{invoice.credits ? ` · credits ${invoice.credits.invoiceNumber}` : ""}
+      </span>
+    );
+  }
+  const live = (invoice.creditedBy ?? []).filter((note) => note.status !== "VOID");
+  if (!live.length) return null;
+  return (
+    <span className="block text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+      Credited by {live.map((note) => note.invoiceNumber).join(", ")}
+    </span>
+  );
 }
 
 function XeroCell({ invoice }: { invoice: InvoiceRow }) {
@@ -75,17 +96,21 @@ export function invoiceColumns(input: {
       key: "number",
       header: "Invoice",
       sortKey: "number",
-      cell: (row) =>
-        input.invoiceHref ? (
-          <Link
-            href={input.invoiceHref(row)}
-            className="font-mono text-[0.75rem] text-[hsl(var(--e-primary))] underline-offset-2 hover:underline"
-          >
-            {row.invoiceNumber}
-          </Link>
-        ) : (
-          <span className="font-mono text-[0.75rem] text-[hsl(var(--e-foreground))]">{row.invoiceNumber}</span>
-        ),
+      cell: (row) => (
+        <>
+          {input.invoiceHref ? (
+            <Link
+              href={input.invoiceHref(row)}
+              className="font-mono text-[0.75rem] text-[hsl(var(--e-primary))] underline-offset-2 hover:underline"
+            >
+              {row.invoiceNumber}
+            </Link>
+          ) : (
+            <span className="font-mono text-[0.75rem] text-[hsl(var(--e-foreground))]">{row.invoiceNumber}</span>
+          )}
+          <CreditLinks invoice={row} />
+        </>
+      ),
     },
     {
       key: "client",
@@ -119,7 +144,9 @@ export function invoiceColumns(input: {
       key: "owing",
       header: "Owing",
       align: "right",
-      cell: (row) => <span className="e-tnum">{row.status === "VOID" ? "—" : money(row.amountOwing)}</span>,
+      cell: (row) => (
+        <span className="e-tnum">{row.status === "VOID" || row.kind === "CREDIT_NOTE" ? "—" : money(row.amountOwing)}</span>
+      ),
     },
     {
       key: "status",
@@ -128,6 +155,7 @@ export function invoiceColumns(input: {
       cell: (row) => (
         <span className="inline-flex flex-wrap gap-1">
           <EPill tone={STATUS_PILL[row.status]}>{STATUS_LABEL[row.status]}</EPill>
+          {row.fullyCredited ? <EPill tone="info">Fully credited</EPill> : null}
           {row.overdue ? <EPill tone="bad">Overdue</EPill> : null}
         </span>
       ),

@@ -463,6 +463,64 @@ export async function pushClientInvoiceToXero(input: {
 }
 
 /**
+ * Push a client credit note to Xero as a DRAFT ACCRECCREDIT credit note.
+ *
+ * Xero credit-note line amounts are POSITIVE (the document type carries the
+ * direction), so the caller passes positive unit amounts. It is created as a
+ * draft and NOT allocated to the original invoice: Xero only allocates an
+ * authorised credit note, and authorising stays a decision made in Xero, as it
+ * is for invoices pushed from here.
+ */
+export async function pushClientCreditNoteToXero(input: {
+  idempotencyKey: string;
+  creditNoteNumber: string;
+  clientName: string;
+  clientEmail: string;
+  clientXeroContactId?: string;
+  lineItems: Array<{ description: string; quantity: number; unitAmount: number; accountCode?: string; taxType?: string; itemCode?: string }>;
+  date?: string;
+  reference?: string;
+  gstEnabled?: boolean;
+}): Promise<{ xeroCreditNoteId: string; contactId: string }> {
+  const tokenData = await getXeroToken();
+  if (!tokenData) throw new Error("No active Xero connection");
+
+  let contactId = input.clientXeroContactId;
+  if (!contactId) {
+    const result = await syncXeroContact({ name: input.clientName, email: input.clientEmail, isClient: true });
+    contactId = result.xeroContactId;
+  }
+
+  const gstOn = input.gstEnabled !== false;
+  const creditNote = {
+    Type: "ACCRECCREDIT", // Credit note against Accounts Receivable
+    Contact: { ContactID: contactId },
+    CreditNoteNumber: input.creditNoteNumber,
+    LineAmountTypes: gstOn ? "Exclusive" : "NoTax",
+    LineItems: input.lineItems.map((line) => {
+      const item: Record<string, unknown> = {
+        Description: line.description,
+        Quantity: line.quantity,
+        UnitAmount: line.unitAmount,
+        AccountCode: line.accountCode || "200",
+      };
+      if (line.taxType && line.taxType.trim()) item.TaxType = line.taxType.trim();
+      else if (!gstOn) item.TaxType = "NONE";
+      if (line.itemCode && line.itemCode.trim()) item.ItemCode = line.itemCode.trim();
+      return item;
+    }),
+    Status: "DRAFT",
+    ...(input.date ? { Date: input.date } : {}),
+    ...(input.reference ? { Reference: input.reference } : {}),
+  };
+
+  const result = await xeroRequest("PUT", "/api.xro/2.0/CreditNotes", tokenData.tenantId, { CreditNotes: [creditNote] }, input.idempotencyKey);
+  const notes = (result as { CreditNotes?: Array<{ CreditNoteID: string }> })?.CreditNotes;
+  if (!notes?.[0]?.CreditNoteID) throw new Error("Failed to create Xero credit note");
+  return { xeroCreditNoteId: notes[0].CreditNoteID, contactId: contactId! };
+}
+
+/**
  * Push a cleaner bill to Xero as an ACCPAY bill.
  */
 export async function pushCleanerBillToXero(input: {

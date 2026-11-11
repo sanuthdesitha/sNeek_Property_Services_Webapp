@@ -1,3 +1,4 @@
+import { ClientInvoiceStatus, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 
 /** Issued receivables only; drafts/approved-but-unsent are not money chased. */
@@ -60,9 +61,9 @@ export function summarizeReceivables(rows: OwingFacts[]) {
 
 /** Select for the credit notes that can reduce an invoice's balance. */
 export const REDUCING_CREDIT_NOTES_SELECT = {
-  where: { status: { in: [...CREDIT_REDUCING_STATUSES] } },
+  where: { status: { in: [ClientInvoiceStatus.APPROVED, ClientInvoiceStatus.SENT] } },
   select: { status: true, totalAmount: true },
-} as const;
+} satisfies Prisma.ClientInvoice$creditNotesArgs;
 
 export async function getOutstandingReceivables() {
   const rows = await db.clientInvoice.findMany({

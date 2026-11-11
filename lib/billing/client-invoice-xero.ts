@@ -9,7 +9,9 @@ import { isShoppingDisbursement, shoppingXeroMapping } from "@/lib/finance/shopp
 import { ClientInvoiceStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { assertStartedWorkReviewed } from "@/lib/billing/started-work-reconciliation";
-import { pushClientInvoiceToXero } from "@/lib/xero/client";
+import { pushClientCreditNoteToXero, pushClientInvoiceToXero } from "@/lib/xero/client";
+import { emptyInvoiceRefusal } from "./client-invoice-guards";
+import { xeroCreditNoteLineItem, xeroInvoiceReference } from "./client-invoice-xero-mapping";
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 import { actionResult, type InvoiceActionResult } from "./invoice-action-result";
 
@@ -35,6 +37,7 @@ export async function pushClientInvoiceToXeroOnce(invoiceId: string): Promise<In
             },
             orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
           },
+          creditsInvoice: { select: { invoiceNumber: true } },
         },
       }),
       getPhase3IntegrationsSettings(),
@@ -63,6 +66,14 @@ export async function pushClientInvoiceToXeroOnce(invoiceId: string): Promise<In
         message: "This invoice was already pushed to Xero.",
       });
     }
+    const empty = emptyInvoiceRefusal(invoice);
+    if (empty) return actionResult({ error: empty }, 409);
+    const creditNote = invoice.kind === "CREDIT_NOTE";
+    // A credit note goes to Xero once it is issued (approved or sent), never
+    // as a draft whose amount may still change.
+    if (creditNote && invoice.status !== ClientInvoiceStatus.APPROVED && invoice.status !== ClientInvoiceStatus.SENT) {
+      return actionResult({ error: "Approve or send this credit note before pushing it to Xero." }, 409);
+    }
 
     const defaultItemCode = integrations.xero.defaultItemCode?.trim() || "";
     const itemCodeByService = integrations.xero.itemCodeByService ?? {};
@@ -76,10 +87,12 @@ export async function pushClientInvoiceToXeroOnce(invoiceId: string): Promise<In
     // it undefined lets Xero apply the sales account's own default tax rate,
     // which avoids region-specific "invalid TaxType" 400s.
     const taxType = invoice.gstEnabled === false ? "NONE" : integrations.xero.salesTaxType?.trim() || undefined;
-    const reference =
-      invoice.periodStart && invoice.periodEnd
-        ? `Service period ${isoDate(invoice.periodStart)} – ${isoDate(invoice.periodEnd)}`
-        : undefined;
+    const reference = xeroInvoiceReference({
+      clientReference: invoice.clientReference,
+      periodStart: invoice.periodStart,
+      periodEnd: invoice.periodEnd,
+      creditsInvoiceNumber: invoice.creditsInvoice?.invoiceNumber ?? null,
+    });
 
     // The stored line.description already reads "Property - Service - date"; just
     // append the job number (and any per-job note) — no duplicate property/date.
@@ -112,17 +125,33 @@ export async function pushClientInvoiceToXeroOnce(invoiceId: string): Promise<In
     });
     if (reserved) return actionResult({ ok: true, alreadyPushed: true, xeroInvoiceId: reserved });
 
-    const result = await pushClientInvoiceToXero({
-      idempotencyKey: `client-invoice-${invoice.id}`,
-      invoiceNumber: invoice.invoiceNumber,
+    const contact = {
       clientName: invoice.client.name || "Unknown Client",
       clientEmail: invoice.client.email || integrations.xero.contactFallbackEmail || "no-reply@sneekops.com.au",
       clientXeroContactId: invoice.client.xeroContactId ?? undefined,
-      lineItems,
-      date: isoDate(invoice.createdAt),
-      reference,
-      gstEnabled: invoice.gstEnabled,
-    });
+    };
+    // A credit note becomes a Xero credit note (ACCRECCREDIT) with positive
+    // amounts; its id is kept in xeroInvoiceId like an invoice's. The
+    // invoice's idempotency key is unchanged ("client-invoice-<id>").
+    const result = creditNote
+      ? await pushClientCreditNoteToXero({
+          idempotencyKey: `client-credit-note-${invoice.id}`,
+          creditNoteNumber: invoice.invoiceNumber,
+          ...contact,
+          lineItems: lineItems.map(xeroCreditNoteLineItem),
+          date: isoDate(invoice.createdAt),
+          reference,
+          gstEnabled: invoice.gstEnabled,
+        }).then((pushed) => ({ xeroInvoiceId: pushed.xeroCreditNoteId, contactId: pushed.contactId }))
+      : await pushClientInvoiceToXero({
+          idempotencyKey: `client-invoice-${invoice.id}`,
+          invoiceNumber: invoice.invoiceNumber,
+          ...contact,
+          lineItems,
+          date: isoDate(invoice.createdAt),
+          reference,
+          gstEnabled: invoice.gstEnabled,
+        });
 
     // Persist the Xero invoice id + export time, and remember the contact id so
     // future pushes reuse the same Xero contact instead of creating duplicates.

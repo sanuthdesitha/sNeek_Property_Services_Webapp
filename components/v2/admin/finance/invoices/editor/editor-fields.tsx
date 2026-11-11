@@ -24,6 +24,7 @@ export function EditorFields({
   frozen,
   onGst,
   onGrouped,
+  reference,
 }: {
   data: ClientInvoiceEditorData;
   grouped: boolean;
@@ -31,6 +32,8 @@ export function EditorFields({
   frozen: boolean;
   onGst: (enabled: boolean) => void;
   onGrouped: (grouped: boolean) => void;
+  /** The client reference field (editor-extras), drawn after Due. */
+  reference?: React.ReactNode;
 }) {
   const { row } = data;
   return (
@@ -52,6 +55,7 @@ export function EditorFields({
           </dd>
         </div>
       </dl>
+      {reference}
       <span className="hidden flex-1 sm:block" />
       <div className="flex flex-wrap items-center gap-3">
         <label className="inline-flex min-h-11 items-center gap-2 text-[0.8125rem] sm:min-h-9">
@@ -82,18 +86,30 @@ export function EditorFields({
   );
 }
 
-export function EditorTotals({ data, unsaved }: { data: ClientInvoiceEditorData; unsaved: boolean }) {
+export function EditorTotals({
+  data,
+  unsaved,
+  actions,
+}: {
+  data: ClientInvoiceEditorData;
+  unsaved: boolean;
+  /** Add discount / note to client (editor-extras), drawn left of the totals. */
+  actions?: React.ReactNode;
+}) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 border-t border-[hsl(var(--e-border))] px-4 py-3.5">
-      <p className="max-w-[22rem] text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-        {unsaved ? "Totals are the saved figures. Save your changes to update them." : null}
-      </p>
+      <div className="min-w-0 space-y-2">
+        {actions}
+        <p className="max-w-[22rem] text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          {unsaved ? "Totals are the saved figures. Save your changes to update them." : null}
+        </p>
+      </div>
       <dl className="grid grid-cols-[90px_110px] gap-x-2.5 gap-y-1.5 text-right e-tnum">
         <dt className="text-[hsl(var(--e-muted-foreground))]">Subtotal</dt>
         <dd>{money(data.subtotal)}</dd>
         <dt className="text-[hsl(var(--e-muted-foreground))]">GST</dt>
         <dd>{money(data.gstAmount)}</dd>
-        <dt className="font-[600] text-[hsl(var(--e-foreground))]">Total</dt>
+        <dt className="font-[600] text-[hsl(var(--e-foreground))]">{data.row.kind === "CREDIT_NOTE" ? "Total credit" : "Total"}</dt>
         <dd className="text-[1rem] font-[600]">{money(data.totalAmount)}</dd>
       </dl>
     </div>

@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 import { resolveAppUrl } from "@/lib/app-url";
+import { invoiceAmountOwing, readCreditedAmount } from "@/lib/finance/receivables";
 
 function getStripeSecretKey() {
   return process.env.STRIPE_SECRET_KEY?.trim() || process.env.STRIPE_API_KEY?.trim() || "";
@@ -45,16 +46,29 @@ export async function POST(
         invoiceNumber: true,
         status: true,
         totalAmount: true,
+        paidAmount: true,
+        kind: true,
       },
     });
     if (!invoice) {
       return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
     }
     if (
-      invoice.status !== ClientInvoiceStatus.SENT &&
-      invoice.status !== ClientInvoiceStatus.APPROVED
+      invoice.kind === "CREDIT_NOTE" ||
+      (invoice.status !== ClientInvoiceStatus.SENT &&
+        invoice.status !== ClientInvoiceStatus.APPROVED)
     ) {
       return NextResponse.json({ error: "This invoice cannot be paid online." }, { status: 400 });
+    }
+
+    // What is still owed after payments and approved/sent credit notes.
+    const owing = invoiceAmountOwing({
+      totalAmount: invoice.totalAmount,
+      paidAmount: invoice.paidAmount,
+      creditedAmount: await readCreditedAmount(invoice.id),
+    });
+    if (owing <= 0) {
+      return NextResponse.json({ error: "Nothing is owed on this invoice." }, { status: 400 });
     }
 
     const settings = await getPhase3IntegrationsSettings();
@@ -72,7 +86,7 @@ export async function POST(
     form.set("line_items[0][quantity]", "1");
     form.set("line_items[0][price_data][currency]", settings.stripe.currency || "aud");
     form.set("line_items[0][price_data][product_data][name]", `Invoice ${invoice.invoiceNumber}`);
-    form.set("line_items[0][price_data][unit_amount]", String(Math.round(Number(invoice.totalAmount ?? 0) * 100)));
+    form.set("line_items[0][price_data][unit_amount]", String(Math.round(owing * 100)));
     form.set("metadata[invoiceId]", invoice.id);
     form.set("metadata[clientId]", user.clientId);
     form.set("invoice_creation[enabled]", "true");

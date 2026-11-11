@@ -59,6 +59,8 @@ export async function GET() {
             ...(portal.propertyIds
               ? { lines: { some: {}, every: { job: { property: { clientId, ...propertyFilter } } } } }
               : {}),
+            // A credit note is never something to pay.
+            kind: "INVOICE",
             status: {
               in: [
                 ClientInvoiceStatus.SENT,

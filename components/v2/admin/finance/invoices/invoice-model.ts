@@ -142,7 +142,8 @@ export type InvoiceActionKey =
   | "void"
   | "reverse"
   | "reconcile"
-  | "delete";
+  | "delete"
+  | "credit-note";
 
 export const ACTION_LABEL: Record<InvoiceActionKey, string> = {
   edit: "Review and edit",
@@ -159,12 +160,17 @@ export const ACTION_LABEL: Record<InvoiceActionKey, string> = {
   reverse: "Reverse to draft",
   reconcile: "Reconcile / void",
   delete: "Delete",
+  "credit-note": "Issue credit note",
 };
 
 type ActionFacts = Pick<
   InvoiceRow,
   "status" | "xeroInvoiceId" | "xeroExportedAt" | "paidAt" | "paidAmount" | "xeroState" | "overdue"
->;
+> &
+  Partial<Pick<InvoiceRow, "kind" | "fullyCredited">>;
+
+/** Sent, part-paid or paid invoices are corrected by a credit note (owner decision 2026-11-11). */
+const CREDITABLE_STATUSES: InvoiceStatus[] = ["SENT", "PART_PAID", "PAID"];
 
 const inXero = (inv: ActionFacts) => Boolean(inv.xeroInvoiceId || inv.xeroExportedAt);
 const hasPayment = (inv: ActionFacts) => Boolean(inv.paidAt) || Boolean(Number(inv.paidAmount ?? 0));
@@ -176,16 +182,23 @@ const hasPayment = (inv: ActionFacts) => Boolean(inv.paidAt) || Boolean(Number(i
  */
 export function availableInvoiceActions(inv: ActionFacts): InvoiceActionKey[] {
   const actions: InvoiceActionKey[] = [];
+  const creditNote = inv.kind === "CREDIT_NOTE";
   if (inv.status === "DRAFT" || inv.status === "APPROVED") actions.push("edit");
   actions.push("pdf");
   if (inv.status === "DRAFT") actions.push("approve");
   if (inv.status === "DRAFT" || inv.status === "APPROVED") actions.push("send");
   if (inv.status === "SENT" || inv.status === "PART_PAID") actions.push("resend");
-  if (PAYABLE_STATUSES.includes(inv.status)) actions.push("record-payment", "mark-paid");
-  if (inv.status === "PAID" || inv.status === "PART_PAID") actions.push("receipt");
-  if (inv.status !== "VOID") actions.push(inv.xeroState === "PENDING" ? "xero-retry" : "xero-push");
+  // A credit note is never paid: it reduces what is owed on its invoice.
+  if (!creditNote && PAYABLE_STATUSES.includes(inv.status)) actions.push("record-payment", "mark-paid");
+  if (!creditNote && (inv.status === "PAID" || inv.status === "PART_PAID")) actions.push("receipt");
+  // A credit note goes to Xero once issued (approved or sent), as the server requires.
+  const pushable = creditNote ? inv.status === "APPROVED" || inv.status === "SENT" : inv.status !== "VOID";
+  if (pushable) actions.push(inv.xeroState === "PENDING" ? "xero-retry" : "xero-push");
+  if (!creditNote && !inv.fullyCredited && CREDITABLE_STATUSES.includes(inv.status)) actions.push("credit-note");
   if (!inXero(inv) && (inv.status === "SENT" || inv.status === "APPROVED")) actions.push("void");
-  if (!inXero(inv) && !hasPayment(inv) && (inv.status === "APPROVED" || inv.status === "SENT")) actions.push("reverse");
+  // Reverse is for an approved invoice nobody outside the office has seen; once
+  // sent, "Issue credit note" replaces it.
+  if (!inXero(inv) && !hasPayment(inv) && inv.status === "APPROVED") actions.push("reverse");
   if (inXero(inv) && inv.status !== "VOID" && !hasPayment(inv)) actions.push("reconcile");
   if (inv.status === "DRAFT" && !inXero(inv)) actions.push("delete");
   return actions;
@@ -206,9 +219,10 @@ export function primaryInvoiceAction(inv: ActionFacts): InvoiceActionKey {
       return "send";
     case "SENT":
     case "PART_PAID":
+      if (inv.kind === "CREDIT_NOTE" || inv.fullyCredited) return "pdf";
       return inv.overdue ? "resend" : "record-payment";
     case "PAID":
-      return "receipt";
+      return inv.kind === "CREDIT_NOTE" ? "pdf" : "receipt";
     default:
       return "pdf";
   }
@@ -264,4 +278,5 @@ export const ACTS_ON_SAVED_INVOICE: ReadonlySet<InvoiceActionKey> = new Set<Invo
   "void",
   "reverse",
   "reconcile",
+  "credit-note",
 ]);

@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { releaseInvoiceConsumables } from "@/lib/billing/client-invoices";
+import { LIVE_CREDIT_NOTES_REFUSAL } from "@/lib/billing/client-invoice-adjustments";
 
 const schema = z.object({
   reason: z.string().trim().min(10).max(2000),
@@ -61,6 +62,12 @@ export async function POST(
         throw new Error(
           "This invoice has payment evidence. Reconcile its payment or credit note before a correction; paid records cannot be voided here.",
         );
+      if (invoice.kind === "INVOICE") {
+        const liveCredits = await transaction.clientInvoice.count({
+          where: { creditsInvoiceId: invoice.id, status: { not: "VOID" } },
+        });
+        if (liveCredits > 0) throw new Error(LIVE_CREDIT_NOTES_REFUSAL);
+      }
       await releaseInvoiceConsumables(transaction, invoice.id);
       await transaction.clientInvoice.update({
         where: { id: invoice.id },

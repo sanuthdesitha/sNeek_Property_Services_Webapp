@@ -82,6 +82,8 @@ export function EditorHeader(props: EditorHeaderProps) {
           <span className="inline-flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <span className="break-all">{invoice.invoiceNumber}</span>
             <EPill tone={STATUS_PILL[invoice.status]}>{STATUS_LABEL[invoice.status]}</EPill>
+            {invoice.kind === "CREDIT_NOTE" ? <EPill tone="info">Credit note</EPill> : null}
+            {invoice.fullyCredited ? <EPill tone="info">Fully credited</EPill> : null}
           </span>
         }
         description={

@@ -24,6 +24,7 @@ import { EditorLines } from "./editor-lines";
 import { EditorChecks } from "./editor-checks";
 import { HistoryCard, SendCard, XeroCard } from "./editor-panels";
 import { RegroupLineDialog, RemoveLineDialog } from "./editor-line-dialogs";
+import { ClientReferenceField, CreditLinks, EditorFooterActions } from "./editor-extras";
 import { lineSections, pdfGroupsLines } from "./line-sections";
 import { EMPTY_NEW_LINE, buildLineUpdates, validateNewLine } from "./line-drafts";
 import { useInvoiceEditor, type SaveStatus } from "./use-invoice-editor";
@@ -92,7 +93,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
   }, [unsaved]);
 
   function saveDraft() {
-    const { updates, invalid: problems } = buildLineUpdates(data.lines, drafts);
+    const { updates, invalid: problems } = buildLineUpdates(data.lines, drafts, data.row.kind);
     setInvalid(problems);
     if (Object.keys(problems).length) {
       editor.setStatus({ kind: "failed", what: "Save draft", message: "Fix the marked lines, then save again.", retry: null });
@@ -102,7 +103,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
   }
 
   function addLine() {
-    const checked = validateNewLine(editor.newLine);
+    const checked = validateNewLine(editor.newLine, data.row.kind);
     if (!checked.ok) {
       editor.setStatus({ kind: "failed", what: "Add line", message: checked.message, retry: null });
       return;
@@ -134,7 +135,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
       setDialog({ kind: "send", invoice: row, resend: key === "resend", to: sendTo });
       return;
     }
-    if (key === "record-payment" || key === "mark-paid" || key === "receipt" || key === "void" || key === "reverse" || key === "reconcile" || key === "delete") {
+    if (key === "record-payment" || key === "mark-paid" || key === "receipt" || key === "void" || key === "reverse" || key === "reconcile" || key === "delete" || key === "credit-note") {
       setDialog({ kind: key, invoice: row });
     }
   }
@@ -163,6 +164,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
         onBack={onBack}
         onAction={(key) => void runAction(key)}
       />
+      <CreditLinks data={data} />
       <EStageBar label="Invoice stages" stages={stages.stages} terminal={stages.terminal} />
       <StatusBanner status={status} onDismiss={() => editor.setStatus({ kind: "idle" })} />
       {editor.reloadError ? (
@@ -208,6 +210,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
               frozen={frozen}
               onGst={(enabled) => void editor.mutate("GST", { gstEnabled: enabled }, { repeatable: true })}
               onGrouped={setGrouped}
+              reference={<ClientReferenceField saved={row.clientReference} editable={editable} frozen={frozen} mutate={editor.mutate} />}
             />
             <EditorLines
               sections={sections}
@@ -224,7 +227,11 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
               onRemove={setRemoving}
               onRegroup={setRegrouping}
             />
-            <EditorTotals data={data} unsaved={editor.dirtyIds.length > 0} />
+            <EditorTotals
+              data={data}
+              unsaved={editor.dirtyIds.length > 0}
+              actions={<EditorFooterActions data={data} editable={editable} frozen={frozen} mutate={editor.mutate} />}
+            />
           </section>
         </div>
         <aside aria-label="Checks and delivery" className="flex min-w-0 flex-col gap-3.5 xl:w-[330px] xl:flex-none">
@@ -248,10 +255,10 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
         line={removing}
         busy={saving}
         onClose={() => setRemoving(null)}
-        onRefused={(message) => toast({ title: "Line not removed", description: message, variant: "destructive" })}
-        onVerified={(line) =>
+        onConfirm={(line, security) =>
+          // The PIN travels with the removal and is verified by the server.
           // Closed either way, so a refusal is read in the banner, not behind the modal.
-          void editor.mutate("Remove line", { removeLineId: line.id }, { repeatable: false }).finally(() => setRemoving(null))
+          void editor.mutate("Remove line", { removeLineId: line.id, security }, { repeatable: false }).finally(() => setRemoving(null))
         }
       />
       <RegroupLineDialog

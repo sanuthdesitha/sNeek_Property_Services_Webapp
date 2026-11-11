@@ -6,15 +6,15 @@
  *   Void      — finished with this invoice; its work goes back for a new one.
  *   Reverse   — same invoice back to draft, number and lines kept, nothing released.
  *   Reconcile — invoice already in Xero: record the correction made there (PIN + VOID).
- *   Delete    — remove an unexported draft entirely (PIN).
+ *   Delete    — remove an unexported draft entirely (PIN, verified by the server).
  * Requests, PIN and typed-phrase rules are the ones the old screen used. Void
  * and Reverse previously ran on one click; they now ask first.
  */
 import { useState } from "react";
 import { toast } from "@/hooks/use-toast";
-import { EConfirmModal, EField, EInput, ETextarea, verifyAdminSecurity } from "@/components/v2/admin/estate-kit";
+import { EConfirmModal, EField, EInput, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { InvoiceRow } from "./invoice-model";
-import { deleteInvoiceRequest, patchInvoice, reconcileInvoiceRequest } from "./invoice-requests";
+import { deleteInvoiceRequest, patchInvoice, reconcileInvoiceRequest, securityRefusalMessage } from "./invoice-requests";
 
 type DialogProps = { invoice: InvoiceRow; onClose: () => void; onDone: () => void };
 type Credentials = { pin?: string; password?: string };
@@ -43,7 +43,11 @@ export function VoidInvoiceDialog({ invoice, onClose, onDone }: DialogProps) {
       open
       onClose={() => !saving && onClose()}
       title={`Void ${invoice.invoiceNumber}?`}
-      description="This invoice is finished with. Its work goes back in the pot so a new invoice can bill it. The number is not reused. To keep this invoice and fix its content, use Reverse to draft instead."
+      description={
+        invoice.status === "APPROVED"
+          ? "This invoice is finished with. Its work goes back in the pot so a new invoice can bill it. The number is not reused. To keep this invoice and fix its content, use Reverse to draft instead."
+          : "This invoice is finished with. Its work goes back in the pot so a new invoice can bill it. The number is not reused. To correct an invoice the client already has, issue a credit note instead."
+      }
       confirmLabel="Void invoice"
       loading={saving}
       onConfirm={confirm}
@@ -52,7 +56,7 @@ export function VoidInvoiceDialog({ invoice, onClose, onDone }: DialogProps) {
 }
 
 /**
- * REVERSE — bring a sent or approved invoice back to editable: same invoice,
+ * REVERSE — bring an approved (never sent) invoice back to editable: same invoice,
  * same number, same lines, and (unlike a void) the work on it is NOT released,
  * because this invoice is still the one that will bill it.
  */
@@ -92,20 +96,13 @@ export function ReverseInvoiceDialog({ invoice, onClose, onDone }: DialogProps) 
 export function DeleteInvoiceDialog({ invoice, onClose, onDone }: DialogProps) {
   const [deleting, setDeleting] = useState(false);
   async function confirm(credentials?: Credentials) {
-    // The invoice DELETE route takes no security payload of its own, so the
-    // PIN has to be verified here or the prompt is decoration — the modal only
-    // checks the field is non-empty, and "1" would sail through it.
-    try {
-      await verifyAdminSecurity(credentials);
-    } catch (err: unknown) {
-      toast({ title: "Invoice not deleted", description: err instanceof Error ? err.message : undefined, variant: "destructive" });
-      return;
-    }
+    // The DELETE route verifies the PIN or password itself; nothing is
+    // deleted unless the server accepts it.
     setDeleting(true);
     try {
-      const result = await deleteInvoiceRequest(invoice.id);
+      const result = await deleteInvoiceRequest(invoice.id, credentials);
       if (!result.ok) {
-        toast({ title: "Delete failed", description: result.body.error, variant: "destructive" });
+        toast({ title: "Invoice not deleted", description: securityRefusalMessage(result.body.error, "Delete failed."), variant: "destructive" });
         return;
       }
       toast({ title: "Invoice deleted" });

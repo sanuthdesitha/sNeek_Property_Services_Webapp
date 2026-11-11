@@ -29,5 +29,6 @@ export async function getPortalInvoiceSummary(id: string, portal: "admin" | "cli
   return db.clientInvoice.findFirst({ where: { AND: [{ id }, scope] }, select: {
     id: true, invoiceNumber: true, status: true, totalAmount: true, createdAt: true,
     sentAt: true, periodStart: true, periodEnd: true,
+    kind: true, creditsInvoice: { select: { invoiceNumber: true } },
   } });
 }

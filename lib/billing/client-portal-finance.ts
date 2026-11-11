@@ -52,6 +52,10 @@ export async function getClientFinanceOverview(clientId: string, propertyIds?: s
         sentAt: true,
         periodStart: true,
         periodEnd: true,
+        // Credit notes are shown deliberately (negative total, "Credit note"
+        // label, never payable) so the client can see what reduced a balance.
+        kind: true,
+        creditsInvoice: { select: { invoiceNumber: true } },
       },
       orderBy: [{ createdAt: "desc" }],
       take: 20,

@@ -28,13 +28,16 @@ export async function InvoiceSummaryPage({ id, portal }: { id: string; portal: "
       <ArrowLeft className="h-4 w-4" aria-hidden="true" />Invoices
     </Link>
     <header className="border-b border-[hsl(var(--e-border))] pb-4">
-      <p className="mb-2 text-xs font-medium">Invoice</p>
+      <p className="mb-2 text-xs font-medium">{invoice.kind === "CREDIT_NOTE" ? "Credit note" : "Invoice"}</p>
       <h1 className="break-words text-2xl font-semibold">{invoice.invoiceNumber}</h1>
+      {invoice.kind === "CREDIT_NOTE" && invoice.creditsInvoice ? (
+        <p className="mt-1 text-sm">Credits invoice {invoice.creditsInvoice.invoiceNumber}</p>
+      ) : null}
       <p className="mt-2 text-sm">{invoice.status.replace(/_/g, " ")}</p>
     </header>
     {allowClientDownload ? <section className="space-y-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4 sm:p-6 text-sm text-[hsl(var(--e-foreground))]"><h2 className="font-semibold">Your invoice document</h2><a className="inline-flex min-h-11 items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-accent-portal))] px-4 py-2 font-medium text-[hsl(var(--e-accent-portal-foreground))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2" href={`/api/client/invoices/${encodeURIComponent(invoice.id)}/pdf`}>Download invoice PDF</a><p className="max-w-2xl leading-relaxed text-[hsl(var(--e-muted-foreground))]">You can upload this PDF as a bill in your own Xero account and review its details there. This download does not connect to or import into your Xero account.</p><a className="inline-flex min-h-11 items-center underline" href="https://central.xero.com/s/article/Upload-bills-into-Xero" target="_blank" rel="noopener noreferrer">Xero: upload bills</a></section> : null}
     <dl className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
-      <div><dt className="text-sm text-[hsl(var(--e-muted-foreground))]">Invoice total</dt><dd className="mt-1 text-xl font-semibold">{new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(Number(invoice.totalAmount))}</dd></div>
+      <div><dt className="text-sm text-[hsl(var(--e-muted-foreground))]">{invoice.kind === "CREDIT_NOTE" ? "Credit total" : "Invoice total"}</dt><dd className="mt-1 text-xl font-semibold">{new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(Number(invoice.totalAmount))}</dd></div>
       <div><dt className="text-sm text-[hsl(var(--e-muted-foreground))]">Service period</dt><dd className="mt-1 text-sm">{period}</dd></div>
       <div><dt className="text-sm text-[hsl(var(--e-muted-foreground))]">Created</dt><dd className="mt-1 text-sm">{date(invoice.createdAt)}</dd></div>
       <div><dt className="text-sm text-[hsl(var(--e-muted-foreground))]">Sent</dt><dd className="mt-1 text-sm">{invoice.sentAt ? date(invoice.sentAt) : "Not sent"}</dd></div>

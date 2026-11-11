@@ -11,10 +11,14 @@ import { SendInvoiceDialog } from "./send-dialog";
 import { MarkPaidDialog, ReceiptDialog, RecordPaymentDialog } from "./payment-dialogs";
 import { DeleteInvoiceDialog, ReconcileInvoiceDialog, ReverseInvoiceDialog, VoidInvoiceDialog } from "./correction-dialogs";
 import { GenerateInvoiceDialog } from "./generate-invoice-dialog";
+import { BlankInvoiceDialog, IssueCreditNoteDialog, NewCreditNoteDialog } from "./create-dialogs";
 
 export type InvoiceDialog =
   | null
   | { kind: "generate" }
+  | { kind: "blank" }
+  | { kind: "new-credit-note" }
+  | { kind: "credit-note"; invoice: InvoiceRow }
   | { kind: "send"; invoice: InvoiceRow; resend: boolean; to?: string }
   | {
       kind: "record-payment" | "mark-paid" | "receipt" | "void" | "reverse" | "reconcile" | "delete";
@@ -35,6 +39,13 @@ export function InvoiceDialogs({
   if (!dialog) return null;
   if (dialog.kind === "generate") {
     return context ? <GenerateInvoiceDialog context={context} onClose={onClose} onDone={onDone} /> : null;
+  }
+  if (dialog.kind === "blank") {
+    return context ? <BlankInvoiceDialog clients={context.clients} onClose={onClose} /> : null;
+  }
+  if (dialog.kind === "new-credit-note") return <NewCreditNoteDialog onClose={onClose} />;
+  if (dialog.kind === "credit-note") {
+    return <IssueCreditNoteDialog key={`credit-note:${dialog.invoice.id}`} invoice={dialog.invoice} onClose={onClose} />;
   }
   const key = `${dialog.kind}:${dialog.invoice.id}`;
   const props = { invoice: dialog.invoice, onClose, onDone };

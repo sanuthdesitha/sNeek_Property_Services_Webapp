@@ -20,6 +20,10 @@ export type EditorLine = {
   note: string | null;
   /** Reviewed shopping allocation: amount and grouping cannot change. */
   shoppingLocked: boolean;
+  /** A DISCOUNT line: its amount is fixed once added (remove and re-add to change). */
+  discount: boolean;
+  /** The percentage a discount was entered as, or null for an amount. */
+  discountPercent: number | null;
   job: {
     id: string;
     jobNumber: string | null;
@@ -34,7 +38,14 @@ export type EditorLine = {
   startedWork: "unfinished" | "changed" | null;
 };
 
-export type ApprovalCheckKey = "xero-reservation" | "started-work" | "rates" | "other-invoice" | "totals";
+export type ApprovalCheckKey =
+  | "xero-reservation"
+  | "started-work"
+  | "lines"
+  | "credit-limit"
+  | "rates"
+  | "other-invoice"
+  | "totals";
 
 /**
  * ok: passes. refused: the approve request would be refused for this reason.
@@ -102,6 +113,8 @@ export type ClientInvoiceEditorData = {
   totalAmount: number;
   gstEnabled: boolean;
   totalsMismatch: boolean;
+  /** Note to the client printed on the PDF (the reference is on the row). */
+  clientNote: string | null;
   lines: EditorLine[];
   clientProperties: Array<{ id: string; name: string; suburb: string | null }>;
   editLock: InvoiceEditLock;
