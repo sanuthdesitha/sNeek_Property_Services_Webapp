@@ -373,3 +373,14 @@ Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notification
 | QA inspections do not keep a copy of the template they were filled in on, so editing a template changes how past inspections display | Snapshot the template on each inspection? Needs a database change |
 | The classic `/admin/forms` page is kept for its Submissions tab (edit a submission, add or remove media) and Checklists tab | Port those two to the new Forms page so the classic page can be retired? |
 | "Table" and "Stock count" question types, and "raises urgent stock" / "opens a damage report" effects on a question | Drawn on the canvas but do not exist. Build them? |
+
+## Owner decision, fifth set (2026-11-11): make the Urgent stock design real
+
+The owner wants the three places where Urgent stock differs from the rendered design built into the system:
+
+1. **"Add to shopping run"** on an urgent need (row, bulk bar "Add to one shopping run", side panel): a real service that adds the needed item and quantity as a line on an existing open shopping run for that property, or starts a new run, and links the need to that run. The need moves to Ordered only when the office says it has been ordered; adding to a run does not place a purchase or prove delivery. When the run records the item as bought, the need shows it.
+2. **"Ask cleaner to buy"**: asks the cleaner on the next clean at that property to buy the item, through the notification pipeline with an explicit transport, creating or adding to that cleaner's shopping run so the purchase follows the existing reimbursement approval. The need shows who was asked and when, truthfully ("asked", not "bought").
+3. **"Reported by … during job J-1038"**: a need records the job it was reported from. New needs reported from a job store the job; existing needs are backfilled only where the job can be determined with certainty, otherwise left without one.
+4. **Tab names as drawn**: Urgent needs, Levels by property, Shopping runs, Stock counts, Catalogue. Every existing tab keeps working under the nearest drawn name or stays as an extra tab, and every old `?tab=` link still opens the same content.
+
+Needs a database change (job on a need; link from a need to a shopping run), so it starts when the Finance decisions step, which holds the database now, has finished.

@@ -275,6 +275,8 @@ async function getJob(id: string) {
               select: {
                 invoiceNumber: true,
                 status: true,
+                kind: true,
+                creditedInFullAt: true,
                 totalAmount: true,
                 paidDate: true,
                 paidAt: true,
@@ -820,7 +822,8 @@ export default async function AdminJobDetailPage({
   const linkedCases = job.issueTickets ?? [];
   const linkedInvoiceLines = job.invoiceLines ?? [];
   const hasLinkedRefs = linkedCases.length > 0 || linkedInvoiceLines.length > 0;
-  // Lines on voided invoices stay listed, but they do not make the job invoiced.
+  // Lines on voided or fully credited invoices stay listed, but they do not
+  // make the job invoiced (lib/invoicing/invoiced-job-rule.ts).
   const onlyVoidInvoiceLines = linkedInvoiceLines.length > 0 && !linkedInvoiceLines.some(isLiveInvoiceLine);
 
   const tab = resolveJobDetailTab(searchParams?.tab);
@@ -1731,7 +1734,7 @@ export default async function AdminJobDetailPage({
               ) : (
                 <>
                 {onlyVoidInvoiceLines ? (
-                  <p className="mb-1.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Not on a live invoice. Every line below is on a voided invoice.</p>
+                  <p className="mb-1.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Not on a live invoice. Every line below is on a voided or fully credited invoice, so this job can be billed again.</p>
                 ) : null}
                 <ul className="space-y-1.5">
                   {linkedInvoiceLines.map((line) => (

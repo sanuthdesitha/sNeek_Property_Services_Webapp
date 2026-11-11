@@ -30,6 +30,8 @@ type WorkspaceProps = {
   todayKey: string;
   timeZone: string;
   readOnly: boolean;
+  /** ADMIN (not impersonating): Notify client and Pause clock. */
+  canAdminister?: boolean;
 };
 
 function Toggle({ pressed, onClick, children }: { pressed: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -45,7 +47,7 @@ function useNow(intervalMs: number): number {
   return now;
 }
 
-export function LiveOpsWorkspace({ properties, attention, initialView, todayKey, timeZone, readOnly }: WorkspaceProps) {
+export function LiveOpsWorkspace({ properties, attention, initialView, todayKey, timeZone, readOnly, canAdminister = false }: WorkspaceProps) {
   const feed = useLiveFeed();
   const now = useNow(10_000);
   const [view, setView] = useState<LiveView>(initialView);
@@ -109,7 +111,7 @@ export function LiveOpsWorkspace({ properties, attention, initialView, todayKey,
             ) : <p role="status" className="p-4 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Loading today&apos;s board…</p>
           ) : view === "exceptions" ? (
             <>
-              <LiveExceptions jobs={board.jobs} continuations={board.continuations} readOnly={readOnly} onReassign={setPeekJobId} onSelect={select} onDecided={feed.reloadBoard} />
+              <LiveExceptions jobs={board.jobs} continuations={board.continuations} readOnly={readOnly} canAdminister={canAdminister} todayKey={board.todayKey} timeZone={timeZone} onReassign={setPeekJobId} onSelect={select} onDecided={feed.reloadBoard} />
               <div className="space-y-2 px-4 py-3.5">
                 <p className="e-eyebrow">On site</p>
                 <OnSiteRows jobs={board.jobs.filter((j) => j.state === "on-site")} drivers={layers.drivers ? board.drivers : []} onSelect={select} />

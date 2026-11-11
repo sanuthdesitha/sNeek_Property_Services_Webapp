@@ -6,6 +6,7 @@
  */
 import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
+import { caseIdFromItemKey } from "./case-origin";
 
 export const ISSUE_ROW_INCLUDE = {
   job: {
@@ -66,6 +67,8 @@ export type QualityIssueRow = {
   rectifiedBy: { id: string; name: string | null } | null;
   review: { id: string; score: number | null; rating: string | null; managementReview: boolean } | null;
   payAdjustment: IssuePayAdjustment | null;
+  /** Set when the office raised this issue from a case (Cases → "Raise QA issue for cleaner"). */
+  raisedFromCaseId?: string | null;
 };
 
 function personName(person: { name: string | null; email: string } | null): string {
@@ -132,6 +135,7 @@ export async function toIssueRows(issues: IssueWithRelations[]): Promise<Quality
           ? { id: pa.id, status: pa.status, requestedAmount: pa.requestedAmount, approvedAmount: pa.approvedAmount, source: pa.source }
           : { id: issue.payAdjustmentId, status: null, requestedAmount: null, approvedAmount: null, source: null }
         : null,
+      raisedFromCaseId: caseIdFromItemKey(issue.itemKey),
     };
   });
 }

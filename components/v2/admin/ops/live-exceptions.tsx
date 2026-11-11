@@ -2,26 +2,36 @@
 
 /**
  * Live ops exceptions, each with its actions:
- * - Late → Call (tel), Message (the job's Messages tab), Tell client (the same
- *   tab: client messages live there; no delay notice is sent from here),
- *   Reassign (shared Jobs peek panel).
- * - Continuation request → Approve / Decline through the existing endpoint.
- * - Off site with the clock running → Call, Review clock (the job's Activity
- *   tab, where clock records are edited; there is no admin pause endpoint).
+ * - Late → Call (tel), Message (the job's Messages tab), Notify client
+ *   (ADMIN: confirm dialog over the client delay notice route; others keep the
+ *   "Tell client" link to the Messages tab), Reassign (shared Jobs peek panel).
+ *   A notice already requested today shows on the row (time, who).
+ * - Continuation request → Approve, or Decline with the required reason
+ *   (shared DeclineReasonDialog, also used by Command's work queue).
+ * - Off site with the clock running → Call, Pause clock (ADMIN: dialog over
+ *   POST /api/admin/jobs/[id]/pause-clock), Review clock (the job's Activity tab).
  * - Not started past start time → Call, Reassign.
  */
 import { useState } from "react";
 import Link from "next/link";
+import { formatInTimeZone } from "date-fns-tz";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
 import { jobTabHref } from "@/lib/dashboard/work-queue-links";
 import type { LiveContinuationRow, LiveJobRow } from "@/lib/ops/live-board-types";
+import { DeclineReasonDialog } from "../office-actions/decline-reason-dialog";
 import { decideContinuation, type ContinuationDecision } from "./continuation-decision";
+import { DelayNoticeDialog } from "./delay-notice-dialog";
+import { PauseClockDialog } from "./pause-clock-dialog";
 
 type ExceptionProps = {
   jobs: LiveJobRow[];
   continuations: LiveContinuationRow[];
   readOnly: boolean;
+  /** ADMIN (not impersonating): Notify client and Pause clock, as their routes allow. */
+  canAdminister?: boolean;
+  todayKey?: string;
+  timeZone?: string;
   onReassign: (jobId: string) => void;
   onSelect: (userId: string) => void;
   onDecided: () => void;
@@ -59,15 +69,16 @@ function guestNote(job: LiveJobRow): string {
 
 function ContinuationRow({ row, readOnly, onDecided }: { row: LiveContinuationRow; readOnly: boolean; onDecided: () => void }) {
   const [pending, setPending] = useState<ContinuationDecision | null>(null);
+  const [declining, setDeclining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
-  async function decide(decision: ContinuationDecision) {
-    setPending(decision);
+  async function approve() {
+    setPending("APPROVE");
     setError(null);
-    const result = await decideContinuation(row.id, decision);
+    const result = await decideContinuation(row.id, "APPROVE");
     setPending(null);
     if (result.ok) {
-      setDone(decision === "APPROVE" ? "Approved" : "Declined");
+      setDone("Approved");
       onDecided();
     } else setError(result.message);
   }
@@ -83,15 +94,36 @@ function ContinuationRow({ row, readOnly, onDecided }: { row: LiveContinuationRo
       {error ? <p role="alert" className="text-[0.75rem] text-[hsl(var(--e-danger))]">{error}</p> : null}
       {done ? <p role="status" className="text-[0.75rem] text-[hsl(var(--e-success))]">{done}. Updating…</p> : readOnly ? null : (
         <div className="flex flex-wrap gap-2">
-          <EButton size="sm" variant="outline" disabled={pending !== null} onClick={() => void decide("REJECT")}>{pending === "REJECT" ? "Declining…" : "Decline"}</EButton>
-          <EButton size="sm" disabled={pending !== null} onClick={() => void decide("APPROVE")}>{pending === "APPROVE" ? "Approving…" : "Approve"}</EButton>
+          <EButton size="sm" variant="outline" disabled={pending !== null} onClick={() => setDeclining(true)}>Decline</EButton>
+          <EButton size="sm" disabled={pending !== null} onClick={() => void approve()}>{pending === "APPROVE" ? "Approving…" : "Approve"}</EButton>
         </div>
       )}
+      <DeclineReasonDialog
+        open={declining}
+        subject={`${row.cleanerName} · ${row.propertyName}`}
+        onClose={() => setDeclining(false)}
+        onSubmit={(reason) => decideContinuation(row.id, "REJECT", reason)}
+        onDeclined={() => {
+          setDeclining(false);
+          setDone("Declined");
+          onDecided();
+        }}
+      />
     </li>
   );
 }
 
-export function LiveExceptions({ jobs, continuations, readOnly, onReassign, onSelect, onDecided }: ExceptionProps) {
+function requestedLine(job: LiveJobRow, timeZone: string): string | null {
+  if (!job.delayNotice) return null;
+  const at = new Date(job.delayNotice.at);
+  const clock = Number.isNaN(at.getTime()) ? job.delayNotice.at : formatInTimeZone(at, timeZone, "HH:mm");
+  return `Client delay notice requested at ${clock} by ${job.delayNotice.byName}.`;
+}
+
+export function LiveExceptions({ jobs, continuations, readOnly, canAdminister = false, todayKey = "", timeZone = "Australia/Sydney", onReassign, onSelect, onDecided }: ExceptionProps) {
+  const [noticeJob, setNoticeJob] = useState<LiveJobRow | null>(null);
+  const [pauseJob, setPauseJob] = useState<LiveJobRow | null>(null);
+  const admin = canAdminister && !readOnly;
   const late = jobs.filter((job) => job.state === "late").sort((a, b) => (b.minutes ?? 0) - (a.minutes ?? 0));
   const offSite = jobs.filter((job) => job.state === "off-site");
   const notStarted = jobs.filter((job) => job.state === "not-started").sort((a, b) => (b.minutes ?? 0) - (a.minutes ?? 0));
@@ -104,10 +136,15 @@ export function LiveExceptions({ jobs, continuations, readOnly, onReassign, onSe
         <li key={`late:${job.jobId}`} className={`${ROW} bg-[hsl(var(--e-danger-soft))]`}>
           <Heading job={job} badge={`${job.minutes} min late`} tone="bad" onSelect={onSelect} />
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Due {job.startTime}, still travelling{job.etaClock ? `, ETA ${job.etaClock}` : ", no ETA recorded"}.{guestNote(job)}</p>
+          {requestedLine(job, timeZone) ? <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">{requestedLine(job, timeZone)}</p> : null}
           <div className="flex flex-wrap gap-2">
             <CallButton job={job} />
             <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "messages")}>Message</Link></EButton>
-            <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "messages")} title="Opens the job's client messages">Tell client</Link></EButton>
+            {admin ? (
+              <EButton size="sm" variant="outline" onClick={() => setNoticeJob(job)}>{job.delayNotice ? "Notify client again…" : "Notify client"}</EButton>
+            ) : (
+              <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "messages")} title="Opens the job's client messages">Tell client</Link></EButton>
+            )}
             {readOnly ? null : <EButton size="sm" onClick={() => onReassign(job.jobId)}>Reassign</EButton>}
           </div>
         </li>
@@ -122,6 +159,7 @@ export function LiveExceptions({ jobs, continuations, readOnly, onReassign, onSe
           </p>
           <div className="flex flex-wrap gap-2">
             <CallButton job={job} />
+            {admin && (job.runningClocks?.length ?? 0) > 0 ? <EButton size="sm" onClick={() => setPauseJob(job)}>Pause clock</EButton> : null}
             <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "activity")}>Review clock</Link></EButton>
           </div>
         </li>
@@ -136,6 +174,8 @@ export function LiveExceptions({ jobs, continuations, readOnly, onReassign, onSe
           </div>
         </li>
       ))}
+      <DelayNoticeDialog job={noticeJob} todayKey={todayKey} timeZone={timeZone} onClose={() => setNoticeJob(null)} onRequested={onDecided} />
+      <PauseClockDialog job={pauseJob} timeZone={timeZone} onClose={() => setPauseJob(null)} onPaused={onDecided} />
     </ul>
   );
 }

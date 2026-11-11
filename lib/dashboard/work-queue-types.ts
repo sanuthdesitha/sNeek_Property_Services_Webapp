@@ -54,6 +54,12 @@ export type WorkQueueAction =
       doneLabel: string;
       /** Primary button styling (the design's dark button). */
       primary?: boolean;
+      /**
+       * The action needs a reason first (declining a continuation request):
+       * the row opens the shared reason dialog and sends the reason in this
+       * body field. The server refuses the request without it.
+       */
+      reason?: { field: "decisionNote"; subject: string };
     }
   | { kind: "assign"; label: string; jobId: string; primary?: boolean }
   | { kind: "link"; label: string; href: string; external?: boolean; primary?: boolean };

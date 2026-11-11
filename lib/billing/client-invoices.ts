@@ -18,6 +18,7 @@ import { buildMaintenanceInvoiceLines } from "@/lib/billing/maintenance-billing"
 import { groupInvoiceLines, shouldGroupInvoice } from "@/lib/billing/invoice-grouping";
 import { isCreditNoteDocument, pdfClientNoteHtml, pdfDocumentTitle, pdfDueLine, pdfHeaderExtrasHtml, pdfMoney } from "./client-invoice-pdf-parts";
 import { paymentTermsDaysFrom } from "./invoice-due";
+import { LIVE_INVOICE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
 
 /**
  * Jobs eligible to be billed on a client invoice: any job that has actually
@@ -169,15 +170,17 @@ async function nextInvoiceNumber() {
 export type InvoicePeriodBasis = "SERVICE" | "SCHEDULED";
 
 /**
- * Job lines that count as billed: a job line on any non-VOID invoice of this
- * client. The generator skips these jobs, so the same work is never on two live
- * invoices it created; the editor's checklist reads the same rule.
+ * Job lines that count as billed: a job line on a LIVE invoice of this client
+ * (the shared rule, `lib/invoicing/invoiced-job-rule.ts`: kind INVOICE, not
+ * VOID, not fully credited). The generator skips these jobs, so the same work
+ * is never on two live invoices it created; the editor's checklist reads the
+ * same rule. A job whose invoice was voided or fully credited is billable again.
  */
 export function billedJobLinesWhere(clientId: string): Prisma.ClientInvoiceLineWhereInput {
   return {
     jobId: { not: null },
     // Scope to THIS client — avoid scanning every invoice line for every client.
-    invoice: { status: { not: ClientInvoiceStatus.VOID }, clientId },
+    invoice: { ...LIVE_INVOICE_WHERE, clientId },
   };
 }
 
@@ -544,7 +547,7 @@ export async function generateClientInvoice(input: {
     const jobIds = lines.map(line => line.jobId).filter((id): id is string => Boolean(id));
     await assertHolidayRateSnapshots(tx, jobIds, Object.fromEntries(unInvoicedJobs.map(job => [job.id, job.updatedAt])));
     if (jobIds.length && await tx.clientInvoiceLine.findFirst({ where: {
-      jobId: { in: jobIds }, invoice: { clientId: client.id, status: { not: ClientInvoiceStatus.VOID } },
+      jobId: { in: jobIds }, invoice: { ...LIVE_INVOICE_WHERE, clientId: client.id },
     }, select: { id: true } })) {
       throw new Error("Some work was invoiced by another request. Refresh before generating again.");
     }

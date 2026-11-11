@@ -104,7 +104,9 @@ export async function continuationItems(): Promise<WorkQueueItem[]> {
   return requests.map((request) => {
     const endpoint = `/api/admin/job-continuations/${encodeURIComponent(request.id)}`;
     const remaining = request.estimatedRemainingHours != null ? `${request.estimatedRemainingHours} h left · ` : "";
-    const decline: WorkQueueAction = { kind: "request", label: "Decline", method: "PATCH", endpoint, body: { decision: "REJECT" }, doneLabel: "Continuation declined" };
+    const who = `${nameById.get(request.requestedByUserId) ?? "A cleaner"} · ${jobById.get(request.jobId)?.property.name ?? "Job"}`;
+    // A decline needs the reason the cleaner sees (owner decision); the row asks for it first.
+    const decline: WorkQueueAction = { kind: "request", label: "Decline", method: "PATCH", endpoint, body: { decision: "REJECT" }, doneLabel: "Continuation declined", reason: { field: "decisionNote", subject: who } };
     const approve: WorkQueueAction = { kind: "request", label: "Approve", method: "PATCH", endpoint, body: { decision: "APPROVE" }, doneLabel: "Continuation approved", primary: true };
     return row("continuation", {
       id: `continuation:${request.id}`,

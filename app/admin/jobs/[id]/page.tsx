@@ -831,6 +831,11 @@ export default function JobDetailPage() {
       toast({ title: "New schedule date is required.", variant: "destructive" });
       return;
     }
+    // A decline needs the reason the cleaner sees; the server refuses one without it.
+    if (continuationDialog.decision === "REJECT" && !continuationForm.decisionNote.trim()) {
+      toast({ title: "A reason is required to decline. The cleaner sees it.", variant: "destructive" });
+      return;
+    }
 
     const payload: Record<string, unknown> = {
       decision: continuationDialog.decision,
@@ -3142,11 +3147,11 @@ export default function JobDetailPage() {
               </>
             ) : null}
             <div className="space-y-1">
-              <Label>Decision note</Label>
+              <Label>{continuationDialog?.decision === "REJECT" ? "Reason (required, the cleaner sees it)" : "Decision note"}</Label>
               <Textarea
                 value={continuationForm.decisionNote}
                 onChange={(e) => setContinuationForm((prev) => ({ ...prev, decisionNote: e.target.value }))}
-                placeholder="Optional note"
+                placeholder={continuationDialog?.decision === "REJECT" ? "Why is this being declined?" : "Optional note"}
               />
             </div>
             <Button onClick={submitContinuationDecision} disabled={continuationSubmitting} className="w-full">

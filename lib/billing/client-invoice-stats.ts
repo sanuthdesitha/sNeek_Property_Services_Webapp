@@ -2,7 +2,7 @@
  * The four figures above the client-invoice table. Each is a real aggregate of
  * stored data, and each label says what it counts:
  *   Ready to bill    — finished jobs (COMPLETED/INVOICED, not skipped) that are
- *                      on no non-void invoice. A count, not a dollar figure:
+ *                      on no live invoice (lib/invoicing/invoiced-job-rule). A count, not a dollar figure:
  *                      the charge depends on rates the generator resolves.
  *   Drafts to review — DRAFT invoices and their stored totals.
  *   Outstanding      — owing on SENT and PART_PAID invoices less payments and
@@ -19,6 +19,7 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { getOutstandingReceivables, OUTSTANDING_INVOICE_STATUSES } from "@/lib/finance/receivables";
 import { loadListContext, overdueWhere } from "./client-invoice-list";
+import { NOT_INVOICED_JOB_WHERE } from "@/lib/invoicing/invoiced-job-rule";
 
 export type ClientInvoiceStats = {
   readyToBill: { jobs: number; clients: number };
@@ -35,7 +36,8 @@ export type ClientInvoiceStats = {
 const READY_TO_BILL_JOB: Prisma.JobWhereInput = {
   status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] },
   cleanSkipStatus: { not: "SKIPPED" },
-  invoiceLines: { none: { invoice: { status: { not: ClientInvoiceStatus.VOID } } } },
+  // The shared rule: no line on a live invoice (not void, not fully credited).
+  ...NOT_INVOICED_JOB_WHERE,
 };
 
 export async function getClientInvoiceStats(now = new Date()): Promise<ClientInvoiceStats> {

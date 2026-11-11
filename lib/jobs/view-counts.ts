@@ -13,8 +13,7 @@ import { BUILT_IN_VIEWS, type BuiltInViewRule, type JobsViewCounts } from "./vie
  * - date: `scheduledDate` is a UTC date-only key, so a Sydney day range is
  *   `>= fromT00:00Z` and `< (to + 1 day)T00:00Z`;
  * - status: equality / membership;
- * - invoiced "no": not INVOICED and no line on a non-VOID invoice
- *   (`invoiced-rule.ts`).
+ * - invoiced "no": no line on a live invoice (`invoiced-rule.ts`).
  *
  * Only for administrators and operations managers, who see every job.
  */

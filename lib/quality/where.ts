@@ -40,6 +40,8 @@ function issueSearch(q: string, labels: Map<string, string>): Prisma.QaIssueWher
   const categoryKeys = categoryKeysMatching(text, labels);
   return {
     OR: [
+      // An exact issue id (the case timeline links to its issue this way).
+      { id: text },
       { description: contains },
       { category: contains },
       ...(categoryKeys.length ? [{ category: { in: categoryKeys } }] : []),

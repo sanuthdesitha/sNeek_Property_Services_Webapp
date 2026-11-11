@@ -4,7 +4,9 @@
  * Columns of the Issues tab table. Every sortable column maps to a key the
  * server's allow-list accepts (ISSUE_SORTS).
  */
+import Link from "next/link";
 import type { EDataColumn } from "@/components/v2/ui/data-table";
+import { caseHref } from "@/lib/quality/case-origin";
 import { EPill } from "@/components/v2/ui/pill";
 import type { IssueSort } from "@/lib/quality/types";
 import {
@@ -48,6 +50,16 @@ export function issueColumns({
           <span className="block truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{issue.description}</span>
         </button>
       ),
+    },
+    {
+      key: "origin",
+      header: "Raised from",
+      cell: (issue) =>
+        issue.raisedFromCaseId ? (
+          <Link href={caseHref(issue.raisedFromCaseId)} className="whitespace-nowrap text-[hsl(var(--e-primary))] underline-offset-2 hover:underline">Raised from case</Link>
+        ) : (
+          <span className="text-[hsl(var(--e-text-faint))]">QA review</span>
+        ),
     },
     {
       key: "cleaner",

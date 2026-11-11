@@ -13,6 +13,7 @@ import { EButton, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
 import { EModal } from "@/components/v2/admin/estate-kit";
 import type { QualityIssueRow } from "@/lib/quality/issue-rows";
+import { caseHref } from "@/lib/quality/case-origin";
 import {
   falseConfirmationTone,
   formatIssueDate,
@@ -94,6 +95,11 @@ export function IssueDetail({
             {issue.job?.scheduledDate ? ` · ${formatIssueDate(issue.job.scheduledDate, timeZone)}` : ""}
           </Fact>
           <Fact label="Raised">{formatIssueDate(issue.createdAt, timeZone)}</Fact>
+          <Fact label="Raised from">
+            {issue.raisedFromCaseId ? (
+              <Link href={caseHref(issue.raisedFromCaseId)} className="text-[hsl(var(--e-primary))] underline-offset-2 hover:underline">Raised from case</Link>
+            ) : "QA review"}
+          </Fact>
           {issue.review ? (
             <Fact label="Linked review">
               {typeof issue.review.score === "number" ? `${issue.review.score.toFixed(0)}%` : "–"}

@@ -278,6 +278,11 @@ export function JobContinuationReviews({ requests }: { requests: JobContinuation
       toast({ title: "Continuation date required", variant: "destructive" });
       return;
     }
+    // A decline needs the reason the cleaner sees (the server refuses one without it).
+    if (dialog.decision === "REJECT" && !form.decisionNote.trim()) {
+      toast({ title: "Reason required", description: "Say why it is declined. The cleaner sees it.", variant: "destructive" });
+      return;
+    }
     setBusy(true);
     try {
       const payload: Record<string, unknown> = {
@@ -419,7 +424,7 @@ export function JobContinuationReviews({ requests }: { requests: JobContinuation
               </div>
             </>
           ) : null}
-          <EField label="Decision note" hint="Optional — sent to the requesting cleaner.">
+          <EField label={dialog?.decision === "REJECT" ? "Reason (required)" : "Decision note"} hint={dialog?.decision === "REJECT" ? "Required — sent to the requesting cleaner." : "Optional — sent to the requesting cleaner."}>
             <ETextarea
               value={form.decisionNote}
               onChange={(e) => setForm((prev) => ({ ...prev, decisionNote: e.target.value }))}
@@ -431,7 +436,7 @@ export function JobContinuationReviews({ requests }: { requests: JobContinuation
             <EButton
               variant={dialog?.decision === "APPROVE" ? "gold" : "danger"}
               onClick={submit}
-              disabled={busy || (dialog?.decision === "APPROVE" && !form.newScheduledDate)}
+              disabled={busy || (dialog?.decision === "APPROVE" && !form.newScheduledDate) || (dialog?.decision === "REJECT" && !form.decisionNote.trim())}
             >
               {busy ? "Saving…" : dialog?.decision === "APPROVE" ? "Approve request" : "Reject request"}
             </EButton>

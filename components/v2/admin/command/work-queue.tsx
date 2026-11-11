@@ -16,6 +16,10 @@ import { runQueueRequest } from "./queue-actions";
 import { SectionBody } from "./section-state";
 import { useCommandSection } from "./use-command-section";
 import { WorkQueueRow, type RowStatus } from "./work-queue-row";
+import { DeclineReasonDialog } from "../office-actions/decline-reason-dialog";
+
+type RequestAction = Extract<WorkQueueAction, { kind: "request" }>;
+type ReasonRequest = { item: WorkQueueItem; action: RequestAction & { reason: NonNullable<RequestAction["reason"]> } };
 
 const IDLE: RowStatus = { pending: null, error: null };
 
@@ -28,6 +32,7 @@ export function WorkQueue({ initial, timeZone, readOnly }: QueueProps) {
   const [done, setDone] = useState<string[]>([]);
   const [announcement, setAnnouncement] = useState("");
   const [peekJobId, setPeekJobId] = useState<string | null>(null);
+  const [reasonFor, setReasonFor] = useState<ReasonRequest | null>(null);
   const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
 
@@ -38,15 +43,26 @@ export function WorkQueue({ initial, timeZone, readOnly }: QueueProps) {
     setDone((current) => current.filter((id) => ids.has(id)));
   }, [state.data]);
 
-  async function request(item: WorkQueueItem, action: Extract<WorkQueueAction, { kind: "request" }>) {
+  function confirmed(item: WorkQueueItem, action: RequestAction) {
+    setStatuses((current) => ({ ...current, [item.id]: IDLE }));
+    setDone((current) => [...current, item.id]);
+    setAnnouncement(`${action.doneLabel}: ${item.title}`);
+    state.reload();
+  }
+
+  function onRowRequest(item: WorkQueueItem, action: RequestAction) {
+    // An action that needs a reason (continuation decline) asks for it in the
+    // same dialog Live ops uses; the reason travels in the existing body field.
+    if (action.reason) setReasonFor({ item, action: { ...action, reason: action.reason } });
+    else void request(item, action);
+  }
+
+  async function request(item: WorkQueueItem, action: RequestAction) {
     setStatuses((current) => ({ ...current, [item.id]: { pending: action.label, error: null } }));
     const result = await runQueueRequest(action);
     if (!mounted.current) return;
     if (result.ok) {
-      setStatuses((current) => ({ ...current, [item.id]: IDLE }));
-      setDone((current) => [...current, item.id]);
-      setAnnouncement(`${action.doneLabel}: ${item.title}`);
-      state.reload();
+      confirmed(item, action);
     } else {
       setStatuses((current) => ({ ...current, [item.id]: { pending: null, error: result.message } }));
       setAnnouncement(`Not done: ${result.message}`);
@@ -92,7 +108,7 @@ export function WorkQueue({ initial, timeZone, readOnly }: QueueProps) {
                       key={item.id}
                       item={item}
                       status={statuses[item.id] ?? IDLE}
-                      onRequest={(row, action) => void request(row, action)}
+                      onRequest={onRowRequest}
                       onAssign={setPeekJobId}
                     />
                   ))}
@@ -102,6 +118,21 @@ export function WorkQueue({ initial, timeZone, readOnly }: QueueProps) {
           );
         }}
       </SectionBody>
+      <DeclineReasonDialog
+        open={reasonFor !== null}
+        subject={reasonFor?.action.reason.subject ?? ""}
+        onClose={() => setReasonFor(null)}
+        onSubmit={(reason) => {
+          const pending = reasonFor;
+          if (!pending) return Promise.resolve({ ok: false as const, message: "Nothing to decline." });
+          return runQueueRequest({ ...pending.action, body: { ...pending.action.body, [pending.action.reason.field]: reason } });
+        }}
+        onDeclined={() => {
+          const pending = reasonFor;
+          setReasonFor(null);
+          if (pending && mounted.current) confirmed(pending.item, pending.action);
+        }}
+      />
       <JobPeekPanel jobId={peekJobId} row={null} readOnly={readOnly} onClose={() => setPeekJobId(null)} onChanged={state.reload} />
     </section>
   );

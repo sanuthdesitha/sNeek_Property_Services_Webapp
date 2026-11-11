@@ -106,7 +106,8 @@ export function buildJobsWhere(params: JobsWhereParams): JobsWhere {
     ];
   }
   // Keep invoice alternatives separate from search and the explicit status.
-  // A line on a VOID invoice does not count (same rule as the invoice generator).
+  // One shared rule with the invoice generator: only a line on a live invoice
+  // (not void, not fully credited) counts; the INVOICED status alone does not.
   if (params.invoiced === "yes") {
     where.AND = [INVOICED_JOB_WHERE];
   } else if (params.invoiced === "no") {
