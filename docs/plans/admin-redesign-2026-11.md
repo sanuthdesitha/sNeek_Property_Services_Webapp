@@ -229,3 +229,19 @@ Backlog found so far, to be cleared under this rule:
 - Every one of the fifteen screens on the design canvas is built as rendered: Command, Jobs, Calendar, Live ops, Cases, Laundry, Lost and found, Urgent stock, Invoices and pay, Invoice editor, Accounts, Quality hub, Insights, Forms library, Template builder.
 - No existing function is lost. Each step ends with a parity table: every action, filter, link and view of the pre-redesign screen (read from `origin/main`) mapped to where it now lives. Before the final merge, one independent parity audit covers all eighteen original areas against `origin/main`, and anything missing is restored before merging.
 - When everything is built and the full verification passes (type check, full test suite including database tests, production build, browser pass at 390px and 1280px in light and dark), the branch is merged to `main` by pull request.
+
+## Items waiting for the owner (not changed; collected for the final summary)
+
+Each of these would change a business rule, money, or who can see or do what, so it was left as it is.
+
+| Item | Found in | Question |
+| --- | --- | --- |
+| Job reminders are not on the notification pipeline | Jobs | Moving them needs cleaners as pipeline recipients, a phone-app transport, and the external-transport setting switched on in production; otherwise email reminders would silently stop |
+| Manual reminders ignore the recipient's notification preferences | Jobs | Should a manual reminder respect them? |
+| A line on a voided invoice still blocks deleting or resetting a job | Jobs | Should a voided invoice stop counting as a financial record for delete/reset? |
+| A job with status INVOICED but no live invoice line is treated as invoiced by the Jobs filter, while the generator would still bill it | Jobs / invoices | Which is right? |
+| Finance overview counts cleaner cost at a default pay rate when none is set | Finance / Insights | Insights excludes those cleans; should the overview do the same? |
+| Insights revenue uses today's rate card, so an old period's revenue moves when rates change | Insights | Switch to invoiced line totals as the fixed record? |
+| No per-client payment terms; the slow-payer finding uses the default for everyone | Insights | Add per-client terms? |
+| Monthly Insights email | Insights | Needs a schedule, a stored recipient and a settings entry; build it? |
+| Credit notes are not allocated to the original invoice in Xero | Invoices | Left as a manual step in Xero |
