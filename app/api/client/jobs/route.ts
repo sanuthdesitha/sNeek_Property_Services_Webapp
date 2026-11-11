@@ -1,3 +1,4 @@
+import { projectClientJobList } from "@/lib/client/list-projection";
 import { NextResponse } from "next/server";
 import { requireClientPortal } from "@/lib/auth/client-portal";
 import { isClientModuleEnabled } from "@/lib/portal-access";
@@ -13,7 +14,7 @@ export async function GET() {
       return NextResponse.json({ error: "Jobs are hidden for this client." }, { status: 403 });
     }
     const jobs = await listClientJobsForUser(portal.userId);
-    return NextResponse.json(jobs);
+    return NextResponse.json(projectClientJobList(jobs, portal.visibility));
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message ?? "Could not load jobs." },

@@ -35,14 +35,16 @@ describe("what a laundry viewer receives", () => {
     expect(isLaundryOfficeRole("OPS_MANAGER")).toBe(true);
   });
 
-  it("removes cleaner-only access steps and the client's email on the server", () => {
+  it("sends the same access steps a cleaner sees, without the client's email", () => {
     const [row] = filterTasksVisibleToUser([task()], "LAUNDRY" as any, "driver");
-    expect((row.property as any).accessGuide.map((entry: any) => entry.id)).toEqual(["dock", "gate"]);
+    expect((row.property as any).accessGuide.map((entry: any) => entry.id)).toEqual(["lockbox", "dock", "gate"]);
     expect((row.property as any).client).toEqual({ id: "c1", name: "Harbour View" });
   });
 
-  it("includes the cleaner's steps only when the property says laundry access is the same", () => {
-    const [row] = filterTasksVisibleToUser([task({ laundrySameAsCleaner: true })], "LAUNDRY" as any, "driver");
+  it("drops a malformed guide entry rather than sending it", () => {
+    const withJunk = task();
+    (withJunk.property.accessGuide as unknown[]).push("not-an-entry", null);
+    const [row] = filterTasksVisibleToUser([withJunk], "LAUNDRY" as any, "driver");
     expect((row.property as any).accessGuide).toHaveLength(3);
   });
 

@@ -1,3 +1,5 @@
+import { getClientPortalContext } from "@/lib/client/portal";
+import { isClientModuleEnabled } from "@/lib/portal-access";
 import { NextRequest, NextResponse } from "next/server";
 import { ClientInvoiceStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -15,6 +17,11 @@ export async function POST(
 ) {
   try {
     const session = await requireRole([Role.CLIENT]);
+    // Paying is a finance action: it follows the same switch as viewing invoices.
+    const { visibility } = await getClientPortalContext(session.user.id);
+    if (!isClientModuleEnabled(visibility, "finance")) {
+      return NextResponse.json({ error: "Invoices are not available in your portal. Contact the office to pay." }, { status: 403 });
+    }
     const stripeKey = getStripeSecretKey();
     if (!stripeKey) {
       return NextResponse.json({ error: "Stripe is not configured." }, { status: 400 });

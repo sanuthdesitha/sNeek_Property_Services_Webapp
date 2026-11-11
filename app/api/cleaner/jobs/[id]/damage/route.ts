@@ -1,3 +1,5 @@
+import { findForeignUploadKeys } from "@/lib/uploads/ownership-server";
+import { FOREIGN_UPLOAD_CODE, FOREIGN_UPLOAD_MESSAGE } from "@/lib/uploads/ownership";
 import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -97,6 +99,13 @@ function errorResponse(err: unknown) {
   }
 }
 
+/** Every storage key a damage payload refers to. */
+function damagePhotoKeys(items: Array<{ photos: Array<{ s3Key: string; annotatedKey?: string | null; flatKey?: string | null }> }>) {
+  return items.flatMap((item) =>
+    item.photos.flatMap((photo) => [photo.s3Key, photo.annotatedKey, photo.flatKey].filter((key): key is string => Boolean(key))),
+  );
+}
+
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.CLEANER]);
@@ -123,6 +132,10 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json({ error: "Invalid" }, { status: 400 });
     }
     const body = saveDamageDraftSchema.parse(payload);
+    const foreignKeys = await findForeignUploadKeys({ keys: damagePhotoKeys(body.items), callerId: session.user.id, jobId: job.id });
+    if (foreignKeys.length > 0) {
+      return NextResponse.json({ code: FOREIGN_UPLOAD_CODE, error: FOREIGN_UPLOAD_MESSAGE }, { status: 403 });
+    }
 
     // Resolve the draft here rather than trusting a client-supplied report id:
     // it keeps autosave idempotent on a fresh form and stops one cleaner
@@ -155,6 +168,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: "Invalid" }, { status: 400 });
     }
     const body = submitDamageReportSchema.parse(payload);
+    const foreignKeys = await findForeignUploadKeys({ keys: damagePhotoKeys(body.items), callerId: session.user.id, jobId: job.id });
+    if (foreignKeys.length > 0) {
+      return NextResponse.json({ code: FOREIGN_UPLOAD_CODE, error: FOREIGN_UPLOAD_MESSAGE }, { status: 403 });
+    }
 
     const draft = await db.damageReport.findFirst({
       where: { id: body.reportId, jobId: job.id, reportedById: session.user.id },

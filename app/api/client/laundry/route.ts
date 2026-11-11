@@ -1,3 +1,4 @@
+import { projectClientLaundryList } from "@/lib/client/list-projection";
 import { NextResponse } from "next/server";
 import { requireClientPortal } from "@/lib/auth/client-portal";
 import { isClientModuleEnabled } from "@/lib/portal-access";
@@ -26,7 +27,7 @@ export async function GET(req: Request) {
     const options = { propertyId: filters.propertyId, status: filters.status, dateField: filters.dateField,
       fromDate: sydneyDayBoundary(filters.from, "start"), toDate: sydneyDayBoundary(filters.to, "end") };
     const rows = await listClientLaundryForUser(portal.userId, options);
-    return NextResponse.json(rows, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json(projectClientLaundryList(rows, portal.visibility), { headers: { "Cache-Control": "private, no-store" } });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message ?? "Could not load laundry updates." },

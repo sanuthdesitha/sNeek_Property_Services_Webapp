@@ -4,6 +4,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getApiErrorStatus } from "@/lib/api/http";
+import { laundryTaskScope } from "@/lib/laundry/teams";
 import {
   isArrivedAtStop,
   nextIncompleteStop,
@@ -26,6 +27,7 @@ const pingSchema = z.object({
 // from flooding the ping table.
 const RATE_LIMIT_MS = 10_000;
 const STALE_PING_MS = 5 * 60_000;
+const FUTURE_PING_TOLERANCE_MS = 2 * 60_000;
 
 const globalRef = globalThis as unknown as { __sneekLaundryPingRateLimit?: Map<string, number> };
 if (!globalRef.__sneekLaundryPingRateLimit) globalRef.__sneekLaundryPingRateLimit = new Map();
@@ -69,6 +71,45 @@ async function detectRouteArrival(
   } catch {
     return null;
   }
+}
+
+/**
+ * The job a driver's ping is filed against. The ping table requires a job, so
+ * it must be one of this driver's own: the next stop on their active route,
+ * else a task today at a property they serve, else their most recent task.
+ * It used to be the first laundry task of the day for anyone, which filed a
+ * driver's position against an unrelated job.
+ */
+async function findAnchorTask(viewer: { id: string; role: string }, now: Date) {
+  const route = await db.laundryRoute.findFirst({
+    where: { userId: viewer.id, status: "ACTIVE" },
+    orderBy: { startedAt: "desc" },
+  });
+  const stops = route ? parseRouteStops(route.stops) : [];
+  const stop = nextIncompleteStop(stops) ?? stops[stops.length - 1];
+  if (stop) {
+    const routeTask = await db.laundryTask.findUnique({ where: { id: stop.taskId }, select: { jobId: true } });
+    if (routeTask) return routeTask;
+  }
+
+  const scope = await laundryTaskScope(viewer);
+  const dayStart = new Date(now);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate() + 1);
+  const today = await db.laundryTask.findFirst({
+    where: {
+      ...scope,
+      OR: [
+        { pickupDate: { gte: dayStart, lt: dayEnd } },
+        { dropoffDate: { gte: dayStart, lt: dayEnd } },
+      ],
+    },
+    orderBy: { pickupDate: "asc" },
+    select: { jobId: true },
+  });
+  if (today) return today;
+  return db.laundryTask.findFirst({ where: scope, orderBy: { createdAt: "desc" }, select: { jobId: true } });
 }
 
 /**
@@ -116,27 +157,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, received: 0, dropped: 1 });
     }
 
-    // Anchor jobId: prefer a laundry task active today, else the latest one.
-    const dayStart = new Date(now);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
+    if (pingAt.getTime() - nowMs > FUTURE_PING_TOLERANCE_MS) {
+      return NextResponse.json({ ok: true, received: 0, dropped: 1 });
+    }
 
-    const anchorTask =
-      (await db.laundryTask.findFirst({
-        where: {
-          OR: [
-            { pickupDate: { gte: dayStart, lt: dayEnd } },
-            { dropoffDate: { gte: dayStart, lt: dayEnd } },
-          ],
-        },
-        orderBy: { pickupDate: "asc" },
-        select: { jobId: true },
-      })) ??
-      (await db.laundryTask.findFirst({
-        orderBy: { createdAt: "desc" },
-        select: { jobId: true },
-      }));
+    const anchorTask = await findAnchorTask({ id: userId, role: session.user.role }, now);
 
     if (!anchorTask) {
       // Nothing to anchor against — no laundry tasks exist yet. Don't error

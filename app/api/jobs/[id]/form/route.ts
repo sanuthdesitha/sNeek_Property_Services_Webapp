@@ -1,5 +1,6 @@
 import { savedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
-import { redactJobForCleaner, redactJobMetaForCleaner, redactTransferCandidates } from "@/lib/jobs/cleaner-redaction";
+import { redactJobForCleaner, redactJobMetaForCleaner, redactTransferCandidates, withoutPropertyAccess } from "@/lib/jobs/cleaner-redaction";
+import { accessWindowMessage, cleanerAccessWindow } from "@/lib/properties/access-window";
 import { NextRequest, NextResponse } from "next/server";
 import { cleanerBagBaseline, recordedCleanerReadiness } from "@/lib/laundry/quantity-baseline";
 import { requireRole } from "@/lib/auth/session";
@@ -517,8 +518,20 @@ export async function GET(
     // The office views share these queries; a cleaner gets the working details
     // of the job and their own pay, not the client price or colleagues' pay.
     const cleanerViewer = session.user.role === Role.CLEANER;
+    const accessWindow = cleanerAccessWindow({
+      responseStatus: currentAssignment?.responseStatus,
+      scheduledDate: job.scheduledDate,
+      jobStatus: job.status,
+    });
     return NextResponse.json({
-      job: cleanerViewer ? redactJobForCleaner(job, session.user.id) : job,
+      job: cleanerViewer
+        ? accessWindow === "OPEN"
+          ? redactJobForCleaner(job, session.user.id)
+          : withoutPropertyAccess(redactJobForCleaner(job, session.user.id))
+        : job,
+      /** Why access details are absent, when they are (cleaner only). */
+      accessWindow: cleanerViewer ? accessWindow : "OPEN",
+      accessUnavailableReason: cleanerViewer ? accessWindowMessage(accessWindow) : null,
       draftIdentity: cleanerDraftIdentity(session, params.id),
       /** CLASSIC records usage as answers and deducts on submit; SCAN adjusts
        *  the shelf immediately. Both work — this only decides which control

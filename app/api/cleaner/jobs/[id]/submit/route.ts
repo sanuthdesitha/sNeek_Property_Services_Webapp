@@ -1,3 +1,5 @@
+import { findForeignUploadKeys } from "@/lib/uploads/ownership-server";
+import { FOREIGN_UPLOAD_CODE, FOREIGN_UPLOAD_MESSAGE } from "@/lib/uploads/ownership";
 import { belongsToAnotherJob } from "@/lib/cleaner/evidence-review";
 import { savedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
 import { isDeviceStatusField, isDeviceAnswerComplete, incompleteDeviceExceptions } from "@/lib/forms/device-status";
@@ -235,6 +237,12 @@ export async function POST(
     ];
     if (submittedKeys.some(key => belongsToAnotherJob(key, params.id))) return NextResponse.json({ code: "FOREIGN_DRAFT_REFERENCE",
       error: "Evidence stored under another job cannot be submitted as this job's proof. Discard the wrong draft reference or ask the office to review it." }, { status: 409 });
+    // Storage keys carry their uploader's id. Proof must come from this
+    // cleaner, a cleaner assigned to the same job, or the office.
+    const foreignKeys = await findForeignUploadKeys({ keys: submittedKeys, callerId: session.user.id, jobId: params.id, allowUnowned: true });
+    if (foreignKeys.length > 0) {
+      return NextResponse.json({ code: FOREIGN_UPLOAD_CODE, error: FOREIGN_UPLOAD_MESSAGE }, { status: 403 });
+    }
     // Laundry only exists on Airbnb turnovers. Rework/reclean jobs (and
     // laundry-disabled properties) never create a laundry booking or record a
     // laundry update — they reuse the original clean's linen. Shared predicate:

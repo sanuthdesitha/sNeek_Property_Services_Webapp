@@ -1,3 +1,4 @@
+import { getClientPortalContext } from "@/lib/client/portal";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Role } from "@prisma/client";
@@ -89,7 +90,9 @@ const patchSchema = z.object({
 
 async function getClientContext(userId: string) {
   const settings = await getAppSettings();
-  if (!isClientModuleEnabled(settings, "shopping")) throw new Error("FORBIDDEN");
+  // Merged with this client's own overrides, not the global default alone.
+  const { visibility } = await getClientPortalContext(userId, settings);
+  if (!isClientModuleEnabled(visibility, "shopping")) throw new Error("FORBIDDEN");
   const user = await db.user.findUnique({
     where: { id: userId },
     select: { clientId: true },

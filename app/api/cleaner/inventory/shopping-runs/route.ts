@@ -1,4 +1,7 @@
+import { findForeignUploadKeys } from "@/lib/uploads/ownership-server";
+import { FOREIGN_UPLOAD_CODE, FOREIGN_UPLOAD_MESSAGE } from "@/lib/uploads/ownership";
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
 import { z } from "zod";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -143,6 +146,27 @@ export async function POST(req: NextRequest) {
           ),
         }
       : undefined;
+    // A receipt is an uploaded file: a cleaner attaches their own, or one the office added.
+    if (session.user.role === Role.CLEANER) {
+      const foreignKeys = await findForeignUploadKeys({
+        keys: (payment?.receipts ?? []).map((receipt) => receipt.key),
+        callerId: session.user.id,
+      });
+      if (foreignKeys.length > 0) {
+        return NextResponse.json({ code: FOREIGN_UPLOAD_CODE, error: FOREIGN_UPLOAD_MESSAGE }, { status: 403 });
+      }
+    }
+    // A row's property is a claim. It must be a real, active property, or a
+    // purchase (and the client charge raised from it) could name any id.
+    const claimedPropertyIds = Array.from(
+      new Set(rows.map((row) => row.propertyId).filter((id): id is string => Boolean(id))),
+    );
+    if (claimedPropertyIds.length > 0) {
+      const known = await db.property.count({ where: { id: { in: claimedPropertyIds }, isActive: true } });
+      if (known !== claimedPropertyIds.length) {
+        return NextResponse.json({ error: "Property not found." }, { status: 404 });
+      }
+    }
     const saved = await saveShoppingRunForOwner({
       id: body.id,
       name: body.name.trim(),

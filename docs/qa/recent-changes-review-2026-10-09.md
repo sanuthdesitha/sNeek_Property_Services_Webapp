@@ -534,7 +534,7 @@ Request: fix the client portal not showing approvals waiting on the client, then
 - Crawl at 390px after the fixes: cleaner 29 pages, client 30, laundry 13. No failed API calls, page errors or overflow.
 - UI: client home, cleaner home and laundry home stat cards no longer stack one per row on a phone; client approval job type is sentence-cased; property view toggle shows its active state.
 
-**Reported and NOT fixed.** These are real or plausible and need either a product decision or a larger change than was safe to make blind.
+**Reported and NOT fixed at the time.** These were real or plausible and needed either a product decision or a larger change than was safe to make blind. **All but the storage-bucket question and the push-token item were resolved on 2026-11-11; see "Follow-up: owner decisions and the remaining list" below.**
 
 Cleaner
 - Property access and alarm codes are returned for any job with a live assignment, including unaccepted offers, jobs months ahead and completed jobs. There is no time or status window anywhere.
@@ -575,3 +575,60 @@ The owner authorised a database change for the shared notes field, on condition 
 - Behaviour on the production build: the admin saved an office note and saw it after reload; the cleaner's profile page and `/api/me/profile` contained neither that text nor an `adminNotes` key, and still showed the cleaner's own note; a cleaner `PATCH /api/me/profile` carrying both `notes` and `adminNotes` changed only their own note.
 - TypeScript: pass. Full Vitest suite: **7,354 passed, 2 skipped, 666 files**. Production build: pass, 765 pages.
 - Not verified: the production database. Notes the office wrote before this change remain in the affected person's own notes field, where they were already visible to them; this change does not and cannot tell the two apart.
+
+### Follow-up: owner decisions and the remaining list (2026-11-11)
+
+Request: decisions on the five open items (access codes get a window from acceptance until a day after the clean; shopping reimbursement waits for approval; split the notes; laundry sees the same codes as cleaners, tidied; check evidence ownership and explain how), plus "fix all the items on the list". Method: same disposable database `127.0.0.1:55439/sneek_ui` and production build as above. No schema change in this round.
+
+**Decisions implemented**
+
+1. Access window: `lib/properties/access-window.ts`. Open from acceptance until the end of the day after the clean (Sydney), and whenever the job is under way. Applied to the briefing, the job form and the property access guide. Outside it the codes are absent and a reason is returned and shown.
+2. Reimbursement approval: a cleaner's personally paid run is `PENDING_APPROVAL` until the office approves; only `READY` reaches pay or an invoice; a later cost change needs approval again. "Approve reimbursement" on the admin run detail.
+3. Notes split: done in the previous follow-up.
+4. Laundry access: laundry reads cleaner-audience entries on every property; the stop card shows one "Property access" panel.
+5. Ownership: the uploader's id is the second-last segment of every stored key and is set by the server. Submitted keys must belong to the caller, a cleaner assigned to the same job, or office staff. Refusal is 403 `FOREIGN_UPLOAD_REFERENCE` before any write.
+
+**The list**
+
+| Item | Outcome |
+| --- | --- |
+| Access codes with no window | Fixed (decision 1) |
+| Evidence keys accepted without ownership | Fixed: submit, damage, damage report, lost and found, pay requests, invoice proof, shopping receipts, laundry photos, client task-request attachments |
+| Upload folder open to any role | Fixed: field roles refused office folders. A deny-list, not a per-role allow-list, because the mobile client's folders were not inventoried |
+| Shopping reimbursable without approval; rows naming any property | Fixed (decision 2); rows must be existing active properties |
+| Reschedule/approval requests without a status bound | Fixed |
+| Draft deletion without a status bound | Not changed. An existing regression test documents that clearing a submitted job's draft is intended; it removes no submission or evidence |
+| Future-dated location pings | Fixed (cleaner and laundry, two-minute tolerance) |
+| Public storage bucket | Not a code matter and not inspected. If the bucket is public, a key is the only control on reading a file; the ownership check stops a key being *attached* by someone else, not *read*. Needs a deployment check |
+| Client lists ignoring visibility switches | Fixed for jobs, laundry, reports and property detail, in API and pages |
+| Stock/shopping reading global switches; threshold edits unenforced | Fixed. `allowInventoryThresholdEdits` defaults to off, so clients lose threshold editing until it is switched on |
+| Stock-run requester email; case reasons and metadata; task-request list | Fixed |
+| Invoice pay and payment-link without the finance switch | Fixed |
+| Laundry legacy flat access fields | Kept by decision 4 |
+| Driver pings attached to an unrelated job | Fixed; client job response reads only assigned people's pings |
+| Laundry evidence keys and `supplierId` | Fixed |
+| Lost-and-found detail to the reporting cleaner | Guest name, contact and value removed; office workflow notes removed; comments kept |
+| Push device token reassignment | Not changed. A token identifies one phone; moving it to whoever signs in on that phone is the correct handover |
+
+**Tests added or changed.** `tests/lib/access-window.test.ts`, `tests/lib/shopping-reimbursement-approval.test.ts`, `tests/lib/upload-ownership.test.ts`, `tests/lib/client-list-projection.test.ts`, `tests/lib/lost-found-reporter-redaction.test.ts`, `tests/api/portal-follow-up-guards.test.ts`; new cases in `tests/api/cleaner-damage-authority.test.ts` and `tests/api/cleaner-submit-form-contract.test.ts`; fixtures updated in the access-audience, briefing, laundry next-stop, laundry viewer-scope and client laundry page tests. The damage test's bare photo keys were replaced with keys in the real upload layout.
+
+**Verification**
+
+- TypeScript: pass.
+- Vitest: 7,281 passed without a database; the 19 database-backed files (124 tests) passed against disposable `sneek_review_test` on port 55439, run serially. 7,405 passed in total, 2 skipped (an opt-in iCal schedule smoke test and an IndexedDB-only suite).
+- Production build: pass, 765 pages.
+- Chromium on the production build, 390px and 1280px, light and dark:
+  - Cleaner job with an unaccepted offer: briefing, form and access guide returned no codes and the stated reason; the offer card says access appears on acceptance; one h1; no horizontal overflow.
+  - Laundry route stop: the "Property access" panel opened by keyboard and showed lockbox, codes and parking; one h1; no overflow.
+  - Admin shopping run in `PENDING_APPROVAL`: status label, explanation and "Approve reimbursement" present at all four sizes; activating it by keyboard set `READY` and removed the button. A clipped button label in that card at 390px was fixed (the row now wraps).
+  - Client jobs, laundry and property pages rendered with one h1, no error state and no overflow.
+- API on the production build: a cleaner's lost-and-found photo and damage-report media under another account's id returned 403; a cleaner upload to `branding` returned 403; a future-dated ping was dropped; a shopping row naming an unknown property returned 404; client invoice pay with finance hidden returned 403; client stock runs reported `canEditThresholds: false`.
+
+**Not verified**
+
+- A cleaner shopping run submitted as COMPLETED with a receipt: the server checks the receipt exists in storage and this environment has no bucket. Approval was exercised on an in-progress run with a cost; the status rule itself is unit-tested.
+- The accepted and expired access-window states in the browser (the fixture job is an unaccepted offer for today). Both are unit-tested.
+- The pay-request and invoice-proof ownership refusals in the browser; they use the same helper as the routes that were exercised.
+- Client lists with switches turned off in the browser; the projections are unit-tested.
+- The mobile app, the production database, the storage bucket's public/private setting, and deployment. Nothing was deployed.
+

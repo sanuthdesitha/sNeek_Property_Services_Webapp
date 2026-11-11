@@ -156,7 +156,10 @@ export default async function EstateClientPropertyDetailPage({
   const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
   const settings = await getAppSettings();
   const portal = await getClientPortalContext(session.user.id, settings);
-  const detail = await getClientPropertyDetailForUser(session.user.id, params.id, portal.visibility);
+  const detail = await getClientPropertyDetailForUser(session.user.id, params.id, {
+    ...portal.visibility,
+    showReports: portal.visibility.showReports && (portalCtx.actor === "CLIENT" || portalCtx.permissions.reports),
+  });
 
   if (!detail) notFound();
 

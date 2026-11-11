@@ -1,3 +1,4 @@
+import { projectClientReportList } from "@/lib/client/list-projection";
 import { NextResponse } from "next/server";
 import { propertyScopeWhere, requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
@@ -46,7 +47,7 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json(reports);
+    return NextResponse.json(projectClientReportList(reports, portal.visibility));
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: getApiErrorStatus(err) });
   }

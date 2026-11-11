@@ -1,3 +1,4 @@
+import { getClientPortalContext } from "@/lib/client/portal";
 import { NextRequest, NextResponse } from "next/server";
 import { Role, StockRunStatus } from "@prisma/client";
 import { z } from "zod";
@@ -25,12 +26,12 @@ const patchSchema = z.object({
     .optional(),
 });
 
-async function clientScope(userId: string) {
+async function clientScope(userId: string, thresholdEdits: boolean) {
   const user = await db.user.findUnique({
     where: { id: userId },
     select: { clientId: true },
   });
-  return { role: Role.CLIENT, userId, clientId: user?.clientId };
+  return { role: Role.CLIENT, userId, clientId: user?.clientId, thresholdEdits };
 }
 
 export async function GET(
@@ -40,10 +41,11 @@ export async function GET(
   try {
     const session = await requireRole([Role.CLIENT]);
     const settings = await getAppSettings();
-    if (!isClientModuleEnabled(settings, "stockRuns")) {
+    const { visibility } = await getClientPortalContext(session.user.id, settings);
+    if (!isClientModuleEnabled(visibility, "stockRuns")) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    return NextResponse.json(await getStockRun(await clientScope(session.user.id), params.id));
+    return NextResponse.json(await getStockRun(await clientScope(session.user.id, visibility.allowInventoryThresholdEdits), params.id));
   } catch (err: any) {
     const status =
       err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : err.message === "NOT_FOUND" ? 404 : 400;
@@ -58,11 +60,12 @@ export async function PATCH(
   try {
     const session = await requireRole([Role.CLIENT]);
     const settings = await getAppSettings();
-    if (!isClientModuleEnabled(settings, "stockRuns")) {
+    const { visibility } = await getClientPortalContext(session.user.id, settings);
+    if (!isClientModuleEnabled(visibility, "stockRuns")) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const body = patchSchema.parse(await req.json().catch(() => ({})));
-    const scope = await clientScope(session.user.id);
+    const scope = await clientScope(session.user.id, visibility.allowInventoryThresholdEdits);
     const current = await getStockRun(scope, params.id);
     const updated = await updateStockRun(scope, params.id, body);
     if (body.status === StockRunStatus.SUBMITTED && current.status !== StockRunStatus.SUBMITTED) {

@@ -1,3 +1,4 @@
+import { projectClientLaundryList } from "@/lib/client/list-projection";
 import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { getAppSettings } from "@/lib/settings";
 import { getClientPortalContext } from "@/lib/client/portal";
@@ -21,10 +22,11 @@ export default async function ClientLaundryPage() {
   });
   // Never swallow a query failure silently — an empty page and a broken page
   // looked identical to the client, which is how a real fault went unnoticed.
-  const tasks = await listClientLaundryForUser(session.user.id).catch((err) => {
+  const allTasks = await listClientLaundryForUser(session.user.id).catch((err) => {
     logger.error({ err, userId: session.user.id }, "Client laundry: task query failed");
     throw err;
   });
+  const tasks = projectClientLaundryList(allTasks, portalCtx.visibility);
 
   const properties = await listClientPropertiesForUser(session.user.id);
 

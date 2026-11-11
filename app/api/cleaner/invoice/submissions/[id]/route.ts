@@ -1,3 +1,5 @@
+import { findForeignUploadKeys } from "@/lib/uploads/ownership-server";
+import { FOREIGN_UPLOAD_CODE, FOREIGN_UPLOAD_MESSAGE } from "@/lib/uploads/ownership";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -37,6 +39,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // reveal that someone else's invoice exists.
     if (!existing || existing.cleanerId !== session.user.id) {
       return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
+    }
+
+    const foreignKeys = await findForeignUploadKeys({ keys: body.proofKeys ?? [], callerId: session.user.id });
+    if (foreignKeys.length > 0) {
+      return NextResponse.json({ code: FOREIGN_UPLOAD_CODE, error: FOREIGN_UPLOAD_MESSAGE }, { status: 403 });
     }
 
     if (existing.status === "PAID") {

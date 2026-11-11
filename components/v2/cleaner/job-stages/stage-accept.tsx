@@ -63,7 +63,8 @@ export function StageAccept({ api }: { api: WorkspaceApi }) {
             <div>
               <p className="text-[0.9375rem] font-[600]">You&apos;ve been offered this job</p>
               <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                Accept to add it to your schedule, or decline so it can be reassigned.
+                Accept to add it to your schedule, or decline so it can be reassigned. Access codes and entry
+                instructions appear once you accept.
               </p>
             </div>
             <JobOfferActions jobId={job.id} size="md" onDone={() => api.load()} />

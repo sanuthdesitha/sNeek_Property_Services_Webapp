@@ -1,3 +1,4 @@
+import { projectClientLaundryList, projectClientReportList } from "@/lib/client/list-projection";
 import { JobStatus, JobType, type LaundryStatus, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings, type ClientPortalVisibility } from "@/lib/settings";
@@ -403,15 +404,18 @@ export async function getClientPropertyDetailForUser(
 
   return {
     property,
-    reports,
-    jobs,
-    laundryTasks: laundryTasks.map((task) => ({
-      ...task,
-      confirmations: task.confirmations.map((confirmation) => ({
-        ...confirmation,
-        meta: parseConfirmationMeta(confirmation.notes),
+    reports: projectClientReportList(reports, visibility),
+    jobs: visibility.showCleanerNames ? jobs : jobs.map((job) => ({ ...job, assignments: [] })),
+    laundryTasks: projectClientLaundryList(
+      laundryTasks.map((task) => ({
+        ...task,
+        confirmations: task.confirmations.map((confirmation) => ({
+          ...confirmation,
+          meta: parseConfirmationMeta(confirmation.notes),
+        })),
       })),
-    })),
+      visibility,
+    ),
     stocks,
     checklistTemplates,
     jobTasks,

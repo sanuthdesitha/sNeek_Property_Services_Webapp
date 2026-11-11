@@ -1,3 +1,4 @@
+import { getClientPortalContext } from "@/lib/client/portal";
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
@@ -18,7 +19,9 @@ export async function GET() {
   try {
     const session = await requireRole([Role.CLIENT]);
     const settings = await getAppSettings();
-    if (!isClientModuleEnabled(settings, "stockRuns")) {
+    // Merged with this client's own overrides, not the global default alone.
+    const { visibility } = await getClientPortalContext(session.user.id, settings);
+    if (!isClientModuleEnabled(visibility, "stockRuns")) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const user = await db.user.findUnique({
@@ -26,7 +29,7 @@ export async function GET() {
       select: { clientId: true },
     });
     return NextResponse.json(
-      await listStockRuns({ role: session.user.role as Role, userId: session.user.id, clientId: user?.clientId })
+      await listStockRuns({ role: session.user.role as Role, userId: session.user.id, clientId: user?.clientId, thresholdEdits: visibility.allowInventoryThresholdEdits })
     );
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
@@ -38,7 +41,9 @@ export async function POST(req: NextRequest) {
   try {
     const session = await requireRole([Role.CLIENT]);
     const settings = await getAppSettings();
-    if (!isClientModuleEnabled(settings, "stockRuns")) {
+    // Merged with this client's own overrides, not the global default alone.
+    const { visibility } = await getClientPortalContext(session.user.id, settings);
+    if (!isClientModuleEnabled(visibility, "stockRuns")) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const user = await db.user.findUnique({
@@ -47,7 +52,7 @@ export async function POST(req: NextRequest) {
     });
     const body = createSchema.parse(await req.json().catch(() => ({})));
     const created = await createStockRun(
-      { role: session.user.role as Role, userId: session.user.id, clientId: user?.clientId },
+      { role: session.user.role as Role, userId: session.user.id, clientId: user?.clientId, thresholdEdits: visibility.allowInventoryThresholdEdits },
       body
     );
     await notifyStockRunRequested({

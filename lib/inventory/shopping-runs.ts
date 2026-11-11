@@ -41,6 +41,8 @@ export type ShoppingPaidByScope = "COMPANY" | "CLIENT" | "CLEANER" | "ADMIN" | "
 export type ShoppingRunClientChargeStatus = "NOT_REQUIRED" | "READY" | "SENT" | "PAID";
 export type ShoppingRunCleanerReimbursementStatus =
   | "NOT_APPLICABLE"
+  /** The cleaner has claimed a cost; the office has not approved it yet. */
+  | "PENDING_APPROVAL"
   | "READY"
   | "INVOICED"
   | "REIMBURSED";
@@ -349,6 +351,7 @@ function sanitizeCleanerReimbursementStatus(
   value: unknown
 ): ShoppingRunCleanerReimbursementStatus {
   switch (value) {
+    case "PENDING_APPROVAL":
     case "READY":
     case "INVOICED":
     case "REIMBURSED":
@@ -1553,6 +1556,29 @@ export interface ShoppingRunSelectionOptions {
  * this did — is how a reimbursement paid by a payroll run got billed again on
  * the next cleaner invoice.
  */
+/**
+ * A cleaner's own save never makes their cost payable.
+ *
+ * Owner's rule: a reimbursement waits for office approval. Saving a cost on a
+ * personal payment method puts the claim in PENDING_APPROVAL; only the office
+ * moves it to READY (payable). An approved claim stays approved while its cost
+ * is unchanged, and returns to PENDING_APPROVAL if the cleaner changes the
+ * amount. Invoiced and reimbursed claims are settled history and never move.
+ */
+export function nextCleanerReimbursementStatus(input: {
+  previous: ShoppingRunCleanerReimbursementStatus | undefined;
+  reimbursable: boolean;
+  cleanerOwned: boolean;
+  costChanged: boolean;
+}): ShoppingRunCleanerReimbursementStatus {
+  if (input.previous === "INVOICED" || input.previous === "REIMBURSED") return input.previous;
+  if (!input.reimbursable) return "NOT_APPLICABLE";
+  // Runs owned by the office or a client keep their existing behaviour.
+  if (!input.cleanerOwned) return "READY";
+  if (input.previous === "READY" && !input.costChanged) return "READY";
+  return "PENDING_APPROVAL";
+}
+
 /** Who paid out of pocket for a cleaner-scoped run. */
 export function shoppingRunPayerId(run: {
   ownerUserId: string;
@@ -1893,13 +1919,14 @@ export async function saveShoppingRunForOwner(input: {
       : totals.actualTotalCost > 0 && requiresClientReimbursement(payment, hasClient)
         ? "READY"
         : "NOT_REQUIRED";
-  compat.cleanerReimbursementStatus =
-    existingCompat.cleanerReimbursementStatus === "INVOICED" ||
-    existingCompat.cleanerReimbursementStatus === "REIMBURSED"
-      ? existingCompat.cleanerReimbursementStatus
-      : totals.actualTotalCost > 0 && requiresCleanerReimbursement(payment)
-        ? "READY"
-        : "NOT_APPLICABLE";
+  compat.cleanerReimbursementStatus = nextCleanerReimbursementStatus({
+    previous: existingCompat.cleanerReimbursementStatus,
+    reimbursable: totals.actualTotalCost > 0 && requiresCleanerReimbursement(payment),
+    cleanerOwned: ownerScope === "CLEANER",
+    costChanged:
+      !existingRecord ||
+      Math.abs(existingRecord.totals.actualTotalCost - totals.actualTotalCost) > 0.004,
+  });
 
   const nextStatus = reconcileDbStatusFromCompat(
     toDbRunStatus(input.status, existing?.status ?? null),

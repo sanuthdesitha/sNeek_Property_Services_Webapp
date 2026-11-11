@@ -1,3 +1,5 @@
+import { getClientPortalContext } from "@/lib/client/portal";
+import { isClientModuleEnabled } from "@/lib/portal-access";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Role } from "@prisma/client";
@@ -14,6 +16,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const session = await requireRole([Role.CLIENT]);
     const body = paySchema.parse(await req.json());
+    // Paying is a finance action: it follows the same switch as viewing invoices.
+    const { visibility } = await getClientPortalContext(session.user.id);
+    if (!isClientModuleEnabled(visibility, "finance")) {
+      return NextResponse.json({ error: "Invoices are not available in your portal. Contact the office to pay." }, { status: 403 });
+    }
 
     const user = await db.user.findUnique({
       where: { id: session.user.id },

@@ -39,6 +39,13 @@ export async function POST(
         { status: 400 }
       );
     }
+    // Once the job is closed out its pay is settled through pay requests.
+    if (job.status === JobStatus.COMPLETED || job.status === JobStatus.INVOICED) {
+      return NextResponse.json(
+        { error: "This job is already completed. Use a pay request for anything still owed." },
+        { status: 409 }
+      );
+    }
     const activeAssignment = job.assignments.some(
       (assignment) => assignment.userId === session.user.id && !assignment.removedAt
     );

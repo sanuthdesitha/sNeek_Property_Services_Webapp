@@ -120,3 +120,27 @@ export async function hydrateItemWithEvents(item: LostFoundItem, events: LostFou
     })),
   };
 }
+
+type HydratedLostFoundItem = Awaited<ReturnType<typeof hydrateItemWithEvents>>;
+
+/** Guest details and valuation are office working data, not the finder's. */
+export function redactItemForReporter<T extends LostFoundItemRow>(row: T): T {
+  return { ...row, guestName: null, guestContact: null, estimatedValue: null };
+}
+
+/**
+ * The reporting cleaner keeps the conversation (comments) and their own
+ * entries. Office workflow entries stay on the timeline as a status line, but
+ * without the office's note or metadata, which can carry guest contact.
+ */
+export function redactItemWithEventsForReporter(detail: HydratedLostFoundItem, events: LostFoundEvent[], reporterId: string) {
+  const authorById = new Map(events.map((event) => [event.id, event.userId]));
+  return {
+    ...redactItemForReporter(detail),
+    events: detail.events.map((event) => {
+      const own = authorById.get(event.id) === reporterId;
+      if (own || event.action === "COMMENT") return event;
+      return { ...event, note: null, meta: null };
+    }),
+  };
+}

@@ -1,3 +1,5 @@
+import { findForeignUploadKeys } from "@/lib/uploads/ownership-server";
+import { FOREIGN_UPLOAD_CODE, FOREIGN_UPLOAD_MESSAGE } from "@/lib/uploads/ownership";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -165,6 +167,23 @@ export async function POST(
     }
     if (!isLaundryOfficeRole(session.user.role) && !propertyIsVisibleToLaundry(existing.property, session.user.id)) {
       return NextResponse.json({ error: "You cannot access this property's laundry schedule." }, { status: 403 });
+    }
+
+    // Drivers attach only what they uploaded themselves (or the office did).
+    if (!isLaundryOfficeRole(session.user.role)) {
+      const foreignKeys = await findForeignUploadKeys({
+        keys: [pickupPhotoKey, pickupKeyPhotoKey, dropoffPhotoKey, dropoffKeyPhotoKey, receiptImageKey, failedPickupPhotoKey],
+        callerId: session.user.id,
+      });
+      if (foreignKeys.length > 0) {
+        return NextResponse.json({ code: FOREIGN_UPLOAD_CODE, error: FOREIGN_UPLOAD_MESSAGE }, { status: 403 });
+      }
+    }
+    if (supplierId?.trim()) {
+      const supplier = await db.laundrySupplier.findUnique({ where: { id: supplierId.trim() }, select: { id: true } });
+      if (!supplier) {
+        return NextResponse.json({ error: "That laundry supplier no longer exists. Choose another." }, { status: 400 });
+      }
     }
 
     if (expectedUpdatedAt && existing.updatedAt.getTime() !== new Date(expectedUpdatedAt).getTime()) {

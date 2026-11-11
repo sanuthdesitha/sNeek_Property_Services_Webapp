@@ -60,6 +60,18 @@ export function redactJobForCleaner<T>(job: T, userId: string): T {
   return redacted as T;
 }
 
+/**
+ * Outside the access window the job's property carries no access details.
+ * Non-secret flags are kept so the screen still knows the property's setup.
+ */
+export function withoutPropertyAccess<T>(job: T): T {
+  if (!isRow(job) || !isRow(job.property)) return job;
+  const info = isRow(job.property.accessInfo) ? job.property.accessInfo : {};
+  const kept: Row = {};
+  if ("laundrySameAsCleaner" in info) kept.laundrySameAsCleaner = info.laundrySameAsCleaner;
+  return { ...job, property: { ...job.property, accessInfo: kept } } as T;
+}
+
 /** Parsed job notes: a cleaner sees their own payout and allowance only. */
 export function redactJobMetaForCleaner<T>(meta: T, userId: string): T {
   if (!isRow(meta)) return meta;

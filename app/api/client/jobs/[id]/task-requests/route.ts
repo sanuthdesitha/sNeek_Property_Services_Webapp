@@ -1,3 +1,5 @@
+import { findForeignUploadKeys } from "@/lib/uploads/ownership-server";
+import { FOREIGN_UPLOAD_CODE, FOREIGN_UPLOAD_MESSAGE } from "@/lib/uploads/ownership";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { findJobInScope, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
@@ -51,6 +53,10 @@ export async function POST(
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
     const body = createSchema.parse(await req.json().catch(() => ({})));
+    const foreignKeys = await findForeignUploadKeys({ keys: body.attachmentKeys ?? [], callerId: portal.userId });
+    if (foreignKeys.length > 0) {
+      return NextResponse.json({ code: FOREIGN_UPLOAD_CODE, error: FOREIGN_UPLOAD_MESSAGE }, { status: 403 });
+    }
     const created = await createClientJobTaskRequest({
       jobId: params.id,
       clientId: portal.clientId,

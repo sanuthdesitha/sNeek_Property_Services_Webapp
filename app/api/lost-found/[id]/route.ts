@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import { logger } from "@/lib/logger";
-import { hydrateItemWithEvents } from "@/lib/lost-found/service";
+import { hydrateItemWithEvents, redactItemWithEventsForReporter } from "@/lib/lost-found/service";
 import { LOST_FOUND_STATUSES, isResolvedStatus } from "@/lib/lost-found/status";
 
 const patchSchema = z.object({
@@ -48,12 +48,13 @@ async function loadWithAccess(id: string, mode: "view" | "manage") {
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const { item } = await loadWithAccess(params.id, "view");
+    const { item, isAdmin, session } = await loadWithAccess(params.id, "view");
     const events = await db.lostFoundEvent.findMany({
       where: { itemId: item.id },
       orderBy: { createdAt: "asc" },
     });
-    return NextResponse.json(await hydrateItemWithEvents(item, events));
+    const detail = await hydrateItemWithEvents(item, events);
+    return NextResponse.json(isAdmin ? detail : redactItemWithEventsForReporter(detail, events, session.user.id));
   } catch (err: any) {
     const status = err?.message === "NOT_FOUND" ? 404 : errorStatus(err);
     return NextResponse.json({ error: err.message }, { status });

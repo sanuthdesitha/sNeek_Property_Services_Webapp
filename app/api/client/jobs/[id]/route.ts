@@ -43,7 +43,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       drivingDelayedReason: true,
       arrivedAt: true,
       cleanerLocationPings: {
-        where: { timestamp: { gte: new Date(Date.now() - STALE_CLIENT_LOCATION_MS) } },
+        // Only the people cleaning this job. Other staff positions filed
+        // against the job (a laundry driver, a removed cleaner) are not the client's.
+        where: {
+          timestamp: { gte: new Date(Date.now() - STALE_CLIENT_LOCATION_MS) },
+          user: { jobAssignments: { some: { jobId: params.id, removedAt: null } } },
+        },
         orderBy: { timestamp: "desc" },
         take: 1,
         select: { lat: true, lng: true, accuracy: true, heading: true, speed: true, timestamp: true },

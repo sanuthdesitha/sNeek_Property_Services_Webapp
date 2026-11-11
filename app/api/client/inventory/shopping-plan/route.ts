@@ -1,3 +1,4 @@
+import { getClientPortalContext } from "@/lib/client/portal";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
@@ -11,7 +12,8 @@ export async function GET(req: NextRequest) {
   try {
     const session = await requireRole([Role.CLIENT]);
     const appSettings = await getAppSettings();
-    if (!isClientModuleEnabled(appSettings, "shopping")) {
+    const { visibility } = await getClientPortalContext(session.user.id, appSettings);
+    if (!isClientModuleEnabled(visibility, "shopping")) {
       return NextResponse.json({ error: "Shopping is not available for client users." }, { status: 403 });
     }
 

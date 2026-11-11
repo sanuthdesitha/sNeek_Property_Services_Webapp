@@ -18,7 +18,7 @@ vi.mock("@/lib/cleaner/submission-followups", () => ({ enqueueSubmissionFollowup
   processSubmissionFollowups: async () => { await mocks.qa("job"); await mocks.report("job"); return { reportReadySubmissionIds: ["submission"] }; } }));
 vi.mock("@/lib/db", () => ({ db: {
   user: { findMany: mocks.office }, notification: { createMany: mocks.officeNotice },
-  jobAssignment: { findFirst: mocks.assignment },
+  jobAssignment: { findFirst: mocks.assignment, findMany: async () => [] },
   job: { findUnique: mocks.job, updateMany: mocks.claim },
   formTemplate: { findUnique: mocks.template, findMany: mocks.templates, findFirst: mocks.anchor, create: mocks.provision },
   timeLog: { findFirst: mocks.timeLog, findMany: async () => [], update: mocks.update, updateMany: mocks.closeClock },
@@ -589,4 +589,9 @@ it.each([1, 0])("only returns a GPS clock receipt when this submit closes the cl
  expect(mocks.closeClock.mock.calls[0][0].where).toEqual({ id: "clock", stoppedAt: null });
  if (count) expect(body.clockOut).toMatchObject({ timeLogId: "clock" });
  else expect(body.clockOut).toBeNull();
+});
+it("refuses proof that another account uploaded, before any submission write", async () => {
+  const result = await submit({ note: "Done", uploads: { photo: ["evidence/someone-else/photo.jpg"] } });
+  expect(result.status).toBe(403);
+  expect((await result.json()).code).toBe("FOREIGN_UPLOAD_REFERENCE");
 });

@@ -113,7 +113,8 @@ function cents(value: number): number {
 export function shoppingExpenseCountsTowardPay(
   status: ShoppingReimbursementStatusLike
 ): boolean {
-  return status !== "NOT_APPLICABLE";
+  // A claim the office has not approved is not owed yet.
+  return status !== "NOT_APPLICABLE" && status !== "PENDING_APPROVAL";
 }
 
 /**

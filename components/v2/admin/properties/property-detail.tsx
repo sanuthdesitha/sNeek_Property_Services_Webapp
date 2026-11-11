@@ -891,26 +891,12 @@ export function PropertyDetail({ propertyId, timeZone = "Australia/Sydney" }: { 
 
                 {form.laundryEnabled ? (
                   <div className="space-y-2">
-                    {/* ACCESS-1 — most properties have one door and one key
-                        safe, so laundry usually follows the cleaner's guide.
-                        When they differ, turn this off and author laundry-only
-                        steps in the Access tab. */}
-                    <label className="flex items-start gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2 text-[0.8125rem]">
-                      <input
-                        type="checkbox"
-                        checked={access.laundrySameAsCleaner}
-                        onChange={(e) =>
-                          setAccess((p) => ({ ...p, laundrySameAsCleaner: e.target.checked }))
-                        }
-                        className="mt-0.5 accent-[hsl(var(--e-primary))]"
-                      />
-                      <span className="min-w-0">
-                        <span className="font-[550]">Laundry access is the same as the cleaner&apos;s</span>
-                        <span className="block text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-                          Laundry then sees the cleaner&apos;s access steps as well as any laundry-only ones.
-                        </span>
-                      </span>
-                    </label>
+                    {/* Laundry drivers see the cleaner's access details as well
+                        as laundry-only steps. This used to be a per-property
+                        switch; it is now the rule for every property. */}
+                    <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-2 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+                      Laundry drivers see the same access details as cleaners, plus any steps you mark laundry-only in the Access guide.
+                    </p>
                     <p className="text-[0.8125rem] font-[550]">Laundry partners</p>
                     {laundryUsers.length === 0 ? (
                       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">

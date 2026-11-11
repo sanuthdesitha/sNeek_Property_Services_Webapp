@@ -1,6 +1,6 @@
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { NextRequest, NextResponse } from "next/server";
-import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
+import { JobStatus, NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -22,6 +22,15 @@ const schema = z.object({
     })
     .optional(),
 });
+
+/** A continuation request only makes sense before the job is handed in. */
+const CONTINUATION_REQUEST_STATUSES: JobStatus[] = [
+  JobStatus.ASSIGNED,
+  JobStatus.EN_ROUTE,
+  JobStatus.IN_PROGRESS,
+  JobStatus.PAUSED,
+  JobStatus.WAITING_CONTINUATION_APPROVAL,
+];
 
 export async function GET(
   _req: NextRequest,
@@ -54,6 +63,13 @@ export async function POST(
     });
     if (!assignment) {
       return NextResponse.json({ error: "You are not assigned to this job." }, { status: 403 });
+    }
+    const job = await db.job.findUnique({ where: { id: params.id }, select: { status: true } });
+    if (!job || !CONTINUATION_REQUEST_STATUSES.includes(job.status)) {
+      return NextResponse.json(
+        { error: "A pause or continue request can only be raised while the job is still open." },
+        { status: 409 }
+      );
     }
 
     const openLogs = await db.timeLog.findMany({

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { accessWindowMessage, cleanerAccessWindow } from "@/lib/properties/access-window";
 import { JobStatus, LaundryStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import {
@@ -36,6 +37,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         id: true,
         propertyId: true,
         scheduledDate: true,
+        status: true,
+        // Only this cleaner's own assignment decides their access window.
+        assignments: {
+          where: { userId: session.user.id, removedAt: null },
+          select: { responseStatus: true },
+          take: 1,
+        },
         notes: true,
         property: {
           select: {
@@ -218,14 +226,28 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       console.error("[briefing] previous laundry drop lookup failed", err);
     }
 
+    // Codes and key details are shown from acceptance until the day after the clean.
+    const accessWindow = cleanerAccessWindow({
+      responseStatus: job.assignments[0]?.responseStatus,
+      scheduledDate: job.scheduledDate,
+      jobStatus: job.status,
+    });
+    const accessOpen = accessWindow === "OPEN";
+
     return NextResponse.json({
       lastPhotos,
       qaReworkNotes,
       previousLaundryDrop,
-      accessCode: decryptSecret(job.property.accessCode) ?? pickLegacyAccessCode(job.property.accessInfo),
-      alarmCode: decryptSecret(job.property.alarmCode),
-      keyLocation: job.property.keyLocation?.trim() || null,
-      accessNotes: job.property.accessNotes?.trim() || pickLegacyAccessNote(job.property.accessInfo),
+      accessWindow,
+      accessUnavailableReason: accessWindowMessage(accessWindow),
+      accessCode: accessOpen
+        ? decryptSecret(job.property.accessCode) ?? pickLegacyAccessCode(job.property.accessInfo)
+        : null,
+      alarmCode: accessOpen ? decryptSecret(job.property.alarmCode) : null,
+      keyLocation: accessOpen ? job.property.keyLocation?.trim() || null : null,
+      accessNotes: accessOpen
+        ? job.property.accessNotes?.trim() || pickLegacyAccessNote(job.property.accessInfo)
+        : null,
       jobNotes: job.notes?.trim() || null,
       previousFlags,
       priorQaWarning,

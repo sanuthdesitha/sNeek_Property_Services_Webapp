@@ -706,11 +706,17 @@ export async function listCleanerJobTasks(jobId: string, database: Pick<typeof d
   });
 }
 
+/**
+ * The client's own requests on a job. Office-raised tasks are the office's
+ * instructions to the cleaner and are not listed, and the timeline is reduced
+ * to what happened and when: event notes and metadata are office working text.
+ */
 export async function listClientJobTasks(jobId: string, clientId: string) {
-  return db.jobTask.findMany({
+  const tasks = await db.jobTask.findMany({
     where: {
       jobId,
       clientId,
+      source: { in: ["CLIENT", "CARRY_FORWARD"] },
     },
     include: {
       attachments: {
@@ -719,10 +725,12 @@ export async function listClientJobTasks(jobId: string, clientId: string) {
       },
       events: {
         orderBy: { createdAt: "asc" },
+        select: { id: true, action: true, createdAt: true },
       },
     },
     orderBy: [{ createdAt: "desc" }],
   });
+  return tasks;
 }
 
 export async function attachPendingCarryForwardTasksToJob(input: {

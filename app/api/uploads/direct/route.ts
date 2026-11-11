@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uploadFolderAllowedForRole } from "@/lib/uploads/ownership";
 import { randomUUID } from "crypto";
 import { once } from "events";
 import { createReadStream, createWriteStream } from "fs";
@@ -106,6 +107,9 @@ export async function POST(req: NextRequest) {
 
     if (folder === null) {
       return NextResponse.json({ error: "Invalid upload folder." }, { status: 400 });
+    }
+    if (!uploadFolderAllowedForRole(folder, session.user.role)) {
+      return NextResponse.json({ error: "Your account cannot upload to that folder." }, { status: 403 });
     }
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Missing file" }, { status: 400 });

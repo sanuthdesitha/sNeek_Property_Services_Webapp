@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cleanerAccessWindow, jobsGivingAccessWhere } from "@/lib/properties/access-window";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -104,15 +105,34 @@ export async function GET(_req: Request, { params }: { params: { propertyId: str
     // laundry team scoping (lib/laundry/teams.ts) — the same rule that governs
     // every other laundry surface.
     if (reader === "CLEANER") {
-      const assignment = await db.job.findFirst({
-        where: {
-          propertyId: params.propertyId,
-          assignments: { some: { userId: session.user.id, removedAt: null } },
+      // Having cleaned here once is not standing access. The guide is shown
+      // for a job they have accepted, until the day after that clean.
+      const candidates = await db.job.findMany({
+        where: { propertyId: params.propertyId, ...jobsGivingAccessWhere(session.user.id) },
+        select: {
+          scheduledDate: true,
+          status: true,
+          assignments: {
+            where: { userId: session.user.id, removedAt: null },
+            select: { responseStatus: true },
+            take: 1,
+          },
         },
-        select: { id: true },
+        take: 50,
       });
-      if (!assignment) {
-        return NextResponse.json({ error: "Not authorized for this property." }, { status: 403, headers: privateHeaders });
+      const open = candidates.some(
+        (job) =>
+          cleanerAccessWindow({
+            responseStatus: job.assignments[0]?.responseStatus,
+            scheduledDate: job.scheduledDate,
+            jobStatus: job.status,
+          }) === "OPEN",
+      );
+      if (!open) {
+        return NextResponse.json(
+          { error: "Access details are shown from when you accept a job here until the day after the clean." },
+          { status: 403, headers: privateHeaders },
+        );
       }
     } else if (!propertyIsVisibleToLaundry(property, session.user.id)) {
       return NextResponse.json({ error: "Not authorized for this property." }, { status: 403, headers: privateHeaders });

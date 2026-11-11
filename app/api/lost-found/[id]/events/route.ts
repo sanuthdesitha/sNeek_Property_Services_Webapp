@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import { logger } from "@/lib/logger";
-import { hydrateItemWithEvents } from "@/lib/lost-found/service";
+import { hydrateItemWithEvents, redactItemWithEventsForReporter } from "@/lib/lost-found/service";
 
 const bodySchema = z.object({
   action: z.enum(["COMMENT", "OFFER_RETURN", "GUEST_CONTACTED"]),
@@ -90,7 +90,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       db.lostFoundItem.findUnique({ where: { id: item.id } }),
       db.lostFoundEvent.findMany({ where: { itemId: item.id }, orderBy: { createdAt: "asc" } }),
     ]);
-    return NextResponse.json(await hydrateItemWithEvents(fresh!, events));
+    const detail = await hydrateItemWithEvents(fresh!, events);
+    return NextResponse.json(isAdmin ? detail : redactItemWithEventsForReporter(detail, events, session.user.id));
   } catch (err: any) {
     if (err instanceof ZodError) {
       const first = err.issues[0];

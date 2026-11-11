@@ -1,3 +1,4 @@
+import { projectClientLaundryList } from "@/lib/client/list-projection";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
@@ -11,7 +12,7 @@ export default async function ClientLaundryPage() {
   const session = await requireRole([Role.CLIENT]);
   const settings = await getAppSettings();
   const portal = await getClientPortalContext(session.user.id, settings);
-  const tasks = await listClientLaundryForUser(session.user.id);
+  const tasks = projectClientLaundryList(await listClientLaundryForUser(session.user.id), portal.visibility);
 
   return (
     <ClientLaundryWorkspace

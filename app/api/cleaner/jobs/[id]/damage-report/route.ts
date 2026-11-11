@@ -1,3 +1,5 @@
+import { findForeignUploadKeys } from "@/lib/uploads/ownership-server";
+import { FOREIGN_UPLOAD_CODE, FOREIGN_UPLOAD_MESSAGE } from "@/lib/uploads/ownership";
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
@@ -25,6 +27,12 @@ export async function POST(
     const evidenceKeys = Array.isArray(body.mediaKeys)
       ? body.mediaKeys.filter((key) => key.length > 0 && !key.includes("..")).slice(0, 20)
       : [];
+    if (session.user.role === Role.CLEANER) {
+      const foreignKeys = await findForeignUploadKeys({ keys: evidenceKeys, callerId: session.user.id, jobId: params.id });
+      if (foreignKeys.length > 0) {
+        return NextResponse.json({ code: FOREIGN_UPLOAD_CODE, error: FOREIGN_UPLOAD_MESSAGE }, { status: 403 });
+      }
+    }
     const evidenceBlock =
       evidenceKeys.length > 0
         ? `\n\nEvidence uploads (${evidenceKeys.length}):\n${evidenceKeys.map((key) => `- ${key}`).join("\n")}`

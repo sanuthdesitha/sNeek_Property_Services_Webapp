@@ -240,12 +240,18 @@ export function toClientCaseView<T extends ReturnType<typeof serializeCase>>(iss
           uploadedBy: clientSafePerson(attachment.uploadedBy),
         }))
       : [],
+    // The client sees that the case moved and when. The reason is the
+    // office's own status note and the metadata is internal bookkeeping.
     transitions: Array.isArray(view.transitions)
       ? view.transitions.map((transition) => ({
           ...transition,
+          reason: null,
           actor: clientSafePerson(transition.actor),
         }))
       : [],
+    metadata: null,
+    tags: [],
+    evidenceKeys: [],
   };
 }
 
