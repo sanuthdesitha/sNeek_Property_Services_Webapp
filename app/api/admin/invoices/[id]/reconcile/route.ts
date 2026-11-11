@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { releaseInvoiceConsumables } from "@/lib/billing/client-invoices";
 import { LIVE_CREDIT_NOTES_REFUSAL } from "@/lib/billing/client-invoice-adjustments";
+import { creditNoteVoidRebillRefusal, refreshCreditCoverage, returnInvoicedJobsToBillable } from "@/lib/billing/invoice-job-release";
 
 const schema = z.object({
   reason: z.string().trim().min(10).max(2000),
@@ -62,6 +63,10 @@ export async function POST(
         throw new Error(
           "This invoice has payment evidence. Reconcile its payment or credit note before a correction; paid records cannot be voided here.",
         );
+      if (invoice.kind === "CREDIT_NOTE") {
+        const rebill = await creditNoteVoidRebillRefusal(transaction, invoice);
+        if (rebill) throw new Error(rebill);
+      }
       if (invoice.kind === "INVOICE") {
         const liveCredits = await transaction.clientInvoice.count({
           where: { creditsInvoiceId: invoice.id, status: { not: "VOID" } },
@@ -73,6 +78,18 @@ export async function POST(
         where: { id: invoice.id },
         data: { status: "VOID" },
       });
+      // One invoiced rule: a voided invoice stops billing its jobs; a voided
+      // credit note may stop its invoice being fully credited.
+      if (invoice.kind === "INVOICE") {
+        await returnInvoicedJobsToBillable(transaction, {
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          reason: "voided",
+          actorId: session.user.id,
+        });
+      } else if (invoice.creditsInvoiceId) {
+        await refreshCreditCoverage(transaction, { invoiceId: invoice.creditsInvoiceId, actorId: session.user.id });
+      }
       await transaction.auditLog.create({
         data: {
           userId: session.user.id,

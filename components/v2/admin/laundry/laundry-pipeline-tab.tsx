@@ -165,6 +165,7 @@ export function LaundryPipelineTab(props: Props) {
           onDelete={requestDelete}
           onReport={props.onReport}
           onSaved={refreshAll}
+          todayKey={pipeline.data?.today}
         />
       </div>
       <LaundryMoveDialog targets={moveTargets} defaultDate={nextDay} onClose={() => setMoveTargets(null)} onMoved={finishMove} />

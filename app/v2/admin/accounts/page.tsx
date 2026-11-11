@@ -38,7 +38,7 @@ export default async function EstateAccountsPage({ searchParams }: { searchParam
   return (
     <AccountsHub
       initialView={readAccountsView(`?${query.toString()}`)}
-      capabilities={{ isAdmin: viewer.isAdmin, canWriteNotes: viewer.canWriteNotes }}
+      capabilities={{ isAdmin: viewer.isAdmin, canWriteNotes: viewer.canWriteNotes, canMessageStaff: viewer.canMessageStaff === true }}
       vaClients={vaClients}
       birthdays={overview.upcomingBirthdays.map((b) => ({
         id: b.id,

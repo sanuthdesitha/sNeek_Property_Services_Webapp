@@ -28,7 +28,7 @@ import { InvitePersonDialog } from "./invite-person-dialog";
 import { CREATE_ROLE_FOR_TAB } from "./managed-roles";
 import { ACCOUNTS_PAGE_SIZE, useAccountsList } from "./use-accounts-list";
 
-export type AccountsHubCapabilities = { isAdmin: boolean; canWriteNotes: boolean };
+export type AccountsHubCapabilities = { isAdmin: boolean; canWriteNotes: boolean; canMessageStaff?: boolean };
 
 const COLUMNS_KEY = "sneek:accounts:columns:v1";
 /** Until the first answer arrives, no optional figures are assumed visible. */
@@ -92,7 +92,7 @@ export function AccountsHub({
   const open = useCallback((row: AccountRow) => update({ open: row.id }), [update]);
   const tableColumns = useMemo(() => accountColumns(visibility, columns, open), [visibility, columns, open]);
   const selectedRows = rows.filter((row) => selected.has(row.id));
-  const canBulk = capabilities.isAdmin || capabilities.canWriteNotes;
+  const canBulk = capabilities.isAdmin || capabilities.canWriteNotes || Boolean(capabilities.canMessageStaff);
   const exportHref = `/api/admin/users/export?${listKey}`;
 
   function bulkFinished(response: AccountBulkResponse) {
@@ -154,6 +154,7 @@ export function AccountsHub({
                 selectedRows={selectedRows}
                 canResend={capabilities.canWriteNotes}
                 isAdmin={capabilities.isAdmin}
+                canMessage={Boolean(capabilities.canMessageStaff)}
                 onClear={() => setSelected(new Set())}
                 onFinished={bulkFinished}
                 onRunningChange={setBulkRunning}

@@ -5,7 +5,9 @@
  * supplier, bags / weight / cost when recorded, evidence (existing signed media
  * gallery), history from the handoff confirmations and EVERY action the old run
  * card had: Edit, Reschedule, Replace evidence, Skip or delete (existing
- * soft/permanent dialog), Task report / PDF and Open linked job.
+ * soft/permanent dialog), Task report / PDF and Open linked job; plus the
+ * on-demand nudges (Ask cleaner / Request photo) where the run's exception
+ * calls for them.
  */
 import * as React from "react";
 import Link from "next/link";
@@ -17,6 +19,7 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { describeLaundryConfirmation } from "@/lib/laundry/media";
 import { SYDNEY_TZ } from "@/lib/time/sydney-range";
 import { LaundryEvidenceReplacement } from "./laundry-evidence-replacement";
+import { LaundryNudgeActions } from "./laundry-nudge";
 import { buildTaskMedia, statusLabel, type LaundryTaskDTO } from "./laundry-shared";
 import { cardPill, shortDay } from "./laundry-lane-card";
 import type { PipelineCardDTO } from "./use-laundry-pipeline";
@@ -38,9 +41,11 @@ type Props = {
   onDelete: (task: LaundryTaskDTO) => void;
   onReport: (task: LaundryTaskDTO) => void;
   onSaved: () => void;
+  /** The Pipeline's "today" (Sydney), for the nudge rules. */
+  todayKey?: string;
 };
 
-export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onDelete, onReport, onSaved }: Props) {
+export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onDelete, onReport, onSaved, todayKey }: Props) {
   if (!task) return null;
   const name = task.property?.name ?? "Property";
   const media = buildTaskMedia(task);
@@ -123,6 +128,7 @@ export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onD
       ) : null}
       <div className="h-px bg-[hsl(var(--e-border))]" />
       <div className="flex flex-wrap gap-1.5">
+        <LaundryNudgeActions task={task} todayKey={todayKey} />
         <EButton size="sm" variant="outline" onClick={() => onEdit(task)}>Edit</EButton>
         <EButton size="sm" variant="outline" disabled={done || busy} title={done ? "Delivered or skipped runs have nothing to move" : undefined} onClick={() => onReschedule(task)}>Reschedule</EButton>
         <EButton size="sm" variant="outline" onClick={() => onReport(task)}>Task report / PDF</EButton>

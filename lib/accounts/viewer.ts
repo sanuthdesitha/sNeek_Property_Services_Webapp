@@ -24,6 +24,8 @@ export type AccountsViewer = {
   canWriteNotes: boolean;
   /** Upload a staff document through the workforce document flow. */
   canUploadDocuments: boolean;
+  /** Bulk "Message" through the staff message route (communications pack for OPS_MANAGER). */
+  canMessageStaff?: boolean;
   visibility: AccountListVisibility;
 };
 
@@ -42,13 +44,14 @@ export async function resolveAccountsViewer(user: SessionUser): Promise<Accounts
   const held = (user.heldRoles ?? [user.role]) as Role[];
   const isAdmin = canActAs(held, [Role.ADMIN]);
   const levels = isAdmin ? null : await getOpsAccess({ id: user.id, role: String(user.role), heldRoles: held });
-  const allows = (feature: "accounts" | "quality" | "workforce", method: string) =>
+  const allows = (feature: "accounts" | "quality" | "workforce" | "communications", method: string) =>
     isAdmin || !levels || opsLevelAllows(levels[feature], method);
   return {
     id: user.id,
     isAdmin,
     canWriteNotes: allows("accounts", "PUT"),
     canUploadDocuments: allows("workforce", "POST"),
+    canMessageStaff: allows("communications", "POST"),
     visibility: {
       // Unchanged rule: everyone admitted to the hub (ADMIN, OPS_MANAGER) saw
       // the rate on the account page.

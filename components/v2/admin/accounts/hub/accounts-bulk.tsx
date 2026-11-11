@@ -1,10 +1,12 @@
 "use client";
 
 /**
- * Bulk actions for selected people: Resend invite, Change rate (ADMIN), Disable
- * (ADMIN). One request to `POST /api/admin/users/bulk`, which runs each person
- * through the single-person service and its guards and answers per person.
- * This component confirms, sends that one request and shows each answer.
+ * Bulk actions for selected people: Message (staff message route, ADMIN and
+ * OPS_MANAGER), Resend invite, Change rate (ADMIN), Disable (ADMIN). The
+ * account actions are one request to `POST /api/admin/users/bulk`, which runs
+ * each person through the single-person service and its guards and answers
+ * per person; Message goes through the notification pipeline (see
+ * accounts-message-dialog.tsx). This component confirms, sends and shows each answer.
  */
 import { useState } from "react";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -13,6 +15,7 @@ import { EField, EInput, EModal } from "@/components/v2/admin/estate-kit";
 import { ACCOUNT_BULK_MAX_IDS, type AccountBulkAction, type AccountBulkResponse } from "@/lib/accounts/bulk-types";
 import type { AccountRow } from "@/lib/accounts/list/types";
 import { RATE_HELP } from "../person/pay-copy";
+import { AccountsMessageDialog } from "./accounts-message-dialog";
 
 const COPY: Record<AccountBulkAction, { title: string; confirm: string; body: string }> = {
   "resend-invite": {
@@ -39,6 +42,7 @@ export function AccountsBulk({
   selectedRows,
   canResend,
   isAdmin,
+  canMessage = false,
   onClear,
   onFinished,
   onRunningChange,
@@ -46,6 +50,8 @@ export function AccountsBulk({
   selectedRows: AccountRow[];
   canResend: boolean;
   isAdmin: boolean;
+  /** Staff message route (ADMIN, OPS_MANAGER with communications). */
+  canMessage?: boolean;
   onClear: () => void;
   onFinished: (response: AccountBulkResponse) => void;
   onRunningChange: (running: boolean) => void;
@@ -53,6 +59,8 @@ export function AccountsBulk({
   const [pending, setPending] = useState<AccountBulkAction | null>(null);
   const [rate, setRate] = useState("");
   const [run, setRun] = useState<RunState>({ status: "idle" });
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [messaging, setMessaging] = useState(false);
   const tooMany = selectedRows.length > ACCOUNT_BULK_MAX_IDS;
   const names = new Map(selectedRows.map((row) => [row.id, row.name ?? row.email]));
 
@@ -88,8 +96,8 @@ export function AccountsBulk({
     }
   }
 
-  if (!canResend && !isAdmin) return null;
-  const running = run.status === "running";
+  if (!canResend && !isAdmin && !canMessage) return null;
+  const running = run.status === "running" || messaging;
 
   return (
     <>
@@ -100,10 +108,21 @@ export function AccountsBulk({
         busy={running}
         note={tooMany ? `At most ${ACCOUNT_BULK_MAX_IDS} at a time.` : "Selection covers this page of the current list."}
       >
+        {canMessage ? <EBulkButton disabled={tooMany} onClick={() => setMessageOpen(true)}>Message</EBulkButton> : null}
         {canResend ? <EBulkButton disabled={tooMany} onClick={() => open("resend-invite")}>Resend invite</EBulkButton> : null}
         {isAdmin ? <EBulkButton disabled={tooMany} onClick={() => open("change-rate")}>Change rate</EBulkButton> : null}
         {isAdmin ? <EBulkButton disabled={tooMany} onClick={() => open("disable")}>Disable</EBulkButton> : null}
       </EBulkBar>
+
+      <AccountsMessageDialog
+        open={messageOpen}
+        rows={selectedRows}
+        onClose={() => setMessageOpen(false)}
+        onRunningChange={(value) => {
+          setMessaging(value);
+          onRunningChange(value);
+        }}
+      />
 
       <EModal open={pending !== null} onClose={() => (running ? undefined : setPending(null))} eyebrow="Accounts" title={pending ? COPY[pending].title : ""}>
         {pending ? (

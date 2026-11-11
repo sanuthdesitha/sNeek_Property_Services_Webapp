@@ -1,6 +1,7 @@
 import "server-only";
 import type { Prisma, Role } from "@prisma/client";
 import type { NotificationEnvelope } from "./intent-contract";
+import { STAFF_MESSAGE_ROLES } from "./staff-roles";
 
 /**
  * Recipient authorization adapters for the durable notification pipeline.
@@ -27,7 +28,7 @@ import type { NotificationEnvelope } from "./intent-contract";
 export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "STAFF_MEMBER", "JOB_CLIENT_CONTACT"] as const;
 export type RecipientScopeType = (typeof RECIPIENT_SCOPE_TYPES)[number];
 
-export const STAFF_MESSAGE_ROLES: readonly Role[] = ["CLEANER", "LAUNDRY", "MAINTENANCE", "QA_INSPECTOR", "OPS_MANAGER", "ADMIN"];
+export { STAFF_MESSAGE_ROLES };
 
 export type RecipientAuthorization =
   | { ok: true; role: Role }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getClientInvoice, releaseInvoiceConsumables } from "@/lib/billing/client-invoices";
+import { returnInvoicedJobsToBillable } from "@/lib/billing/invoice-job-release";
 import { db } from "@/lib/db";
 import { patchClientInvoice } from "@/lib/billing/client-invoice-patch";
 import { loadClientInvoiceEditor } from "@/lib/billing/client-invoice-editor";
@@ -76,6 +77,13 @@ export async function DELETE(
         throw new Error("Only an unpaid, unexported draft may be deleted. Use a reconciled correction for issued invoices.");
       }
       await releaseInvoiceConsumables(tx, invoice.id);
+      // Jobs marked INVOICED only because of this draft return to billable.
+      await returnInvoicedJobsToBillable(tx, {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        reason: "deleted",
+        actorId: session.user.id,
+      });
       await tx.clientInvoice.delete({ where: { id: params.id } });
     });
     return NextResponse.json({ ok: true });
