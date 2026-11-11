@@ -1,0 +1,176 @@
+# Admin redesign plan (November 2026)
+
+Owner request: redesign eighteen admin areas for reliability, clearer structure and fewer steps, keeping every function that exists today. The owner approved the design direction on 2026-11-11: list plus side panel, one primary action per row, merged Money page, merged Quality hub, a shorter sidebar, and the build order below. Concept screens: the "sNeek Admin Redesign" design canvas.
+
+This document is the plan. It is updated as phases land. `docs/SYSTEM.md` remains the description of what the system does; each phase updates it in the same change.
+
+## Ground rules for every phase
+
+- AGENTS.md applies in full: reuse domain services, revalidate permissions on the server, ADMIN and OPS_MANAGER stay distinct, preserve issued and paid financial records, forward migrations only, Estate primitives, one h1 per page, old URLs keep working.
+- No function is removed. Where two pages merge, the old route redirects to the new tab and deep links keep their meaning.
+- Each phase ships with: unit tests for the new rules, route tests for authorisation and paging, TypeScript, the full Vitest suite, a production build, and Chromium checks at 390px and 1280px in light and dark.
+- List endpoints move from "take N, filter in the browser" to server-side `page`, `pageSize`, `sort`, `dir` and filters, returning `{ rows, total }`. A count shown on screen is always a real total.
+- Destructive or financial bulk actions run through one server endpoint that returns a per-row result (done, refused with reason). The screen never loops requests itself and never reports a refused row as done.
+
+## Phase 0: shared building blocks
+
+New, in `components/v2/ui/`:
+
+| Piece | Purpose | Notes |
+| --- | --- | --- |
+| `EDataTable` | Sortable headers, row selection, sticky group rows, empty/loading/error/stale states | Headers are real buttons with `aria-sort`; wide tables scroll inside their own box at 390px |
+| `EBulkBar` | Appears when rows are selected; shows count and actions | Keeps selection across pages only within one filter set |
+| `ESidePanel` | Right-hand detail panel at 1280px, full-height sheet at 390px | Selection lives in the URL (`?open=<id>`) so a record can be linked |
+| `EViewTabs` | Saved views as tabs with counts | Counts come from one grouped query |
+| `EFilterChips` | Visible filters with clear | State in the URL; survives refresh and back |
+| `ERowMenu` | The "more" menu holding secondary and destructive actions | Destructive items keep their existing PIN and typed-confirmation rules |
+| `EStageBar` | Read-only stage indicator | Used by invoices, lost and found, urgent stock |
+
+New, in `lib/admin/list-query.ts`: `parseListQuery` (validates page, size, sort column against an allow-list, direction) and `listResponse`. Every redesigned list route uses it, so paging and sorting behave the same everywhere and an unknown sort column is refused rather than ignored.
+
+Navigation (`app/v2/admin/layout.tsx`): regroup to Today, Operations, People and quality, Money, Setup. Merged entries become one entry; removed entries keep their routes as redirects. Role filtering (`adminOnly`, `canAccess`) is unchanged.
+
+## Build order
+
+1. Phase 0, then Money (items 7, 8, 15)
+2. Forms (16, 17, 18)
+3. Quality hub and Insights (12, 13, 14)
+4. Jobs, Calendar, Command, Live ops (1 to 4)
+5. Cases, Laundry, Lost and found, Urgent stock (5, 6, 9, 10)
+6. Accounts (11)
+
+## Page plans
+
+### 7, 8, 15. Money: client invoices, cleaner invoices, payroll
+
+Today: `estate-invoices.tsx` is one 1,698-line component with about forty state hooks and seven modals; the list returns the newest 100 only and filters in the browser; a row can show nine buttons; Void, Reverse and Reconcile look alike; "Force status" cannot override anything; Xero is push-only; cleaner invoices have no approve step and no admin PDF; Payroll is a redirect to a Finance tab; the Finance badge counts cleaner invoices.
+
+Front end
+- One route, `/v2/admin/finance`, titled "Invoices and pay", tabs: Client invoices, Cleaner invoices, Pay runs, Adjustments and time, Overview. `/v2/admin/payroll` and `/v2/admin/cleaner-invoices` redirect to their tabs. One sidebar entry with a badge that is the sum of drafts to review and cleaner invoices to review, each also shown on its tab.
+- Client invoices: `EDataTable` with status chips, client/period/Xero filters, sort on every column, real paging, and one primary action per row chosen from status (Review, Send, Send reminder, Retry Xero). Everything else in `ERowMenu`.
+- Invoice editor becomes a page, `/v2/admin/finance/invoices/[id]`, replacing the modal and the unused summary page: stage bar, inline line editing with autosave of drafts, a "Before you approve" checklist built from the checks the API already enforces, send options, Xero panel, history.
+- "New invoice" menu: from finished jobs (existing generator), blank invoice, credit note.
+- Split `estate-invoices.tsx` into list, row actions, editor sections and dialogs; each under about 300 lines.
+- Cleaner invoices use the same table and a read-only version of the editor with Approve, Request changes, Push to Xero, Record payment and PDF.
+
+Back end
+- `GET /api/admin/invoices`: server paging, sort and filters through `list-query`; grouped status counts for the chips.
+- `POST /api/admin/invoices/bulk`: approve, send, push to Xero, export. Calls the existing single-invoice services inside the same guards (started-work review, transition graph, Xero lock) and returns per-row outcomes.
+- Blank invoice: `POST /api/admin/invoices` creating a DRAFT with manual lines only, using the existing numbering and money helpers.
+- Credit note: a new invoice linked to the original (`creditsInvoiceId`), negative lines, its own number. This replaces "Reverse" for anything already sent. Requires a migration. Issued and paid invoices are never edited in place.
+- Remove "Force status" from the screen. The transition graph stays the only rule.
+- Xero: keep the idempotent push. Add a status pull (scheduled worker job plus a manual "Refresh from Xero") that reads the Xero invoice's status and payments and records them through the existing payment path. A payment is recorded only when Xero reports it; a failed or missing read leaves the invoice as it was and shows "Xero state unknown". Requires provider credentials to verify end to end.
+- Cleaner invoices: add an APPROVED status between SUBMITTED and Xero/Paid (string status today; no enum migration needed, but existing rows are left as they are). Admin PDF reuses the cleaner download renderer behind an admin guard.
+- Fix the nav badge so Finance counts client drafts and Cleaner invoices counts its own.
+
+Risk: highest of all phases. Sub-phases: (a) list, paging, sort, bulk and merge of the three entries, with no change to invoice rules; (b) editor page; (c) blank invoice and credit note; (d) Xero pull; (e) cleaner invoice approve and PDF.
+
+### 16, 17, 18. Forms: QA templates, forms and stats, templates
+
+Today: no bulk edit, groups, undo, drag, or version history; a save overwrites the published row; the server does not run the validation the phone runs (ranges, email format, details-when-no are client only); option membership is never checked; barcode is a text box; phone, date/time and barcode have no tests; rotation and property conditions cannot be edited in the builder; QA template edits do not bump the version and ops managers see buttons that return 403; a full duplicate of the builder still exists under `components/forms`.
+
+Front end
+- One library at `/v2/admin/forms` with tabs: Job forms, QA templates, Checklist blocks, Message templates, Results and stats. `/v2/admin/qa-templates` and `/v2/admin/templates` redirect to their tabs.
+- Library: groups and tags, search across form names and question labels, a Checks column, multi-select with bulk actions: edit one question in all selected, add a section to all, find and replace wording, move to group, publish, duplicate, archive, export. Every bulk change shows a preview of each affected form before saving and saves as drafts.
+- Builder: drag to reorder and move between sections, multi-select with a shared properties panel (mixed values shown as mixed), copy questions to other forms, saved blocks, undo and redo, version list with restore, "Test as cleaner" using the real renderer, publish blocked while a check fails. Rotation, per-room repeat and property conditions become editable here.
+- QA templates use the same builder shell with their own field set.
+
+Back end
+- Versioning: a `FormTemplateVersion` table (template id, version, schema, author, note, created at). Saving a draft writes a draft row; publishing writes a version and updates the live schema. Existing templates get one version row copied from their current schema by the migration. Restore creates a new version; history is never rewritten. Submissions keep the revision they were filled against (already recorded).
+- Groups and tags: `FormTemplate.groupId` plus a small `FormTemplateGroup` table; tags as a string array.
+- One typed schema: extend `lib/forms/types.ts` to cover `frequency`, `rotationEveryNCleans` and `conditional.propertyField`, and tighten the Zod schema so unknown field types are refused on save. Existing stored schemas are read through a tolerant parser so nothing already published breaks.
+- Server validation on submit: run `collectFormErrors` in the cleaner submit route so ranges, email format, option membership and details-when-no are enforced on the server. Introduced as warnings recorded on the submission for one release, then enforced, so an in-flight draft is never rejected by a rule it could not have known.
+- Field type audit with a test per type covering builder definition, renderer and server validation. Barcode gets a real camera scanner with manual entry as the fallback, and says which was used.
+- Bulk endpoint `POST /api/admin/form-templates/bulk` returning a preview (dry run) or applying as drafts.
+- QA templates: every save bumps the version; a warning when two active templates share a job type and scope; delete and duplicate; buttons hidden from roles that cannot use them.
+- Retire `components/forms/*` and `app/admin/forms/*` once nothing imports them; the classic routes redirect.
+
+### 12, 13. Quality hub (Quality, QA issues, Accountability, QA performance)
+
+Today: three pages read `QaIssue` grouped three ways with near-identical API code; actions live in different places; the issues list shows 50 rows as if that were the total; the inspection queue is capped at 12; laundry metrics sit on the accountability page.
+
+- One route `/v2/admin/quality`, tabs: Review queue, Issues, Cleaners, Inspectors, Categories, Coaching. One period control and one filter set shared by all tabs, kept in the URL. Old routes redirect to tabs.
+- One service, `lib/quality/hub.ts`, with one period helper and three groupings over the same query, replacing the duplicated route code. Totals come from counts, not page length.
+- Issues: server paging and sort, filter options from the database rather than from loaded rows, bulk mark-fixed and export. Row actions unchanged in rule: rectify, propose deduction (still a pending adjustment needing approval), escalate, false-confirmation decision.
+- Cleaners: expandable row with that cleaner's open issues and the same actions, plus start coaching and propose bonus (both existing flows).
+- Review queue: the quick-score list and the inspection queue without the 12 cap, with select all and sort.
+- Laundry team metrics move to the Laundry page's Statistics tab.
+
+### 14. Insights (was Reports)
+
+Today the page only manages the per-job client PDF and shows no figures.
+
+- `/v2/admin/reports` becomes "Insights" with tabs Business, Properties, Clients, Cleaners, Time and cost, Client report PDFs (the current manager, unchanged in function, plus the missing laundry visibility toggle and bulk visibility/regenerate).
+- `lib/insights/*`: revenue, cleaner cost and margin by period, property and client; planned against actual hours; on-time rate; rework rate; issues by category and property; days to pay by client. Built from existing tables through existing money helpers.
+- Every figure states its basis and refuses to show a number when the inputs are missing (no rate, no time log): it shows "not enough data" with the count of excluded jobs.
+- "Worth knowing" lists the largest period-on-period changes above a threshold, each linking to the records behind it. It is rule-based, not generated text.
+- CSV export per table; optional monthly email through the notification pipeline.
+
+### 2. Jobs
+
+- Split `jobs-workspace.tsx` (1,190 lines) into list, filters, bulk bar and peek panel.
+- Saved views as tabs with counts; sort from column headers; status filter covers every status; export respects the selection.
+- Peek panel (`?open=`) with summary, people, money and activity loaded on demand, and cleaner suggestions from availability and clashes.
+- One row action plus menu ("Manage" and "Open" are the same destination today).
+- Bulk reminders through one endpoint with per-row results. Board view lanes come from the server and support drag between statuses that the transition rules allow.
+- Job detail: tabs load their own data instead of loading all eleven on every request; the duplicated Quality block is merged.
+
+### 3. Calendar
+
+- Day, Week, Month and Agenda. Week is laid out by cleaner (or by property) with an Unassigned lane.
+- `GET /api/admin/calendar?start&end` returns only the visible range with a slim shape. Today the page calls `/api/jobs` with no bounds.
+- Drag to reschedule or reassign calls the existing schedule and assign services, with clash and leave checks before the drop is accepted; a refused drop returns to its place with the reason.
+- Error and stale states; filters persisted; "+N more" opens that day.
+
+### 1. Command
+
+- One work queue from `lib/dashboard/work-queue.ts`, merging the attention summary, Live ops' immediate-attention list and the approvals that can be decided inline. Each item has a type, urgency, link with filters applied, and at most one inline action that calls the existing approval or assignment service.
+- KPI tiles link to pre-filtered pages. "Today by cleaner" strip. Each section loads independently, so one failed query shows one failed section.
+
+### 4. Live ops
+
+- Map first with an exceptions list beside it: late, off site with the clock running, continuation requests, not started. Each has its actions.
+- One live feed shared by the map and the list. Counters are real counts. Planning lists move to Command. `/ops/map` redirects here. Sydney day boundaries use the shared helper.
+
+### 5. Cases
+
+- Queues (needs my reply, unowned, waiting on client, SLA at risk, all open, resolved) as server filters with counts.
+- List endpoint returns summaries only; the conversation loads when a case is opened. Selection in the URL; `?jobId=` is honoured.
+- Conversation with reply or internal note, templates and attachments. Details panel with linked job, property, cleaner, departing guest, report and evidence filled from the job.
+- "New case" can link a job, property or client. Bulk assign and close.
+
+### 6. Laundry
+
+- Tabs: Pipeline, By property, Drivers live, Costs and invoices, Suppliers, Statistics (the unlinked stats page moves in).
+- Pipeline lanes by stage for a chosen day with exceptions first; a side panel carries edit, reschedule, evidence replacement and skip.
+- Polling runs only on Pipeline and Drivers live. Stat captions state their real scope. Reschedule approvals link to Approvals.
+
+### 9. Lost and found
+
+- Guest details prefilled from the linked job's reservation (the departing guest): name, phone, email, stay dates, booking code and source. Stored on the item with a `guestSource` of `BOOKING` or `MANUAL`, so an office edit is never overwritten by a later sync. "Pick another booking" lists the property's reservations around the found date. Migration adds `guestEmail`, `guestSource`, `reservationId`, `storageLocation`.
+- Existing items are backfilled only where `guestName` and `guestContact` are both empty.
+- Table with stage tabs, holding-period flag from a setting, bulk move/unclaimed/donate, office can log an item.
+- "Message guest" drafts the message; sending goes through the notification pipeline with an explicit transport and moves the stage only when the send is accepted.
+- The reporting cleaner still does not receive guest details.
+- Status changes follow a transition table; reopening a closed item is an explicit action that records who and why.
+
+### 10. Urgent stock
+
+- First tab of Stock at `/v2/admin/inventory?tab=urgent-stock`, visible to roles that may act on it; `/urgent-stock` redirects into the Estate shell.
+- Needs move from `AppSetting` JSON to `UrgentStockNeed` and `UrgentStockEvent` tables. The migration copies every existing need and event; the old rows are kept until the copy is verified, and reads fall back to them during that release.
+- All-property table sorted by the next clean that needs the item, stage chips, side panel with stay preparation and history, bulk acknowledge and add to a shopping run. A stock request still does not place a purchase or prove delivery.
+- Nav badge for needs awaiting acknowledgement.
+
+### 11. Accounts
+
+- One table for everyone with role tabs, sort, paging, bulk resend invite, change rate, message, disable, and export.
+- Person panel with sections edited in place: contact, access (role, extra roles, sign-in, status), pay, documents, office notes, activity. Reset password, reset 2FA and delete move to the menu with their existing PIN rules.
+- Pay rate becomes editable: `PATCH /api/admin/users/[id]/pay` (ADMIN only) with an effective date, audited, never changing rate snapshots on paid or issued work.
+- The receivables figure leaves this page. Client users get a profile link. Operations managers see only the controls they can use.
+
+## Open questions for the owner
+
+1. Credit notes: are they acceptable as the way to correct a sent invoice, replacing "Reverse"?
+2. Xero pull: should a payment seen in Xero mark the invoice paid automatically, or raise it for one-click confirmation?
+3. Holding period for lost items before they are flagged (the screens assume 14 days).
+4. Whether operations managers may approve cleaner invoices or only administrators.
