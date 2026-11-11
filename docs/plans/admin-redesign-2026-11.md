@@ -172,9 +172,9 @@ Today the page only manages the per-job client PDF and shows no figures.
 - Pay rate becomes editable: `PATCH /api/admin/users/[id]/pay` (ADMIN only) with an effective date, audited, never changing rate snapshots on paid or issued work.
 - The receivables figure leaves this page. Client users get a profile link. Operations managers see only the controls they can use.
 
-## Open questions for the owner
+## Owner decisions (2026-11-11)
 
-1. Credit notes: are they acceptable as the way to correct a sent invoice, replacing "Reverse"?
-2. Xero pull: should a payment seen in Xero mark the invoice paid automatically, or raise it for one-click confirmation?
-3. Holding period for lost items before they are flagged (the screens assume 14 days).
-4. Whether operations managers may approve cleaner invoices or only administrators.
+1. Credit notes: approved as the way to correct a sent invoice, replacing "Reverse" for anything already sent.
+2. Xero pull: a payment seen in Xero marks the invoice paid automatically. It is recorded through the existing payment path with Xero as the source, and only when Xero reports it; a failed or missing read changes nothing.
+3. Lost and found holding period: 14 days before an unclaimed item is flagged.
+4. Cleaner invoices: only administrators approve them. Operations managers can view where their permissions allow, but not approve.
