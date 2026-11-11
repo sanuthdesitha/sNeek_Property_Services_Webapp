@@ -1747,13 +1747,61 @@ model FormTemplate {
   // the settings override map; job-scoped rows have no entry there, so they need
   // this explicit marker.
   isJobScoped      Boolean        @default(false)
+  // Library organisation (admin only; never read by job-form resolution).
+  groupId          String?
+  group            FormTemplateGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  tags             String[]       @default([])
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
   submissions FormSubmission[]
-  pinnedJobs  Job[]            @relation("JobPinnedFormTemplate")
+  pinnedJobs  Job[]                 @relation("JobPinnedFormTemplate")
+  versions    FormTemplateVersion[]
 
   @@index([kind, isActive])
+  @@index([groupId])
+}
+
+// A folder in the forms library. Deleting a group leaves its forms ungrouped.
+model FormTemplateGroup {
+  id        String         @id @default(cuid())
+  name      String
+  sortOrder Int            @default(0)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  templates FormTemplate[]
+
+  @@index([sortOrder])
+}
+
+enum FormTemplateVersionKind {
+  PUBLISHED
+  DRAFT
+}
+
+// History of one FormTemplate's schema. PUBLISHED rows are records of what
+// went live (FormTemplate.schema stays the only thing jobs read). A DRAFT row
+// is the template's single working copy: saving it never changes what cleaners
+// receive; publishing copies it to FormTemplate and writes a new PUBLISHED
+// row. For a DRAFT, `version` is the live version it was based on.
+model FormTemplateVersion {
+  id                    String                  @id @default(cuid())
+  templateId            String
+  template              FormTemplate            @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  kind                  FormTemplateVersionKind @default(PUBLISHED)
+  version               Int
+  schema                Json
+  // Name and service type as of this version (applied on publish for a draft).
+  name                  String?
+  serviceType           JobType?
+  note                  String?
+  restoredFromVersionId String?
+  createdById           String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  @@unique([templateId, kind, version])
+  @@index([templateId, createdAt])
 }
 
 model FormSubmission {
