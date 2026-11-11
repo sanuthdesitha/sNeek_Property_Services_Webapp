@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { patchClientInvoice } from "@/lib/billing/client-invoice-patch";
 import { loadClientInvoiceEditor } from "@/lib/billing/client-invoice-editor";
 import { canManageInvoices } from "@/lib/billing/client-invoice-access";
+import { securitySchema, verifyInvoiceSecurity } from "@/lib/billing/client-invoice-patch-rules";
 
 export async function GET(
   req: NextRequest,
@@ -36,7 +37,8 @@ export async function PATCH(req: NextRequest, context: { params: { id: string } 
     const body = await req.json().catch(() => ({}));
     // The action (row lock, guards, audit) lives in lib so the bulk route runs
     // exactly the same checks.
-    const result = await patchClientInvoice({ invoiceId: context.params.id, body, actor: session.user });
+    const actor = { ...session.user, impersonatedBy: session.impersonation?.actorId ?? null };
+    const result = await patchClientInvoice({ invoiceId: context.params.id, body, actor });
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not update invoice.";
@@ -45,11 +47,19 @@ export async function PATCH(req: NextRequest, context: { params: { id: string } 
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    // The PIN or password is verified HERE, not only in the browser.
+    const body = await req.json().catch(() => ({}));
+    const security = securitySchema.safeParse((body as { security?: unknown })?.security);
+    const refusal = await verifyInvoiceSecurity(
+      { ...session.user, impersonatedBy: session.impersonation?.actorId ?? null },
+      security.success ? security.data : undefined,
+    );
+    if (refusal) return NextResponse.json(refusal.body, { status: refusal.status });
     await db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${params.id} FOR UPDATE`;
       const invoice = await tx.clientInvoice.findUnique({ where: { id: params.id } });

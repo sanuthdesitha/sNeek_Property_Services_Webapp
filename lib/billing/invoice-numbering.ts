@@ -26,7 +26,7 @@
  * is the only part that needs a transaction.
  */
 
-export type InvoiceSequenceKey = "CLIENT" | "CLEANER";
+export type InvoiceSequenceKey = "CLIENT" | "CLEANER" | "CREDIT_NOTE";
 
 export interface InvoiceSequenceShape {
   prefix: string;
@@ -42,6 +42,9 @@ export const DEFAULT_SEQUENCES: Record<InvoiceSequenceKey, InvoiceSequenceShape>
   // sent a client — they go by email to different people and get filed in
   // different places.
   CLEANER: { prefix: "PAY-", lastNumber: 0, padding: 4 },
+  // Credit notes to clients number on their own rail so a correction can never
+  // be mistaken for a fresh invoice, in this system or in Xero.
+  CREDIT_NOTE: { prefix: "CN-", lastNumber: 0, padding: 4 },
 };
 
 /** Below this, padding stops being useful; above it, the numbers stop being readable. */

@@ -44,6 +44,11 @@ const RAILS: Array<{ key: InvoiceSequenceKey; title: string; description: string
     title: "Cleaner & payee invoices",
     description: "Money in — invoices cleaners and QA inspectors raise against us.",
   },
+  {
+    key: "CREDIT_NOTE",
+    title: "Client credit notes",
+    description: "Corrections to invoices already sent to clients. Numbered separately from invoices.",
+  },
 ];
 
 export function InvoiceNumberingSection() {
