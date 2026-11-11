@@ -440,3 +440,10 @@ Items in these waves that change a business rule, money, or who can do what are 
 | Client delay notice is administrator only | Let operations managers send it too? |
 | "Request photo" for a missing drop-off photo goes to the job's cleaners | Should it go to the laundry driver instead? |
 | The cleaner sees the reason for an office clock pause only in the notification, not on their job screen | Show it on the job screen too? |
+
+## Owner decisions, eighth set (2026-11-11): forms and QA templates
+
+1. When the new server checks on submissions start rejecting: the lead's choice. They stay warnings at launch. The switch becomes an administrator setting on the Forms page with counts of recent warnings beside it, so it can be turned on once the counts are low; a submission started before the switch is still accepted with warnings. (Added to Wave B.)
+2. QA inspections keep a copy of the template they were filled in on, so editing a template never changes how a past inspection displays. Needs a database change: Wave E.
+3. Port the classic Forms page's Submissions tab (edit a submission, add or remove media) and Checklists tab to the new Forms page, then redirect the classic page. Wave E.
+4. Build the "Table" and "Stock count" question types and the stock and damage effects. Already in Wave B.

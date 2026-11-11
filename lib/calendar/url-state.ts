@@ -6,6 +6,12 @@
  * Saved preferences (rows, laundry runs, guest arrivals, "only without a
  * cleaner") are the fallback when the URL does not say, so they survive a full
  * refresh, which resets view parameters app-wide (see view memory).
+ *
+ * Documented exception to that reset (docs/style/operational-ui.md,
+ * "Returning to a workspace"): the Calendar also restores its VIEW (saved
+ * always) and its DATE (saved for this browser session only, and only on the
+ * Sydney day it was saved), so a refresh keeps the week being planned while a
+ * new visit, or the next day, opens on today. See `CalendarRestore`.
  */
 import { STATUS_LABELS } from "@/lib/jobs/status-labels";
 import { CALENDAR_VIEWS, isDayKey, type CalendarView } from "./range";
@@ -59,9 +65,36 @@ function readFlag(value: string | null, fallback: boolean): boolean {
   return fallback;
 }
 
-export function readCalendarState(params: URLSearchParams, prefs: CalendarPrefs = DEFAULT_CALENDAR_PREFS): CalendarUrlState {
-  const view = params.get("view");
-  const date = params.get("date");
+/** What a refresh may restore when the URL lacks `view` / `date`. */
+export type CalendarRestore = { view: CalendarView | null; date: string | null };
+export const NO_CALENDAR_RESTORE: CalendarRestore = { view: null, date: null };
+
+/** A stored view, validated (unknown values restore nothing). */
+export function parseStoredView(raw: unknown): CalendarView | null {
+  return typeof raw === "string" && (CALENDAR_VIEWS as readonly string[]).includes(raw) ? (raw as CalendarView) : null;
+}
+
+export type StoredCalendarDate = { date: string; savedOn: string };
+
+/**
+ * The session date to restore: only a real day key saved on the current
+ * Sydney day. A date saved yesterday (a tab left open overnight) restores
+ * nothing, so the calendar opens on today.
+ */
+export function restorableSessionDate(raw: unknown, todayKey: string): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Partial<StoredCalendarDate>;
+  if (!isDayKey(value.date ?? null) || value.savedOn !== todayKey) return null;
+  return value.date as string;
+}
+
+export function readCalendarState(
+  params: URLSearchParams,
+  prefs: CalendarPrefs = DEFAULT_CALENDAR_PREFS,
+  restore: CalendarRestore = NO_CALENDAR_RESTORE,
+): CalendarUrlState {
+  const view = params.get("view") ?? restore.view;
+  const date = params.get("date") ?? restore.date;
   const rows = params.get("rows");
   const clientId = params.get("clientId");
   const status = params.get("status");

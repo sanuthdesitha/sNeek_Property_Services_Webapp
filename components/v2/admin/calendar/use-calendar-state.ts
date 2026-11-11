@@ -6,6 +6,12 @@
  * and "only without a cleaner" are also saved as this person's preference in
  * local storage (scoped to the signed-in view scope), because a full refresh
  * resets view parameters app-wide.
+ *
+ * Calendar exception to that reset (documented in operational-ui.md): the
+ * view is saved in local storage and restored always; the date is saved in
+ * session storage with the Sydney day it was saved on, and restored only in
+ * the same browser session on the same day. A refresh keeps the week being
+ * planned; a new visit opens on today. "Today" clears the saved date.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -13,14 +19,21 @@ import { navigationScope, rememberCurrentView } from "@/lib/navigation/view-memo
 import {
   DEFAULT_CALENDAR_PREFS,
   parsePrefs,
+  parseStoredView,
   prefsFromState,
   readCalendarState,
+  restorableSessionDate,
   writeCalendarState,
   type CalendarPrefs,
+  type CalendarRestore,
   type CalendarUrlState,
 } from "@/lib/calendar/url-state";
+import { sydneyTodayKey } from "@/lib/time/sydney-range";
 
 const PREFS_PREFIX = "sneek:calendar-prefs:v1:";
+/** Not under the view-memory prefix, so a refresh does not clear it. */
+const VIEW_PREFIX = "sneek:calendar-view:v1:";
+const DATE_PREFIX = "sneek:calendar-date:v1:";
 const WIDE_QUERY = "(min-width: 1024px)";
 
 function prefsKey(): string {
@@ -41,6 +54,40 @@ function storePrefs(prefs: CalendarPrefs): void {
     window.localStorage.setItem(prefsKey(), JSON.stringify(prefs));
   } catch {
     /* A blocked store only loses the preference, never the page. */
+  }
+}
+
+export function readCalendarRestore(now: Date = new Date()): CalendarRestore {
+  const scope = navigationScope();
+  let view: CalendarRestore["view"] = null;
+  let date: string | null = null;
+  try {
+    view = parseStoredView(window.localStorage.getItem(`${VIEW_PREFIX}${scope}`));
+  } catch {
+    view = null;
+  }
+  try {
+    const raw = window.sessionStorage.getItem(`${DATE_PREFIX}${scope}`);
+    date = raw ? restorableSessionDate(JSON.parse(raw), sydneyTodayKey(now)) : null;
+  } catch {
+    date = null;
+  }
+  return { view, date };
+}
+
+function storeRestore(state: CalendarUrlState): void {
+  const scope = navigationScope();
+  try {
+    if (state.view) window.localStorage.setItem(`${VIEW_PREFIX}${scope}`, state.view);
+  } catch {
+    /* A blocked store only loses the restore, never the page. */
+  }
+  try {
+    const key = `${DATE_PREFIX}${scope}`;
+    if (state.date) window.sessionStorage.setItem(key, JSON.stringify({ date: state.date, savedOn: sydneyTodayKey() }));
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    /* As above. */
   }
 }
 
@@ -73,7 +120,7 @@ export function useCalendarState(): CalendarStateApi {
 
   useEffect(() => {
     const sync = () => {
-      current.current = readCalendarState(new URLSearchParams(window.location.search), readStoredPrefs());
+      current.current = readCalendarState(new URLSearchParams(window.location.search), readStoredPrefs(), readCalendarRestore());
       setState(current.current);
       setReady(true);
     };
@@ -89,6 +136,7 @@ export function useCalendarState(): CalendarStateApi {
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${clean ? `?${clean}` : ""}${window.location.hash}`);
     rememberCurrentView();
     storePrefs(prefsFromState(next));
+    storeRestore(next);
     current.current = next;
     setState(next);
   }, []);
