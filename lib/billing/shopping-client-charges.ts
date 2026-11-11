@@ -16,11 +16,25 @@ export function allocateShoppingMinutes(lines: { id: string; amount: number }[],
   for (const line of [...result].sort((a,b) => b.fraction - a.fraction || a.id.localeCompare(b.id))) if (remainder-- > 0) line.minutes++;
   return result.map(({ id, minutes }) => ({ id, minutes }));
 }
-export function calculateShoppingAwareInvoiceTotals(lines: { category: string; lineTotal: number }[], gstEnabled: boolean) {
+/**
+ * The one totals rule for client invoices and credit notes. DISCOUNT lines are
+ * negative taxable lines, so GST is charged on the discounted amount. An
+ * INVOICE keeps the historic floor (taxable never below zero; discounts that
+ * would cross it are refused before saving). A CREDIT_NOTE is negative by
+ * design: its GST is worked out on the magnitude and given the same sign, so a
+ * full credit note is the exact mirror of the invoice it credits.
+ */
+export type InvoiceTotalsOptions = { kind?: "INVOICE" | "CREDIT_NOTE" | string | null };
+export function calculateShoppingAwareInvoiceTotals(lines: { category: string; lineTotal: number }[], gstEnabled: boolean, options: InvoiceTotalsOptions = {}) {
   const agency = round(lines.filter(line => line.category === "SHOPPING_DISBURSEMENT").reduce((sum,line) => sum + line.lineTotal, 0));
   const taxable = lines.filter(line => line.category !== "SHOPPING_DISBURSEMENT").reduce((sum,line) => sum + line.lineTotal, 0);
-  const totals = calculateGstBreakdown(taxable, { gstEnabled });
-  return { subtotal: round(totals.subtotal + agency), gstAmount: totals.gstAmount, totalAmount: round(totals.totalAmount + agency) };
+  const sign = options.kind === "CREDIT_NOTE" && taxable < 0 ? -1 : 1;
+  const totals = calculateGstBreakdown(sign * taxable, { gstEnabled });
+  return { subtotal: round(sign * totals.subtotal + agency), gstAmount: round(sign * totals.gstAmount), totalAmount: round(sign * totals.totalAmount + agency) };
+}
+/** Taxable lines (everything except agency disbursements) before GST, unrounded. */
+export function invoiceTaxableSum(lines: { category: string; lineTotal: number }[]): number {
+  return lines.filter(line => line.category !== "SHOPPING_DISBURSEMENT").reduce((sum,line) => sum + line.lineTotal, 0);
 }
 async function hasLegacyInvoice(tx: Prisma.TransactionClient, runId: string) {
   const [stamp, line] = await Promise.all([

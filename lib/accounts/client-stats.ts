@@ -1,6 +1,11 @@
 import { db } from "@/lib/db";
 import { summarizeCompletedHistory, completedServiceDate } from "./completed-history";
-import { OUTSTANDING_INVOICE_STATUSES, summarizeReceivables } from "@/lib/finance/receivables";
+import {
+  OUTSTANDING_INVOICE_STATUSES,
+  REDUCING_CREDIT_NOTES_SELECT,
+  creditedAmountOf,
+  summarizeReceivables,
+} from "@/lib/finance/receivables";
 
 export interface ClientStats {
   clientId: string;
@@ -162,7 +167,10 @@ export async function getClientStats(clientId: string): Promise<ClientStats> {
     db.clientInvoice
       .findMany({
         where: { clientId },
-        select: { totalAmount: true, paidAmount: true, status: true, paidAt: true, sentAt: true, createdAt: true },
+        select: {
+          totalAmount: true, paidAmount: true, status: true, paidAt: true, sentAt: true, createdAt: true,
+          kind: true, creditNotes: REDUCING_CREDIT_NOTES_SELECT,
+        },
       })
       .catch(() => [] as any[]),
     db.property.count({ where: { clientId } }).catch(() => 0),
@@ -189,8 +197,12 @@ export async function getClientStats(clientId: string): Promise<ClientStats> {
   ]);
 
   const paid = invoices.filter((i: any) => i.status === "PAID");
-  const outstanding = invoices.filter((invoice) =>
-    (OUTSTANDING_INVOICE_STATUSES as readonly string[]).includes(invoice.status));
+  // Credit notes are never outstanding themselves; their approved or sent
+  // amount reduces what is owed on the invoice they credit.
+  const outstanding = invoices
+    .filter((invoice) => invoice.kind !== "CREDIT_NOTE" &&
+      (OUTSTANDING_INVOICE_STATUSES as readonly string[]).includes(invoice.status))
+    .map((invoice) => ({ ...invoice, creditedAmount: creditedAmountOf(invoice.creditNotes) }));
   const totalSpend = paid.reduce((sum: number, i: any) => sum + Number(i.totalAmount || 0), 0);
   const { outstandingAud: outstandingAmount } = summarizeReceivables(outstanding);
 
