@@ -43,7 +43,7 @@ export function useBuilderLifecycle(input: {
         setError("Your edits could not be saved, so nothing was published. Fix the save problem first.");
         return false;
       }
-      let token = autosave.token;
+      let token = autosave.currentToken();
       if (note && input.status.hasDraft) {
         const noted = await send(`/api/admin/form-templates/${templateId}/draft`, {
           method: "PUT",

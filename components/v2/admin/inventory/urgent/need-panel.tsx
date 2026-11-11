@@ -39,13 +39,18 @@ export function urgentStages(stage: UrgentStockStage): EStage[] {
 
 function historyLine(event: UrgentNeedEventRecord, timeZone: string, unit: string): string {
   const when = formatInTimeZone(new Date(event.at), timeZone, "d MMM, HH:mm");
-  const detail = (event.detail ?? {}) as { reason?: string; note?: string; number?: number; observedCount?: number | null };
-  const what = event.kind === "REPORTED" ? `Reported${detail.observedCount != null ? ` with a count of ${detail.observedCount} ${unit}` : ""}`
+  const detail = (event.detail ?? {}) as { reason?: string; note?: string; number?: number; observedCount?: number | null; purchaseQuantity?: number | null; observationDisposition?: string };
+  const what = event.kind === "REPORTED" ? "Reported"
     : event.kind === "REPORT_UPDATED" ? "Report updated"
     : event.kind === "REMINDER" ? `Reminder ${detail.number ?? ""} queued for administrators`
     : URGENT_STAGE_RECORDED[event.kind as UrgentStockStage] ?? event.kind;
+  const facts = [
+    "observedCount" in detail ? `count ${detail.observedCount ?? "unknown"}` : null,
+    "purchaseQuantity" in detail ? `requested ${detail.purchaseQuantity ?? "unknown"}` : null,
+    detail.observationDisposition && "observedCount" in detail && detail.observedCount !== null ? `count ${detail.observationDisposition === "APPLY" ? "applied to stock" : `not applied (${detail.observationDisposition.toLowerCase()})`}` : null,
+  ].filter(Boolean).join(", ");
   const why = detail.reason ?? detail.note;
-  return `${when} · ${what} · ${event.actorName}${why ? ` — “${why}”` : ""}`;
+  return `${when} · ${what}${facts ? ` (${facts}; ${unit})` : ""} · ${event.actorName}${why ? ` — “${why}”` : ""}`;
 }
 
 export function NeedPanel({ needId, row, timeZone, onClose, onChanged }: { needId: string; row: UrgentNeedListRow | null; timeZone: string; onClose: () => void; onChanged: () => void }) {

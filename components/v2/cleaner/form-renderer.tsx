@@ -1603,9 +1603,8 @@ function SelectControl({
   // stays listed so filtering never hides (or silently changes) the answer.
   const [query, setQuery] = React.useState("");
   const needle = query.trim().toLowerCase();
-  const shown = field.searchable && needle
-    ? options.filter((opt) => opt.toLowerCase().includes(needle) || opt === current)
-    : options;
+  const matches = needle ? options.filter((opt) => opt.toLowerCase().includes(needle)) : options;
+  const shown = field.searchable && needle ? options.filter((opt) => matches.includes(opt) || opt === current) : options;
 
   return (
     <div className="space-y-1.5">
@@ -1619,7 +1618,7 @@ function SelectControl({
           onChange={(e) => setQuery(e.target.value)}
         />
       ) : null}
-      {field.searchable && needle && shown.length === 0 ? (
+      {field.searchable && needle && matches.length === 0 ? (
         <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">No option matches “{query.trim()}”.</p>
       ) : null}
       <ESelect

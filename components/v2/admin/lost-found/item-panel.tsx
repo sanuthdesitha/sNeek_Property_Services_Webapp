@@ -103,6 +103,10 @@ export function ItemPanel({ itemId, timeZone, holdingDays, onClose, onChanged }:
   }, [onChanged]);
   const save = React.useCallback((payload: Record<string, unknown>, success: string) => apply(() => send(`/api/lost-found/${itemId}`, "PATCH", payload), success), [apply, itemId]);
   const post = React.useCallback((payload: Record<string, unknown>, success: string) => apply(() => send(`/api/lost-found/${itemId}/events`, "POST", payload), success), [apply, itemId]);
+  const onSent = React.useCallback((sent: HydratedLostFoundItem) => {
+    setLoad({ status: "ready", item: sent });
+    onChanged();
+  }, [onChanged]);
   const onDraftChange = React.useCallback((audience: MessageAudience, draft: MessageDraft) => setDrafts((current) => ({ ...current, [audience]: draft })), []);
 
   const item = load.status === "ready" ? load.item : null;
@@ -141,14 +145,14 @@ export function ItemPanel({ itemId, timeZone, holdingDays, onClose, onChanged }:
               <EButton size="sm" variant="outline" onClick={() => setMessage("client")}>Tell client</EButton>
               {item.status === "REPORTED" ? <EButton size="sm" variant="outline" onClick={() => void save({ status: "IN_STORAGE" }, "Moved to storage")}>Move to storage</EButton> : null}
             </div>
-            <p className={dt}>&ldquo;Message guest&rdquo; opens a ready message with the item and return options for you to send. Recording that you sent it moves the item to Guest contacted.</p>
+            <p className={dt}>&ldquo;Message guest&rdquo; opens a ready message with the item and return options. Sending it (accepted by the provider) or recording that you sent it moves the item to Guest contacted.</p>
           </section>
           {actionError ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{actionError}</p> : null}
           <hr className="border-[hsl(var(--e-border))]" />
           <StorageFields key={`${item.id}:${item.storageLocation}:${item.estimatedValue}`} item={item} save={save} />
           <ItemDecisions key={item.id} item={item} timeZone={timeZone} save={save} post={post} />
           <ItemTimeline item={item} timeZone={timeZone} post={post} />
-          <ItemMessageDialog itemId={item.id} audience={message} onClose={() => setMessage(null)} drafts={drafts} onDraftChange={onDraftChange} record={post} />
+          <ItemMessageDialog itemId={item.id} audience={message} onClose={() => setMessage(null)} drafts={drafts} onDraftChange={onDraftChange} record={post} onSent={onSent} />
           <LostFoundLightbox url={lightbox} onClose={() => setLightbox(null)} />
         </>
       ) : null}

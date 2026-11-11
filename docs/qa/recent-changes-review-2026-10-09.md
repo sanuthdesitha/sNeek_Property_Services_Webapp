@@ -950,3 +950,50 @@ Verified (this run)
 
 Not verified
 - DB suites (`tests/db/*`) skipped: no `SNEEK_TEST_DATABASE_URL` set in this run (other engineers' fixtures share the working tree). Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, overflow, draft retention) deferred to the final pass. No real message sent; providers mocked. Production env (`SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS`, worker jobs, provider keys) not inspected.
+
+## Follow-up: Lost and found and urgent stock (admin redesign sections 9 and 10, 2026-11-11)
+
+Changed
+- Lost and found page rebuilt as drawn (`components/v2/admin/lost-found/*`; old `lost-found-board.tsx` removed): stage tabs with real counts over the unchanged statuses, filters, server paging and sorting, CSV export, bulk Move to storage / Mark unclaimed / Donate or dispose with per-item answers, item panel with stage bar, photos and lightbox, job link, guest card from the job's booking (edit, pick another booking), Next step, Stored at, Est. value, every old action, Reopen, timeline with comments; Log an item for the office.
+- Guest import on create (`lib/lost-found/create.ts`, used by the cleaner route and the office route); BOOKING / MANUAL source; system timeline entry; redaction extended to the new fields.
+- Transition table and Reopen (`lib/lost-found/transitions.ts`, `mutations.ts`); holding period setting (`lib/lost-found/settings.ts`, Settings → Operations → Lost and found).
+- Message guest: Send by email / text through the notification step's `guest-message` action (ADMIN; moves to Guest contacted only when the provider accepted); copy / mailto / sms / tel and "Mark guest contacted" otherwise; Tell client is copy-and-record only (no pipeline path).
+- Urgent stock: first Stock tab (`components/v2/admin/inventory/urgent/*`), all-property list (`lib/inventory/urgent-stock-list.ts`), bulk (`urgent-stock-bulk.ts`), one next action per stage (`urgent-stock-actions.ts`), need panel with stay preparation; storage moved to `UrgentStockNeed` / `UrgentStockEvent` (`urgent-stock-store.ts`) with every export of `lib/inventory/urgent-stock.ts` kept; stay preparation reads the table; `/urgent-stock` redirects administrators; Inventory nav badge (REPORTED, administrators).
+- Existing problems fixed: a status move back from a decision silently erased the decision (now Reopen with a reason, decision kept in the entry; archiving keeps the decision); the board's search was case-sensitive and missed property names; found-date filters used server-local midnight (now organisation calendar days); the job on an item was plain text (now a link); the property filter only listed properties on the loaded rows.
+
+Migration `20261111200000_lost_found_guest_urgent_stock_tables` — verification (Postgres 127.0.0.1:55439)
+- Fresh: `createdb lf_fresh`; `DATABASE_URL=…/lf_fresh npx prisma migrate deploy` → "All migrations have been successfully applied."; repeated → "No pending migrations to apply."; `npx prisma migrate diff --from-url …/lf_fresh --to-schema-datamodel prisma/schema.prisma --exit-code` → "No difference detected." (exit 0).
+- Existing `sneek_ui` (at `20261111180000`): fixtures inserted first — items (a) empty guest + job with booking (two rows, one whitespace-only), (b) existing guest name / contact-only text, (c) no job, (d) job without booking, (e) booking without name or phone; urgent stock JSON: open need with pointer and three events (incl. reminder with null actor), closed need with an offset `observedAt` and 12.5 purchase quantity, legacy need missing optional keys, and malformed rows (bad stage, string value, key/id mismatch, missing property, "not a date", "2026-13-45" date, missing remindersSent, count stored as text) plus four unreadable events (orphan, bad time, array value, reportId mismatch) and a receipt. Checksums (md5 of every pre-existing column per item, of all AppSetting rows, of all LostFoundEvent rows) recorded before.
+- `migrate deploy` → applied; repeated → no pending; diff → "No difference detected." (exit 0).
+- After: only the two (a) rows changed (guest from booking, `guestSource` BOOKING, `reservationId` set, name trimmed); (b) rows got MANUAL with every pre-existing column checksum unchanged; (c), (d), (e) unchanged (no source); AppSetting and LostFoundEvent checksums unchanged (old JSON rows kept). Needs: 11 JSON rows → 3 copied + 8 left in AppSetting (all eight malformed ones), ids, stages, versions, counts, `observedAt` text, reminders, reporter (from the REPORTED event) and `openPairKey` (from the pointer) as stored. Events: 8 JSON rows → 4 copied + 4 left (the unreadable ones), notes from the stored reason/note, `fromStage` null (unknown). Count query (in SYSTEM.md) returned 8 / 4. Fixtures then removed from `sneek_ui` (the migration stays applied there).
+- `npx prisma generate` run. No `db push`; no applied migration rewritten.
+
+Verified (this run)
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- New tests: `tests/lib/lost-found-guest-transitions.test.ts`, `tests/lib/lost-found-holding.test.ts`, `tests/components/lost-found-format.test.ts`, `tests/api/lost-found-office.test.ts`, `tests/db/lost-found.test.ts`, `tests/lib/urgent-stock-actions.test.ts`, `tests/api/urgent-stock-office.test.ts`, `tests/components/urgent-needs-table.test.tsx`, `tests/lib/admin-attention-urgent.test.ts`; office list / bulk / table-parity cases added to `tests/db/urgent-stock.test.ts` (same file as the reminder test because the reminder worker reads every open need).
+- Existing tests updated on purpose: `tests/db/urgent-stock.test.ts` and `tests/db/stay-preparation.test.ts` count and clean the new tables instead of `urgent_stock_v1:open:` / `event:` AppSetting rows (storage moved); `tests/lib/lost-found-reporter-redaction.test.ts` gained the new fields.
+- Every test file touching lost and found, urgent stock, stay preparation, inventory, attention counts, settings navigation and the guest message (101 files, 1093 tests) passed with `SNEEK_TEST_DATABASE_URL` on the disposable `lf_fresh` database. All database suites together: 140 passed, 1 skipped, 1 failed — `tests/db/form-template-library.test.ts` (Template builder work in progress; not this step).
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, overflow, draft retention) deferred to the final pass. No real guest email or SMS sent (providers mocked in tests).
+
+## Forms builder step (2026-11-11)
+
+Scope: `/v2/admin/forms/[id]/edit` rebuilt to the "Template builder" design; typed schema and strict save check; per-room repeat; server validation warnings on cleaner submit; field type audit, barcode scanner, searchable dropdown; QA template revisions, overlap warning, duplicate, delete; legacy PATCH routed to drafts; classic builder retired with redirects. See `docs/SYSTEM.md`, "Form builder: outline, questions, shared settings, versions and test as cleaner".
+
+Behaviour changed on purpose
+- Publishing (single, builder and bulk) is refused while the form has a check error or fails the strict save check (`CHECKS_FAILED` / `INVALID_SCHEMA`, 422). Previously only bulk publish checked.
+- Saving a draft refuses unknown question types and malformed rules (legacy aliases accepted). Restore skips the check.
+- `PATCH /api/admin/form-templates/[id]` saves `schema` / `serviceType` to the draft instead of the live form.
+- Cleaner submit stores `data.__validationWarnings` for extended rules; no new rejections (`ENFORCE_EXTENDED_FORM_VALIDATION = false`).
+- `/admin/forms/[id]/edit`, `/admin/forms/new`, `/admin/forms/stats` redirect to v2; the classic forms page's builder tab only links to the v2 builder.
+
+Tests updated on purpose
+- `tests/components/form-builder-drafts.test.tsx` rewritten for autosave and the publish dialog (same intent: draft-only saves with the token, publish with the current token, not while unsaved).
+- `tests/api/audit-form-template-pages.test.tsx`: the legacy edit page now redirects (admission unchanged).
+- `tests/components/forms-authority-surface.test.tsx`, `tests/components/qa-templates-gating.test.tsx`: controls moved (links to the v2 builder; QA Edit/Reset in the row menu).
+- `tests/components/device-status-input.test.tsx`: import path only.
+- `tests/components/form-builder.test.tsx` deleted with the classic builder it tested.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard drag, camera scanner on a phone, overflow) deferred to the final pass. Database tests not run (no disposable database in this session).

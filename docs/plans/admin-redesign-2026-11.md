@@ -99,6 +99,8 @@ Back end
 
 > **Library half built 2026-11-11, awaiting the final build and browser pass.** Delivered: one `/v2/admin/forms` page with the five tabs and redirects from `/v2/admin/qa-templates`, `/v2/admin/templates`, `/v2/admin/checklists` and `/v2/admin/forms/stats`; one "Forms" sidebar entry; Job forms list (groups, tags, search across question labels, Status / Used by / Has problems filters, server paging with real counts, Used by, Questions, Avg time, Completion, Checks); bulk edit-question, add-section, find-and-replace (drafts, after a preview), move to group, tags, publish, duplicate, archive with per-form outcomes; `FormTemplateVersion` drafts and published versions with restore (API) and the builder's save wired to the draft; groups API; operations managers no longer see QA-template write buttons. Migration `20261111150000_form_template_library`. Not yet (builder step and later): drag, multi-select inside one form, undo/redo, version list screen, test as cleaner, publish blocked while a check fails (enforced for bulk publish only), Compare view, Import, export bulk action, typed schema extension, server validation on submit, field type audit, barcode scanner, QA-template version bump and duplicate/delete, retiring `components/forms`. The legacy PATCH route still writes live. Details: `docs/SYSTEM.md`, "Forms library: one Forms page, draft versions and bulk edits".
 
+> **Builder half built 2026-11-11, awaiting the final build and browser pass.** Delivered as drawn: header (name h1 + state pill, real usage, Undo/Redo, Versions, Test as cleaner, Publish vN), Outline (sortable sections, per-room / property-rule badges, every registered type, saved blocks), Questions (sortable rows, real badges, select all, bulk Move/Copy/Duplicate/Save as block/Delete), properties panel for one question or "Editing N questions together" with Mixed values, "Cleaner sees" in the real renderer. Drag and drop with keyboard sensors and row-menu alternatives; undo/redo; autosaved drafts with the 409 conflict choice; Versions drawer (view, diff against live, restore with replace confirmation); publish blocked by a check error in the single publish path; Test as cleaner (sandbox renderer + server check, writes nothing); copy to other forms (bulk `insert-questions`, drafts) and saved blocks (AppSetting `formBuilder.savedBlocks`); rotation, per-room repeat (section `repeatBy`, expanded at read time) and property rules editable here. Typed schema with strict save check and tolerant reader; submit route records extended validation warnings (`ENFORCE_EXTENDED_FORM_VALIDATION = false`); field type audit; barcode scanner; searchable dropdown; QA template revisions (audit log, version column untouched), overlap warning, duplicate, delete-or-deactivate, filters, preview; legacy PATCH routes content to the draft; classic builder deleted with redirects (the classic `/admin/forms` page stays for its Submissions and Checklists tabs). Not drawn: "Table", "Stock count" (not registered types), "Raises urgent stock" / "opens a damage report" badges (no schema drives them), "Monthly" cadence (no runtime support). Details: `docs/SYSTEM.md`, "Form builder: outline, questions, shared settings, versions and test as cleaner".
+
 ### 12, 13. Quality hub (Quality, QA issues, Accountability, QA performance)
 
 Today: three pages read `QaIssue` grouped three ways with near-identical API code; actions live in different places; the issues list shows 50 rows as if that were the total; the inspection queue is capped at 12; laundry metrics sit on the accountability page.
@@ -184,12 +186,16 @@ Today the page only manages the per-job client PDF and shows no figures.
 - The reporting cleaner still does not receive guest details.
 - Status changes follow a transition table; reopening a closed item is an explicit action that records who and why.
 
+Status (2026-11-11): built, browser pass pending. Migration `20261111200000_lost_found_guest_urgent_stock_tables` verified on fresh and existing databases. "Message guest" sends through the notification step's guest-message action (administrators; moves to Guest contacted only when the provider accepted); operations managers and "Tell client" copy the draft and record what they did (no pipeline recipient for a lost-and-found client). Waiting for the owner: should operations managers be able to send guest messages (the notification step allows administrators only)?
+
 ### 10. Urgent stock
 
 - First tab of Stock at `/v2/admin/inventory?tab=urgent-stock`, visible to roles that may act on it; `/urgent-stock` redirects into the Estate shell.
 - Needs move from `AppSetting` JSON to `UrgentStockNeed` and `UrgentStockEvent` tables. The migration copies every existing need and event; the old rows are kept until the copy is verified, and reads fall back to them during that release.
 - All-property table sorted by the next clean that needs the item, stage chips, side panel with stay preparation and history, bulk acknowledge and add to a shopping run. A stock request still does not place a purchase or prove delivery.
 - Nav badge for needs awaiting acknowledgement.
+
+Status (2026-11-11): built, browser pass pending. Needs and events copied to the tables by the same migration (unreadable JSON rows stay in AppSetting, counted by the query in SYSTEM.md); reads and writes now use the tables only (no read fallback to the old rows; this replaces "reads fall back" above). Not built: "Add to one shopping run" and the panel's "Ask cleaner to buy" — no existing service adds a line to a shopping run or asks a cleaner to buy. The reporter's job is not shown: a need never recorded the job. Waiting for the owner: the tab stays administrator-only (the urgent stock service refuses operations managers); widen it?
 
 ### 11. Accounts
 
@@ -233,7 +239,7 @@ Backlog found so far, to be cleared under this rule:
 | `GET /api/admin/qa/issues` end date uses server-local time, not Sydney | Quality | Fixed 2026-11-11 |
 | Coaching tab fails quietly for an operations manager without the workforce pack | Quality | Fixed 2026-11-11 (tab hidden when its APIs would refuse; explicit states) |
 | Old template-versions API switches which form jobs resolve to, with no screen | Forms | Fixed 2026-11-11 (writes answer 410; read kept) |
-| Saving through the old form PATCH still writes the live form and records no version | Forms | With the builder step |
+| Saving through the old form PATCH still writes the live form and records no version | Forms | Fixed 2026-11-11 (content saves the draft; metadata audited) |
 | GET/DELETE invoice routes answer 400 for unauthorised or forbidden | Invoices | With the invoice step |
 | Invoice page errors on a malformed started-work snapshot instead of showing it read-only | Invoices | With the invoice step |
 | Send and Xero push write no audit row; bulk audit rows do not appear in an invoice's history | Invoices | With the invoice step |
@@ -347,3 +353,13 @@ Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notification
 | Client delay notice and guest messages are administrator only | Should operations managers send them too? (They can already message clients from Messages) |
 | Manual reminders ignore the cleaner's personal notification preferences | A switch now exists in Notifications, default off |
 | "Chase supplier" for laundry | Blocked: suppliers have no contact to send to. Add a contact email or phone to suppliers? |
+
+### More items waiting for the owner (from the Lost and found and Urgent stock step)
+
+| Item | Question |
+| --- | --- |
+| Urgent needs tab and badge are administrator only (the service refuses operations managers today) | Let operations managers see and act on urgent stock? |
+| "Add to shopping run" and "Ask cleaner to buy" on an urgent need | Not built: no service adds a line to a shopping run or asks a cleaner to buy. Build them? |
+| "Tell client" about a lost item is copy / email link, then recorded by hand | Give it a real send path? |
+| Items still at "New" are not flagged by the 14-day holding period (only in storage or awaiting the guest) | Confirm, or flag New items too? |
+| Administrators can send the guest message by email or SMS from the app; it moves the item to "Guest contacted" only when the provider accepts it | Confirm, or switch to copy-and-record only? |

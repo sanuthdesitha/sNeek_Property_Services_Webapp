@@ -67,6 +67,8 @@ export async function putDraft(templateId: string, doc: BuilderDoc, token: strin
 export type DraftAutosave = {
   state: SaveState;
   token: string | undefined;
+  /** The token as of now (after any save that just finished), not as of the last render. */
+  currentToken: () => string | undefined;
   /** Save now (Retry, or before publishing). Resolves true when everything is saved. */
   flush: () => Promise<boolean>;
   /** Adopt a token written by this editor elsewhere (publish, restore). */
@@ -99,6 +101,9 @@ export function useDraftAutosave(input: {
   const revisionRef = React.useRef(revision);
   const conflictRef = React.useRef(false);
   const adoptNextRef = React.useRef<string | null>(null);
+  // Held in a ref so a new callback each render never restarts the debounce.
+  const onSavedRef = React.useRef(onSaved);
+  onSavedRef.current = onSaved;
   docRef.current = doc;
   revisionRef.current = revision;
 
@@ -120,7 +125,7 @@ export function useDraftAutosave(input: {
         savedRevision.current = snapshotRevision;
         const clean = snapshotRevision === revisionRef.current;
         setState({ status: clean ? "saved" : "dirty", savedAt: new Date(), error: null, issues: [] });
-        onSaved?.();
+        onSavedRef.current?.();
         return clean;
       }
       if (outcome.kind === "conflict") {
@@ -137,7 +142,7 @@ export function useDraftAutosave(input: {
     } finally {
       inFlight.current = null;
     }
-  }, [templateId, onSaved]);
+  }, [templateId]);
 
   // Debounced autosave after each edit.
   React.useEffect(() => {
@@ -151,7 +156,7 @@ export function useDraftAutosave(input: {
       return;
     }
     if (conflictRef.current) return;
-    setState((prev) => (prev.status === "saving" ? prev : { ...prev, status: prev.status === "failed" ? "failed" : "dirty" }));
+    setState((prev) => (prev.status === "saving" || prev.status === "failed" || prev.status === "dirty" ? prev : { ...prev, status: "dirty" }));
     if (!enabled) return;
     const timer = window.setTimeout(() => void runSave(), AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
@@ -190,5 +195,7 @@ export function useDraftAutosave(input: {
     adoptNextRef.current = next;
   }, []);
 
-  return { state, token, flush, adoptToken, clearConflict, adoptNextRevision };
+  const currentToken = React.useCallback(() => tokenRef.current, []);
+
+  return { state, token, currentToken, flush, adoptToken, clearConflict, adoptNextRevision };
 }

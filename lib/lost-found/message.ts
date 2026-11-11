@@ -42,8 +42,25 @@ export type MessageDraftInput = {
 
 export type MessageDraft = { subject: string; body: string };
 
+export type GuestSendState = "provider_accepted" | "already_requested" | "skipped" | "failed";
+
+export type GuestSendOutcome = { state: GuestSendState; accepted: boolean; recordNotSent: boolean; note: string };
+
+/** Words for a guest-message result. "Accepted" is never "delivered". Pure. */
+export function guestSendOutcome(transport: "EMAIL" | "SMS", result: { state: GuestSendState; errorCode: string | null }): GuestSendOutcome {
+  const how = transport === "EMAIL" ? "email" : "text message";
+  if (result.state === "provider_accepted") return { state: result.state, accepted: true, recordNotSent: false, note: `Sent by ${how} from the app. The provider accepted it; delivery is not confirmed.` };
+  if (result.state === "already_requested") return { state: result.state, accepted: false, recordNotSent: false, note: `This ${how} was already requested with the same message; it was not sent again. Check the delivery log for its state.` };
+  if (result.state === "skipped") return { state: result.state, accepted: false, recordNotSent: true, note: `The ${how} was not sent: ${transport === "EMAIL" ? "email to guests is switched off or the address is suppressed" : "text messages are switched off"}.` };
+  return { state: result.state, accepted: false, recordNotSent: true, note: `The ${how} was not sent (${result.errorCode ?? "provider error"}).` };
+}
+
 export const PIPELINE_UNSUPPORTED_REASON =
   "The app's notification system can only send to staff accounts today, so it cannot send this message. Copy it or open it in your email or SMS app, then record that you sent it.";
+
+/** Guests: the notification system's guest-message action (administrators). */
+export const GUEST_SEND_NOTE =
+  "Administrators can send this by email or text from the app through the notification system's guest message action. The provider's answer is recorded; delivery is never assumed. You can also copy it and record what you did.";
 
 function firstName(name: string | null): string | null {
   const first = name?.trim().split(/\s+/)[0];

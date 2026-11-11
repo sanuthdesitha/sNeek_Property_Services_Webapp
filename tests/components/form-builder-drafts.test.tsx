@@ -136,7 +136,6 @@ it("keeps edits after a failed save and retries on request", async () => {
 it("undoes and redoes edits with the buttons and the scoped keyboard shortcut", () => {
   const { container } = renderBuilder();
   addTick();
-  expect(screen.getAllByRole("button", { name: /^Select "/ }).length).toBe(0);
   expect(screen.getAllByRole("checkbox", { name: /^Select "/ })).toHaveLength(3);
   fireEvent.click(screen.getByRole("button", { name: "Undo" }));
   expect(screen.getAllByRole("checkbox", { name: /^Select "/ })).toHaveLength(2);

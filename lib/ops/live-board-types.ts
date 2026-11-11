@@ -40,6 +40,12 @@ export type LiveJobRow = {
   progress: LiveProgress | null;
   /** The running time log, for "Review clock" on an off-site row. */
   openTimeLogId: string | null;
+  /** Late: projected arrival as an ISO instant (for the delay notice's ETA in minutes). */
+  etaAt?: string | null;
+  /** Late: the client delay notice already requested today, if any (who and when). */
+  delayNotice?: { at: string; byName: string } | null;
+  /** Every running clock on the job (the cleaner each belongs to), for "Pause clock". */
+  runningClocks?: Array<{ timeLogId: string; userId: string; name: string; startedAt: string }>;
   /** Field status (moved from the old live map page). */
   field: {
     address: string | null;

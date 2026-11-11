@@ -15,6 +15,7 @@ import { haversine, DEFAULT_GEOFENCE_RADIUS_M } from "@/lib/gps/distance";
 import { deriveLiveStatus } from "./live-status";
 import { addDaysToKey, sydneyDayEndInclusive, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { classifyLiveJob, clockLabel, isException, isNotStarted } from "./live-board-rules";
+import { latestClientDelayRequests, type ClientDelayRequestRecord } from "@/lib/notifications/client-delay-preview";
 import type { LiveBoardPayload, LiveCleanerNext, LiveContinuationRow, LiveDriverRow, LiveJobRow, LiveProgress } from "./live-board-types";
 
 type TodayJob = Awaited<ReturnType<typeof loadTodayJobs>>[number];
@@ -63,37 +64,59 @@ async function progressFor(job: TodayJob, elapsed: number | null, allocated: num
   return null;
 }
 
+/** Today's client delay notices for the late jobs; a failed read shows none rather than failing the board. */
+async function delayNoticesFor(jobIds: string[], now: Date): Promise<Map<string, ClientDelayRequestRecord>> {
+  if (jobIds.length === 0) return new Map();
+  return latestClientDelayRequests(jobIds, now).catch(() => new Map());
+}
+
 async function buildJobRows(jobs: TodayJob[], pings: Map<string, Ping>, now: Date, timeZone: string, todayKey: string, withProgress: boolean): Promise<LiveJobRow[]> {
   const settings = withProgress ? await getAppSettings().catch(() => null) : null;
-  return Promise.all(jobs.map(async (job) => {
-    const cleaners = job.assignments.map((a) => ({ id: a.user.id, name: a.user.name ?? a.user.email, phone: a.user.phone ?? null }));
-    const ping = cleaners.map((c) => pings.get(c.id)).find(Boolean) ?? null;
-    const live = liveStatusFor(job, ping, now);
-    const timer = job.timeLogs[0] ?? null;
-    const classification = classifyLiveJob({
-      status: job.status, dateKey: todayKey, startTime: job.startTime, arrivedAt: job.arrivedAt, departedAt: job.departedAt,
-      enRouteEtaMinutes: job.enRouteEtaMinutes, enRouteEtaUpdatedAt: job.enRouteEtaUpdatedAt, hasOpenTimer: Boolean(timer), liveStatus: live.status,
-    }, now, timeZone);
-    const startedAt = job.arrivedAt ?? timer?.startedAt ?? null;
-    const elapsed = classification.state === "on-site" && startedAt ? Math.max(0, Math.round((now.getTime() - startedAt.getTime()) / 60_000)) : null;
-    const allocated = job.estimatedHours ? Math.round(job.estimatedHours * 60) : null;
-    return {
-      jobId: job.id, jobNumber: job.jobNumber, propertyName: job.property.name, suburb: job.property.suburb, status: job.status,
-      state: classification.state, startTime: job.startTime, dueTime: job.dueTime, sameDayCheckinTime: job.sameDayCheckinTime, cleaners,
-      minutes: classification.minutes,
-      etaClock: classification.projectedArrival ? clockLabel(classification.projectedArrival, timeZone) : null,
-      distanceMeters: classification.state === "off-site" && live.distance != null ? Math.round(live.distance) : null,
-      elapsedMinutes: elapsed, allocatedMinutes: allocated,
-      progress: withProgress && classification.state === "on-site" ? await progressFor(job, elapsed, allocated, settings) : null,
-      openTimeLogId: timer?.id ?? null,
-      field: {
-        address: job.property.address ?? null,
-        safety: job.safetyCheckinAt ? "confirmed" : job.requiresSafetyCheckin ? "pending" : null,
-        checkInDistanceMeters: job.gpsDistanceMeters ?? null,
-        gpsCheckInAt: job.gpsCheckInAt?.toISOString() ?? null,
-      },
-    };
-  }));
+  const cleanerNames = new Map(jobs.flatMap((job) => job.assignments.map((a) => [a.user.id, a.user.name ?? a.user.email] as const)));
+  const rows = await Promise.all(jobs.map((job) => buildJobRow(job, pings, now, timeZone, todayKey, withProgress, settings, cleanerNames)));
+  const notices = await delayNoticesFor(rows.filter((row) => row.state === "late").map((row) => row.jobId), now);
+  return rows.map((row) => (row.state === "late" ? { ...row, delayNotice: notices.get(row.jobId) ?? null } : row));
+}
+
+async function buildJobRow(
+  job: TodayJob,
+  pings: Map<string, Ping>,
+  now: Date,
+  timeZone: string,
+  todayKey: string,
+  withProgress: boolean,
+  settings: Awaited<ReturnType<typeof getAppSettings>> | null,
+  cleanerNames: Map<string, string>,
+): Promise<LiveJobRow> {
+  const cleaners = job.assignments.map((a) => ({ id: a.user.id, name: a.user.name ?? a.user.email, phone: a.user.phone ?? null }));
+  const ping = cleaners.map((c) => pings.get(c.id)).find(Boolean) ?? null;
+  const live = liveStatusFor(job, ping, now);
+  const timer = job.timeLogs[0] ?? null;
+  const classification = classifyLiveJob({
+    status: job.status, dateKey: todayKey, startTime: job.startTime, arrivedAt: job.arrivedAt, departedAt: job.departedAt,
+    enRouteEtaMinutes: job.enRouteEtaMinutes, enRouteEtaUpdatedAt: job.enRouteEtaUpdatedAt, hasOpenTimer: Boolean(timer), liveStatus: live.status,
+  }, now, timeZone);
+  const startedAt = job.arrivedAt ?? timer?.startedAt ?? null;
+  const elapsed = classification.state === "on-site" && startedAt ? Math.max(0, Math.round((now.getTime() - startedAt.getTime()) / 60_000)) : null;
+  const allocated = job.estimatedHours ? Math.round(job.estimatedHours * 60) : null;
+  return {
+    jobId: job.id, jobNumber: job.jobNumber, propertyName: job.property.name, suburb: job.property.suburb, status: job.status,
+    state: classification.state, startTime: job.startTime, dueTime: job.dueTime, sameDayCheckinTime: job.sameDayCheckinTime, cleaners,
+    minutes: classification.minutes,
+    etaClock: classification.projectedArrival ? clockLabel(classification.projectedArrival, timeZone) : null,
+    distanceMeters: classification.state === "off-site" && live.distance != null ? Math.round(live.distance) : null,
+    elapsedMinutes: elapsed, allocatedMinutes: allocated,
+    progress: withProgress && classification.state === "on-site" ? await progressFor(job, elapsed, allocated, settings) : null,
+    openTimeLogId: timer?.id ?? null,
+    etaAt: classification.state === "late" && classification.projectedArrival ? classification.projectedArrival.toISOString() : null,
+    runningClocks: job.timeLogs.map((log) => ({ timeLogId: log.id, userId: log.userId, name: cleanerNames.get(log.userId) ?? "Cleaner", startedAt: log.startedAt.toISOString() })),
+    field: {
+      address: job.property.address ?? null,
+      safety: job.safetyCheckinAt ? "confirmed" : job.requiresSafetyCheckin ? "pending" : null,
+      checkInDistanceMeters: job.gpsDistanceMeters ?? null,
+      gpsCheckInAt: job.gpsCheckInAt?.toISOString() ?? null,
+    },
+  };
 }
 
 async function loadContinuations(): Promise<LiveContinuationRow[]> {

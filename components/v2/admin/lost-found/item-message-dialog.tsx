@@ -1,21 +1,26 @@
 "use client";
 
 /**
- * "Message guest" / "Tell client": a ready message the office can edit, then
- * send from its own email or SMS app (copy, mailto:, sms:, tel:). The app's
- * notification pipeline cannot send to a guest or to a client for lost and
- * found today, so the dialog says so and never claims a message was sent.
- * "Record that you contacted …" stores what the office says it did; only the
- * guest record moves the item to Guest contacted. The edited draft is kept by
- * the panel while the dialog is closed.
+ * "Message guest" / "Tell client": a ready message the office can edit.
+ *  - Guest, administrator: "Send by email" / "Send by text" go through the
+ *    notification system's guest-message action; the item moves to Guest
+ *    contacted only when the provider accepted it ("accepted", never
+ *    "delivered"). One idempotency key per draft and transport, kept until it
+ *    succeeds, so a retry is not a second message.
+ *  - Otherwise (and always as a fallback): copy, mailto:, sms:, tel:, then
+ *    "Record that you contacted …", which stores what the office says it did.
+ * The edited draft is kept by the panel while the dialog is closed.
  */
 import * as React from "react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
+import type { HydratedLostFoundItem } from "@/lib/lost-found/service";
 import { CONTACT_CHANNELS, CONTACT_CHANNEL_LABEL, mailtoHref, smsHref, type ContactChannel, type MessageAudience, type MessageDraft } from "@/lib/lost-found/message";
 
 type Recipient = { name: string | null; email: string | null; phone: string | null };
 type Prepared = { draft: MessageDraft; recipient: Recipient; send: { available: boolean; reason: string } };
+type SendResult = { outcome: { accepted: boolean; note: string }; item: HydratedLostFoundItem };
+const SEND_LIMIT = 1000;
 type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; prepared: Prepared };
 
 export type MessageDrafts = Partial<Record<MessageAudience, MessageDraft>>;
@@ -35,6 +40,7 @@ export function ItemMessageDialog({
   drafts,
   onDraftChange,
   record,
+  onSent,
 }: {
   itemId: string;
   audience: MessageAudience | null;
@@ -42,12 +48,16 @@ export function ItemMessageDialog({
   drafts: MessageDrafts;
   onDraftChange: (audience: MessageAudience, draft: MessageDraft) => void;
   record: (payload: Record<string, unknown>, success: string) => Promise<boolean>;
+  /** Applies an item returned by a send (the panel updates and the list reloads). */
+  onSent: (item: HydratedLostFoundItem) => void;
 }) {
   const [load, setLoad] = React.useState<Load>({ status: "loading" });
   const [channel, setChannel] = React.useState<ContactChannel>("EMAIL");
   const [officeNote, setOfficeNote] = React.useState("");
   const [copied, setCopied] = React.useState<"idle" | "done" | "failed">("idle");
   const [saving, setSaving] = React.useState(false);
+  const [sendResult, setSendResult] = React.useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const sendKeys = React.useRef(new Map<string, string>());
 
   React.useEffect(() => {
     if (!audience) return;
@@ -96,6 +106,34 @@ export function ItemMessageDialog({
     }
   }
 
+  async function sendFromApp(transport: "EMAIL" | "SMS") {
+    if (!draft || !prepared) return;
+    const to = transport === "EMAIL" ? prepared.recipient.email : prepared.recipient.phone;
+    if (!to) return;
+    const fingerprint = JSON.stringify([transport, to, draft.subject, draft.body]);
+    const idempotencyKey = sendKeys.current.get(fingerprint) ?? `lf-${crypto.randomUUID()}`;
+    sendKeys.current.set(fingerprint, idempotencyKey);
+    setSaving(true);
+    setSendResult(null);
+    try {
+      const response = await fetch(`/api/admin/lost-found/${itemId}/send-guest-message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transport, to, subject: draft.subject, body: draft.body, idempotencyKey }),
+      });
+      const body = (await response.json().catch(() => null)) as (SendResult & { error?: string }) | null;
+      if (!response.ok || !body?.outcome) throw new Error(body?.error ?? `The message was not sent (${response.status}).`);
+      sendKeys.current.delete(fingerprint);
+      setSendResult({ tone: body.outcome.accepted ? "ok" : "error", text: body.outcome.note });
+      onSent(body.item);
+    } catch (error) {
+      setSendResult({ tone: "error", text: error instanceof Error ? error.message : "The message was not sent." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const tooLongToSend = Boolean(draft && draft.body.length > SEND_LIMIT);
   const mailto = prepared && draft ? mailtoHref(prepared.recipient.email, draft) : null;
   const sms = prepared && draft ? smsHref(prepared.recipient.phone, draft) : null;
 
@@ -105,7 +143,7 @@ export function ItemMessageDialog({
       {load.status === "error" ? <p role="alert" className="text-[0.875rem] text-[hsl(var(--e-danger))]">{load.message}</p> : null}
       {prepared && draft ? (
         <div className="space-y-4">
-          <p role="note" className="rounded-[var(--e-radius)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]">{prepared.send.reason}</p>
+          <p role="note" className={prepared.send.available ? "text-[0.8125rem] text-[hsl(var(--e-text-secondary))]" : "rounded-[var(--e-radius)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]"}>{prepared.send.reason}</p>
           <p className="text-[0.8125rem]">
             To: <span className="font-[600]">{prepared.recipient.name ?? `No ${who} name recorded`}</span>
             {" · "}{prepared.recipient.email ?? "no email"}{" · "}{prepared.recipient.phone ?? "no phone"}
@@ -113,6 +151,18 @@ export function ItemMessageDialog({
           <fieldset disabled={saving} className="space-y-3">
             <EField label="Subject"><EInput value={draft.subject} maxLength={300} onChange={(event) => onDraftChange(audience, { ...draft, subject: event.target.value })} /></EField>
             <EField label="Message"><ETextarea rows={10} value={draft.body} maxLength={3500} onChange={(event) => onDraftChange(audience, { ...draft, body: event.target.value })} /></EField>
+            {prepared.send.available ? (
+              <div className="space-y-1">
+                <div className="flex flex-wrap gap-2">
+                  <EButton type="button" size="sm" disabled={!prepared.recipient.email || tooLongToSend} onClick={() => void sendFromApp("EMAIL")}>Send by email</EButton>
+                  <EButton type="button" size="sm" variant="outline" disabled={!prepared.recipient.phone || tooLongToSend} onClick={() => void sendFromApp("SMS")}>Send by text</EButton>
+                </div>
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  {tooLongToSend ? `Shorten the message to ${SEND_LIMIT} characters to send it from the app (now ${draft.body.length}).` : !prepared.recipient.email && !prepared.recipient.phone ? "No guest email or phone recorded; edit the guest first." : `Up to ${SEND_LIMIT} characters.`}
+                </p>
+                {sendResult ? <p role={sendResult.tone === "error" ? "alert" : "status"} className={sendResult.tone === "error" ? "text-[0.8125rem] text-[hsl(var(--e-danger))]" : "text-[0.8125rem] text-[hsl(var(--e-success))]"}>{sendResult.text}</p> : null}
+              </div>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <EButton type="button" size="sm" variant="outline" onClick={() => void copy()}>Copy message</EButton>
               {mailto ? <EButton asChild size="sm" variant="outline"><a href={mailto}>Open in email</a></EButton> : null}
@@ -123,7 +173,7 @@ export function ItemMessageDialog({
               {copied === "done" ? "Copied." : copied === "failed" ? "Could not copy; select the message and copy it." : ""}
             </p>
             <div className="space-y-2 border-t border-[hsl(var(--e-border))] pt-3">
-              <p className="text-[0.8125rem] font-[600]">Record that you contacted the {who}</p>
+              <p className="text-[0.8125rem] font-[600]">{prepared.send.available ? `Or record that you contacted the ${who} yourself` : `Record that you contacted the ${who}`}</p>
               <EField label="How">
                 <ESelect value={channel} onChange={(event) => setChannel(event.target.value as ContactChannel)}>
                   {CONTACT_CHANNELS.map((value) => <option key={value} value={value}>{CONTACT_CHANNEL_LABEL[value]}</option>)}

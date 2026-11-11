@@ -243,3 +243,12 @@ These match the approved concept (`table.t`, `.chip`, `.bulk`, `.b`) using Estat
 - `ESidePanel` (`components/v2/ui/side-panel.tsx`) previews one record beside a list: a column from `lg`, a full-height modal sheet below it. Keep the record id in the URL (`?open=<id>`), key the panel by that id, and load secondary tabs only when chosen; abort a tab's read when the record changes and check the response still belongs to the open record. Focus goes to the panel title on open and back to the opener on Escape or close.
 - Clicking a row may open the panel, but the row must also have a real control (the record name as a button) for keyboards; nested checkboxes, buttons and menus never open it.
 - View tabs are filter presets defined once on the server side of the list (`lib/jobs/view-presets.ts`); a tab applies exactly its filters, is current only while the filters match, and shows a count only when one grouped server query produced it.
+
+## Builder conventions (form builder, 2026-11)
+
+- Three panes (outline · items · settings/preview) side by side from `lg`; below it they are steps in a labelled pane nav with 44px targets, never a page-level horizontal scroll.
+- Every drag has a keyboard path: dnd-kit's keyboard sensor on the handle, plus row-menu items (Move up, Move down, Move to…). The handle is a real button with an instruction in its accessible name.
+- Edits go through one document with undo/redo; shortcuts are handled on the builder root, never a global listener, and skipped inside text inputs.
+- Autosave only with the stale-write token, serialised; a 409 stops autosave and offers explicit choices. Show saving / saved / failed / conflict truthfully in the header line.
+- Previews of cleaner forms use the real renderer (`FormRenderer mode="preview" | "sandbox"`), never a look-alike, and never upload or submit.
+- Badges on a row state behaviour the stored data really drives; a usage warning comes only from a real usage check.

@@ -87,6 +87,7 @@ export const LOST_FOUND_EVENT_ACTIONS = [
   "REOPENED",
   "GUEST_IMPORTED",
   "CLIENT_CONTACTED",
+  "MESSAGE_NOT_SENT",
 ] as const;
 
 export const LOST_FOUND_EVENT_LABELS: Record<string, string> = {
@@ -102,6 +103,7 @@ export const LOST_FOUND_EVENT_LABELS: Record<string, string> = {
   REOPENED: "Reopened",
   GUEST_IMPORTED: "Guest details added from booking",
   CLIENT_CONTACTED: "Client told",
+  MESSAGE_NOT_SENT: "Message not sent",
 };
 
 export function lostFoundStatusLabel(status: string): string {

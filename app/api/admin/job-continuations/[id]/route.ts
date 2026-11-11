@@ -20,6 +20,9 @@ const schema = z.object({
   transportAllowance: z.number().nonnegative().max(500).optional().nullable(),
 });
 
+/** Owner decision (2026-11-11): a decline needs a reason, which the cleaner sees. Approve does not. */
+const DECLINE_REASON_REQUIRED = "A reason is required to decline. The cleaner sees it.";
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -27,6 +30,9 @@ export async function PATCH(
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = schema.parse(await req.json().catch(() => ({})));
+    if (body.decision === "REJECT" && !body.decisionNote?.trim()) {
+      return NextResponse.json({ error: DECLINE_REASON_REQUIRED }, { status: 400 });
+    }
     const before = await getContinuationRequestById(params.id);
     if (!before) {
       return NextResponse.json({ error: "Continuation request not found." }, { status: 404 });

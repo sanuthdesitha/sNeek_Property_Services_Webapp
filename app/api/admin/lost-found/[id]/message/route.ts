@@ -4,19 +4,20 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { emailFromContact, phoneFromContact } from "@/lib/lost-found/guest";
-import { draftLostFoundMessage, PIPELINE_UNSUPPORTED_REASON, type MessageAudience } from "@/lib/lost-found/message";
+import { draftLostFoundMessage, GUEST_SEND_NOTE, PIPELINE_UNSUPPORTED_REASON, type MessageAudience } from "@/lib/lost-found/message";
 import { hydrateItems } from "@/lib/lost-found/service";
 
 /**
  * GET ?audience=guest|client — a draft message for the office to edit, the
- * recipient's contact details, and whether the app can send it. It cannot:
- * the notification pipeline has no guest or lost-and-found client recipient
- * (see lib/lost-found/message.ts), so `send.available` is false with the reason
- * and the office uses its own email or SMS app, then records what it did.
+ * recipient's contact details, and whether the app can send it:
+ *  - guest: through the notification system's guest-message action, which
+ *    allows administrators only (send.available for ADMIN);
+ *  - client: no path exists for lost and found (the pipeline has no such
+ *    client recipient), so the office copies it and records what it did.
  */
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const audience: MessageAudience = req.nextUrl.searchParams.get("audience") === "client" ? "client" : "guest";
     const item = await db.lostFoundItem.findUnique({ where: { id: params.id } });
     if (!item) return NextResponse.json({ error: "Item not found." }, { status: 404 });
@@ -39,7 +40,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const recipient = audience === "guest"
       ? { name: row.guestName, email: row.guestEmail ?? emailFromContact(row.guestContact), phone: phoneFromContact(row.guestContact) }
       : { name: property?.client?.name ?? null, email: property?.client?.email?.trim() || null, phone: phoneFromContact(property?.client?.phone ?? null) };
-    return NextResponse.json({ audience, draft, recipient, send: { available: false, reason: PIPELINE_UNSUPPORTED_REASON } });
+    const canSendGuest = audience === "guest" && session.user.role === Role.ADMIN && !session.impersonation;
+    const send = canSendGuest
+      ? { available: true, reason: GUEST_SEND_NOTE }
+      : { available: false, reason: audience === "guest" ? "Only administrators can send a guest message from the app (the notification system's rule). Copy it or open it in your email or SMS app, then record that you sent it." : PIPELINE_UNSUPPORTED_REASON };
+    return NextResponse.json({ audience, draft, recipient, send });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not prepare the message.";
     const status = message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;

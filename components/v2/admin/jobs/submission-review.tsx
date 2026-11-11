@@ -1,4 +1,5 @@
 "use client";
+import { readSubmissionWarnings } from "@/lib/forms/submission-warnings";
 import { isDeviceException } from "@/lib/forms/device-status";
 
 /**
@@ -224,6 +225,22 @@ export function SubmissionReview({
             <div className="space-y-4 px-3 py-3">
               {sub.bagLocation ? (
                 <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Bag location: {sub.bagLocation}</p>
+              ) : null}
+
+              {/* Extended answer rules the server recorded (not enforced this release). */}
+              {readSubmissionWarnings(sub.data).length > 0 ? (
+                <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2">
+                  <p className="text-[0.75rem] font-[600]">Answer checks to review</p>
+                  <ul className="mt-1 space-y-0.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+                    {readSubmissionWarnings(sub.data).map((warning) => (
+                      <li key={`${warning.fieldId}-${warning.rule}`}>
+                        {warning.sectionLabel ? `${warning.sectionLabel}: ` : ""}
+                        {warning.label} — {warning.message}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">Recorded by the server when the form was submitted; the submission was accepted.</p>
+                </div>
               ) : null}
 
               {/* Rework flags from the latest QA review */}

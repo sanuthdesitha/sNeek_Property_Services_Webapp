@@ -111,13 +111,16 @@ describe.skipIf(!url)("lost and found with guest import (database)", () => {
     for (const [name, status, createdAt] of [["Old shelf", "IN_STORAGE", old], ["New one", "REPORTED", new Date()], ["Recent shelf", "IN_STORAGE", new Date()], ["Gone", "DONATED", old]] as const) {
       await m.client.lostFoundItem.create({ data: { propertyId, itemName: name, status, createdAt } });
     }
-    const page = await listLostFoundForOffice(parseLostFoundFilters(new URLSearchParams("stage=storage")), query("page=1&pageSize=1&sort=found&dir=asc"));
-    expect(page).toMatchObject({ total: 2, page: 1, pageSize: 1, pageCount: 2, holdingDays: 14, summary: { open: 3, pastHolding: 1 } });
+    // Scoped to this suite's property; the header summary is global by design.
+    const page = await listLostFoundForOffice(parseLostFoundFilters(new URLSearchParams(`stage=storage&propertyId=${propertyId}`)), query("page=1&pageSize=1&sort=found&dir=asc"));
+    expect(page).toMatchObject({ total: 2, page: 1, pageSize: 1, pageCount: 2, holdingDays: 14 });
+    expect(page.summary.open).toBeGreaterThanOrEqual(3);
+    expect(page.summary.pastHolding).toBeGreaterThanOrEqual(1);
     expect(page.counts).toMatchObject({ new: 1, storage: 2, closed: 1, all: 4 });
     expect(page.rows.map((row) => [row.itemName, row.holding.past])).toEqual([["Old shelf", true]]);
-    const flagged = await listLostFoundForOffice(parseLostFoundFilters(new URLSearchParams("stage=all&holding=past")), query("sort=item&dir=desc"));
+    const flagged = await listLostFoundForOffice(parseLostFoundFilters(new URLSearchParams(`stage=all&holding=past&propertyId=${propertyId}`)), query("sort=item&dir=desc"));
     expect(flagged.rows.map((row) => row.itemName)).toEqual(["Old shelf"]);
-    const searched = await listLostFoundForOffice(parseLostFoundFilters(new URLSearchParams("stage=all&q=bondi")), query("sort=item&dir=asc"));
+    const searched = await listLostFoundForOffice(parseLostFoundFilters(new URLSearchParams(`stage=all&q=lf bondi`)), query("sort=item&dir=asc"));
     expect(searched.total).toBe(4);
   });
 });
