@@ -16,6 +16,8 @@
  *   POST   /api/admin/cases/:id/attachments         after POST /api/uploads/direct
  *   POST   /api/admin/cases                         create (links validated on the server)
  *   POST   /api/admin/cases/bulk                    per-row outcomes (new)
+ *   GET    /api/admin/quality/issues/case-options   "Raise QA issue for cleaner" options (new)
+ *   POST   /api/admin/quality/issues                raise a QA issue from the case (new)
  */
 import * as React from "react";
 import { Plus, Search } from "lucide-react";
@@ -30,6 +32,7 @@ import { CaseDetailsPanel } from "./case-details-panel";
 import { CaseNewDialog } from "./case-new-dialog";
 import { CaseStatusDialog, type StatusDialogRequest } from "./case-status-dialog";
 import { CaseBulk } from "./case-bulk";
+import { CaseRaiseQaDialog } from "./case-raise-qa-dialog";
 import { defaultDraft, type ComposerDraft } from "./case-composer";
 import { listQueryString, useCaseListState } from "./case-url-state";
 import { useCaseList } from "./use-case-list";
@@ -66,6 +69,7 @@ export function CasesWorkspace() {
   const [newOpen, setNewOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [detailsSheet, setDetailsSheet] = React.useState(false);
+  const [raiseQaOpen, setRaiseQaOpen] = React.useState(false);
   const titleRef = React.useRef<HTMLInputElement>(null);
 
   // A different filter set starts a fresh selection.
@@ -79,8 +83,17 @@ export function CasesWorkspace() {
     // Only on arrival.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // A new case closes the previous case's sheet.
-  React.useEffect(() => setDetailsSheet(false), [openId]);
+  // A new case closes the previous case's sheet and next-step dialog.
+  React.useEffect(() => {
+    setDetailsSheet(false);
+    setRaiseQaOpen(false);
+  }, [openId]);
+
+  /** Manual Refresh: re-read the list and counts (aborting an older read) and the open case. */
+  function refreshAll() {
+    list.reload();
+    detail.refresh();
+  }
 
   const open = detail.detail;
   const draft = open ? drafts[open.id] ?? defaultDraft(open) : null;
@@ -139,6 +152,7 @@ export function CasesWorkspace() {
       saving={mutations.savingId === open.id}
       onSave={saveFromDetails}
       titleRef={titleRef}
+      onRaiseQaIssue={() => setRaiseQaOpen(true)}
     />
   ) : null;
 
@@ -241,6 +255,7 @@ export function CasesWorkspace() {
           onFilters={(patch) => update({ filters: { ...state.filters, ...patch } })}
           onPage={(page) => update({ page })}
           onRetry={list.reload}
+          onRefresh={refreshAll}
         />
         <div className={openId ? "flex min-w-0 flex-1 flex-col" : "hidden min-w-0 flex-1 flex-col lg:flex"}>
           {conversation ?? (
@@ -276,6 +291,7 @@ export function CasesWorkspace() {
           if (ok) setPendingStatus(null);
         }}
       />
+      {open ? <CaseRaiseQaDialog open={raiseQaOpen} detail={open} onClose={() => setRaiseQaOpen(false)} onRaised={detail.refresh} /> : null}
       <CaseNewDialog
         open={newOpen}
         onClose={() => setNewOpen(false)}

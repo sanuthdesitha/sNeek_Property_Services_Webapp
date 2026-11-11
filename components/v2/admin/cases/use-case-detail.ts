@@ -22,6 +22,12 @@ export type CaseDetailData = {
   /** Put a case returned by a mutation in place, if it is still the open one. */
   accept: (detail: CaseDetail) => void;
   reload: () => void;
+  /**
+   * Re-read the open case in the background (manual Refresh, after a next
+   * step): the current case stays on screen, an obsolete refresh is aborted
+   * and a late answer for another case is ignored.
+   */
+  refresh: () => void;
 };
 
 export function useCaseDetail(caseId: string | null): CaseDetailData {
@@ -84,5 +90,36 @@ export function useCaseDetail(caseId: string | null): CaseDetailData {
     if (next.id === currentId.current) setDetail(next);
   }, []);
 
-  return { detail, linked, linkedStatus, status, error, accept, reload: () => setNonce((n) => n + 1) };
+  const refreshController = React.useRef<AbortController | null>(null);
+  React.useEffect(() => () => refreshController.current?.abort(), [caseId]);
+  const refresh = React.useCallback(() => {
+    const id = currentId.current;
+    if (!id) return;
+    refreshController.current?.abort();
+    const controller = new AbortController();
+    refreshController.current = controller;
+    const stale = () => controller.signal.aborted || currentId.current !== id;
+    void (async () => {
+      try {
+        const [caseResponse, linkedResponse] = await Promise.all([
+          fetch(`/api/admin/cases/${encodeURIComponent(id)}`, { cache: "no-store", signal: controller.signal }),
+          fetch(`/api/admin/cases/${encodeURIComponent(id)}/linked`, { cache: "no-store", signal: controller.signal }),
+        ]);
+        const [caseBody, linkedBody] = await Promise.all([readJson<CaseDetail>(caseResponse), readJson<CaseLinkedContext>(linkedResponse)]);
+        if (stale()) return;
+        if (caseResponse.ok && caseBody.id === id) {
+          setDetail(caseBody);
+          setStatus("success");
+        }
+        if (linkedResponse.ok) {
+          setLinked(linkedBody);
+          setLinkedStatus("success");
+        }
+      } catch {
+        // A failed background refresh keeps what is on screen; the list says when it could not refresh.
+      }
+    })();
+  }, []);
+
+  return { detail, linked, linkedStatus, status, error, accept, reload: () => setNonce((n) => n + 1), refresh };
 }

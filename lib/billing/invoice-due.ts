@@ -1,6 +1,7 @@
 /**
  * The due day of a client invoice: created + payment terms, read as a calendar
- * day in the organisation timezone. The list, the overdue filter, the editor
+ * day in the organisation timezone. The terms come from effectivePaymentTermsDays
+ * (invoice snapshot, else the client's terms, else the organisation default). The list, the overdue filter, the editor
  * and the PDF all use this one function, so the day a client reads on the
  * document is the day the office sees as due.
  *
@@ -18,6 +19,34 @@ export function paymentTermsDaysFrom(configured: unknown): number {
   return typeof configured === "number" && Number.isFinite(configured) && configured >= 0
     ? configured
     : FALLBACK_PAYMENT_TERMS_DAYS;
+}
+
+/** Bounds for a client's own payment terms (Client.paymentTermsDays). */
+export const CLIENT_PAYMENT_TERMS_MIN_DAYS = 0;
+export const CLIENT_PAYMENT_TERMS_MAX_DAYS = 120;
+
+/** A stored per-client or per-invoice terms value, or null when unset/invalid. */
+function storedTerms(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+export type InvoiceTermsFacts = {
+  /** Snapshot taken when the invoice was first sent (or otherwise issued). */
+  invoiceTermsDays?: number | null;
+  /** The client's own terms; null means "organisation default". */
+  clientTermsDays?: number | null;
+  /** `settings.invoicing.defaultPaymentTermsDays`, already read through paymentTermsDaysFrom. */
+  organisationDefaultDays: number;
+};
+
+/**
+ * THE payment-terms rule. An issued invoice keeps the terms snapshotted when it
+ * was first sent, so changing a client's terms never moves the due date of a
+ * document the client already has. A draft or approved invoice uses the live
+ * value: the client's terms, else the organisation default.
+ */
+export function effectivePaymentTermsDays(facts: InvoiceTermsFacts): number {
+  return storedTerms(facts.invoiceTermsDays) ?? storedTerms(facts.clientTermsDays) ?? facts.organisationDefaultDays;
 }
 
 /** The due day as yyyy-MM-dd in the organisation timezone. */

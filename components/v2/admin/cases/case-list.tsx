@@ -6,6 +6,7 @@
  * type, state flags (client replied, unowned, waiting on client) and owner.
  */
 import * as React from "react";
+import { RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EPill } from "@/components/v2/ui/pill";
 import { EPagination } from "@/components/v2/ui/pagination";
@@ -48,6 +49,8 @@ type Props = {
   onFilters: (patch: Partial<CaseListFilters>) => void;
   onPage: (page: number) => void;
   onRetry: () => void;
+  /** Manual Refresh (restored from the old screen): list, counts and the open case. */
+  onRefresh?: () => void;
   className?: string;
 };
 
@@ -128,6 +131,17 @@ export function CaseList(props: Props) {
           Select
         </label>
         <div className="flex items-center gap-1.5">
+          {props.onRefresh ? (
+            <button
+              type="button"
+              onClick={props.onRefresh}
+              aria-busy={status === "loading"}
+              className="inline-flex h-7 items-center gap-1 rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]"
+            >
+              <RefreshCw aria-hidden className={cn("h-3.5 w-3.5", status === "loading" && "animate-spin motion-reduce:animate-none")} />
+              {status === "loading" ? "Refreshing…" : "Refresh"}
+            </button>
+          ) : null}
           <ListFilters filters={props.filters} assignees={props.assignees} onFilters={props.onFilters} />
           <label htmlFor={sortId} className="sr-only">Sort cases</label>
           <select

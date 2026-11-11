@@ -4,7 +4,8 @@
  * Details column: every field the old case form edited (owner, priority, type,
  * status, client can see / reply, title, description, resolution note), then
  * "Linked, filled in automatically" (read-only, derived on the server from the
- * linked job) and "Next steps" (links to existing destinations only).
+ * linked job) and "Next steps" (links to existing destinations, plus "Raise QA
+ * issue for cleaner" when the linked job has an assigned cleaner).
  *
  * The form is a draft: nothing saves until "Save changes"; a status change goes
  * through the required status-note dialog. The fieldset is frozen while saving.
@@ -84,6 +85,8 @@ type Props = {
   saving: boolean;
   onSave: (patch: CasePatch) => void;
   titleRef?: React.Ref<HTMLInputElement>;
+  /** Opens "Raise QA issue for cleaner"; shown only when the linked job has an assigned cleaner. */
+  onRaiseQaIssue?: () => void;
 };
 
 function LinkedFacts({ linked, status }: { linked: CaseLinkedContext | null; status: CaseDetailStatus }) {
@@ -111,7 +114,8 @@ function LinkedFacts({ linked, status }: { linked: CaseLinkedContext | null; sta
   );
 }
 
-export function CaseDetailsPanel({ detail, linked, linkedStatus, assignees, viewer, saving, onSave, titleRef }: Props) {
+export function CaseDetailsPanel({ detail, linked, linkedStatus, assignees, viewer, saving, onSave, titleRef, onRaiseQaIssue }: Props) {
+  const canRaiseQa = Boolean(onRaiseQaIssue && linked?.job && linked.cleaners.length > 0);
   const [draft, setDraft] = React.useState<FormDraft>(() => draftFrom(detail));
   const patch = changedFields(detail, draft);
   const dirty = Object.keys(patch).length > 0;
@@ -173,6 +177,7 @@ export function CaseDetailsPanel({ detail, linked, linkedStatus, assignees, view
       <div className="h-px bg-[hsl(var(--e-border))]" />
       <p className="e-eyebrow">Next steps</p>
       <div className="flex flex-col items-start gap-1.5">
+        {canRaiseQa ? <EButton size="sm" variant="outline" onClick={onRaiseQaIssue}>Raise QA issue for cleaner</EButton> : null}
         <EButton asChild size="sm" variant="outline"><Link href={linked?.nextSteps.repairQuoteHref ?? "/v2/admin/quotes/new"}>Create repair quote</Link></EButton>
         <EButton asChild size="sm" variant="outline">
           <Link href={linked?.nextSteps.clientDraftInvoicesHref ?? linked?.nextSteps.newInvoiceHref ?? "/v2/admin/finance?tab=invoices&new=jobs"}>Add charge to invoice</Link>

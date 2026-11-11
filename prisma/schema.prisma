@@ -972,6 +972,9 @@ model Client {
   isActive                  Boolean   @default(true)
   xeroContactId             String?
   xeroSyncedAt              DateTime?
+  /// The client's own payment terms in days (0–120). Null = the organisation
+  /// default (settings.invoicing.defaultPaymentTermsDays).
+  paymentTermsDays          Int?
   latitude                  Float?
   longitude                 Float?
   placeId                   String?
@@ -3444,6 +3447,14 @@ model ClientInvoice {
   clientReference       String?             @db.VarChar(100)
   /// A note to the client printed on the PDF. Not the internal metadata.notes.
   clientNote            String?             @db.Text
+  /// Payment terms (days) snapshotted when the invoice was first issued (sent,
+  /// paid or voided), so a later change to the client's terms never moves the
+  /// due date of a document the client already has. Null while DRAFT/APPROVED:
+  /// those use the live value (client terms, else the organisation default).
+  paymentTermsDays      Int?
+  /// Set while approved/sent credit notes cover this invoice's whole total. A
+  /// fully credited invoice no longer bills its jobs (lib/invoicing/invoiced-job-rule).
+  creditedInFullAt      DateTime?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 

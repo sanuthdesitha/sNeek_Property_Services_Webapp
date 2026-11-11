@@ -16,6 +16,8 @@ import {
 } from "@/lib/finance/invoice-transitions";
 import { calculateShoppingAwareInvoiceTotals } from "@/lib/billing/shopping-client-charges";
 import { creditedAmountOf } from "@/lib/finance/receivables";
+import { creditNoteVoidRebillRefusal, refreshCreditCoverage, returnInvoicedJobsToBillable } from "./invoice-job-release";
+import { termsSnapshotFor } from "./invoice-terms";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { assertStartedWorkReviewed, readStartedWorkReview } from "@/lib/billing/started-work-reconciliation";
@@ -416,7 +418,9 @@ async function patchLockedInvoice(
       // settled so the paid figure is never left blank.
       if (existing.paidAmount == null) statusData.paidAmount = existing.totalAmount;
     }
-    if (body.status === ClientInvoiceStatus.SENT && existing.status !== ClientInvoiceStatus.SENT) {
+    // sentAt is the FIRST time the invoice was sent ("Invoiced this month" and
+    // the issued record read it); it is never restamped.
+    if (body.status === ClientInvoiceStatus.SENT && existing.status !== ClientInvoiceStatus.SENT && !existing.sentAt) {
       statusData.sentAt = new Date();
     }
     // A forced move OUT of a paid state must not leave the invoice reading as
@@ -561,12 +565,19 @@ async function patchLockedInvoice(
       effectiveStatus === ClientInvoiceStatus.VOID &&
       existing.status !== ClientInvoiceStatus.VOID;
     let released: { shoppingSettlements: number; maintenanceAssignments: number } | null = null;
+    if (voiding && existing.kind === "CREDIT_NOTE") {
+      const rebill = await creditNoteVoidRebillRefusal(db, existing);
+      if (rebill) return actionResult({ error: rebill }, 409);
+    }
+    const statusChanges = Boolean(effectiveStatus) && effectiveStatus !== existing.status;
+    // Issued documents keep the payment terms they were issued with.
+    const termsSnapshot = statusChanges ? await termsSnapshotFor(db, existing, effectiveStatus) : undefined;
 
     const updated = await db.$transaction(async (tx) => {
       if (voiding) {
         released = await releaseInvoiceConsumables(tx, params.id);
       }
-      return tx.clientInvoice.update({
+      const row = await tx.clientInvoice.update({
       where: { id: params.id },
       data: {
         ...(effectiveStatus ? { status: effectiveStatus } : {}),
@@ -576,11 +587,27 @@ async function patchLockedInvoice(
         ...(body.gstEnabled !== undefined ? { gstEnabled } : {}),
         ...(body.clientReference !== undefined ? { clientReference: body.clientReference || null } : {}),
         ...(body.clientNote !== undefined ? { clientNote: body.clientNote || null } : {}),
+        ...(termsSnapshot !== undefined ? { paymentTermsDays: termsSnapshot } : {}),
         subtotal,
         gstAmount,
         totalAmount,
       },
       });
+      // One invoiced rule: a voided invoice stops billing its jobs, and a credit
+      // note that now fully covers (or no longer covers) its invoice changes
+      // whether that invoice bills its jobs.
+      if (voiding && existing.kind === "INVOICE") {
+        await returnInvoicedJobsToBillable(tx, {
+          invoiceId: params.id,
+          invoiceNumber: existing.invoiceNumber,
+          reason: "voided",
+          actorId: session.user.id,
+        });
+      }
+      if (statusChanges && existing.kind === "CREDIT_NOTE" && existing.creditsInvoiceId) {
+        await refreshCreditCoverage(tx, { invoiceId: existing.creditsInvoiceId, actorId: session.user.id });
+      }
+      return row;
     });
 
     // RECEIPT TO THE CLIENT. Recording a payment sent nothing at all before, so

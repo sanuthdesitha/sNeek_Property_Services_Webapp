@@ -9,6 +9,7 @@ import { STAFF_MESSAGE_ROLES } from "./recipient-scopes";
 import { getNotificationTypeControls, typeRespectsPreferences } from "./type-controls";
 import { formatInTimeZone } from "date-fns-tz";
 import { getAppSettings } from "@/lib/settings";
+import { NUDGE_COOL_DOWN_MINUTES, NUDGE_LABELS } from "@/lib/laundry/nudge-rules";
 
 /**
  * Office-initiated messages the other redesign steps had to leave out because
@@ -97,13 +98,9 @@ export const laundryNudgeSchema = z.object({
   idempotencyKey: keySchema,
 }).strict();
 
-const NUDGE_TEXT: Record<z.infer<typeof laundryNudgeSchema>["kind"], string> = {
-  ASK_CLEANER: "The office needs an update from you about the laundry for this job.",
-  REQUEST_PHOTO: "The office asks for a photo of the laundry for this job.",
-};
 
-/** One nudge of a kind per laundry run within this many minutes. */
-export const LAUNDRY_NUDGE_COOL_DOWN_MINUTES = 30;
+/** One nudge of a kind per laundry run within this many minutes (shared with the Laundry screen). */
+export const LAUNDRY_NUDGE_COOL_DOWN_MINUTES = NUDGE_COOL_DOWN_MINUTES;
 
 async function organisationTimeZone(): Promise<string> {
   return (await getAppSettings().catch(() => null))?.timezone || "Australia/Sydney";
@@ -146,7 +143,7 @@ export async function sendLaundryCleanerNudge(actorId: string, input: unknown): 
   const controls = await getNotificationTypeControls();
   const requestId = request.idempotencyKey ?? randomUUID();
   const place = task.job.property?.name ?? "the property";
-  const body = `${NUDGE_TEXT[request.kind]} (${place}, ${task.job.jobNumber ?? task.jobId})${request.note ? ` Note: ${request.note}` : ""}`;
+  const body = `${NUDGE_LABELS[request.kind].text} (${place}, ${task.job.jobNumber ?? task.jobId})${request.note ? ` Note: ${request.note}` : ""}`;
   const outcomes = await sendOfficeNotification({
     typeKey, eventKey: typeKey, eventId: `laundry-nudge:${task.id}:${request.kind}:${requestId}`,
     entity: { type: "LaundryTask", id: task.id }, actorId,

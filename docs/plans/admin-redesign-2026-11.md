@@ -384,3 +384,39 @@ The owner wants the three places where Urgent stock differs from the rendered de
 4. **Tab names as drawn**: Urgent needs, Levels by property, Shopping runs, Stock counts, Catalogue. Every existing tab keeps working under the nearest drawn name or stays as an extra tab, and every old `?tab=` link still opens the same content.
 
 Needs a database change (job on a need; link from a need to a shopping run), so it starts when the Finance decisions step, which holds the database now, has finished.
+
+## Owner decision, sixth set (2026-11-11): close every difference from the designs
+
+The owner wants every place where a built page differs from its rendered design to be made real, building the missing feature from scratch where needed. This is the "design completion" backlog. Honesty rules still apply to how each is built: a number shown must be a real aggregate, a state shown must be a real state, and nothing is reported as done that was only requested.
+
+Waves (one wave holds the database at a time):
+
+### Wave A: Jobs and Calendar (no database change)
+- Jobs: sortable Cleaner, Guest in and Charge columns (server-side, by a stored or computed sort key that is honest); live counts on the owner's saved-view tabs; suggested cleaners gain travel distance (from stored property and cleaner locations with an existing or new distance function, shown only when both locations are known) and recent QA score; bulk Reschedule with a server check per job; "Import or bulk create" as its own entry; day group rows as "Thursday 12 November"; Unassigned shown in the danger colour as drawn.
+- Calendar: drag on touch devices (press-and-hold so scrolling still works); a drop in Day view can change the time as well as the cleaner; view and date survive a page refresh on the Calendar.
+
+### Wave B: Forms library and builder (no database change)
+- Library: Compare view (two or more forms side by side, differences highlighted); Import (a form from an exported file, as a draft, validated) and Export; sortable Avg time and Completion (computed for the whole filtered set); the "never answered" warning inside Checks.
+- Builder: "Table" question type and "Stock count" question type, each end to end (builder, phone, server, tests); question effects "raises an urgent stock need below N" (Stock count) and "Yes opens a damage report" (Yes/No), running through the existing urgent stock and damage services when the form is submitted; a "Monthly" option under How often; rename the form inline in the header.
+
+### Wave C: Quality and Insights (no database change)
+- Quality: "Propose bonus" by hand from a cleaner's row (a pending bonus adjustment needing the existing approval), alongside the automatic nightly proposals; severity shown as Low / Medium / High; a row may show both the coaching and the bonus action.
+- Insights: the overrun finding states the money effect per clean; sorting the five-row preview in place.
+
+### Wave D: Money (holds the database)
+- List: "Ready to bill" with a dollar total and "Create N drafts" for every client with unbilled work in one action; "N missing rates" on the Drafts card; Xero column distinguishes Synced, Push pending and Push failed (failure recorded when a push fails); "On send" in the Due column for unsent invoices; bulk "Download PDFs" (one archive); Owing sortable.
+- Editor: editable Bill to, Period and Due on a draft; "Add finished jobs" to an existing draft; send options "Include payment link" and "Push to Xero when sent"; autosave with a stale-write guard and a "saved N seconds ago" indicator; the add-line box offers unbilled jobs and saved items; Xero card shows the account name; all four "Before you approve" checks enforced on the server (rates present, not on another invoice, totals match, started work reviewed), each shown as OK or blocking.
+
+### Wave E: People, cases, laundry, command (holds the database after Wave D)
+- Accounts: pay rate with an "Applies from" date (effective-dated rates; amounts already paid never change); a required-documents list per role so Documents can honestly say "Complete"; "Last seen" recorded for every signed-in person, not only the field apps; one Pay editor.
+- Jobs: a real "Cancel job" with a Cancelled status, its rules (who, when, what happens to the assignment, laundry run, invoice line and client notice) and history.
+- Calendar: leave and days off as real records ("Day off", "Leave"), respected by suggestions and move checks.
+- Cases: "Create repair quote" pre-filled from the case; "Add charge to invoice" creating a real pending client charge linked to the case, on the client's draft invoice after approval.
+- Laundry: pickup and drop times recorded and shown on cards; "Chase supplier" using the supplier's stored contact.
+- Command: inline "Send reminder" for an expiring document.
+- Lost and found: Property column sortable; "Tell client" with a real send path.
+
+### Wave F: Urgent stock (holds the database after Wave E)
+- The fifth-set items: "Add to shopping run", "Ask cleaner to buy", the job on a need, and the drawn tab names.
+
+Items in these waves that change a business rule, money, or who can do what are built because the owner asked for the design to be made real; each is listed in the final summary with exactly what rule was added.
