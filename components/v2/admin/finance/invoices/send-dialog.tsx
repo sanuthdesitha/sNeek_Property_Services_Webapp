@@ -16,15 +16,18 @@ import { pdfHref, sendInvoiceRequest } from "./invoice-requests";
 export function SendInvoiceDialog({
   invoice,
   resend,
+  initialTo,
   onClose,
   onDone,
 }: {
   invoice: InvoiceRow;
   resend: boolean;
+  /** Recipient typed on the editor page's Send card; defaults to the client email. */
+  initialTo?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [email, setEmail] = useState(invoice.client.email ?? "");
+  const [email, setEmail] = useState(initialTo ?? invoice.client.email ?? "");
   const [reviewed, setReviewed] = useState(false);
   const [sending, setSending] = useState(false);
 

@@ -5,6 +5,7 @@
  * one action per row, the bulk bar, and the dialogs each action opens.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
 import { ECard } from "@/components/v2/ui/primitives";
 import { EDataTable } from "@/components/v2/ui/data-table";
@@ -17,8 +18,16 @@ import { InvoiceRowActions } from "./invoice-row-actions";
 import { InvoiceBulkBar } from "./invoice-bulk";
 import { InvoiceDialogs, type InvoiceDialog } from "./invoice-dialogs";
 import type { InvoiceActionKey, InvoiceFormContext, InvoiceRow } from "./invoice-model";
-import { patchInvoice, pushInvoiceToXeroRequest } from "./invoice-requests";
-import { filterSignature, listApiQuery, useInvoiceListData, useInvoiceListState, INVOICE_PAGE_SIZE } from "./use-invoice-list";
+import { isDirectInvoiceAction, runDirectInvoiceAction } from "./invoice-direct-actions";
+import { invoiceEditorHref } from "./invoice-links";
+import {
+  filterSignature,
+  listApiQuery,
+  useInvoiceListData,
+  useInvoiceListState,
+  writeListState,
+  INVOICE_PAGE_SIZE,
+} from "./use-invoice-list";
 
 /** Opens the generator when the page is reached through "New invoice → From finished jobs". */
 const NEW_INVOICE_PARAM = "new";
@@ -40,6 +49,7 @@ function useFormContext(): InvoiceFormContext | null {
 }
 
 export function InvoiceList() {
+  const router = useRouter();
   const [state, update] = useInvoiceListState();
   const { payload, loading, error, reload } = useInvoiceListData(state);
   const context = useFormContext();
@@ -93,38 +103,23 @@ export function InvoiceList() {
     [],
   );
 
+  // The editor page remembers this view so its back link returns here.
+  const listQuery = writeListState(new URLSearchParams(), state).toString();
+  const editHref = useCallback((invoice: InvoiceRow) => invoiceEditorHref(invoice.id, listQuery), [listQuery]);
+
   const onAction = useCallback(
     (key: InvoiceActionKey, invoice: InvoiceRow) => {
+      if (isDirectInvoiceAction(key)) {
+        void runDirect(invoice, async () => {
+          const outcome = await runDirectInvoiceAction(key, invoice.id);
+          toast({ title: outcome.title, description: outcome.description, variant: outcome.ok ? undefined : "destructive" });
+          if (outcome.ok) refresh();
+        });
+        return;
+      }
       switch (key) {
-        case "approve":
-          void runDirect(invoice, async () => {
-            const result = await patchInvoice(invoice.id, { status: "APPROVED" });
-            if (!result.ok) {
-              toast({ title: "Failed", description: result.body.error, variant: "destructive" });
-              return;
-            }
-            toast({ title: "Invoice approved" });
-            refresh();
-          });
-          return;
-        case "xero-push":
-        case "xero-retry":
-          void runDirect(invoice, async () => {
-            const result = await pushInvoiceToXeroRequest(invoice.id);
-            if (!result.ok) {
-              toast({ title: "Xero export failed", description: result.body.error, variant: "destructive" });
-              return;
-            }
-            toast(
-              result.body.alreadyPushed
-                ? { title: "Already in Xero", description: "Nothing new was pushed." }
-                : { title: "Sent to Xero", description: "Created a draft invoice in Xero." },
-            );
-            refresh();
-          });
-          return;
         case "edit":
-          setDialog({ kind: "edit", invoice });
+          router.push(editHref(invoice));
           return;
         case "send":
         case "resend":
@@ -143,7 +138,7 @@ export function InvoiceList() {
           return;
       }
     },
-    [refresh, runDirect],
+    [refresh, runDirect, router, editHref],
   );
 
   const columns = useMemo(
@@ -151,11 +146,18 @@ export function InvoiceList() {
       invoiceColumns({
         today: payload?.today ?? new Date().toISOString().slice(0, 10),
         termsDays: payload?.paymentTermsDays ?? 14,
+        invoiceHref: editHref,
         renderActions: (invoice) => (
-          <InvoiceRowActions invoice={invoice} busy={busyId === invoice.id} disabled={bulkRunning} onAction={onAction} />
+          <InvoiceRowActions
+            invoice={invoice}
+            busy={busyId === invoice.id}
+            disabled={bulkRunning}
+            editHref={editHref(invoice)}
+            onAction={onAction}
+          />
         ),
       }),
-    [payload?.today, payload?.paymentTermsDays, busyId, bulkRunning, onAction],
+    [payload?.today, payload?.paymentTermsDays, busyId, bulkRunning, onAction, editHref],
   );
 
   function onBulkFinished(response: ClientInvoiceBulkResponse) {

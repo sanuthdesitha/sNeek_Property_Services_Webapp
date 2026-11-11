@@ -19,6 +19,14 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { assertStartedWorkReviewed, readStartedWorkReview } from "@/lib/billing/started-work-reconciliation";
 import { actionResult, type InvoiceActionResult, type InvoiceActor } from "./invoice-action-result";
+import {
+  PAYMENT_EVIDENCE_REFUSAL,
+  XERO_ISSUED_REFUSAL,
+  XERO_RESERVATION_REFUSAL,
+  hasPaymentEvidence,
+  isShoppingLockedLine,
+  isXeroExportPending,
+} from "./client-invoice-guards";
 
 const lineUpdateSchema = z.object({
   id: z.string().cuid(),
@@ -140,24 +148,23 @@ async function patchLockedInvoice(
       include: { lines: true },
     });
     if (!existing) return actionResult({ error: "Invoice not found." }, 404);
-    const protectedShoppingLine = (id: string) => existing.lines.find(line => line.id === id && (line.shoppingClientChargeId || line.shoppingRunId));
+    const protectedShoppingLine = (id: string) => existing.lines.find(line => line.id === id && isShoppingLockedLine(line));
     if ((body.removeLineId && protectedShoppingLine(body.removeLineId)) || body.updateLines?.some(line => protectedShoppingLine(line.id) && (line.quantity !== undefined || line.unitPrice !== undefined || line.propertyId !== undefined))) {
       return actionResult({ error: "Shopping allocations are locked to their reviewed amounts. Void this invoice and review the shopping charge before generating its replacement." }, 409);
     }
     if (body.addLine?.category.startsWith("SHOPPING_")) return actionResult({ error: "Add shopping charges through the shopping run review so expenses and time are tracked once." }, 400);
 
-    const exportState = (existing.metadata as Record<string, unknown> | null)?.xeroExportState;
-    if (exportState === "PENDING") return actionResult({ error: "Xero export is reserved or awaiting reconciliation. Retry the existing export before editing." }, 409);
+    if (isXeroExportPending(existing.metadata)) return actionResult({ error: XERO_RESERVATION_REFUSAL }, 409);
     const editsContent = Boolean(body.updateLines?.length || body.addLine || body.removeLineId || body.reorderLineIds?.length || body.gstEnabled !== undefined);
     if (body.status === "APPROVED" || body.status === "SENT" || body.status === "PAID" || body.status === "PART_PAID" || body.recordPayment) {
       if (editsContent && readStartedWorkReview(existing.metadata)) throw new Error("Save and review draft edits before performing a financial action.");
       await assertStartedWorkReviewed(existing, db, body.status === "APPROVED" && !body.recordPayment);
     }
     if (existing.xeroInvoiceId && (editsContent || body.reverse || body.status === "VOID" || body.forceStatus)) {
-      return actionResult({ error: "This invoice is in Xero. Reconcile a correction there before altering the issued document." }, 409);
+      return actionResult({ error: XERO_ISSUED_REFUSAL }, 409);
     }
-    if ((existing.paidAt || Number(existing.paidAmount ?? 0) > 0) && (editsContent || body.reverse || body.forceStatus || body.status === "VOID")) {
-      return actionResult({ error: "This invoice has payment evidence. Use a reconciled correction; its payment history cannot be cleared." }, 409);
+    if (hasPaymentEvidence(existing) && (editsContent || body.reverse || body.forceStatus || body.status === "VOID")) {
+      return actionResult({ error: PAYMENT_EVIDENCE_REFUSAL }, 409);
     }
 
     if (body.forceStatus && body.status && !canTransitionInvoice(existing.status, body.status)) {

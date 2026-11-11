@@ -4,13 +4,14 @@
  * Table columns for the client-invoice list, in the concept's order:
  * Invoice, Client, Period, Due, Total, Owing, Status, Xero, action + menu.
  */
+import Link from "next/link";
 import { format } from "date-fns";
 import type { EDataColumn } from "@/components/v2/ui/data-table";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import type { ClientInvoiceSort } from "@/lib/billing/client-invoice-list-types";
 import { STATUS_LABEL, fmtDate, fmtDay, money, type InvoiceRow, type InvoiceStatus } from "./invoice-model";
 
-const STATUS_PILL: Record<InvoiceStatus, EPillTone> = {
+export const STATUS_PILL: Record<InvoiceStatus, EPillTone> = {
   DRAFT: "neutral",
   APPROVED: "info",
   SENT: "gold",
@@ -65,6 +66,8 @@ function XeroCell({ invoice }: { invoice: InvoiceRow }) {
 export function invoiceColumns(input: {
   today: string;
   termsDays: number;
+  /** The invoice's editor page; the number becomes a link to it. */
+  invoiceHref?: (invoice: InvoiceRow) => string;
   renderActions: (invoice: InvoiceRow) => React.ReactNode;
 }): Array<EDataColumn<InvoiceRow, ClientInvoiceSort>> {
   return [
@@ -72,7 +75,17 @@ export function invoiceColumns(input: {
       key: "number",
       header: "Invoice",
       sortKey: "number",
-      cell: (row) => <span className="font-mono text-[0.75rem] text-[hsl(var(--e-foreground))]">{row.invoiceNumber}</span>,
+      cell: (row) =>
+        input.invoiceHref ? (
+          <Link
+            href={input.invoiceHref(row)}
+            className="font-mono text-[0.75rem] text-[hsl(var(--e-primary))] underline-offset-2 hover:underline"
+          >
+            {row.invoiceNumber}
+          </Link>
+        ) : (
+          <span className="font-mono text-[0.75rem] text-[hsl(var(--e-foreground))]">{row.invoiceNumber}</span>
+        ),
     },
     {
       key: "client",

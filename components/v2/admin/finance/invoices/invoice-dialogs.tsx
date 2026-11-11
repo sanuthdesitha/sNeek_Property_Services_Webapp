@@ -3,21 +3,21 @@
 /**
  * Which dialog is open, as one value, and the switch that renders it. Each
  * dialog keeps its own form state and is keyed by invoice, so opening another
- * invoice never shows the previous one's draft.
+ * invoice never shows the previous one's draft. The line editor is a page
+ * (/v2/admin/finance/invoices/[id]), not a dialog.
  */
 import type { InvoiceFormContext, InvoiceRow } from "./invoice-model";
 import { SendInvoiceDialog } from "./send-dialog";
 import { MarkPaidDialog, ReceiptDialog, RecordPaymentDialog } from "./payment-dialogs";
 import { DeleteInvoiceDialog, ReconcileInvoiceDialog, ReverseInvoiceDialog, VoidInvoiceDialog } from "./correction-dialogs";
 import { GenerateInvoiceDialog } from "./generate-invoice-dialog";
-import { InvoiceEditorDialog } from "./invoice-editor";
 
 export type InvoiceDialog =
   | null
   | { kind: "generate" }
-  | { kind: "send"; invoice: InvoiceRow; resend: boolean }
+  | { kind: "send"; invoice: InvoiceRow; resend: boolean; to?: string }
   | {
-      kind: "edit" | "record-payment" | "mark-paid" | "receipt" | "void" | "reverse" | "reconcile" | "delete";
+      kind: "record-payment" | "mark-paid" | "receipt" | "void" | "reverse" | "reconcile" | "delete";
       invoice: InvoiceRow;
     };
 
@@ -40,17 +40,7 @@ export function InvoiceDialogs({
   const props = { invoice: dialog.invoice, onClose, onDone };
   switch (dialog.kind) {
     case "send":
-      return <SendInvoiceDialog key={key} {...props} resend={dialog.resend} />;
-    case "edit":
-      return (
-        <InvoiceEditorDialog
-          key={key}
-          invoice={dialog.invoice}
-          properties={context?.properties ?? []}
-          onClose={onClose}
-          onChanged={onDone}
-        />
-      );
+      return <SendInvoiceDialog key={key} {...props} resend={dialog.resend} initialTo={dialog.to} />;
     case "record-payment":
       return <RecordPaymentDialog key={key} {...props} />;
     case "mark-paid":

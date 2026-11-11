@@ -66,16 +66,37 @@ export async function inspectStartedWorkReview(invoice: Invoice, tx: Prisma.Tran
   }
 }
 
-/** Manual financial actions must follow a current, explicit office review. */
-export async function assertStartedWorkReviewed(invoice: Invoice, tx: Prisma.TransactionClient, allowDraftApproval = false) {
+/**
+ * Why a manual financial action would be refused by the started-work review, or
+ * null when it would pass. `assertStartedWorkReviewed` throws exactly this
+ * reason; the editor's "Before you approve" checklist reads it without the job
+ * row locks (`lockJobs: false`). Errors from reading current job data are
+ * thrown, as they always were, so a caller that cannot read the evidence
+ * refuses rather than passes.
+ */
+export async function startedWorkRefusal(
+  invoice: Invoice,
+  tx: Prisma.TransactionClient,
+  allowDraftApproval = false,
+  options: { lockJobs?: boolean } = {},
+): Promise<string | null> {
   const review = readStartedWorkReview(invoice.metadata);
-  if (!review) return;
-  if (review.required) throw new Error("This draft contains provisional started-work pricing. Reconcile and confirm the office review before approving, sending, recording payment or exporting.");
+  if (!review) return null;
+  if (review.required) return "This draft contains provisional started-work pricing. Reconcile and confirm the office review before approving, sending, recording payment or exporting.";
   // An explicitly approved/issued snapshot remains collectible. Subsequent job
   // changes are shown as correction flags, never automatic financial changes.
-  if (invoice.status && invoice.status !== "DRAFT") return;
-  if (!allowDraftApproval) throw new Error("Approve the reviewed draft before sending, recording payment or exporting it.");
-  for (const id of Array.from(new Set(invoice.lines.flatMap(line => line.jobId ? [line.jobId] : []))).sort()) await tx.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${id} FOR UPDATE`;
+  if (invoice.status && invoice.status !== "DRAFT") return null;
+  if (!allowDraftApproval) return "Approve the reviewed draft before sending, recording payment or exporting it.";
+  if (options.lockJobs !== false) {
+    for (const id of Array.from(new Set(invoice.lines.flatMap(line => line.jobId ? [line.jobId] : []))).sort()) await tx.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${id} FOR UPDATE`;
+  }
   const state = await loadStartedWorkReview(invoice, tx);
-  if (state?.requiresReview) throw new Error("Job completion or billing changed after review. Reconcile the draft again; issued invoices require a manual correction.");
+  if (state?.requiresReview) return "Job completion or billing changed after review. Reconcile the draft again; issued invoices require a manual correction.";
+  return null;
+}
+
+/** Manual financial actions must follow a current, explicit office review. */
+export async function assertStartedWorkReviewed(invoice: Invoice, tx: Prisma.TransactionClient, allowDraftApproval = false) {
+  const reason = await startedWorkRefusal(invoice, tx, allowDraftApproval);
+  if (reason) throw new Error(reason);
 }

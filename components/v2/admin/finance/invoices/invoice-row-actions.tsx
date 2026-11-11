@@ -5,6 +5,7 @@
  * action in the "⋯" menu. Corrections (void, reverse, reconcile, delete) sit
  * apart at the end of the menu; each opens its own confirmation.
  */
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
@@ -23,11 +24,14 @@ export function InvoiceRowActions({
   invoice,
   busy,
   disabled,
+  editHref,
   onAction,
 }: {
   invoice: InvoiceRow;
   busy: boolean;
   disabled: boolean;
+  /** The editor page; "Review" / "Review and edit" become links to it. */
+  editHref?: string;
   onAction: (key: InvoiceActionKey, invoice: InvoiceRow) => void;
 }) {
   const { primary, secondary } = invoiceRowActions(invoice);
@@ -39,7 +43,11 @@ export function InvoiceRowActions({
       label: invoiceActionLabel(key, invoice),
       danger: key === "delete" || key === "void",
       separated: correction && !separated,
-      ...(key === "pdf" ? { href: pdfHref(invoice.id), newTab: true } : { onSelect: () => onAction(key, invoice) }),
+      ...(key === "pdf"
+        ? { href: pdfHref(invoice.id), newTab: true }
+        : key === "edit" && editHref
+          ? { href: editHref }
+          : { onSelect: () => onAction(key, invoice) }),
     };
     if (correction) separated = true;
     return item;
@@ -48,7 +56,13 @@ export function InvoiceRowActions({
   const primaryLabel = invoiceActionLabel(primary, invoice);
   return (
     <div className="flex items-center justify-end gap-1">
-      {primary === "pdf" ? (
+      {primary === "edit" && editHref && !(busy || disabled) ? (
+        <EButton asChild size="sm" variant="primary">
+          <Link href={editHref} aria-label={`${primaryLabel} ${invoice.invoiceNumber}`}>
+            {primaryLabel}
+          </Link>
+        </EButton>
+      ) : primary === "pdf" ? (
         <EButton asChild size="sm" variant="outline">
           <a href={pdfHref(invoice.id)} target="_blank" rel="noreferrer">
             {primaryLabel}

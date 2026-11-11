@@ -52,3 +52,13 @@ export function reconcileInvoiceRequest(
 export function pdfHref(id: string) {
   return `/api/admin/invoices/${id}/pdf?inline=1`;
 }
+
+/** The same PDF as an attachment download. */
+export function pdfDownloadHref(id: string) {
+  return `/api/admin/invoices/${id}/pdf`;
+}
+
+/** The editor page's read model (lines, checks, Xero, history). */
+export function getInvoiceEditor<TBody>(id: string, signal?: AbortSignal) {
+  return send<TBody>(`/api/admin/invoices/${encodeURIComponent(id)}?view=editor`, { signal, cache: "no-store" });
+}

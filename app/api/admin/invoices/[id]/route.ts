@@ -4,13 +4,22 @@ import { requireRole } from "@/lib/auth/session";
 import { getClientInvoice, releaseInvoiceConsumables } from "@/lib/billing/client-invoices";
 import { db } from "@/lib/db";
 import { patchClientInvoice } from "@/lib/billing/client-invoice-patch";
+import { loadClientInvoiceEditor } from "@/lib/billing/client-invoice-editor";
+import { canManageInvoices } from "@/lib/billing/client-invoice-access";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    // ?view=editor → the editor page's read model (lines, checks, Xero, history).
+    if (req.nextUrl.searchParams.get("view") === "editor") {
+      const canManage = await canManageInvoices(session.user, params.id);
+      const editor = await loadClientInvoiceEditor(params.id, { canManage });
+      if (!editor) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
+      return NextResponse.json(editor);
+    }
     const invoice = await getClientInvoice(params.id);
     if (!invoice) {
       return NextResponse.json({ error: "Invoice not found." }, { status: 404 });

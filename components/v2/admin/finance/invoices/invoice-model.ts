@@ -230,3 +230,38 @@ export function invoiceRowActions(inv: ActionFacts): { primary: InvoiceActionKey
 
 /** Destructive or correcting actions are drawn apart in the menu. */
 export const CORRECTION_ACTIONS: ReadonlySet<InvoiceActionKey> = new Set<InvoiceActionKey>(["void", "reverse", "reconcile", "delete"]);
+
+/* ── Editor page actions ───────────────────────────────────────────────── */
+
+/**
+ * The editor page's one primary action: the list's choice (same function),
+ * except that the list's "Review" opens this page, so on the page a draft
+ * leads with its next step, Approve. Null when the list's choice is the PDF,
+ * which the page already offers as "Preview PDF".
+ */
+export function editorPrimaryAction(inv: ActionFacts): InvoiceActionKey | null {
+  const primary = primaryInvoiceAction(inv);
+  if (primary === "edit") return "approve";
+  if (primary === "pdf") return null;
+  return primary;
+}
+
+/** Every other existing action for the page's "more" menu (no "edit": this is the editor). */
+export function editorMenuActions(inv: ActionFacts): InvoiceActionKey[] {
+  const primary = editorPrimaryAction(inv);
+  return availableInvoiceActions(inv).filter((key) => key !== primary && key !== "edit");
+}
+
+/** Actions that act on the stored invoice, so unsaved edits must be saved first. */
+export const ACTS_ON_SAVED_INVOICE: ReadonlySet<InvoiceActionKey> = new Set<InvoiceActionKey>([
+  "approve",
+  "send",
+  "resend",
+  "record-payment",
+  "mark-paid",
+  "xero-push",
+  "xero-retry",
+  "void",
+  "reverse",
+  "reconcile",
+]);

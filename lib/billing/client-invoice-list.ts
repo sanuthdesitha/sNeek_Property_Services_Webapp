@@ -84,14 +84,11 @@ export function startOfTodayIn(timezone: string, now: Date): Date {
   return fromZonedTime(`${formatInTimeZone(now, timezone, "yyyy-MM-dd")}T00:00:00`, timezone);
 }
 
-export async function loadListContext(now: Date): Promise<ListContext> {
-  const [settings, pending] = await Promise.all([
-    getAppSettings(),
-    db.clientInvoice.findMany({
-      where: { xeroInvoiceId: null, metadata: { path: ["xeroExportState"], equals: "PENDING" } },
-      select: { id: true },
-    }),
-  ]);
+type TermsContext = Omit<ListContext, "pendingXeroIds">;
+
+/** Timezone and payment terms, read from settings exactly as the PDF reads them. */
+async function loadTermsContext(now: Date): Promise<TermsContext> {
+  const settings = await getAppSettings();
   const timezone = settings.timezone || "Australia/Sydney";
   const configuredTerms = settings.invoicing?.defaultPaymentTermsDays;
   const paymentTermsDays = typeof configuredTerms === "number" ? configuredTerms : FALLBACK_PAYMENT_TERMS_DAYS;
@@ -99,8 +96,18 @@ export async function loadListContext(now: Date): Promise<ListContext> {
     timezone,
     paymentTermsDays,
     overdueCreatedBefore: new Date(startOfTodayIn(timezone, now).getTime() - paymentTermsDays * DAY_MS),
-    pendingXeroIds: pending.map((row) => row.id),
   };
+}
+
+export async function loadListContext(now: Date): Promise<ListContext> {
+  const [terms, pending] = await Promise.all([
+    loadTermsContext(now),
+    db.clientInvoice.findMany({
+      where: { xeroInvoiceId: null, metadata: { path: ["xeroExportState"], equals: "PENDING" } },
+      select: { id: true },
+    }),
+  ]);
+  return { ...terms, pendingXeroIds: pending.map((row) => row.id) };
 }
 
 function xeroWhere(filters: ClientInvoiceListFilters, context: ListContext): Prisma.ClientInvoiceWhereInput {
@@ -231,7 +238,7 @@ export function clientInvoiceXeroState(invoice: {
   return state === "PENDING" ? "PENDING" : "NONE";
 }
 
-function toRow(invoice: SelectedInvoice, context: ListContext): ClientInvoiceListRow {
+function toRow(invoice: SelectedInvoice, context: TermsContext): ClientInvoiceListRow {
   const dueAt = new Date(invoice.createdAt.getTime() + context.paymentTermsDays * DAY_MS);
   const outstanding = (OUTSTANDING_INVOICE_STATUSES as readonly string[]).includes(invoice.status);
   return {
@@ -312,6 +319,22 @@ export async function listClientInvoices(input: {
     paymentTermsDays: context.paymentTermsDays,
     today: formatInTimeZone(input.now ?? new Date(), context.timezone, "yyyy-MM-dd"),
   };
+}
+
+/**
+ * One invoice in the list's row shape (due day, overdue, Xero state, owing),
+ * for the editor page, so its actions use exactly the list's rules.
+ */
+export async function getClientInvoiceListRow(
+  id: string,
+  now: Date = new Date(),
+): Promise<{ row: ClientInvoiceListRow; timezone: string; paymentTermsDays: number } | null> {
+  const [terms, invoice] = await Promise.all([
+    loadTermsContext(now),
+    db.clientInvoice.findUnique({ where: { id }, select: ROW_SELECT }),
+  ]);
+  if (!invoice) return null;
+  return { row: toRow(invoice, terms), timezone: terms.timezone, paymentTermsDays: terms.paymentTermsDays };
 }
 
 /** Upper bound on rows in one CSV export; larger exports are refused, not cut. */

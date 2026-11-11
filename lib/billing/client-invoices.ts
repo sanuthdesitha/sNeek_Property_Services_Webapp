@@ -167,6 +167,33 @@ async function nextInvoiceNumber() {
  */
 export type InvoicePeriodBasis = "SERVICE" | "SCHEDULED";
 
+/**
+ * Job lines that count as billed: a job line on any non-VOID invoice of this
+ * client. The generator skips these jobs, so the same work is never on two live
+ * invoices it created; the editor's checklist reads the same rule.
+ */
+export function billedJobLinesWhere(clientId: string): Prisma.ClientInvoiceLineWhereInput {
+  return {
+    jobId: { not: null },
+    // Scope to THIS client — avoid scanning every invoice line for every client.
+    invoice: { status: { not: ClientInvoiceStatus.VOID }, clientId },
+  };
+}
+
+/**
+ * Reconciliation fail-safe: totalAmount is DENORMALISED from the lines, and
+ * several code paths recompute it. True when the stored total disagrees with
+ * what the lines and GST setting produce. Detection only; never changes money.
+ */
+export function invoiceTotalsMismatch(invoice: {
+  lines: Parameters<typeof calculateShoppingAwareInvoiceTotals>[0];
+  gstEnabled: boolean | null;
+  totalAmount: number;
+}): boolean {
+  const expected = calculateShoppingAwareInvoiceTotals(invoice.lines, invoice.gstEnabled ?? true);
+  return Math.abs(expected.totalAmount - Number(invoice.totalAmount)) > 0.011;
+}
+
 export async function generateClientInvoice(input: {
   clientId: string;
   propertyId?: string | null;
@@ -198,11 +225,7 @@ export async function generateClientInvoice(input: {
       },
     }),
     db.clientInvoiceLine.findMany({
-      where: {
-        jobId: { not: null },
-        // Scope to THIS client — avoid scanning every invoice line for every client.
-        invoice: { status: { not: ClientInvoiceStatus.VOID }, clientId: input.clientId },
-      },
+      where: billedJobLinesWhere(input.clientId),
       select: { jobId: true },
     }),
     getAppSettings(),
@@ -689,7 +712,7 @@ export async function getClientInvoice(invoiceId: string) {
     invoice.lines.reduce((sum, line) => sum + Number(line.lineTotal), 0).toFixed(2)
   );
   const expected = calculateShoppingAwareInvoiceTotals(invoice.lines, invoice.gstEnabled ?? true);
-  const totalsMismatch = Math.abs(expected.totalAmount - Number(invoice.totalAmount)) > 0.011;
+  const totalsMismatch = invoiceTotalsMismatch(invoice);
   if (totalsMismatch) {
     logger.warn(
       {
