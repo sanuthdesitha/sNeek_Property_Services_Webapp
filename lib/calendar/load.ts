@@ -27,7 +27,7 @@ const JOB_SELECT = {
   id: true, jobNumber: true, status: true, jobType: true, scheduledDate: true, startTime: true, endTime: true,
   dueTime: true, estimatedHours: true, cleanSkipStatus: true, internalNotes: true, sameDayCheckin: true,
   sameDayCheckinTime: true, manuallyRescheduledAt: true, updatedAt: true, propertyId: true,
-  property: { select: { name: true, suburb: true, client: { select: { id: true, name: true } } } },
+  property: { select: { name: true, address: true, suburb: true, client: { select: { id: true, name: true } } } },
   assignments: {
     where: { removedAt: null },
     orderBy: { isPrimary: "desc" as const },
@@ -66,7 +66,8 @@ function toCalendarJob(record: JobRecord, now: Date): CalendarJob {
     id: record.id,
     jobNumber: record.jobNumber,
     propertyId: record.propertyId,
-    propertyName: record.property?.name?.trim() || "Unlinked property",
+    propertyName: record.property?.name?.trim() || record.property?.address?.trim() || "Unlinked property",
+    propertyMissingName: !record.property?.name?.trim(),
     suburb: record.property?.suburb ?? null,
     clientId: record.property?.client?.id ?? null,
     clientName: record.property?.client?.name ?? null,
@@ -112,16 +113,25 @@ async function loadLaundryCounts(range: CalendarRange, clientId: string | null):
       OR: [{ pickupDate: { gte, lt } }, { dropoffDate: { gte, lt } }],
       ...(clientId ? { property: { clientId } } : {}),
     },
-    select: { pickupDate: true, dropoffDate: true, noPickupRequired: true, status: true },
+    select: { id: true, pickupDate: true, dropoffDate: true, noPickupRequired: true, status: true, property: { select: { name: true } } },
+    orderBy: [{ pickupDate: "asc" }, { id: "asc" }],
   });
   const counts: Record<string, CalendarLaundryDay> = {};
-  for (const day of listDays(range.start, range.end)) counts[day] = { pickups: 0, drops: 0 };
+  for (const day of listDays(range.start, range.end)) counts[day] = { pickups: 0, drops: 0, items: [] };
   for (const task of tasks) {
     const pickupDay = utcDateToDayKey(task.pickupDate);
     const dropDay = utcDateToDayKey(task.dropoffDate);
     // No pickup takes place when none is required or the pickup was skipped.
-    if (counts[pickupDay] && !task.noPickupRequired && task.status !== "SKIPPED_PICKUP") counts[pickupDay].pickups += 1;
-    if (counts[dropDay]) counts[dropDay].drops += 1;
+    const propertyName = task.property?.name?.trim() || "Laundry";
+    const status = String(task.status);
+    if (counts[pickupDay] && !task.noPickupRequired && task.status !== "SKIPPED_PICKUP") {
+      counts[pickupDay].pickups += 1;
+      counts[pickupDay].items.push({ id: `${task.id}-pickup`, kind: "pickup", propertyName, status });
+    }
+    if (counts[dropDay]) {
+      counts[dropDay].drops += 1;
+      counts[dropDay].items.push({ id: `${task.id}-drop`, kind: "drop", propertyName, status });
+    }
   }
   return counts;
 }
@@ -166,6 +176,10 @@ export async function loadCalendarRange(range: CalendarRange, filters: CalendarF
     .filter((record) => !parseJobInternalNotes(record.internalNotes).isDraft)
     .map((record) => toCalendarJob(record, now));
   const jobs = allJobs.filter((job) => matchesCalendarFilters(job, filters));
+  // Counts for the Status filter's options: the client filter applies, the status and cleaner filters do not.
+  const forCounts = allJobs.filter((job) => matchesCalendarFilters(job, { ...filters, statuses: null, unassignedOnly: false }));
+  const statusCounts: Record<string, number> = {};
+  for (const job of forCounts) statusCounts[job.status] = (statusCounts[job.status] ?? 0) + 1;
 
   const cleanerSources = await loadCleanerSources(allJobs);
   await attachRoster(cleanerSources, days);
@@ -187,6 +201,8 @@ export async function loadCalendarRange(range: CalendarRange, filters: CalendarF
       jobs: jobs.length,
       withoutCleaner: jobs.filter((job) => chipCategory(job) === "unassigned").length,
       skipped: jobs.filter((job) => job.skipped).length,
+      statusCounts,
+      unassignedTotal: forCounts.filter((job) => chipCategory(job) === "unassigned").length,
     },
     hoursBasis: HOURS_BASIS,
     truncated,

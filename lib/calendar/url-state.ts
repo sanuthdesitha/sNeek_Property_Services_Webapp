@@ -7,6 +7,7 @@
  * cleaner") are the fallback when the URL does not say, so they survive a full
  * refresh, which resets view parameters app-wide (see view memory).
  */
+import { STATUS_LABELS } from "@/lib/jobs/status-labels";
 import { CALENDAR_VIEWS, isDayKey, type CalendarView } from "./range";
 
 export const CALENDAR_STATUS_GROUPS = {
@@ -17,6 +18,24 @@ export const CALENDAR_STATUS_GROUPS = {
   done: { label: "Done", statuses: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] },
 } as const satisfies Record<string, { label: string; statuses: readonly string[] | null }>;
 export type CalendarStatusGroup = keyof typeof CALENDAR_STATUS_GROUPS;
+/** A status group, or one job status (the single-status filter the old calendar offered). */
+export type CalendarStatusFilter = CalendarStatusGroup | string;
+
+export function isCalendarStatusFilter(value: string | null): value is CalendarStatusFilter {
+  if (!value) return false;
+  return Object.prototype.hasOwnProperty.call(CALENDAR_STATUS_GROUPS, value) || Object.prototype.hasOwnProperty.call(STATUS_LABELS, value);
+}
+
+/** The job statuses a filter selects, or null for every status. */
+export function statusesForFilter(filter: CalendarStatusFilter): readonly string[] | null {
+  if (Object.prototype.hasOwnProperty.call(CALENDAR_STATUS_GROUPS, filter)) return CALENDAR_STATUS_GROUPS[filter as CalendarStatusGroup].statuses;
+  return Object.prototype.hasOwnProperty.call(STATUS_LABELS, filter) ? [filter] : null;
+}
+
+export function statusFilterLabel(filter: CalendarStatusFilter): string {
+  if (Object.prototype.hasOwnProperty.call(CALENDAR_STATUS_GROUPS, filter)) return CALENDAR_STATUS_GROUPS[filter as CalendarStatusGroup].label;
+  return STATUS_LABELS[filter] ?? filter;
+}
 
 export type CalendarRowsMode = "cleaners" | "properties";
 
@@ -29,7 +48,7 @@ export type CalendarUrlState = CalendarPrefs & {
   /** Null: today (Sydney). */
   date: string | null;
   clientId: string | null;
-  status: CalendarStatusGroup;
+  status: CalendarStatusFilter;
 };
 
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -51,7 +70,7 @@ export function readCalendarState(params: URLSearchParams, prefs: CalendarPrefs 
     date: isDayKey(date) ? date : null,
     rows: rows === "cleaners" || rows === "properties" ? rows : prefs.rows,
     clientId: clientId && ID_PATTERN.test(clientId) ? clientId : null,
-    status: status && Object.prototype.hasOwnProperty.call(CALENDAR_STATUS_GROUPS, status) ? (status as CalendarStatusGroup) : "all",
+    status: isCalendarStatusFilter(status) ? status : "all",
     unassigned: readFlag(params.get("unassigned"), prefs.unassigned),
     laundry: readFlag(params.get("laundry"), prefs.laundry),
     arrivals: readFlag(params.get("arrivals"), prefs.arrivals),
@@ -91,7 +110,7 @@ export function parsePrefs(raw: unknown): CalendarPrefs {
 /** The range endpoint's query for a view, range and filters. */
 export function calendarApiQuery(range: { start: string; end: string }, state: CalendarUrlState): string {
   const params = new URLSearchParams({ start: range.start, end: range.end, rows: state.rows });
-  const statuses = CALENDAR_STATUS_GROUPS[state.status].statuses;
+  const statuses = statusesForFilter(state.status);
   if (statuses) params.set("status", statuses.join(","));
   if (state.clientId) params.set("clientId", state.clientId);
   if (state.unassigned) params.set("unassigned", "1");

@@ -18,6 +18,8 @@ export const calendarJobSchema = z.object({
   jobNumber: z.string(),
   propertyId: z.string(),
   propertyName: z.string(),
+  /** True when the property has no name (or the job no property); propertyName is then the address or a placeholder. */
+  propertyMissingName: z.boolean(),
   suburb: z.string().nullable(),
   clientId: z.string().nullable(),
   clientName: z.string().nullable(),
@@ -60,7 +62,13 @@ export const calendarRowSchema = z.object({
 });
 export type CalendarRow = z.infer<typeof calendarRowSchema>;
 
-export const calendarLaundryDaySchema = z.object({ pickups: z.number(), drops: z.number() });
+export const calendarLaundryItemSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["pickup", "drop"]),
+  propertyName: z.string(),
+  status: z.string(),
+});
+export const calendarLaundryDaySchema = z.object({ pickups: z.number(), drops: z.number(), items: z.array(calendarLaundryItemSchema) });
 export type CalendarLaundryDay = z.infer<typeof calendarLaundryDaySchema>;
 
 export const calendarResponseSchema = z.object({
@@ -73,7 +81,15 @@ export const calendarResponseSchema = z.object({
   jobs: z.array(calendarJobSchema),
   /** Null when laundry was not requested. */
   laundry: z.record(calendarLaundryDaySchema).nullable(),
-  summary: z.object({ jobs: z.number(), withoutCleaner: z.number(), skipped: z.number() }),
+  summary: z.object({
+    jobs: z.number(),
+    withoutCleaner: z.number(),
+    skipped: z.number(),
+    /** Jobs in range by status before the status / cleaner filters (client filter applied). */
+    statusCounts: z.record(z.number()),
+    /** Jobs in range with no cleaner before the status / cleaner filters (client filter applied). */
+    unassignedTotal: z.number(),
+  }),
   hoursBasis: z.string(),
   /** True when the range held more jobs than one response carries. */
   truncated: z.boolean(),
