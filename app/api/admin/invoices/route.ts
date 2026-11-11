@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { listInvoiceContext, listInvoiceFormContext } from "@/lib/billing/client-invoices";
 import { isListQueryError, parseListQuery } from "@/lib/admin/list-query";
 import { listClientInvoices, parseClientInvoiceFilters } from "@/lib/billing/client-invoice-list";
+import { getClientInvoiceStats } from "@/lib/billing/client-invoice-stats";
 import { CLIENT_INVOICE_SORTS } from "@/lib/billing/client-invoice-list-types";
 
 function errorStatus(error: unknown): number {
@@ -19,6 +20,7 @@ function errorStatus(error: unknown): number {
  *   ?paginated=1  → { rows, total, page, pageSize, pageCount, sort, dir, counts }
  *                   server paging, sorting and filters (the Estate list).
  *   ?view=context → { clients, properties } for the generator and filters.
+ *   ?view=stats   → the four figures above the table (lib/billing/client-invoice-stats).
  *   (neither)     → the original { clients, properties, rates, invoices } with
  *                   the newest 100 invoices, kept for the classic admin screen.
  */
@@ -37,6 +39,9 @@ export async function GET(req: NextRequest) {
       });
       const filters = parseClientInvoiceFilters(params);
       return NextResponse.json(await listClientInvoices({ query, filters }));
+    }
+    if (params.get("view") === "stats") {
+      return NextResponse.json(await getClientInvoiceStats());
     }
     if (params.get("view") === "context") {
       return NextResponse.json(await listInvoiceFormContext());

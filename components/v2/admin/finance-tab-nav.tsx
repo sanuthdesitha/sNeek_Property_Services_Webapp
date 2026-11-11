@@ -1,57 +1,68 @@
 "use client";
 
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { BadgeDollarSign, BarChart3, Clock3, FileText, Wallet } from "lucide-react";
-import { cn } from "@/lib/utils";
-
-export type FinanceTabKey = "overview" | "invoices" | "payroll" | "adjustments" | "time";
-
-const TABS: Array<{ key: FinanceTabKey; label: string; icon: React.ReactNode }> = [
-  { key: "overview", label: "Overview", icon: <BarChart3 className="h-4 w-4" /> },
-  { key: "invoices", label: "Invoices", icon: <FileText className="h-4 w-4" /> },
-  { key: "payroll", label: "Payroll", icon: <Wallet className="h-4 w-4" /> },
-  { key: "adjustments", label: "Adjustments", icon: <BadgeDollarSign className="h-4 w-4" /> },
-  { key: "time", label: "Time", icon: <Clock3 className="h-4 w-4" /> },
-];
-
 /**
- * Estate-portal twin of the v1 FinanceTabNav: same `?tab=` keys so the server
- * component renders the matching section, but links stay on /v2/admin/finance.
+ * Tab row for Invoices and pay, in the concept's large underlined style.
+ * Link-driven (`?tab=`), so every tab is deep-linkable and survives reload.
+ * "Adjustments and time" covers the old `adjustments` and `time` keys; both
+ * still work and choose its sub-view.
  */
-export function FinanceTabNavV2({ active }: { active: FinanceTabKey }) {
-  const searchParams = useSearchParams();
+import Link from "next/link";
+import { cn } from "@/lib/utils";
+import { EPill } from "@/components/v2/ui/pill";
 
-  function hrefFor(key: FinanceTabKey) {
-    const params = new URLSearchParams(searchParams?.toString() ?? "");
-    params.set("tab", key);
-    return `/v2/admin/finance?${params.toString()}`;
+export type FinanceTabKey = "invoices" | "cleaner-invoices" | "payroll" | "adjustments" | "overview";
+
+export const FINANCE_TAB_LABEL: Record<FinanceTabKey, string> = {
+  invoices: "Client invoices",
+  "cleaner-invoices": "Cleaner invoices",
+  payroll: "Pay runs",
+  adjustments: "Adjustments and time",
+  overview: "Overview",
+};
+
+export type FinanceTabBadges = { clientToSend: number | null; cleanerToReview: number | null };
+
+export function FinanceTabNavV2({
+  active,
+  tabs,
+  badges,
+}: {
+  active: FinanceTabKey;
+  /** Tabs this viewer may open (operations-manager packs can hide some). */
+  tabs: FinanceTabKey[];
+  badges: FinanceTabBadges;
+}) {
+  function badgeFor(key: FinanceTabKey) {
+    if (key === "invoices" && badges.clientToSend) return <EPill tone="gold">{badges.clientToSend} to send</EPill>;
+    if (key === "cleaner-invoices" && badges.cleanerToReview) return <EPill tone="warn">{badges.cleanerToReview} to review</EPill>;
+    return null;
   }
 
   return (
-    <div className="-mx-1 overflow-x-auto px-1 pb-1">
-      <div className="inline-flex min-w-full items-center gap-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1">
-        {TABS.map((tab) => {
-          const isActive = tab.key === active;
+    <nav aria-label="Invoices and pay sections" className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex min-w-max items-center gap-7 border-b border-[hsl(var(--e-border))]">
+        {tabs.map((key) => {
+          const isActive = key === active;
           return (
             <Link
-              key={tab.key}
-              href={hrefFor(tab.key)}
+              key={key}
+              href={`/v2/admin/finance?tab=${key}`}
               scroll={false}
               aria-current={isActive ? "page" : undefined}
               className={cn(
-                "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                "-mb-px inline-flex min-h-[2.75rem] items-center gap-2 whitespace-nowrap border-b-2 px-0.5 text-[0.875rem] transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]",
                 isActive
-                  ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-sm"
-                  : "text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-surface))] hover:text-[hsl(var(--e-foreground))]",
+                  ? "border-[hsl(var(--e-primary))] font-[600] text-[hsl(var(--e-primary))]"
+                  : "border-transparent font-[500] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]",
               )}
             >
-              {tab.icon}
-              {tab.label}
+              {FINANCE_TAB_LABEL[key]}
+              {badgeFor(key)}
             </Link>
           );
         })}
       </div>
-    </div>
+    </nav>
   );
 }

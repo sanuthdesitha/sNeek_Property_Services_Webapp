@@ -642,3 +642,26 @@ Request: show the departing guest's contact details where only the upcoming gues
 - Chromium on the production build at 390px and 1280px, light and dark, with a fixture booking on the job: the Call sheet (opened by keyboard) listed the departing guest; the drawer showed the block with a working `tel:` link and check-out time; the admin card showed name, phone and email; one h1 and no horizontal overflow on each. The cleaner API response contained neither the guest's email nor the reservation code.
 - Not verified: a job with both an arriving and a departing guest in the browser (the fixture has no incoming booking; ordering and labels are covered by the component test); the classic pages, which were not changed; the mobile app; production data. Check-out time is shown in the viewer's device timezone, the same as the existing arrival time.
 
+
+### Follow-up: Invoices and pay — admin redesign phase 0 and Money sub-phase (a) (2026-11-11)
+
+Request: the first build phase of `docs/plans/admin-redesign-2026-11.md` — shared list building blocks, then list, paging, sort, bulk and the merge of the three Money entries, with no change to invoice rules. The owner asked mid-phase to follow the approved concept (`Money.dc.html`) closely and to defer the production build, full suite and browser checks to one pass at the end of the project.
+
+Changed
+- Shared UI: `EDataTable`, `EBulkBar`/`EBulkButton`, `EFilterChips`, `EFilterPopover`, `ERowMenu`, `EPagination`, `EPill` in `components/v2/ui/`; `lib/admin/list-query.ts`.
+- API: `GET /api/admin/invoices` gains `?paginated=1`, `?view=context`, `?view=stats` (the original shape is kept when none is given); new `POST /api/admin/invoices/bulk` and `GET /api/admin/invoices/export`. PATCH/send/Xero push logic moved verbatim into `lib/billing/client-invoice-{patch,send,xero}.ts`; the single routes now delegate to them.
+- Screen: `/v2/admin/finance` is "Invoices and pay" with five tabs; `/v2/admin/payroll` and `/v2/admin/cleaner-invoices` redirect; one sidebar entry; badges fixed (client invoices to send + cleaner invoices awaiting review). `estate-invoices.tsx` split into `components/v2/admin/finance/invoices/*` (largest file 335 lines).
+- Deliberate behaviour changes: Void and Reverse ask for confirmation; Re-send offered for SENT/PART_PAID; "Force status" and the editor's duplicate Push to Xero removed from the screen (API untouched); the default chip is "Needs action"; operations-manager gating of `?tab=payroll|adjustments|time` follows the payroll feature (was finance); the old KPI strip moved into the Pay runs and Overview tabs.
+- Departures from the concept, for honesty: no dollar "Ready to bill" figure (a count of finished jobs on no non-void invoice; charges depend on rates), and its button is "Create a draft" (the generator does one client at a time); no "missing rates" badge on Drafts; "Paid this month" is invoices with a PAID stamp this month as recorded here, not payments pulled from Xero; the Xero badge shows "last sync" only when a sync time is stored; the Due column shows the date printed on the PDF for unsent invoices instead of "On send"; Xero states are "In Xero", "Pending or failed" and "Not in Xero" (no "synced" — there is no pull); "Download PDFs" omitted from the bulk bar (no multi-PDF endpoint; it would mean looping downloads in the browser); an "All" chip added after "Void"; a Clear button added to the bulk bar.
+
+Verified
+- TypeScript (`npx tsc --noEmit -p .` with a 6 GB heap): pass.
+- New tests: `tests/lib/list-query.test.ts`, `tests/lib/finance-merge-routing.test.ts` (redirects, tab ownership, nav fallback), `tests/lib/admin-attention-money.test.ts`, `tests/api/admin-invoices-list.test.ts`, `tests/api/admin-invoices-bulk.test.ts`, `tests/components/estate-data-table.test.tsx`, `tests/components/invoice-row-actions.test.tsx`, `tests/components/invoice-list.test.tsx`.
+- Targeted run of the new tests plus every existing file covering touched code (all of `tests/components`, the invoice/started-work/cleaner-invoice/ops/receivables/attention API and lib tests): 187 files, 1,689 tests, all passing. `tests/components/invoice-generation-summary.test.tsx` was updated on purpose: the generator is no longer opened by a "Generate invoice" button on the list, so the test renders the moved dialog directly; its assertions are unchanged.
+
+Not verified in this phase (deferred by the owner to one final pass)
+- Production build, the full Vitest suite and the database-backed suites.
+- Chromium at 390px and 1280px, light and dark, including keyboard sorting, chips, paging, bulk approve with mixed results, the row menu, the three old URLs and an operations manager's view.
+- Xero: no provider credentials. Bulk Xero push is covered by mocked tests only; the Xero connection badge has not been seen against a real connection.
+- Email: bulk send was not exercised against a provider.
+- Note: a checkpoint commit (`fe562dd`, "WIP: shared list components …") appeared on the branch during this work; it was not made by this change, and the remaining work is uncommitted in the working tree.

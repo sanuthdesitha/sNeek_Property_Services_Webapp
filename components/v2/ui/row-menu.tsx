@@ -39,6 +39,11 @@ export type ERowMenuProps = {
   items: ERowMenuItem[];
   disabled?: boolean;
   className?: string;
+  /**
+   * Visible trigger content for a labelled menu button (e.g. "New invoice ▾").
+   * Omit for the row's "⋯" button.
+   */
+  trigger?: React.ReactNode;
 };
 
 type MenuPosition = { top: number; left: number; maxHeight: number };
@@ -59,7 +64,7 @@ function positionFor(trigger: HTMLElement): MenuPosition {
   return { top: Math.max(8, rect.top - GAP - maxHeight), left, maxHeight };
 }
 
-export function ERowMenu({ label, items, disabled = false, className }: ERowMenuProps) {
+export function ERowMenu({ label, items, disabled = false, className, trigger }: ERowMenuProps) {
   const [open, setOpen] = React.useState(false);
   const [position, setPosition] = React.useState<MenuPosition | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
@@ -185,7 +190,7 @@ export function ERowMenu({ label, items, disabled = false, className }: ERowMenu
       <button
         ref={triggerRef}
         type="button"
-        aria-label={label}
+        aria-label={trigger ? undefined : label}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -193,13 +198,17 @@ export function ERowMenu({ label, items, disabled = false, className }: ERowMenu
         onClick={() => (open ? close(false) : openMenu("first"))}
         onKeyDown={onTriggerKeyDown}
         className={cn(
-          "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))]",
-          "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))]",
+          trigger
+            ? "inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-[var(--e-radius)] px-4 text-[0.875rem] font-[550] " +
+                "bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))] hover:bg-[hsl(var(--e-primary-hover))]"
+            : // The concept's `.btn.q.s`: a quiet, borderless "⋯".
+              "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--e-radius)] bg-transparent " +
+                "text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))]",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))] disabled:opacity-50",
           className,
         )}
       >
-        <MoreHorizontal aria-hidden className="h-4 w-4" />
+        {trigger ?? <MoreHorizontal aria-hidden className="h-4 w-4" />}
       </button>
       {open && position ? (
         <EstatePortal>
@@ -239,7 +248,12 @@ export function ERowMenu({ label, items, disabled = false, className }: ERowMenu
                     onClick={() => choose(item)}
                   >
                     {item.icon}
-                    {item.label}
+                    <span className="min-w-0">
+                      {item.label}
+                      {item.disabled && item.hint ? (
+                        <span className="block text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">{item.hint}</span>
+                      ) : null}
+                    </span>
                   </button>
                 )}
               </React.Fragment>

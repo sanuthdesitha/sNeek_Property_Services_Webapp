@@ -8,6 +8,15 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+/** The concept's `.chip`: 28px pill on the surface, hairline border. */
+export const E_CHIP_CLASS =
+  "inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border-strong))] " +
+  "bg-[hsl(var(--e-surface))] px-2.5 text-[0.75rem] font-[500] text-[hsl(var(--e-text-secondary))] transition-colors " +
+  "hover:text-[hsl(var(--e-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))] disabled:opacity-50";
+/** `.chip.on`: primary-soft fill, primary text. */
+export const E_CHIP_ON_CLASS =
+  "border-[hsl(var(--e-primary)/0.35)] bg-[hsl(var(--e-primary-soft))] font-[600] text-[hsl(var(--e-primary))]";
+
 export type EFilterChip<TKey extends string> = {
   key: TKey;
   label: string;
@@ -43,25 +52,10 @@ export function EFilterChips<TKey extends string>({
             aria-pressed={pressed}
             disabled={disabled}
             onClick={() => onChange(chip.key)}
-            className={cn(
-              "inline-flex min-h-[2.25rem] items-center gap-1.5 rounded-[var(--e-radius-pill)] border px-3 text-[0.75rem] font-[550] transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))] disabled:opacity-50",
-              pressed
-                ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]"
-                : "border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]",
-            )}
+            className={cn(E_CHIP_CLASS, pressed && E_CHIP_ON_CLASS)}
           >
             {chip.label}
-            {typeof chip.count === "number" ? (
-              <span
-                className={cn(
-                  "e-tnum rounded-[var(--e-radius-pill)] px-1.5 text-[0.6875rem]",
-                  pressed ? "bg-[hsl(var(--e-surface))]" : "bg-[hsl(var(--e-muted))]",
-                )}
-              >
-                {chip.count}
-              </span>
-            ) : null}
+            {typeof chip.count === "number" ? <span className="e-tnum">{chip.count}</span> : null}
           </button>
         );
       })}

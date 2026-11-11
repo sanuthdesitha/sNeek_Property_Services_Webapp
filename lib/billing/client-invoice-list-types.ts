@@ -89,6 +89,8 @@ export type ClientInvoiceListPayload = {
   dir: "asc" | "desc";
   counts: ClientInvoiceCounts;
   paymentTermsDays: number;
+  /** Today in the organisation timezone (yyyy-MM-dd), for "in N days" wording. */
+  today: string;
 };
 
 /** Bulk actions the bulk route accepts. */

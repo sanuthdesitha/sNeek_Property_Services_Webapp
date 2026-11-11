@@ -5,7 +5,6 @@
  * server's real total for the current filters.
  */
 import * as React from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EButton } from "./primitives";
 
@@ -32,18 +31,15 @@ export function EPagination({ page, pageSize, total, onPageChange, disabled = fa
   const { from, to } = paginationRange(page, pageSize, total);
   return (
     <nav aria-label="Pagination" className={cn("flex flex-wrap items-center justify-between gap-3", className)}>
-      <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]" aria-live="polite">
-        {total === 0 ? `No ${noun}` : `Showing ${from}–${to} of ${total} ${noun}`}
+      <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))] e-tnum" aria-live="polite">
+        {total === 0 ? `No ${noun}` : `Showing ${from}–${to} of ${total}`}
       </p>
       <div className="flex items-center gap-2">
         <EButton size="sm" variant="outline" disabled={disabled || page <= 1} onClick={() => onPageChange(page - 1)}>
-          <ChevronLeft aria-hidden className="h-3.5 w-3.5" /> Previous
+          Previous
         </EButton>
-        <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-          Page {Math.min(page, pageCount)} of {pageCount}
-        </span>
         <EButton size="sm" variant="outline" disabled={disabled || page >= pageCount} onClick={() => onPageChange(page + 1)}>
-          Next <ChevronRight aria-hidden className="h-3.5 w-3.5" />
+          Next
         </EButton>
       </div>
     </nav>

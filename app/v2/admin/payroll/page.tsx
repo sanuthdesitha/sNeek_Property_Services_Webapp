@@ -1,7 +1,12 @@
 import { redirect } from "next/navigation";
+import { financeTabRedirect } from "@/lib/admin/finance-redirects";
 
-// Mirrors the legacy behaviour: /admin/payroll is a pure redirect into the
-// Finance hub's Payroll tab. The Estate equivalent lives at /v2/admin/finance.
-export default function V2AdminPayrollRedirect() {
-  redirect("/v2/admin/finance?tab=payroll");
+// Payroll is the "Pay runs" tab of Invoices and pay. /v2/admin/payroll/[id]
+// (one run) is unchanged.
+export default function V2AdminPayrollRedirect({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
+  redirect(financeTabRedirect("payroll", searchParams));
 }

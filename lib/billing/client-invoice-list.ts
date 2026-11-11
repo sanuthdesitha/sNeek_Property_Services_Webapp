@@ -30,11 +30,20 @@ const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 /** Same fallback the PDF renderer uses when no terms are configured. */
 const FALLBACK_PAYMENT_TERMS_DAYS = 14;
 
+/** A real calendar day, not just the right shape (rejects 2026-13-01, 2026-02-30). */
+const calendarDay = z
+  .string()
+  .regex(DATE_KEY)
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  });
+
 const filterSchema = z.object({
   status: z.enum(CLIENT_INVOICE_STATUS_FILTERS).default("active"),
   clientId: z.string().min(1).max(64).nullable(),
-  periodFrom: z.string().regex(DATE_KEY).nullable(),
-  periodTo: z.string().regex(DATE_KEY).nullable(),
+  periodFrom: calendarDay.nullable(),
+  periodTo: calendarDay.nullable(),
   xero: z.enum(CLIENT_INVOICE_XERO_FILTERS).default("any"),
   search: z.string().max(100).nullable(),
 });
@@ -62,7 +71,7 @@ export function parseClientInvoiceFilters(
   return filters;
 }
 
-type ListContext = {
+export type ListContext = {
   timezone: string;
   paymentTermsDays: number;
   /** Invoices created before this instant are past their printed due day. */
@@ -71,11 +80,11 @@ type ListContext = {
   pendingXeroIds: string[];
 };
 
-function startOfTodayIn(timezone: string, now: Date): Date {
+export function startOfTodayIn(timezone: string, now: Date): Date {
   return fromZonedTime(`${formatInTimeZone(now, timezone, "yyyy-MM-dd")}T00:00:00`, timezone);
 }
 
-async function loadListContext(now: Date): Promise<ListContext> {
+export async function loadListContext(now: Date): Promise<ListContext> {
   const [settings, pending] = await Promise.all([
     getAppSettings(),
     db.clientInvoice.findMany({
@@ -144,7 +153,7 @@ function needsActionWhere(context: ListContext): Prisma.ClientInvoiceWhereInput 
   };
 }
 
-function overdueWhere(context: ListContext): Prisma.ClientInvoiceWhereInput {
+export function overdueWhere(context: ListContext): Prisma.ClientInvoiceWhereInput {
   return {
     status: { in: [...OUTSTANDING_INVOICE_STATUSES] as ClientInvoiceStatus[] },
     createdAt: { lt: context.overdueCreatedBefore },
@@ -301,6 +310,7 @@ export async function listClientInvoices(input: {
     ),
     counts,
     paymentTermsDays: context.paymentTermsDays,
+    today: formatInTimeZone(input.now ?? new Date(), context.timezone, "yyyy-MM-dd"),
   };
 }
 

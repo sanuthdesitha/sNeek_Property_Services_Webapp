@@ -43,13 +43,13 @@ export type AdminAttentionCounts = {
   /** Laundry tasks FLAGGED (cleaner said not ready — needs a decision). */
   laundry: number;
   /**
-   * "Invoices and pay" entry: client invoice drafts awaiting review plus payee
+   * "Invoices and pay" entry: client invoices still to send plus payee
    * invoices awaiting the business. The two parts are exposed below so each
    * tab can badge its own queue.
    */
   finance: number;
-  /** Client invoices still DRAFT (generated, awaiting office review). */
-  clientInvoiceDrafts: number;
+  /** Client invoices not yet sent: DRAFT (to review) or APPROVED (to send). */
+  clientInvoicesToSend: number;
   /** Payee invoices awaiting the business (SUBMITTED or PAID_CLAIMED). */
   cleanerInvoices: number;
   /** New, uncontacted leads. */
@@ -57,7 +57,7 @@ export type AdminAttentionCounts = {
 };
 
 export type MoneyAttentionCounts = {
-  clientInvoiceDrafts: number;
+  clientInvoicesToSend: number;
   cleanerInvoices: number;
 };
 
@@ -66,11 +66,11 @@ export type MoneyAttentionCounts = {
  * badges on the page, so the two can never disagree.
  */
 export async function getMoneyAttentionCounts(): Promise<MoneyAttentionCounts> {
-  const [clientInvoiceDrafts, cleanerInvoices] = await Promise.all([
-    db.clientInvoice.count({ where: { status: ClientInvoiceStatus.DRAFT } }),
+  const [clientInvoicesToSend, cleanerInvoices] = await Promise.all([
+    db.clientInvoice.count({ where: { status: { in: [ClientInvoiceStatus.DRAFT, ClientInvoiceStatus.APPROVED] } } }),
     db.cleanerInvoiceSubmission.count({ where: { status: { in: ["SUBMITTED", "PAID_CLAIMED"] } } }),
   ]);
-  return { clientInvoiceDrafts, cleanerInvoices };
+  return { clientInvoicesToSend, cleanerInvoices };
 }
 
 function startOfTodaySydney(now: Date): Date {
@@ -168,8 +168,8 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
     cases: openCases,
     lostFound: reportedLostFound,
     laundry: flaggedLaundry,
-    finance: money.clientInvoiceDrafts + money.cleanerInvoices,
-    clientInvoiceDrafts: money.clientInvoiceDrafts,
+    finance: money.clientInvoicesToSend + money.cleanerInvoices,
+    clientInvoicesToSend: money.clientInvoicesToSend,
     cleanerInvoices: money.cleanerInvoices,
     growth: newLeads,
   };

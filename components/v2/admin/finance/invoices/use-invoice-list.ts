@@ -37,7 +37,7 @@ export type InvoiceListState = {
 };
 
 export const DEFAULT_LIST_STATE: InvoiceListState = {
-  status: "active",
+  status: "needs-action",
   client: "",
   from: "",
   to: "",

@@ -14,6 +14,8 @@ This document is the plan. It is updated as phases land. `docs/SYSTEM.md` remain
 
 ## Phase 0: shared building blocks
 
+> **Status (2026-11-11): partly built.** Done: `EDataTable`, `EBulkBar`, `EFilterChips` (plus `EFilterPopover` and `EPill`), `ERowMenu`, `EPagination`, `lib/admin/list-query.ts`, and the merge of the three Money nav entries. Not yet: `ESidePanel`, `EViewTabs`, `EStageBar`, sticky group rows in the table, and the wider sidebar regroup. Build and browser checks deferred to the end of the project.
+
 New, in `components/v2/ui/`:
 
 | Piece | Purpose | Notes |
@@ -64,6 +66,8 @@ Back end
 - Fix the nav badge so Finance counts client drafts and Cleaner invoices counts its own.
 
 Risk: highest of all phases. Sub-phases: (a) list, paging, sort, bulk and merge of the three entries, with no change to invoice rules; (b) editor page; (c) blank invoice and credit note; (d) Xero pull; (e) cleaner invoice approve and PDF.
+
+> **(a) built 2026-11-11, awaiting the final build and browser pass.** Delivered: merged page and tabs with redirects, server-paged client invoice list with chip counts and URL state, one action per row plus menu, bulk approve / approve and send / Xero push and CSV export through the shared single-invoice actions, nav badge fix, `estate-invoices.tsx` split. Deviations: Owing is not sortable (no column); "Ready to bill" is a job count with no dollar figure; "Paid this month" is recorded locally, not read from Xero; "Download PDFs" is not in the bulk bar; the nav badge counts client invoices to send (draft or approved), not drafts only. Cleaner invoices are embedded unchanged (the shared table comes with sub-phase (e)). Details: `docs/SYSTEM.md`, "Invoices and pay".
 
 ### 16, 17, 18. Forms: QA templates, forms and stats, templates
 

@@ -75,7 +75,7 @@ function ariaSortFor(active: boolean, dir: SortDirection | undefined): "ascendin
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir?: SortDirection }) {
-  if (!active) return <ArrowUpDown aria-hidden className="h-3 w-3 opacity-50" />;
+  if (!active) return <ArrowUpDown aria-hidden className="h-3 w-3 opacity-40" />;
   return dir === "asc" ? <ArrowUp aria-hidden className="h-3 w-3" /> : <ArrowDown aria-hidden className="h-3 w-3" />;
 }
 
@@ -109,7 +109,7 @@ function PageCheckbox<TRow>({
     <input
       ref={ref}
       type="checkbox"
-      className="h-4 w-4 accent-[hsl(var(--e-primary))]"
+      className="h-[15px] w-[15px] accent-[hsl(var(--e-primary))]"
       aria-label="Select all on this page"
       checked={all}
       disabled={selection.disabled || pageIds.length === 0}
@@ -213,14 +213,15 @@ export function EDataTable<TRow, TSort extends string = string>({
           <thead>
             <tr className="border-b border-[hsl(var(--e-border))]">
               {selection ? (
-                <th scope="col" className="w-10 px-4 py-3">
+                <th scope="col" className="w-[34px] bg-[hsl(var(--e-surface-raised))] px-3 py-2">
                   <PageCheckbox rows={rows} rowKey={rowKey} selection={selection} />
                 </th>
               ) : null}
               {columns.map((column) => {
                 const active = Boolean(column.sortKey) && sort?.key === column.sortKey;
+                // The concept's `table.t th`: 11px, muted, on the raised surface.
                 const thClass = cn(
-                  "px-4 py-3 text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--e-gold-ink))]",
+                  "whitespace-nowrap bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.6875rem] font-semibold text-[hsl(var(--e-muted-foreground))]",
                   ALIGN[column.align ?? "left"],
                   column.className,
                 );
@@ -238,7 +239,8 @@ export function EDataTable<TRow, TSort extends string = string>({
                       onClick={() => requestSort(column)}
                       disabled={!onSortChange}
                       className={cn(
-                        "inline-flex min-h-[2.75rem] items-center gap-1 uppercase tracking-[0.18em] hover:text-[hsl(var(--e-foreground))]",
+                        "inline-flex min-h-[1.75rem] items-center gap-1 hover:text-[hsl(var(--e-foreground))]",
+                        active && "text-[hsl(var(--e-primary))]",
                         "rounded-[var(--e-radius-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]",
                         column.align === "right" ? "flex-row-reverse" : "",
                       )}
@@ -258,13 +260,13 @@ export function EDataTable<TRow, TSort extends string = string>({
               return (
                 <tr
                   key={id}
-                  className={cn("hover:bg-[hsl(var(--e-surface-raised))]", checked && "bg-[hsl(var(--e-gold-soft)/0.4)]")}
+                  className={cn("hover:bg-[hsl(var(--e-surface-raised)/0.6)]", checked && "bg-[hsl(var(--e-primary-soft))] hover:bg-[hsl(var(--e-primary-soft))]")}
                 >
                   {selection ? (
-                    <td className="w-10 px-4 py-3 align-top">
+                    <td className="w-[34px] px-3 py-2.5 align-middle">
                       <input
                         type="checkbox"
-                        className="h-4 w-4 accent-[hsl(var(--e-primary))]"
+                        className="h-[15px] w-[15px] accent-[hsl(var(--e-primary))]"
                         aria-label={selection.rowLabel(row)}
                         checked={checked}
                         disabled={selection.disabled}
@@ -278,7 +280,7 @@ export function EDataTable<TRow, TSort extends string = string>({
                     </td>
                   ) : null}
                   {columns.map((column) => (
-                    <td key={column.key} className={cn("px-4 py-3 align-top", ALIGN[column.align ?? "left"], column.className)}>
+                    <td key={column.key} className={cn("px-3 py-2.5 align-middle", ALIGN[column.align ?? "left"], column.className)}>
                       {column.cell(row)}
                     </td>
                   ))}

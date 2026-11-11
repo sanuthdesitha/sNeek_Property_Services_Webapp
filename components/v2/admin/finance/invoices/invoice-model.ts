@@ -161,7 +161,10 @@ export const ACTION_LABEL: Record<InvoiceActionKey, string> = {
   delete: "Delete",
 };
 
-type ActionFacts = Pick<InvoiceRow, "status" | "xeroInvoiceId" | "xeroExportedAt" | "paidAt" | "paidAmount" | "xeroState">;
+type ActionFacts = Pick<
+  InvoiceRow,
+  "status" | "xeroInvoiceId" | "xeroExportedAt" | "paidAt" | "paidAmount" | "xeroState" | "overdue"
+>;
 
 const inXero = (inv: ActionFacts) => Boolean(inv.xeroInvoiceId || inv.xeroExportedAt);
 const hasPayment = (inv: ActionFacts) => Boolean(inv.paidAt) || Boolean(Number(inv.paidAmount ?? 0));
@@ -191,7 +194,8 @@ export function availableInvoiceActions(inv: ActionFacts): InvoiceActionKey[] {
 /**
  * The ONE action shown on the row, chosen from its state: a pending or failed
  * Xero export first (nothing else can safely change until it is resolved),
- * then the next lifecycle step.
+ * then the next lifecycle step. An overdue sent invoice leads with a reminder
+ * (the existing re-send), otherwise with recording the payment.
  */
 export function primaryInvoiceAction(inv: ActionFacts): InvoiceActionKey {
   if (inv.status !== "VOID" && inv.xeroState === "PENDING") return "xero-retry";
@@ -202,12 +206,20 @@ export function primaryInvoiceAction(inv: ActionFacts): InvoiceActionKey {
       return "send";
     case "SENT":
     case "PART_PAID":
-      return "record-payment";
+      return inv.overdue ? "resend" : "record-payment";
     case "PAID":
       return "receipt";
     default:
       return "pdf";
   }
+}
+
+/** Words for an action on this row. */
+export function invoiceActionLabel(key: InvoiceActionKey, inv: ActionFacts): string {
+  if (key === "edit" && inv.status === "DRAFT") return "Review";
+  if (key === "resend" && inv.overdue) return "Send reminder";
+  if (key === "xero-push" && inv.xeroState === "PUSHED") return "Push to Xero (already in Xero)";
+  return ACTION_LABEL[key];
 }
 
 /** Primary action plus the rest, for the row menu. */
@@ -217,4 +229,4 @@ export function invoiceRowActions(inv: ActionFacts): { primary: InvoiceActionKey
 }
 
 /** Destructive or correcting actions are drawn apart in the menu. */
-export const CORRECTION_ACTIONS: ReadonlySet<InvoiceActionKey> = new Set(["void", "reverse", "reconcile", "delete"]);
+export const CORRECTION_ACTIONS: ReadonlySet<InvoiceActionKey> = new Set<InvoiceActionKey>(["void", "reverse", "reconcile", "delete"]);

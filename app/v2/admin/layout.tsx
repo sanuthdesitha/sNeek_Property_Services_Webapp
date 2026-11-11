@@ -86,7 +86,7 @@ const COUNT_KEY_BY_HREF: Record<string, keyof AdminAttentionCounts> = {
   "/v2/admin/cases": "cases",
   "/v2/admin/lost-found": "lostFound",
   "/v2/admin/laundry": "laundry",
-  // Client invoice drafts to review + cleaner invoices awaiting the office.
+  // Client invoices to send (draft or approved) + cleaner invoices awaiting the office.
   "/v2/admin/finance": "finance",
   "/v2/admin/growth": "growth",
 };

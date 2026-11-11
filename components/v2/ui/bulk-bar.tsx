@@ -8,7 +8,6 @@
 import * as React from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { EButton } from "./primitives";
 
 export type EBulkBarProps = {
   count: number;
@@ -21,33 +20,52 @@ export type EBulkBarProps = {
   busy?: boolean;
   /** Extra line, e.g. that selection only spans this filter set. */
   note?: React.ReactNode;
+  /** Shown after the count, e.g. the selected total. */
+  summary?: React.ReactNode;
   className?: string;
 };
 
-export function EBulkBar({ count, noun, onClear, children, busy = false, note, className }: EBulkBarProps) {
+export function EBulkBar({ count, noun, onClear, children, busy = false, note, summary, className }: EBulkBarProps) {
   if (count <= 0) return null;
   return (
     <div
       role="region"
       aria-label="Bulk actions"
       className={cn(
-        "flex flex-wrap items-center justify-between gap-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border-gold)/0.5)]",
-        "bg-[hsl(var(--e-gold-soft))] px-4 py-3",
+        // The concept's `.bulk`: the sidebar's dark surface, light text.
+        "flex flex-wrap items-center gap-2.5 rounded-[10px] bg-[hsl(var(--e-sidebar-bg))] py-2 pl-3.5 pr-2.5 text-[hsl(var(--e-sidebar-active-bg))]",
         className,
       )}
     >
       <div className="min-w-0">
-        <p className="text-[0.875rem] font-[550] text-[hsl(var(--e-foreground))]" aria-live="polite">
-          {count} {count === 1 ? noun.one : noun.many} selected
+        <p className="text-[0.8125rem] font-[600]" aria-live="polite">
+          {count} {count === 1 ? noun.one : noun.many} selected{summary ? <> · <span className="e-tnum">{summary}</span></> : null}
         </p>
-        {note ? <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">{note}</p> : null}
+        {note ? <p className="text-[0.75rem] text-[hsl(var(--e-sidebar-fg))]">{note}</p> : null}
       </div>
+      <span className="min-w-0 flex-1" />
       <fieldset disabled={busy} className="flex min-w-0 flex-wrap items-center gap-2">
         {children}
-        <EButton size="sm" variant="ghost" onClick={onClear}>
-          <X aria-hidden className="h-3.5 w-3.5" /> Clear selection
-        </EButton>
+        <EBulkButton onClick={onClear}>
+          <X aria-hidden className="h-3.5 w-3.5" /> Clear
+        </EBulkButton>
       </fieldset>
     </div>
+  );
+}
+
+/** A button styled for the dark bulk bar (`.bulk .btn`). */
+export function EBulkButton({ className, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-[var(--e-radius)] border border-[hsl(var(--e-sidebar-hairline))] bg-transparent px-2.5",
+        "text-[0.75rem] font-[500] text-[hsl(var(--e-sidebar-active-bg))] hover:bg-[hsl(var(--e-sidebar-hairline))]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-sidebar-active-bg))] disabled:opacity-50",
+        className,
+      )}
+      {...props}
+    />
   );
 }

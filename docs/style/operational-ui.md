@@ -222,3 +222,16 @@ Mobile grid panels must use an explicit shrinkable base track (`grid-cols-1`) an
 - Group one audience's access into a single labelled panel: guide entries first, flat lockbox/codes/parking after, photos as buttons. Do not repeat the same instruction in two panels.
 - A refused attachment explains what to do next ("Remove it and attach the file again"), not which check failed.
 
+
+### Lists, bulk actions and row menus (2026-11)
+
+These match the approved concept (`table.t`, `.chip`, `.bulk`, `.b`) using Estate tokens. Reuse them for every redesigned list.
+
+- Use `EDataTable` from `components/v2/ui/data-table.tsx`. Sorting is server-side: a sortable header is a real button and its `<th>` carries `aria-sort`; the table never re-sorts a page itself. Money columns open largest first (`firstDir: "desc"`). The table scrolls inside its own labelled region; give it a `minWidth` and put it in an `ECard` with `overflow-hidden`.
+- Keep loading, error, empty and stale apart: no rows + loading is a status, no rows + error is an alert with retry, rows + error is a stale banner over the last good rows. Never show rows from a different filter as if they answered the current one.
+- List routes read `page`, `pageSize`, `sort`, `dir` through `parseListQuery`, refuse unknown sort columns with 400, and return `listResponse` plus real grouped counts. Chips show a count only when the server sent one.
+- Filters: `EFilterChips` for the single-choice status row; `EFilterPopover` for client, period and similar filters, so an active filter stays visible on its chip. Keep filter, sort and page in the URL beside `tab`, and reset selection when the filter set changes.
+- One primary action per row, chosen from the record's state; every other existing action goes in `ERowMenu`. Corrections and destructive actions sit after a separator and keep their own confirmation, PIN and typed-phrase rules. The menu is keyboard operable (arrows, Home/End, Escape returns focus) and renders in `EstatePortal` so a scrolling table cannot clip it.
+- `EBulkBar` (dark, `--e-sidebar-*` tokens) appears only with a selection, says how many and of what, and offers `EBulkButton` actions. A bulk action is one request to a server endpoint that answers per row (done / refused with reason / no change); show those results and keep refused rows selected. Never loop single requests from the browser.
+- `EPill` is the status badge: written text always, tone from status, unknown states neutral.
+- A disabled menu item that is planned says so (`hint: "Coming in a later step"`) rather than disappearing silently.
