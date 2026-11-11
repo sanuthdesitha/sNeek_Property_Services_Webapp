@@ -442,6 +442,18 @@ async function main() {
     }));
   }
 
+  // Hourly Xero status and payment pull for client invoices (owner decision
+  // 2026-11-11: a payment seen in Xero is recorded automatically). Off the
+  // hour so it does not join the :00 cluster. A no-op, logged, when Xero is
+  // not connected.
+  if (jobEnabled("xero-invoice-sync")) {
+    await boss.schedule("xero-invoice-sync", "20 * * * *", {}, { tz: TZ });
+    await boss.work("xero-invoice-sync", safeHandler("xero-invoice-sync", async () => {
+      const { runScheduledXeroSync } = await import("@/lib/billing/client-invoice-xero-sync");
+      await runScheduledXeroSync();
+    }));
+  }
+
   if (jobEnabled("recognition-check")) {
     await boss.schedule("recognition-check", "0 9 * * 0", {}, { tz: TZ });
     await boss.work("recognition-check", safeHandler("recognition-check", async () => {

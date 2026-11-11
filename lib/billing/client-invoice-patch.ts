@@ -64,7 +64,9 @@ const recordPaymentSchema = z.object({
   amount: z.number().positive(),
   // MANUAL = the one-click "Mark as paid" action (settles the outstanding
   // balance without an itemised bank/card record).
-  method: z.enum(["BANK_TRANSFER", "CARD", "CASH", "STRIPE", "MANUAL", "OTHER"]),
+  // XERO is accepted only from the Xero status pull (see XeroPaymentSource);
+  // a person records money with one of the other methods.
+  method: z.enum(["BANK_TRANSFER", "CARD", "CASH", "STRIPE", "MANUAL", "OTHER", "XERO"]),
   paidDate: z.string().optional().nullable(),
   reference: z.string().trim().max(500).optional().nullable(),
   /**
@@ -139,6 +141,20 @@ class RefusedInvoicePatch extends Error {
 }
 
 /**
+ * A payment the Xero status pull found. Its Xero payment id is the idempotency
+ * key: it is stored on the ledger entry and a payment id is recorded at most
+ * once, ever. Only the sync service passes this; the HTTP route never does.
+ */
+export type XeroPaymentSource = {
+  paymentId: string;
+  /** Who started the pull: the hourly job, or a person pressing "Refresh from Xero". */
+  trigger: "scheduled" | "manual";
+};
+
+/** Refusal code when a Xero payment is more than this invoice still owes. */
+export const XERO_PAYMENT_EXCEEDS_OWING = "XERO_PAYMENT_EXCEEDS_OWING";
+
+/**
  * Apply one PATCH body to one invoice under its row lock. Notifications queued
  * by the action run only after the transaction commits.
  */
@@ -146,6 +162,7 @@ export async function patchClientInvoice(input: {
   invoiceId: string;
   body: unknown;
   actor: InvoiceActor;
+  xeroPayment?: XeroPaymentSource;
 }): Promise<InvoiceActionResult> {
   const afterCommit: Array<() => Promise<unknown>> = [];
   // Removing a line needs the administrator's own PIN or password, checked
@@ -163,7 +180,7 @@ export async function patchClientInvoice(input: {
         if (property === "$transaction") return async (fn: (client: Prisma.TransactionClient) => Promise<unknown>) => fn(tx);
         return Reflect.get(target, property);
       } }) as typeof db;
-      const result = await patchLockedInvoice(input.body, { id: input.invoiceId }, input.actor, scoped, afterCommit);
+      const result = await patchLockedInvoice(input.body, { id: input.invoiceId }, input.actor, scoped, afterCommit, input.xeroPayment);
       if (result.status >= 400) throw new RefusedInvoicePatch(result); // Roll back earlier line changes too.
       return result;
     });
@@ -182,6 +199,7 @@ async function patchLockedInvoice(
   actor: InvoiceActor,
   db: typeof import("@/lib/db").db,
   afterCommit: Array<() => Promise<unknown>>,
+  xeroPayment?: XeroPaymentSource,
 ): Promise<InvoiceActionResult> {
   try {
     const session = { user: actor };
@@ -200,6 +218,8 @@ async function patchLockedInvoice(
     if (body.addLine?.category === DISCOUNT_CATEGORY) return actionResult({ error: "Add a discount with Add discount." }, 400);
     const kindRefusal = kindRuleRefusal(existing, body);
     if (kindRefusal) return kindRefusal;
+    const xeroRefusal = await xeroPaymentRefusal(db, existing, body, xeroPayment);
+    if (xeroRefusal) return xeroRefusal;
 
     if (isXeroExportPending(existing.metadata)) return actionResult({ error: XERO_RESERVATION_REFUSAL }, 409);
     const editsContent = contentEditRequested(body);
@@ -468,8 +488,9 @@ async function patchLockedInvoice(
           paidDate: paidDate.toISOString(),
           recordedAt: new Date().toISOString(),
           recordedById: session.user.id,
-          recordedByName: session.user.name || session.user.email || "Admin",
+          recordedByName: xeroPayment ? "Xero sync" : session.user.name || session.user.email || "Admin",
           receiptKey: rp.receiptKey?.trim() || null,
+          ...(xeroPayment ? { source: "XERO", xeroPaymentId: xeroPayment.paymentId, trigger: xeroPayment.trigger } : {}),
         },
       ];
       paymentUpdate = {
@@ -569,7 +590,10 @@ async function patchLockedInvoice(
     // After the write, best-effort: the money is already recorded, and failing
     // the response over a mail error would tell the admin the payment did not
     // save when it did.
-    const receiptPayment = body.recordPayment;
+    // Not for a payment read from Xero: the client paid through their own bank
+    // and nobody here chose to email them (an automatic email is a separate
+    // decision for the owner).
+    const receiptPayment = xeroPayment ? undefined : body.recordPayment;
     if (receiptPayment) {
       afterCommit.push(() => sendClientPaymentReceipt({
         invoiceId: params.id,
@@ -644,6 +668,7 @@ async function patchLockedInvoice(
             reference: body.recordPayment.reference ?? null,
             paidAmount: (paymentUpdate as any).paidAmount,
             status: updated.status,
+            ...(xeroPayment ? { source: "XERO", xeroPaymentId: xeroPayment.paymentId, trigger: xeroPayment.trigger, paidDate: (paymentUpdate as { paidDate?: Date }).paidDate?.toISOString() ?? null } : {}),
             ...(paidWithoutSending ? { note: "Marked paid without sending" } : {}),
           } as any,
         },
@@ -654,6 +679,53 @@ async function patchLockedInvoice(
   } catch (err: any) {
     return actionResult({ error: err.message ?? "Could not update invoice." }, 400);
   }
+}
+
+type ExistingForXero = {
+  id: string;
+  kind: string;
+  status: string;
+  totalAmount: number;
+  paidAmount: number | null;
+  metadata: Prisma.JsonValue | null;
+};
+
+/**
+ * The Xero-payment rules, checked under the row lock: only the sync may use
+ * method XERO; a Xero payment id is recorded once; a PAID or VOID invoice is
+ * never changed by the sync; and a Xero payment larger than what is still owed
+ * (total less payments and approved/sent credits) is refused for review rather
+ * than recorded.
+ */
+async function xeroPaymentRefusal(
+  db: typeof import("@/lib/db").db,
+  existing: ExistingForXero,
+  body: z.infer<typeof patchSchema>,
+  xeroPayment: XeroPaymentSource | undefined,
+): Promise<InvoiceActionResult | null> {
+  const viaXero = body.recordPayment?.method === "XERO";
+  if (viaXero !== Boolean(xeroPayment)) {
+    return actionResult({ error: "Payments made in Xero are recorded by Refresh from Xero, not by hand." }, 400);
+  }
+  if (!xeroPayment || !body.recordPayment) return null;
+  if (existing.kind !== "INVOICE") return actionResult({ error: "A credit note is never paid." }, 409);
+  const ledger = Array.isArray((existing.metadata as { payments?: unknown } | null)?.payments)
+    ? ((existing.metadata as { payments: Array<Record<string, unknown>> }).payments)
+    : [];
+  if (ledger.some((entry) => entry && entry.xeroPaymentId === xeroPayment.paymentId)) {
+    return actionResult({ ok: true, alreadyRecorded: true, status: existing.status });
+  }
+  if (existing.status === ClientInvoiceStatus.PAID || existing.status === ClientInvoiceStatus.VOID) {
+    return actionResult({ error: `This invoice is ${existing.status.toLowerCase()} here, so the Xero payment was not recorded.` }, 409);
+  }
+  const credited = creditedAmountOf(
+    await db.clientInvoice.findMany({ where: { creditsInvoiceId: existing.id }, select: { status: true, totalAmount: true } }),
+  );
+  const owing = Number(existing.totalAmount ?? 0) - Number(existing.paidAmount ?? 0) - credited;
+  if (body.recordPayment.amount > owing + 0.005) {
+    return actionResult({ error: "The Xero payment is more than this invoice still owes here.", code: XERO_PAYMENT_EXCEEDS_OWING }, 409);
+  }
+  return null;
 }
 
 /**
