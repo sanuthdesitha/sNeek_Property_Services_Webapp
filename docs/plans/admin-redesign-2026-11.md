@@ -138,6 +138,8 @@ Today the page only manages the per-job client PDF and shows no figures.
 - Drag to reschedule or reassign calls the existing schedule and assign services, with clash and leave checks before the drop is accepted; a refused drop returns to its place with the reason.
 - Error and stale states; filters persisted; "+N more" opens that day.
 
+> **Built 2026-11-11, awaiting the final build and browser pass.** Delivered: header with the real summary line, Day | Week | Month | Agenda, chip row as drawn, URL state with saved toggles; week resource grid by cleaner (Unassigned lane, hours on a stated basis, roster gaps, laundry-runs row linking to Laundry for that day) or by property; day view on an hour axis; month kept with "+N more" opening the day; agenda as a stated fortnight; phone lists; `GET /api/admin/calendar` (visible range only, ≤ 45 days, drafts excluded); drag and "Move or reassign…" through the read-only check-move, a confirmation and the existing reschedule / assign endpoints; error, loading, empty and stale states with a 60 s refresh that never redraws a chip mid-save; the shared job peek panel; `estate-schedule.tsx` split. Deviations: "Not rostered" instead of "Day off"/"Leave" (no leave data); a status key and Refresh button added (the old screen's legend role and manual reload); drag is mouse/pen only (touch uses the menu); on-the-way jobs are also not draggable; day-view drops change the cleaner, not the time. Details: `docs/SYSTEM.md`, "Calendar: resource week, visible range only, checked moves".
+
 ### 1. Command
 
 - One work queue from `lib/dashboard/work-queue.ts`, merging the attention summary, Live ops' immediate-attention list and the approvals that can be decided inline. Each item has a type, urgency, link with filters applied, and at most one inline action that calls the existing approval or assignment service.
@@ -211,12 +213,12 @@ Backlog found so far, to be cleared under this rule:
 
 | Problem | Area | Status |
 | --- | --- | --- |
-| A job whose only invoice line is on a voided invoice counts as invoiced, so it never shows as unbilled | Jobs filter, ready-to-bill | Assigned |
-| Single-job reminder records the push notice as sent before delivery and bypasses the notification pipeline | Jobs | Assigned |
-| `EField` labels are not tied to their inputs | Shared admin kit | Assigned |
-| `GET /api/admin/qa/issues` end date uses server-local time, not Sydney | Quality | Assigned |
-| Coaching tab fails quietly for an operations manager without the workforce pack | Quality | Assigned |
-| Old template-versions API switches which form jobs resolve to, with no screen | Forms | Assigned |
+| A job whose only invoice line is on a voided invoice counts as invoiced, so it never shows as unbilled | Jobs filter, ready-to-bill | Fixed 2026-11-11 (Jobs filter, view count, job detail note) |
+| Single-job reminder records the push notice as sent before delivery and bypasses the notification pipeline | Jobs | Partly fixed 2026-11-11: real state recorded (queued / provider-accepted); move to the intent pipeline needs the owner (cleaner recipient scope) |
+| `EField` labels are not tied to their inputs | Shared admin kit | Fixed 2026-11-11 (admin, settings and worker kits) |
+| `GET /api/admin/qa/issues` end date uses server-local time, not Sydney | Quality | Fixed 2026-11-11 |
+| Coaching tab fails quietly for an operations manager without the workforce pack | Quality | Fixed 2026-11-11 (tab hidden when its APIs would refuse; explicit states) |
+| Old template-versions API switches which form jobs resolve to, with no screen | Forms | Fixed 2026-11-11 (writes answer 410; read kept) |
 | Saving through the old form PATCH still writes the live form and records no version | Forms | With the builder step |
 | GET/DELETE invoice routes answer 400 for unauthorised or forbidden | Invoices | With the invoice step |
 | Invoice page errors on a malformed started-work snapshot instead of showing it read-only | Invoices | With the invoice step |

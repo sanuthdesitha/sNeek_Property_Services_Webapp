@@ -797,3 +797,39 @@ Verified
 Not verified
 - Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard) deferred by the owner to the final pass. No database-backed test ran: the loaders (`lib/insights/load-facts.ts`, `receivables.ts`) are exercised only through mocks, so query shapes against a real schema are covered by TypeScript only.
 - Figures against production-like data (e.g. how many cleans lack a start time, time log or pay rate) were not inspected.
+
+## 2026-11-11 — Existing problems fixed (backlog under the owner's standing rule)
+
+What changed
+- Jobs Invoice filter, "Not invoiced" tab and its count: a line on a VOID invoice no longer counts as invoiced (`lib/jobs/invoiced-rule.ts`, mirroring `billedJobLinesWhere`, pinned by a test). Job detail notes when every invoice line is on a voided invoice. INVOICED status still counts; deletion / reset guards unchanged.
+- Job reminder (single and bulk): audit stores `requested`, `deliveryState` (QUEUED / PROVIDER_ACCEPTED) and `deliveryConfirmed: false`; single route keeps 404 / 409 / 400 and `sent` / `failed`, adds `deliveryState` and `message`; toast says queued / accepted; browser-push error after the inbox notice no longer counts as not reminded; email HTML escaped. Not moved to the intent pipeline (cleaner recipients need a new authorization adapter, no phone-app transport, external transports are env opt-in) — owner decision.
+- `EField` (admin kit, settings kit, worker kit) ties its label and hint to a single control child (`components/v2/admin/field-association.tsx`); other children render unchanged. Quality screens use `EField` again.
+- `GET /api/admin/qa/issues`: `from` / `to` are inclusive Sydney calendar days (`sydneyCreatedAtFilter`), DST-safe; 500s no longer echo internal messages.
+- Quality hub: Coaching tab hidden when its endpoints would refuse the manager (quality or accounts pack), create / update only with quality manage, full-page link only with workforce, "Review bonus" only with payroll manage; coaching workspace shows explicit no-access / failure / cleaner-list states and cancels stale reads; refused evidence photos show "Photo unavailable".
+- Old template-versions API: create and rollback answer 410 pointing to the Forms library versions / restore; read route kept; write functions removed.
+- Removed leftover "Estate preview" / "Estate workspace" footers and the superseded `forms/builder/new-template.tsx`.
+
+Verified
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- New and affected tests: `jobs-invoiced-rule`, `jobs-view-presets` (updated, it encoded the void rule), `jobs-bulk-remind`, `audit-v03-notification-producers` (response shape updated), `estate-field-label`, `qa-issues-sydney-range`, `quality-hub-coaching-access`, `legacy-template-versions-gone`, plus every existing test file importing the touched modules (50 files, 616 tests) and `tests/components` (167 files) — all passed.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard) deferred by the owner to the final pass. No database-backed test ran for the VOID rule's SQL; it is checked as generated SQL / Prisma `where` only.
+
+## Follow-up: Calendar (admin redesign step 3, 2026-11-11)
+
+What changed
+- `/v2/admin/calendar` rebuilt to the approved design: "Calendar" heading with a real summary line, Previous / Today / Next, Day | Week | Month | Agenda (Week default ≥1024px, Day below), chip row (Rows: cleaners / properties, Client, Status, Show laundry runs, Show guest arrivals, drag hint). URL state for view, date, rows, filters and toggles; rows and toggles also saved per view scope (a full refresh resets view parameters app-wide).
+- Week = resource grid (Unassigned lane, every active cleaner plus anyone with work in range, "N h this week" on the stated hours basis, "Not rostered" from saved availability — no leave data exists, laundry-runs row linking to Laundry for that day). Day = rows across hours with a "No time" column. Month kept, "+N more" opens that day. Agenda = a fortnight from the cursor day, stated in the header. Phones: Week/Day as a day-by-day list grouped by row.
+- `GET /api/admin/calendar` returns only the asked days (≤ 45; 400 otherwise), slim shape, drafts excluded, UTC-midnight calendar dates unshifted. The page no longer calls `/api/jobs` (unchanged itself).
+- Moves (drag with mouse/pen, or "Move or reassign…" from every chip menu): read-only `POST /api/admin/calendar/check-move` → confirmation with clashes / roster / booking / notices → the Schedule tab's reschedule endpoint and/or the assign endpoint as the server planned. Started, finished, skipped and draft jobs are not offered for moving and say why. No optimistic success; mid-save chips are frozen and not redrawn by the 60 s / focus refresh; failures stay on screen.
+- Small shared changes: `dayAvailabilityBlocker` exported from `lib/jobs/cleaner-suggestions.ts`; `rescheduleWindowError` extracted from `applyReschedule` (same check, same message); the reassignment client-note dialog extracted from `AssignCleanersModal` into `reassign-note-dialog.tsx` (same behaviour) and reused after a drag reassignment; Laundry reads `?date=`.
+- Removed: `components/v2/admin/calendar/estate-schedule.tsx`, the now-unused `lib/calendar/agenda-window.ts` and its test (the agenda no longer starts "today within the cursor month").
+- Existing problems fixed in this area: the unbounded job load; a failed fetch rendering an empty calendar; "+N more" switching to Agenda; the agenda description promising a fortnight while listing the month; drafts shown on the calendar; the calendar not refreshing after a QA inspector was assigned from it (the panel only refreshes the server route).
+
+Verified
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- New tests: `tests/lib/calendar-rules.test.ts` (ranges, span cap, DST change date, hours basis, late, guest arrival, chip categories, move rule, rows by cleaner/property, drops, refresh merge, day axis, URL round-trip, ops permission), `tests/api/admin-calendar-range.test.ts` (roles, bounds, span cap, unshifted days across the DST change, slim shape, drafts, rows and hours, filters, laundry, move block and arrival), `tests/api/calendar-check-move.test.ts` (clash, roster, booking note, non-movable statuses, agreement with the real assign route and `applyReschedule`), `tests/components/calendar-workspace.test.tsx` (visible range only, error not empty, grid, peek, keyboard move, drop calls only check → reschedule → assign, refused and failed moves leave the chip, mid-save refresh, "+N more", URL and saved toggles), `tests/components/laundry-calendar-day-link.test.tsx`, `tests/components/assign-reassign-note.test.tsx`. With the existing files covering touched code (job peek panel, cleaner suggestions, reschedule contract and safety, assignment draft, ops policy and middleware, laundry dashboard and investigation, admin task sync): 18 files, all passed.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, real pointer drag) deferred by the owner to the final pass. Drag was tested with synthetic pointer events in jsdom only. No database-backed test: queries are covered through mocks and TypeScript.
