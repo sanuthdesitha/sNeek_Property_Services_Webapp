@@ -14,7 +14,7 @@ This document is the plan. It is updated as phases land. `docs/SYSTEM.md` remain
 
 ## Phase 0: shared building blocks
 
-> **Status (2026-11-11): partly built.** Done: `EDataTable`, `EBulkBar`, `EFilterChips` (plus `EFilterPopover` and `EPill`), `ERowMenu`, `EPagination`, `lib/admin/list-query.ts`, and the merge of the three Money nav entries. Not yet: `ESidePanel`, `EViewTabs`, `EStageBar`, sticky group rows in the table, and the wider sidebar regroup. Build and browser checks deferred to the end of the project.
+> **Status (2026-11-11): partly built.** Done: `EDataTable`, `EBulkBar`, `EFilterChips` (plus `EFilterPopover` and `EPill`), `ERowMenu`, `EPagination`, `lib/admin/list-query.ts`, and the merge of the three Money nav entries. `EStageBar` added with Money sub-phase (b). Not yet: `ESidePanel`, `EViewTabs`, sticky group rows in the table, and the wider sidebar regroup. Build and browser checks deferred to the end of the project.
 
 New, in `components/v2/ui/`:
 
@@ -68,6 +68,8 @@ Back end
 Risk: highest of all phases. Sub-phases: (a) list, paging, sort, bulk and merge of the three entries, with no change to invoice rules; (b) editor page; (c) blank invoice and credit note; (d) Xero pull; (e) cleaner invoice approve and PDF.
 
 > **(a) built 2026-11-11, awaiting the final build and browser pass.** Delivered: merged page and tabs with redirects, server-paged client invoice list with chip counts and URL state, one action per row plus menu, bulk approve / approve and send / Xero push and CSV export through the shared single-invoice actions, nav badge fix, `estate-invoices.tsx` split. Deviations: Owing is not sortable (no column); "Ready to bill" is a job count with no dollar figure; "Paid this month" is recorded locally, not read from Xero; "Download PDFs" is not in the bulk bar; the nav badge counts client invoices to send (draft or approved), not drafts only. Cleaner invoices are embedded unchanged (the shared table comes with sub-phase (e)). Details: `docs/SYSTEM.md`, "Invoices and pay".
+
+> **(b) built 2026-11-11, awaiting the final build and browser pass.** `/v2/admin/finance/invoices/[id]` is the editor page; the modal is deleted and the admin no longer uses the summary page (the client portal still does). Delivered: header with the list's primary action and a menu of every other action, `EStageBar` (In Xero done only with a Xero invoice id; pending shown as pending; Void as a terminal state), in-place line editing with drag and keyboard reorder, collapsible property sections using the PDF's grouping, inline add line, server-computed "Before you approve" (blocking: pending Xero reservation and started-work review, from the functions approval runs; advice: rates, other invoices, totals), Send / Xero / History cards, read-only presentation with the PATCH's own reason, back link that keeps the list's filters. Save model: explicit "Save draft", not autosave, because the PATCH has no last-write guard. Omitted because the data or API does not support them: editing Bill to / Period / Due, Client reference, Add finished jobs, Add discount, Add note to client, the payment-link and push-on-send options, automatic Xero payment read-back. "Saved N seconds ago" is shown as the last-changed time. Details: `docs/SYSTEM.md`, "Invoice editor page".
 
 ### 16, 17, 18. Forms: QA templates, forms and stats, templates
 

@@ -5,7 +5,8 @@
  *
  * The 1,698-line component this file used to be is split into
  * components/v2/admin/finance/invoices/: the paged list and filters, the row
- * actions, the bulk bar, the editor and one file per group of dialogs. The
+ * actions, the bulk bar and one file per group of dialogs; the editor is its own
+ * page (invoices/editor/, route /v2/admin/finance/invoices/[id]). The
  * requests and their rules are unchanged; see invoice-requests.ts.
  *
  * Endpoints:
