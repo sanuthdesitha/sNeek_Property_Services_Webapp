@@ -16,7 +16,8 @@ import {
 } from "@/components/v2/ui/primitives";
 import { ESelect, EInlineNotice } from "@/components/v2/client/fields";
 
-type CleanerOption = { id: string; name: string | null; email: string };
+// Cleaner email addresses are not sent to clients.
+type CleanerOption = { id: string; name: string | null };
 
 export function EPreferredCleanerCard({
   propertyId,
@@ -71,7 +72,7 @@ export function EPreferredCleanerCard({
           <option value="none">No preferred cleaner</option>
           {options.map((option) => (
             <option key={option.id} value={option.id}>
-              {option.name?.trim() || option.email}
+              {option.name?.trim() || "Cleaner"}
             </option>
           ))}
         </ESelect>

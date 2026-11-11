@@ -1,3 +1,6 @@
+import { publicUrl } from "@/lib/s3";
+import { findForeignUploadKeys } from "@/lib/uploads/ownership-server";
+import { FOREIGN_UPLOAD_CODE, FOREIGN_UPLOAD_MESSAGE } from "@/lib/uploads/ownership";
 import { NextRequest, NextResponse } from "next/server";
 import { Role, NotificationChannel, NotificationStatus, type LostFoundStatus } from "@prisma/client";
 import { z, ZodError } from "zod";
@@ -9,7 +12,7 @@ import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import { resolveAppUrl } from "@/lib/app-url";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { logger } from "@/lib/logger";
-import { hydrateItems } from "@/lib/lost-found/service";
+import { hydrateItems, redactItemForReporter } from "@/lib/lost-found/service";
 
 const photoSchema = z.object({
   url: z.string().trim().min(1),
@@ -44,7 +47,7 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
       take: 200,
     });
-    return NextResponse.json({ items: await hydrateItems(items) });
+    return NextResponse.json({ items: (await hydrateItems(items)).map(redactItemForReporter) });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: errorStatus(err) });
   }
@@ -68,6 +71,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "You are not assigned to this job." }, { status: 403 });
     }
 
+    const foreignKeys = await findForeignUploadKeys({
+      keys: (body.photos ?? []).map((photo) => photo.key),
+      callerId: session.user.id,
+      jobId: body.jobId,
+    });
+    if (foreignKeys.length > 0) {
+      return NextResponse.json({ code: FOREIGN_UPLOAD_CODE, error: FOREIGN_UPLOAD_MESSAGE }, { status: 403 });
+    }
+
     const job = await db.job.findUnique({
       where: { id: body.jobId },
       select: { id: true, propertyId: true, property: { select: { name: true, suburb: true } } },
@@ -81,7 +93,8 @@ export async function POST(req: NextRequest) {
         itemName: body.itemName,
         description: body.notes?.trim() || null,
         foundLocation: body.location?.trim() || null,
-        photos: body.photos ?? [],
+        // The link is derived from the verified key, never taken from the browser.
+        photos: (body.photos ?? []).map((photo) => ({ ...photo, url: publicUrl(photo.key) })),
         status: "REPORTED" as LostFoundStatus,
         events: {
           create: {

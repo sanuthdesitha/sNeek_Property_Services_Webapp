@@ -938,7 +938,10 @@ model User {
   hasVehicle          Boolean   @default(false)
   vehicleRegoExpiry   DateTime?
   driverLicenseExpiry DateTime?
+  /// The person's own "notes to admin", edited on their profile.
   notes               String?   @db.Text
+  /// The office's private note about this person. Never sent to them.
+  adminNotes          String?   @db.Text
 
   @@index([emailStatus])
   @@index([lastSeenAt])

@@ -1,3 +1,4 @@
+import { getClientPortalContext } from "@/lib/client/portal";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Role } from "@prisma/client";
@@ -86,7 +87,9 @@ const saveSchema = z.object({
 
 async function getClientContext(userId: string) {
   const settings = await getAppSettings();
-  if (!isClientModuleEnabled(settings, "shopping")) throw new Error("FORBIDDEN");
+  // Merged with this client's own overrides, not the global default alone.
+  const { visibility } = await getClientPortalContext(userId, settings);
+  if (!isClientModuleEnabled(visibility, "shopping")) throw new Error("FORBIDDEN");
   const user = await db.user.findUnique({
     where: { id: userId },
     select: { clientId: true },
@@ -129,6 +132,17 @@ export async function POST(req: NextRequest) {
       estimatedUnitCost: row.estimatedUnitCost ?? null,
       estimatedLineCost: row.estimatedLineCost ?? null,
     }));
+    // A row's property is a claim. Every property named must belong to this
+    // client, or the purchase could be attributed (and charged) to another.
+    const claimedPropertyIds = Array.from(
+      new Set(rows.map((row) => row.propertyId).filter((id): id is string => Boolean(id))),
+    );
+    if (claimedPropertyIds.length > 0) {
+      const owned = await db.property.count({ where: { id: { in: claimedPropertyIds }, clientId } });
+      if (owned !== claimedPropertyIds.length) {
+        return NextResponse.json({ error: "Property not found." }, { status: 404 });
+      }
+    }
     const payment: ShoppingRunPayment | undefined = body.payment
       ? {
           ...body.payment,

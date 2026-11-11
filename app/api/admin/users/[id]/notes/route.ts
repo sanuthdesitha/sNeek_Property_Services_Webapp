@@ -9,8 +9,12 @@ const notesSchema = z.object({
 });
 
 /**
- * Update the admin-facing notes on a staff account (User.notes — existing
- * field, no schema change). Used by the Accounts hub staff summary page.
+ * Update the office's private note on an account (User.adminNotes). Used by
+ * the Accounts hub. The request and response keep the `notes` key.
+ *
+ * This is not User.notes: that is the person's own "notes to admin", which
+ * they can read and edit on their profile. The two shared one column until
+ * 2026-11, so the office's note was visible to the person it was about.
  */
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -19,7 +23,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
     const existing = await db.user.findUnique({
       where: { id: params.id },
-      select: { id: true, notes: true },
+      select: { id: true, adminNotes: true },
     });
     if (!existing) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
@@ -28,8 +32,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const nextNotes = body.notes?.trim() || null;
     const updated = await db.user.update({
       where: { id: params.id },
-      data: { notes: nextNotes },
-      select: { id: true, notes: true },
+      data: { adminNotes: nextNotes },
+      select: { id: true, adminNotes: true },
     });
 
     await db.auditLog.create({
@@ -38,12 +42,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         action: "UPDATE_USER_NOTES",
         entity: "User",
         entityId: params.id,
-        before: { notes: existing.notes } as any,
-        after: { notes: nextNotes } as any,
+        before: { adminNotes: existing.adminNotes } as any,
+        after: { adminNotes: nextNotes } as any,
       },
     });
 
-    return NextResponse.json(updated);
+    return NextResponse.json({ id: updated.id, notes: updated.adminNotes });
   } catch (err: any) {
     const status =
       err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;

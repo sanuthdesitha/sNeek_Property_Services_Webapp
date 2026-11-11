@@ -74,7 +74,7 @@ type SavedRun = {
   startedAt?: string | null;
   completedAt?: string | null;
   clientChargeStatus?: "NOT_REQUIRED" | "READY" | "SENT" | "PAID";
-  cleanerReimbursementStatus?: "NOT_APPLICABLE" | "READY" | "INVOICED" | "REIMBURSED";
+  cleanerReimbursementStatus?: "NOT_APPLICABLE" | "PENDING_APPROVAL" | "READY" | "INVOICED" | "REIMBURSED";
   payment?: PaymentState;
   shoppingTime?: ShoppingTimeState;
   totals?: {

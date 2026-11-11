@@ -63,12 +63,42 @@ export async function getVisibleLaundryPropertyIds(userId: string): Promise<stri
  * to only the properties they can see. Returns a propertyIds override to apply
  * to the query when narrowing is needed.
  */
+/**
+ * Only an office role, as the role being ACTED AS, sees every team's laundry.
+ *
+ * Scoping used to ask "is the active role LAUNDRY?". A person who also holds
+ * another role (cleaner and driver, say) passes the route's role gate on the
+ * role they hold, then switched their active role and was treated as
+ * unrestricted. Anyone who is not acting as office staff is scoped.
+ */
+export function isLaundryOfficeRole(role: Role | string): boolean {
+  return role === Role.ADMIN || role === Role.OPS_MANAGER;
+}
+
+/**
+ * The laundry tasks a viewer may list, as a Prisma filter.
+ *
+ * Office roles see everything. Anyone else sees tasks at the properties they
+ * serve. Every laundry-portal page and count must spread this into its `where`;
+ * a page that queries without it shows other teams' work and costs.
+ */
+export async function laundryTaskScope(viewer: {
+  id: string;
+  role: Role | string;
+}): Promise<{ propertyId?: { in: string[] } }> {
+  if (isLaundryOfficeRole(viewer.role)) return {};
+  return { propertyId: { in: await getVisibleLaundryPropertyIds(viewer.id) } };
+}
+
+/** Matches no property. An empty list means "no filter" to the invoice query. */
+export const NO_VISIBLE_LAUNDRY_PROPERTY = "__no-visible-laundry-property__";
+
 export async function resolveLaundryInvoiceScope(
   role: Role,
   userId: string,
   scope: { taskId?: string; propertyId?: string; propertyIds?: string[] }
 ): Promise<{ ok: true; propertyIds?: string[] } | { ok: false }> {
-  if (role !== Role.LAUNDRY) return { ok: true };
+  if (isLaundryOfficeRole(role)) return { ok: true };
   const visible = new Set(await getVisibleLaundryPropertyIds(userId));
 
   if (scope.taskId) {
@@ -87,5 +117,8 @@ export async function resolveLaundryInvoiceScope(
   const requested = scope.propertyIds?.length
     ? scope.propertyIds.filter((id) => visible.has(id))
     : Array.from(visible);
-  return { ok: true, propertyIds: requested };
+  // Nothing visible must return nothing. The invoice query reads an empty list
+  // as "all properties", which handed every team's invoice data to a driver
+  // who asked for a property they cannot see.
+  return { ok: true, propertyIds: requested.length ? requested : [NO_VISIBLE_LAUNDRY_PROPERTY] };
 }

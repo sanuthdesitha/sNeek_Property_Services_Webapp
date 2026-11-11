@@ -1,3 +1,4 @@
+import { projectClientJobList } from "@/lib/client/list-projection";
 import Link from "next/link";
 import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { getAppSettings } from "@/lib/settings";
@@ -20,7 +21,7 @@ export default async function ClientJobsPage() {
   const portal = settings
     ? await getClientPortalContext(session.user.id, settings).catch(() => null)
     : await getClientPortalContext(session.user.id).catch(() => null);
-  const jobs = await listClientJobsForUser(session.user.id).catch(() => []);
+  const jobs = projectClientJobList(await listClientJobsForUser(session.user.id).catch(() => []), portalCtx.visibility);
 
   const visibility = portal?.visibility;
   const canBook = portalCtx.permissions.bookings && isClientModuleEnabled(portalCtx.visibility, "booking");

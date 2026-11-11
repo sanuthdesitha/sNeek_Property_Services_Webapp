@@ -147,6 +147,8 @@ export async function DELETE(
       if (!isAssigned) {
         return json({ error: "Not assigned to this job" }, 403);
       }
+      // Deliberately not status-bound: once a job is submitted the draft is a
+      // stale working copy, and clearing it removes no submission or evidence.
       await clearSharedCleanerJobDraft(params.id, tx);
       return json({ ok: true });
     });

@@ -9,7 +9,8 @@ import { toast } from "@/hooks/use-toast";
 type CleanerOption = {
   id: string;
   name: string | null;
-  email: string;
+  /** Not sent to clients; kept optional for older callers. */
+  email?: string;
 };
 
 export function PreferredCleanerCard({
@@ -72,7 +73,7 @@ export function PreferredCleanerCard({
           <option value="none">No preferred cleaner</option>
           {options.map((option) => (
             <option key={option.id} value={option.id}>
-              {option.name?.trim() || option.email}
+              {option.name?.trim() || "Cleaner"}
             </option>
           ))}
         </select>

@@ -1,5 +1,6 @@
 import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { LaundryStatus, Role } from "@prisma/client";
+import { laundryTaskScope } from "@/lib/laundry/teams";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import {
@@ -64,7 +65,7 @@ function statusLabel(status: LaundryStatus): string {
   }
 }
 
-async function getLaundry() {
+async function getLaundry(scope: Awaited<ReturnType<typeof laundryTaskScope>>) {
   const today = sydneyTodayKey();
   const tomorrow = addDaysToKey(today, 1);
   // Scheduled dates are UTC date-only keys; delivery events are actual instants.
@@ -74,7 +75,7 @@ async function getLaundry() {
   const todayStart = sydneyDayStart(today);
   const todayEnd = sydneyDayStart(tomorrow);
 
-  // Mirrors app/v2/admin/laundry/page.tsx getLaundry().
+  // Mirrors app/v2/admin/laundry/page.tsx getLaundry(await laundryTaskScope(session.user)).
   //
   // A set the laundry team already returned in the v1 portal is written as
   // status=DROPPED with a `droppedAt` timestamp (see the RETURNED→DROPPED map in
@@ -87,6 +88,7 @@ async function getLaundry() {
   const tasks = await db.laundryTask
     .findMany({
       where: {
+        ...scope,
         noPickupRequired: false,
         OR: [
           { pickupDate: { gte: scheduledStart, lt: scheduledEnd } },
@@ -161,7 +163,7 @@ async function getRouteCard(userId: string) {
 export default async function LaundryTodayPage() {
   const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
   const [{ tasks, inQueue, inTransit, ready }, routeCard] = await Promise.all([
-    getLaundry(),
+    getLaundry(await laundryTaskScope(session.user)),
     getRouteCard(session.user.id).catch(() => null),
   ]);
 
@@ -223,7 +225,7 @@ export default async function LaundryTodayPage() {
       {/* 2. Plan brief — counts, weather, traffic, special days, deadlines. */}
       <PlanBrief />
 
-      <section className="grid gap-4 sm:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <EStatCard label="In queue" value={inQueue === null ? <span className="text-sm">Unavailable</span> : String(inQueue)} delta="pending" deltaTone="neutral" icon={<Waves className="h-4 w-4" />} />
         <EStatCard label="In transit" value={inTransit === null ? <span className="text-sm">Unavailable</span> : String(inTransit)} delta="picked up" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
         <EStatCard label="Delivered" value={ready === null ? <span className="text-sm">Unavailable</span> : String(ready)} delta="today" deltaTone={ready === null ? "neutral" : "success"} icon={<PackageCheck className="h-4 w-4" />} />

@@ -213,3 +213,12 @@ Mobile grid panels must use an explicit shrinkable base track (`grid-cols-1`) an
 - Never show an invented percentage. Show finished units out of started units, a measured byte fraction, or an indeterminate track.
 - A destination whose server guard is ADMIN-only sets `adminOnly` on its navigation entry. Do not rely on the guard alone: a menu must not offer a page that will refuse the person.
 - Every maintenance-portal read of `PropertyMaintenanceItem` spreads `maintenanceItemScope(session.user)` into its `where`.
+
+### Withheld details and approvals (2026-11)
+
+- When the server withholds something for a stated reason (access details outside the acceptance window), show the server's sentence where the content would be. Do not leave an unexplained gap and do not invent a reason in the component.
+- Say on the action that unlocks it what it unlocks: the job offer card states that access codes appear on acceptance.
+- An approval the office must give sits beside the status it changes, with one sentence on what is held until then (shopping run: "Approve reimbursement" under the reimbursement status).
+- Group one audience's access into a single labelled panel: guide entries first, flat lockbox/codes/parking after, photos as buttons. Do not repeat the same instruction in two panels.
+- A refused attachment explains what to do next ("Remove it and attach the file again"), not which check failed.
+

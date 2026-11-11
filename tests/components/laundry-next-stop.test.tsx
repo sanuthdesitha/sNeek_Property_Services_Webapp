@@ -23,9 +23,10 @@ describe("laundry next stop execution", () => {
     expect(screen.getByText(/Bag count not recorded/)).toBeVisible();
     expect(screen.getByText(/Pickup photo is optional/)).toBeVisible();
     expect(screen.getByRole("link", { name: "Open task board" })).toHaveAttribute("href", "/v2/laundry/tracking#task-t1");
-    expect(screen.queryByText("Cleaner secret")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("Laundry access guide"));
+    fireEvent.click(screen.getByText("Property access"));
     expect(screen.getByText("Side gate")).toBeVisible();
+    // Drivers see the same access details as cleaners.
+    expect(screen.getByText("Cleaner secret")).toBeVisible();
   });
   it("uses recorded pickup quantities and configured return proof", () => {
     const onAction = vi.fn();
@@ -43,9 +44,9 @@ describe("laundry next stop execution", () => {
     expect(screen.getByRole("status")).toHaveTextContent("flagged");
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
-  it("honors same-as-cleaner access and does not guess unavailable proof settings", () => {
+  it("shows the cleaner's access with or without the old flag and does not guess unavailable proof settings", () => {
     render(<NextStopExecution task={{ ...task, property: { ...task.property, accessInfo: { laundrySameAsCleaner: true } } }} kind="pickup" onAction={vi.fn()} />);
-    fireEvent.click(screen.getByText("Laundry access guide"));
+    fireEvent.click(screen.getByText("Property access"));
     expect(screen.getByText("Cleaner secret")).toBeVisible();
     expect(screen.getByText(/Proof settings unavailable/)).toBeVisible();
     expect(screen.queryByText(/photo required/)).not.toBeInTheDocument();

@@ -15,7 +15,13 @@ export async function GET(
     // The requested id is ANDed with the caller's property scope in the data
     // layer, so a scoped VA reaching for a property outside their grant gets
     // the same 404 as one that does not exist — no existence oracle.
-    const detail = await getClientPropertyDetailForUser(portal.userId, params.id, portal.visibility);
+    // An assistant without the reports grant gets the property without its
+    // reports, exactly as the reports endpoint would refuse them.
+    const visibility = {
+      ...portal.visibility,
+      showReports: portal.visibility.showReports && (portal.actor === "CLIENT" || portal.permissions.reports),
+    };
+    const detail = await getClientPropertyDetailForUser(portal.userId, params.id, visibility);
     if (!detail) {
       return NextResponse.json({ error: "Property not found." }, { status: 404 });
     }

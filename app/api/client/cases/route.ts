@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { findJobInScope, propertyScopeWhere, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
+import { findJobInScope, propertyIdInScope, propertyScopeWhere, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
+import { isClientModuleEnabled } from "@/lib/portal-access";
 import { db } from "@/lib/db";
 import { createCase, listCases, toClientCaseView } from "@/lib/cases/service";
 import { notifyCaseCreated } from "@/lib/cases/notifications";
@@ -8,6 +9,15 @@ import { notifyCaseCreated } from "@/lib/cases/notifications";
 const querySchema = z.object({
   status: z.string().trim().optional(),
 });
+
+/** Shown to office staff as a link, so only a web address or an app path is accepted. */
+const safeAttachmentUrl = z
+  .string()
+  .trim()
+  .max(2000)
+  .refine((value) => /^https:\/\//i.test(value) || (value.startsWith("/") && !value.startsWith("//")), "Invalid attachment link.")
+  .optional()
+  .nullable();
 
 const createSchema = z.object({
   propertyId: z.string().trim().optional().nullable(),
@@ -20,7 +30,7 @@ const createSchema = z.object({
   attachments: z.array(
     z.object({
       s3Key: z.string().trim().min(1),
-      url: z.string().trim().optional().nullable(),
+      url: safeAttachmentUrl,
       mimeType: z.string().trim().optional().nullable(),
       label: z.string().trim().optional().nullable(),
     })
@@ -32,6 +42,9 @@ export async function GET(req: NextRequest) {
     // Chokepoint: role, client resolution and the "maintenance" grant (raising
     // and tracking issues is the granted capability cases fall under).
     const portal = await requireClientPortal({ permission: "maintenance" });
+    if (!isClientModuleEnabled(portal.visibility, "cases")) {
+      return NextResponse.json({ error: "Cases are hidden for this client." }, { status: 403 });
+    }
     const { searchParams } = new URL(req.url);
     const query = querySchema.parse({
       status: searchParams.get("status") ?? undefined,
@@ -41,7 +54,9 @@ export async function GET(req: NextRequest) {
       status: query.status ?? null,
       clientVisibleOnly: true,
     });
-    return NextResponse.json(items.map((item) => toClientCaseView(item)));
+    // listCases filters by client only; an assistant's property grant applies here.
+    const inScope = items.filter((item) => propertyIdInScope(item.property?.id, portal));
+    return NextResponse.json(inScope.map((item) => toClientCaseView(item)));
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message ?? "Could not load cases." },
@@ -70,6 +85,14 @@ export async function POST(req: NextRequest) {
     if (body.jobId) {
       const job = await findJobInScope(body.jobId, portal);
       if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    }
+    // A report id is a claim too: it must be a report on a job in scope.
+    if (body.reportId) {
+      const report = await db.report.findFirst({
+        where: { id: body.reportId, job: { property: propertyScopeWhere(portal) } },
+        select: { id: true },
+      });
+      if (!report) return NextResponse.json({ error: "Report not found." }, { status: 404 });
     }
     const caseType = body.caseType ?? "CLIENT_DISPUTE";
     const title =

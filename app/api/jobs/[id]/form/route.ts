@@ -1,4 +1,6 @@
 import { savedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
+import { redactJobForCleaner, redactJobMetaForCleaner, redactTransferCandidates, withoutPropertyAccess } from "@/lib/jobs/cleaner-redaction";
+import { accessWindowMessage, cleanerAccessWindow } from "@/lib/properties/access-window";
 import { NextRequest, NextResponse } from "next/server";
 import { cleanerBagBaseline, recordedCleanerReadiness } from "@/lib/laundry/quantity-baseline";
 import { requireRole } from "@/lib/auth/session";
@@ -8,7 +10,7 @@ import { getAppSettings } from "@/lib/settings";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { getJobTimingHighlights, parseJobInternalNotes, resolveRuleTime } from "@/lib/jobs/meta";
-import { buildCleanerGuestSummary, cleanerPreparationContext } from "@/lib/jobs/guest-summary";
+import { buildCleanerDepartingGuest, buildCleanerGuestSummary, cleanerPreparationContext } from "@/lib/jobs/guest-summary";
 import {
   guestSummaryFromReservation,
   resolveFinalCheckupItems,
@@ -60,6 +62,19 @@ export async function GET(
             // Job-start gate context (accountability): expected duration, laundry
             // bag identity, sofa beds, and setup reference images. `name` (already
             // selected) carries the property short code (e.g. "J04").
+          },
+        },
+        // The booking whose check-out created this job: the DEPARTING guest.
+        // Only what a cleaner may see; never email, profile link or code.
+        reservation: {
+          select: {
+            guestName: true,
+            guestPhone: true,
+            checkoutAtLocal: true,
+            endDate: true,
+            adults: true,
+            children: true,
+            infants: true,
           },
         },
         assignments: {
@@ -422,9 +437,13 @@ export async function GET(
     const companyPhone = settings.companyPhone?.trim() ? settings.companyPhone.trim() : null;
     const guestName = jobMeta.reservationContext?.guestName ?? null;
     const guestPhone = jobMeta.reservationContext?.guestPhone ?? null;
+    // The guest LEAVING before this clean, from the job's own reservation.
+    const departingGuest = buildCleanerDepartingGuest(job.reservation);
+    const departingGuestName = departingGuest?.name ?? null;
+    const departingGuestPhone = departingGuest?.phoneLabel ?? null;
     const contact =
-      clientName || clientPhone || companyPhone || guestName || guestPhone
-        ? { clientName, clientPhone, companyPhone, guestName, guestPhone }
+      clientName || clientPhone || companyPhone || guestName || guestPhone || departingGuestPhone
+        ? { clientName, clientPhone, companyPhone, guestName, guestPhone, departingGuestName, departingGuestPhone }
         : null;
     // The guest ARRIVING after this clean, trimmed for cleaner eyes. Name and
     // phone were already exposed above via `contact`; this adds only the
@@ -513,8 +532,23 @@ export async function GET(
       if (!(error instanceof UnsupportedFormPropertyConditionError)) throw error;
       formContractError = error.message;
     }
+    // The office views share these queries; a cleaner gets the working details
+    // of the job and their own pay, not the client price or colleagues' pay.
+    const cleanerViewer = session.user.role === Role.CLEANER;
+    const accessWindow = cleanerAccessWindow({
+      responseStatus: currentAssignment?.responseStatus,
+      scheduledDate: job.scheduledDate,
+      jobStatus: job.status,
+    });
     return NextResponse.json({
-      job,
+      job: cleanerViewer
+        ? accessWindow === "OPEN"
+          ? redactJobForCleaner(job, session.user.id)
+          : withoutPropertyAccess(redactJobForCleaner(job, session.user.id))
+        : job,
+      /** Why access details are absent, when they are (cleaner only). */
+      accessWindow: cleanerViewer ? accessWindow : "OPEN",
+      accessUnavailableReason: cleanerViewer ? accessWindowMessage(accessWindow) : null,
       draftIdentity: cleanerDraftIdentity(session, params.id),
       /** CLASSIC records usage as answers and deducts on submit; SCAN adjusts
        *  the shelf immediately. Both work — this only decides which control
@@ -525,7 +559,11 @@ export async function GET(
       nfcArrival,
       contact,
       nextGuest,
-      jobMeta: { ...jobMeta, reservationContext: preparationContext },
+      departingGuest,
+      jobMeta: {
+        ...(cleanerViewer ? redactJobMetaForCleaner(jobMeta, session.user.id) : jobMeta),
+        reservationContext: preparationContext,
+      },
       jobTasks,
       jobTimingHighlights,
       /** Same labels as jobTimingHighlights (R6c) — explicit name for the v2 UI. */
@@ -591,7 +629,7 @@ export async function GET(
             respondedAt: currentAssignment.respondedAt,
           }
         : null,
-      transferCandidates,
+      transferCandidates: cleanerViewer ? redactTransferCandidates(transferCandidates) : transferCandidates,
       /** Any cleaner on this job has started — unlocks the checklist for co-cleaners. */
       teamStarted,
       timeState: {

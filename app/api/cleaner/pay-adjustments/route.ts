@@ -1,3 +1,5 @@
+import { findForeignUploadKeys } from "@/lib/uploads/ownership-server";
+import { FOREIGN_UPLOAD_CODE, FOREIGN_UPLOAD_MESSAGE } from "@/lib/uploads/ownership";
 import { NextRequest, NextResponse } from "next/server";
 import {
   JobType,
@@ -239,6 +241,10 @@ export async function POST(req: NextRequest) {
     }
 
     const body = createSchema.parse(await req.json().catch(() => ({})));
+    const foreignKeys = await findForeignUploadKeys({ keys: body.attachmentKeys ?? [], callerId: session.user.id });
+    if (foreignKeys.length > 0) {
+      return NextResponse.json({ code: FOREIGN_UPLOAD_CODE, error: FOREIGN_UPLOAD_MESSAGE }, { status: 403 });
+    }
 
     let linkedJob:
       | {

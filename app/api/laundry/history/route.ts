@@ -4,12 +4,12 @@ import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
 import { getAppSettings } from "@/lib/settings";
 import { isLaundryModuleEnabled } from "@/lib/portal-access";
-import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
+import { isLaundryOfficeRole, propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 
 export async function GET() {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.LAUNDRY]);
-    if (session.user.role === Role.LAUNDRY) {
+    if (!isLaundryOfficeRole(session.user.role)) {
       const settings = await getAppSettings();
       if (!isLaundryModuleEnabled(settings, "history")) {
         return NextResponse.json({ error: "History is not available for laundry users." }, { status: 403 });
@@ -42,7 +42,7 @@ export async function GET() {
       take: 300,
     });
     const visibleTasks =
-      session.user.role === Role.LAUNDRY
+      !isLaundryOfficeRole(session.user.role)
         ? tasks.filter((task) => propertyIsVisibleToLaundry(task.property, session.user.id))
         : tasks;
     return NextResponse.json(visibleTasks);

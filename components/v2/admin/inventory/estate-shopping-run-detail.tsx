@@ -55,7 +55,7 @@ type RunDetail = {
   paidByDisplay?: string;
   payment: Payment;
   clientChargeStatus: "NOT_REQUIRED" | "READY" | "SENT" | "PAID";
-  cleanerReimbursementStatus: "NOT_APPLICABLE" | "READY" | "INVOICED" | "REIMBURSED";
+  cleanerReimbursementStatus: "NOT_APPLICABLE" | "PENDING_APPROVAL" | "READY" | "INVOICED" | "REIMBURSED";
   reimbursementNote?: string;
   totals: {
     includedLineCount: number;
@@ -78,7 +78,15 @@ const PAYMENT_METHODS = [
   "OTHER",
 ];
 const CLIENT_CHARGE = ["NOT_REQUIRED", "READY", "SENT", "PAID"] as const;
-const CLEANER_REIMB = ["NOT_APPLICABLE", "READY", "INVOICED", "REIMBURSED"] as const;
+const CLEANER_REIMB = ["NOT_APPLICABLE", "PENDING_APPROVAL", "READY", "INVOICED", "REIMBURSED"] as const;
+/** What each reimbursement state means for the cleaner being paid. */
+const CLEANER_REIMB_LABEL: Record<(typeof CLEANER_REIMB)[number], string> = {
+  NOT_APPLICABLE: "Not applicable",
+  PENDING_APPROVAL: "Awaiting your approval",
+  READY: "Approved — payable",
+  INVOICED: "On a cleaner invoice",
+  REIMBURSED: "Reimbursed",
+};
 const RUN_STATUS = ["DRAFT", "IN_PROGRESS", "COMPLETED"] as const;
 
 const money = (n: number) =>
@@ -305,7 +313,7 @@ export function EstateShoppingRunDetail({
           </EField>
         </div>
 
-        <div className="mt-4 flex items-center gap-2">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <EButton variant="outline" size="sm" disabled={uploading} onClick={() => fileRef.current?.click()}>
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
             {uploading ? "Uploading…" : "Upload receipts"}
@@ -388,10 +396,25 @@ export function EstateShoppingRunDetail({
             >
               {CLEANER_REIMB.map((s) => (
                 <option key={s} value={s}>
-                  {label(s)}
+                  {CLEANER_REIMB_LABEL[s]}
                 </option>
               ))}
             </ESelect>
+            {run.cleanerReimbursementStatus === "PENDING_APPROVAL" ? (
+              <div className="mt-2 space-y-1.5">
+                <p className="text-[0.75rem] text-[hsl(var(--e-warning))]">
+                  The cleaner has claimed this cost. It is not paid or invoiced until you approve it.
+                </p>
+                <EButton
+                  size="sm"
+                  variant="gold"
+                  disabled={saving}
+                  onClick={() => patch({ cleanerReimbursementStatus: "READY" }, "Reimbursement approved")}
+                >
+                  Approve reimbursement
+                </EButton>
+              </div>
+            ) : null}
           </EField>
         </div>
 

@@ -2,12 +2,12 @@
 import { beforeEach, expect, it, vi } from "vitest";
 const m=vi.hoisted(()=>({role:vi.fn(),job:vi.fn(),report:vi.fn(),read:vi.fn(),create:vi.fn(),save:vi.fn(),submit:vi.fn()}));
 vi.mock("@/lib/auth/session",()=>({requireRole:m.role}));
-vi.mock("@/lib/db",()=>({db:{job:{findFirst:m.job},damageReport:{findFirst:m.report}}}));
+vi.mock("@/lib/db",()=>({db:{job:{findFirst:m.job},damageReport:{findFirst:m.report},jobAssignment:{findMany:async()=>[]},user:{findMany:async()=>[]}}}));
 vi.mock("@/lib/damage/service",()=>({getDamageDraft:m.read,getOrCreateDamageDraft:m.create,saveDamageDraft:m.save,submitDamageReport:m.submit}));
 vi.mock("@/lib/s3",()=>({publicUrl:(key:string)=>`https://evidence.invalid/${key}`}));
 import { GET, PUT, POST } from "@/app/api/cleaner/jobs/[id]/damage/route";
 const ctx={params:{id:"job"}};
-const item={area:"Kitchen",category:"Sink",description:"Visible crack in sink",photos:[{s3Key:"photo"}],estimatedCost:999};
+const item={area:"Kitchen",category:"Sink",description:"Visible crack in sink",photos:[{s3Key:"evidence/cleaner/photo.jpg"}],estimatedCost:999};
 const request=(method:string,body:unknown)=>new Request("http://localhost/api/damage",{method,body:JSON.stringify(body)});
 beforeEach(()=>{vi.resetAllMocks();m.role.mockResolvedValue({user:{id:"cleaner"}});m.job.mockResolvedValue({id:"job",propertyId:"property"});m.report.mockResolvedValue({id:"draft"});m.read.mockResolvedValue(null);m.create.mockResolvedValue({id:"created"});m.save.mockResolvedValue({id:"draft",items:[]});m.submit.mockResolvedValue({id:"draft",items:[]});});
 it("reads an absent draft without provisioning and scopes lookup to the assigned cleaner",async()=>{
@@ -41,4 +41,10 @@ it("submits a verified owned report and returns composite evidence URLs",async()
 });
 it("returns conflict when submitted evidence cannot be edited",async()=>{
  m.save.mockRejectedValue(new Error("DAMAGE_REPORT_NOT_EDITABLE"));expect((await PUT(request("PUT",{reportId:"draft",items:[]}),ctx)).status).toBe(409);
+});
+it.each([PUT,POST])("refuses a photo another account uploaded before saving or submitting",async handler=>{
+ const foreign={...item,photos:[{s3Key:"evidence/someone-else/photo.jpg"}]};
+ const res=await handler(request(handler===PUT?"PUT":"POST",{reportId:"draft",items:[foreign]}),ctx);
+ expect(res.status).toBe(403);expect((await res.json()).code).toBe("FOREIGN_UPLOAD_REFERENCE");
+ expect(m.save).not.toHaveBeenCalled();expect(m.submit).not.toHaveBeenCalled();
 });

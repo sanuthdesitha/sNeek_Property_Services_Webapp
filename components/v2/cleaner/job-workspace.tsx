@@ -1918,6 +1918,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
         keyPickupLocation={payload?.keyPickupLocation ?? null}
         contact={contact}
         nextGuest={payload?.nextGuest ?? null}
+        departingGuest={payload?.departingGuest ?? null}
         readFirstItems={readFirstItems}
         restockNeeds={restockNeeds}
       />

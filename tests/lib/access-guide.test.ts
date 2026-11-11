@@ -92,8 +92,10 @@ describe("entriesForAudience (ACCESS-1 per-role guides)", () => {
     expect(entriesForAudience(all, "CLEANER").map((e) => e.id)).toEqual(["c", "b", "legacy"]);
   });
 
-  it("gives laundry only laundry and shared entries when the flag is off", () => {
-    expect(entriesForAudience(all, "LAUNDRY", false).map((e) => e.id)).toEqual(["l", "b", "legacy"]);
+  it("gives laundry the cleaner's entries as well as its own, whatever the old flag says", () => {
+    // Owner's rule (2026-11): drivers see the same access details as cleaners.
+    expect(entriesForAudience(all, "LAUNDRY", false).map((e) => e.id)).toEqual(["c", "l", "b", "legacy"]);
+    expect(entriesForAudience(all, "LAUNDRY").map((e) => e.id)).toEqual(["c", "l", "b", "legacy"]);
   });
 
   it("adds the cleaner's entries for laundry when 'same as cleaner' is on", () => {
@@ -112,8 +114,9 @@ describe("entriesForAudience (ACCESS-1 per-role guides)", () => {
     expect(result.map((e) => e.id)).toContain("l");
   });
 
-  it("never leaks cleaner-only entries to laundry with the flag off", () => {
-    expect(entriesForAudience([cleanerOnly], "LAUNDRY", false)).toEqual([]);
+  it("shows a cleaner-only entry to laundry but never a laundry-only entry to a cleaner", () => {
+    expect(entriesForAudience([cleanerOnly], "LAUNDRY", false)).toEqual([cleanerOnly]);
+    expect(entriesForAudience(all, "CLEANER").map((e) => e.id)).not.toContain("l");
   });
 });
 

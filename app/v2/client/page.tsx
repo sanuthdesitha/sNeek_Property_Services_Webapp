@@ -1,3 +1,4 @@
+import { projectClientJobList } from "@/lib/client/list-projection";
 import Link from "next/link";
 import { requirePropertyFavoritesContext } from "@/lib/client/property-favorites-store";
 import { loadPropertyHomeRows } from "@/lib/client/property-home";
@@ -104,7 +105,7 @@ export default async function ClientHomePage() {
   const firstName = session.user.name ? session.user.name.split(" ")[0] : null;
 
   const [jobsResult, reportsResult] = await Promise.all([
-    listClientJobsForUser(session.user.id).catch(() => null),
+    listClientJobsForUser(session.user.id).then((rows) => projectClientJobList(rows, visibility)).catch(() => null),
     visibility?.showReports
       ? listClientReportsForUser(session.user.id).catch(() => null)
       : Promise.resolve([]),
@@ -395,7 +396,7 @@ export default async function ClientHomePage() {
           whether something is happening today, what is coming next, whether
           anything is waiting on them, and whether a property will run out of
           something. Each tile answers one of those. */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <EStatCard
           label="Today"
           value={jobsResult === null ? unavailableValue : String(todayJobs.length)}

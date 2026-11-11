@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSession } from "@/lib/auth/session";
+import { Role } from "@prisma/client";
+import { requireRole } from "@/lib/auth/session";
+
+const STOCK_SCAN_ROLES: Role[] = [Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER];
 import { db } from "@/lib/db";
 import { tallyScans, unitsPerScan } from "@/lib/inventory/barcodes";
 import { reconcileCountRun, shoppingNeedsFromCount } from "@/lib/inventory/count-run";
@@ -46,7 +49,9 @@ const bodySchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireSession();
+    // Stock is read and rewritten here. Only the roles that count and restock
+    // may call this; a client, laundry or maintenance login never should.
+    const session = await requireRole(STOCK_SCAN_ROLES);
     const body = bodySchema.parse(await req.json().catch(() => ({})));
 
     const { tallies, rejected } = tallyScans(body.scans);

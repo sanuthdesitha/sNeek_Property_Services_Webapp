@@ -30,7 +30,7 @@ type ShoppingRun = {
   planningScope: string;
   updatedAt: string;
   clientChargeStatus: "NOT_REQUIRED" | "READY" | "SENT" | "PAID";
-  cleanerReimbursementStatus: "NOT_APPLICABLE" | "READY" | "INVOICED" | "REIMBURSED";
+  cleanerReimbursementStatus: "NOT_APPLICABLE" | "PENDING_APPROVAL" | "READY" | "INVOICED" | "REIMBURSED";
   totals: { includedLineCount: number; estimatedTotalCost: number; actualTotalCost: number };
 };
 

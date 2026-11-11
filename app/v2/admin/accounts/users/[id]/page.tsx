@@ -115,6 +115,7 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
       emergencyContactPhone: true,
       emergencyContactRelation: true,
       notes: true,
+      adminNotes: true,
       clientId: true,
       // A VA's access lives on their TEAM, not their user row — without this
       // the profile page rendered a VA as a strangely empty cleaner.
@@ -671,7 +672,7 @@ export default async function EstateAccountDetailPage({ params }: { params: { id
             </ECard>
           ) : null}
 
-          <AccountNotes userId={user.id} initialNotes={user.notes} />
+          <AccountNotes userId={user.id} initialNotes={user.adminNotes} ownNotes={user.notes} />
         </div>
       </div>
 

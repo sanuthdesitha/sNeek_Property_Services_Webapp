@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
+import { propertyIdInScope, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
+import { isClientModuleEnabled } from "@/lib/portal-access";
 import {
   addCaseAttachment,
   addCaseComment,
@@ -13,7 +14,14 @@ import { notifyCaseUpdated } from "@/lib/cases/notifications";
 const patchSchema = z.object({
   comment: z.string().trim().max(4000).optional(),
   s3Key: z.string().trim().optional(),
-  url: z.string().trim().optional().nullable(),
+  // Shown to office staff as a link: only a web address or an app path.
+  url: z
+    .string()
+    .trim()
+    .max(2000)
+    .refine((value) => /^https:\/\//i.test(value) || (value.startsWith("/") && !value.startsWith("//")), "Invalid attachment link.")
+    .optional()
+    .nullable(),
   mimeType: z.string().trim().optional().nullable(),
   label: z.string().trim().optional().nullable(),
   status: z.enum(["OPEN"]).optional(),
@@ -30,7 +38,13 @@ export async function GET(
     // LIST route beside this one was migrated in B16b; this one was missed.
     const portal = await requireClientPortal({ permission: "maintenance" });
     const row = await getCaseById(params.id);
-    if (!row || row.client?.id !== portal.clientId || row.clientVisible !== true) {
+    if (
+      !row ||
+      row.client?.id !== portal.clientId ||
+      row.clientVisible !== true ||
+      !propertyIdInScope(row.property?.id, portal) ||
+      !isClientModuleEnabled(portal.visibility, "cases")
+    ) {
       return NextResponse.json({ error: "Case not found." }, { status: 404 });
     }
     return NextResponse.json(toClientCaseView(row));
@@ -53,10 +67,16 @@ export async function PATCH(
     // LIST route beside this one was migrated in B16b; this one was missed.
     const portal = await requireClientPortal({ permission: "maintenance" });
     const current = await getCaseById(params.id);
-    if (!current || current.client?.id !== portal.clientId || current.clientVisible !== true) {
+    if (
+      !current ||
+      current.client?.id !== portal.clientId ||
+      current.clientVisible !== true ||
+      !propertyIdInScope(current.property?.id, portal) ||
+      !isClientModuleEnabled(portal.visibility, "cases")
+    ) {
       return NextResponse.json({ error: "Case not found." }, { status: 404 });
     }
-    if (current.clientCanReply === false) {
+    if (current.clientCanReply === false || portal.visibility.allowCaseReplies === false) {
       return NextResponse.json({ error: "Replies are disabled for this case." }, { status: 403 });
     }
     const body = patchSchema.parse(await req.json().catch(() => ({})));

@@ -211,12 +211,47 @@ function serializeCase(issue: any) {
   };
 }
 
+/** A person as a client may see them: a name and role, never an email address. */
+function clientSafePerson(person: unknown) {
+  if (!person || typeof person !== "object") return person ?? null;
+  const { email: _email, ...rest } = person as Record<string, unknown>;
+  const name = typeof rest.name === "string" ? rest.name.trim() : "";
+  const isClientSide = rest.role === "CLIENT" || rest.role === "VA";
+  return { ...rest, name: name || (isClientSide ? "Client" : "sNeek team") };
+}
+
 export function toClientCaseView<T extends ReturnType<typeof serializeCase>>(issue: T) {
+  const view = issue as T & {
+    assignedTo?: unknown;
+    attachments?: Array<Record<string, unknown>>;
+    transitions?: Array<Record<string, unknown>>;
+  };
   return {
     ...issue,
+    assignedTo: clientSafePerson(view.assignedTo),
     comments: Array.isArray(issue.comments)
-      ? issue.comments.filter((comment) => comment.isInternal !== true)
+      ? issue.comments
+          .filter((comment) => comment.isInternal !== true)
+          .map((comment) => ({ ...comment, author: clientSafePerson((comment as { author?: unknown }).author) }))
       : [],
+    attachments: Array.isArray(view.attachments)
+      ? view.attachments.map((attachment) => ({
+          ...attachment,
+          uploadedBy: clientSafePerson(attachment.uploadedBy),
+        }))
+      : [],
+    // The client sees that the case moved and when. The reason is the
+    // office's own status note and the metadata is internal bookkeeping.
+    transitions: Array.isArray(view.transitions)
+      ? view.transitions.map((transition) => ({
+          ...transition,
+          reason: null,
+          actor: clientSafePerson(transition.actor),
+        }))
+      : [],
+    metadata: null,
+    tags: [],
+    evidenceKeys: [],
   };
 }
 

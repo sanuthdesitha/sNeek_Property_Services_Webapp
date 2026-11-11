@@ -170,6 +170,22 @@ function timeLabel(value?: string | null) {
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("en-AU");
 }
 
+/** The cleaner's view of where their out-of-pocket claim stands. */
+function reimbursementLabel(status: string | undefined): string {
+  switch (status) {
+    case "PENDING_APPROVAL":
+      return "Waiting for office approval";
+    case "READY":
+      return "Approved — will be on your next pay or invoice";
+    case "INVOICED":
+      return "On your invoice";
+    case "REIMBURSED":
+      return "Reimbursed";
+    default:
+      return "Not applicable";
+  }
+}
+
 export function ShoppingRunWorkspace({
   apiBase,
   runId,
@@ -626,7 +642,7 @@ export function ShoppingRunWorkspace({
               Client charge: {run.clientChargeStatus || "-"}
             </span>
             <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-              Cleaner reimbursement: {run.cleanerReimbursementStatus || "-"}
+              Reimbursement: {reimbursementLabel(run.cleanerReimbursementStatus)}
             </span>
           </div>
 

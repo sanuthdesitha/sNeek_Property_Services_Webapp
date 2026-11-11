@@ -54,6 +54,12 @@ function statusTone(status: ApprovalRow["status"]): "success" | "danger" | "warn
   }
 }
 
+/** "AIRBNB_TURNOVER" → "Airbnb turnover". */
+function sentenceCase(value: string) {
+  const words = value.replace(/_/g, " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 function money(amount: number, currency: string) {
   return `${currency} ${Number(amount).toFixed(2)}`;
 }
@@ -287,7 +293,7 @@ function SessionApprovalsBoard() {
                       {row.property ? <span>{row.property.name}</span> : null}
                       {row.job ? (
                         <span>
-                          {row.job.jobType.replace(/_/g, " ").toLowerCase()} ·{" "}
+                          {sentenceCase(row.job.jobType)} ·{" "}
                           {format(new Date(row.job.scheduledDate), "d MMM yyyy")}
                         </span>
                       ) : null}

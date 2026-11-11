@@ -2,53 +2,17 @@ import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { clientApprovalVersion, listClientApprovals } from "@/lib/commercial/client-approvals";
+import { clientApprovalVersion } from "@/lib/commercial/client-approvals";
+import { listApprovalsForViewer, resolveApprovalViewer } from "@/lib/commercial/client-approval-access";
 
 export async function GET() {
   try {
     const session = await requireRole([Role.CLIENT]);
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { clientId: true, email: true },
-    });
-    if (!user) {
+    const viewer = await resolveApprovalViewer(session.user.id);
+    if (!viewer) {
       return NextResponse.json([], { status: 200 });
     }
-
-    const normalizedEmail = user.email?.trim().toLowerCase() || null;
-    const emailMatchedClientIds = normalizedEmail
-      ? (
-          await db.client.findMany({
-            where: { email: normalizedEmail },
-            select: { id: true },
-            take: 20,
-          })
-        ).map((row) => row.id)
-      : [];
-
-    const accessibleClientIds = new Set<string>(
-      [user.clientId, ...emailMatchedClientIds].filter((value): value is string => Boolean(value))
-    );
-
-    const rows = (await listClientApprovals()).filter((row) => {
-      if (accessibleClientIds.has(row.clientId)) return true;
-      const metadata =
-        row.metadata && typeof row.metadata === "object" ? (row.metadata as Record<string, unknown>) : null;
-      const recipientUserIds = Array.isArray(metadata?.recipientUserIds)
-        ? metadata!.recipientUserIds
-            .filter((item): item is string => typeof item === "string")
-            .map((item) => item.trim())
-            .filter(Boolean)
-        : [];
-      if (recipientUserIds.includes(session.user.id)) return true;
-      const recipientEmails = Array.isArray(metadata?.recipientEmails)
-        ? metadata!.recipientEmails
-            .filter((item): item is string => typeof item === "string")
-            .map((item) => item.trim().toLowerCase())
-            .filter(Boolean)
-        : [];
-      return normalizedEmail ? recipientEmails.includes(normalizedEmail) : false;
-    });
+    const rows = await listApprovalsForViewer(viewer);
 
     const propertyIds = Array.from(
       new Set(rows.map((row) => row.propertyId).filter((value): value is string => Boolean(value)))

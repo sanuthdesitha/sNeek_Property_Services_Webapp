@@ -81,14 +81,25 @@ export default function PropertyAccessGuide({
 }) {
   const [entries, setEntries] = useState<GuideEntry[] | null>(null);
   const [open, setOpen] = useState(true);
+  const [unavailable, setUnavailable] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [lightbox, setLightbox] = useState<{ images: GuideImage[]; index: number; label: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     if (!propertyId) return;
+    setUnavailable(null);
     fetch(`/api/cleaner/property-access/${propertyId}`)
-      .then((r) => (r.ok ? r.json() : null))
+      .then(async (r) => {
+        if (r.ok) return r.json();
+        // Outside the access window the server explains why; show that
+        // instead of an unexplained gap where the codes usually are.
+        if (r.status === 403 && !cancelled) {
+          const body = await r.json().catch(() => null);
+          setUnavailable(typeof body?.error === "string" ? body.error : "Access details are not available right now.");
+        }
+        return null;
+      })
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data?.accessGuide) ? (data.accessGuide as GuideEntry[]) : [];
@@ -110,6 +121,18 @@ export default function PropertyAccessGuide({
     () => (entries ?? []).reduce((sum, e) => sum + (e.images?.length ?? 0), 0),
     [entries]
   );
+
+  if (unavailable) {
+    return (
+      <p
+        role="status"
+        className="flex items-start gap-2 rounded-[var(--e-radius,0.625rem)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-4 py-3 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]"
+      >
+        <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--e-muted-foreground))]" aria-hidden />
+        <span>{unavailable}</span>
+      </p>
+    );
+  }
 
   // Render nothing until loaded, and nothing when there is no guide.
   if (!entries || entries.length === 0) return null;

@@ -1,4 +1,5 @@
 import { resolveRouteRole } from "@/lib/auth/route-role";
+import { redactJobForCleaner } from "@/lib/jobs/cleaner-redaction";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -275,7 +276,10 @@ export async function GET(req: NextRequest) {
     const jobs = await db.job.findMany({ where, include: JOB_INCLUDE, orderBy });
     return NextResponse.json(jobs
       .filter((job) => role !== Role.CLEANER || !parseJobInternalNotes(job.internalNotes).isDraft)
-      .map(withTimingBadges));
+      .map(withTimingBadges)
+      // Timing badges are derived from the notes first; the raw notes, client
+      // price and colleagues' pay are then removed for a cleaner.
+      .map((job) => (role === Role.CLEANER ? redactJobForCleaner(job, session.user.id) : job)));
   } catch (err: any) {
     let httpStatus = 500;
     if (err.message === "UNAUTHORIZED") httpStatus = 401;

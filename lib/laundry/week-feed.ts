@@ -3,9 +3,10 @@
  * GET /api/laundry/week, reused by the route builder API and the plan brief so
  * every surface sees the same task shape and the same per-driver scoping.
  */
+import { accessAudienceMatches } from "@/lib/properties/access-guide";
 import { LaundryStatus, Prisma, Role } from "@prisma/client";
 import { db } from "@/lib/db";
-import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
+import { isLaundryOfficeRole, propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 
 export const laundryWeekTaskInclude = {
   property: {
@@ -53,8 +54,49 @@ export function filterTasksVisibleToUser<T extends { property: { accessInfo: unk
   role: Role,
   userId: string,
 ): T[] {
-  if (role !== Role.LAUNDRY) return tasks;
-  return tasks.filter((task) => propertyIsVisibleToLaundry(task.property, userId));
+  if (isLaundryOfficeRole(role)) return tasks;
+  return tasks
+    .filter((task) => propertyIsVisibleToLaundry(task.property, userId))
+    .map((task) => redactPropertyForLaundry(task));
+}
+
+/**
+ * What leaves the server for a laundry viewer.
+ *
+ * The access guide carries an audience per entry. The browser used to receive
+ * every entry (lockbox, alarm, key and Wi-Fi steps meant for the cleaner) and
+ * hide the wrong ones itself, so the property's "laundry access is the same as
+ * the cleaner's" setting was only a display preference. The audience rule is
+ * applied here instead, and the client's email address is not sent at all.
+ */
+function redactPropertyForLaundry<T extends { property: unknown }>(task: T): T {
+  const property = task.property;
+  if (!property || typeof property !== "object") return task;
+  const source = property as Record<string, unknown>;
+  const info =
+    source.accessInfo && typeof source.accessInfo === "object" && !Array.isArray(source.accessInfo)
+      ? (source.accessInfo as Record<string, unknown>)
+      : {};
+  const redacted: Record<string, unknown> = { ...source };
+  if ("accessGuide" in source) {
+    const entries = Array.isArray(source.accessGuide) ? source.accessGuide : [];
+    redacted.accessGuide = entries.filter(
+      (entry) =>
+        entry &&
+        typeof entry === "object" &&
+        !Array.isArray(entry) &&
+        accessAudienceMatches(
+          (entry as { audience?: unknown }).audience,
+          "LAUNDRY",
+          info.laundrySameAsCleaner === true,
+        ),
+    );
+  }
+  if (source.client && typeof source.client === "object") {
+    const { email: _email, ...client } = source.client as Record<string, unknown>;
+    redacted.client = client;
+  }
+  return { ...task, property: redacted };
 }
 
 /**

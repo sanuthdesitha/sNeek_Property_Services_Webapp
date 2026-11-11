@@ -1,5 +1,6 @@
 import { toZonedTime } from "date-fns-tz";
 import { LaundryStatus, Role } from "@prisma/client";
+import { laundryTaskScope } from "@/lib/laundry/teams";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import {
@@ -20,14 +21,14 @@ export const dynamic = "force-dynamic";
 const TZ = "Australia/Sydney";
 const DAY = 86_400_000;
 
-async function getReport() {
+async function getReport(scope: Awaited<ReturnType<typeof laundryTaskScope>>) {
   const nowSyd = toZonedTime(new Date(), TZ);
   const todayStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
   const monthStart = new Date(todayStart.getTime() - 29 * DAY);
 
   const delivered = await db.laundryTask
     .findMany({
-      where: { status: LaundryStatus.DROPPED, droppedAt: { gte: monthStart } },
+      where: { ...scope, status: LaundryStatus.DROPPED, droppedAt: { gte: monthStart } },
       select: {
         bagWeightKg: true,
         dropoffCostAud: true,
@@ -77,8 +78,8 @@ async function getReport() {
 }
 
 export default async function LaundryReportsPage() {
-  await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
-  const { loads, totalKg, totalCost, avgTurnaroundH, rows } = await getReport();
+  const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+  const { loads, totalKg, totalCost, avgTurnaroundH, rows } = await getReport(await laundryTaskScope(session.user));
 
   const turnaround =
     avgTurnaroundH >= 24 ? `${(avgTurnaroundH / 24).toFixed(1)} d` : `${Math.round(avgTurnaroundH)} h`;

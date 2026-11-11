@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uploadFolderAllowedForRole } from "@/lib/uploads/ownership";
 import { requireSession } from "@/lib/auth/session";
 import { getPresignedUploadUrl } from "@/lib/s3";
 import { sanitizeUploadFolder, isAllowedUploadContentType } from "@/lib/uploads/validate";
@@ -19,6 +20,9 @@ export async function POST(req: NextRequest) {
     const folder = sanitizeUploadFolder(body.folder);
     if (folder === null) {
       return NextResponse.json({ error: "Invalid upload folder." }, { status: 400 });
+    }
+    if (!uploadFolderAllowedForRole(folder, session.user.role)) {
+      return NextResponse.json({ error: "Your account cannot upload to that folder." }, { status: 403 });
     }
     if (!isAllowedUploadContentType(body.contentType, body.filename)) {
       return NextResponse.json({ error: "Unsupported file type." }, { status: 400 });

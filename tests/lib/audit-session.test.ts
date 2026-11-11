@@ -38,3 +38,18 @@ it.each([requireSession, requireRealSession])("rejects a deleted account despite
   await expect(fn()).rejects.toThrow("UNAUTHORIZED");
   expect(m.impersonate).not.toHaveBeenCalled();
 });
+it("acts as the held role a route admits when the active role is a different one", async () => {
+  // Holds cleaner and laundry; the switcher cookie says cleaner.
+  m.user.mockResolvedValue({ id: "person", isActive: true, role: "CLEANER", extraRoles: [{ role: "LAUNDRY" }] });
+  m.cookie.mockReturnValue("CLEANER");
+  // A laundry route admits them as LAUNDRY, so "if not office, scope to your team" applies.
+  expect((await requireRole(["LAUNDRY", "ADMIN", "OPS_MANAGER"])).user.role).toBe("LAUNDRY");
+  // On a route their active role is allowed on, nothing changes.
+  expect((await requireRole(["CLEANER", "ADMIN"])).user.role).toBe("CLEANER");
+});
+it("never raises someone to a role they do not hold", async () => {
+  m.user.mockResolvedValue({ id: "person", isActive: true, role: "CLEANER", extraRoles: [{ role: "QA_INSPECTOR" }] });
+  m.cookie.mockReturnValue("QA_INSPECTOR");
+  const session = await requireRole(["ADMIN", "OPS_MANAGER", "CLEANER"]);
+  expect(session.user.role).toBe("CLEANER");
+});

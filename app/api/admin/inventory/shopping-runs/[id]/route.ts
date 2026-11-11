@@ -49,7 +49,7 @@ const patchSchema = z.object({
   payment: paymentSchema.optional(),
   clientChargeStatus: z.enum(["NOT_REQUIRED", "READY", "SENT", "PAID"]).optional(),
   cleanerReimbursementStatus: z
-    .enum(["NOT_APPLICABLE", "READY", "INVOICED", "REIMBURSED"])
+    .enum(["NOT_APPLICABLE", "PENDING_APPROVAL", "READY", "INVOICED", "REIMBURSED"])
     .optional(),
   clientChargeSentAt: z.string().optional().nullable(),
   clientChargePaidAt: z.string().optional().nullable(),

@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { canActAs, heldRoles, resolveActiveRole } from "@/lib/auth/roles";
 import { readActiveRoleCookie } from "@/lib/auth/active-role";
 import { resolveImpersonation } from "./impersonation-server";
+import { resolveRouteRole } from "./route-role";
 
 export async function getSession() {
   return getServerSession(authOptions);
@@ -141,6 +142,15 @@ export async function requireRole(allowedRoles: Role[]) {
   if (!canActAs(session.user.heldRoles ?? [session.user.role as Role], allowedRoles)) {
     denyRole();
   }
+  // The gate admits anyone HOLDING an allowed role, but handlers scope records
+  // by the role being ACTED AS ("if cleaner, only your jobs"). Someone holding
+  // two roles could pass on one and be scoped as the other, which skipped the
+  // ownership check entirely. On a route their active role is not allowed on,
+  // they act as the held role the route does allow.
+  session.user.role = resolveRouteRole(
+    { role: session.user.role as Role, heldRoles: session.user.heldRoles },
+    allowedRoles,
+  );
   return session;
 }
 

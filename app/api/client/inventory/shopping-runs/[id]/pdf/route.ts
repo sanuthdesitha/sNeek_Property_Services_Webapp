@@ -1,3 +1,4 @@
+import { getClientPortalContext } from "@/lib/client/portal";
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -19,7 +20,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   try {
     const session = await requireRole([Role.CLIENT]);
     const settings = await getAppSettings();
-    if (!isClientModuleEnabled(settings, "shopping")) {
+    const { visibility } = await getClientPortalContext(session.user.id, settings);
+    if (!isClientModuleEnabled(visibility, "shopping")) {
       return NextResponse.json({ error: "Shopping is not available for client users." }, { status: 403 });
     }
     const clientId = await getClientId(session.user.id);

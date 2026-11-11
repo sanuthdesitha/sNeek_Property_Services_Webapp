@@ -27,6 +27,7 @@ export const dynamic = "force-dynamic";
 // buggy / malicious client from flooding the endpoint.
 const RATE_LIMIT_MS = 10_000;
 const STALE_PING_MS = 5 * 60_000;
+const FUTURE_PING_TOLERANCE_MS = 2 * 60_000;
 
 const globalRef = globalThis as unknown as { __sneekPingRateLimit?: Map<string, number> };
 if (!globalRef.__sneekPingRateLimit) globalRef.__sneekPingRateLimit = new Map();
@@ -82,9 +83,12 @@ export async function POST(req: NextRequest) {
 
   // Drop any ping older than STALE_PING_MS — prevents a queue-flush from
   // a previously-offline client from spamming us with ancient data.
+  // A ping dated ahead of the server clock (beyond ordinary phone drift) is
+  // dropped too: it would sort as the "latest" position long after it was sent.
   const pings = rawPings.filter((p) => {
     if (!p.timestamp) return true;
-    return nowMs - new Date(p.timestamp).getTime() < STALE_PING_MS;
+    const age = nowMs - new Date(p.timestamp).getTime();
+    return age < STALE_PING_MS && age > -FUTURE_PING_TOLERANCE_MS;
   });
 
   if (pings.length === 0) {

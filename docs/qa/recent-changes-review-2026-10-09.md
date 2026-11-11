@@ -505,3 +505,140 @@ Request: apply the same checks and fixes to the cleaner, client, laundry, operat
 - The classic (v1) portals were not crawled. Classic screens keep their own upload widgets (`components/ui/upload-dropzone.tsx` and the v1 cleaner job page show per-file progress); the single bar still summarises their requests, but those inline bars were not removed.
 - Custom operations-manager permission packs (View only, Off) were not exercised in the browser; the fixture manager has the default full pack. The existing middleware and policy tests for packs pass.
 - The real-database Playwright suites were not run. Nothing was deployed.
+
+### Follow-up: client approvals and the cleaner, client and laundry access review (2026-11-11)
+
+Request: fix the client portal not showing approvals waiting on the client, then look deeper for UI, code and security issues in the cleaner, client and laundry portals. Starting point: `main` at `2d4fdc7` after PR 29.
+
+**Client approvals.** Reproduced the cause in code and in the browser. The Approvals page lists `ClientApproval` records; the navigation badge counted the client's own job requests awaiting the office. With one PENDING approval created as admin on the fixture database, the client's badge now reads 1, the list shows it, and the dashboard's "Requires attention" and property "Approval inbox" agree. One access rule is shared by list, respond, counter and badge.
+
+**Method for the review.** Three independent read-only reviews covered `app/api/client/**`, `app/api/cleaner/**` with `app/api/jobs/**` and `app/api/uploads/**`, and `app/api/laundry/**` with the laundry pages and shared routes. Every finding acted on below was re-read in the code before it was changed. Findings are code-reading results; none was exploited against production.
+
+**Fixed (each with a test unless noted)**
+
+- Email-matched approval access with an unverified, self-changed email. Found while tracing approvals, not by the reviews.
+- Role gate admitted on a held role while handlers scoped by the active role.
+- Cleaner job list and job form returned client price, raw office notes, every cleaner's payout and pay rate, colleague and client emails.
+- Cleaner shopping reimbursements were offered to every cleaner when no payer was recorded.
+- Laundry: invoice scope widened to all properties on an empty match; Today, Stats, Reports and Invoices pages and badge counts unscoped; cleaner-only access guide entries and client email sent to the browser.
+- Stock scan endpoints open to any signed-in user. Verified on the build: client and laundry receive 403, cleaner 200.
+- Client portal: assistant property scope on task requests, cases and preferred cleaner; case module and reply settings; report and link claims on cases; staff and cleaner emails in cases, messages and cleaner options; expired quote acceptance; payment return address and outstanding amount; shopping run property claims.
+- Notification inbox clear deleted everyone's notifications for office roles. GPS arrival could be rewritten with a client flag. Resumed upload folder not validated. (No new test for these three; existing suites pass.)
+
+**Verified**
+
+- TypeScript `--noEmit`: pass. ESLint on touched files: 0 errors, 2 pre-existing-style warnings.
+- Full Vitest suite on disposable PostgreSQL after the final edits: **7,348 passed, 2 skipped, 665 files passed**.
+- Production build: pass, 765/765 pages.
+- On the build, as fixture users: client badge and approvals list; client 403 on the three stock scan routes; cleaner form and list payloads contain none of `fixedPrice`, `internalNotes`, `reworkPayAmount`, `adminOverrideNote` and no email other than the cleaner's own; laundry invoice preview for an unseen property returns no rows; laundry pages render.
+- Crawl at 390px after the fixes: cleaner 29 pages, client 30, laundry 13. No failed API calls, page errors or overflow.
+- UI: client home, cleaner home and laundry home stat cards no longer stack one per row on a phone; client approval job type is sentence-cased; property view toggle shows its active state.
+
+**Reported and NOT fixed at the time.** These were real or plausible and needed either a product decision or a larger change than was safe to make blind. **All but the storage-bucket question and the push-token item were resolved on 2026-11-11; see "Follow-up: owner decisions and the remaining list" below.**
+
+Cleaner
+- Property access and alarm codes are returned for any job with a live assignment, including unaccepted offers, jobs months ahead and completed jobs. There is no time or status window anywhere.
+- Job submit, damage, lost-found, pay-adjustment and invoice-proof routes accept evidence object keys without checking the caller owns them.
+- `uploads/presign`, `direct` and `presign-multipart` accept any `folder` from any signed-in role.
+- A cleaner's shopping run becomes reimbursable as soon as a personal payment method and a cost are saved, including a draft with no receipt and no office approval. Rows may name any property, which raises a pending client charge.
+- Reschedule and approval requests and draft deletion have no upper job-status bound. Location pings accept a future timestamp.
+- If the storage bucket is public (`S3_PUBLIC_BASE_URL` in the example points at a public R2 URL), knowing an object key is the only control. Deployment not inspected.
+
+Client
+- List endpoints ignore visibility switches the single-record endpoints honour: cleaner names, laundry notes/meta/photos, report PDF links.
+- Stock and shopping routes read the global module switches, not the per-client overrides; stock thresholds can be edited regardless of the setting.
+- Stock runs return the requester's email. Case transition reasons and metadata reach the client unfiltered. The job task-requests list returns office-source tasks and event notes.
+- Invoice pay and payment-link do not check the finance visibility switch.
+
+Laundry
+- The legacy flat access fields (lockbox, codes, parking) are shown to laundry on every property regardless of the "same as cleaner" setting. This is long-standing visible behaviour, so it was not removed without a decision.
+- Driver location pings are attached to the first laundry task of the day globally, which can surface a driver's position on an unrelated job.
+- Drop-off evidence keys and `supplierId` are accepted without ownership or existence checks.
+- The lost-found detail returns guest contact and the office timeline to the reporting cleaner (possibly intended).
+
+Shared
+- `User.notes` was both the cleaner's "notes to admin" on their own profile and the office's staff note in the Accounts hub. **Resolved in the follow-up below.**
+- The mobile push device endpoint reassigns an existing token to the caller.
+
+**Limits.** Routes the reviews could not fully trace are not cleared: the 1,187-line cleaner submit route beyond key validation, damage investigation field stripping, client purchases and referrals, laundry invoice PDF building, and several helper bodies. Assistant (VA) fixes were not exercised in the browser; there is no VA login in the fixture data. The real-database Playwright suites were not run. Nothing was deployed.
+
+### Follow-up: separate office notes from a person's own notes (2026-11-11)
+
+The owner authorised a database change for the shared notes field, on condition that existing data is preserved.
+
+- Change: new nullable `User.adminNotes`; migration `20261111120000_user_admin_notes` adds the column and copies each non-blank `notes` value into it. `User.notes` is not modified. The office notes route and both Accounts hub editors use the new column; the person's own note is shown to the office read-only.
+- Migration verification on disposable PostgreSQL `127.0.0.1:55439`:
+  - Existing migrated database with data (7 users, 2 with notes, one of them whitespace only): the checksum over every `notes` value was identical before and after (`fbbd3109…`); the non-blank note was copied to `adminNotes`; the whitespace-only note was left alone and not copied.
+  - Repeat `migrate deploy`: no pending migrations.
+  - Fresh empty database: all 129 migrations applied; repeat reports none pending.
+  - `prisma migrate diff` from the migrated database to `schema.prisma`: no difference.
+- Behaviour on the production build: the admin saved an office note and saw it after reload; the cleaner's profile page and `/api/me/profile` contained neither that text nor an `adminNotes` key, and still showed the cleaner's own note; a cleaner `PATCH /api/me/profile` carrying both `notes` and `adminNotes` changed only their own note.
+- TypeScript: pass. Full Vitest suite: **7,354 passed, 2 skipped, 666 files**. Production build: pass, 765 pages.
+- Not verified: the production database. Notes the office wrote before this change remain in the affected person's own notes field, where they were already visible to them; this change does not and cannot tell the two apart.
+
+### Follow-up: owner decisions and the remaining list (2026-11-11)
+
+Request: decisions on the five open items (access codes get a window from acceptance until a day after the clean; shopping reimbursement waits for approval; split the notes; laundry sees the same codes as cleaners, tidied; check evidence ownership and explain how), plus "fix all the items on the list". Method: same disposable database `127.0.0.1:55439/sneek_ui` and production build as above. No schema change in this round.
+
+**Decisions implemented**
+
+1. Access window: `lib/properties/access-window.ts`. Open from acceptance until the end of the day after the clean (Sydney), and whenever the job is under way. Applied to the briefing, the job form and the property access guide. Outside it the codes are absent and a reason is returned and shown.
+2. Reimbursement approval: a cleaner's personally paid run is `PENDING_APPROVAL` until the office approves; only `READY` reaches pay or an invoice; a later cost change needs approval again. "Approve reimbursement" on the admin run detail.
+3. Notes split: done in the previous follow-up.
+4. Laundry access: laundry reads cleaner-audience entries on every property; the stop card shows one "Property access" panel.
+5. Ownership: the uploader's id is the second-last segment of every stored key and is set by the server. Submitted keys must belong to the caller, a cleaner assigned to the same job, or office staff. Refusal is 403 `FOREIGN_UPLOAD_REFERENCE` before any write.
+
+**The list**
+
+| Item | Outcome |
+| --- | --- |
+| Access codes with no window | Fixed (decision 1) |
+| Evidence keys accepted without ownership | Fixed: submit, damage, damage report, lost and found, pay requests, invoice proof, shopping receipts, laundry photos, client task-request attachments |
+| Upload folder open to any role | Fixed: field roles refused office folders. A deny-list, not a per-role allow-list, because the mobile client's folders were not inventoried |
+| Shopping reimbursable without approval; rows naming any property | Fixed (decision 2); rows must be existing active properties |
+| Reschedule/approval requests without a status bound | Fixed |
+| Draft deletion without a status bound | Not changed. An existing regression test documents that clearing a submitted job's draft is intended; it removes no submission or evidence |
+| Future-dated location pings | Fixed (cleaner and laundry, two-minute tolerance) |
+| Public storage bucket | Not a code matter and not inspected. If the bucket is public, a key is the only control on reading a file; the ownership check stops a key being *attached* by someone else, not *read*. Needs a deployment check |
+| Client lists ignoring visibility switches | Fixed for jobs, laundry, reports and property detail, in API and pages |
+| Stock/shopping reading global switches; threshold edits unenforced | Fixed. `allowInventoryThresholdEdits` defaults to off, so clients lose threshold editing until it is switched on |
+| Stock-run requester email; case reasons and metadata; task-request list | Fixed |
+| Invoice pay and payment-link without the finance switch | Fixed |
+| Laundry legacy flat access fields | Kept by decision 4 |
+| Driver pings attached to an unrelated job | Fixed; client job response reads only assigned people's pings |
+| Laundry evidence keys and `supplierId` | Fixed |
+| Lost-and-found detail to the reporting cleaner | Guest name, contact and value removed; office workflow notes removed; comments kept |
+| Push device token reassignment | Not changed. A token identifies one phone; moving it to whoever signs in on that phone is the correct handover |
+
+**Tests added or changed.** `tests/lib/access-window.test.ts`, `tests/lib/shopping-reimbursement-approval.test.ts`, `tests/lib/upload-ownership.test.ts`, `tests/lib/client-list-projection.test.ts`, `tests/lib/lost-found-reporter-redaction.test.ts`, `tests/api/portal-follow-up-guards.test.ts`; new cases in `tests/api/cleaner-damage-authority.test.ts` and `tests/api/cleaner-submit-form-contract.test.ts`; fixtures updated in the access-audience, briefing, laundry next-stop, laundry viewer-scope and client laundry page tests. The damage test's bare photo keys were replaced with keys in the real upload layout.
+
+**Verification**
+
+- TypeScript: pass.
+- Vitest: 7,281 passed without a database; the 19 database-backed files (124 tests) passed against disposable `sneek_review_test` on port 55439, run serially. 7,405 passed in total, 2 skipped (an opt-in iCal schedule smoke test and an IndexedDB-only suite).
+- Production build: pass, 765 pages.
+- Chromium on the production build, 390px and 1280px, light and dark:
+  - Cleaner job with an unaccepted offer: briefing, form and access guide returned no codes and the stated reason; the offer card says access appears on acceptance; one h1; no horizontal overflow.
+  - Laundry route stop: the "Property access" panel opened by keyboard and showed lockbox, codes and parking; one h1; no overflow.
+  - Admin shopping run in `PENDING_APPROVAL`: status label, explanation and "Approve reimbursement" present at all four sizes; activating it by keyboard set `READY` and removed the button. A clipped button label in that card at 390px was fixed (the row now wraps).
+  - Client jobs, laundry and property pages rendered with one h1, no error state and no overflow.
+- API on the production build: a cleaner's lost-and-found photo and damage-report media under another account's id returned 403; a cleaner upload to `branding` returned 403; a future-dated ping was dropped; a shopping row naming an unknown property returned 404; client invoice pay with finance hidden returned 403; client stock runs reported `canEditThresholds: false`.
+
+**Not verified**
+
+- A cleaner shopping run submitted as COMPLETED with a receipt: the server checks the receipt exists in storage and this environment has no bucket. Approval was exercised on an in-progress run with a cost; the status rule itself is unit-tested.
+- The accepted and expired access-window states in the browser (the fixture job is an unaccepted offer for today). Both are unit-tested.
+- The pay-request and invoice-proof ownership refusals in the browser; they use the same helper as the routes that were exercised.
+- Client lists with switches turned off in the browser; the projections are unit-tested.
+- The mobile app, the production database, the storage bucket's public/private setting, and deployment. Nothing was deployed.
+
+### Follow-up: departing guest contact (2026-11-11)
+
+Request: show the departing guest's contact details where only the upcoming guest's were shown.
+
+- Change: `buildCleanerDepartingGuest`; `departingGuest` and departing contact fields on the cleaner job form response; "Departing guest" row in the cleaner Call sheet and block in the property info drawer; departing guest contact shown openly on the Estate admin job detail.
+- Tests: `tests/lib/departing-guest-summary.test.ts`, `tests/components/cleaner-contact-sheet-guests.test.tsx`.
+- TypeScript: pass. Vitest: 7,289 passed without a database plus 124 database-backed tests on disposable port 55439; 2 skipped. Production build: pass, 765 pages.
+- Chromium on the production build at 390px and 1280px, light and dark, with a fixture booking on the job: the Call sheet (opened by keyboard) listed the departing guest; the drawer showed the block with a working `tel:` link and check-out time; the admin card showed name, phone and email; one h1 and no horizontal overflow on each. The cleaner API response contained neither the guest's email nor the reservation code.
+- Not verified: a job with both an arriving and a departing guest in the browser (the fixture has no incoming booking; ordering and labels are covered by the component test); the classic pages, which were not changed; the mobile app; production data. Check-out time is shown in the viewer's device timezone, the same as the existing arrival time.
+

@@ -3,13 +3,13 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
-import { getVisibleLaundryPropertyIds } from "@/lib/laundry/teams";
+import { getVisibleLaundryPropertyIds, isLaundryOfficeRole } from "@/lib/laundry/teams";
 const json = (body: unknown, init: ResponseInit = {}) => NextResponse.json(body, { ...init, headers: { "Cache-Control": "private, no-store", Vary: "Cookie" } });
 export async function GET(req: NextRequest) {
   try {
     const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
     const resolved = req.nextUrl.searchParams.get("resolved") === "true";
-    const where = { resolvedAt: resolved ? { not: null } : null, ...(session.user.role === Role.LAUNDRY ? { propertyId: { in: await getVisibleLaundryPropertyIds(session.user.id) } } : {}) };
+    const where = { resolvedAt: resolved ? { not: null } : null, ...(!isLaundryOfficeRole(session.user.role) ? { propertyId: { in: await getVisibleLaundryPropertyIds(session.user.id) } } : {}) };
     const cursor = req.nextUrl.searchParams.get("cursor");
     const [rows, total] = await db.$transaction([db.laundryQuantityException.findMany({ where, take: 26, orderBy: [{ createdAt: "desc" }, { id: "desc" }], ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}) }), db.laundryQuantityException.count({ where })]);
     const shown = rows.slice(0, 25); const properties = await db.property.findMany({ where: { id: { in: shown.map(row => row.propertyId) } }, select: { id: true, name: true } });

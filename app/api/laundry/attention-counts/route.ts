@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { LaundryStatus, Role } from "@prisma/client";
+import { laundryTaskScope } from "@/lib/laundry/teams";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 
@@ -22,18 +23,19 @@ import { db } from "@/lib/db";
  */
 export async function GET() {
   try {
-    await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+    const scope = await laundryTaskScope(session.user);
 
     const [awaitingCollection, outForCleaning, flagged] = await Promise.all([
       // Work still to collect: scheduled or confirmed, not yet picked up.
       db.laundryTask
-        .count({ where: { status: { in: [LaundryStatus.PENDING, LaundryStatus.CONFIRMED] } } })
+        .count({ where: { ...scope, status: { in: [LaundryStatus.PENDING, LaundryStatus.CONFIRMED] } } })
         .catch(() => 0),
       // Already collected and not yet returned — the tracking board's contents.
-      db.laundryTask.count({ where: { status: LaundryStatus.PICKED_UP } }).catch(() => 0),
+      db.laundryTask.count({ where: { ...scope, status: LaundryStatus.PICKED_UP } }).catch(() => 0),
       // A cleaner said the linen was not ready. Someone has to decide what
       // happens next, which is why admin badges the same status.
-      db.laundryTask.count({ where: { status: LaundryStatus.FLAGGED } }).catch(() => 0),
+      db.laundryTask.count({ where: { ...scope, status: LaundryStatus.FLAGGED } }).catch(() => 0),
     ]);
 
     return NextResponse.json({

@@ -6,6 +6,8 @@ type Scope = {
   role: Role;
   userId: string;
   clientId?: string | null;
+  /** The merged per-client `allowInventoryThresholdEdits` switch. Clients need it. */
+  thresholdEdits?: boolean;
 };
 
 type StockRunLineInput = {
@@ -17,7 +19,16 @@ type StockRunLineInput = {
 };
 
 function canEditThresholds(scope: Scope) {
-  return scope.role === "ADMIN" || scope.role === "OPS_MANAGER" || scope.role === "CLIENT";
+  if (scope.role === "ADMIN" || scope.role === "OPS_MANAGER") return true;
+  return scope.role === "CLIENT" && scope.thresholdEdits === true;
+}
+
+type Requester = { id: string; name: string | null; email: string; role: Role };
+
+/** Only the office sees who to email; everyone else gets the name. */
+function requesterFor(scope: Scope, requester: Requester): Requester {
+  if (scope.role === "ADMIN" || scope.role === "OPS_MANAGER") return requester;
+  return { ...requester, email: "" };
 }
 
 async function accessibleProperties(scope: Scope) {
@@ -88,7 +99,7 @@ async function assertRunAccess(scope: Scope, runId: string) {
   throw new Error("FORBIDDEN");
 }
 
-function serializeRun(run: Awaited<ReturnType<typeof assertRunAccess>>) {
+function serializeRun(scope: Scope, run: Awaited<ReturnType<typeof assertRunAccess>>) {
   return {
     id: run.id,
     propertyId: run.propertyId,
@@ -102,7 +113,7 @@ function serializeRun(run: Awaited<ReturnType<typeof assertRunAccess>>) {
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
     property: run.property,
-    requestedBy: run.requestedBy,
+    requestedBy: requesterFor(scope, run.requestedBy),
     lines: run.lines.map((line) => ({
       id: line.id,
       propertyStockId: line.propertyStockId,
@@ -143,14 +154,14 @@ export async function listStockRuns(scope: Scope) {
     properties,
     canEditThresholds: canEditThresholds(scope),
     canApply: scope.role === "ADMIN" || scope.role === "OPS_MANAGER",
-    runs,
+    runs: runs.map((run) => ({ ...run, requestedBy: requesterFor(scope, run.requestedBy) })),
   };
 }
 
 export async function getStockRun(scope: Scope, runId: string) {
   const run = await assertRunAccess(scope, runId);
   return {
-    ...serializeRun(run),
+    ...serializeRun(scope, run),
     canEditThresholds: canEditThresholds(scope),
     canApply: scope.role === "ADMIN" || scope.role === "OPS_MANAGER",
   };
