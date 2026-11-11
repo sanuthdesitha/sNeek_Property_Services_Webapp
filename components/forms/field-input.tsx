@@ -1,6 +1,6 @@
 "use client";
 import { isDeviceStatusField } from "@/lib/forms/device-status";
-import { DeviceStatusInput } from "./device-status-input";
+import { DeviceStatusInput } from "@/components/shared/device-status-input";
 
 import * as React from "react";
 import { Minus, Plus, Star, MapPin, Loader2, QrCode, X } from "lucide-react";

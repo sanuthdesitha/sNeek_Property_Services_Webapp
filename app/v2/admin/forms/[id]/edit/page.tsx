@@ -1,11 +1,8 @@
 import { notFound } from "next/navigation";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
-import type { FormSchema } from "@/lib/forms/types";
-import { normalizeFormSchema } from "@/lib/forms/normalize-schema";
+import { loadBuilderContext } from "@/lib/forms/builder-context";
 import { EstateFormBuilder } from "@/components/v2/admin/forms/builder/form-builder";
-import { readTemplateDraft, templateEditToken } from "@/lib/forms/template-drafts";
 
 export const metadata = { title: "Edit form template · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -13,85 +10,31 @@ export const dynamic = "force-dynamic";
 export default async function EstateFormEditPage({ params }: { params: { id: string } }) {
   await requireRole([Role.ADMIN]);
 
-  const template = await db.formTemplate.findUnique({
-    where: { id: params.id },
-    select: {
-      id: true,
-      name: true,
-      kind: true,
-      serviceType: true,
-      schema: true,
-      isActive: true,
-      archivedAt: true,
-      version: true,
-      updatedAt: true,
-    },
-  });
-
-  if (!template) notFound();
-
   // The builder edits the template's DRAFT version when one exists (saving
-  // writes the draft; publishing makes it live), so reopening the builder
-  // shows the unpublished changes rather than the live form.
-  const draft = await readTemplateDraft(template.id);
-
-  // Canonicalise through the SAME normalizer the cleaner read + submit routes
-  // use, so the builder edits exactly the schema the runtime enforces: legacy
-  // `label`/`upload`/`{fieldId,equals}` shapes are rewritten, and the standard
-  // sections (arrival evidence / exceptions / sign-off) are visible + editable
-  // instead of being invisibly injected downstream. Templates that already
-  // carry `standardSections: false` keep their baked copies untouched.
-  const normalized = normalizeFormSchema(draft ? draft.schema : template.schema);
-  const rawSchema = { ...normalized } as any;
-  const sections = Array.isArray(rawSchema?.sections)
-    ? rawSchema.sections.map((s: any, idx: number) => ({
-        ...(s && typeof s === "object" ? s : {}),
-        id: typeof s?.id === "string" ? s.id : `s-${idx}`,
-        title:
-          typeof s?.title === "string" ? s.title : typeof s?.label === "string" ? s.label : `Section ${idx + 1}`,
-        description: typeof s?.description === "string" ? s.description : undefined,
-        fields: Array.isArray(s?.fields)
-          ? s.fields.map((f: any, fIdx: number) => ({
-              ...(f && typeof f === "object" ? f : {}),
-              id: typeof f?.id === "string" ? f.id : `f-${idx}-${fIdx}`,
-              type: typeof f?.type === "string" ? f.type : "text",
-              label: typeof f?.label === "string" ? f.label : "Field",
-            }))
-          : [],
-      }))
-    : [];
-
-  const theme = rawSchema?.theme && typeof rawSchema.theme === "object" ? rawSchema.theme : undefined;
-  const initialSchema: FormSchema = {
-    sections,
-    ...(theme ? { theme } : {}),
-    // Template-level inventory selection (R8a) lives on the schema root. It was
-    // being dropped here, so simply OPENING the builder and pressing Save wiped
-    // a configured selection back to "all items" — an edit that silently
-    // un-applied itself. Carry it through the round-trip.
-    ...(normalized.inventoryConfig ? { inventoryConfig: normalized.inventoryConfig } : {}),
-    // Preserve the opt-out flag across a builder round-trip.
-    ...(normalized.standardSections === false ? { standardSections: false as const } : {}),
-  };
+  // writes the draft; publishing makes it live). The schema is canonicalised
+  // by the SAME normalizer the cleaner read and submit routes use
+  // (lib/forms/editable-schema.ts), so the builder edits exactly what the
+  // runtime enforces.
+  const context = await loadBuilderContext(params.id);
+  if (!context) notFound();
 
   return (
     <EstateFormBuilder
-      templateId={template.id}
-      initialName={draft?.name ?? template.name}
-      initialKind={String(template.kind)}
-      initialServiceType={String(draft?.serviceType ?? template.serviceType)}
-      initialVersion={template.version}
-      initialSchema={initialSchema}
-      initialIsActive={template.isActive}
-      initialArchived={Boolean(template.archivedAt)}
+      templateId={context.templateId}
+      initialName={context.name}
+      initialKind={context.kind}
+      initialServiceType={context.serviceType}
+      initialVersion={context.liveVersion}
+      initialSchema={context.schema}
+      initialIsActive={context.isActive}
+      initialArchived={context.archived}
       // The version this render is of. The builder sends it back on save so
-      // the server can refuse a write from an editor that has gone stale —
-      // which a back-navigation reliably produces, because Next serves the
-      // pre-edit RSC payload from the client Router Cache.
-      // With a draft, the draft's own updatedAt is the token (see
-      // lib/forms/template-drafts.ts).
-      initialUpdatedAt={templateEditToken(template.updatedAt, draft)}
-      initialHasDraft={Boolean(draft)}
+      // the server can refuse a write from an editor that has gone stale.
+      // With a draft, the draft's own updatedAt is the token.
+      initialUpdatedAt={context.editToken}
+      initialHasDraft={context.hasDraft}
+      initialDraftSavedAt={context.draftUpdatedAt}
+      usage={context.usage}
     />
   );
 }

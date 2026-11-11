@@ -86,6 +86,8 @@ const COUNT_KEY_BY_HREF: Record<string, keyof AdminAttentionCounts> = {
   // Client invoices to send (draft or approved) + cleaner invoices awaiting the office.
   "/v2/admin/finance": "finance",
   "/v2/admin/growth": "growth",
+  // Urgent stock needs awaiting acknowledgement (null for non-administrators).
+  "/v2/admin/inventory": "urgentStock",
 };
 
 const POLL_MS = 60_000;
@@ -133,7 +135,7 @@ export default function V2AdminLayout({ children }: { children: React.ReactNode 
     () =>
       NAV.map((item) => {
         const key = COUNT_KEY_BY_HREF[item.href];
-        const badge = key && counts ? counts[key] : 0;
+        const badge = (key && counts ? counts[key] : 0) ?? 0;
         return badge > 0 ? { ...item, badge } : item;
       }),
     [counts]

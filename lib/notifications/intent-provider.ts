@@ -9,6 +9,7 @@ import { sendWebPush } from "./web-push";
 import { resolveNotificationHrefForRole } from "./feed";
 import type { EmailAutoKind } from "./email-kinds";
 import type { NotificationEnvelope, DeliveryAttemptOutcome } from "./intent-contract";
+import { authorizeEntityRecipient, isSupportedEntityScope } from "./recipient-scopes";
 
 export function enabledIntentProviderTransports() {
   return (process.env.SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS ?? "").split(",").map(value => value.trim()).filter(value => ["EMAIL", "SMS", "WEB_PUSH"].includes(value));
@@ -24,19 +25,31 @@ export async function deliverProviderIntent(envelope: NotificationEnvelope): Pro
   let dispatchStarted = false;
   try {
     if (!enabledIntentProviderTransports().includes(envelope.transport)) return { kind: "SKIPPED", errorCode: "transport_not_enabled" };
-    if (envelope.recipient.scope.kind !== "ADMIN_OPERATIONS" || !["ADMIN", "OPS_MANAGER"].includes(envelope.recipient.role)) return { kind: "SKIPPED", errorCode: "unsupported_recipient_scope" };
+    const entityScope = envelope.recipient.scope.kind === "ENTITY";
+    if (entityScope ? !isSupportedEntityScope((envelope.recipient.scope as { type: string }).type) : !["ADMIN", "OPS_MANAGER"].includes(envelope.recipient.role)) return { kind: "SKIPPED", errorCode: "unsupported_recipient_scope" };
     if (!envelope.category) return { kind: "SKIPPED", errorCode: "category_required" };
     const user = await db.user.findUnique({ where: { id: envelope.recipient.userId }, select: { id: true, role: true, isActive: true, email: true, phone: true } });
     if (!user?.isActive || user.role !== envelope.recipient.role) return { kind: "SKIPPED", errorCode: "recipient_unavailable" };
+    if (entityScope) {
+      // Revalidated at send time: a removed assignment or changed scope never receives it.
+      const authorization = await authorizeEntityRecipient(db, envelope.recipient);
+      if (!authorization.ok) return { kind: "SKIPPED", errorCode: authorization.errorCode };
+    }
     const channel = envelope.transport === "WEB_PUSH" ? "PUSH" : envelope.transport === "EMAIL" ? "EMAIL" : "SMS";
     if (envelope.templateRecipientRole) {
       const preference = await db.notificationPreference.findUnique({ where: { eventKey_recipientRole_channel: { eventKey: envelope.eventKey, recipientRole: envelope.templateRecipientRole, channel } } });
       if (preference && !preference.enabled) return { kind: "SKIPPED", errorCode: "event_preference" };
     }
-    if (!await canDeliverNotification({ userId: user.id, role: user.role, category: envelope.category, channel })) return { kind: "SKIPPED", errorCode: "recipient_preference" };
     const audience = audienceForRole(user.role);
-    const settings = await getAppSettings();
-    if (!isChannelAllowed(settings.notificationAudienceControls, audience, envelope.transport === "WEB_PUSH" ? "push" : envelope.transport === "EMAIL" ? "email" : "sms")) return { kind: "SKIPPED", errorCode: "audience_disabled" };
+    // An office-directed type that ignores preferences skips the category
+    // preference and, for push, the audience switch — as its direct path does.
+    // Email and SMS keep their provider chokepoints' own audience gates.
+    const officeDirected = envelope.recipientPreferences === "IGNORE";
+    if (!officeDirected) {
+      if (!await canDeliverNotification({ userId: user.id, role: user.role, category: envelope.category, channel })) return { kind: "SKIPPED", errorCode: "recipient_preference" };
+      const settings = await getAppSettings();
+      if (!isChannelAllowed(settings.notificationAudienceControls, audience, envelope.transport === "WEB_PUSH" ? "push" : envelope.transport === "EMAIL" ? "email" : "sms")) return { kind: "SKIPPED", errorCode: "audience_disabled" };
+    }
     if (envelope.transport === "EMAIL") {
       if (!user.email) return { kind: "NOT_ACCEPTED", retryable: false, errorCode: "missing_email" };
       dispatchStarted = true;

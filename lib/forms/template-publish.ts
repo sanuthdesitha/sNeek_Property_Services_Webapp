@@ -21,7 +21,8 @@ import { FormTemplateVersionKind, Prisma, type FormTemplate } from "@prisma/clie
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { collectPropertyScopedTemplateIds } from "./resolve-job-template";
-import { formTemplateSchemaZ } from "./template-schema";
+import { formTemplateSchemaZ, validateFormSchemaForSave } from "./template-schema";
+import { checkTemplateSchema } from "./template-checks";
 import { isStaleTemplateWrite } from "./template-concurrency";
 import { readTemplateDraft, templateEditToken } from "./template-drafts";
 import { staleTemplateError, TemplateServiceError } from "./template-errors";
@@ -51,9 +52,37 @@ async function nextLiveVersion(tx: Tx, templateId: string, currentVersion: numbe
   return Math.max(currentVersion, latest._max.version ?? 0) + 1;
 }
 
+/**
+ * The single publish gate: what is about to go live must pass the strict save
+ * check and have no check ERROR (template-checks.ts). Warnings never block.
+ * Applies to the builder's publish, the publish route and bulk publish alike.
+ */
+export function assertPublishable(schema: unknown): void {
+  const strict = validateFormSchemaForSave(schema);
+  if (!strict.ok) {
+    throw new TemplateServiceError(
+      "INVALID_SCHEMA",
+      `The form cannot be published: ${strict.issues[0]?.message ?? "invalid structure"}.`,
+      undefined,
+      strict.issues,
+    );
+  }
+  const checks = checkTemplateSchema(schema);
+  if (checks.errors > 0) {
+    const errors = checks.issues.filter((issue) => issue.severity === "error");
+    throw new TemplateServiceError(
+      "CHECKS_FAILED",
+      `Fix ${checks.errors} problem${checks.errors === 1 ? "" : "s"} before publishing: ${errors[0]?.message ?? ""}`,
+      undefined,
+      errors.map((issue) => ({ message: issue.message, fieldId: issue.fieldId, sectionId: issue.sectionId })),
+    );
+  }
+}
+
 async function publishDraft(tx: Tx, template: FormTemplate, actorId: string | null): Promise<{ template: FormTemplate; version: number | null }> {
   const draft = await readTemplateDraft(template.id, tx);
   const now = new Date();
+  assertPublishable(draft ? draft.schema : template.schema);
   if (!draft) {
     await tx.formTemplateVersion.createMany({
       data: [{

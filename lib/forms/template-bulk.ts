@@ -18,11 +18,13 @@ import "server-only";
 import { FormTemplateVersionKind, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { addSection, editQuestion, findAndReplace, type EditOutcome } from "./template-bulk-edits";
+import { insertQuestions } from "./template-bulk-insert";
+import type { FormField } from "./types";
 import { saveTemplateDraft } from "./template-drafts";
 import { runLifecycleOperation, type BulkTemplate } from "./template-bulk-lifecycle";
 import type { BulkFormOutcome, BulkOperation, BulkResponse } from "./template-bulk-types";
 
-type ContentOperation = Extract<BulkOperation, { type: "edit-question" | "add-section" | "find-replace" }>;
+type ContentOperation = Extract<BulkOperation, { type: "edit-question" | "add-section" | "find-replace" | "insert-questions" }>;
 
 const TEMPLATE_SELECT = {
   id: true,
@@ -44,6 +46,9 @@ function errorText(error: unknown): string {
 function applyContent(schema: unknown, operation: ContentOperation): EditOutcome {
   if (operation.type === "edit-question") return editQuestion(schema, operation.match, operation.edit);
   if (operation.type === "add-section") return addSection(schema, operation.section);
+  if (operation.type === "insert-questions") {
+    return insertQuestions(schema, { sectionTitle: operation.sectionTitle, fields: operation.fields as unknown as FormField[] });
+  }
   return findAndReplace(schema, operation);
 }
 
@@ -151,7 +156,12 @@ export async function runBulkTemplateOperation(input: {
 
   const { operation, dryRun } = input;
   let outcomes: BulkFormOutcome[];
-  if (operation.type === "edit-question" || operation.type === "add-section" || operation.type === "find-replace") {
+  if (
+    operation.type === "edit-question" ||
+    operation.type === "add-section" ||
+    operation.type === "find-replace" ||
+    operation.type === "insert-questions"
+  ) {
     outcomes = await runContent(templates, operation, { dryRun, actorId: input.actorId, note: input.note });
   } else if (operation.type === "move-to-group") {
     outcomes = await runMoveToGroup(templates, operation.groupId, dryRun);

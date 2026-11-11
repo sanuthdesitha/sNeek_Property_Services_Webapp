@@ -84,6 +84,9 @@ export const LOST_FOUND_EVENT_ACTIONS = [
   "DISPOSED",
   "DONATED",
   "UNCLAIMED",
+  "REOPENED",
+  "GUEST_IMPORTED",
+  "CLIENT_CONTACTED",
 ] as const;
 
 export const LOST_FOUND_EVENT_LABELS: Record<string, string> = {
@@ -96,8 +99,51 @@ export const LOST_FOUND_EVENT_LABELS: Record<string, string> = {
   DISPOSED: "Disposed",
   DONATED: "Donated",
   UNCLAIMED: "Marked unclaimed",
+  REOPENED: "Reopened",
+  GUEST_IMPORTED: "Guest details added from booking",
+  CLIENT_CONTACTED: "Client told",
 };
 
 export function lostFoundStatusLabel(status: string): string {
   return LOST_FOUND_STATUS_LABELS[status as LostFoundStatus] ?? status;
 }
+
+/**
+ * Office stages on the Lost and found page. Each maps onto EXISTING statuses
+ * (the statuses themselves are unchanged); "Closed" covers every final status
+ * plus ARCHIVED.
+ */
+export const LOST_FOUND_STAGES = ["new", "storage", "contacted", "return", "closed"] as const;
+export type LostFoundStage = (typeof LOST_FOUND_STAGES)[number];
+
+export const LOST_FOUND_STAGE_STATUSES: Record<LostFoundStage, LostFoundStatus[]> = {
+  new: ["REPORTED"],
+  storage: ["IN_STORAGE"],
+  contacted: ["GUEST_CONTACTED"],
+  return: ["RETURN_OFFERED"],
+  closed: ["RETURNED", "DISPOSED", "DONATED", "UNCLAIMED", "ARCHIVED"],
+};
+
+export const LOST_FOUND_STAGE_LABELS: Record<LostFoundStage, string> = {
+  new: "New",
+  storage: "In storage",
+  contacted: "Guest contacted",
+  return: "Return arranged",
+  closed: "Closed",
+};
+
+export function lostFoundStageOf(status: string): LostFoundStage {
+  for (const stage of LOST_FOUND_STAGES) {
+    if ((LOST_FOUND_STAGE_STATUSES[stage] as string[]).includes(status)) return stage;
+  }
+  return "closed";
+}
+
+/** Statuses that count toward the holding period ("in storage or awaiting the guest"). */
+export const HOLDING_STATUSES: LostFoundStatus[] = ["IN_STORAGE", "GUEST_CONTACTED", "RETURN_OFFERED"];
+
+/** Statuses that are closed: every final decision plus ARCHIVED. */
+export const CLOSED_STATUSES: LostFoundStatus[] = LOST_FOUND_STAGE_STATUSES.closed;
+
+/** Where an item's guest details came from. */
+export type LostFoundGuestSource = "BOOKING" | "MANUAL";

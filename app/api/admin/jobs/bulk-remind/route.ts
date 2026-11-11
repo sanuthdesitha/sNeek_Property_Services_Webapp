@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const parsed = bodySchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return NextResponse.json({ error: "Select jobs and a reminder method." }, { status: 400 });
-    const { jobIds, method, note } = parsed.data;
+    const { jobIds, method, note, idempotencyKey } = parsed.data;
     const context = { actorId: session.user.id, cleanerJobsUrl: resolveAppUrl("/cleaner/jobs", req) };
 
     const rows: BulkReminderRow[] = [];
@@ -30,7 +30,9 @@ export async function POST(req: NextRequest) {
     // provider load the same as the single-job route used one at a time.
     for (const jobId of Array.from(new Set(jobIds))) {
       try {
-        rows.push(bulkReminderRow(await sendJobReminder(jobId, { method, note }, context), method));
+        // A retried request with the same key queues nothing twice (per job).
+        const jobKey = idempotencyKey ? `${idempotencyKey}:${jobId}`.slice(0, 100) : undefined;
+        rows.push(bulkReminderRow(await sendJobReminder(jobId, { method, note, idempotencyKey: jobKey }, context), method));
       } catch {
         rows.push({ jobId, label: jobId, outcome: "failed", requested: [], failed: [], message: "The reminder could not be sent. Try this job again." });
       }

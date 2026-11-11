@@ -19,6 +19,7 @@ import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
 import { CLEANER_NEEDS_ACTION_STATUSES } from "@/lib/cleaner/invoice-transitions";
+import { countUrgentNeedsAwaitingAcknowledgement } from "@/lib/inventory/urgent-stock-list";
 
 const TZ = "Australia/Sydney";
 
@@ -57,6 +58,17 @@ export type AdminAttentionCounts = {
   cleanerInvoices: number;
   /** New, uncontacted leads. */
   growth: number;
+  /**
+   * Urgent stock needs awaiting acknowledgement (stage REPORTED) — the
+   * Inventory entry. Null for a viewer who cannot open the Urgent needs tab
+   * (administrators only), so no badge counts work they cannot see.
+   */
+  urgentStock: number | null;
+};
+
+export type AdminAttentionOptions = {
+  /** Count urgent stock needs (administrators only). */
+  includeUrgentStock?: boolean;
 };
 
 export type MoneyAttentionCounts = {
@@ -85,7 +97,7 @@ function startOfTodaySydney(now: Date): Date {
   return fromZonedTime(local, TZ);
 }
 
-export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAttentionCounts> {
+export async function getAdminAttentionCounts(now = new Date(), options: AdminAttentionOptions = {}): Promise<AdminAttentionCounts> {
   const [
     unassignedJobs,
     payRequests, // all-approvals: payAdjustments queue
@@ -109,6 +121,7 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
     reportedLostFound,
     money,
     newLeads,
+    awaitingAcknowledgement,
   ] = await Promise.all([
     db.job.count({
       where: { status: JobStatus.UNASSIGNED, scheduledDate: { gte: startOfTodaySydney(now) } },
@@ -149,6 +162,7 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
     db.lostFoundItem.count({ where: { status: "REPORTED" } }),
     getMoneyAttentionCounts(),
     db.quoteLead.count({ where: { status: "NEW" } }),
+    options.includeUrgentStock ? countUrgentNeedsAwaitingAcknowledgement() : Promise.resolve(null),
   ]);
 
   return {
@@ -179,5 +193,6 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
     clientInvoicesToSend: money.clientInvoicesToSend,
     cleanerInvoices: money.cleanerInvoices,
     growth: newLeads,
+    urgentStock: awaitingAcknowledgement,
   };
 }

@@ -1,0 +1,178 @@
+import "server-only";
+import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
+import { z } from "zod";
+import { db } from "@/lib/db";
+import { escapeHtml } from "@/lib/utils/escape-html";
+import { sendOfficeNotification, type OfficeRecipient, type RecipientOutcome } from "./office-sends";
+import { STAFF_MESSAGE_ROLES } from "./recipient-scopes";
+import { getNotificationTypeControls, typeRespectsPreferences } from "./type-controls";
+
+/**
+ * Office-initiated messages the other redesign steps had to leave out because
+ * no path existed. Each has an explicit recipient scope (re-checked at
+ * dispatch), transports chosen by the sender, an audit row and truthful
+ * per-recipient states. The routes decide who may call them:
+ * - staff message and laundry nudge: ADMIN and OPS_MANAGER (both can already
+ *   message staff and remind cleaners);
+ * - client delay notice: ADMIN only, pending the owner's decision.
+ */
+const transportsSchema = z.array(z.enum(["PUSH", "EMAIL"])).min(1).max(2);
+const keySchema = z.string().trim().min(8).max(80).regex(/^[A-Za-z0-9:_-]+$/).optional();
+const textSchema = z.string().trim().min(1).max(1000);
+
+export type OfficeActionResult = {
+  outcomes: RecipientOutcome[];
+  /** Requested recipients that were refused before anything was queued, with the reason. */
+  refused: Array<{ id: string; reason: string }>;
+};
+
+export class OfficeActionError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
+}
+
+const userSelect = { id: true, role: true, name: true, email: true, isActive: true } satisfies Prisma.UserSelect;
+
+async function audit(actorId: string, action: string, entity: string, entityId: string, jobId: string | null, result: OfficeActionResult, extra: Record<string, unknown>) {
+  await db.auditLog.create({ data: {
+    userId: actorId, jobId, action, entity, entityId,
+    after: {
+      ...extra,
+      refused: result.refused,
+      outcomes: result.outcomes.map((outcome) => ({ userId: outcome.userId, transport: outcome.transport, path: outcome.path, state: outcome.state, errorCode: outcome.errorCode ?? null })),
+      deliveryConfirmed: false,
+    } as Prisma.InputJsonValue,
+  } });
+}
+
+export const staffMessageSchema = z.object({
+  recipientIds: z.array(z.string().trim().min(1).max(200)).min(1).max(200),
+  subject: z.string().trim().min(1).max(200),
+  body: textSchema,
+  transports: transportsSchema,
+  idempotencyKey: keySchema,
+}).strict();
+
+/** (a) Message to selected staff members. */
+export async function sendStaffMessage(actorId: string, input: unknown): Promise<OfficeActionResult> {
+  const request = staffMessageSchema.parse(input);
+  const ids = Array.from(new Set(request.recipientIds));
+  const users = await db.user.findMany({ where: { id: { in: ids } }, select: userSelect });
+  const refused: OfficeActionResult["refused"] = [];
+  const recipients: OfficeRecipient[] = [];
+  for (const id of ids) {
+    const user = users.find((row) => row.id === id);
+    if (!user) refused.push({ id, reason: "Account not found." });
+    else if (!user.isActive) refused.push({ id, reason: "Account is not active." });
+    else if (!STAFF_MESSAGE_ROLES.includes(user.role)) refused.push({ id, reason: "Not a staff account." });
+    else recipients.push({ id: user.id, role: user.role, name: user.name, email: user.email });
+  }
+  const typeKey = "office.staff_message";
+  const controls = await getNotificationTypeControls();
+  const requestId = request.idempotencyKey ?? randomUUID();
+  const outcomes = recipients.length ? await sendOfficeNotification({
+    typeKey, eventKey: typeKey, eventId: `staff-message:${actorId}:${requestId}`,
+    entity: { type: "StaffMessage", id: requestId }, actorId,
+    scopeType: "STAFF_MEMBER", scopeId: (recipient) => recipient.id,
+    category: "account", severity: "INFO", jobId: null,
+    subject: request.subject, body: request.body,
+    email: () => ({ subject: request.subject, html: `<p>${escapeHtml(request.body).replace(/\n/g, "<br>")}</p>` }),
+    emailKind: "workforce_update",
+    transports: request.transports, recipients,
+    respectsPreferences: typeRespectsPreferences(controls, typeKey),
+    disabledTransports: controls.disabledTransports[typeKey] ?? [],
+  }) : [];
+  const result = { outcomes, refused };
+  await audit(actorId, "OFFICE_STAFF_MESSAGE_SENT", "StaffMessage", requestId, null, result, { recipientIds: recipients.map((recipient) => recipient.id), transports: request.transports, subject: request.subject });
+  return result;
+}
+
+export const laundryNudgeSchema = z.object({
+  laundryTaskId: z.string().trim().min(1).max(200),
+  kind: z.enum(["ASK_CLEANER", "REQUEST_PHOTO"]),
+  note: z.string().trim().max(1000).optional(),
+  transports: transportsSchema,
+  idempotencyKey: keySchema,
+}).strict();
+
+const NUDGE_TEXT: Record<z.infer<typeof laundryNudgeSchema>["kind"], string> = {
+  ASK_CLEANER: "The office needs an update from you about the laundry for this job.",
+  REQUEST_PHOTO: "The office asks for a photo of the laundry for this job.",
+};
+
+/** (b) Nudge the cleaner(s) on a laundry run. */
+export async function sendLaundryCleanerNudge(actorId: string, input: unknown): Promise<OfficeActionResult> {
+  const request = laundryNudgeSchema.parse(input);
+  const task = await db.laundryTask.findUnique({
+    where: { id: request.laundryTaskId },
+    select: { id: true, jobId: true, job: { select: { jobNumber: true, property: { select: { name: true } }, assignments: { where: { removedAt: null, user: { isActive: true } }, select: { user: { select: userSelect } } } } } },
+  });
+  if (!task) throw new OfficeActionError(404, "Laundry task not found.");
+  const recipients = task.job.assignments.map(({ user }) => ({ id: user.id, role: user.role, name: user.name, email: user.email }));
+  if (!recipients.length) throw new OfficeActionError(400, "No cleaner is assigned to this job.");
+  const typeKey = "laundry.cleaner_nudge";
+  const controls = await getNotificationTypeControls();
+  const requestId = request.idempotencyKey ?? randomUUID();
+  const place = task.job.property?.name ?? "the property";
+  const body = `${NUDGE_TEXT[request.kind]} (${place}, ${task.job.jobNumber ?? task.jobId})${request.note ? ` Note: ${request.note}` : ""}`;
+  const outcomes = await sendOfficeNotification({
+    typeKey, eventKey: typeKey, eventId: `laundry-nudge:${task.id}:${request.kind}:${requestId}`,
+    entity: { type: "LaundryTask", id: task.id }, actorId,
+    scopeType: "LAUNDRY_TASK_CLEANER", scopeId: () => task.id,
+    category: "laundry", severity: "ACTION", jobId: task.jobId,
+    subject: request.kind === "REQUEST_PHOTO" ? "Laundry photo requested" : "Laundry update needed",
+    body, url: "/cleaner/jobs",
+    email: () => ({ subject: `Laundry: ${place}`, html: `<p>${escapeHtml(body)}</p>` }),
+    emailKind: "admin_alert",
+    transports: request.transports, recipients,
+    respectsPreferences: typeRespectsPreferences(controls, typeKey),
+    disabledTransports: controls.disabledTransports[typeKey] ?? [],
+  });
+  const result = { outcomes, refused: [] };
+  await audit(actorId, "LAUNDRY_CLEANER_NUDGE_SENT", "LaundryTask", task.id, task.jobId, result, { kind: request.kind, transports: request.transports, note: request.note ?? null });
+  return result;
+}
+
+export const clientDelaySchema = z.object({
+  jobId: z.string().trim().min(1).max(200),
+  etaMinutes: z.number().int().min(1).max(600).optional(),
+  note: z.string().trim().max(1000).optional(),
+  transports: transportsSchema,
+  idempotencyKey: keySchema,
+}).strict();
+
+/** (c) Tell the client their clean is running late. ADMIN only (route). */
+export async function sendClientDelayNotice(actorId: string, input: unknown): Promise<OfficeActionResult> {
+  const request = clientDelaySchema.parse(input);
+  const job = await db.job.findUnique({
+    where: { id: request.jobId },
+    select: { id: true, jobNumber: true, property: { select: { name: true, client: { select: { id: true, notificationPref: { select: { notificationsEnabled: true } }, users: { where: { role: "CLIENT", isActive: true }, select: userSelect } } } } } },
+  });
+  if (!job) throw new OfficeActionError(404, "Job not found.");
+  const client = job.property?.client;
+  if (!client) throw new OfficeActionError(400, "This job has no client to notify.");
+  // The client's own "no notifications" choice is honoured, as for every other client job update.
+  if (client.notificationPref && !client.notificationPref.notificationsEnabled) throw new OfficeActionError(409, "This client has switched off job notifications.");
+  const recipients = client.users.map((user) => ({ id: user.id, role: user.role, name: user.name, email: user.email }));
+  if (!recipients.length) throw new OfficeActionError(400, "This client has no active login to notify.");
+  const typeKey = "client.delay_notice";
+  const controls = await getNotificationTypeControls();
+  const requestId = request.idempotencyKey ?? randomUUID();
+  const place = job.property?.name ?? "your property";
+  const body = `Your clean at ${place} is running late.${request.etaMinutes ? ` The new estimate is about ${request.etaMinutes} minutes.` : ""}${request.note ? ` ${request.note}` : ""}`;
+  const outcomes = await sendOfficeNotification({
+    typeKey, eventKey: typeKey, eventId: `client-delay:${job.id}:${requestId}`,
+    entity: { type: "Job", id: job.id }, actorId,
+    scopeType: "JOB_CLIENT_CONTACT", scopeId: () => job.id,
+    category: "jobs", severity: "INFO", jobId: job.id,
+    subject: "Your clean is running late", body, url: "/client",
+    email: (recipient) => ({ subject: "Your clean is running late", html: `<p>Hi ${escapeHtml(recipient.name ?? "there")},</p><p>${escapeHtml(body)}</p>` }),
+    emailKind: "client_job_update",
+    transports: request.transports, recipients,
+    respectsPreferences: typeRespectsPreferences(controls, typeKey),
+    disabledTransports: controls.disabledTransports[typeKey] ?? [],
+  });
+  const result = { outcomes, refused: [] };
+  await audit(actorId, "CLIENT_DELAY_NOTICE_SENT", "Job", job.id, job.id, result, { etaMinutes: request.etaMinutes ?? null, transports: request.transports });
+  return result;
+}

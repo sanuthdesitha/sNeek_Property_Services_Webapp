@@ -47,6 +47,7 @@ export type FieldConditionOperator =
   | "gt"
   | "lt";
 
+/** Show/hide rule that watches another question's answer. */
 export interface FieldCondition {
   fieldId: string;
   operator?: FieldConditionOperator;
@@ -55,6 +56,56 @@ export interface FieldCondition {
   value?: unknown;
   equals?: unknown;
 }
+
+/**
+ * Show/hide rule that reads the job's property instead of an answer
+ * ("if property has a balcony"). `propertyField` must be one of the
+ * cleaner-visible keys in lib/forms/job-form-property.ts
+ * (`jobFormPropertySelect`); any other key fails closed at read time and is
+ * refused when a draft is saved. Compared with `templateValuesEqual`
+ * (lib/forms/visibility.ts): equality only.
+ */
+export interface PropertyFieldCondition {
+  propertyField: string;
+  operator?: "equals";
+  value?: unknown;
+  /** Legacy operand key written by older checklist generators. */
+  equals?: unknown;
+}
+
+/** Any stored show/hide rule on a section or question. */
+export type FormCondition = FieldCondition | PropertyFieldCondition;
+
+export function isPropertyFieldCondition(condition: FormCondition | null | undefined): condition is PropertyFieldCondition {
+  return Boolean(condition) && typeof (condition as PropertyFieldCondition).propertyField === "string";
+}
+
+export function isAnswerCondition(condition: FormCondition | null | undefined): condition is FieldCondition {
+  return Boolean(condition) && typeof (condition as FieldCondition).fieldId === "string";
+}
+
+/**
+ * How often a question is asked (emitted by lib/checklists/compose.ts and read
+ * by lib/accountability/rotation-schema.ts):
+ *  - absent / "EVERY_CLEAN": every job;
+ *  - "ROTATIONAL": only when due, every `rotationEveryNCleans` completed cleans
+ *    of the property (filtered at read time, tracked per property);
+ *  - "CONDITIONAL": generated from the checklist library; shown when the
+ *    matching exception is reported (its `conditional` carries the rule).
+ */
+export type FieldFrequency = "EVERY_CLEAN" | "ROTATIONAL" | "CONDITIONAL";
+
+/** Smallest and largest "every Nth clean" the builder offers. */
+export const ROTATION_MIN_CLEANS = 2;
+export const ROTATION_MAX_CLEANS = 12;
+
+/**
+ * Per-room repeat of a section: the section is shown once per bedroom or
+ * bathroom of the job's property (lib/forms/repeat-sections.ts expands it at
+ * read time; ids gain `__bedN` / `__bathN`, the suffix the rotation tracker
+ * already strips).
+ */
+export type SectionRepeatBy = "bedrooms" | "bathrooms";
 
 export type FormFieldReferenceKind = "image" | "video" | "link";
 
@@ -153,8 +204,12 @@ export interface FormField {
   // to true when references exist; set false to keep references collapsed.
   showExampleOnTick?: boolean;
   // logic + scoring
-  conditional?: FieldCondition;
+  conditional?: FormCondition;
   scoring?: { weight: number; max: number };
+  // cadence (see FieldFrequency)
+  frequency?: FieldFrequency;
+  /** With frequency "ROTATIONAL": due every N completed cleans. */
+  rotationEveryNCleans?: number;
 }
 
 export interface FormSection {
@@ -162,7 +217,9 @@ export interface FormSection {
   title: string;
   description?: string;
   collapsible?: boolean;
-  conditional?: FieldCondition;
+  conditional?: FormCondition;
+  /** Repeat this section once per bedroom / bathroom of the property. */
+  repeatBy?: SectionRepeatBy;
   fields: FormField[];
 }
 

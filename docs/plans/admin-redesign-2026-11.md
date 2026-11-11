@@ -318,3 +318,16 @@ To do under the standing rule (not owner decisions): the Xero connection does no
 | The "Resolved" queue also includes closed cases | Keep, or split? |
 
 For the parity audit: the Cases "Refresh" button was replaced by automatic refresh; restore a manual Refresh.
+
+## Owner decisions, third set (2026-11-11): Command, Live ops, Xero
+
+1. Operations managers without finance or payroll access do not see money figures on Command. Confirmed; keep as built.
+2. Add a one-click "notify client of delay" on a late job in Live ops (uses the client delay notice path from the notifications step; explicit confirm, truthful state).
+3. Add an administrator clock pause in Live ops for a cleaner who is off site with the clock running (audited; pauses the open time log, never deletes or rewrites recorded time).
+4. "Invoiced this month": the lead's definition. The total of invoices first sent to the client in the month (organisation timezone), less credit notes sent in the month, void invoices excluded. An approved invoice that has not been sent is not yet invoiced. Shown beside "Paid this month" and "Outstanding".
+5. Declining a continuation request requires a reason, which the cleaner sees.
+6. A payment read from Xero emails the client a receipt, the same as a manually recorded payment.
+7. Xero totals must match exactly: no rounding tolerance. Any difference goes to "needs review" (as built).
+8. Scheduled Xero checks are shown clearly as the system, not as a person: recorded and displayed as "System: Xero sync (scheduled)" wherever they appear.
+
+Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notifications step; 4, 6 and 8 in the "Finance decisions" step. 1 and 7 need no change.

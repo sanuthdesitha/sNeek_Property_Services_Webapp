@@ -2,7 +2,7 @@ import { publicUrl } from "@/lib/s3";
 import { findForeignUploadKeys } from "@/lib/uploads/ownership-server";
 import { FOREIGN_UPLOAD_CODE, FOREIGN_UPLOAD_MESSAGE } from "@/lib/uploads/ownership";
 import { NextRequest, NextResponse } from "next/server";
-import { Role, NotificationChannel, NotificationStatus, type LostFoundStatus } from "@prisma/client";
+import { Role, NotificationChannel, NotificationStatus } from "@prisma/client";
 import { z, ZodError } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -13,6 +13,7 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { logger } from "@/lib/logger";
 import { hydrateItems, redactItemForReporter } from "@/lib/lost-found/service";
+import { createLostFoundItem } from "@/lib/lost-found/create";
 
 const photoSchema = z.object({
   url: z.string().trim().min(1),
@@ -84,27 +85,20 @@ export async function POST(req: NextRequest) {
       where: { id: body.jobId },
       select: { id: true, propertyId: true, property: { select: { name: true, suburb: true } } },
     });
+    if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
 
-    const item = await db.lostFoundItem.create({
-      data: {
-        jobId: body.jobId,
-        propertyId: job?.propertyId ?? null,
-        reportedByUserId: session.user.id,
-        itemName: body.itemName,
-        description: body.notes?.trim() || null,
-        foundLocation: body.location?.trim() || null,
-        // The link is derived from the verified key, never taken from the browser.
-        photos: (body.photos ?? []).map((photo) => ({ ...photo, url: publicUrl(photo.key) })),
-        status: "REPORTED" as LostFoundStatus,
-        events: {
-          create: {
-            userId: session.user.id,
-            action: "REPORTED",
-            note: body.notes?.trim() || null,
-            meta: { foundLocation: body.location?.trim() || null, photoCount: body.photos?.length ?? 0 },
-          },
-        },
-      },
+    // Shared with the office: copies the job's departing booking guest onto the
+    // item (never returned to this cleaner — see redactItemForReporter).
+    const item = await createLostFoundItem({
+      actorId: session.user.id,
+      propertyId: job.propertyId,
+      jobId: body.jobId,
+      itemName: body.itemName,
+      location: body.location?.trim() || null,
+      notes: body.notes?.trim() || null,
+      // The link is derived from the verified key, never taken from the browser.
+      photos: (body.photos ?? []).map((photo) => ({ ...photo, url: publicUrl(photo.key) })),
+      loggedBy: "CLEANER",
     });
 
     logger.info(

@@ -15,7 +15,7 @@ import "server-only";
  */
 import { FormTemplateVersionKind, Prisma, type JobType } from "@prisma/client";
 import { db } from "@/lib/db";
-import { formTemplateSchemaZ } from "./template-schema";
+import { formTemplateSchemaZ, validateFormSchemaForSave } from "./template-schema";
 import { isStaleTemplateWrite } from "./template-concurrency";
 import { staleTemplateError, TemplateServiceError } from "./template-errors";
 
@@ -43,6 +43,13 @@ export type SaveDraftInput = {
   actorId: string;
   /** Edit token the editor loaded; omitted by callers that hold no editor state. */
   expectedToken?: string;
+  /**
+   * Run the strict save check (validateFormSchemaForSave). On by default.
+   * Restoring an old published version turns it off: history is copied back
+   * exactly as it was published, and the checks then block publishing it
+   * until whatever newer rules it breaks are fixed.
+   */
+  strict?: boolean;
 };
 
 const DRAFT_SELECT = {
@@ -144,6 +151,17 @@ export async function saveTemplateDraft(
   if (!parsed.success) {
     throw new TemplateServiceError("INVALID_SCHEMA", parsed.error.issues[0]?.message ?? "The form structure is invalid.");
   }
+  if (input.strict !== false) {
+    const strict = validateFormSchemaForSave(input.schema);
+    if (!strict.ok) {
+      throw new TemplateServiceError(
+        "INVALID_SCHEMA",
+        `The draft was not saved: ${strict.issues[0]?.message ?? "the form structure is invalid."}${strict.issues.length > 1 ? ` (and ${strict.issues.length - 1} more)` : ""}`,
+        undefined,
+        strict.issues,
+      );
+    }
+  }
   const run = (client: Tx) => writeDraft(client, { ...input, schema: parsed.data });
   try {
     return tx ? await run(tx) : await db.$transaction(run);
@@ -187,6 +205,7 @@ export async function restoreTemplateVersion(input: {
         note: `Restored from v${source.version}`,
         restoredFromVersionId: source.id,
         actorId: input.actorId,
+        strict: false,
       },
       tx,
     );

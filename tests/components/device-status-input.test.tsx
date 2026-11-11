@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { DeviceStatusInput } from "@/components/forms/device-status-input";
+import { DeviceStatusInput } from "@/components/shared/device-status-input";
 const field = { id: "minut", label: "Minut charged?" };
 it("never rewrites historical answers on mount and requires an explicit exception and reason", () => {
  const change = vi.fn();

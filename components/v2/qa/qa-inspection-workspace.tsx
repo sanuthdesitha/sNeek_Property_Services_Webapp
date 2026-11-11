@@ -1,7 +1,7 @@
 "use client";
 
 import { useRestorableState } from "@/hooks/use-restorable-state";
-import { DeviceStatusInput } from "@/components/forms/device-status-input";
+import { DeviceStatusInput } from "@/components/shared/device-status-input";
 import { isDeviceException, isDeviceStatusField } from "@/lib/forms/device-status";
 
 /**

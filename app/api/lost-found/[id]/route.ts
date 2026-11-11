@@ -7,7 +7,8 @@ import { getAppSettings } from "@/lib/settings";
 import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import { logger } from "@/lib/logger";
 import { hydrateItemWithEvents, redactItemWithEventsForReporter } from "@/lib/lost-found/service";
-import { LOST_FOUND_STATUSES, isResolvedStatus } from "@/lib/lost-found/status";
+import { LOST_FOUND_STATUSES } from "@/lib/lost-found/status";
+import { applyLostFoundChange, LostFoundRuleError, type DetailChange, type ItemChange } from "@/lib/lost-found/mutations";
 
 const patchSchema = z.object({
   status: z.enum(LOST_FOUND_STATUSES).optional(),
@@ -16,6 +17,10 @@ const patchSchema = z.object({
   estimatedValue: z.number().finite().nonnegative().max(1_000_000).optional().nullable(),
   resolution: z.string().trim().max(4000).optional().nullable(),
   note: z.string().trim().max(4000).optional().nullable(),
+  guestEmail: z.string().trim().max(320).optional().nullable(),
+  storageLocation: z.string().trim().max(200).optional().nullable(),
+  reservationId: z.string().trim().min(1).max(64).optional(),
+  reopenReason: z.string().trim().max(2000).optional().nullable(),
 });
 
 function errorStatus(err: any): number {
@@ -62,89 +67,41 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 /**
- * PATCH — admin/ops workflow control: change status (IN_STORAGE / GUEST_CONTACTED /
- * RETURN_OFFERED / REPORTED / ARCHIVED), record guest name/contact + estimated value,
- * or record the final decision. Resolution statuses (RETURNED / DISPOSED / DONATED /
- * UNCLAIMED) stamp resolvedAt + resolvedByUserId + resolution.
+ * PATCH — office workflow control (ADMIN / OPS_MANAGER):
+ *  - status: through the transition table (lib/lost-found/transitions.ts);
+ *    a closed item goes back to an open status only with `reopenReason`;
+ *    final decisions stamp resolvedAt / resolvedByUserId / resolution.
+ *  - guestName / guestContact / guestEmail: an office edit (guestSource MANUAL).
+ *  - reservationId: take the guest from another booking at this property.
+ *  - estimatedValue, storageLocation, resolution, note.
  */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { session, item } = await loadWithAccess(params.id, "manage");
     const body = patchSchema.parse(await req.json());
 
-    const data: Record<string, unknown> = {};
-    let touched = false;
+    const details: DetailChange = {};
+    if (body.guestName !== undefined) details.guestName = body.guestName;
+    if (body.guestContact !== undefined) details.guestContact = body.guestContact;
+    if (body.guestEmail !== undefined) details.guestEmail = body.guestEmail;
+    if (body.estimatedValue !== undefined) details.estimatedValue = body.estimatedValue ?? null;
+    if (body.storageLocation !== undefined) details.storageLocation = body.storageLocation;
+    if (body.reservationId) details.reservationId = body.reservationId;
 
-    if (body.guestName !== undefined) {
-      data.guestName = body.guestName?.trim() || null;
-      touched = true;
-    }
-    if (body.guestContact !== undefined) {
-      data.guestContact = body.guestContact?.trim() || null;
-      touched = true;
-    }
-    if (body.estimatedValue !== undefined) {
-      data.estimatedValue = body.estimatedValue ?? null;
-      touched = true;
-    }
-
-    const statusChanged = body.status !== undefined && body.status !== item.status;
-    const resolving = body.status !== undefined && isResolvedStatus(body.status);
-
+    const change: ItemChange = {};
+    if (Object.keys(details).length) change.details = details;
     if (body.status !== undefined) {
-      data.status = body.status as LostFoundStatus;
-      touched = true;
-      if (resolving) {
-        data.resolvedAt = new Date();
-        data.resolvedByUserId = session.user.id;
-        data.resolution = body.resolution?.trim() || body.note?.trim() || item.resolution || null;
-      } else {
-        // Moving to a workflow / archived status clears any prior resolution stamp.
-        if (item.resolvedAt) {
-          data.resolvedAt = null;
-          data.resolvedByUserId = null;
-        }
-        if (body.resolution !== undefined) data.resolution = body.resolution?.trim() || null;
-      }
+      change.status = { status: body.status as LostFoundStatus, resolution: body.resolution, note: body.note, reopenReason: body.reopenReason };
     } else if (body.resolution !== undefined) {
-      data.resolution = body.resolution?.trim() || null;
-      touched = true;
+      // A resolution note on its own edits the note of the current status.
+      change.status = { status: item.status, resolution: body.resolution, note: body.note };
     }
-
-    if (!touched) {
+    if (!change.details && !change.status) {
       return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
     }
 
-    // Timeline event: use the decision action for resolutions, else STATUS_CHANGE.
-    const action = resolving ? (body.status as string) : "STATUS_CHANGE";
-    const noteText =
-      body.note?.trim() ||
-      (resolving ? body.resolution?.trim() : null) ||
-      (statusChanged ? null : "Details updated") ||
-      null;
-
-    const [updated] = await db.$transaction([
-      db.lostFoundItem.update({ where: { id: item.id }, data }),
-      db.lostFoundEvent.create({
-        data: {
-          itemId: item.id,
-          userId: session.user.id,
-          action,
-          note: noteText,
-          meta: {
-            fromStatus: item.status,
-            toStatus: body.status ?? item.status,
-            guestName: body.guestName ?? undefined,
-            guestContact: body.guestContact ?? undefined,
-          },
-        },
-      }),
-    ]);
-
-    logger.info(
-      { itemId: item.id, actor: session.user.id, action, toStatus: updated.status },
-      "lost-found item updated"
-    );
+    const updated = await applyLostFoundChange(item.id, session.user.id, change);
+    logger.info({ itemId: item.id, actor: session.user.id, toStatus: updated.status }, "lost-found item updated");
 
     const events = await db.lostFoundEvent.findMany({
       where: { itemId: item.id },
@@ -156,6 +113,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const first = err.issues[0];
       return NextResponse.json({ error: first?.message ?? "Invalid request." }, { status: 400 });
     }
+    if (err instanceof LostFoundRuleError) return NextResponse.json({ error: err.message }, { status: 409 });
     const status = err?.message === "NOT_FOUND" ? 404 : errorStatus(err);
     return NextResponse.json({ error: err.message }, { status });
   }

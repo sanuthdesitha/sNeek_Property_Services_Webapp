@@ -7,15 +7,16 @@ import { collectRotationalItems, filterRotationalSchema } from "@/lib/accountabi
 import { db } from "@/lib/db";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { assembleJobForm } from "./assemble-job-form";
+import { expandRepeatedSections, schemaHasRepeatedSections, type RoomCounts } from "./repeat-sections";
 import { resolveJobFormTemplate, type TemplateOverridesMap } from "./resolve-job-template";
 import { buildReworkFormSchema, ensureReworkFormTemplate, findReworkFormTemplate, normalizeReworkAreas } from "@/lib/qa/rework-jobs";
 
 /** Server selection and assembly only. Reference signing belongs to the read route. */
 export async function resolveEffectiveJobForm(
   job: { jobType: JobType; propertyId: string; formTemplateId?: string | null;
-    isRework: boolean; reworkAreas?: unknown; internalNotes?: string | null; property?: { name?: unknown } },
+    isRework: boolean; reworkAreas?: unknown; internalNotes?: string | null; property?: { name?: unknown; bedrooms?: unknown; bathrooms?: unknown } },
   settings: { propertyFormTemplateOverrides?: TemplateOverridesMap | null },
-  options: { provisionReworkAnchor?: boolean; database?: Pick<typeof db, "formTemplate"> & Partial<Pick<typeof db, "propertyRotationState">> } = {}
+  options: { provisionReworkAnchor?: boolean; database?: Pick<typeof db, "formTemplate"> & Partial<Pick<typeof db, "propertyRotationState" | "property">> } = {}
 ) {
   const database = options.database ?? db;
   const templates = await database.formTemplate.findMany({
@@ -38,6 +39,12 @@ export async function resolveEffectiveJobForm(
       ? { id: "additionals-only", name: "Job additionals", serviceType: job.jobType,
           schema: assembleJobForm(null, jobMeta.additionals) }
       : null;
+  // Per-room repeat (section.repeatBy): only forms that use it read the room
+  // counts; every other form is untouched. Fails closed — a repeated section
+  // is never silently shown once because the counts could not be read.
+  if (template && schemaHasRepeatedSections(template.schema)) {
+    template = { ...template, schema: expandRepeatedSections(template.schema, await roomCountsFor(job, database)) };
+  }
   if (template && selected) template = { ...template, schema: withLaundryAreaEvidence(template.schema, job) };
   if (template) template = { ...template, schema: withDeviceApplicability(template.schema, job.property) };
   const fullRotationSections = (template?.schema as any)?.sections ?? [];
@@ -60,4 +67,20 @@ export async function resolveEffectiveJobForm(
     templateSource: resolution.source === "none" ? "global_latest" as const : resolution.source,
     configuredPropertyTemplateId: resolution.configuredPropertyTemplateId,
   };
+}
+
+async function roomCountsFor(
+  job: { propertyId: string; property?: { bedrooms?: unknown; bathrooms?: unknown } },
+  database: Partial<Pick<typeof db, "property">>,
+): Promise<RoomCounts> {
+  if (job.property && "bedrooms" in job.property && "bathrooms" in job.property) {
+    return { bedrooms: job.property.bedrooms, bathrooms: job.property.bathrooms };
+  }
+  if (!database.property) throw new Error("Property room counts are unavailable");
+  const property = await database.property.findUnique({
+    where: { id: job.propertyId },
+    select: { bedrooms: true, bathrooms: true },
+  });
+  if (!property) throw new Error("Property room counts are unavailable");
+  return { bedrooms: property.bedrooms, bathrooms: property.bathrooms };
 }

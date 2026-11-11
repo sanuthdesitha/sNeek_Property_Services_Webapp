@@ -35,6 +35,7 @@ import { sumRecordedTimeLogMinutes } from "@/lib/time/log-duration";
 import { clearSharedCleanerJobDraft, getSharedCleanerJobDraft, withSharedCleanerJobDraftLock } from "@/lib/cleaner/shared-job-draft";
 import { collectRequiredAnswerFields, collectRequiredUploadFields, flattenFieldsOneLevel } from "@/lib/forms/visibility";
 import { collectUploadMinimumErrors } from "@/lib/forms/validate-submission";
+import { extendedValidationOutcome } from "@/lib/forms/submission-warnings";
 import { sanitizeNoPhotoReasons } from "@/lib/forms/no-photo-reasons";
 import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form";
 import { jobFormRevision } from "@/lib/forms/job-form-revision";
@@ -507,6 +508,26 @@ export async function POST(
         { status: 400 }
       );
     }
+    // Extended answer rules (ranges, email, phone, dates, option membership,
+    // details-when-no, scale ranges, max files) on the SAME effective schema,
+    // property projection and laundry state the checks above used. This
+    // release records them as warnings on the submission and accepts it;
+    // ENFORCE_EXTENDED_FORM_VALIDATION switches them to rejections later.
+    const extendedValidation = extendedValidationOutcome({
+      schema: effectiveSchema,
+      answers,
+      uploads,
+      property: formProperty,
+      laundryReady: legacyReady,
+      requiredChecklistTicksBlockSubmit: submitGateSettings.requiredChecklistTicksBlockSubmit === true,
+      noPhoto: { canUseNoPhoto, reasons: noPhotoReasons },
+    });
+    if (extendedValidation.reject) {
+      return NextResponse.json(
+        { error: extendedValidation.message, invalidFields: extendedValidation.violations },
+        { status: 400 }
+      );
+    }
     // Final self-inspection gate (Accountability Phase 3). The 14 checkboxes are
     // required in the schema, but an unticked checkbox can arrive as `false`
     // (which the generic required-answer check treats as answered), so this is
@@ -700,6 +721,10 @@ export async function POST(
                 payItems: body.draftPayRequestItems ?? [], pay: body.draftPayRequestPayload ?? null,
                 carryForward,
               },
+              // Controlled system key: computed on the server, never taken
+              // from the client. Absent when the answers broke no extended rule.
+              __validationWarnings:
+                extendedValidation.warnings.length > 0 ? extendedValidation.warnings : undefined,
               // Controlled system key: the server-sanctioned waivers only —
               // whatever the client sent under this key is overridden.
               __noPhotoReasons:

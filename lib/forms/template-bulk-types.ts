@@ -48,6 +48,13 @@ export const bulkOperationZ = z.discriminatedUnion("type", [
     replace: z.string().max(200),
     matchCase: z.boolean().default(false),
   }),
+  z.object({
+    type: z.literal("insert-questions"),
+    /** Section to add them to (matched by title; created when missing). */
+    sectionTitle: z.string().trim().max(120),
+    /** The questions as the builder holds them; ids are regenerated per form. */
+    fields: z.array(z.record(z.unknown())).min(1, "Choose at least one question.").max(100),
+  }),
   z.object({ type: z.literal("move-to-group"), groupId: z.string().min(1).nullable() }),
   z.object({ type: z.literal("set-tags"), add: z.array(tagZ).max(20), remove: z.array(tagZ).max(20) }),
   z.object({ type: z.literal("publish") }),

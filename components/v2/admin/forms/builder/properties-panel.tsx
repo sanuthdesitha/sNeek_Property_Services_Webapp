@@ -9,7 +9,7 @@
  * Estate styling with a self-contained accordion. No components/ui/*.
  */
 import * as React from "react";
-import { Copy, Plus, Trash2, ChevronDown } from "lucide-react";
+import { Copy, Trash2 } from "lucide-react";
 import type { FormField, FormFieldType } from "@/lib/forms/types";
 import {
   FIELD_TYPES,
@@ -17,42 +17,33 @@ import {
   FIELD_CATEGORY_ORDER,
   getFieldTypeDef,
 } from "@/lib/forms/field-types";
-import { cn } from "@/lib/utils";
 import { EConfirmButton, EField, EInput, ETextarea, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
+import { cadenceOf, applyPatchToField } from "@/lib/forms/multi-edit";
 import { EFieldIcon } from "./field-icon";
 import { ReferenceMediaEditor } from "./reference-media-editor";
-import { ConditionEditor, type ConditionSourceField } from "./condition-editor";
+import type { ConditionSourceField } from "./condition-editor";
+import { RuleEditor } from "./rule-editor";
+import { PanelSection as Section } from "./panel-section";
+import { SubFieldsEditor } from "./sub-fields-editor";
+import { CadenceControl } from "./cadence-control";
+import { TypeSettings } from "./type-settings";
+
+/** Evidence taxonomy used by QA grouping and missing-evidence scoring. */
+export const EVIDENCE_CATEGORIES: ReadonlyArray<readonly [string, string]> = [
+  ["LIVING", "Living areas"],
+  ["KITCHEN", "Kitchen"],
+  ["BATHROOM", "Bathroom"],
+  ["BEDROOM", "Bedroom"],
+  ["OUTDOOR", "Outdoor"],
+  ["FINAL", "Final walkthrough"],
+  ["PROPERTY_CONFIRM", "Property confirmation"],
+  ["LAUNDRY_CONFIRM", "Laundry confirmation"],
+];
 
 function num(value: string): number | undefined {
   if (value.trim() === "") return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
-}
-
-/* ── Self-contained Estate accordion section ───────────────────────────── */
-function Section({
-  title,
-  defaultOpen = false,
-  children,
-}: {
-  title: React.ReactNode;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = React.useState(defaultOpen);
-  return (
-    <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[0.8125rem] font-[550] text-[hsl(var(--e-foreground))]"
-      >
-        {title}
-        <ChevronDown className={cn("size-4 shrink-0 text-[hsl(var(--e-text-faint))] transition-transform", open && "rotate-180")} />
-      </button>
-      {open ? <div className="space-y-3 border-t border-[hsl(var(--e-border))] px-3 py-3">{children}</div> : null}
-    </div>
-  );
 }
 
 export function PropertiesPanel({
@@ -61,16 +52,17 @@ export function PropertiesPanel({
   onRemove,
   onDuplicate,
   availableFields = [],
+  repeatNote,
 }: {
   field: FormField;
   onUpdate: (field: FormField) => void;
   onRemove: () => void;
   onDuplicate?: () => void;
   availableFields?: ConditionSourceField[];
+  /** e.g. "Repeats once per bedroom with its section." */
+  repeatNote?: string;
 }) {
   const def = getFieldTypeDef(field.type);
-  const hasOptions = Boolean(def?.hasOptions);
-  const hasRange = Boolean(def?.hasRange);
   const isUpload = Boolean(def?.isUpload);
   const isReadOnly = Boolean(def?.isReadOnly);
   const scorable = Boolean(def?.scorable);
@@ -183,126 +175,14 @@ export function PropertiesPanel({
               <ESwitch checked={Boolean(field.required)} onCheckedChange={(v) => onUpdate({ ...field, required: v })} />
             </div>
           )}
+
+          {!isReadOnly && (
+            <CadenceControl value={cadenceOf(field)} onChange={(cadence) => onUpdate(applyPatchToField(field, { frequency: cadence }))} />
+          )}
+          {repeatNote ? <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">{repeatNote}</p> : null}
         </Section>
 
-        {/* Choices */}
-        {hasOptions && (
-          <Section title="Choices">
-            <EField label="Options (one per line)">
-              <ETextarea
-                rows={4}
-                value={(field.options ?? []).join("\n")}
-                onChange={(e) =>
-                  onUpdate({
-                    ...field,
-                    options: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean),
-                  })
-                }
-              />
-            </EField>
-            <div className="flex items-center justify-between">
-              <span className="text-[0.8125rem] text-[hsl(var(--e-foreground))]">Allow &ldquo;Other&rdquo; (free text)</span>
-              <ESwitch checked={Boolean(field.allowOther)} onCheckedChange={(v) => onUpdate({ ...field, allowOther: v || undefined })} />
-            </div>
-            {field.type === "select" && (
-              <div className="flex items-center justify-between">
-                <span className="text-[0.8125rem] text-[hsl(var(--e-foreground))]">Searchable</span>
-                <ESwitch checked={Boolean(field.searchable)} onCheckedChange={(v) => onUpdate({ ...field, searchable: v || undefined })} />
-              </div>
-            )}
-          </Section>
-        )}
-
-        {/* Yes/No */}
-        {field.type === "yesno" && (
-          <Section title="Yes / No behaviour">
-            <div className="flex items-center justify-between">
-              <span className="text-[0.8125rem] text-[hsl(var(--e-foreground))]">Include &ldquo;N/A&rdquo; option</span>
-              <ESwitch checked={Boolean(field.includeNa)} onCheckedChange={(v) => onUpdate({ ...field, includeNa: v || undefined })} />
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[0.8125rem] text-[hsl(var(--e-foreground))]">Require details when &ldquo;No&rdquo;</span>
-              <ESwitch checked={Boolean(field.detailsWhenNo)} onCheckedChange={(v) => onUpdate({ ...field, detailsWhenNo: v || undefined })} />
-            </div>
-          </Section>
-        )}
-
-        {/* Range */}
-        {hasRange && (
-          <Section title="Range & units">
-            <div className="grid grid-cols-3 gap-2">
-              <EField label="Min">
-                <EInput type="number" value={field.min ?? ""} onChange={(e) => onUpdate({ ...field, min: num(e.target.value) })} />
-              </EField>
-              <EField label="Max">
-                <EInput type="number" value={field.max ?? ""} onChange={(e) => onUpdate({ ...field, max: num(e.target.value) })} />
-              </EField>
-              <EField label="Step">
-                <EInput type="number" value={field.step ?? ""} onChange={(e) => onUpdate({ ...field, step: num(e.target.value) })} />
-              </EField>
-            </div>
-            <EField label="Unit label (optional)">
-              <EInput
-                value={field.unit ?? ""}
-                onChange={(e) => onUpdate({ ...field, unit: e.target.value || undefined })}
-                placeholder="e.g. min, kg, rooms"
-              />
-            </EField>
-          </Section>
-        )}
-
-        {/* Capture settings */}
-        {isUpload && (
-          <Section title="Capture settings">
-            {(field.type === "photo" || field.type === "video") && (
-              <EField label="Capture type" hint="What the cleaner can capture for this field.">
-                <ESelect
-                  value={field.mediaMode === "both" ? "both" : field.type === "video" ? "video" : "photo"}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === "both") onUpdate({ ...field, type: "photo", mediaMode: "both" });
-                    else if (v === "video") onUpdate({ ...field, type: "video", mediaMode: undefined });
-                    else onUpdate({ ...field, type: "photo", mediaMode: undefined });
-                  }}
-                >
-                  <option value="photo">Photo</option>
-                  <option value="video">Video</option>
-                  <option value="both">Photo or Video</option>
-                </ESelect>
-              </EField>
-            )}
-
-            <EField label="Evidence stamp tag" hint="Burned into the top-left chip of every photo. Auto guesses from wording.">
-              <ESelect
-                value={field.stampTag && field.stampTag.trim() ? field.stampTag : "auto"}
-                onChange={(e) => onUpdate({ ...field, stampTag: e.target.value === "auto" ? undefined : e.target.value })}
-              >
-                <option value="auto">Auto (from wording)</option>
-                <option value="before">Before</option>
-                <option value="after">After</option>
-                <option value="damage">Damage</option>
-              </ESelect>
-            </EField>
-
-            <div className="grid grid-cols-2 gap-2">
-              {field.type !== "video" && (
-                <EField label="Min files">
-                  <EInput
-                    type="number"
-                    min={0}
-                    value={field.minPhotos ?? 0}
-                    onChange={(e) => onUpdate({ ...field, minPhotos: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-                  />
-                </EField>
-              )}
-              <EField label="Max files">
-                <EInput type="number" min={0} value={field.maxFiles ?? ""} onChange={(e) => onUpdate({ ...field, maxFiles: num(e.target.value) })} />
-              </EField>
-              {/* No "Max duration" control: nothing in the capture path enforces
-                  a video length, so the builder no longer promises one. */}
-            </div>
-          </Section>
-        )}
+        <TypeSettings field={field} onUpdate={onUpdate} />
 
         {/* Tagging & priority */}
         <Section title="Tagging & priority">
@@ -313,6 +193,22 @@ export function PropertiesPanel({
                 onChange={(e) => onUpdate({ ...field, locationTag: e.target.value || undefined })}
                 placeholder="e.g. Kitchen"
               />
+            </EField>
+            <EField label="Evidence category">
+              <ESelect
+                value={field.evidenceCategory ?? ""}
+                onChange={(e) => onUpdate({ ...field, evidenceCategory: e.target.value || undefined })}
+              >
+                <option value="">None</option>
+                {field.evidenceCategory && !EVIDENCE_CATEGORIES.some(([value]) => value === field.evidenceCategory) ? (
+                  <option value={field.evidenceCategory}>{field.evidenceCategory}</option>
+                ) : null}
+                {EVIDENCE_CATEGORIES.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </ESelect>
             </EField>
             <EField label="Priority">
               <ESelect
@@ -329,6 +225,21 @@ export function PropertiesPanel({
             </EField>
           </div>
         </Section>
+
+        {/* Device status: an explicit truthful status / exception control */}
+        {!isReadOnly && !isUpload && (
+          <Section title="Device status">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[0.8125rem] text-[hsl(var(--e-foreground))]">
+                Ask for the device&apos;s actual status (working / exception with a reason)
+              </span>
+              <ESwitch
+                checked={field.deviceStatus === true}
+                onCheckedChange={(v) => onUpdate({ ...field, deviceStatus: v ? true : undefined })}
+              />
+            </div>
+          </Section>
+        )}
 
         {/* QA scoring */}
         {scorable && (
@@ -382,10 +293,15 @@ export function PropertiesPanel({
         </Section>
 
         {/* Conditional logic */}
-        <Section title="Conditional logic">
-          <ConditionEditor
+        <Section title="Show / hide rule" defaultOpen={Boolean(field.conditional)}>
+          <RuleEditor
             condition={field.conditional}
-            onChange={(conditional) => onUpdate({ ...field, conditional })}
+            onChange={(conditional) => {
+              const next = { ...field };
+              if (conditional) next.conditional = conditional;
+              else delete next.conditional;
+              onUpdate(next);
+            }}
             availableFields={availableFields}
           />
         </Section>
@@ -397,110 +313,6 @@ export function PropertiesPanel({
           </Section>
         )}
       </div>
-    </div>
-  );
-}
-
-/* ── One-level-deep sub-fields editor ──────────────────────────────────── */
-function SubFieldsEditor({
-  field,
-  onUpdate,
-  availableFields,
-}: {
-  field: FormField;
-  onUpdate: (field: FormField) => void;
-  availableFields: ConditionSourceField[];
-}) {
-  const children = field.children ?? [];
-
-  function setChildren(next: FormField[]) {
-    onUpdate({ ...field, children: next.length ? next : undefined });
-  }
-  function updateChild(index: number, child: FormField) {
-    setChildren(children.map((c, i) => (i === index ? child : c)));
-  }
-
-  const conditionFields: ConditionSourceField[] = [
-    { id: field.id, label: `${field.label || field.id} (parent)`, type: field.type, options: field.options },
-    ...availableFields,
-  ];
-
-  return (
-    <div className="space-y-2">
-      {children.map((child, index) => {
-        const childDef = getFieldTypeDef(child.type);
-        return (
-          <div key={child.id} className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2">
-            <div className="flex items-center gap-2">
-              <EInput
-                value={child.label}
-                onChange={(e) => updateChild(index, { ...child, label: e.target.value })}
-                placeholder="Sub-field label"
-                className="flex-1"
-              />
-              {/* Low tier: one sub-field of an unsaved form draft. */}
-              <EConfirmButton
-                ariaLabel="Remove sub-field"
-                confirmLabel="Remove?"
-                onConfirm={() => setChildren(children.filter((_, i) => i !== index))}
-              >
-                <Trash2 className="size-4 text-[hsl(var(--e-danger))]" />
-              </EConfirmButton>
-            </div>
-            <div className="grid grid-cols-2 items-center gap-2">
-              <ESelect
-                value={child.type}
-                onChange={(e) =>
-                  updateChild(index, { ...child, type: e.target.value as FormFieldType, ...(getFieldTypeDef(e.target.value)?.defaultConfig ?? {}) })
-                }
-                aria-label="Sub-field type"
-              >
-                {Object.values(FIELD_TYPES).map((d) => (
-                  <option key={d.type} value={d.type}>
-                    {d.label}
-                  </option>
-                ))}
-              </ESelect>
-              <div className="flex items-center justify-end gap-2">
-                <span className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">Required</span>
-                <ESwitch
-                  checked={Boolean(child.required)}
-                  onCheckedChange={(v) => updateChild(index, { ...child, required: v || undefined })}
-                />
-              </div>
-            </div>
-            {childDef?.hasOptions ? (
-              <ETextarea
-                value={(child.options ?? []).join("\n")}
-                onChange={(e) =>
-                  updateChild(index, {
-                    ...child,
-                    options: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean),
-                  })
-                }
-                placeholder="Options (one per line)"
-              />
-            ) : null}
-            <ConditionEditor
-              condition={child.conditional}
-              onChange={(conditional) => updateChild(index, { ...child, conditional })}
-              availableFields={conditionFields}
-            />
-          </div>
-        );
-      })}
-      <button
-        type="button"
-        onClick={() =>
-          setChildren([
-            ...children,
-            { id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type: "text", label: "New sub-field" },
-          ])
-        }
-        className="inline-flex items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-3 py-1.5 text-[0.75rem] text-[hsl(var(--e-foreground))] hover:bg-[hsl(var(--e-muted))]"
-      >
-        <Plus className="size-4" /> Add sub-field
-      </button>
     </div>
   );
 }

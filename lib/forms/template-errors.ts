@@ -10,6 +10,7 @@ export type TemplateErrorCode =
   | "STALE_TEMPLATE"
   | "DRAFT_EXISTS"
   | "INVALID_SCHEMA"
+  | "CHECKS_FAILED"
   | "INVALID_INPUT";
 
 const STATUS: Record<TemplateErrorCode, number> = {
@@ -17,6 +18,7 @@ const STATUS: Record<TemplateErrorCode, number> = {
   STALE_TEMPLATE: 409,
   DRAFT_EXISTS: 409,
   INVALID_SCHEMA: 422,
+  CHECKS_FAILED: 422,
   INVALID_INPUT: 400,
 };
 
@@ -26,6 +28,8 @@ export class TemplateServiceError extends Error {
     message: string,
     /** For STALE_TEMPLATE: the edit token that is current now. */
     readonly currentToken?: string,
+    /** For INVALID_SCHEMA / CHECKS_FAILED: every problem found, for the builder to list. */
+    readonly issues?: ReadonlyArray<{ path?: string; message: string; fieldId?: string; sectionId?: string }>,
   ) {
     super(message);
     this.name = "TemplateServiceError";
@@ -61,6 +65,7 @@ export function templateErrorResponse(error: unknown, fallback = "The request co
   if (error instanceof TemplateServiceError) {
     body.code = error.code;
     if (error.currentToken) body.currentUpdatedAt = error.currentToken;
+    if (error.issues?.length) body.issues = error.issues;
   }
   return NextResponse.json(body, { status });
 }

@@ -19,13 +19,67 @@ import {
   fieldDetailsKey,
 } from "./visibility";
 
+/**
+ * Which rule produced an error. The submit route already rejected the
+ * "core" rules before this module was run on the server; the others are
+ * "extended" rules (see EXTENDED_FORM_RULES) that the server records as
+ * warnings until ENFORCE_EXTENDED_FORM_VALIDATION is switched on.
+ */
+export type FormErrorRule =
+  | "device"
+  | "required"
+  | "upload"
+  | "minimum"
+  | "range"
+  | "email"
+  | "details"
+  | "number-format"
+  | "phone"
+  | "date"
+  | "option"
+  | "scale-range"
+  | "max-files";
+
 export interface FormFieldError {
   fieldId: string;
   sectionId?: string;
   sectionLabel?: string;
   label: string;
   message: string;
+  rule?: FormErrorRule;
 }
+
+/** Rules the cleaner submit route did not enforce before this release. */
+export const EXTENDED_FORM_RULES: ReadonlySet<FormErrorRule> = new Set<FormErrorRule>([
+  "range",
+  "email",
+  "details",
+  "number-format",
+  "phone",
+  "date",
+  "option",
+  "scale-range",
+  "max-files",
+]);
+
+/**
+ * Roll-out switch for server-side enforcement of EXTENDED_FORM_RULES.
+ *
+ * false (this release): the submit route records violations as warnings on
+ * the submission (`data.__validationWarnings`) and accepts it, so a draft
+ * started before these rules existed is never rejected by a rule it could not
+ * have known; the cleaner's phone keeps showing only the rules it showed
+ * before. true (a later release): the submit route rejects them like any
+ * other rule and the phone shows them inline.
+ *
+ * Deliberately a constant, not a setting: switching it is a release decision.
+ */
+export const ENFORCE_EXTENDED_FORM_VALIDATION = false;
+
+export type CollectFormErrorsOptions = {
+  /** Also run the extended rules (phone, dates, options, scale ranges, max files). */
+  extended?: boolean;
+};
 
 type AnswerMap = Record<string, unknown>;
 type UploadCounts = Record<string, number>;
@@ -65,7 +119,8 @@ export function collectFormErrors(
   noPhoto?: {
     canUseNoPhoto: boolean;
     reasons: Record<string, { reasonCode: string } | undefined>;
-  }
+  },
+  options: CollectFormErrorsOptions = {},
 ): FormFieldError[] {
   const errors: FormFieldError[] = [];
   const seen = new Set<string>();
@@ -78,7 +133,7 @@ export function collectFormErrors(
     errors.push(err);
   };
 
-  for (const field of incompleteDeviceExceptions(templateSchema, answers)) push({ fieldId: field.id, label: field.label, message: "Record a valid device status and an exception reason." });
+  for (const field of incompleteDeviceExceptions(templateSchema, answers)) push({ fieldId: field.id, label: field.label, message: "Record a valid device status and an exception reason.", rule: "device" });
 
   // 1) Required answerable fields (text/number/select/radio/yesno/rating/…).
   for (const field of collectRequiredAnswerFields(templateSchema, answers, property, {
@@ -93,6 +148,7 @@ export function collectFormErrors(
       // A required checkbox is a confirmation, not a blank — say what to do.
       message:
         isDeviceStatusField(field) ? "Choose the actual device status and give a reason for any exception." : field.type === "checkbox" ? "Tick this box to confirm." : "This field is required.",
+      rule: "required",
     });
   }
 
@@ -106,6 +162,7 @@ export function collectFormErrors(
       sectionLabel: field.sectionLabel,
       label: field.label,
       message: "Add at least one photo/file.",
+      rule: "upload",
     });
   }
 
@@ -152,6 +209,7 @@ export function collectFormErrors(
                 : below
                   ? `Enter ${min} or more.`
                   : `Enter ${max} or less.`,
+              rule: "range",
             });
           }
         }
@@ -168,6 +226,7 @@ export function collectFormErrors(
             sectionLabel,
             label,
             message: "Enter a valid email address.",
+            rule: "email",
           });
         }
       }
@@ -184,14 +243,121 @@ export function collectFormErrors(
               sectionLabel,
               label: `${label} — details`,
               message: "Add details for the “No” answer.",
+              rule: "details",
             });
           }
         }
+      }
+
+      if (options.extended) {
+        const extended = extendedFieldError(field, type, answers[String(field.id)], uploadCounts[String(field.id)] ?? 0);
+        if (extended) push({ fieldId: String(field.id), sectionId, sectionLabel, label, ...extended });
       }
     }
   }
 
   return errors;
+}
+
+/* ── Extended rules ─────────────────────────────────────────────────────── */
+
+const NUMERIC_TYPES = new Set(["number", "currency", "temperature", "counter"]);
+const SCALE_DEFAULTS: Record<string, { min: number; max: number }> = {
+  rating: { min: 1, max: 5 },
+  slider: { min: 0, max: 10 },
+  scale: { min: 1, max: 5 },
+};
+const PHONE_ALLOWED = /^[+]?[0-9 ()\-.]+$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+
+type ExtendedError = { message: string; rule: FormErrorRule };
+
+/** A calendar date that really exists (2026-02-30 is refused). */
+function isRealDate(value: string): boolean {
+  const [y, m, d] = value.slice(0, 10).split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
+export function isValidPhone(value: string): boolean {
+  const trimmed = value.trim();
+  if (!PHONE_ALLOWED.test(trimmed)) return false;
+  const digits = trimmed.replace(/\D/g, "").length;
+  return digits >= 6 && digits <= 15;
+}
+
+function dateError(type: string, answer: string): ExtendedError | null {
+  const value = answer.trim();
+  if (type === "date" && !(DATE_RE.test(value) && isRealDate(value))) return { message: "Enter a valid date.", rule: "date" };
+  if (type === "time" && !TIME_RE.test(value)) return { message: "Enter a valid time.", rule: "date" };
+  if (type === "datetime" && !(DATETIME_RE.test(value) && isRealDate(value))) return { message: "Enter a valid date and time.", rule: "date" };
+  return null;
+}
+
+function optionError(field: { options?: unknown; allowOther?: unknown }, type: string, answer: unknown): ExtendedError | null {
+  const options = Array.isArray(field.options) ? field.options.map(String) : [];
+  if (field.allowOther === true) {
+    // "Other" is stored as the typed text; any non-empty string is a valid answer.
+    if (type === "multiselect") {
+      return Array.isArray(answer) && answer.every((entry) => typeof entry === "string" && entry.trim())
+        ? null
+        : { message: "Choose from the list or type another answer.", rule: "option" };
+    }
+    return typeof answer === "string" ? null : { message: "Choose from the list or type another answer.", rule: "option" };
+  }
+  if (type === "multiselect") {
+    const values = Array.isArray(answer) ? answer : [answer];
+    return values.every((entry) => typeof entry === "string" && options.includes(entry))
+      ? null
+      : { message: "Choose only from the listed options.", rule: "option" };
+  }
+  return typeof answer === "string" && options.includes(answer) ? null : { message: "Choose one of the listed options.", rule: "option" };
+}
+
+function scaleError(field: { min?: unknown; max?: unknown; step?: unknown }, type: string, answer: unknown): ExtendedError | null {
+  const num = typeof answer === "number" ? answer : Number(answer);
+  if (!Number.isFinite(num)) return { message: "Enter a number.", rule: "scale-range" };
+  const defaults = SCALE_DEFAULTS[type];
+  const min = Number.isFinite(Number(field.min)) && field.min !== undefined && field.min !== null ? Number(field.min) : defaults.min;
+  const max = Number.isFinite(Number(field.max)) && field.max !== undefined && field.max !== null ? Number(field.max) : defaults.max;
+  if (num < min || num > max) return { message: `Choose a value between ${min} and ${max}.`, rule: "scale-range" };
+  if (type === "rating" && !Number.isInteger(num)) return { message: "Choose a whole number of stars.", rule: "scale-range" };
+  return null;
+}
+
+/**
+ * One extended-rule error for an answered, visible field (empty answers are the
+ * required rule's business). Exported for the field-type audit tests.
+ */
+export function extendedFieldError(
+  field: { type?: unknown; options?: unknown; allowOther?: unknown; min?: unknown; max?: unknown; step?: unknown; maxFiles?: unknown },
+  type: string,
+  answer: unknown,
+  uploadCount: number,
+): ExtendedError | null {
+  if (isUploadFieldType(type)) {
+    const maxFiles = Number(field.maxFiles);
+    if (Number.isFinite(maxFiles) && maxFiles > 0 && uploadCount > maxFiles) {
+      return { message: `Add at most ${maxFiles} file${maxFiles === 1 ? "" : "s"} — ${uploadCount} added.`, rule: "max-files" };
+    }
+    return null;
+  }
+  if (isEmpty(answer)) return null;
+  if (NUMERIC_TYPES.has(type)) {
+    const num = typeof answer === "number" ? answer : Number(answer);
+    return Number.isFinite(num) ? null : { message: "Enter a number.", rule: "number-format" };
+  }
+  if (type === "phone") {
+    return typeof answer === "string" && isValidPhone(answer) ? null : { message: "Enter a valid phone number.", rule: "phone" };
+  }
+  if (type === "date" || type === "time" || type === "datetime") {
+    return typeof answer === "string" ? dateError(type, answer) : { message: "Enter a valid date or time.", rule: "date" };
+  }
+  if (type === "select" || type === "radio" || type === "multiselect") return optionError(field, type, answer);
+  if (type in SCALE_DEFAULTS) return scaleError(field, type, answer);
+  return null;
 }
 
 /** The same visible-field minimum applies before submission and on the server. */
@@ -216,7 +382,7 @@ export function collectUploadMinimumErrors(
       if (have === 0 && noPhoto?.canUseNoPhoto && noPhoto.reasons[id]) continue;
       if (!(need > have)) continue;
       errors.push({ fieldId: id, sectionId: section.id, sectionLabel: section.title || section.label,
-        label: field.label || id, message: `Add at least ${need} ${type === "photo" ? "photo" : "file"}${need === 1 ? "" : "s"} — ${have} added.` });
+        label: field.label || id, message: `Add at least ${need} ${type === "photo" ? "photo" : "file"}${need === 1 ? "" : "s"} — ${have} added.`, rule: "minimum" });
     }
   }
   return errors;
