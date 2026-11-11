@@ -14,7 +14,7 @@ export type CaseLinkedContext = {
   job: { id: string; jobNumber: string | null; scheduledDate: string; status: string } | null;
   property: { id: string; name: string; suburb: string | null } | null;
   client: { id: string; name: string } | null;
-  cleaners: Array<{ name: string; isPrimary: boolean }>;
+  cleaners: Array<{ id: string; name: string; isPrimary: boolean }>;
   departingGuest: { name: string | null; phoneLabel: string | null; phoneHref: string | null; checkoutAt: string | null } | null;
   report: { id: string; href: string } | null;
   evidence: {
@@ -66,7 +66,7 @@ export async function loadCaseLinkedContext(caseId: string): Promise<CaseLinkedC
       : null,
     property: row.property ?? summary?.property ?? null,
     client,
-    cleaners: summary?.assignments.map((a) => ({ name: a.name, isPrimary: a.isPrimary })) ?? [],
+    cleaners: summary?.assignments.map((a) => ({ id: a.userId, name: a.name, isPrimary: a.isPrimary })) ?? [],
     departingGuest: summary?.departing ?? null,
     report: reportId ? { id: reportId, href: `/v2/admin/reports?reportId=${reportId}` } : null,
     evidence: {

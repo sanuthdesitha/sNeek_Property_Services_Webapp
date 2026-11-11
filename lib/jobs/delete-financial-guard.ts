@@ -1,4 +1,5 @@
 import { JobStatus, Prisma } from "@prisma/client";
+import { FINANCIAL_RECORD_LINE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
 
 export const JOB_DELETE_FINANCIAL_CONFLICT =
   "Job deletion is blocked by financial records. Preserve this job and review its invoices, payroll, or pay decisions instead.";
@@ -11,7 +12,12 @@ export async function assertJobCanBeDeleted(tx: Prisma.TransactionClient, jobId:
   await tx.$queryRaw`SELECT id FROM "QaAssignment" WHERE "jobId" = ${jobId} ORDER BY id FOR UPDATE`;
   const job = await tx.job.findUnique({
     where: { id: jobId },
-    select: { status: true, payrollRunId: true, cleanerPaidAt: true, invoiceLines: { take: 1, select: { id: true } } },
+    // A line on a VOID invoice is not a financial record that blocks deletion
+    // (owner decision 2026-11-11). Lines on any other invoice, including a fully
+    // credited one, do block. Deleting the job leaves a voided invoice's lines
+    // intact: ClientInvoiceLine.jobId is ON DELETE SET NULL, and the line keeps
+    // its own stored description, quantity and amounts.
+    select: { status: true, payrollRunId: true, cleanerPaidAt: true, invoiceLines: { take: 1, where: FINANCIAL_RECORD_LINE_WHERE, select: { id: true } } },
   });
   if (!job) throw new Error("JOB_NOT_FOUND");
   const [adjustments, transfers, settledQa, cleanerClaim] = await Promise.all([

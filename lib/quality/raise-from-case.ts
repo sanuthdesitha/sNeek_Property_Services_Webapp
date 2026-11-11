@@ -162,3 +162,44 @@ export async function raiseQaIssueFromCase(actorId: string, raw: unknown, now: D
     return { issueId: issue.id, duplicate: false, href: issueHubHref(issue.id) };
   });
 }
+
+export type RaiseFromCaseOptions = {
+  caseId: string;
+  jobId: string | null;
+  cleaners: Array<{ id: string; name: string }>;
+  categories: Array<{ key: string; label: string }>;
+  severities: QaIssueSeverity[];
+  jobPhotos: Array<{ id: string; label: string; createdAt: string }>;
+  attachments: Array<{ id: string; label: string }>;
+  /** Issues already raised from this case (so the dialog can say so). */
+  raised: Array<{ issueId: string; cleanerId: string; category: string; createdAt: string }>;
+};
+
+/** What the "Raise QA issue for cleaner" dialog offers for one case. */
+export async function loadRaiseFromCaseOptions(caseId: string): Promise<RaiseFromCaseOptions> {
+  const ticket = await db.issueTicket.findUnique({
+    where: { id: caseId },
+    select: { id: true, jobId: true, attachments: { orderBy: { createdAt: "asc" }, select: { id: true, label: true, mimeType: true, createdAt: true } } },
+  });
+  if (!ticket) throw new RaiseIssueError(404, "Case not found.");
+  const settings = await getAppSettings();
+  const [job, photos, raised] = ticket.jobId
+    ? await Promise.all([
+        db.job.findUnique({ where: { id: ticket.jobId }, select: { assignments: { where: { removedAt: null }, select: { userId: true, user: { select: { name: true, email: true } } } } } }),
+        db.submissionMedia.findMany({ where: { mediaType: "PHOTO", submission: { jobId: ticket.jobId } }, orderBy: { createdAt: "asc" }, take: 60, select: { id: true, label: true, fieldId: true, createdAt: true } }),
+        db.qaIssue.findMany({ where: { itemKey: caseItemKey(ticket.id) }, orderBy: { createdAt: "desc" }, select: { id: true, cleanerId: true, category: true, createdAt: true } }),
+      ])
+    : [null, [], []];
+  return {
+    caseId: ticket.id,
+    jobId: ticket.jobId,
+    cleaners: (job?.assignments ?? []).map((row) => ({ id: row.userId, name: row.user.name?.trim() || row.user.email || "Cleaner" })),
+    categories: settings.accountability.issueCategories.map((row) => ({ key: row.key, label: row.label })),
+    severities: [QaIssueSeverity.MINOR, QaIssueSeverity.MAJOR, QaIssueSeverity.CRITICAL],
+    jobPhotos: photos.map((row, index) => ({ id: row.id, label: row.label?.trim() || `Job photo ${index + 1} (${row.fieldId.replace(/[_-]+/g, " ")})`, createdAt: row.createdAt.toISOString() })),
+    attachments: ticket.attachments
+      .filter((row) => !row.mimeType || row.mimeType.startsWith("image/"))
+      .map((row, index) => ({ id: row.id, label: row.label?.trim() || `Case attachment ${index + 1}` })),
+    raised: raised.map((row) => ({ issueId: row.id, cleanerId: row.cleanerId, category: row.category, createdAt: row.createdAt.toISOString() })),
+  };
+}
