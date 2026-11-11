@@ -363,3 +363,13 @@ Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notification
 | "Tell client" about a lost item is copy / email link, then recorded by hand | Give it a real send path? |
 | Items still at "New" are not flagged by the 14-day holding period (only in storage or awaiting the guest) | Confirm, or flag New items too? |
 | Administrators can send the guest message by email or SMS from the app; it moves the item to "Guest contacted" only when the provider accepts it | Confirm, or switch to copy-and-record only? |
+
+### More items waiting for the owner (from the template builder step)
+
+| Item | Question |
+| --- | --- |
+| The new server checks on what cleaners submit (ranges, email, phone, dates, option membership, details-when-no, maximum files) are recorded as warnings and do not reject | When to switch enforcement on (`ENFORCE_EXTENDED_FORM_VALIDATION`) |
+| Saving a QA template records a revision but does not raise its version number | Raising it would change which template wins when two overlap. Leave as is? |
+| QA inspections do not keep a copy of the template they were filled in on, so editing a template changes how past inspections display | Snapshot the template on each inspection? Needs a database change |
+| The classic `/admin/forms` page is kept for its Submissions tab (edit a submission, add or remove media) and Checklists tab | Port those two to the new Forms page so the classic page can be retired? |
+| "Table" and "Stock count" question types, and "raises urgent stock" / "opens a damage report" effects on a question | Drawn on the canvas but do not exist. Build them? |
