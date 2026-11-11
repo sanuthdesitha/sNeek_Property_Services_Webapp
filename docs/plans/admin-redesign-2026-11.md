@@ -165,11 +165,15 @@ Today the page only manages the per-job client PDF and shows no figures.
 - Conversation with reply or internal note, templates and attachments. Details panel with linked job, property, cleaner, departing guest, report and evidence filled from the job.
 - "New case" can link a job, property or client. Bulk assign and close.
 
+> **Built 2026-11-11, awaiting the final build and browser pass.** Delivered: four columns as drawn; queues with real counts (Needs my reply = open, owned by me, latest non-internal message from a CLIENT/VA account; Unowned; Waiting on client; SLA at risk; All open; Resolved; plus the old Awaiting me and All) and type counts; `GET /api/admin/cases?shape=summary` (summaries only, server paging, allow-listed sorts; old shape kept for other callers); conversation with Waiting on client / Resolve, every other action in the menu, internal notes labelled, composer with Reply to client | Internal note, Insert template (existing resolution templates), Attach; per-case unsent drafts in memory; details with every old field and "Linked, filled in automatically" from the job (`/api/admin/cases/[id]/linked`); `?open=`, `?jobId=`, `?reportId=`; New case with job/property/client links validated on the server; `POST /api/admin/cases/bulk` with per-row outcomes through the shared `applyCaseUpdate`; phone steps. Deviations: no "Raise QA issue for cleaner" (no admin create path; QA issues come only from a QA review); Create repair quote is a plain link (the quote builder takes no prefill); Add charge opens the client's draft invoices; the old Refresh button is replaced by focus/30 s refresh and Retry. Details: `docs/SYSTEM.md`, "Cases inbox and Laundry pipeline".
+
 ### 6. Laundry
 
 - Tabs: Pipeline, By property, Drivers live, Costs and invoices, Suppliers, Statistics (the unlinked stats page moves in).
 - Pipeline lanes by stage for a chosen day with exceptions first; a side panel carries edit, reschedule, evidence replacement and skip.
 - Polling runs only on Pipeline and Drivers live. Stat captions state their real scope. Reschedule approvals link to Approvals.
+
+> **Built 2026-11-11, awaiting the final build and browser pass.** Delivered: header with the day's real summary, Previous / Today / Next, Generate week, Add run (dialog over the existing `POST /api/admin/laundry`); three tiles with stated scope; six tabs with old `?tab=` ids mapped and `/v2/admin/laundry/stats` redirecting to Statistics; server-built lanes (`/api/admin/laundry/pipeline`) with exceptions, overdue carry-in, real counts, Driver (from the day's routes) and Supplier filters, Exceptions first; run side panel with every old card action; checked moves (`/api/admin/laundry/reschedule`, per-row outcomes, stale-write refusal); Completed history keeps the old date-range lists; polling only on Pipeline lanes and Drivers live; Approvals link with the FLAGGED count; one shared week feed for history and By property; By property restyled; `laundry-workspace.tsx` split (largest new file 300 lines). Deviations: no Ask cleaner / Chase supplier / Request photo buttons (no on-demand reminder path exists); tiles kept although the drawing has none (brief); card times show days, not clock times, except delivery time. Fixed: live stops used the server's midnight. Details: `docs/SYSTEM.md`, "Cases inbox and Laundry pipeline".
 
 ### 9. Lost and found
 
@@ -292,3 +296,15 @@ Build order for these: a "Finance decisions" step (2 to 6, includes a migration 
 | Expiring-document reminder is a link to the account | May it send the existing document request inline? |
 | "Invoiced this month" is shown as "Paid this month" | Define "invoiced this month" (by invoice date, sent date, or approval date) |
 | Declining a continuation from the queue sends no note to the cleaner | Require a reason? |
+
+### More items waiting for the owner (from the Xero and cleaner invoice step)
+
+| Item | Question |
+| --- | --- |
+| A payment read from Xero does not email the client a receipt; a manual "Record payment" does | Send a receipt for Xero-read payments too? |
+| Any difference over half a cent between Xero's total and ours goes to "needs review" | Allow a small rounding tolerance? |
+| Scheduled Xero checks are recorded under the earliest active administrator, labelled "Xero sync (scheduled)" | Acceptable, or create a dedicated system account? |
+| An operations manager can confirm a payee's payment claim made before the invoice was approved | Require approval before a claim can be confirmed? |
+| Rejecting a claim on an approved invoice not in Xero sends it back to Submitted | Acceptable that it needs approving again? |
+
+To do under the standing rule (not owner decisions): the Xero connection does not request `offline_access`, so its sign-in lapses after about 30 minutes and scheduled checks will mostly report "state unknown" until it is added and Xero is reconnected once; the classic `/admin/cleaner-invoices` screen has no Approve button and should redirect to the new tab.

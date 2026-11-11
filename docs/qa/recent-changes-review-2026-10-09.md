@@ -910,3 +910,21 @@ First real Xero run: what to check
 - Rate limits: with many invoices, watch for "rate limit" unknowns; the run is bounded to 200 invoices + 20 credit notes per hour.
 - The token: without `offline_access` there is no refresh token, so after ~30 minutes every scheduled run reads "No active Xero connection, or its sign-in has lapsed" (state unknown) until someone reconnects. Expect this to be the common state until offline access is granted in the Xero app.
 - Who appears in History: scheduled runs are attributed to the earliest active administrator account and labelled "Xero sync (scheduled)".
+
+## Follow-up: Cases inbox and Laundry pipeline (2026-11-11)
+
+Scope: details in `docs/SYSTEM.md` → "Cases inbox and Laundry pipeline". No schema change and no migration.
+
+What changed
+- Cases: four-column inbox; queues with real counts (`lib/cases/queues.ts`, incl. "Needs my reply"); `GET /api/admin/cases?shape=summary` (summaries only, server paging and allow-listed sort; old shape unchanged without `shape`); `GET /api/admin/cases/[id]/linked`; `POST /api/admin/cases/bulk` (per-row outcomes through `applyCaseUpdate`, which `PATCH /api/admin/cases/[id]` now also uses); create validates job/property/client links; `/v2/admin/cases/[id]` redirects to `?open=` (damage notifications linked there and got a 404); `?caseId=` from the client page opens the case.
+- Laundry: Pipeline lanes (`GET /api/admin/laundry/pipeline`, `lib/laundry/pipeline*.ts`), moves (`POST /api/admin/laundry/reschedule`, stale-write guard per row, audit row), `GET /api/admin/laundry/[taskId]` for linked runs, optional `expectedUpdatedAt` on the admin edit PATCH (sent by the edit dialog), Statistics tab (`GET /api/admin/laundry/stats`; `/v2/admin/laundry/stats` redirects), Add run over `POST /api/admin/laundry`, By property restyled, polling only on Pipeline lanes and Drivers live.
+- Pre-existing fixes: live laundry stops used the server's local midnight (now the Sydney day); the admin laundry edit could overwrite a newer change; stat captions misdescribed their scope; the case notification link 404.
+
+Verified (this run)
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- New tests: `tests/lib/case-queues.test.ts`, `tests/api/admin-cases-summary-route.test.ts`, `tests/lib/case-bulk-and-update.test.ts`, `tests/lib/case-linked-context.test.ts`, `tests/components/cases-inbox.test.tsx`, `tests/api/cases-legacy-links.test.ts`, `tests/lib/laundry-pipeline.test.ts`, `tests/lib/laundry-reschedule-and-pipeline-server.test.ts`, `tests/api/admin-laundry-pipeline-routes.test.ts`, `tests/components/laundry-pipeline-workspace.test.tsx`.
+- Existing tests updated on purpose: `tests/components/admin-laundry-investigation-entry.test.tsx` (Investigate is the "By property" tab on the shared feed) and `tests/components/laundry-calendar-day-link.test.tsx` (`?date=` opens the Pipeline day).
+- Existing tests covering touched code (cases, damage, laundry, ops policy, restorable state, command reliability, client laundry): all passed.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, overflow, draft retention) deferred by the owner to the final pass. No database run: routes and services are tested with mocked Prisma only.

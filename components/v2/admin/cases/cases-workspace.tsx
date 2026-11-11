@@ -71,6 +71,14 @@ export function CasesWorkspace() {
   // A different filter set starts a fresh selection.
   const filterKey = `${state.queue}|${debouncedQ}|${state.filters.caseType}|${state.filters.status}|${state.filters.assigneeUserId}|${state.filters.jobId}|${state.filters.reportId}`;
   React.useEffect(() => setSelected(new Set()), [filterKey]);
+  // The client detail page links `?caseId=<id>`; treat it as `?open=`.
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const legacy = params.get("caseId");
+    if (legacy && !params.get("open")) setOpenId(legacy);
+    // Only on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // A new case closes the previous case's sheet.
   React.useEffect(() => setDetailsSheet(false), [openId]);
 
