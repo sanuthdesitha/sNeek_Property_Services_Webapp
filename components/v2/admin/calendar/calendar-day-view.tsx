@@ -3,8 +3,10 @@
 /**
  * Day view on wide screens: the same rows as the week (Unassigned, cleaners or
  * properties) across the hours of one day. Jobs without a start time sit in a
- * "No time" column. A row is one drop target: dropping a chip on another
- * cleaner's row reassigns it (the time is not changed from here).
+ * "No time" column. A row's hour track is one drop target: dropping a chip on
+ * another cleaner's row reassigns it, and dropping it at another hour proposes
+ * a new start (snapped to `TIME_DROP_STEP_MINUTES`, length kept). Both go
+ * through the server's move check and confirmation before anything is saved.
  */
 import { cn } from "@/lib/utils";
 import { axisBounds, layoutDayRow } from "@/lib/calendar/day-axis";
@@ -55,7 +57,8 @@ export function CalendarDayView({ data, lanes, actions, display }: { data: Calen
                 {roster ? <RosterNote reason={roster} /> : null}
                 {layout.untimed.map(chip)}
               </div>
-              <DropCell point={point} drag={display.drag} label={`${lane.label}, ${longDayLabel(day)}`} className={cn("relative border-r-0 p-0")}>
+              <DropCell point={point} drag={display.drag} label={`${lane.label}, ${longDayLabel(day)}`} className={cn("relative border-r-0 p-0")}
+                axis={{ startMinute: bounds.startHour * 60, pxPerHour: HOUR_WIDTH }}>
                 <div className="relative" style={{ height: layout.slots * SLOT_HEIGHT + 8 }}>
                   {layout.placed.map((item) => (
                     <div

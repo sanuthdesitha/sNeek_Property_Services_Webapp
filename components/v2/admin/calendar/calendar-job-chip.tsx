@@ -5,10 +5,11 @@
  * when shown, and its status in words and shape as well as colour (done ✓,
  * on site, late, offered, planned, no cleaner dashed, skipped). The name
  * opens the shared job peek panel; the menu holds Move or reassign…, Assign
- * cleaners…, Assign QA inspector… and Open full job. Mouse and pen can drag a
- * movable chip; a chip that cannot move says why on hover and focus.
+ * cleaners…, Assign QA inspector… and Open full job. Mouse and pen drag a
+ * movable chip; touch drags it after press-and-hold (a grip marks a draggable
+ * chip). A chip that cannot move says why on hover and focus.
  */
-import { Check, Clock, Loader2, MapPin, Send } from "lucide-react";
+import { Check, Clock, GripVertical, Loader2, MapPin, Send } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { cn } from "@/lib/utils";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
@@ -18,6 +19,8 @@ import type { CalendarJob } from "@/lib/calendar/types";
 
 export type ChipActions = {
   readOnly: boolean;
+  /** Dragging is offered on this view (wide layouts, not Agenda). */
+  canDrag: boolean;
   onOpen: (job: CalendarJob) => void;
   onMove: (job: CalendarJob, source: DropPoint) => void;
   onAssign: (job: CalendarJob) => void;
@@ -78,7 +81,9 @@ export function CalendarJobChip({ job, source, actions, showArrival, showCleaner
   const category = chipCategory(job);
   const suffix = CHIP_CATEGORY_TEXT[category];
   const movable = !job.moveBlock && !actions.readOnly && !pending;
-  const hint = pending ? "A move for this job is being checked or saved." : job.moveBlock ?? (actions.readOnly ? "Read-only view: jobs cannot be moved." : "Drag to another day or cleaner, or use the menu.");
+  const draggable = movable && actions.canDrag;
+  const dragHint = draggable ? "Drag to another day or cleaner (on touch, press and hold first), or use the menu." : "Use the menu to move or reassign.";
+  const hint = pending ? "A move for this job is being checked or saved." : job.moveBlock ?? (actions.readOnly ? "Read-only view: jobs cannot be moved." : dragHint);
   const menu: ERowMenuItem[] = [
     { key: "open", label: "Open preview", onSelect: () => actions.onOpen(job) },
     { key: "full", label: "Open full job", href: `/v2/admin/jobs/${job.id}` },
@@ -99,10 +104,11 @@ export function CalendarJobChip({ job, source, actions, showArrival, showCleaner
         CATEGORY_CLASS[category],
         pending && "opacity-70",
         dragging && "opacity-40",
-        movable && "cursor-grab",
+        draggable && "cursor-grab select-none [-webkit-touch-callout:none]",
       )}
-      onPointerDown={movable ? (event) => actions.onPointerDown(event, job, source) : undefined}
+      onPointerDown={draggable ? (event) => actions.onPointerDown(event, job, source) : undefined}
     >
+      {draggable ? <GripVertical aria-hidden className="mt-1 h-3 w-3 shrink-0 opacity-60" /> : null}
       <button
         type="button"
         title={`${chipDescription(job)}\n${hint}`}

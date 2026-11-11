@@ -18,6 +18,7 @@ import { ReassignNoteDialog } from "@/components/v2/admin/jobs/reassign-note-dia
 import { useJobsReferenceData } from "@/components/v2/admin/jobs/use-jobs-reference-data";
 import { usePeekParam } from "@/components/v2/admin/jobs/use-peek-param";
 import { resolveDrop, type DropPoint } from "@/lib/calendar/drop";
+import { parseHm, proposedDropStart } from "@/lib/calendar/time-drop";
 import { buildLanes } from "@/lib/calendar/lanes";
 import { rangeHeading, shiftCursor, viewRange, type CalendarView } from "@/lib/calendar/range";
 import type { CalendarJob } from "@/lib/calendar/types";
@@ -38,6 +39,15 @@ import { useCalendarData } from "./use-calendar-data";
 import { useCalendarMove } from "./use-calendar-move";
 import { useCalendarState, useIsWide } from "./use-calendar-state";
 import { useChipDrag } from "./use-chip-drag";
+
+/** " to 10:15" while a chip is over a Day-view hour track, so the drop is predictable. */
+function dragTimeLabel(drag: NonNullable<ReturnType<typeof useChipDrag>["drag"]>): string {
+  if (drag.over?.minute == null) return "";
+  const start = parseHm(drag.job.startTime);
+  const grab = drag.source.minute != null && start !== null ? drag.source.minute - start : 0;
+  const proposed = proposedDropStart({ pointerMinute: drag.over.minute, grabOffsetMinutes: grab });
+  return proposed && proposed !== drag.job.startTime ? ` to ${proposed}` : "";
+}
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -68,16 +78,25 @@ export function CalendarWorkspace({ readOnly = false }: { readOnly?: boolean }) 
   const canDrag = wide && !readOnly && view !== "agenda";
 
   const onDrop = useCallback((job: CalendarJob, source: DropPoint, target: DropPoint) => {
-    const outcome = resolveDrop(source, target);
+    // Day view: the hour under the pointer proposes a new start (snapped),
+    // less where on the chip it was grabbed. The server check decides.
+    const start = parseHm(job.startTime);
+    const grabOffsetMinutes = source.minute != null && start !== null ? source.minute - start : 0;
+    const proposedStart = proposedDropStart({ pointerMinute: target.minute ?? null, grabOffsetMinutes });
+    const outcome = resolveDrop(source, target, { currentStart: job.startTime, proposedStart });
     if (outcome.kind === "ignored") setNotice(outcome.reason);
     if (outcome.kind !== "move") return;
     setNotice("");
-    void move.request({ job, toDate: outcome.toDate, fromCleanerId: outcome.fromCleanerId, toCleanerId: outcome.toCleanerId });
+    void move.request({
+      job, toDate: outcome.toDate, fromCleanerId: outcome.fromCleanerId, toCleanerId: outcome.toCleanerId,
+      ...(outcome.toStartTime ? { toStartTime: outcome.toStartTime } : {}),
+    });
   }, [move]);
   const drag = useChipDrag(onDrop);
 
   const actions: ChipActions = {
     readOnly,
+    canDrag,
     onOpen: (job) => setOpenJobId(job.id),
     onMove: (job, source) => setMoveTarget({ job, sourceCleanerId: source.lane === "cleaner" ? source.rowId : null }),
     onAssign: setAssignJob,
@@ -149,8 +168,9 @@ export function CalendarWorkspace({ readOnly = false }: { readOnly?: boolean }) 
 
       {drag.drag ? (
         <div aria-hidden className="pointer-events-none fixed z-[70] rounded-[6px] border border-[hsl(var(--e-primary))] bg-[hsl(var(--e-surface))] px-2 py-1 text-[0.75rem] shadow-[var(--e-elevation-3)]"
-          style={{ left: drag.drag.x + 12, top: drag.drag.y + 12 }}>
-          Moving {drag.drag.job.propertyName}
+          // A finger covers the chip: lift the label above the touch point.
+          style={drag.drag.touch ? { left: drag.drag.x - 40, top: drag.drag.y - 56 } : { left: drag.drag.x + 12, top: drag.drag.y + 12 }}>
+          Moving {drag.drag.job.propertyName}{dragTimeLabel(drag.drag)}
         </div>
       ) : null}
 

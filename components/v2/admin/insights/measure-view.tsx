@@ -8,7 +8,7 @@
 import * as React from "react";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { basisText, formatAud, formatHours, formatPct } from "@/lib/insights/format";
-import type { Measure, MeasureWithDelta } from "@/lib/insights/types";
+import type { Measure, MeasureWithDelta, RevenueSplit } from "@/lib/insights/types";
 
 export type FigureFormat = "aud" | "pct" | "hours" | "count" | "score" | "days";
 
@@ -84,11 +84,18 @@ export function BasisLine({ measure, noun, className }: { measure: Measure; noun
 }
 
 /** A table cell value with the basis in the title for a quick check. */
-export function CellFigure({ measure, format }: { measure: Measure | undefined; format: FigureFormat }) {
+export function CellFigure({ measure, format, note }: { measure: Measure | undefined; format: FigureFormat; note?: string }) {
   if (!measure) return <span className="text-[hsl(var(--e-muted-foreground))]">–</span>;
   return (
-    <span title={basisText(measure)} className="e-tnum">
+    <span title={[basisText(measure), note].filter(Boolean).join(". ")} className="e-tnum">
       {measure.value === null ? <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Not enough data</span> : formatFigure(measure.value, format)}
+      {note && measure.value !== null ? <span className="block text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">{note}</span> : null}
     </span>
   );
+}
+
+/** Short revenue basis for a table cell: what is invoiced and what is not yet. */
+export function revenueSplitNote(split: RevenueSplit | undefined): string | undefined {
+  if (!split || split.notYetInvoicedCleans === 0) return split && split.invoicedCleans > 0 ? "all invoiced" : undefined;
+  return `${formatFigure(split.notYetInvoiced, "aud")} not yet invoiced`;
 }

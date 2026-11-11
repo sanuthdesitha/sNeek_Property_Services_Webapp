@@ -136,7 +136,8 @@ export function tableAnswerError(field: StructuredFieldLike, value: unknown): st
   } else if (required && filled.length === 0) {
     return "Fill in the table.";
   }
-  for (const [index, row] of rows.entries()) {
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
     const mustBeComplete = config.rowMode === "fixed" ? required || rowHasContent(row, config.columns) : rowHasContent(row, config.columns);
     for (const column of config.columns) {
       const problem = cellError(column, row[column.id]);

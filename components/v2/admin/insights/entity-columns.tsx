@@ -11,7 +11,7 @@ import type { EDataColumn } from "@/components/v2/ui/data-table";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { LOW_MARGIN_MAX_PCT } from "@/lib/insights/findings";
 import type { EntityFigures, InsightsLink, Measure } from "@/lib/insights/types";
-import { CellFigure, formatFigure } from "./measure-view";
+import { CellFigure, formatFigure, revenueSplitNote } from "./measure-view";
 
 /** Display bands for the margin pill (presentation only; the finding floor is LOW_MARGIN_MAX_PCT). */
 const MARGIN_WARN_BELOW = 30;
@@ -78,7 +78,7 @@ export function figureColumns<T extends WithFigures>(options: ColumnOptions): Ar
   }
   if (options.money) {
     columns.push(
-      { key: "revenue", header: "Revenue", sortKey: "revenue", firstDir: "desc", align: "right", cell: (row) => <CellFigure measure={row.figures.money?.revenue} format="aud" /> },
+      { key: "revenue", header: "Revenue", sortKey: "revenue", firstDir: "desc", align: "right", cell: (row) => <CellFigure measure={row.figures.money?.revenue} format="aud" note={revenueSplitNote(row.figures.money?.revenueSplit)} /> },
       { key: "margin", header: "Margin", sortKey: "margin", firstDir: "asc", align: "right", cell: (row) => <MarginCell measure={row.figures.money?.margin} /> },
     );
   }

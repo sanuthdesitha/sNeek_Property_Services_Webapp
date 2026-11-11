@@ -29,7 +29,10 @@ function isOver(drag: DragState, point: DropPoint): boolean {
   return Boolean(drag?.over && drag.over.day === point.day && drag.over.lane === point.lane && drag.over.rowId === point.rowId);
 }
 
-export function DropCell({ point, drag, className, children, label, today = false }: { point: DropPoint; drag: DragState; className?: string; children?: React.ReactNode; label: string; today?: boolean }) {
+/** An hour track inside a drop cell (Day view): the drop also reports the minute. */
+export type DropAxis = { startMinute: number; pxPerHour: number };
+
+export function DropCell({ point, drag, className, children, label, today = false, axis }: { point: DropPoint; drag: DragState; className?: string; children?: React.ReactNode; label: string; today?: boolean; axis?: DropAxis }) {
   return (
     <div
       role="cell"
@@ -38,6 +41,8 @@ export function DropCell({ point, drag, className, children, label, today = fals
       data-drop-day={point.day}
       data-drop-lane={point.lane}
       data-drop-row={point.rowId ?? ""}
+      data-drop-axis-start={axis ? axis.startMinute : undefined}
+      data-drop-px-per-hour={axis ? axis.pxPerHour : undefined}
       className={cn(CELL, className, isOver(drag, point) && "bg-[hsl(var(--e-primary-soft))] outline outline-2 -outline-offset-2 outline-[hsl(var(--e-primary))]")}
     >
       {children}
