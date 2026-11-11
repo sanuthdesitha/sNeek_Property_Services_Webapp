@@ -308,3 +308,13 @@ Build order for these: a "Finance decisions" step (2 to 6, includes a migration 
 | Rejecting a claim on an approved invoice not in Xero sends it back to Submitted | Acceptable that it needs approving again? |
 
 To do under the standing rule (not owner decisions): the Xero connection does not request `offline_access`, so its sign-in lapses after about 30 minutes and scheduled checks will mostly report "state unknown" until it is added and Xero is reconnected once; the classic `/admin/cleaner-invoices` screen has no Approve button and should redirect to the new tab.
+
+### More items waiting for the owner (from the Cases and Laundry step)
+
+| Item | Question |
+| --- | --- |
+| Laundry has no "Ask cleaner", "Chase supplier" or "Request photo" buttons | Build on-demand nudges? Each needs a notification path and recipient rules (fits "Notifications in one place") |
+| No "Raise QA issue for cleaner" from a case | Allow the office to raise a QA issue by hand? It changes who can create QA issues |
+| The "Resolved" queue also includes closed cases | Keep, or split? |
+
+For the parity audit: the Cases "Refresh" button was replaced by automatic refresh; restore a manual Refresh.
