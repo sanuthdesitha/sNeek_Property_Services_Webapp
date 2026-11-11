@@ -85,6 +85,26 @@ export async function listInvoiceContext() {
   return { clients, properties, rates, invoices };
 }
 
+/**
+ * Clients and properties for the invoice generator, editor and list filters,
+ * without the invoice list itself (the screen pages invoices separately).
+ */
+export async function listInvoiceFormContext() {
+  const [clients, properties] = await Promise.all([
+    db.client.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, email: true },
+      orderBy: [{ name: "asc" }],
+    }),
+    db.property.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, suburb: true, clientId: true },
+      orderBy: [{ name: "asc" }],
+    }),
+  ]);
+  return { clients, properties };
+}
+
 export async function upsertPropertyClientRate(input: {
   propertyId: string;
   jobType: JobType;

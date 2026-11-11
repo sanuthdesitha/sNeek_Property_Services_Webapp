@@ -23,7 +23,7 @@ import {
   PackageSearch,
   GraduationCap,
   UsersRound,
-  Map, Wrench, Sparkles, ClipboardList, ReceiptText, FileText,
+  Map, Wrench, Sparkles, ClipboardList, FileText,
   Tags, Truck, ListChecks, Eye, UserCircle,
 } from "lucide-react";
 
@@ -55,9 +55,9 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/quality/qa-performance", label: "QA Performance", icon: Activity, group: "Quality" },
   { href: "/v2/admin/reports", label: "Reports", icon: FileText, group: "Quality" },
 
-  { href: "/v2/admin/finance", label: "Finance", icon: Wallet, group: "Commercial" },
-  { href: "/v2/admin/payroll", label: "Payroll", icon: Wallet, group: "Commercial" },
-  { href: "/v2/admin/cleaner-invoices", label: "Cleaner invoices", icon: ReceiptText, group: "Commercial" },
+  // One entry for client invoices, cleaner invoices, pay runs and adjustments.
+  // /v2/admin/payroll and /v2/admin/cleaner-invoices redirect to their tabs.
+  { href: "/v2/admin/finance", label: "Invoices and pay", icon: Wallet, group: "Commercial" },
   { href: "/v2/admin/growth", label: "Growth", icon: Megaphone, group: "Commercial" },
   { href: "/v2/admin/quotes", label: "Quotes & leads", icon: FileText, group: "Commercial" },
   { href: "/v2/admin/pricing", label: "Pricing", icon: Tags, group: "Commercial" },
@@ -86,6 +86,7 @@ const COUNT_KEY_BY_HREF: Record<string, keyof AdminAttentionCounts> = {
   "/v2/admin/cases": "cases",
   "/v2/admin/lost-found": "lostFound",
   "/v2/admin/laundry": "laundry",
+  // Client invoice drafts to review + cleaner invoices awaiting the office.
   "/v2/admin/finance": "finance",
   "/v2/admin/growth": "growth",
 };

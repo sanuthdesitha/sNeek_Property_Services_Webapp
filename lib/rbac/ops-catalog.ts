@@ -402,6 +402,9 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
 
 export type OpsRequestFeature = OpsFeature | "owner" | "unmapped" | null;
 /** Stable route ownership; special cases precede their parent section. */
+/** Tabs of /admin/finance owned by the payroll feature. */
+export const FINANCE_PAYROLL_TABS: ReadonlySet<string> = new Set(["cleaner-invoices", "payroll", "adjustments", "time"]);
+
 export function opsRequestFeature(input: string): OpsRequestFeature {
   const url = new URL(input, "http://internal");
   const path = url.pathname
@@ -438,6 +441,12 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
       (path.startsWith("/api/") ? null : url.searchParams.get("tab")) ??
       "overview";
     return SETTINGS_TABS[section] ?? "unmapped";
+  }
+  // The merged "Invoices and pay" page: its payee tabs belong to payroll, as
+  // their APIs do. Only the page reads the tab; an API path cannot be steered
+  // by a query string.
+  if (/^\/admin\/finance\/?$/.test(path)) {
+    return FINANCE_PAYROLL_TABS.has(url.searchParams.get("tab") ?? "") ? "payroll" : "finance";
   }
   if (/^\/(?:api\/)?admin(?:\/|$)/.test(path)) {
     const section =
@@ -537,6 +546,10 @@ export function opsNavigationHref(
   href: string,
 ): string | null {
   if (!levels || canUseOpsPath(levels, href)) return href;
+  // A manager with payroll but not finance still reaches the payee tabs.
+  if (/^\/(?:v2\/)?admin\/finance$/.test(href) && canUseOpsPath(levels, `${href}?tab=cleaner-invoices`)) {
+    return `${href}?tab=cleaner-invoices`;
+  }
   if (/^\/(?:v2\/)?admin\/settings$/.test(href)) {
     const tab = Object.keys(SETTINGS_TABS).find((key) =>
       canUseOpsPath(levels, `${href}?tab=${key}`),

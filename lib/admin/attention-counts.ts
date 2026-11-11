@@ -11,7 +11,7 @@
 // rework transfers) go through the same list helpers the Approvals page uses,
 // so those counts can never drift from the rows the page shows.
 
-import { FalseConfirmationStatus, JobStatus, PayAdjustmentStatus, QaReworkTransferStatus } from "@prisma/client";
+import { ClientInvoiceStatus, FalseConfirmationStatus, JobStatus, PayAdjustmentStatus, QaReworkTransferStatus } from "@prisma/client";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
@@ -42,11 +42,36 @@ export type AdminAttentionCounts = {
   lostFound: number;
   /** Laundry tasks FLAGGED (cleaner said not ready — needs a decision). */
   laundry: number;
-  /** Payee invoices awaiting the business (SUBMITTED or PAID_CLAIMED). */
+  /**
+   * "Invoices and pay" entry: client invoice drafts awaiting review plus payee
+   * invoices awaiting the business. The two parts are exposed below so each
+   * tab can badge its own queue.
+   */
   finance: number;
+  /** Client invoices still DRAFT (generated, awaiting office review). */
+  clientInvoiceDrafts: number;
+  /** Payee invoices awaiting the business (SUBMITTED or PAID_CLAIMED). */
+  cleanerInvoices: number;
   /** New, uncontacted leads. */
   growth: number;
 };
+
+export type MoneyAttentionCounts = {
+  clientInvoiceDrafts: number;
+  cleanerInvoices: number;
+};
+
+/**
+ * The two "Invoices and pay" queues. Shared by the nav badge and the tab
+ * badges on the page, so the two can never disagree.
+ */
+export async function getMoneyAttentionCounts(): Promise<MoneyAttentionCounts> {
+  const [clientInvoiceDrafts, cleanerInvoices] = await Promise.all([
+    db.clientInvoice.count({ where: { status: ClientInvoiceStatus.DRAFT } }),
+    db.cleanerInvoiceSubmission.count({ where: { status: { in: ["SUBMITTED", "PAID_CLAIMED"] } } }),
+  ]);
+  return { clientInvoiceDrafts, cleanerInvoices };
+}
 
 function startOfTodaySydney(now: Date): Date {
   const local = toZonedTime(now, TZ);
@@ -76,7 +101,7 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
     pendingQaIssues,
     openCases,
     reportedLostFound,
-    payeeInvoicesAwaiting,
+    money,
     newLeads,
   ] = await Promise.all([
     db.job.count({
@@ -116,7 +141,7 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
     db.qaIssue.count({ where: { rectificationStatus: "PENDING" } }),
     db.issueTicket.count({ where: { state: { in: ["OPEN", "TRIAGE"] } } }),
     db.lostFoundItem.count({ where: { status: "REPORTED" } }),
-    db.cleanerInvoiceSubmission.count({ where: { status: { in: ["SUBMITTED", "PAID_CLAIMED"] } } }),
+    getMoneyAttentionCounts(),
     db.quoteLead.count({ where: { status: "NEW" } }),
   ]);
 
@@ -143,7 +168,9 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
     cases: openCases,
     lostFound: reportedLostFound,
     laundry: flaggedLaundry,
-    finance: payeeInvoicesAwaiting,
+    finance: money.clientInvoiceDrafts + money.cleanerInvoices,
+    clientInvoiceDrafts: money.clientInvoiceDrafts,
+    cleanerInvoices: money.cleanerInvoices,
     growth: newLeads,
   };
 }

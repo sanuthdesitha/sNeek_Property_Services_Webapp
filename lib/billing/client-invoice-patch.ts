@@ -1,0 +1,600 @@
+/**
+ * The client-invoice PATCH action (status moves, payments, line edits, reverse),
+ * moved out of `app/api/admin/invoices/[id]/route.ts` so the single-invoice
+ * route and the bulk route run exactly the same guards: the row lock, the
+ * started-work review, the transition graph, the Xero and payment-evidence
+ * locks and the audit rows. Behaviour is unchanged; only the response type is
+ * now an `InvoiceActionResult` the caller turns into HTTP.
+ */
+import { ClientInvoiceStatus, Role, type Prisma } from "@prisma/client";
+import { z } from "zod";
+import { releaseInvoiceConsumables } from "@/lib/billing/client-invoices";
+import {
+  canReverseInvoice,
+  canTransitionInvoice,
+  reverseRefusalReason,
+} from "@/lib/finance/invoice-transitions";
+import { calculateShoppingAwareInvoiceTotals } from "@/lib/billing/shopping-client-charges";
+import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
+import { assertStartedWorkReviewed, readStartedWorkReview } from "@/lib/billing/started-work-reconciliation";
+import { actionResult, type InvoiceActionResult, type InvoiceActor } from "./invoice-action-result";
+
+const lineUpdateSchema = z.object({
+  id: z.string().cuid(),
+  description: z.string().trim().min(1).optional(),
+  quantity: z.number().positive().optional(),
+  unitPrice: z.number().min(0).optional(),
+  // Grouping hint for a MANUAL line. null clears it. Rejected on a job-backed
+  // line: that line already knows its property through the job, and letting an
+  // override win would let an invoice claim work happened somewhere it did not.
+  propertyId: z.string().cuid().nullable().optional(),
+});
+
+const recordPaymentSchema = z.object({
+  amount: z.number().positive(),
+  // MANUAL = the one-click "Mark as paid" action (settles the outstanding
+  // balance without an itemised bank/card record).
+  method: z.enum(["BANK_TRANSFER", "CARD", "CASH", "STRIPE", "MANUAL", "OTHER"]),
+  paidDate: z.string().optional().nullable(),
+  reference: z.string().trim().max(500).optional().nullable(),
+  /**
+   * S3 key for a remittance advice, bank screenshot or receipt the client sent.
+   * Stored on the ledger entry rather than the invoice: an invoice can be paid
+   * in several instalments and each one has its own proof.
+   */
+  receiptKey: z.string().trim().max(512).optional().nullable(),
+});
+
+const patchSchema = z.object({
+  status: z.nativeEnum(ClientInvoiceStatus).optional(),
+  /**
+   * REVERSE — bring this invoice back to editable, keeping its identity.
+   *
+   * Its own field rather than a status move, because it is not one: it clears
+   * the settled stamps, keeps the number, the lines and the payment history,
+   * and deliberately does NOT release the invoice's items the way a void does.
+   * Expressed as `status: "DRAFT"` it would need forceStatus and would be
+   * indistinguishable in the audit log from an admin dragging a paid invoice
+   * backwards by hand.
+   */
+  reverse: z
+    .object({ reason: z.string().trim().max(500).optional().nullable() })
+    .optional(),
+  dueDate: z.string().optional().nullable(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+  gstEnabled: z.boolean().optional(),
+  // Proper payment-recording procedure — amount received + method + date +
+  // reference. Supports partial payments (status PART_PAID until fully settled).
+  recordPayment: recordPaymentSchema.optional(),
+  updateLines: z.array(lineUpdateSchema).optional(),
+  addLine: z.object({
+    description: z.string().trim().min(1),
+    quantity: z.number().positive().default(1),
+    unitPrice: z.number().min(0),
+    category: z.string().default("SERVICE"),
+  }).optional(),
+  removeLineId: z.string().cuid().optional(),
+  // Full ordered list of line ids → persisted as sortOrder (group by property + drag).
+  reorderLineIds: z.array(z.string().cuid()).optional(),
+  /**
+   * Admin-only escape hatch past the lifecycle graph, for correcting a status
+   * set in error (a PAID stamped on the wrong invoice, a premature VOID).
+   * The graph stays the default for everyone and every other call — this is a
+   * deliberate, audited override, never a silent widening of the rules.
+   */
+  forceStatus: z.boolean().optional(),
+});
+
+/** Thrown inside the transaction so a refused PATCH rolls back earlier line changes. */
+class RefusedInvoicePatch extends Error {
+  constructor(readonly result: InvoiceActionResult) {
+    super("Invoice patch refused");
+  }
+}
+
+/**
+ * Apply one PATCH body to one invoice under its row lock. Notifications queued
+ * by the action run only after the transaction commits.
+ */
+export async function patchClientInvoice(input: {
+  invoiceId: string;
+  body: unknown;
+  actor: InvoiceActor;
+}): Promise<InvoiceActionResult> {
+  const afterCommit: Array<() => Promise<unknown>> = [];
+  try {
+    const response = await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${input.invoiceId} FOR UPDATE`;
+      // Existing nested line/total blocks share this one transaction.
+      const scoped = new Proxy(tx, { get(target, property) {
+        if (property === "$transaction") return async (fn: (client: Prisma.TransactionClient) => Promise<unknown>) => fn(tx);
+        return Reflect.get(target, property);
+      } }) as typeof db;
+      const result = await patchLockedInvoice(input.body, { id: input.invoiceId }, input.actor, scoped, afterCommit);
+      if (result.status >= 400) throw new RefusedInvoicePatch(result); // Roll back earlier line changes too.
+      return result;
+    });
+    for (const action of afterCommit) void action().catch(error => logger.error({ error }, "Invoice notification failed after commit"));
+    return response;
+  } catch (error) {
+    if (error instanceof RefusedInvoicePatch) return error.result;
+    const message = error instanceof Error ? error.message : "Could not update invoice.";
+    return actionResult({ error: message }, message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 409);
+  }
+}
+
+async function patchLockedInvoice(
+  rawBody: unknown,
+  params: { id: string },
+  actor: InvoiceActor,
+  db: typeof import("@/lib/db").db,
+  afterCommit: Array<() => Promise<unknown>>,
+): Promise<InvoiceActionResult> {
+  try {
+    const session = { user: actor };
+    const body = patchSchema.parse(rawBody ?? {});
+
+    const existing = await db.clientInvoice.findUnique({
+      where: { id: params.id },
+      include: { lines: true },
+    });
+    if (!existing) return actionResult({ error: "Invoice not found." }, 404);
+    const protectedShoppingLine = (id: string) => existing.lines.find(line => line.id === id && (line.shoppingClientChargeId || line.shoppingRunId));
+    if ((body.removeLineId && protectedShoppingLine(body.removeLineId)) || body.updateLines?.some(line => protectedShoppingLine(line.id) && (line.quantity !== undefined || line.unitPrice !== undefined || line.propertyId !== undefined))) {
+      return actionResult({ error: "Shopping allocations are locked to their reviewed amounts. Void this invoice and review the shopping charge before generating its replacement." }, 409);
+    }
+    if (body.addLine?.category.startsWith("SHOPPING_")) return actionResult({ error: "Add shopping charges through the shopping run review so expenses and time are tracked once." }, 400);
+
+    const exportState = (existing.metadata as Record<string, unknown> | null)?.xeroExportState;
+    if (exportState === "PENDING") return actionResult({ error: "Xero export is reserved or awaiting reconciliation. Retry the existing export before editing." }, 409);
+    const editsContent = Boolean(body.updateLines?.length || body.addLine || body.removeLineId || body.reorderLineIds?.length || body.gstEnabled !== undefined);
+    if (body.status === "APPROVED" || body.status === "SENT" || body.status === "PAID" || body.status === "PART_PAID" || body.recordPayment) {
+      if (editsContent && readStartedWorkReview(existing.metadata)) throw new Error("Save and review draft edits before performing a financial action.");
+      await assertStartedWorkReviewed(existing, db, body.status === "APPROVED" && !body.recordPayment);
+    }
+    if (existing.xeroInvoiceId && (editsContent || body.reverse || body.status === "VOID" || body.forceStatus)) {
+      return actionResult({ error: "This invoice is in Xero. Reconcile a correction there before altering the issued document." }, 409);
+    }
+    if ((existing.paidAt || Number(existing.paidAmount ?? 0) > 0) && (editsContent || body.reverse || body.forceStatus || body.status === "VOID")) {
+      return actionResult({ error: "This invoice has payment evidence. Use a reconciled correction; its payment history cannot be cleared." }, 409);
+    }
+
+    if (body.forceStatus && body.status && !canTransitionInvoice(existing.status, body.status)) {
+      return actionResult({ error: "Financial lifecycle overrides are disabled. Use a reconciled correction." }, 409);
+    }
+    let statusOverride: { from: string; to: string } | null = null;
+    // Status changes must follow the allowed lifecycle graph, unless an ADMIN
+    // has explicitly asked to override it. OPS_MANAGER may drive the invoice
+    // through its normal lifecycle but may not step outside it: reopening a
+    // PAID invoice is a correction to money already recorded.
+    if (body.status && !canTransitionInvoice(existing.status, body.status)) {
+      if (!body.forceStatus) {
+        return actionResult(
+          { error: `Cannot move invoice from ${existing.status} to ${body.status}.` }, 400);
+      }
+      if (session.user.role !== Role.ADMIN) {
+        return actionResult(
+          { error: "Only an admin can override the invoice status lifecycle." }, 403);
+      }
+      // The audit row is written AFTER the update succeeds (below) — an
+      // override that failed to apply must not leave a log entry claiming it
+      // happened.
+      statusOverride = { from: existing.status, to: body.status };
+    }
+
+    // Validate any property hints BEFORE the transaction, so a bad one refuses
+    // the whole request rather than half-applying alongside the price edits.
+    const propertyHints = (body.updateLines ?? []).filter((l) => l.propertyId !== undefined);
+    if (propertyHints.length) {
+      for (const hint of propertyHints) {
+        const line = existing.lines.find((l) => l.id === hint.id);
+        if (!line) {
+          return actionResult({ error: "Line not found on this invoice." }, 404);
+        }
+        // The whole point of the column: it groups a hand-added charge. A
+        // job-backed line reads its property off the job, and pretending
+        // otherwise would misstate where the work happened.
+        if (line.jobId) {
+          return actionResult(
+            { error: "This line belongs to a job, so its property comes from that job and cannot be changed." }, 400);
+        }
+      }
+      const wanted = Array.from(
+        new Set(propertyHints.map((h) => h.propertyId).filter((id): id is string => typeof id === "string")),
+      );
+      if (wanted.length) {
+        // A property from another client would put someone else’s address on
+        // this invoice, so ownership is checked rather than assumed.
+        const owned = await db.property.findMany({
+          where: { id: { in: wanted }, clientId: existing.clientId },
+          select: { id: true },
+        });
+        if (owned.length !== wanted.length) {
+          return actionResult(
+            { error: "That property does not belong to this client." }, 400);
+        }
+      }
+    }
+
+    // Handle line operations in a transaction
+    if (body.updateLines?.length || body.addLine || body.removeLineId || body.reorderLineIds?.length) {
+      await db.$transaction(async (tx) => {
+        if (body.reorderLineIds?.length) {
+          // Persist the given order as sortOrder (0-based); ignore ids not on
+          // this invoice via the invoiceId guard.
+          await Promise.all(
+            body.reorderLineIds.map((lineId, index) =>
+              tx.clientInvoiceLine.updateMany({
+                where: { id: lineId, invoiceId: params.id },
+                data: { sortOrder: index },
+              }),
+            ),
+          );
+        }
+        if (body.removeLineId) {
+          await tx.clientInvoiceLine.delete({ where: { id: body.removeLineId, invoiceId: params.id } });
+        }
+        if (body.addLine) {
+          const lineTotal = Number((body.addLine.quantity * body.addLine.unitPrice).toFixed(2));
+          await tx.clientInvoiceLine.create({
+            data: {
+              invoiceId: params.id,
+              description: body.addLine.description,
+              quantity: body.addLine.quantity,
+              unitPrice: body.addLine.unitPrice,
+              lineTotal,
+              category: body.addLine.category,
+            },
+          });
+        }
+        for (const lineUpdate of (body.updateLines ?? [])) {
+          const unitPrice = lineUpdate.unitPrice ?? existing.lines.find((l) => l.id === lineUpdate.id)?.unitPrice ?? 0;
+          const quantity = lineUpdate.quantity ?? existing.lines.find((l) => l.id === lineUpdate.id)?.quantity ?? 1;
+          await tx.clientInvoiceLine.update({
+            where: { id: lineUpdate.id, invoiceId: params.id },
+            data: {
+              description: lineUpdate.description,
+              quantity: lineUpdate.quantity,
+              unitPrice: lineUpdate.unitPrice,
+              lineTotal: Number((quantity * unitPrice).toFixed(2)),
+              // undefined leaves it alone; null clears it back to "Other charges".
+              ...(lineUpdate.propertyId !== undefined ? { propertyId: lineUpdate.propertyId } : {}),
+            },
+          });
+        }
+      });
+    }
+
+    // Recalculate totals if lines changed or GST toggle changed
+    let subtotal = existing.subtotal;
+    let gstAmount = existing.gstAmount;
+    let totalAmount = existing.totalAmount;
+    let gstEnabled = existing.gstEnabled ?? true;
+
+    if (body.gstEnabled !== undefined) {
+      gstEnabled = body.gstEnabled;
+    }
+
+    if (body.updateLines?.length || body.addLine || body.removeLineId || body.gstEnabled !== undefined) {
+      const updatedLines = await db.clientInvoiceLine.findMany({ where: { invoiceId: params.id } });
+      subtotal = updatedLines.reduce((sum, l) => sum + Number(l.lineTotal), 0);
+      const breakdown = calculateShoppingAwareInvoiceTotals(updatedLines, gstEnabled);
+      gstAmount = breakdown.gstAmount;
+      totalAmount = breakdown.totalAmount;
+    }
+
+    const statusData: Record<string, unknown> = {};
+    if (body.status === ClientInvoiceStatus.PAID && existing.status !== ClientInvoiceStatus.PAID) {
+      statusData.paidAt = new Date();
+      // Direct status→PAID (legacy one-click flip): record the full amount as
+      // settled so the paid figure is never left blank.
+      if (existing.paidAmount == null) statusData.paidAmount = existing.totalAmount;
+    }
+    if (body.status === ClientInvoiceStatus.SENT && existing.status !== ClientInvoiceStatus.SENT) {
+      statusData.sentAt = new Date();
+    }
+    // A forced move OUT of a paid state must not leave the invoice reading as
+    // settled: outstandingOf() derives from paidAmount, so stale stamps would
+    // hide the payment actions on an invoice the admin just reopened. The
+    // metadata.payments ledger is deliberately left intact — the money history
+    // survives; only the settled-state stamps are cleared. The override audit
+    // row records the from/to for the trail.
+    if (
+      statusOverride &&
+      (existing.status === ClientInvoiceStatus.PAID ||
+        existing.status === ClientInvoiceStatus.PART_PAID) &&
+      (body.status === ClientInvoiceStatus.DRAFT ||
+        body.status === ClientInvoiceStatus.APPROVED ||
+        body.status === ClientInvoiceStatus.SENT)
+    ) {
+      statusData.paidAt = null;
+      statusData.paidDate = null;
+      statusData.paidAmount = null;
+      statusData.paymentMethod = null;
+      statusData.paymentReference = null;
+    }
+
+    // ── Payment-recording procedure ──────────────────────────────────────
+    // Reuses ClientInvoice columns + a metadata.payments[] ledger. (ClientPayment
+    // is gateway-bound — requires a PaymentGateway row — so it can't represent a
+    // manually recorded bank/cash/card payment.) Supports partial payments:
+    // paidAmount accumulates and the status stays PART_PAID until it reaches the
+    // total, then flips to PAID.
+    let paymentUpdate: Record<string, unknown> = {};
+    let paymentStatus: ClientInvoiceStatus | undefined;
+    let paymentLedger: Array<Record<string, unknown>> | undefined;
+    if (statusOverride) {
+      await db.auditLog.create({
+        data: {
+          userId: session.user.id,
+          action: "invoice.status_override",
+          entity: "ClientInvoice",
+          entityId: params.id,
+          after: {
+            from: statusOverride.from,
+            to: statusOverride.to,
+            invoiceNumber: existing.invoiceNumber,
+          } as object,
+        },
+      });
+    }
+
+    if (body.recordPayment) {
+      const rp = body.recordPayment;
+      const prevPaid = Number(existing.paidAmount ?? 0);
+      const newPaid = Number((prevPaid + rp.amount).toFixed(2));
+      const fullySettled = newPaid + 0.005 >= Number(existing.totalAmount ?? 0);
+      paymentStatus = fullySettled ? ClientInvoiceStatus.PAID : ClientInvoiceStatus.PART_PAID;
+      const paidDate = rp.paidDate ? new Date(rp.paidDate) : new Date();
+      const priorLedger = Array.isArray((existing.metadata as any)?.payments)
+        ? ((existing.metadata as any).payments as Array<Record<string, unknown>>)
+        : [];
+      paymentLedger = [
+        ...priorLedger,
+        {
+          amount: rp.amount,
+          method: rp.method,
+          reference: rp.reference?.trim() || null,
+          paidDate: paidDate.toISOString(),
+          recordedAt: new Date().toISOString(),
+          recordedById: session.user.id,
+          recordedByName: session.user.name || session.user.email || "Admin",
+          receiptKey: rp.receiptKey?.trim() || null,
+        },
+      ];
+      paymentUpdate = {
+        paidAmount: newPaid,
+        paymentMethod: rp.method,
+        paymentReference: rp.reference?.trim() || null,
+        paidDate,
+        ...(fullySettled ? { paidAt: existing.paidAt ?? new Date() } : {}),
+      };
+    }
+
+    // Merge dueDate + notes + payment ledger into ONE metadata object. Previously
+    // each was its own `metadata: {...existing, X}` spread, so a PATCH sending
+    // both fields had the second spread overwrite the first (dropping data).
+    const metadataChanged =
+      body.dueDate !== undefined || body.notes !== undefined || paymentLedger !== undefined || (editsContent && Boolean(readStartedWorkReview(existing.metadata)));
+    const mergedMetadata = metadataChanged
+      ? {
+          ...((existing.metadata as object) ?? {}),
+          ...(body.dueDate !== undefined ? { dueDate: body.dueDate } : {}),
+          ...(body.notes !== undefined ? { notes: body.notes } : {}),
+          ...(paymentLedger !== undefined ? { payments: paymentLedger } : {}),
+          ...(editsContent && readStartedWorkReview(existing.metadata) ? { startedWorkReview: { ...readStartedWorkReview(existing.metadata)!, required: true } } : {}),
+        }
+      : undefined;
+
+    // ── REVERSE ────────────────────────────────────────────────────────
+    // Refused BEFORE anything is written, so a reversal that cannot happen
+    // never half-applies alongside the line edits in the same request.
+    if (body.reverse && (existing.paidAt || Number(existing.paidAmount ?? 0) > 0 || existing.xeroInvoiceId)) {
+      return actionResult({ error: "This invoice has payment or Xero evidence. Reconcile a correction before changing it; reversing here would erase its settlement summary." }, 409);
+    }
+    if (body.reverse && !canReverseInvoice(existing.status)) {
+      return actionResult(
+        { error: reverseRefusalReason(existing.status) ?? "This invoice cannot be reversed." }, 409);
+    }
+    const reversing = Boolean(body.reverse) && canReverseInvoice(existing.status);
+    if (reversing) {
+      // Back to editable, with the settled stamps cleared: outstandingOf()
+      // derives from paidAmount, so leaving them would show a reopened invoice
+      // as still settled and hide every payment action on it.
+      //
+      // metadata.payments[] is deliberately KEPT. The money genuinely arrived;
+      // what is being undone is the invoice's content, not its history, and an
+      // admin reconciling a bank statement afterwards needs that ledger intact.
+      statusData.paidAt = null;
+      statusData.paidDate = null;
+      statusData.paidAmount = null;
+      statusData.paymentMethod = null;
+      statusData.paymentReference = null;
+      statusData.sentAt = null;
+    }
+
+    const effectiveStatus = reversing
+      ? ClientInvoiceStatus.DRAFT
+      : (paymentStatus ?? body.status);
+
+    // VOIDING RELEASES WHAT THE INVOICE CONSUMED. The owner's rule is that a
+    // void means "resubmit a new invoice, the items stay unpaid" — and until
+    // now the double-bill stamps were never cleared, so a voided invoice took
+    // its shopping reimbursements and its client-paid repairs down with it.
+    // They stayed marked as billed against an invoice nobody would ever pay,
+    // and no future run would pick them up. The charge vanished silently.
+    //
+    // Jobs need no release: their guard is a live scan of non-VOID invoice
+    // lines, so voiding frees them by construction.
+    const voiding =
+      effectiveStatus === ClientInvoiceStatus.VOID &&
+      existing.status !== ClientInvoiceStatus.VOID;
+    let released: { shoppingSettlements: number; maintenanceAssignments: number } | null = null;
+
+    const updated = await db.$transaction(async (tx) => {
+      if (voiding) {
+        released = await releaseInvoiceConsumables(tx, params.id);
+      }
+      return tx.clientInvoice.update({
+      where: { id: params.id },
+      data: {
+        ...(effectiveStatus ? { status: effectiveStatus } : {}),
+        ...(body.status || reversing ? statusData : {}),
+        ...paymentUpdate,
+        ...(mergedMetadata !== undefined ? { metadata: mergedMetadata as any } : {}),
+        ...(body.gstEnabled !== undefined ? { gstEnabled } : {}),
+        subtotal,
+        gstAmount,
+        totalAmount,
+      },
+      });
+    });
+
+    // RECEIPT TO THE CLIENT. Recording a payment sent nothing at all before, so
+    // a client who paid had no confirmation it had been applied and their next
+    // statement was the first chance to find out it had not.
+    //
+    // After the write, best-effort: the money is already recorded, and failing
+    // the response over a mail error would tell the admin the payment did not
+    // save when it did.
+    const receiptPayment = body.recordPayment;
+    if (receiptPayment) {
+      afterCommit.push(() => sendClientPaymentReceipt({
+        invoiceId: params.id,
+        amount: receiptPayment.amount,
+        method: receiptPayment.method,
+        paidDate: receiptPayment.paidDate ? new Date(receiptPayment.paidDate) : new Date(),
+        reference: receiptPayment.reference ?? null,
+      }).catch((err) =>
+        logger.error(
+          { err, invoiceId: params.id },
+          "[invoice] payment recorded but the client receipt could not be sent"
+        )
+      ));
+    }
+
+    if (released) {
+      logger.info(
+        { invoiceId: params.id, ...(released as object) },
+        "[invoice] voided; consumed items released for re-invoicing"
+      );
+    }
+
+    // Reopening a settled invoice is a money correction, so it leaves a trail
+    // naming who did it and what state it came from. Written AFTER the update,
+    // like the override row above: a reversal that failed to apply must not
+    // leave a log entry claiming it happened. Best-effort — the reversal is
+    // already committed and failing the response now would tell the admin it
+    // did not work when it did.
+    if (reversing) {
+      await db.auditLog
+        .create({
+          data: {
+            userId: session.user.id,
+            action: "CLIENT_INVOICE_REVERSED",
+            entity: "ClientInvoice",
+            entityId: params.id,
+            after: {
+              from: existing.status,
+              to: ClientInvoiceStatus.DRAFT,
+              invoiceNumber: existing.invoiceNumber,
+              reason: body.reverse?.reason ?? null,
+              // Named explicitly so the trail distinguishes this from a void:
+              // the items stayed on this invoice.
+              releasedItems: false,
+            } as object,
+          },
+        })
+        .catch((err) =>
+          logger.error(
+            { err, invoiceId: params.id },
+            "[invoice] reversed but the audit entry could not be written"
+          )
+        );
+    }
+
+    if (body.recordPayment) {
+      // Flag settlements that never went through the client-facing send step
+      // (one-click "Mark as paid" on a DRAFT/APPROVED invoice).
+      const paidWithoutSending =
+        updated.status === ClientInvoiceStatus.PAID &&
+        (existing.status === ClientInvoiceStatus.DRAFT ||
+          existing.status === ClientInvoiceStatus.APPROVED);
+      await db.auditLog.create({
+        data: {
+          userId: session.user.id,
+          action: "CLIENT_INVOICE_PAYMENT_RECORD",
+          entity: "ClientInvoice",
+          entityId: params.id,
+          after: {
+            amount: body.recordPayment.amount,
+            method: body.recordPayment.method,
+            reference: body.recordPayment.reference ?? null,
+            paidAmount: (paymentUpdate as any).paidAmount,
+            status: updated.status,
+            ...(paidWithoutSending ? { note: "Marked paid without sending" } : {}),
+          } as any,
+        },
+      });
+    }
+
+    return actionResult(updated);
+  } catch (err: any) {
+    return actionResult({ error: err.message ?? "Could not update invoice." }, 400);
+  }
+}
+
+/**
+ * Email the client that their payment landed.
+ *
+ * Reads the invoice AFTER the write so the outstanding figure on the receipt is
+ * the one that now stands — computing it from the request body would state a
+ * balance that was already out of date by the time it was sent.
+ */
+async function sendClientPaymentReceipt(input: {
+  invoiceId: string;
+  amount: number;
+  method: string;
+  paidDate: Date;
+  reference: string | null;
+}): Promise<void> {
+  const invoice = await db.clientInvoice.findUnique({
+    where: { id: input.invoiceId },
+    select: {
+      invoiceNumber: true,
+      totalAmount: true,
+      paidAmount: true,
+      client: { select: { name: true, email: true } },
+    },
+  });
+  if (!invoice?.client?.email) return;
+
+  const { sendEmailDetailed } = await import("@/lib/notifications/email");
+  const { getAppSettings } = await import("@/lib/settings");
+  const { buildClientPaymentReceipt } = await import("@/lib/finance/payment-notices");
+  const settings = await getAppSettings();
+
+  const email = buildClientPaymentReceipt({
+    recipientName: invoice.client.name,
+    invoiceNumber: invoice.invoiceNumber,
+    amount: input.amount,
+    method: input.method,
+    paidDate: input.paidDate,
+    reference: input.reference,
+    companyName: settings.companyName,
+    outstanding: Math.max(
+      0,
+      Number(invoice.totalAmount ?? 0) - Number(invoice.paidAmount ?? 0)
+    ),
+  });
+
+  await sendEmailDetailed({
+    kind: "auto_invoice",
+    to: invoice.client.email,
+    subject: email.subject,
+    html: email.html,
+    // A finance document. A stale suppression must not eat a payment receipt.
+    transactional: true,
+  });
+}
