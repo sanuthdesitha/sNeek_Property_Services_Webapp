@@ -180,3 +180,15 @@ Today the page only manages the per-job client PDF and shows no figures.
 2. Xero pull: a payment seen in Xero marks the invoice paid automatically. It is recorded through the existing payment path with Xero as the source, and only when Xero reports it; a failed or missing read changes nothing.
 3. Lost and found holding period: 14 days before an unclaimed item is flagged.
 4. Cleaner invoices: only administrators approve them. Operations managers can view where their permissions allow, but not approve.
+
+## Additions approved by the owner for Money step (c) (2026-11-11)
+
+To be built together with blank invoices and credit notes, after the Forms migration has landed (both change `schema.prisma`):
+
+1. Server-side edit lock: `PATCH /api/admin/invoices/[id]` refuses content edits once an invoice is SENT (or later), matching what the screen already allows. Corrections after sending go through a credit note.
+2. Server-side security check: removing a line and deleting an invoice verify the administrator PIN or password on the server, not only in the browser.
+3. Discount line: a negative manual line with its own type, shown and totalled on the PDF, never allowed to take the invoice total below zero.
+4. Client reference / PO number: a field on the invoice, editable while DRAFT or APPROVED, printed on the PDF and sent to Xero as the reference.
+5. Note to client: stored on the invoice, editable while DRAFT or APPROVED, printed on the PDF.
+
+Also in that step: the PDF and the list use the same organisation-timezone rule for the due date, and the emailed invoice link points to the current invoice page.
