@@ -10,7 +10,7 @@ const m = vi.hoisted(() => ({
   xero: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.role }));
-vi.mock("@/lib/db", () => ({ db: { clientInvoice: { findMany: m.findMany }, auditLog: { create: m.audit } } }));
+vi.mock("@/lib/db", () => ({ db: { clientInvoice: { findMany: m.findMany }, auditLog: { create: m.audit, createMany: m.audit } } }));
 // The bulk route must call the SAME action functions the single routes call.
 vi.mock("@/lib/billing/client-invoice-patch", () => ({ patchClientInvoice: m.patch }));
 vi.mock("@/lib/billing/client-invoice-send", () => ({ sendClientInvoice: m.send }));
@@ -123,11 +123,11 @@ describe("POST /api/admin/invoices/bulk", () => {
 describe("single-invoice routes call the same shared actions", () => {
   it("send, xero-push and PATCH delegate to the lib functions the bulk route uses", async () => {
     await singleSend(new NextRequest("http://localhost/api/admin/invoices/d1/send", { method: "POST", body: JSON.stringify({ to: "a@b.test" }) }), { params: { id: "d1" } });
-    expect(m.send).toHaveBeenCalledWith({ invoiceId: "d1", to: "a@b.test", origin: "http://localhost" });
+    expect(m.send).toHaveBeenCalledWith({ invoiceId: "d1", to: "a@b.test", origin: "http://localhost", actorId: "ops" });
     await singleXero(new NextRequest("http://localhost/api/admin/invoices/d1/xero-push", { method: "POST" }), { params: { id: "d1" } });
-    expect(m.xero).toHaveBeenCalledWith("d1");
+    expect(m.xero).toHaveBeenCalledWith("d1", "ops");
     const patched = await singlePatch(new NextRequest("http://localhost/api/admin/invoices/d2", { method: "PATCH", body: JSON.stringify({ status: "APPROVED" }) }), { params: { id: "d2" } });
     expect(patched.status).toBe(409);
-    expect(m.patch).toHaveBeenCalledWith({ invoiceId: "d2", body: { status: "APPROVED" }, actor });
+    expect(m.patch).toHaveBeenCalledWith({ invoiceId: "d2", body: { status: "APPROVED" }, actor: { ...actor, impersonatedBy: null } });
   });
 });

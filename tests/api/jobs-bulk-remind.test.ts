@@ -86,11 +86,47 @@ describe("single-job reminder keeps its responses", () => {
   const single = (id: string, body: unknown = { method: "PUSH" }) =>
     SINGLE(new NextRequest(`http://localhost/api/admin/jobs/${id}/remind`, { method: "POST", body: JSON.stringify(body) }), { params: { id } });
   it("answers 200, 409 notRemindable, 400 and 404 as before", async () => {
-    expect(await (await single("paused")).json()).toEqual({ sent: ["Ana"], failed: [] });
+    expect(await (await single("paused")).json()).toEqual({
+      sent: ["Ana"], failed: [], deliveryState: "QUEUED", message: "Push requested for Ana; delivery is not confirmed.",
+    });
     const conflict = await single("assigned");
     expect(conflict.status).toBe(409);
     expect(await conflict.json()).toMatchObject({ notRemindable: true });
     expect((await single("nobody")).status).toBe(400);
     expect((await single("missing")).status).toBe(404);
+  });
+});
+
+describe("reminder records the real delivery state", () => {
+  const single = (id: string, body: unknown = { method: "PUSH" }) =>
+    SINGLE(new NextRequest(`http://localhost/api/admin/jobs/${id}/remind`, { method: "POST", body: JSON.stringify(body) }), { params: { id } });
+
+  it("audits a push as queued and unconfirmed, never as sent", async () => {
+    await single("paused");
+    const after = m.audit.mock.calls[0][0].data.after;
+    expect(after).toMatchObject({ method: "PUSH", requested: ["Ana"], failed: [], deliveryState: "QUEUED", deliveryConfirmed: false });
+    expect(after).not.toHaveProperty("sent");
+    // The inbox row keeps the inbox convention, with its phone push pending in the mobile outbox.
+    expect(m.notify.mock.calls[0][0].data).toMatchObject({ channel: "PUSH", externalId: expect.stringContaining("mobile-outbox:pending") });
+  });
+
+  it("an email is provider-accepted, not delivered", async () => {
+    const body = await (await single("paused", { method: "EMAIL" })).json();
+    expect(body).toMatchObject({ sent: ["Ana"], deliveryState: "PROVIDER_ACCEPTED", message: "Email accepted by the provider for Ana; delivery is not confirmed." });
+    expect(m.audit.mock.calls[0][0].data.after).toMatchObject({ deliveryState: "PROVIDER_ACCEPTED", deliveryConfirmed: false });
+  });
+
+  it("a failed browser push does not mark a cleaner whose inbox notice was recorded as not reminded", async () => {
+    m.push.mockRejectedValue(new Error("push service down"));
+    const body = await (await single("paused")).json();
+    expect(body).toMatchObject({ sent: ["Ana"], failed: [] });
+    expect(m.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("escapes the admin note and names in the email body", async () => {
+    await single("paused", { method: "EMAIL", note: "<script>x</script> & <b>now</b>" });
+    const html: string = m.email.mock.calls[0][0].html;
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;x&lt;/script&gt; &amp; &lt;b&gt;now&lt;/b&gt;");
   });
 });

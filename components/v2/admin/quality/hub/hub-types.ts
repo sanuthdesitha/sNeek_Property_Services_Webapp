@@ -44,6 +44,23 @@ export type HubContext = {
   canManage: boolean;
   /** QA inspector acting on the page: Issues tab only, read-only. */
   inspectorView: boolean;
+  /**
+   * What the Coaching tab may do, decided on the server from the viewer's
+   * packs: not visible when its read APIs (coaching records and the cleaner
+   * list) would be refused, so the tab is never blank or half-working.
+   * Optional: absent means "full" (tests and older callers).
+   */
+  coaching?: CoachingAccess;
+  /** Approve / decline a proposed bonus (payroll pack). Absent = canManage. */
+  canDecideBonus?: boolean;
   timeZone: string;
   falseConfirmationDeduction: number | null;
+};
+
+export type CoachingAccess = {
+  visible: boolean;
+  /** Create and update records (quality manage + cleaner list). */
+  canManage: boolean;
+  /** The standalone page lives under Workforce; link only when reachable. */
+  fullPageLink: boolean;
 };

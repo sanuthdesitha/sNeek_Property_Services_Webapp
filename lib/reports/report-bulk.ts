@@ -6,11 +6,11 @@
  * confirmation flag from the confirmation dialog.
  */
 import { z } from "zod";
+import { MAX_BULK_REGENERATE, MAX_BULK_REPORTS, type ReportBulkOutcome, type ReportBulkResult } from "./report-bulk-limits";
 import { deleteReport, regenerateReport, ReportActionError, setReportVisibility } from "./admin-report-actions";
 
-export const MAX_BULK_REPORTS = 50;
-/** Regeneration renders a PDF per row, so fewer at once. */
-export const MAX_BULK_REGENERATE = 20;
+export { MAX_BULK_REGENERATE, MAX_BULK_REPORTS } from "./report-bulk-limits";
+export type { ReportBulkOutcome, ReportBulkResult } from "./report-bulk-limits";
 
 const jobIds = z.array(z.string().trim().min(1).max(64)).min(1).max(MAX_BULK_REPORTS);
 
@@ -40,15 +40,6 @@ export const reportBulkSchema = z.discriminatedUnion("action", [
 ]);
 
 export type ReportBulkRequest = z.infer<typeof reportBulkSchema>;
-
-export type ReportBulkOutcome = { jobId: string; ok: true } | { jobId: string; ok: false; status: number; error: string };
-
-export type ReportBulkResult = {
-  action: ReportBulkRequest["action"];
-  results: ReportBulkOutcome[];
-  succeeded: number;
-  failed: number;
-};
 
 function failure(jobId: string, error: unknown): ReportBulkOutcome {
   if (error instanceof ReportActionError) return { jobId, ok: false, status: error.status, error: error.message };

@@ -21,7 +21,7 @@ export default async function V2AdminReportThemesPage() {
         description="Customise report layout, photo size, and branding for generated service reports."
         actions={
           <EButton variant="outline" size="sm" asChild>
-            <Link href="/v2/admin/reports">Back to reports</Link>
+            <Link href="/v2/admin/reports?tab=pdfs">Back to client report PDFs</Link>
           </EButton>
         }
       />

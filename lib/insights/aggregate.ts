@@ -21,7 +21,7 @@ import { roundCents } from "@/lib/finance/job-money";
 import { cleanTotals, type CleanFact, type CleanTotals } from "@/lib/quality/cleans";
 import type { PeriodRange } from "@/lib/quality/period";
 import type { JobFact } from "./job-facts";
-import { buildMeasure, countMeasure, roundTo, sum, tally, type Known } from "./measure";
+import { buildMeasure, roundTo, sum, tally, type Known } from "./measure";
 import type { EntityFigures, ExclusionCounts, ExclusionReason, HoursFigures, Measure, MoneyFigures } from "./types";
 
 export const OVERRUN_TOLERANCE_MINUTES = 5;
@@ -94,10 +94,12 @@ export function toCleanFacts(facts: readonly JobFact[]): CleanFact[] {
   }));
 }
 
-/** Quality hub clean totals over every fact (the facts are already one period). */
+/** An unbounded range: the facts handed to the Quality counters are already one period. */
+export const ALL_TIME: PeriodRange = { fromKey: null, toKey: "9999-12-31", start: null, end: new Date(8.64e15), days: null };
+
+/** Quality hub clean totals over every fact. */
 export function qaTotals(facts: readonly JobFact[]): CleanTotals {
-  const everything: PeriodRange = { fromKey: null, toKey: "9999-12-31", start: null, end: new Date(8.64e15), days: null };
-  return cleanTotals(toCleanFacts(facts), everything);
+  return cleanTotals(toCleanFacts(facts), ALL_TIME);
 }
 
 export function qaMeasure(totals: CleanTotals, minBasis: number): Measure {
@@ -141,4 +143,3 @@ export function summarise(facts: readonly JobFact[], options: SummariseOptions):
   return figures;
 }
 
-export { countMeasure };

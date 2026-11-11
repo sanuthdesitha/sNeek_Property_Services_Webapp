@@ -31,11 +31,18 @@ import type { OpenIssueRequest } from "./cleaner-expanded";
 
 const MANAGER_TABS: readonly QualityTab[] = ["review", "issues", "cleaners", "inspectors", "categories", "coaching"];
 const INSPECTOR_TABS: readonly QualityTab[] = ["issues"];
+/** A manager whose packs refuse the coaching endpoints never gets a blank tab. */
+const MANAGER_TABS_WITHOUT_COACHING: readonly QualityTab[] = MANAGER_TABS.filter((tab) => tab !== "coaching");
 
 type OpenDetail = { issue: QualityIssueRow; action: "rectify" | "deduction" | null };
 
 export function QualityHub({ context }: { context: HubContext }) {
-  const tabs = context.inspectorView ? INSPECTOR_TABS : MANAGER_TABS;
+  const coaching = context.coaching ?? { visible: true, canManage: context.canManage, fullPageLink: true };
+  const tabs = context.inspectorView
+    ? INSPECTOR_TABS
+    : coaching.visible
+      ? MANAGER_TABS
+      : MANAGER_TABS_WITHOUT_COACHING;
   const defaultTab: QualityTab = context.inspectorView ? "issues" : "cleaners";
   const { state, update, hrefForTab } = useHubState(tabs, defaultTab);
   const [refreshToken, setRefreshToken] = React.useState(0);
@@ -154,7 +161,7 @@ export function QualityHub({ context }: { context: HubContext }) {
             onChanged={onChanged}
           />
         ) : null}
-        {state.tab === "coaching" ? <CoachingTab /> : null}
+        {state.tab === "coaching" && coaching.visible ? <CoachingTab canManage={coaching.canManage} fullPageLink={coaching.fullPageLink} /> : null}
       </div>
 
       {context.inspectorView ? null : (

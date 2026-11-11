@@ -9,19 +9,21 @@
 import Link from "next/link";
 import { CoachingWorkspace } from "@/components/v2/admin/workforce/coaching-workspace";
 
-export function CoachingTab() {
+export function CoachingTab({ canManage = true, fullPageLink = true }: { canManage?: boolean; fullPageLink?: boolean }) {
   return (
     <section aria-labelledby="coaching-heading" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id="coaching-heading" className="e-eyebrow">Coaching records</h2>
-        <Link href="/v2/admin/workforce/coaching" className="text-[0.8125rem] text-[hsl(var(--e-primary))] underline-offset-2 hover:underline">
-          Open the full coaching page
-        </Link>
+        {fullPageLink ? (
+          <Link href="/v2/admin/workforce/coaching" className="text-[0.8125rem] text-[hsl(var(--e-primary))] underline-offset-2 hover:underline">
+            Open the full coaching page
+          </Link>
+        ) : null}
       </div>
       <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
         Recommendations authored by managers and acknowledged by cleaners. This list has its own filters; the period above does not apply.
       </p>
-      <CoachingWorkspace />
+      <CoachingWorkspace canManage={canManage} />
     </section>
   );
 }

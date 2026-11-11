@@ -605,8 +605,6 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
 
       {/* Per-client message automation rules */}
       <ClientAutomationRules clientId={client.id} />
-
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · read-only · live data from your workspace.</p>
     </div>
   );
 }

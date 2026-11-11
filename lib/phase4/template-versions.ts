@@ -1,5 +1,18 @@
 import { db } from "@/lib/db";
 
+/**
+ * Read-only view of the OLD "versioning": sibling FormTemplate rows named
+ * "… vN" in the same service type. Its write half (create a sibling version,
+ * roll back by switching `isActive`) was removed on 2026-11-11: it had no
+ * screen and switching `isActive` changes which form jobs resolve to.
+ * Version history, drafts and restore live in the Forms library
+ * (`lib/forms/template-history.ts`, `/api/admin/form-templates/[id]/versions`).
+ */
+export const LEGACY_TEMPLATE_VERSION_WRITES_GONE =
+  "This old template-versions API no longer changes forms. Use the Forms library: " +
+  "open the form's version history (GET /api/admin/form-templates/{id}/versions) and restore a " +
+  "version as a draft (POST /api/admin/form-templates/{id}/versions/{versionId}/restore), then publish it.";
+
 function normalizeName(name: string) {
   return name.trim().replace(/\s+v\d+$/i, "").trim();
 }
@@ -36,59 +49,4 @@ export async function listTemplateVersions(templateId: string) {
     baseName: normalizeName(current.name),
     templates,
   };
-}
-
-export async function createTemplateVersion(templateId: string) {
-  const { current, templates } = await loadGroupByTemplateId(templateId);
-  if (!current) throw new Error("Template not found.");
-  const source = templates.find((row) => row.id === templateId);
-  if (!source) throw new Error("Template not found in its version group.");
-
-  const nextVersion =
-    templates.length > 0
-      ? Math.max(...templates.map((row) => Number(row.version || 1))) + 1
-      : (Number(source.version || 1) + 1);
-
-  const created = await db.formTemplate.create({
-    data: {
-      name: withVersion(source.name, nextVersion),
-      serviceType: source.serviceType,
-      version: nextVersion,
-      isActive: true,
-      schema: source.schema as any,
-    },
-  });
-
-  await db.formTemplate.updateMany({
-    where: {
-      id: { in: templates.map((row) => row.id).filter((id) => id !== created.id) },
-    },
-    data: { isActive: false },
-  });
-
-  return created;
-}
-
-export async function rollbackTemplateVersion(templateId: string, targetTemplateId: string) {
-  const { current, templates } = await loadGroupByTemplateId(templateId);
-  if (!current) throw new Error("Template not found.");
-  const exists = templates.find((row) => row.id === targetTemplateId);
-  if (!exists) throw new Error("Target version not found in this template family.");
-
-  await db.$transaction([
-    db.formTemplate.updateMany({
-      where: {
-        id: { in: templates.map((row) => row.id) },
-      },
-      data: { isActive: false },
-    }),
-    db.formTemplate.update({
-      where: { id: targetTemplateId },
-      data: { isActive: true },
-    }),
-  ]);
-
-  return db.formTemplate.findUnique({
-    where: { id: targetTemplateId },
-  });
 }

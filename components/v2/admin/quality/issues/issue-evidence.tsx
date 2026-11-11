@@ -25,9 +25,16 @@ export async function uploadRectificationPhoto(file: File): Promise<PickedPhoto>
   return { key: record.key, name: file.name };
 }
 
+/**
+ * A presigned url per evidence key, or null once the access rail refused or
+ * failed for that key (e.g. a manager without the files pack), so the strip
+ * can say so instead of showing a loading tile forever. Missing = loading.
+ */
+export type EvidenceUrls = Record<string, string | null>;
+
 /** Presigned urls for evidence keys; a late answer for another issue is dropped. */
-export function useEvidenceUrls(keys: string[], jobId: string): Record<string, string> {
-  const [urls, setUrls] = React.useState<Record<string, string>>({});
+export function useEvidenceUrls(keys: string[], jobId: string): EvidenceUrls {
+  const [urls, setUrls] = React.useState<EvidenceUrls>({});
   const signature = keys.join("|");
   React.useEffect(() => {
     const controller = new AbortController();
@@ -38,9 +45,11 @@ export function useEvidenceUrls(keys: string[], jobId: string): Record<string, s
         .then((body: unknown) => {
           if (controller.signal.aborted) return;
           const url = (body as { url?: unknown } | null)?.url;
-          if (typeof url === "string") setUrls((previous) => ({ ...previous, [key]: url }));
+          setUrls((previous) => ({ ...previous, [key]: typeof url === "string" && url ? url : null }));
         })
-        .catch(() => {});
+        .catch(() => {
+          if (!controller.signal.aborted) setUrls((previous) => ({ ...previous, [key]: null }));
+        });
     }
     return () => controller.abort();
   }, [signature, jobId]);
@@ -48,23 +57,36 @@ export function useEvidenceUrls(keys: string[], jobId: string): Record<string, s
 }
 
 /** Thumbnails; the placeholder holds the slot so the strip does not reflow. */
-export function EvidenceStrip({ keys, urls, alt }: { keys: string[]; urls: Record<string, string>; alt: string }) {
+export function EvidenceStrip({ keys, urls, alt }: { keys: string[]; urls: EvidenceUrls; alt: string }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {keys.map((key) =>
-        urls[key] ? (
-          <a key={key} href={urls[key]} target="_blank" rel="noreferrer">
+      {keys.map((key) => {
+        const url = urls[key];
+        if (url === null) {
+          return (
+            <div
+              key={key}
+              role="img"
+              aria-label={`${alt}: photo unavailable`}
+              className="flex h-20 w-20 items-center justify-center rounded-[var(--e-radius-sm)] border border-dashed border-[hsl(var(--e-border))] p-1 text-center text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]"
+            >
+              Photo unavailable
+            </div>
+          );
+        }
+        return url ? (
+          <a key={key} href={url} target="_blank" rel="noreferrer">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={urls[key]}
+              src={url}
               alt={alt}
               className="h-20 w-20 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] object-cover"
             />
           </a>
         ) : (
           <div key={key} className="h-20 w-20 animate-pulse rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-muted))]" />
-        ),
-      )}
+        );
+      })}
     </div>
   );
 }

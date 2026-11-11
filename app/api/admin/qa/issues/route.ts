@@ -9,6 +9,7 @@ import {
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { ISSUE_ROW_INCLUDE, toIssueRows } from "@/lib/quality/issue-rows";
+import { sydneyCreatedAtFilter } from "@/lib/quality/period";
 
 /**
  * QA issue register — list endpoint (accountability Phase 5b). The v2 admin
@@ -18,7 +19,8 @@ import { ISSUE_ROW_INCLUDE, toIssueRows } from "@/lib/quality/issue-rows";
  * may read (the workspace hides mutating actions for them).
  *
  * Filters (all optional, via query string): cleanerId, propertyId, category,
- * severity, rectificationStatus, falseConfirmation, from, to (createdAt range).
+ * severity, rectificationStatus, falseConfirmation, from, to (createdAt range,
+ * inclusive Australia/Sydney calendar days — `sydneyCreatedAtFilter`).
  * Paginated with take/skip (default take 50), ordered createdAt desc.
  *
  * The pay adjustment referenced by QaIssue.payAdjustmentId has no Prisma
@@ -58,19 +60,8 @@ export async function GET(req: NextRequest) {
         ? (falseConfRaw as FalseConfirmationStatus)
         : undefined;
 
-    let createdAt: Prisma.DateTimeFilter | undefined;
-    const from = fromRaw ? new Date(fromRaw) : undefined;
-    const to = toRaw ? new Date(toRaw) : undefined;
-    if ((from && !Number.isNaN(from.getTime())) || (to && !Number.isNaN(to.getTime()))) {
-      createdAt = {};
-      if (from && !Number.isNaN(from.getTime())) createdAt.gte = from;
-      if (to && !Number.isNaN(to.getTime())) {
-        // Inclusive of the whole `to` day.
-        const end = new Date(to);
-        end.setHours(23, 59, 59, 999);
-        createdAt.lte = end;
-      }
-    }
+    // Sydney calendar days, inclusive, the same days the Quality hub means.
+    const createdAt: Prisma.DateTimeFilter | undefined = sydneyCreatedAtFilter(fromRaw, toRaw);
 
     const where: Prisma.QaIssueWhereInput = {
       ...(cleanerId ? { cleanerId } : {}),
@@ -103,6 +94,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 500;
-    return NextResponse.json({ error: err.message ?? "Failed to load QA issues." }, { status });
+    // Internal failures are not echoed to the browser.
+    return NextResponse.json({ error: status === 500 ? "Failed to load QA issues." : err.message }, { status });
   }
 }

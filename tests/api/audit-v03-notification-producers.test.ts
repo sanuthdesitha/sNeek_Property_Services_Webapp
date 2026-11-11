@@ -78,7 +78,7 @@ it.each(cases)("$name emits the intended category to the resolved recipient", as
 it.each(cases)("$name reports or deliberately absorbs notification storage failure", async c => {
  (c.many ? m.notices : m.notice).mockRejectedValue(new Error("inbox unavailable"));
  const response = await c.run();
- if (c.name === "reminder") { expect(response.status).toBe(200); expect(await response.json()).toEqual({ sent: [], failed: ["Actor"] }); }
+ if (c.name === "reminder") { expect(response.status).toBe(200); expect(await response.json()).toEqual({ sent: [], failed: ["Actor"], deliveryState: "QUEUED", message: "Not sent to Actor." }); }
  else if (c.name === "skip decision") expect(response.status).toBe(200);
  else { expect(response.status).toBe(400); expect((await response.json()).error).toBe("inbox unavailable"); }
  expect(c.mutation).toHaveBeenCalled();

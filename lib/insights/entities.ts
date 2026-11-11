@@ -5,8 +5,7 @@
  */
 import type { JobType } from "@prisma/client";
 import { cleanTotalsByCleaner } from "@/lib/quality/cleans";
-import type { PeriodRange } from "@/lib/quality/period";
-import { summarise, toCleanFacts, type HoursItem } from "./aggregate";
+import { ALL_TIME, summarise, toCleanFacts, type HoursItem } from "./aggregate";
 import type { JobFact } from "./job-facts";
 import { jobsHref, qualityCleanersHref, qualityIssuesHref, invoicesHref, type DaySpan } from "./links";
 import { MIN_BASIS_ROW } from "./measure";
@@ -98,8 +97,6 @@ export function clientRows(
   });
 }
 
-const EVERYTHING: PeriodRange = { fromKey: null, toKey: "9999-12-31", start: null, end: new Date(8.64e15), days: null };
-
 /**
  * One row per cleaner with a clean in the period or an issue raised against
  * them (the Quality hub's rule). QA columns use the hub's per-cleaner clean
@@ -113,7 +110,7 @@ export function cleanerRows(
   names: Map<string, string>,
   span: DaySpan,
 ): CleanerRow[] {
-  const qa = cleanTotalsByCleaner(toCleanFacts(facts), EVERYTHING);
+  const qa = cleanTotalsByCleaner(toCleanFacts(facts), ALL_TIME);
   const byCleaner = new Map<string, { facts: JobFact[]; hours: HoursItem[] }>();
   const ensure = (id: string) => {
     const entry = byCleaner.get(id) ?? { facts: [], hours: [] };

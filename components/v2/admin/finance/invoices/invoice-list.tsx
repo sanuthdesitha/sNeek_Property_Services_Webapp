@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
-import { ECard } from "@/components/v2/ui/primitives";
+import { EButton, ECard } from "@/components/v2/ui/primitives";
 import { EDataTable } from "@/components/v2/ui/data-table";
 import { EPagination } from "@/components/v2/ui/pagination";
 import type { ClientInvoiceBulkResponse } from "@/lib/billing/client-invoice-list-types";
@@ -188,6 +188,12 @@ export function InvoiceList() {
         disabled={bulkRunning}
         onChange={update}
       />
+      {/* The old screen's "Refresh": re-reads the page of rows and the figures. */}
+      <div className="flex justify-end">
+        <EButton type="button" size="sm" variant="ghost" disabled={loading || bulkRunning} onClick={refresh}>
+          Refresh
+        </EButton>
+      </div>
       <ECard className="overflow-hidden">
         <EDataTable
           label="Client invoices"

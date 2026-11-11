@@ -9,8 +9,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import { EButton } from "@/components/v2/ui/primitives";
-import { EInput } from "@/components/v2/admin/estate-kit";
-import { LabeledField } from "./labeled-field";
+import { EField, EInput } from "@/components/v2/admin/estate-kit";
 import { periodLabel, type QualityPeriod } from "@/lib/quality/period";
 import type { QualityPeriodKey } from "@/lib/quality/types";
 
@@ -107,12 +106,12 @@ export function PeriodControl({
         hidden={!open}
         className="absolute right-0 top-full z-40 mt-1 w-[min(18rem,calc(100vw-2rem))] space-y-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3 shadow-[var(--e-elevation-3)]"
       >
-        <LabeledField label="First day">
+        <EField label="First day">
           <EInput type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} />
-        </LabeledField>
-        <LabeledField label="Last day">
+        </EField>
+        <EField label="Last day">
           <EInput type="date" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} />
-        </LabeledField>
+        </EField>
         {problem ? (
           <p role="alert" className="text-[0.75rem] text-[hsl(var(--e-danger))]">
             {problem}

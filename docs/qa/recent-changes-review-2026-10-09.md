@@ -759,3 +759,24 @@ Verified
 Not verified (deferred by the owner to one final pass)
 - Production build, the full Vitest suite, Playwright (including the three updated e2e specs) and database suites; the grouped count SQL and the board `groupBy` ran against mocked Prisma only, not PostgreSQL.
 - Chromium at 390px and 1280px, light and dark: the table's own horizontal scroll, tab and chip wrapping, the side panel as a column at 1280px and a full-height sheet at 390px, the bulk bar's sticky position above the mobile tab bar, drag and drop on the board, keyboard use of chips, menus and the panel, scroll restoration with the panel open.
+
+### Follow-up: Invoices and pay — Money sub-phase (c), credit notes and server-side invoice locks (2026-11-11)
+
+What changed (details in `docs/SYSTEM.md`, "Credit notes, blank invoices, discounts and server-side invoice locks")
+- Server-side content lock shared with the editor (`invoiceContentLock`): content edits refused on SENT, PART_PAID, PAID and VOID with a message pointing to credit notes.
+- Server-side PIN/password (`verifySensitiveAction`, 423 on refusal, 403 while impersonating) for removing a line and deleting an invoice. Reconcile / void already verified it server-side (unchanged). Standard Void has no PIN prompt.
+- Client reference / PO (new column), note to client (new column, not `metadata.notes`), DISCOUNT lines (amount or percentage, basis stored, never below zero), blank invoices, credit notes (own `CN-` rail, partial and limit-checked, Xero `ACCRECCREDIT`, owing reduced, "Fully credited" display state), Reverse only for APPROVED.
+- PDF due day from the list's function (organisation timezone); invoice email button opens the client portal invoice page.
+- Pre-existing problems fixed in this step: 400 instead of 401/403 on GET/DELETE `/api/admin/invoices/[id]` and POST `…/send`; unreadable started-work snapshot broke the GET route and editor (now read only, approval refused); single send and Xero push wrote no audit row; bulk rows never appeared in an invoice's history (now one row per affected invoice plus the existing request row); the CSV export escaped negative amounts as formulas; the old screen's Refresh button had been dropped from the list.
+
+Migration verification (disposable PostgreSQL 127.0.0.1:55439, user `sneek`)
+- Fresh: `createdb money_fresh`; `npx prisma migrate deploy` applied all 131 migrations; repeat: "No pending migrations to apply"; `npx prisma migrate diff --from-url …/money_fresh --to-schema-datamodel prisma/schema.prisma --exit-code`: "No difference detected" (exit 0).
+- Existing `sneek_ui` (130 applied, the new one pending): inserted five fixture invoices (DRAFT, SENT, PART_PAID with a payment ledger, PAID, VOID) and five lines; md5 of every pre-existing column of every ClientInvoice and ClientInvoiceLine before and after deploy: identical (`41a4093d…` / `d29ac94d…`). New columns: all INVOICE, all nulls. Repeat deploy: nothing pending; diff: no difference (exit 0). CHECK constraint refused a credit note without `creditsInvoiceId`. Fixtures deleted afterwards. `npx prisma generate` run.
+
+Verified
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: clean.
+- 58 test files (every existing invoice/billing/receivables/Xero/finance/portal file touched plus five new `invoice-step-c-*` files): 711 tests passed. Existing tests updated on purpose: Reverse on SENT/PART_PAID/PAID (transitions, row actions, editor menu), sends with no lines now refused (started-work boundary fixture given a line), mocks extended for the new PIN check, credit read, per-invoice bulk rows, `kind` in client scope and summary queries.
+
+Not verified
+- Xero credit-note push: mocked only (no provider credentials); the real `PUT /CreditNotes` payload, and allocation in Xero, are unexercised.
+- Production build, full Vitest suite, browser checks at 390/1280 light/dark (deferred by the owner to the final pass): editor reference field, discount and note dialogs, credit-note links, "New invoice ▾" blank and credit-note dialogs, Fully credited pills.

@@ -41,9 +41,12 @@ describe("one primary action per row", () => {
 
   it("keeps every existing action reachable under the old conditions", () => {
     expect(availableInvoiceActions(row())).toEqual(["edit", "pdf", "approve", "send", "record-payment", "mark-paid", "xero-push", "delete"]);
-    expect(availableInvoiceActions(row({ status: "SENT" }))).toEqual(["pdf", "resend", "record-payment", "mark-paid", "xero-push", "void", "reverse"]);
-    expect(availableInvoiceActions(row({ status: "SENT", xeroInvoiceId: "X", xeroState: "PUSHED" }))).toEqual(["pdf", "resend", "record-payment", "mark-paid", "xero-push", "reconcile"]);
-    expect(availableInvoiceActions(row({ status: "PART_PAID", paidAmount: 20 }))).toEqual(["pdf", "resend", "record-payment", "mark-paid", "receipt", "xero-push"]);
+    // Money step (c), owner decision 2026-11-11: a sent invoice is corrected by a
+    // credit note; "Reverse" stays only for approved (never sent) invoices.
+    expect(availableInvoiceActions(row({ status: "SENT" }))).toEqual(["pdf", "resend", "record-payment", "mark-paid", "xero-push", "credit-note", "void"]);
+    expect(availableInvoiceActions(row({ status: "APPROVED" }))).toEqual(["edit", "pdf", "send", "record-payment", "mark-paid", "xero-push", "void", "reverse"]);
+    expect(availableInvoiceActions(row({ status: "SENT", xeroInvoiceId: "X", xeroState: "PUSHED" }))).toEqual(["pdf", "resend", "record-payment", "mark-paid", "xero-push", "credit-note", "reconcile"]);
+    expect(availableInvoiceActions(row({ status: "PART_PAID", paidAmount: 20 }))).toEqual(["pdf", "resend", "record-payment", "mark-paid", "receipt", "xero-push", "credit-note"]);
     expect(availableInvoiceActions(row({ status: "VOID" }))).toEqual(["pdf"]);
   });
 

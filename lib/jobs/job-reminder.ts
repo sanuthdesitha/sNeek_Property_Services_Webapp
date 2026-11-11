@@ -6,6 +6,8 @@ import { db } from "@/lib/db";
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendWebPushToUser } from "@/lib/notifications/web-push";
+import { logger } from "@/lib/logger";
+import { escapeHtml } from "@/lib/utils/escape-html";
 
 /**
  * Manual "Send reminder" for an unfinished job — the one service behind the
@@ -15,10 +17,18 @@ import { sendWebPushToUser } from "@/lib/notifications/web-push";
  * non-removed active assigned cleaner is reminded by the chosen transport, and
  * every send is audited (JOB_REMINDER_SENT).
  *
- * What a "sent" name means, stated plainly for the screens:
- * - PUSH: an in-app notice was recorded for the phone app's outbox and a
- *   device push was requested. Neither confirms delivery.
+ * What a "sent" name means, stated plainly for the screens (the response keeps
+ * the `sent` key for compatibility; `deliveryState` says what it really is):
+ * - PUSH: an in-app notice was recorded and its phone push is QUEUED in the
+ *   mobile outbox (dispatched later by the worker); a browser push is
+ *   requested best-effort. Neither confirms delivery.
  * - EMAIL: the email provider accepted the message. Acceptance is not delivery.
+ *
+ * Not yet on the durable notification-intent pipeline (`lib/notifications/
+ * intent-store.ts`): that pipeline only authorizes ADMIN_OPERATIONS recipients,
+ * has no phone-app transport, and sends external transports only when
+ * SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS opts in. See docs/SYSTEM.md,
+ * "Existing problems fixed (2026-11-11)".
  */
 export const REMINDABLE_STATUSES: JobStatus[] = [JobStatus.PAUSED, JobStatus.IN_PROGRESS, JobStatus.SUBMITTED];
 
@@ -28,8 +38,15 @@ export const reminderInputSchema = z.object({
 });
 export type ReminderInput = z.infer<typeof reminderInputSchema>;
 
+/** What the reminder actually achieved. Never "delivered": nothing here confirms delivery. */
+export type ReminderDeliveryState = "QUEUED" | "PROVIDER_ACCEPTED";
+
+export function reminderDeliveryState(method: ReminderInput["method"]): ReminderDeliveryState {
+  return method === "PUSH" ? "QUEUED" : "PROVIDER_ACCEPTED";
+}
+
 export type JobReminderResult =
-  | { kind: "sent"; jobId: string; label: string; sent: string[]; failed: string[] }
+  | { kind: "sent"; jobId: string; label: string; sent: string[]; failed: string[]; deliveryState: ReminderDeliveryState }
   | { kind: "not_found"; jobId: string }
   | { kind: "not_remindable"; jobId: string; label: string; status: JobStatus; error: string }
   | { kind: "no_cleaners"; jobId: string; label: string; error: string };
@@ -82,6 +99,9 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
 
   const sent: string[] = [];
   const failed: string[] = [];
+  const safeProperty = escapeHtml(propertyName);
+  const safeWhen = escapeHtml(whenLabel);
+  const safeNote = input.note ? escapeHtml(input.note) : null;
 
   for (const assignment of job.assignments) {
     const displayName = assignment.user.name ?? assignment.user.email ?? "Cleaner";
@@ -95,16 +115,24 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
             channel: NotificationChannel.PUSH,
             subject: "Unfinished job reminder",
             body: message,
+            // PUSH + SENT is the inbox convention ("available in the inbox");
+            // the phone push stays pending in the mobile-outbox marker above.
             status: NotificationStatus.SENT,
             sentAt: new Date(),
           },
         });
-        await sendWebPushToUser(assignment.userId, {
-          title: "Unfinished job reminder",
-          body: message,
-          url: "/cleaner/jobs",
-          tag: `job-reminder-${job.id}`,
-        });
+        // The inbox notice is recorded; a failed browser push must not report
+        // the cleaner as "not reminded" (a retry would duplicate the notice).
+        try {
+          await sendWebPushToUser(assignment.userId, {
+            title: "Unfinished job reminder",
+            body: message,
+            url: "/cleaner/jobs",
+            tag: `job-reminder-${job.id}`,
+          });
+        } catch (err) {
+          logger.warn({ err, jobId: job.id, userId: assignment.userId }, "Job reminder browser push failed (inbox notice recorded)");
+        }
         sent.push(displayName);
       } else {
         if (!assignment.user.email) {
@@ -116,10 +144,10 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
           to: assignment.user.email,
           subject: `Reminder: unfinished job at ${propertyName} (${job.jobNumber || job.id})`,
           html: `
-              <p>Hi ${displayName},</p>
-              <p>You have an unfinished job at <strong>${propertyName}</strong> scheduled <strong>${whenLabel}</strong> — please open it and submit your checklist.</p>
-              ${input.note ? `<p><em>Note from admin:</em> ${input.note}</p>` : ""}
-              <p><a href="${context.cleanerJobsUrl}">Open your jobs</a></p>
+              <p>Hi ${escapeHtml(displayName)},</p>
+              <p>You have an unfinished job at <strong>${safeProperty}</strong> scheduled <strong>${safeWhen}</strong> — please open it and submit your checklist.</p>
+              ${safeNote ? `<p><em>Note from admin:</em> ${safeNote}</p>` : ""}
+              <p><a href="${escapeHtml(context.cleanerJobsUrl)}">Open your jobs</a></p>
               <p>— sNeek Ops</p>
             `,
         });
@@ -131,6 +159,7 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
     }
   }
 
+  const deliveryState = reminderDeliveryState(input.method);
   await db.auditLog.create({
     data: {
       userId: context.actorId,
@@ -141,14 +170,17 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
       after: {
         method: input.method,
         cleanerIds: job.assignments.map((a) => a.userId),
-        sent,
+        // Names the transport took (push queued / email accepted), not deliveries.
+        requested: sent,
         failed,
+        deliveryState,
+        deliveryConfirmed: false,
         note: input.note ?? null,
       } as Prisma.InputJsonValue,
     },
   });
 
-  return { kind: "sent", jobId, label, sent, failed };
+  return { kind: "sent", jobId, label, sent, failed, deliveryState };
 }
 
 /** Per-row outcome of the bulk reminder, worded so queued is never read as delivered. */

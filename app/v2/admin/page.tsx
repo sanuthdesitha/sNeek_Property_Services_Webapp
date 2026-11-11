@@ -674,10 +674,6 @@ export default async function AdminCommandPage() {
           </ECardBody>
         </ECard>
       </div>
-
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-        Estate preview · live data from your workspace.
-      </p>
     </div>
   );
 }

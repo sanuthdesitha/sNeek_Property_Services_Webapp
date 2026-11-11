@@ -65,9 +65,13 @@ describe("canTransitionInvoice", () => {
 });
 
 describe("canReverseInvoice", () => {
-  it("reopens an invoice that has gone out or been settled", () => {
-    for (const from of ["APPROVED", "SENT", "PART_PAID", "PAID"]) {
-      expect(canReverseInvoice(from), from).toBe(true);
+  // Changed on purpose in Money step (c) (owner decision 2026-11-11): only an
+  // approved invoice reverses; anything already sent is corrected by a credit note.
+  it("reopens only an approved invoice that has not gone out", () => {
+    expect(canReverseInvoice("APPROVED")).toBe(true);
+    for (const from of ["SENT", "PART_PAID", "PAID"]) {
+      expect(canReverseInvoice(from), from).toBe(false);
+      expect(reverseRefusalReason(from)).toMatch(/credit note/i);
     }
   });
 
@@ -90,7 +94,7 @@ describe("canReverseInvoice", () => {
   });
 
   it("gives no refusal reason when the reversal is allowed", () => {
-    expect(reverseRefusalReason("PAID")).toBeNull();
+    expect(reverseRefusalReason("APPROVED")).toBeNull();
   });
 
   it("lands on DRAFT — the same invoice, editable again", () => {
@@ -103,7 +107,7 @@ describe("canReverseInvoice", () => {
     // The graph calls PAID terminal, which is correct for an ordinary status
     // move. Reverse is the deliberate exception, and conflating the two would
     // either block the correction or open PAID up to any caller.
-    expect(canTransitionInvoice("PAID", "DRAFT")).toBe(false);
-    expect(canReverseInvoice("PAID")).toBe(true);
+    expect(canTransitionInvoice("APPROVED", "DRAFT")).toBe(false);
+    expect(canReverseInvoice("APPROVED")).toBe(true);
   });
 });

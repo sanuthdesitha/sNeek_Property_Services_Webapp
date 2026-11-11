@@ -8,12 +8,12 @@
  * manager recommendations, not automatic discipline — cleaners acknowledge them
  * in their portal.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { ArrowRight, Filter, Plus, RefreshCw } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { EBadge, EButton, ECard, EEyebrow, EEmptyState } from "@/components/v2/ui/primitives";
+import { EAlert, EBadge, EButton, ECard, EEyebrow, EEmptyState } from "@/components/v2/ui/primitives";
 import { EModal, EField, EInput, ETextarea, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
 
 const TYPES = ["COACHING", "WARNING", "MANAGEMENT_REVIEW"] as const;
@@ -64,23 +64,39 @@ const FIELD_CLS =
   "h-9 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] px-2.5 " +
   "text-[0.8125rem] text-[hsl(var(--e-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--e-ring))]";
 
-export function CoachingWorkspace() {
+type CleanerOption = { id: string; name: string };
+
+/**
+ * `canManage` false hides create and update controls (the caller knows the
+ * viewer's pack is read-only; the API would refuse them anyway).
+ */
+export function CoachingWorkspace({ canManage = true }: { canManage?: boolean } = {}) {
   const [records, setRecords] = useState<Record_[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [cleanersError, setCleanersError] = useState(false);
+  const loadController = useRef<AbortController | null>(null);
   const [selected, setSelected] = useState<Record_ | null>(null);
   const [creating, setCreating] = useState(false);
 
   // Active cleaners for the filter picker + create form (same source other
   // admin pages use: GET /api/admin/users?role=CLEANER returns active cleaners).
-  const [cleaners, setCleaners] = useState<{ id: string; name: string }[]>([]);
+  const [cleaners, setCleaners] = useState<CleanerOption[]>([]);
 
   // Filters
   const [cleanerId, setCleanerId] = useState("");
   const [type, setType] = useState("");
   const [status, setStatus] = useState("");
 
+  // A newer filter read cancels the older one, so a late answer for an old
+  // filter can never replace the list on screen. A failed read is shown as a
+  // failure, not as "No coaching records".
   const load = useCallback(async () => {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     setLoading(true);
+    setLoadError(null);
     try {
       const params = new URLSearchParams();
       if (cleanerId) params.set("cleanerId", cleanerId);
@@ -88,30 +104,50 @@ export function CoachingWorkspace() {
       if (status) params.set("status", status);
       const res = await fetch(`/api/admin/accountability/coaching?${params.toString()}`, {
         cache: "no-store",
+        signal: controller.signal,
       });
       const body = await res.json().catch(() => null);
-      if (res.ok && body) setRecords(body.records ?? []);
+      if (controller.signal.aborted) return;
+      if (res.ok && body && Array.isArray(body.records)) {
+        setRecords(body.records);
+      } else {
+        setRecords([]);
+        setLoadError(
+          res.status === 403
+            ? "You do not have access to coaching records."
+            : (typeof body?.error === "string" && body.error) || "Coaching records could not be loaded.",
+        );
+      }
+    } catch {
+      if (controller.signal.aborted) return;
+      setRecords([]);
+      setLoadError("Coaching records could not be loaded.");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [cleanerId, type, status]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
+  useEffect(() => () => loadController.current?.abort(), []);
 
   useEffect(() => {
-    fetch("/api/admin/users?role=CLEANER", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => {
-        const list = Array.isArray(data) ? data : data?.users ?? [];
-        setCleaners(
-          list.map((u: any) => ({ id: u.id, name: u.name ?? u.email ?? "Cleaner" })).sort(
-            (a: any, b: any) => a.name.localeCompare(b.name)
-          )
-        );
+    const controller = new AbortController();
+    fetch("/api/admin/users?role=CLEANER", { cache: "no-store", signal: controller.signal })
+      .then(async (r) => {
+        if (!r.ok) throw new Error("cleaners unavailable");
+        return r.json();
       })
-      .catch(() => {});
+      .then((data: unknown) => {
+        if (controller.signal.aborted) return;
+        setCleaners(toCleanerOptions(data));
+        setCleanersError(false);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setCleanersError(true);
+      });
+    return () => controller.abort();
   }, []);
 
   const activeFilters =
@@ -177,15 +213,29 @@ export function CoachingWorkspace() {
             <RefreshCw className={"h-3.5 w-3.5" + (loading ? " animate-spin" : "")} />
             Refresh
           </EButton>
-          <EButton variant="gold" size="sm" onClick={() => setCreating(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            New record
-          </EButton>
+          {canManage ? (
+            <EButton variant="gold" size="sm" onClick={() => setCreating(true)} disabled={cleanersError}>
+              <Plus className="h-3.5 w-3.5" />
+              New record
+            </EButton>
+          ) : null}
         </div>
       </div>
 
+      {cleanersError ? (
+        <EAlert tone="warning" title="The cleaner list could not be loaded">
+          Filtering by cleaner{canManage ? " and creating a record" : ""} are unavailable until it loads. Reload the page to try again.
+        </EAlert>
+      ) : null}
+
       {/* ── Table ── */}
-      {loading && records.length === 0 ? (
+      {loadError ? (
+        <EAlert tone="danger" title={loadError}>
+          <EButton variant="outline" size="sm" className="mt-2" onClick={() => void load()} disabled={loading}>
+            Try again
+          </EButton>
+        </EAlert>
+      ) : loading && records.length === 0 ? (
         <ECard className="px-6 py-16 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
           Gathering records…
         </ECard>
@@ -261,6 +311,7 @@ export function CoachingWorkspace() {
       {selected ? (
         <RecordDrawer
           record={selected}
+          canManage={canManage}
           onClose={() => setSelected(null)}
           onChanged={async () => {
             await load();
@@ -378,10 +429,12 @@ function CreateModal({
 /* ── Detail drawer with status / outcome controls ──────────────────────── */
 function RecordDrawer({
   record,
+  canManage,
   onClose,
   onChanged,
 }: {
   record: Record_;
+  canManage: boolean;
   onClose: () => void;
   onChanged: () => void | Promise<void>;
 }) {
@@ -459,6 +512,7 @@ function RecordDrawer({
         ) : null}
 
         {/* Update controls */}
+        {canManage ? (
         <div className="space-y-3 border-t border-[hsl(var(--e-border))] pt-4">
           <EEyebrow>Update</EEyebrow>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -491,9 +545,26 @@ function RecordDrawer({
             </EButton>
           </div>
         </div>
+        ) : null}
       </div>
     </EModal>
   );
+}
+
+function toCleanerOptions(data: unknown): CleanerOption[] {
+  const list: unknown[] = Array.isArray(data)
+    ? data
+    : Array.isArray((data as { users?: unknown } | null)?.users)
+      ? (data as { users: unknown[] }).users
+      : [];
+  return list
+    .map((item) => item as { id?: unknown; name?: unknown; email?: unknown })
+    .filter((user): user is { id: string; name?: unknown; email?: unknown } => typeof user.id === "string")
+    .map((user) => ({
+      id: user.id,
+      name: typeof user.name === "string" && user.name ? user.name : typeof user.email === "string" ? user.email : "Cleaner",
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {

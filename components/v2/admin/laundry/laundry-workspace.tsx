@@ -3,6 +3,7 @@ import { JobStatusIcon } from "@/components/shared/job-status-icon";
 
 
 import { useRestorableState } from "@/hooks/use-restorable-state";
+import { isDayKey } from "@/lib/calendar/range";
 
 /**
  * ESTATE admin laundry workspace — the real v2-native operations surface. A
@@ -369,6 +370,17 @@ export function LaundryWorkspace({
     "admin-laundry:end",
     addDaysToKey(sydneyTodayKey(), 14),
   );
+  // `?date=YYYY-MM-DD` (the Calendar's laundry-run links): show that one day's
+  // runs. Applied after the remembered range is restored, so the link wins.
+  React.useEffect(() => {
+    const date = new URLSearchParams(window.location.search).get("date");
+    if (!isDayKey(date)) return;
+    setTab("today");
+    setStartDate(date);
+    setEndDate(date);
+    // Only on arrival; later edits to the range are the person's own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const controllerRef = React.useRef<AbortController | null>(null);
   const [editTask, setEditTask] = React.useState<LaundryTaskDTO | null>(null);
 
@@ -783,10 +795,6 @@ export function LaundryWorkspace({
         onSaved={() => void load()}
       />
       {deleteModal}
-
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-        Estate workspace · live data from your operations.
-      </p>
     </div>
   );
 }

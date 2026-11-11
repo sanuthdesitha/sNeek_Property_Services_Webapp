@@ -7,7 +7,9 @@
  *
  * Legacy rule: without an explicit `tab`, a link carrying q, propertyId or
  * visibility, or a sort the manager understands (newest / service-date /
- * oldest), opens the PDFs tab with those filters. `page` alone does not, since
+ * oldest), opens the PDFs tab with those filters. So does `reportId` (the
+ * Cases screen's "Open report" link); the manager has never been able to
+ * focus one report, so it opens the list. `page` alone does not, since
  * every paged tab uses it. An explicit `tab` always wins.
  *
  * Pure.
@@ -69,7 +71,7 @@ export function writeReportFilters(base: URLSearchParams, filters: ReportManager
 
 /** True when an untabbed link carries the manager's own filters (see the legacy rule). */
 export function hasLegacyReportParams(params: URLSearchParams): boolean {
-  if (params.get("q") || params.get("propertyId") || params.get("visibility")) return true;
+  if (params.get("q") || params.get("propertyId") || params.get("visibility") || params.get("reportId")) return true;
   const sort = params.get("sort");
   return sort !== null && (REPORT_SORTS as readonly string[]).includes(sort);
 }

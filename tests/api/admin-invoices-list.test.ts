@@ -37,6 +37,10 @@ function invoice(overrides: Record<string, unknown> = {}) {
     xeroInvoiceId: null,
     xeroExportedAt: null,
     metadata: null,
+    kind: "INVOICE",
+    clientReference: null,
+    creditsInvoice: null,
+    creditNotes: [],
     client: { id: "c1", name: "Client One", email: "one@example.test" },
     ...overrides,
   };

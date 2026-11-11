@@ -122,7 +122,7 @@ export function CleanersTab({
                           {context.canManage && row.action === "start-coaching" ? (
                             <EButton size="sm" className="h-7 px-2.5 text-[0.75rem]" onClick={() => setDialog({ kind: "coaching", row })}>Start coaching</EButton>
                           ) : null}
-                          {context.canManage && row.action === "review-bonus" ? (
+                          {(context.canDecideBonus ?? context.canManage) && row.action === "review-bonus" ? (
                             <EButton size="sm" variant="outline" className="h-7 px-2.5 text-[0.75rem]" onClick={() => setDialog({ kind: "bonus", row })}>Review bonus</EButton>
                           ) : null}
                         </td>

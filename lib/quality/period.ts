@@ -13,6 +13,7 @@
  */
 import {
   addDaysToKey,
+  sydneyDateKey,
   sydneyDayStart,
   sydneyTodayKey,
 } from "@/lib/time/sydney-range";
@@ -124,6 +125,33 @@ export function resolveQualityPeriod(input: QualityPeriodInput, now: Date = new 
   if (from && from > toKey) throw new QualityQueryError("The period starts after it ends.");
   const range = rangeFromKeys(from, toKey);
   return { key, ...range, previous: previousRange(range) };
+}
+
+/**
+ * A created-at filter from loose `from` / `to` query values (the classic QA
+ * issue register, `GET /api/admin/qa/issues`). Both are Sydney calendar days,
+ * inclusive, exactly like a custom Quality hub period: `from` starts at Sydney
+ * midnight and `to` covers the whole Sydney day (end is exclusive, the next
+ * Sydney midnight). A full timestamp is read as the Sydney day it falls on. An
+ * unreadable value is ignored, as the register always did.
+ */
+export function sydneyCreatedAtFilter(fromRaw: string | null | undefined, toRaw: string | null | undefined): { gte?: Date; lt?: Date } | undefined {
+  const fromKey = looseDayKey(fromRaw);
+  const toKey = looseDayKey(toRaw);
+  if (!fromKey && !toKey) return undefined;
+  return {
+    ...(fromKey ? { gte: sydneyDayStart(fromKey) } : {}),
+    ...(toKey ? { lt: sydneyDayStart(addDaysToKey(toKey, 1)) } : {}),
+  };
+}
+
+function looseDayKey(raw: string | null | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  if (isRealDay(value)) return value;
+  if (DAY_KEY.test(value)) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : sydneyDateKey(parsed);
 }
 
 /** For the browser: an unreadable URL falls back to the default period. */

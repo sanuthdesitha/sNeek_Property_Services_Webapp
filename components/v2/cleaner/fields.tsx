@@ -7,6 +7,7 @@
  */
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { markFieldControl, useAssociatedField } from "@/components/v2/admin/field-association";
 
 export const E_FIELD_CLASS =
   // Inputs sit ON cards (which use --e-surface), so the field itself must read as a
@@ -45,6 +46,9 @@ export const ESelect = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttri
   )
 );
 ESelect.displayName = "ESelect";
+markFieldControl(EInput);
+markFieldControl(ETextarea);
+markFieldControl(ESelect);
 
 export function ELabel({ className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
   return (
@@ -69,11 +73,13 @@ export function EField({
   className?: string;
   children: React.ReactNode;
 }) {
+  // A single control child gets an id so the label (and hint) describe it.
+  const field = useAssociatedField(children, { hasHint: Boolean(hint) });
   return (
     <div className={cn("space-y-1.5", className)}>
-      <ELabel>{label}</ELabel>
-      {children}
-      {hint ? <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">{hint}</p> : null}
+      <ELabel htmlFor={field.controlId}>{label}</ELabel>
+      {field.control}
+      {hint ? <p id={field.hintId} className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">{hint}</p> : null}
     </div>
   );
 }

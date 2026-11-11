@@ -49,7 +49,7 @@ describe("old Quality routes redirect to hub tabs, keeping their meaning", () =>
 });
 
 describe("admin navigation", () => {
-  it("has one Quality entry badged with a real count, keeps Reports, drops the three old entries", async () => {
+  it("has one Quality entry badged with a real count, keeps the reports route (now labelled Insights), drops the three old entries", async () => {
     const counts = { qualityHub: 5, quality: 2, qaIssues: 3 };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ counts })));
     const { default: Layout } = await import("@/app/v2/admin/layout");
@@ -61,7 +61,9 @@ describe("admin navigation", () => {
     const items = nav.shell.mock.calls.at(-1)?.[0] as Array<{ href: string; label: string }>;
     const labels = items.map((item) => item.label);
     expect(labels).toContain("Quality");
-    expect(labels).toContain("Reports");
+    // Reports was renamed Insights (same /v2/admin/reports route) in the Insights step.
+    expect(labels).toContain("Insights");
+    expect(items.find((item) => item.href === "/v2/admin/reports")?.label).toBe("Insights");
     for (const gone of ["QA Issues", "Accountability", "QA Performance"]) expect(labels).not.toContain(gone);
     expect(items.some((item) => item.href.startsWith("/v2/admin/quality/"))).toBe(false);
     vi.unstubAllGlobals();

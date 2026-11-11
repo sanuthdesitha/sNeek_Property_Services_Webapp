@@ -1,7 +1,8 @@
 /**
- * A form field whose label is programmatically tied to its control (the
- * label wraps it). EField in estate-kit renders a detached <label>, so the
- * hub's dialogs use this instead.
+ * A form field whose label wraps its control. Written when EField's label was
+ * detached; EField now ties its label to a single control itself and the
+ * Quality screens use it again. Kept only for its remaining importer
+ * (`components/v2/admin/insights/period-chips.tsx`, owned by the Insights work).
  */
 import * as React from "react";
 import { cn } from "@/lib/utils";

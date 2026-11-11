@@ -11,8 +11,7 @@
 import * as React from "react";
 import { toast } from "@/hooks/use-toast";
 import { EButton } from "@/components/v2/ui/primitives";
-import { EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
-import { LabeledField } from "./labeled-field";
+import { EField, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { CleanerRow } from "./hub-types";
 
 const TYPES = [
@@ -81,7 +80,7 @@ export function CoachingDialog({ row, onClose, onCreated }: { row: CleanerRow; o
             {row.coachingSuggestion.issueIds.length === 1 ? "" : "s"} behind it will be linked.
           </p>
         ) : null}
-        <LabeledField label="Type">
+        <EField label="Type">
           <ESelect value={type} onChange={(event) => setType(event.target.value as CoachingType)}>
             {TYPES.map((option) => (
               <option key={option.key} value={option.key}>
@@ -89,13 +88,13 @@ export function CoachingDialog({ row, onClose, onCreated }: { row: CleanerRow; o
               </option>
             ))}
           </ESelect>
-        </LabeledField>
-        <LabeledField label="Reason">
+        </EField>
+        <EField label="Reason">
           <ETextarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} />
-        </LabeledField>
-        <LabeledField label="Notes (optional)">
+        </EField>
+        <EField label="Notes (optional)">
           <ETextarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
-        </LabeledField>
+        </EField>
         {problem ? (
           <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">
             {problem}
