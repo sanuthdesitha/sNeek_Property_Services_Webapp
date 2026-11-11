@@ -37,6 +37,10 @@ export function describeInvoiceAudit(action: string, after: unknown): string {
   switch (action) {
     case "CLIENT_INVOICE_PAYMENT_RECORD": {
       const method = field(after, "method");
+      if (field(after, "source") === "XERO") {
+        const day = field(after, "paidDate");
+        return `Payment of ${aud(field(after, "amount"))} recorded from Xero${day ? ` (paid ${day.slice(0, 10)})` : ""}`;
+      }
       return `Payment of ${aud(field(after, "amount"))} recorded${method ? ` (${method.replace(/_/g, " ").toLowerCase()})` : ""}`;
     }
     case "CLIENT_INVOICE_REVERSED": {
@@ -67,6 +71,18 @@ export function describeInvoiceAudit(action: string, after: unknown): string {
       if (outcome === "already-pushed") return "Xero push requested: already in Xero";
       return `Xero push failed${field(after, "error") ? `: ${field(after, "error")}` : ""}`;
     }
+    case "CLIENT_INVOICE_XERO_SYNC": {
+      const state = field(after, "state");
+      const reason = field(after, "reason");
+      const paid = Number(field(after, "paymentsRecorded") ?? 0);
+      const label: Record<string, string> = {
+        IN_XERO: "Checked against Xero: in Xero",
+        PAID_IN_XERO: "Checked against Xero: paid in Xero (recorded)",
+        NEEDS_REVIEW: "Checked against Xero: needs review",
+        UNKNOWN: "Checked against Xero: state unknown",
+      };
+      return `${label[state ?? ""] ?? "Checked against Xero"}${paid ? `, ${paid} payment${paid === 1 ? "" : "s"} recorded` : ""}${reason ? ` (${reason})` : ""}`;
+    }
     case "CLIENT_INVOICE_BLANK_CREATED":
       return "Created as a blank invoice";
     case "CLIENT_INVOICE_CREDIT_NOTE_CREATED":
@@ -81,7 +97,9 @@ function auditEntry(row: AuditRow): HistoryEntry {
     id: `audit:${row.id}`,
     at: row.createdAt.toISOString(),
     label: describeInvoiceAudit(row.action, row.after),
-    actor: row.user?.name || row.user?.email || null,
+    // A scheduled Xero check is attributed to an administrator account (an
+    // audit row needs a user) but was not done by that person.
+    actor: field(row.after, "trigger") === "scheduled" ? "Xero sync (scheduled)" : row.user?.name || row.user?.email || null,
     source: "audit",
   };
 }

@@ -18,6 +18,7 @@ import {
   isFullyCredited,
 } from "@/lib/finance/receivables";
 import { FALLBACK_INVOICE_TIMEZONE, invoiceDueDay, paymentTermsDaysFrom } from "./invoice-due";
+import { readStoredXeroSync } from "./client-invoice-xero-sync-rules";
 import { ListQueryError, listResponse, readQueryValue, type ListQuery } from "@/lib/admin/list-query";
 import {
   CLIENT_INVOICE_STATUSES,
@@ -140,6 +141,14 @@ function xeroWhere(filters: ClientInvoiceListFilters, context: ListContext): Pri
       return { id: { in: context.pendingXeroIds } };
     case "none":
       return { xeroInvoiceId: null, xeroExportedAt: null, id: { notIn: context.pendingXeroIds } };
+    case "in-xero":
+      return { xeroInvoiceId: { not: null }, metadata: { path: ["xeroSync", "state"], equals: "IN_XERO" } };
+    case "paid-in-xero":
+      return { xeroInvoiceId: { not: null }, metadata: { path: ["xeroSync", "state"], equals: "PAID_IN_XERO" } };
+    case "needs-review":
+      return { xeroInvoiceId: { not: null }, metadata: { path: ["xeroSync", "state"], equals: "NEEDS_REVIEW" } };
+    case "unknown":
+      return { xeroInvoiceId: { not: null }, metadata: { path: ["xeroSync", "state"], equals: "UNKNOWN" } };
     default:
       return {};
   }
@@ -268,6 +277,13 @@ export function clientInvoiceXeroState(invoice: {
   return state === "PENDING" ? "PENDING" : "NONE";
 }
 
+/** The stored Xero pull state for the row, or null when never checked. */
+export function xeroSyncView(metadata: unknown): ClientInvoiceListRow["xeroSync"] {
+  const stored = readStoredXeroSync(metadata);
+  if (!stored) return null;
+  return { state: stored.state, reason: stored.reason, xeroStatus: stored.xeroStatus, checkedAt: stored.checkedAt, lastReadAt: stored.lastReadAt };
+}
+
 function toRow(invoice: SelectedInvoice, context: TermsContext): ClientInvoiceListRow {
   const creditNote = invoice.kind === "CREDIT_NOTE";
   const creditedAmount = creditNote ? 0 : creditedAmountOf(invoice.creditNotes);
@@ -295,6 +311,7 @@ function toRow(invoice: SelectedInvoice, context: TermsContext): ClientInvoiceLi
     xeroInvoiceId: invoice.xeroInvoiceId,
     xeroExportedAt: iso(invoice.xeroExportedAt),
     xeroState: clientInvoiceXeroState(invoice),
+    xeroSync: xeroSyncView(invoice.metadata),
     client: { id: invoice.client.id, name: invoice.client.name, email: invoice.client.email ?? null },
     kind: creditNote ? "CREDIT_NOTE" : "INVOICE",
     clientReference: invoice.clientReference ?? null,
@@ -442,6 +459,8 @@ export function clientInvoicesCsv(rows: ClientInvoiceListRow[]): string {
     "Owing",
     "Xero state",
     "Xero invoice ID",
+    "Xero check",
+    "Xero check reason",
     "Kind",
     "Credits invoice",
     "Credited",
@@ -465,6 +484,8 @@ export function clientInvoicesCsv(rows: ClientInvoiceListRow[]): string {
       { amount: row.amountOwing },
       row.xeroState,
       row.xeroInvoiceId,
+      row.xeroSync?.state ?? "",
+      row.xeroSync?.reason ?? "",
       row.kind === "CREDIT_NOTE" ? "Credit note" : "Invoice",
       row.credits?.invoiceNumber ?? "",
       { amount: row.creditedAmount },

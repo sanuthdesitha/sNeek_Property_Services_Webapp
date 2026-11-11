@@ -84,11 +84,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: result.error }, { status: 502 });
     }
 
-    // Record the payment attempt
+    // Record the payment attempt for the amount actually charged (owing after
+    // payments and credits), not the invoice total.
     await db.clientPayment.create({
       data: {
         invoiceId: invoice.id,
-        amount: invoice.totalAmount,
+        amount: amountCents / 100,
         currency: "AUD",
         status: "PENDING",
         gatewayId: gateway.id,

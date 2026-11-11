@@ -14,7 +14,8 @@
 import type { EStage } from "@/components/v2/ui/stage-bar";
 import type { ClientInvoiceListRow } from "./client-invoice-list-types";
 
-export type StageFacts = Pick<ClientInvoiceListRow, "status" | "sentAt" | "xeroInvoiceId" | "xeroState">;
+export type StageFacts = Pick<ClientInvoiceListRow, "status" | "sentAt" | "xeroInvoiceId" | "xeroState"> &
+  Partial<Pick<ClientInvoiceListRow, "xeroSync">>;
 
 export type InvoiceStageView =
   | { terminal: { title: string; description: string }; stages: [] }
@@ -37,7 +38,14 @@ function sentStage(facts: StageFacts): EStage {
 
 function xeroStage(facts: StageFacts): EStage {
   const base = { key: "xero", label: "In Xero" };
-  if (facts.xeroInvoiceId) return { ...base, state: "done" };
+  if (facts.xeroInvoiceId) {
+    // Done = Xero returned an id. The note is the last status pull, when there is one.
+    const sync = facts.xeroSync?.state;
+    if (sync === "NEEDS_REVIEW") return { ...base, state: "done", note: "Needs review" };
+    if (sync === "UNKNOWN") return { ...base, state: "done", note: "State unknown" };
+    if (sync === "PAID_IN_XERO") return { ...base, state: "done", note: "Paid in Xero" };
+    return { ...base, state: "done" };
+  }
   if (facts.xeroState === "PENDING") return { ...base, state: "pending", note: "Pending or failed" };
   return { ...base, state: "todo" };
 }

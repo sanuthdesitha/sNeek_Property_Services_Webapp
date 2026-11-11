@@ -3,8 +3,8 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { deleteCase, getCaseById, updateCase } from "@/lib/cases/service";
-import { notifyCaseUpdated } from "@/lib/cases/notifications";
+import { deleteCase, getCaseById } from "@/lib/cases/service";
+import { applyCaseUpdate } from "@/lib/cases/apply-update";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { CASE_STATUSES } from "@/lib/cases/status";
 
@@ -53,44 +53,19 @@ export async function PATCH(
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = patchSchema.parse(await req.json().catch(() => ({})));
-    const before = await getCaseById(params.id);
-    if (!before) {
-      return NextResponse.json({ error: "Case not found." }, { status: 404 });
-    }
-    const statusChanged = Boolean(body.status && body.status !== before.status);
-    if (statusChanged && !body.statusChangeNote?.trim()) {
-      return NextResponse.json({ error: "A note is required when changing case status." }, { status: 400 });
-    }
-    const updated = await updateCase(params.id, body, {
-      actorId: session.user.id,
-      statusChangeNote: body.statusChangeNote?.trim() || null,
+    const { statusChangeNote, ...patch } = body;
+    // The rules (required status note, status comment, notification) live in
+    // applyCaseUpdate so the bulk endpoint applies exactly the same ones.
+    const result = await applyCaseUpdate({
+      caseId: params.id,
+      patch,
+      statusChangeNote,
+      actor: { id: session.user.id, name: session.user.name, email: session.user.email },
     });
-    if (!updated) {
-      return NextResponse.json({ error: "Case not found." }, { status: 404 });
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
     }
-    if (statusChanged) {
-      const fromLabel = before.status.replace(/_/g, " ");
-      const toLabel = updated.status.replace(/_/g, " ");
-      const note = body.statusChangeNote?.trim();
-      await db.caseComment.create({
-        data: {
-          caseId: updated.id,
-          authorUserId: session.user.id,
-          isInternal: true,
-          body: `Status changed from ${fromLabel} to ${toLabel}.\n\n${note}`,
-        },
-      });
-    }
-    await notifyCaseUpdated({
-      caseItem: updated,
-      actorLabel: session.user.name || session.user.email || "Admin",
-      updateNote: statusChanged
-        ? `Status updated to ${updated.status.replace(/_/g, " ")}${body.statusChangeNote?.trim() ? `: ${body.statusChangeNote.trim()}` : ""}`
-        : body.status
-          ? `Status reviewed as ${updated.status.replace(/_/g, " ")}`
-        : "Case details updated",
-      notifyClient: body.clientVisible === true || updated.clientVisible === true,
-    });
+    const updated = result.case;
     return NextResponse.json(updated);
   } catch (err: any) {
     return NextResponse.json(

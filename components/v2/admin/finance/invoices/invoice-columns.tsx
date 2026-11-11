@@ -9,7 +9,8 @@ import { format } from "date-fns";
 import type { EDataColumn } from "@/components/v2/ui/data-table";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import type { ClientInvoiceSort } from "@/lib/billing/client-invoice-list-types";
-import { STATUS_LABEL, fmtDate, fmtDay, money, type InvoiceRow, type InvoiceStatus } from "./invoice-model";
+import { xeroDisplay } from "@/lib/billing/client-invoice-xero-display";
+import { STATUS_LABEL, fmtDate, fmtDay, fmtStamp, money, type InvoiceRow, type InvoiceStatus } from "./invoice-model";
 
 export const STATUS_PILL: Record<InvoiceStatus, EPillTone> = {
   DRAFT: "neutral",
@@ -79,9 +80,15 @@ function CreditLinks({ invoice }: { invoice: InvoiceRow }) {
 }
 
 function XeroCell({ invoice }: { invoice: InvoiceRow }) {
-  if (invoice.xeroState === "PUSHED") return <EPill tone="ok">In Xero</EPill>;
-  if (invoice.xeroState === "PENDING") return <EPill tone="bad">Pending or failed</EPill>;
-  return <span className="text-[hsl(var(--e-muted-foreground))]">Not in Xero</span>;
+  const view = xeroDisplay(invoice);
+  if (view.key === "none") return <span className="text-[hsl(var(--e-muted-foreground))]">Not in Xero</span>;
+  const detail = view.reason ?? (view.checkedAt ? `Last checked ${fmtStamp(view.checkedAt)}` : null);
+  return (
+    <span className="inline-flex max-w-[14rem] flex-col items-start gap-0.5">
+      <EPill tone={view.tone}>{view.label}</EPill>
+      {detail ? <span className="text-[0.6875rem] leading-tight text-[hsl(var(--e-muted-foreground))]">{detail}</span> : null}
+    </span>
+  );
 }
 
 export function invoiceColumns(input: {

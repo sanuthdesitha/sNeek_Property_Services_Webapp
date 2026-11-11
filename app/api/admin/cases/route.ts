@@ -5,6 +5,9 @@ import { requireRole } from "@/lib/auth/session";
 import { createCase, listCaseAssignees, listCases } from "@/lib/cases/service";
 import { notifyCaseCreated } from "@/lib/cases/notifications";
 import { CASE_STATUSES } from "@/lib/cases/status";
+import { isListQueryError } from "@/lib/admin/list-query";
+import { readCaseSummaryRequest, buildCaseSummaryResponse } from "@/lib/cases/summary-request";
+import { validateCaseLinks, CaseLinkError } from "@/lib/cases/link-validation";
 
 const querySchema = z.object({
   status: z.string().trim().optional(),
@@ -38,6 +41,12 @@ export async function GET(req: NextRequest) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const { searchParams } = new URL(req.url);
+    // The redesigned inbox asks for summaries (no comment or attachment bodies)
+    // with server paging; every other caller keeps the original shape below.
+    if (searchParams.get("shape") === "summary") {
+      const request = readCaseSummaryRequest(searchParams);
+      return NextResponse.json(await buildCaseSummaryResponse(request, session.user));
+    }
     const query = querySchema.parse({
       status: searchParams.get("status") ?? undefined,
       caseType: searchParams.get("caseType") ?? undefined,
@@ -63,6 +72,9 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err: any) {
+    if (isListQueryError(err)) {
+      return NextResponse.json({ error: err.message, field: err.field }, { status: 400 });
+    }
     return NextResponse.json(
       { error: err.message ?? "Could not load cases." },
       { status: err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400 }
@@ -74,8 +86,12 @@ export async function POST(req: NextRequest) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = createSchema.parse(await req.json().catch(() => ({})));
+    // Links chosen in the dialog are checked here: they must exist and agree
+    // with each other (a job implies its property, as on update).
+    const links = await validateCaseLinks({ jobId: body.jobId, propertyId: body.propertyId, clientId: body.clientId });
     const created = await createCase({
       ...body,
+      ...links,
       source: body.source ?? "ADMIN",
       comment: body.description?.trim()
         ? {
@@ -93,6 +109,9 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json(created, { status: 201 });
   } catch (err: any) {
+    if (err instanceof CaseLinkError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
     return NextResponse.json(
       { error: err.message ?? "Could not create case." },
       { status: err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400 }

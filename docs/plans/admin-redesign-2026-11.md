@@ -245,3 +245,14 @@ Each of these would change a business rule, money, or who can see or do what, so
 | No per-client payment terms; the slow-payer finding uses the default for everyone | Insights | Add per-client terms? |
 | Monthly Insights email | Insights | Needs a schedule, a stored recipient and a settings entry; build it? |
 | Credit notes are not allocated to the original invoice in Xero | Invoices | Left as a manual step in Xero |
+
+## Owner decisions on the waiting items (2026-11-11, second set)
+
+1. **Reminders and notifications.** Move job reminders onto the notification pipeline, and make sure every notification that works today still goes out afterwards (switch the needed transports on as part of the move; nothing may silently stop). The owner wants all notifications controlled from ONE place: a single notifications area showing every notification type, who receives it, by which transport, whether it is on, and its delivery log.
+2. **Voided invoices and delete/reset.** A line on a voided invoice must not block deleting or resetting a job.
+3. **INVOICED with no live invoice line.** Fix the inconsistency: one rule everywhere. A job is invoiced only while it has a line on a non-void invoice; when an invoice is voided or a credit fully reverses it, its jobs stop counting as invoiced and are billable again.
+4. **Default pay rate.** Do what is right: a clean whose cleaner has no pay rate set is not costed at a silent default in the Finance overview; it is left out, counted, and flagged so the rate can be set.
+5. **Insights revenue.** Use invoiced line totals as the fixed record for past periods; scheduled charge only for work not yet invoiced, labelled as such.
+6. **Build:** per-client payment terms (used for due dates, overdue and the slow-payer finding) and the monthly Insights email (schedule, stored recipients, a settings entry, sent through the notification pipeline).
+
+Build order for these: a "Finance decisions" step (2 to 6, includes a migration for per-client terms and email settings) and a "Notifications in one place" step (1), each after the step currently holding the schema.

@@ -10,6 +10,7 @@ import { getMoneyAttentionCounts } from "@/lib/admin/attention-counts";
 import { getOpsAccess } from "@/lib/rbac/ops-access";
 import { canUseOpsPath } from "@/lib/rbac/ops-catalog";
 import { getXeroStatus } from "@/lib/xero/client";
+import { readXeroSyncStatus } from "@/lib/billing/client-invoice-xero-sync";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { EKpiLink } from "@/components/v2/admin/estate-kit";
 import { cn } from "@/lib/utils";
@@ -49,7 +50,10 @@ async function readXero(): Promise<XeroConnectionSummary> {
   try {
     const status = await getXeroStatus();
     if (!status) return { state: "not-connected" };
-    return { state: "connected", tenantName: status.tenantName ?? null, lastSyncAt: status.lastSyncAt ?? null };
+    // The last whole hourly check against Xero that read everything it asked
+    // for; not XeroConnection.lastSyncAt, which only records a token refresh.
+    const sync = await readXeroSyncStatus().catch(() => ({ lastSuccessAt: null }));
+    return { state: "connected", tenantName: status.tenantName ?? null, lastSyncAt: sync.lastSuccessAt };
   } catch {
     return { state: "unknown" };
   }

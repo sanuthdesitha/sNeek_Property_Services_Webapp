@@ -23,6 +23,7 @@ import { EditorFields, EditorTotals } from "./editor-fields";
 import { EditorLines } from "./editor-lines";
 import { EditorChecks } from "./editor-checks";
 import { HistoryCard, SendCard, XeroCard } from "./editor-panels";
+import { useXeroRefresh } from "./use-xero-refresh";
 import { RegroupLineDialog, RemoveLineDialog } from "./editor-line-dialogs";
 import { ClientReferenceField, CreditLinks, EditorFooterActions } from "./editor-extras";
 import { lineSections, pdfGroupsLines } from "./line-sections";
@@ -65,6 +66,7 @@ function StatusBanner({ status, onDismiss }: { status: SaveStatus; onDismiss: ()
 export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoiceEditorData; backHref: string }) {
   const router = useRouter();
   const editor = useInvoiceEditor(initial);
+  const { state: xeroRefresh, refresh: refreshFromXero } = useXeroRefresh(initial.row.id, editor.reload);
   const { data, drafts, status, saving } = editor;
   const [grouped, setGrouped] = useState(() => pdfGroupsLines(initial.lines));
   const [invalid, setInvalid] = useState<Record<string, string>>({});
@@ -251,7 +253,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
             disabledReason={unsaved ? UNSAVED_ACTION_HINT : null}
             onSend={() => void runAction(actions.includes("resend") ? "resend" : "send")}
           />
-          <XeroCard data={data} />
+          <XeroCard data={data} onRefresh={() => void refreshFromXero()} refresh={xeroRefresh} disabled={frozen} />
           <HistoryCard data={data} />
         </aside>
       </div>

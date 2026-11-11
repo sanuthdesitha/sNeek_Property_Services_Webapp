@@ -29,9 +29,28 @@ export type ClientInvoiceStatusFilter = (typeof CLIENT_INVOICE_STATUS_FILTERS)[n
  * the reservation PENDING, so "pending" also covers failed pushes; the two
  * cannot be told apart from the data.
  */
-export const CLIENT_INVOICE_XERO_FILTERS = ["any", "none", "pushed", "pending"] as const;
+export const CLIENT_INVOICE_XERO_FILTERS = [
+  "any",
+  "none",
+  "pushed",
+  "pending",
+  // From the Xero status pull (metadata.xeroSync.state).
+  "in-xero",
+  "paid-in-xero",
+  "needs-review",
+  "unknown",
+] as const;
 export type ClientInvoiceXeroFilter = (typeof CLIENT_INVOICE_XERO_FILTERS)[number];
 export type ClientInvoiceXeroState = "NONE" | "PUSHED" | "PENDING";
+
+/** The last Xero status pull for this invoice, from metadata.xeroSync; null when never checked. */
+export type ClientInvoiceXeroSyncView = {
+  state: "IN_XERO" | "PAID_IN_XERO" | "NEEDS_REVIEW" | "UNKNOWN";
+  reason: string | null;
+  xeroStatus: string | null;
+  checkedAt: string;
+  lastReadAt: string | null;
+};
 
 export type ClientInvoiceListFilters = {
   status: ClientInvoiceStatusFilter;
@@ -71,6 +90,7 @@ export type ClientInvoiceListRow = {
   xeroInvoiceId: string | null;
   xeroExportedAt: string | null;
   xeroState: ClientInvoiceXeroState;
+  xeroSync: ClientInvoiceXeroSyncView | null;
   client: { id: string; name: string; email: string | null };
   kind: ClientInvoiceKindValue;
   /** The client's reference / PO number. */

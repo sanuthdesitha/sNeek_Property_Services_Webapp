@@ -16,6 +16,7 @@ import { InvoiceFilters } from "./invoice-filters";
 import { invoiceColumns } from "./invoice-columns";
 import { InvoiceRowActions } from "./invoice-row-actions";
 import { InvoiceBulkBar } from "./invoice-bulk";
+import { XeroRefreshResults, useListXeroRefresh } from "./invoice-xero-refresh";
 import { InvoiceDialogs, type InvoiceDialog } from "./invoice-dialogs";
 import type { InvoiceActionKey, InvoiceFormContext, InvoiceRow } from "./invoice-model";
 import { isDirectInvoiceAction, runDirectInvoiceAction } from "./invoice-direct-actions";
@@ -82,6 +83,7 @@ export function InvoiceList() {
     reload();
     setStatsToken((token) => token + 1);
   }, [reload]);
+  const xero = useListXeroRefresh(refresh);
 
   // "New invoice → …" arrives as ?new=jobs, ?new=blank or ?new=credit.
   useEffect(() => {
@@ -175,6 +177,7 @@ export function InvoiceList() {
   }
 
   const selectedRows = Array.from(selected.values());
+  const pageXeroIds = (payload?.rows ?? []).filter((row) => row.xeroInvoiceId).map((row) => row.id);
   const exportParams = new URLSearchParams(listApiQuery(state));
   if (selectedRows.length) exportParams.set("ids", selectedRows.map((row) => row.id).join(","));
 
@@ -188,12 +191,24 @@ export function InvoiceList() {
         disabled={bulkRunning}
         onChange={update}
       />
-      {/* The old screen's "Refresh": re-reads the page of rows and the figures. */}
-      <div className="flex justify-end">
+      {/* The old screen's "Refresh": re-reads the page of rows and the figures.
+          "Refresh from Xero" checks this page's invoices that are in Xero. */}
+      <div className="flex flex-wrap justify-end gap-2">
+        <EButton
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={loading || bulkRunning || xero.run.status === "running" || pageXeroIds.length === 0}
+          onClick={() => void xero.refresh(pageXeroIds)}
+          title={pageXeroIds.length ? undefined : "No invoice on this page is in Xero."}
+        >
+          Refresh from Xero
+        </EButton>
         <EButton type="button" size="sm" variant="ghost" disabled={loading || bulkRunning} onClick={refresh}>
           Refresh
         </EButton>
       </div>
+      <XeroRefreshResults run={xero.run} onDismiss={xero.dismiss} />
       <ECard className="overflow-hidden">
         <EDataTable
           label="Client invoices"
@@ -243,6 +258,8 @@ export function InvoiceList() {
         onClear={() => setSelected(new Map())}
         onFinished={onBulkFinished}
         onRunningChange={setBulkRunning}
+        onXeroRefresh={() => void xero.refresh(selectedRows.map((row) => row.id))}
+        xeroRefreshing={xero.run.status === "running"}
       />
       <InvoiceDialogs dialog={dialog} context={context} onClose={() => setDialog(null)} onDone={refresh} />
     </div>

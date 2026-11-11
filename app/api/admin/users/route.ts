@@ -16,6 +16,7 @@ import {
   sendInvitationEmail,
 } from "@/lib/auth/invitations";
 import { randomBytes } from "node:crypto";
+import { accountListError, accountListResponse } from "@/lib/accounts/list/http";
 
 const overrideSchema = z.object({
   userId: z.string().cuid(),
@@ -29,6 +30,16 @@ const overrideSchema = z.object({
 });
 
 export async function GET(req: NextRequest) {
+  // The Accounts hub's paged, sorted list. Every other caller keeps the plain
+  // array below, unchanged.
+  if (new URL(req.url).searchParams.get("paginated") === "1") {
+    try {
+      const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+      return await accountListResponse(session.user, new URL(req.url).searchParams);
+    } catch (err) {
+      return accountListError(err, "Could not load accounts.");
+    }
+  }
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const { searchParams } = new URL(req.url);

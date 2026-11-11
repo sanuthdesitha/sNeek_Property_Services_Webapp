@@ -18,6 +18,7 @@ import { ERowMenu } from "@/components/v2/ui/row-menu";
 import { InvoiceCadenceSettings } from "./invoice-cadence";
 
 export type XeroConnectionSummary =
+  /** lastSyncAt: the last successful whole Xero status check, or null when none is stored. */
   | { state: "connected"; tenantName: string | null; lastSyncAt: string | null }
   | { state: "not-connected" }
   | { state: "unknown" };
@@ -34,7 +35,7 @@ export function XeroConnectionBadge({ xero }: { xero: XeroConnectionSummary }) {
   if (xero.state === "connected") {
     return (
       <EPill tone="ok">
-        Xero connected{xero.lastSyncAt ? ` · last sync ${relativeTime(xero.lastSyncAt)}` : ""}
+        Xero connected{xero.lastSyncAt ? ` · last checked ${relativeTime(xero.lastSyncAt)}` : ""}
       </EPill>
     );
   }

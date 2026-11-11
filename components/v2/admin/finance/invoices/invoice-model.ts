@@ -5,6 +5,7 @@
  * applied to its row buttons, unchanged.
  */
 import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import type { StartedWorkReview } from "@/lib/billing/started-work-reconciliation";
 import type {
   ClientInvoiceListRow,
@@ -77,6 +78,8 @@ export const PAY_METHOD_LABEL: Record<string, string> = {
   // One-click "Mark as paid" — not offered in the record-payment dropdown,
   // but shown in the ledger/receipt for payments recorded that way.
   MANUAL: "Marked as paid",
+  // Recorded by the Xero status pull, never chosen by hand.
+  XERO: "Xero",
 };
 
 /** Statuses on which a payment can be recorded / the invoice marked paid. */
@@ -113,6 +116,16 @@ export function fmtDate(v: string | null | undefined) {
   if (!v) return "—";
   try {
     return format(new Date(v), "dd MMM yyyy");
+  } catch {
+    return v;
+  }
+}
+
+/** A moment in the organisation's timezone (Sydney, as the list's due days). */
+export function fmtStamp(v: string | null | undefined) {
+  if (!v) return "—";
+  try {
+    return formatInTimeZone(new Date(v), "Australia/Sydney", "d MMM, HH:mm");
   } catch {
     return v;
   }

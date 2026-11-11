@@ -63,6 +63,8 @@ export function InvoiceBulkBar({
   onClear,
   onFinished,
   onRunningChange,
+  onXeroRefresh,
+  xeroRefreshing = false,
 }: {
   selectedRows: InvoiceRow[];
   exportHref: string;
@@ -70,6 +72,9 @@ export function InvoiceBulkBar({
   /** Called with the server's answer so the list can reload and keep refused rows selected. */
   onFinished: (response: ClientInvoiceBulkResponse) => void;
   onRunningChange: (running: boolean) => void;
+  /** "Refresh from Xero" for the selection (its own endpoint, per-row outcomes). */
+  onXeroRefresh?: () => void;
+  xeroRefreshing?: boolean;
 }) {
   const [pending, setPending] = useState<ClientInvoiceBulkAction | null>(null);
   const [reviewed, setReviewed] = useState(false);
@@ -147,6 +152,11 @@ export function InvoiceBulkBar({
         <EBulkButton disabled={tooMany} onClick={() => ask("approve")}>Approve</EBulkButton>
         <EBulkButton disabled={tooMany} onClick={() => ask("approve-and-send")}>Approve and send</EBulkButton>
         <EBulkButton disabled={tooMany} onClick={() => ask("xero-push")}>Push to Xero</EBulkButton>
+        {onXeroRefresh ? (
+          <EBulkButton disabled={tooMany || xeroRefreshing} onClick={onXeroRefresh}>
+            Refresh from Xero
+          </EBulkButton>
+        ) : null}
         <EBulkButton onClick={exportCsv}>Export CSV</EBulkButton>
       </EBulkBar>
       {exportError ? (

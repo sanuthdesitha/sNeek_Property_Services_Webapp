@@ -9,6 +9,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
 import type { ClientInvoiceEditorData, HistoryEntry } from "@/lib/billing/client-invoice-editor-types";
+import { xeroDisplay } from "@/lib/billing/client-invoice-xero-display";
 
 const LABEL = "block text-[0.6875rem] font-[600] text-[hsl(var(--e-text-secondary))]";
 const MUTED = "text-[0.75rem] text-[hsl(var(--e-muted-foreground))]";
@@ -85,20 +86,42 @@ export function SendCard({
 
 function xeroStateText(data: ClientInvoiceEditorData): React.ReactNode {
   const { xero } = data;
-  if (xero.xeroInvoiceId) {
-    return (
-      <>
-        <EPill tone="ok">In Xero</EPill> <span className={MUTED}>since {when(xero.exportedAt, data.timezone)}</span>
-      </>
-    );
+  if (!xero.xeroInvoiceId && xero.state !== "PENDING" && xero.exportedAt) {
+    return <span>Exported {when(xero.exportedAt, data.timezone)}, but no Xero invoice id is stored</span>;
   }
-  if (xero.state === "PENDING") return <EPill tone="bad">Pending or failed: retry the push</EPill>;
-  if (xero.exportedAt) return <span>Exported {when(xero.exportedAt, data.timezone)}, but no Xero invoice id is stored</span>;
-  return <span>Not pushed</span>;
+  const view = xeroDisplay(data.row);
+  if (view.key === "none") return <span>Not pushed</span>;
+  return (
+    <>
+      <EPill tone={view.tone}>{view.label}</EPill>
+      {view.key === "unchecked" && xero.exportedAt ? <span className={MUTED}> pushed {when(xero.exportedAt, data.timezone)}</span> : null}
+      {view.checkedAt ? <span className={`block ${MUTED}`}>Last checked {when(view.checkedAt, data.timezone)}</span> : null}
+      {view.reason ? <span className={`block ${MUTED}`}>{view.reason}</span> : null}
+      {data.row.xeroSync?.xeroStatus ? (
+        <span className={`block ${MUTED}`}>
+          Xero status{view.key === "unknown" ? " at the last successful check" : ""}: {data.row.xeroSync.xeroStatus.toLowerCase()}
+        </span>
+      ) : null}
+    </>
+  );
 }
 
-export function XeroCard({ data }: { data: ClientInvoiceEditorData }) {
+export type XeroRefreshState = { status: "idle" } | { status: "running" } | { status: "done"; message: string; ok: boolean };
+
+export function XeroCard({
+  data,
+  onRefresh,
+  refresh,
+  disabled,
+}: {
+  data: ClientInvoiceEditorData;
+  /** "Refresh from Xero" for this invoice; omitted when it cannot be checked. */
+  onRefresh?: () => void;
+  refresh?: XeroRefreshState;
+  disabled?: boolean;
+}) {
   const { xero } = data;
+  const checkable = Boolean(xero.xeroInvoiceId) && data.row.status !== "VOID" && !(data.row.kind === "INVOICE" && data.row.status === "PAID");
   return (
     <ECard className="space-y-2.5 px-4 py-3.5">
       <EEyebrow>Xero</EEyebrow>
@@ -126,7 +149,21 @@ export function XeroCard({ data }: { data: ClientInvoiceEditorData }) {
         <dd className="min-w-0">{xeroStateText(data)}</dd>
       </dl>
       {xero.settingsError ? <p className={MUTED}>Xero settings could not be read: {xero.settingsError}</p> : null}
-      <p className={MUTED}>Payments made in Xero are not read back yet. Record them here.</p>
+      <p className={MUTED}>
+        {data.row.kind === "CREDIT_NOTE"
+          ? "Checked against Xero every hour. A credit note is never paid here; the check confirms Xero agrees."
+          : "Checked against Xero every hour. A payment seen in Xero is recorded here automatically; anything that does not match is left for review."}
+      </p>
+      {checkable && onRefresh ? (
+        <EButton type="button" size="sm" variant="outline" disabled={disabled || refresh?.status === "running"} onClick={onRefresh}>
+          {refresh?.status === "running" ? "Checking Xero…" : "Refresh from Xero"}
+        </EButton>
+      ) : null}
+      {refresh?.status === "done" ? (
+        <p role="status" className={refresh.ok ? MUTED : "text-[0.75rem] text-[hsl(var(--e-danger))]"}>
+          {refresh.message}
+        </p>
+      ) : null}
     </ECard>
   );
 }
@@ -155,8 +192,8 @@ export function HistoryCard({ data }: { data: ClientInvoiceEditorData }) {
         <p className={MUTED}>Nothing recorded yet.</p>
       )}
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-        Payments, reversals, voids and started-work reviews are recorded with who did them. Line edits, approval, sending and
-        Xero pushes are not audited; only the dates the invoice stores are shown.
+        Payments, reversals, voids and started-work reviews are recorded with who did them. Sends, Xero pushes and Xero checks
+        that changed something are recorded too. Line edits and approval are not audited; only the dates the invoice stores are shown.
       </p>
     </ECard>
   );
