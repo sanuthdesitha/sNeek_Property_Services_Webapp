@@ -118,6 +118,8 @@ Today the page only manages the per-job client PDF and shows no figures.
 - "Worth knowing" lists the largest period-on-period changes above a threshold, each linking to the records behind it. It is rule-based, not generated text.
 - CSV export per table; optional monthly email through the notification pipeline.
 
+> **Built 2026-11-11, awaiting the final build and browser pass.** Delivered: Insights page and six tabs, `lib/insights/*` with one period helper on Quality's Sydney days, every figure as value + basis + excluded-with-reason (withheld below the minimum, no change without comparable data), four rule-based finding detectors with named thresholds and links, server-sorted/paged entity tables, Time and cost, CSV per tab, finance fields omitted server-side for operations managers without `finance`; PDFs tab with the laundry toggle, bulk visibility / regenerate / delete with per-row outcomes, shared delete confirmation, URL filters and legacy-link rule. Deviations: revenue is the scheduled charge (not invoiced money); "Email monthly" not built (no schedule or recipient store); without finance the property preview ranks by time over plan; the client filter is a select styled as the chip. Details: `docs/SYSTEM.md`, "Insights".
+
 ### 2. Jobs
 
 - Split `jobs-workspace.tsx` (1,190 lines) into list, filters, bulk bar and peek panel.

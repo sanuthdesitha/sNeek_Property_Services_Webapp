@@ -187,3 +187,12 @@ describe("URL state", () => {
       .toBe("start=2026-11-09&end=2026-11-15&rows=properties&status=ASSIGNED%2CEN_ROUTE&unassigned=1");
   });
 });
+
+describe("operations-manager permission", () => {
+  it("puts the calendar endpoints under the Calendar permission, like the page", async () => {
+    const { opsRequestFeature } = await import("@/lib/rbac/ops-catalog");
+    expect(opsRequestFeature("/api/admin/calendar?start=2026-11-09&end=2026-11-15")).toBe("calendar");
+    expect(opsRequestFeature("/api/admin/calendar/check-move")).toBe("calendar");
+    expect(opsRequestFeature("/v2/admin/calendar")).toBe("calendar");
+  });
+});

@@ -780,3 +780,20 @@ Verified
 Not verified
 - Xero credit-note push: mocked only (no provider credentials); the real `PUT /CreditNotes` payload, and allocation in Xero, are unexercised.
 - Production build, full Vitest suite, browser checks at 390/1280 light/dark (deferred by the owner to the final pass): editor reference field, discount and note dialogs, credit-note links, "New invoice ▾" blank and credit-note dialogs, Fully credited pills.
+
+## Follow-up: Insights (admin redesign step 14, 2026-11-11)
+
+What changed
+- `/v2/admin/reports` is now Insights (sidebar label renamed; route and page guard unchanged). Tabs Business, Properties, Clients, Cleaners, Time and cost, and the existing Client report PDFs manager. Services in `lib/insights/*`, API `GET /api/admin/insights/*`, components `components/v2/admin/insights/*`. Definitions and exclusion rules: `docs/SYSTEM.md`, "Insights".
+- Revenue is the scheduled charge (`computeClientCharge`), cleaner cost the recorded pay (`computeJobPaySummary`); margin only over cleans with both; QA and issue figures reuse the Quality hub's clean set, authoritative-review rule and issue period. Missing inputs are excluded and counted; figures below the minimum basis are withheld; no change is shown without comparable data.
+- Operations managers: Insights follows the `reports` feature (`insights` added to the ops catalog); financial fields need `finance` and are omitted server-side.
+- PDFs tab: laundry visibility toggle, bulk visibility / regenerate / delete (`POST /api/admin/reports/bulk`, per-row outcomes), single delete confirmation moved to the shared `EConfirmModal`, write controls disabled for a read-only reports pack, filters in the URL; old manager links (and the Cases screen's `?reportId=` link) open the PDFs tab. Single report routes now call `lib/reports/admin-report-actions.ts` (same behaviour).
+- "Email monthly" was not built (no schedule, stored recipient or settings destination exists to send it through the notification pipeline).
+
+Verified
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- 21 test files, 170 tests passed: new `insights-period`, `insights-measures`, `insights-findings`, `insights-csv-and-url`, `insights-routes`, `report-bulk`, `reports-manager`, `insights-page-access`; existing report-route, ops-catalog/policy, quality and merge-routing files. `quality-hub-routing` updated on purpose for the "Insights" nav label.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard) deferred by the owner to the final pass. No database-backed test ran: the loaders (`lib/insights/load-facts.ts`, `receivables.ts`) are exercised only through mocks, so query shapes against a real schema are covered by TypeScript only.
+- Figures against production-like data (e.g. how many cleans lack a start time, time log or pay rate) were not inspected.
