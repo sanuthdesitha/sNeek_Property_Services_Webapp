@@ -138,6 +138,14 @@ stock, holiday rates, care, stay preparation, linen custody and profit review.
   onboarding surveys move to their saved record URL. Booking and evidence
   recovery retain their existing draft protocols; never resume an empty form at
   a remembered completion step. Validate stored enum values when displaying them.
+- Documented exception (2026-11, Calendar only): the Calendar restores its view and
+  date after a full refresh. The view is saved per view scope in local storage and
+  restored always; the date is saved in session storage with the Sydney day it was
+  saved on and restored only in the same browser session on that day, so a refresh
+  keeps the week being planned while a new visit (or the next day) opens on today.
+  Restored values are written back to the URL; an explicit URL wins; "Today" clears
+  the saved date. Keys live outside the view-memory prefix. Do not copy this to
+  other workspaces without the same owner decision.
 
 ## Operations-manager permissions
 

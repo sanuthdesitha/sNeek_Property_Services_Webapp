@@ -38,6 +38,7 @@ import { collectStructuredAnswerErrors, collectUploadMinimumErrors } from "@/lib
 import { planSubmissionEffects, schemaUsesEffectsOrStockCounts } from "@/lib/forms/form-effects";
 import { damageItemsForEffects, urgentRequestsForEffects } from "@/lib/forms/submission-effects";
 import { extendedValidationOutcome } from "@/lib/forms/submission-warnings";
+import { extendedEnforcementFor } from "@/lib/forms/validation-enforcement-server";
 import { sanitizeNoPhotoReasons } from "@/lib/forms/no-photo-reasons";
 import { resolveEffectiveJobForm } from "@/lib/forms/resolve-effective-job-form";
 import { jobFormRevision } from "@/lib/forms/job-form-revision";
@@ -514,7 +515,11 @@ export async function POST(
     // details-when-no, scale ranges, max files) on the SAME effective schema,
     // property projection and laundry state the checks above used. This
     // release records them as warnings on the submission and accepts it;
-    // ENFORCE_EXTENDED_FORM_VALIDATION switches them to rejections later.
+    // settings.formValidation (lib/forms/validation-enforcement.ts) switches
+    // them to rejections; ENFORCE_EXTENDED_FORM_VALIDATION is its default.
+    // The organisation's "reject submissions that break these checks" switch;
+    // a job started before it was switched on is still accepted with warnings.
+    const extendedEnforcement = await extendedEnforcementFor(db, { jobId: job.id, userId: session.user.id, settings: appSettings.formValidation });
     const extendedValidation = extendedValidationOutcome({
       schema: effectiveSchema,
       answers,
@@ -523,7 +528,7 @@ export async function POST(
       laundryReady: legacyReady,
       requiredChecklistTicksBlockSubmit: submitGateSettings.requiredChecklistTicksBlockSubmit === true,
       noPhoto: { canUseNoPhoto, reasons: noPhotoReasons },
-    });
+    }, extendedEnforcement.enforce);
     if (extendedValidation.reject) {
       return NextResponse.json(
         { error: extendedValidation.message, invalidFields: extendedValidation.violations },

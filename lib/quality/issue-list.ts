@@ -13,6 +13,7 @@ import { ISSUE_ROW_INCLUDE, toIssueRows, type QualityIssueRow } from "./issue-ro
 import type { PeriodRange } from "./period";
 import type { IssueListFilters, IssueSort } from "./types";
 import { issueWhere } from "./where";
+import { severityLabel } from "./severity";
 
 export const ISSUE_EXPORT_LIMIT = 5000;
 
@@ -86,6 +87,7 @@ export function qualityIssuesCsv(rows: QualityIssueRow[], labelFor: (key: string
     "Job number",
     "Category",
     "Severity",
+    "Severity label",
     "Rectification",
     "Rectification minutes",
     "Rectification cost",
@@ -102,6 +104,7 @@ export function qualityIssuesCsv(rows: QualityIssueRow[], labelFor: (key: string
       row.job?.jobNumber ?? "",
       labelFor(row.category),
       row.severity,
+      severityLabel(row.severity),
       row.rectificationStatus,
       row.rectificationMinutes,
       row.rectificationCost === null ? null : row.rectificationCost.toFixed(2),

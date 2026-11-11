@@ -14,10 +14,16 @@ export const COACHING_CLEANERS_API = "/api/admin/users?role=CLEANER";
 export const COACHING_FULL_PAGE = "/v2/admin/workforce/coaching";
 /** The endpoint the "Review bonus" dialog calls (one id stands for all). */
 export const BONUS_DECISION_API = "/api/admin/pay-adjustments/bonus";
+/** Who may create a pay adjustment today (the payroll pack's create route). */
+export const PAY_ADJUSTMENT_CREATE_API = "/api/admin/pay-adjustments";
+/** The manual "Propose bonus" route (quality pack, plus the payroll rule above). */
+export const BONUS_PROPOSAL_API = "/api/admin/quality/bonus-proposals";
 
 export type QualityHubAccess = {
   coaching: { visible: boolean; canManage: boolean; fullPageLink: boolean };
   canDecideBonus: boolean;
+  /** "Propose bonus": exactly who may create a pay adjustment, and act in Quality. */
+  canProposeBonus: boolean;
 };
 
 export function qualityHubAccess(levels: OpsLevels | null, canManageQuality: boolean): QualityHubAccess {
@@ -30,5 +36,6 @@ export function qualityHubAccess(levels: OpsLevels | null, canManageQuality: boo
       fullPageLink: visible && allows(COACHING_FULL_PAGE),
     },
     canDecideBonus: canManageQuality && allows(BONUS_DECISION_API, "PATCH"),
+    canProposeBonus: canManageQuality && allows(PAY_ADJUSTMENT_CREATE_API, "POST") && allows(BONUS_PROPOSAL_API, "POST"),
   };
 }

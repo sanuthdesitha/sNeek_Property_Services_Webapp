@@ -103,11 +103,17 @@ describe("Jobs workspace URL integration", () => {
     expect(params(2)).toMatchObject({ sort: "property", dir: "desc" });
     await act(async () => respond(2, "Harbour"));
     expect(screen.getByText("No rate")).toBeVisible();
-    for (const name of ["Cleaner", "Guest in", "Charge"]) {
-      const header = screen.getByRole("columnheader", { name });
-      expect(within(header).queryByRole("button")).toBeNull();
-      expect(header).not.toHaveAttribute("aria-sort");
-    }
+    // Wave A (on purpose): Cleaner, Guest in and Charge sort on the server over
+    // the whole filtered set (tests/lib/jobs-computed-sort.test.ts).
+    fireEvent.click(within(screen.getByRole("columnheader", { name: /Charge/ })).getByRole("button"));
+    expect(params(3)).toMatchObject({ sort: "charge", dir: "asc" });
+    expect(readJobsState(new URLSearchParams(window.location.search)).sort).toBe("charge");
+    await act(async () => respond(3, "Harbour"));
+    fireEvent.click(within(screen.getByRole("columnheader", { name: /Cleaner/ })).getByRole("button"));
+    expect(params(4)).toMatchObject({ sort: "cleaner", dir: "asc" });
+    await act(async () => respond(4, "Harbour"));
+    fireEvent.click(within(screen.getByRole("columnheader", { name: /Guest in/ })).getByRole("button"));
+    expect(params(5)).toMatchObject({ sort: "guestIn", dir: "asc" });
     expect(readJobsState(new URLSearchParams({ sort: "scheduled_desc" })).sort).toBe("soonest");
   });
 
@@ -305,10 +311,10 @@ describe("Jobs workspace URL integration", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /Select Harbour/ }));
     const bar = screen.getByRole("region", { name: "Bulk actions" });
     expect(within(bar).getByText("1 job selected")).toBeVisible();
-    for (const name of ["Assign cleaner", "Change status", "Send reminder", "Assign QA", "Export selected", "Clear"]) {
+    // Wave A added Reschedule (preview from the Calendar's move check, then the reschedule service).
+    for (const name of ["Assign cleaner", "Change status", "Reschedule", "Send reminder", "Assign QA", "Export selected", "Clear"]) {
       expect(within(bar).getByRole("button", { name: new RegExp(name) })).toBeVisible();
     }
-    expect(within(bar).queryByRole("button", { name: /Reschedule/ })).toBeNull();
     fireEvent.click(within(bar).getByRole("button", { name: "Export selected" }));
     expect(params(1)).toMatchObject({ ids: "Harbour", page: "1", limit: "5000" });
     expect(screen.getByText("Exports the 1 selected job in the current sort order.")).toBeVisible();
@@ -344,5 +350,8 @@ it("renders one heading for the page and keeps the old Manage destination reacha
   await act(async () => respond(0, "Harbour"));
   expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   expect(screen.getByRole("link", { name: "New job" })).toHaveAttribute("href", "/v2/admin/jobs/new");
-  expect(screen.getByRole("link", { name: "Import or bulk create" })).toHaveAttribute("href", "/v2/admin/jobs/new");
+  // Wave A: "Import or bulk create" is its own entry: bulk create (deep link) and CSV import.
+  fireEvent.click(screen.getByRole("button", { name: "Import or bulk create" }));
+  expect(await screen.findByRole("link", { name: "Open bulk create" })).toHaveAttribute("href", "/v2/admin/jobs/new#bulk-create");
+  expect(screen.getByRole("button", { name: "Download template" })).toBeVisible();
 });

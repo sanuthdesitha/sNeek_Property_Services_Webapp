@@ -10,6 +10,7 @@ import * as React from "react";
 import { ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { formatMoney } from "../issues/issue-format";
+import { SEVERITY_SHORT_LABEL, severityCountLabel } from "@/lib/quality/severity";
 import type { SummaryPayload } from "./hub-types";
 
 type CardProps = {
@@ -90,8 +91,14 @@ export function QualityStatCards({
         <StatCard
           label="Issues raised"
           value={issuesRaised.total}
-          aside={issuesRaised.critical > 0 ? <EPill tone="bad">{`${issuesRaised.critical} critical`}</EPill> : <Muted>None critical</Muted>}
-          basis="QA issues raised in the period that match the filters."
+          aside={
+            issuesRaised.critical > 0 ? (
+              <EPill tone="bad">{severityCountLabel(issuesRaised.critical, "CRITICAL")}</EPill>
+            ) : (
+              <Muted>{`None ${SEVERITY_SHORT_LABEL.CRITICAL}`}</Muted>
+            )
+          }
+          basis="QA issues raised in the period that match the filters; the note counts High (stored as critical) issues."
         />
         <StatCard
           label="Fixes still open"

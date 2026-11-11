@@ -4,7 +4,7 @@
  */
 import type { TemplateCheckResult } from "./template-checks";
 
-export const FORM_LIBRARY_SORTS = ["name", "status", "usedBy", "questions", "checks", "changed"] as const;
+export const FORM_LIBRARY_SORTS = ["name", "status", "usedBy", "questions", "avgTime", "completion", "checks", "changed"] as const;
 export type FormLibrarySort = (typeof FORM_LIBRARY_SORTS)[number];
 
 /** The left panel: everything not archived, unpublished changes, or archived. */
@@ -55,6 +55,11 @@ export type FormLibraryRow = {
   /** 0–100; null = too little data (shown as "–"). */
   completionPct: number | null;
   submissionsInWindow: number;
+  /**
+   * Validator errors and warnings, plus the usage check's "never answered"
+   * questions folded in as warnings (rule "never-answered") when the usage
+   * check ran for this row (see FormLibraryPayload.checksBasis).
+   */
   checks: TemplateCheckResult;
   /** Required questions never answered in recent submissions (usage check). */
   neverAnswered: Array<{ id: string; label: string }>;
@@ -70,7 +75,7 @@ export type FormLibraryCounts = {
   active: number;
   drafts: number;
   archived: number;
-  /** Validator problems (errors or warnings) within the current filters. */
+  /** Forms with check errors or warnings (incl. "never answered" when the usage check ran) within the current filters. */
   problems: number;
   /** Non-archived forms per group id ("none" = ungrouped). */
   byGroup: Record<string, number>;
@@ -90,6 +95,14 @@ export type FormLibraryPayload = {
   statsBasis: { weeks: number; minSample: number };
   /** Organisation timezone for formatting "Changed". */
   timezone: string;
+  /**
+   * Where the usage check ("never answered") and the figures were computed:
+   * "all" = every form in the filters (so Has problems, its count and the
+   * Avg time / Completion sorts cover the whole set); "page" = only the rows
+   * shown, because the filtered set had more submissions than the library
+   * reads at once (Has problems then counts validator checks only).
+   */
+  checksBasis: "all" | "page";
 };
 
 /** A library group (folder) with its count of forms that are not archived. */

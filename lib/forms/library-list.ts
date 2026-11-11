@@ -14,10 +14,11 @@ import { FormTemplateVersionKind, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { ListQueryError, listResponse, readQueryValue, type ListQuery } from "@/lib/admin/list-query";
-import { checkTemplateWithDraft } from "./template-checks";
+import { checkTemplateWithDraft, withUsageWarnings } from "./template-checks";
 import { countQuestions, normalizeWording, searchableQuestionText } from "./template-questions";
 import { createUsageResolver, usageWeight } from "./library-usage";
-import { loadUsageFigures } from "./library-figures";
+import { countFigureSubmissions, FIGURES_MAX_SUBMISSIONS, loadUsageFigures } from "./library-figures";
+import type { TemplateUsageFigures } from "./submission-stats";
 import {
   FORM_LIBRARY_SCOPES,
   FORM_LIBRARY_STATUSES,
@@ -86,6 +87,14 @@ function statusOf(template: TemplateRecord, draft: DraftRecord | undefined): For
 
 const STATUS_ORDER: Record<FormLibraryStatus, number> = { live: 0, "live-draft": 1, draft: 2, archived: 3 };
 
+type Figures = ReadonlyMap<string, TemplateUsageFigures>;
+
+/** Avg time / Completion of a row; null = "–" (too little data), always sorted last. */
+function figureOf(sort: "avgTime" | "completion", row: Candidate, figures: Figures): number | null {
+  const figure = figures.get(row.id);
+  return (sort === "avgTime" ? figure?.avgMinutes : figure?.completionPct) ?? null;
+}
+
 function compareRows(sort: FormLibrarySort, a: Candidate, b: Candidate): number {
   switch (sort) {
     case "status":
@@ -103,11 +112,18 @@ function compareRows(sort: FormLibrarySort, a: Candidate, b: Candidate): number 
   }
 }
 
-function sortRows(rows: Candidate[], sort: FormLibrarySort, dir: "asc" | "desc"): Candidate[] {
+export function sortRows(rows: Candidate[], sort: FormLibrarySort, dir: "asc" | "desc", figures: Figures = new Map()): Candidate[] {
   const sign = dir === "asc" ? 1 : -1;
-  return [...rows].sort(
-    (a, b) => sign * compareRows(sort, a, b) || a.name.localeCompare(b.name, "en", { sensitivity: "base" }) || a.id.localeCompare(b.id),
-  );
+  const byName = (a: Candidate, b: Candidate) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }) || a.id.localeCompare(b.id);
+  if (sort === "avgTime" || sort === "completion") {
+    return [...rows].sort((a, b) => {
+      const x = figureOf(sort, a, figures);
+      const y = figureOf(sort, b, figures);
+      if (x === null || y === null) return x === y ? byName(a, b) : x === null ? 1 : -1;
+      return sign * (x - y) || byName(a, b);
+    });
+  }
+  return [...rows].sort((a, b) => sign * compareRows(sort, a, b) || byName(a, b));
 }
 
 function matchesBaseFilters(row: Candidate, filters: FormLibraryFilters): boolean {
@@ -187,20 +203,39 @@ async function loadCandidates(): Promise<{ candidates: Candidate[]; timezone: st
   return { candidates, timezone: settings.timezone || "Australia/Sydney" };
 }
 
+/** Fold each row's "never answered" usage check into its Checks (rows without figures are left as they are). */
+function withUsageChecks(rows: Candidate[], figures: Figures): Candidate[] {
+  return rows.map((row) => {
+    const figure = figures.get(row.id);
+    return figure ? { ...row, checks: withUsageWarnings(row.checks, figure.neverAnswered) } : row;
+  });
+}
+
 export async function listFormLibrary(input: {
   query: ListQuery<FormLibrarySort>;
   filters: FormLibraryFilters;
   now?: Date;
 }): Promise<FormLibraryPayload> {
+  const now = input.now ?? new Date();
   const { candidates, timezone } = await loadCandidates();
-  const base = candidates.filter((row) => matchesBaseFilters(row, input.filters));
+  const baseRaw = candidates.filter((row) => matchesBaseFilters(row, input.filters));
+  // Figures for the whole filtered set when the database says it is a
+  // bounded read; otherwise only for the page, and the figure sorts refuse.
+  const submissions = await countFigureSubmissions(baseRaw.map((row) => row.id), now);
+  const wholeSet = submissions <= FIGURES_MAX_SUBMISSIONS;
+  if (!wholeSet && (input.query.sort === "avgTime" || input.query.sort === "completion")) {
+    throw new ListQueryError(
+      `Sorting by ${input.query.sort === "avgTime" ? "Avg time" : "Completion"} reads every submission of the forms shown (${submissions.toLocaleString("en-AU")}, more than ${FIGURES_MAX_SUBMISSIONS.toLocaleString("en-AU")}). Narrow the filters or search, then sort again.`,
+      "sort",
+    );
+  }
+  const wholeFigures = wholeSet ? await loadUsageFigures(baseRaw.map((row) => ({ id: row.id, schema: row.liveSchema })), now) : new Map<string, TemplateUsageFigures>();
+  const base = withUsageChecks(baseRaw, wholeFigures);
   const filtered = input.filters.problems ? base.filter((row) => row.checks.status !== "pass") : base;
-  const sorted = sortRows(filtered, input.query.sort, input.query.dir);
-  const page = sorted.slice(input.query.skip, input.query.skip + input.query.take);
-  const figures = await loadUsageFigures(
-    page.map((row) => ({ id: row.id, schema: row.liveSchema })),
-    input.now ?? new Date(),
-  );
+  const sorted = sortRows(filtered, input.query.sort, input.query.dir, wholeFigures);
+  const pageRaw = sorted.slice(input.query.skip, input.query.skip + input.query.take);
+  const figures = wholeSet ? wholeFigures : await loadUsageFigures(pageRaw.map((row) => ({ id: row.id, schema: row.liveSchema })), now);
+  const page = wholeSet ? pageRaw : withUsageChecks(pageRaw, figures);
   const rows: FormLibraryRow[] = page.map(({ searchText: _search, liveSchema: _schema, ...row }) => {
     const figure = figures.get(row.id);
     return {
@@ -217,5 +252,6 @@ export async function listFormLibrary(input: {
     counts: buildCounts(candidates, base),
     statsBasis: { weeks: STATS_DEFAULT_WEEKS, minSample: MIN_STATS_SAMPLE },
     timezone,
+    checksBasis: wholeSet ? "all" : "page",
   };
 }

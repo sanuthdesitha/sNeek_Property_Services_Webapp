@@ -9,6 +9,8 @@ import type { FormField } from "@/lib/forms/types";
 import { getFieldTypeDef } from "@/lib/forms/field-types";
 import { EField, EInput, ETextarea, ESelect, ESwitch } from "@/components/v2/admin/estate-kit";
 import { PanelSection as Section } from "./panel-section";
+import { StockCountSettings, TableSettings } from "./structured-type-settings";
+import { EffectSettings } from "./effect-settings";
 
 function num(value: string): number | undefined {
   if (value.trim() === "") return undefined;
@@ -23,6 +25,9 @@ export function TypeSettings({ field, onUpdate }: { field: FormField; onUpdate: 
   const isUpload = Boolean(def?.isUpload);
   return (
     <>
+        {field.type === "table" ? <TableSettings field={field} onUpdate={onUpdate} /> : null}
+        {field.type === "stock_count" ? <StockCountSettings field={field} onUpdate={onUpdate} /> : null}
+        <EffectSettings field={field} onUpdate={onUpdate} />
         {/* Choices */}
         {hasOptions && (
           <Section title="Choices">

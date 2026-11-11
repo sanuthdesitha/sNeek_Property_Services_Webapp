@@ -14,7 +14,8 @@ import "server-only";
  *   deduction" on the issue (a PENDING adjustment needing approval).
  * - No QA review, score or auto-score change. Like every QA issue it counts
  *   in the cleaner's quality figures (issue counts, categories and patterns;
- *   a Critical issue also breaks their quality streak) — the dialog says so.
+ *   a High (stored CRITICAL) issue also breaks their quality streak) — the
+ *   dialog says so.
  *
  * Idempotency: a client key replays the first answer; without one, the same
  * case, cleaner and category within DUPLICATE_WINDOW_MS return the existing
@@ -26,6 +27,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { caseIdFromItemKey, caseItemKey, issueHubHref } from "./case-origin";
+import { severityLabel } from "./severity";
 
 export const DUPLICATE_WINDOW_MS = 2 * 60_000;
 export { caseIdFromItemKey, caseItemKey, issueHubHref };
@@ -150,7 +152,7 @@ export async function raiseQaIssueFromCase(actorId: string, raw: unknown, now: D
         },
       },
     });
-    const severity = input.severity.charAt(0) + input.severity.slice(1).toLowerCase();
+    const severity = severityLabel(input.severity);
     await tx.caseComment.create({
       data: {
         caseId: input.caseId,

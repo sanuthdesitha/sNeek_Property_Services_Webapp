@@ -14,6 +14,8 @@ import { BULK_MAX_FORMS } from "@/lib/forms/template-bulk-types";
 import { BulkQuestionPanel } from "./bulk-question-panel";
 import { BulkAddSectionPanel, BulkFindReplacePanel } from "./bulk-content-panels";
 import { BulkLifecyclePanel, BulkMoveToGroupPanel, BulkTagsPanel } from "./bulk-organise-panels";
+import { exportFormsHref } from "./import-forms";
+import { EXPORT_MAX_FORMS } from "@/lib/forms/template-transfer";
 
 type PanelKey = "question" | "section" | "replace" | "group" | "tags" | "publish" | "duplicate" | "archive";
 
@@ -85,6 +87,10 @@ export function FormsBulk({ selectedIds, groups, onClear, onApplied }: FormsBulk
             {action.label}
           </EBulkButton>
         ))}
+        {/* Export downloads a file; it changes nothing, so it needs no preview. */}
+        <EBulkButton disabled={selectedIds.length > EXPORT_MAX_FORMS} onClick={() => window.location.assign(exportFormsHref(selectedIds))}>
+          Export
+        </EBulkButton>
       </EBulkBar>
       {tooMany
         ? null

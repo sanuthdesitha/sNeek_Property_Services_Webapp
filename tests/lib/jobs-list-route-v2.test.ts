@@ -38,7 +38,9 @@ beforeEach(() => {
 });
 
 describe("paginated Jobs list contract", () => {
-  it.each(["guestIn", "charge", "scheduled_desc", "cleaner", "price"])("refuses unknown sort %s with 400 before reading jobs", async (sort) => {
+  // Cleaner, Guest in and Charge became sortable on purpose (Wave A, computed
+  // over the whole filtered set: tests/lib/jobs-computed-sort.test.ts).
+  it.each(["scheduled_desc", "price", "guest", "cleaner_name"])("refuses unknown sort %s with 400 before reading jobs", async (sort) => {
     const response = await request(`paginated=1&sort=${sort}`);
     expect(response.status).toBe(400);
     expect((await response.json()).error).toContain("Cannot sort by");
@@ -159,7 +161,7 @@ describe("Jobs board lanes", () => {
   });
 
   it("refuses an unknown sort and keeps auth failures", async () => {
-    expect((await BOARD(new NextRequest("http://localhost/api/admin/jobs/board?sort=charge"))).status).toBe(400);
+    expect((await BOARD(new NextRequest("http://localhost/api/admin/jobs/board?sort=price"))).status).toBe(400);
     m.session.mockRejectedValue(new Error("FORBIDDEN"));
     expect((await BOARD(new NextRequest("http://localhost/api/admin/jobs/board"))).status).toBe(403);
     expect(m.groupBy).not.toHaveBeenCalled();

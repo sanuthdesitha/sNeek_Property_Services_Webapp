@@ -10,7 +10,7 @@
  */
 import * as React from "react";
 import Link from "next/link";
-import { Download } from "lucide-react";
+import { Download, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import { E_CHIP_CLASS } from "@/components/v2/ui/filter-chips";
@@ -49,6 +49,22 @@ function InsightsTabs({ active, hrefFor }: { active: InsightsTab; hrefFor: (tab:
         ))}
       </div>
     </nav>
+  );
+}
+
+/** "Email monthly": the setting's state, linking to it for administrators. */
+function MonthlyEmailLink({ state }: { state: InsightsContext["monthlyEmail"] }) {
+  if (!state) return null;
+  const label = `Email monthly: ${state.enabled ? "on" : "off"}`;
+  if (!state.canConfigure) {
+    return <span className={cn(E_CHIP_CLASS, "cursor-default")} title="An administrator sets this up in Settings.">{label}</span>;
+  }
+  return (
+    <EButton asChild size="sm" variant="outline">
+      <Link href="/v2/admin/settings?tab=insights-email" title="Monthly Insights email settings">
+        <Mail aria-hidden className="h-3.5 w-3.5" /> {label}
+      </Link>
+    </EButton>
   );
 }
 
@@ -114,6 +130,7 @@ export function InsightsPage({ context }: { context: InsightsContext }) {
             <>
               <PeriodChips period={state.period} onChange={(period) => update({ period })} />
               <ClientFilter value={state.clientId} onChange={(clientId) => update({ clientId })} />
+              <MonthlyEmailLink state={context.monthlyEmail ?? null} />
               <EButton asChild size="sm" variant="outline">
                 <a href={`/api/admin/insights/export?${exportParams.toString()}`} download title="Download this tab's table for this period and client as CSV">
                   <Download aria-hidden className="h-3.5 w-3.5" /> Export

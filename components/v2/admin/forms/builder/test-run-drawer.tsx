@@ -24,7 +24,7 @@ import { BuilderDrawer } from "./builder-drawer";
 type SampleProperty = { bedrooms: number; bathrooms: number; hasBalcony: boolean; inventoryEnabled: boolean; laundryEnabled: boolean; sofaBedCount: number };
 const DEFAULT_PROPERTY: SampleProperty = { bedrooms: 2, bathrooms: 1, hasBalcony: false, inventoryEnabled: false, laundryEnabled: false, sofaBedCount: 0 };
 
-type Result = { phone: TestRunProblem[]; server: TestRunProblem[] | null; serverError: string | null };
+type Result = { phone: TestRunProblem[]; server: TestRunProblem[] | null; serverError: string | null; wouldHappen: string[] };
 
 function ProblemList({ title, problems }: { title: string; problems: TestRunProblem[] }) {
   return (
@@ -76,6 +76,7 @@ export function TestRunDrawer({ open, onClose, templateId, schema }: { open: boo
     }));
     let server: TestRunProblem[] | null = null;
     let serverError: string | null = null;
+    let wouldHappen: string[] = [];
     try {
       const response = await fetch(`/api/admin/form-templates/${templateId}/test-run`, {
         method: "POST",
@@ -85,10 +86,11 @@ export function TestRunDrawer({ open, onClose, templateId, schema }: { open: boo
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `The server check failed (${response.status}).`);
       server = Array.isArray(body.problems) ? (body.problems as TestRunProblem[]) : [];
+      wouldHappen = Array.isArray(body.wouldHappen) ? body.wouldHappen.filter((line: unknown): line is string => typeof line === "string") : [];
     } catch (error) {
       serverError = error instanceof Error ? error.message : "The server check failed.";
     }
-    setResult({ phone, server, serverError });
+    setResult({ phone, server, serverError, wouldHappen });
     setChecking(false);
   }
 
@@ -131,6 +133,14 @@ export function TestRunDrawer({ open, onClose, templateId, schema }: { open: boo
             <ProblemList title="On the phone" problems={result.phone} />
             {result.serverError ? <p role="alert" className="text-[0.75rem] text-[hsl(var(--e-danger))]">{result.serverError}</p> : null}
             {result.server ? <ProblemList title="On the server (submit)" problems={result.server} /> : null}
+            {result.wouldHappen.length > 0 ? (
+              <div>
+                <p className="text-[0.8125rem] font-[600]">On a real submission (not done in this test)</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+                  {result.wouldHappen.map((line) => <li key={line}>{line}</li>)}
+                </ul>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

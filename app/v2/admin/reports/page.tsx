@@ -5,6 +5,7 @@ import { opsLevelAllows } from "@/lib/rbac/ops-catalog";
 import { getAppSettings } from "@/lib/settings";
 import { insightsAccessFor } from "@/lib/insights/access";
 import { InsightsPage } from "@/components/v2/admin/insights/insights-page";
+import { readInsightsEmailSettings } from "@/lib/insights/monthly-email";
 
 export const metadata = { title: "Insights · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -22,13 +23,18 @@ export const dynamic = "force-dynamic";
 export default async function V2AdminReportsPage() {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const levels = await getOpsAccess(session.user);
-  const settings = await getAppSettings().catch(() => null);
+  const [settings, monthlyEmail] = await Promise.all([
+    getAppSettings().catch(() => null),
+    // A failed read shows no state rather than a wrong one.
+    readInsightsEmailSettings().catch(() => null),
+  ]);
   return (
     <InsightsPage
       context={{
         access: insightsAccessFor(levels),
         canManageReports: !levels || opsLevelAllows(levels.reports, "PATCH"),
         timeZone: settings?.timezone || "Australia/Sydney",
+        monthlyEmail: monthlyEmail ? { enabled: monthlyEmail.enabled, canConfigure: session.user.role === Role.ADMIN && !levels } : null,
       }}
     />
   );

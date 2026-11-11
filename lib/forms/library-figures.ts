@@ -14,6 +14,24 @@ import {
   type TemplateUsageFigures,
 } from "./submission-stats";
 
+/**
+ * The library reads the submissions behind Avg time, Completion and the usage
+ * check for the WHOLE filtered set (so sorting and "Has problems" are right
+ * across pages) only while that is at most this many submissions.
+ */
+export const FIGURES_MAX_SUBMISSIONS = 20_000;
+
+/** Earliest submission any figure reads (stats window or usage window). */
+export function figuresWindowStart(now: Date): Date {
+  return new Date(Math.min(statsWindowStart(now).getTime(), now.getTime() - USAGE_CHECK_DAYS * 86_400_000));
+}
+
+/** How many submissions the figures for these forms would read (a database count). */
+export async function countFigureSubmissions(ids: string[], now: Date): Promise<number> {
+  if (ids.length === 0) return 0;
+  return db.formSubmission.count({ where: { templateId: { in: ids }, createdAt: { gte: figuresWindowStart(now) } } });
+}
+
 export async function loadUsageFigures(
   forms: Array<{ id: string; schema: unknown }>,
   now: Date,
@@ -21,7 +39,7 @@ export async function loadUsageFigures(
   const result = new Map<string, TemplateUsageFigures>();
   if (forms.length === 0) return result;
   const ids = forms.map((form) => form.id);
-  const since = new Date(Math.min(statsWindowStart(now).getTime(), now.getTime() - USAGE_CHECK_DAYS * 86_400_000));
+  const since = figuresWindowStart(now);
   const [samples, liveSince] = await Promise.all([
     db.formSubmission.findMany({
       where: { templateId: { in: ids }, createdAt: { gte: since } },

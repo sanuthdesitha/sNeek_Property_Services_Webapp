@@ -32,6 +32,7 @@ export default async function EstateFormEditPage({ params }: { params: { id: str
       // the server can refuse a write from an editor that has gone stale.
       // With a draft, the draft's own updatedAt is the token.
       initialUpdatedAt={context.editToken}
+      initialTemplateToken={context.templateToken}
       initialHasDraft={context.hasDraft}
       initialDraftSavedAt={context.draftUpdatedAt}
       usage={context.usage}

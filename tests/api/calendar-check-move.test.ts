@@ -135,3 +135,24 @@ describe("POST /api/admin/calendar/check-move", () => {
     expect(body.blockers[0]).toMatch(/Nothing would change/);
   });
 });
+
+describe("check-move with a time change (Day view drop, Jobs bulk shift)", () => {
+  it("plans the new start and due time, keeps the length and checks clashes against the NEW window", async () => {
+    m.sameDay.mockResolvedValue([{ userId: "u1", job: { id: "other", startTime: "15:00", endTime: null, dueTime: "17:00", estimatedHours: null, property: { name: "Coogee Terrace" } } }]);
+    const body = await (await check({ jobId: "j1", toDate: "2026-11-11", toStartTime: "12:30" })).json();
+    expect(body.blockers).toEqual([]);
+    expect(body.time).toEqual({ fromStart: "10:00", toStart: "12:30", fromDue: "14:00", toDue: "16:30" });
+    expect(body.plan.reschedule).toEqual({ date: "2026-11-11", expectedUpdatedAt: "2026-11-01T00:00:00.000Z", startTime: "12:30", dueTime: "16:30" });
+    // 12:30–16:30 overlaps 15:00–17:00; the old 10:00–14:00 window did not.
+    expect(body.warnings).toContainEqual({ kind: "clash", text: "Jane C.: Clashes with Coogee Terrace until 17:00" });
+  });
+
+  it("shifts by whole minutes for a bulk reschedule and refuses a job with a separate end time", async () => {
+    const shifted = await (await check({ jobId: "j1", toDate: "2026-11-12", shiftMinutes: -60 })).json();
+    expect(shifted.plan.reschedule).toMatchObject({ date: "2026-11-12", startTime: "09:00", dueTime: "13:00" });
+    job = fixture({ endTime: "13:00" });
+    const refused = await (await check({ jobId: "j1", toDate: "2026-11-11", toStartTime: "11:00" })).json();
+    expect(refused.blockers.join(" ")).toMatch(/separate end time/);
+    expect(refused.plan.reschedule).toBeNull();
+  });
+});

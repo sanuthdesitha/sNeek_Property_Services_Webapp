@@ -2,26 +2,29 @@
  * The two signals that decide a cleaner row's action on the Quality hub, read
  * from the EXISTING flows and never re-derived:
  *
- * - Bonus: a PENDING accountability bonus proposal (STREAK_5, STREAK_10,
- *   MONTHLY_RANK_1/2) the nightly job already created under the bonus rules in
- *   lib/accountability/streaks.ts. The hub only offers the existing approve /
- *   decline decision (PATCH /api/admin/pay-adjustments/[id]).
+ * - Bonus: a PENDING bonus awaiting a decision: an accountability proposal
+ *   (STREAK_5, STREAK_10, MONTHLY_RANK_1/2) the nightly job created under the
+ *   bonus rules in lib/accountability/streaks.ts, or a quality bonus proposed
+ *   by hand from the hub (./manual-bonus). The hub only offers the existing
+ *   approve / decline decision (PATCH /api/admin/pay-adjustments/[id]).
  * - Coaching: a recurring-issue pattern from lib/accountability/patterns.ts
  *   (same category for the same cleaner, settings-driven count and window),
  *   which is what coaching records are "recommended by pattern detection" for.
  *   Starting coaching posts to the existing coaching route.
  */
-import { PayAdjustmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { detectPatterns, type PatternIssue } from "@/lib/accountability/patterns";
-import { BONUS_SOURCES, OPEN_COACHING_STATUSES } from "./types";
+import { OPEN_COACHING_STATUSES } from "./types";
+import { bonusOrigin, pendingBonusWhere, type BonusOrigin } from "./manual-bonus-rules";
 
 export type BonusProposal = {
   id: string;
   title: string;
   amount: number | null;
   source: string;
+  /** "automatic" (nightly streak / ranking rule) or "manual" (proposed from Quality). */
+  origin: BonusOrigin;
   createdAt: string;
 };
 
@@ -83,7 +86,7 @@ export async function loadCleanerSignals(
 
   const [bonusRows, coachingRows, patternRows] = await Promise.all([
     db.cleanerPayAdjustment.findMany({
-      where: { cleanerId: { in: ids }, status: PayAdjustmentStatus.PENDING, source: { in: [...BONUS_SOURCES] } },
+      where: pendingBonusWhere(ids),
       select: { id: true, cleanerId: true, title: true, requestedAmount: true, source: true, createdAt: true },
       orderBy: { createdAt: "asc" },
     }),
@@ -104,6 +107,7 @@ export async function loadCleanerSignals(
       title: row.title ?? "Bonus proposal",
       amount: typeof row.requestedAmount === "number" ? row.requestedAmount : null,
       source: row.source ?? "",
+      origin: bonusOrigin(row.source),
       createdAt: row.createdAt.toISOString(),
     });
     empty.bonuses.set(row.cleanerId, list);

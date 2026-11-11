@@ -25,6 +25,7 @@ import {
 } from "./issue-format";
 import { EvidenceStrip, useEvidenceUrls } from "./issue-evidence";
 import { IssueActions, type IssueActionKey } from "./issue-actions";
+import { severityLabel } from "@/lib/quality/severity";
 
 export type IssueDetailProps = {
   issue: QualityIssueRow;
@@ -77,7 +78,7 @@ export function IssueDetail({
     <EModal open onClose={onClose} wide eyebrow="QA issue" title={categoryLabel}>
       <div className="space-y-5">
         <div className="flex flex-wrap items-center gap-2">
-          <EPill tone={severityTone(issue.severity)}>{titleCaseKey(issue.severity)}</EPill>
+          <EPill tone={severityTone(issue.severity)}>{severityLabel(issue.severity)}</EPill>
           <EPill tone={rectificationTone(issue.rectificationStatus)}>{titleCaseKey(issue.rectificationStatus)}</EPill>
           {issue.falseConfirmation && issue.falseConfirmation !== "NONE" ? (
             <EPill tone={falseConfirmationTone(issue.falseConfirmation)}>False confirmation: {titleCaseKey(issue.falseConfirmation)}</EPill>

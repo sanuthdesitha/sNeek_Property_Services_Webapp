@@ -10,13 +10,17 @@
  *    cutoff), with the owing amount from lib/finance/receivables
  *    (`invoiceAmountOwing`, credit notes applied, fully credited invoices not
  *    counted). This is a current figure, not a period one.
- *  - Terms: the configured default payment terms (the same value the invoice
- *    PDF and the overdue rule use). There are no per-client terms.
+ *  - Terms: per invoice, from the one due-date rule (lib/billing/invoice-due:
+ *    the snapshot taken at first send, else the client's own terms, else the
+ *    organisation default), the same value the PDF and the overdue rule use.
+ *    The slow-payer finding compares a client's days to pay with the terms
+ *    their paid invoices carried.
  */
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { loadListContext, overdueWhere } from "@/lib/billing/client-invoice-list";
 import { creditedAmountOf, REDUCING_CREDIT_NOTES_SELECT, summarizeReceivables } from "@/lib/finance/receivables";
+import { effectivePaymentTermsDays } from "@/lib/billing/invoice-due";
 import type { PeriodRange } from "@/lib/quality/period";
 import { sydneyDateKey } from "@/lib/time/sydney-range";
 import { buildMeasure, known, missing, roundTo, sum, tally, type Known } from "./measure";
@@ -28,13 +32,15 @@ export const MIN_PAID_INVOICES_SUMMARY = 3;
 /** Per client: one paid invoice is that client's real figure (basis shown). */
 export const MIN_PAID_INVOICES_ROW = 1;
 
-export type PaidInvoiceFact = { clientId: string; days: Known<number> };
+export type PaidInvoiceFact = { clientId: string; days: Known<number>; termsDays: number };
 
 export type ClientPayment = {
   clientId: string;
   daysToPay: Measure;
   overdueAud: number;
   overdueInvoices: number;
+  /** Mean terms of the paid invoices in the basis; null when none. */
+  termsDays: number | null;
 };
 
 export type ReceivablesFacts = {
@@ -77,7 +83,7 @@ export async function loadReceivablesFacts(
   const [paidRows, overdueRows] = await Promise.all([
     db.clientInvoice.findMany({
       where: { AND: [{ kind: "INVOICE", status: "PAID" }, paidInPeriod(range), clientWhere] },
-      select: { clientId: true, sentAt: true, paidAt: true, paidDate: true, client: { select: { name: true } } },
+      select: { clientId: true, sentAt: true, paidAt: true, paidDate: true, paymentTermsDays: true, client: { select: { name: true, paymentTermsDays: true } } },
     }),
     db.clientInvoice.findMany({
       where: { AND: [{ kind: "INVOICE" }, overdueWhere(context), clientWhere] },
@@ -97,7 +103,12 @@ export async function loadReceivablesFacts(
   for (const row of paidRows) {
     const paidOn = row.paidDate ?? row.paidAt;
     if (!paidOn) continue;
-    paid.push({ clientId: row.clientId, days: daysToPay(row.sentAt, paidOn) });
+    const termsDays = effectivePaymentTermsDays({
+      invoiceTermsDays: row.paymentTermsDays,
+      clientTermsDays: row.client.paymentTermsDays,
+      organisationDefaultDays: context.paymentTermsDays,
+    });
+    paid.push({ clientId: row.clientId, days: daysToPay(row.sentAt, paidOn), termsDays });
   }
 
   const grouped = new Map<string, Array<{ totalAmount: number; paidAmount: number | null; creditedAmount: number }>>();
@@ -116,10 +127,13 @@ export async function loadReceivablesFacts(
 
 export function clientPayment(facts: ReceivablesFacts, clientId: string): ClientPayment {
   const overdue = facts.overdueByClient.get(clientId);
+  const paid = facts.paid.filter((row) => row.clientId === clientId);
+  const counted = paid.filter((row) => row.days.reason === null);
   return {
     clientId,
-    daysToPay: daysToPayMeasure(facts.paid.filter((row) => row.clientId === clientId), MIN_PAID_INVOICES_ROW),
+    daysToPay: daysToPayMeasure(paid, MIN_PAID_INVOICES_ROW),
     overdueAud: overdue?.owing ?? 0,
     overdueInvoices: overdue?.count ?? 0,
+    termsDays: counted.length ? roundTo(sum(counted.map((row) => row.termsDays)) / counted.length, 1) : null,
   };
 }

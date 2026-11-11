@@ -78,6 +78,7 @@ import {
 } from "@/components/v2/cleaner/form-renderer";
 import type { FormSchema } from "@/lib/forms/types";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
+import { useExtendedEnforcement } from "@/components/v2/cleaner/use-extended-enforcement";
 import { isLaundryUpdateEligible } from "@/lib/laundry/eligibility";
 import { LAUNDRY_SKIP_REASONS } from "@/lib/laundry/constants";
 import { FinalCheckupDialog } from "@/components/v2/cleaner/final-checkup-dialog";
@@ -715,6 +716,9 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   // keeps the historic, non-blocking behaviour.
   const requiredChecklistTicksBlockSubmit = payload?.requiredChecklistTicksBlockSubmit === true;
   const canUseNoPhoto = payload?.canUseNoPhoto === true;
+  // The organisation may reject submissions that break the extended checks;
+  // then (and only for work started after it was switched on) they show inline.
+  const enforceExtendedRules = useExtendedEnforcement(jobId, Boolean(ownStarted));
   // Laundry-bag confirmation only when there's a labelled bag on a laundry job.
   const laundryBagConfirmRequired = requireStartConfirmation && laundryEnabled && Boolean(bagLabel);
   // Only the FIRST person to start does the heavyweight confirmations. A second
@@ -1283,7 +1287,8 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
               string,
               { reasonCode: string }
             >) ?? {},
-        }
+        },
+        { extended: enforceExtendedRules }
       );
       if (formErrors.length > 0) {
         if (typeof window !== "undefined") window.dispatchEvent(new Event("sneek:validate-form"));
@@ -1573,6 +1578,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
     recurringIssues,
     requiredChecklistTicksBlockSubmit,
     canUseNoPhoto,
+    enforceExtendedRules,
     setupGuideEntries,
     teamStarted,
     ownStarted,

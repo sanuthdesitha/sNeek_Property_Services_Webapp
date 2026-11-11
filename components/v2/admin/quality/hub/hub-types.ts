@@ -21,7 +21,10 @@ export type { InspectionQueueRow } from "@/lib/quality/inspections";
 export type { QualityOptions, QualityOption } from "@/lib/quality/issue-list";
 
 export type SummaryPayload = QualitySummary;
-export type CleanersPayload = CleanerRowsResult;
+export type CleanersPayload = CleanerRowsResult & {
+  /** The period the rows answer (the route always sends it). */
+  period?: { key: string; fromKey: string | null; toKey: string; days: number | null };
+};
 export type InspectorsPayload = InspectorRowsResult;
 export type CategoriesPayload = CategoryRowsResult;
 export type IssuesPayload = ListResponse<QualityIssueRow, IssueSort>;
@@ -53,6 +56,11 @@ export type HubContext = {
   coaching?: CoachingAccess;
   /** Approve / decline a proposed bonus (payroll pack). Absent = canManage. */
   canDecideBonus?: boolean;
+  /**
+   * Propose a bonus by hand (ADMIN; OPS_MANAGER with payroll and quality at
+   * manage). Absent = canManage (tests and older callers); the server decides.
+   */
+  canProposeBonus?: boolean;
   timeZone: string;
   falseConfirmationDeduction: number | null;
 };

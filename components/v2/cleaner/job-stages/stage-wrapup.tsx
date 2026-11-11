@@ -181,7 +181,8 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
               string,
               { reasonCode: string }
             >) ?? {},
-        }
+        },
+        { extended: api.enforceExtendedRules }
       )
     : [];
 

@@ -17,7 +17,7 @@ import { issueInvoiceNumber } from "@/lib/billing/invoice-sequence";
 import { buildMaintenanceInvoiceLines } from "@/lib/billing/maintenance-billing";
 import { groupInvoiceLines, shouldGroupInvoice } from "@/lib/billing/invoice-grouping";
 import { isCreditNoteDocument, pdfClientNoteHtml, pdfDocumentTitle, pdfDueLine, pdfHeaderExtrasHtml, pdfMoney } from "./client-invoice-pdf-parts";
-import { paymentTermsDaysFrom } from "./invoice-due";
+import { effectivePaymentTermsDays, paymentTermsDaysFrom } from "./invoice-due";
 import { LIVE_INVOICE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
 
 /**
@@ -686,6 +686,7 @@ export async function getClientInvoice(invoiceId: string) {
         select: {
           id: true, name: true, email: true, phone: true,
           address: true, suburb: true, state: true, postcode: true,
+          paymentTermsDays: true,
         },
       },
       lines: {
@@ -833,7 +834,13 @@ export function buildClientInvoiceHtml(
         `
       : "";
 
-  const termsDays = paymentTermsDaysFrom(invoicingSettings?.defaultPaymentTermsDays);
+  // The invoice's snapshot (taken at first send), else the client's terms,
+  // else the organisation default: the same rule the list and overdue use.
+  const termsDays = effectivePaymentTermsDays({
+    invoiceTermsDays: invoice.paymentTermsDays,
+    clientTermsDays: invoice.client?.paymentTermsDays ?? null,
+    organisationDefaultDays: paymentTermsDaysFrom(invoicingSettings?.defaultPaymentTermsDays),
+  });
   const dueLine = pdfDueLine(invoice, termsDays, timezone);
   const creditNote = isCreditNoteDocument(invoice);
 

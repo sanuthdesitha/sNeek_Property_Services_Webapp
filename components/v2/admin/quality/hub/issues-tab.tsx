@@ -27,6 +27,7 @@ import { isIssues } from "./hub-types";
 import { issueColumns } from "./issue-columns";
 import { IssueBulkBar } from "./issue-bulk";
 import { useQualityRead, useReloadOn } from "./use-quality-read";
+import { severityLabel } from "@/lib/quality/severity";
 
 export const ISSUE_PAGE_SIZE = 25;
 
@@ -34,22 +35,25 @@ function StatusFilter<T extends string>({
   label,
   value,
   values,
+  optionLabel = titleCaseKey,
   onChange,
 }: {
   label: string;
   value: T | "";
   values: readonly T[];
+  /** Display text for a value; the option value and the URL keep the stored value. */
+  optionLabel?: (value: T) => string;
   onChange: (value: T | "") => void;
 }) {
   return (
-    <EFilterPopover label={label} value={value ? titleCaseKey(value) : null}>
+    <EFilterPopover label={label} value={value ? optionLabel(value) : null}>
       <label className="block space-y-1 text-[0.75rem] font-[600] text-[hsl(var(--e-text-secondary))]">
         {label}
         <ESelect value={value} onChange={(event) => onChange(event.target.value as T | "")}>
           <option value="">Any</option>
           {values.map((option) => (
             <option key={option} value={option}>
-              {titleCaseKey(option)}
+              {optionLabel(option)}
             </option>
           ))}
         </ESelect>
@@ -117,7 +121,7 @@ export function IssuesTab({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <StatusFilter label="Severity" value={filters.severity} values={ISSUE_SEVERITIES} onChange={(severity) => onFilters({ severity })} />
+        <StatusFilter label="Severity" value={filters.severity} values={ISSUE_SEVERITIES} optionLabel={severityLabel} onChange={(severity) => onFilters({ severity })} />
         <StatusFilter
           label="Rectification"
           value={filters.rectificationStatus}

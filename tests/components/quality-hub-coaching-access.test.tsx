@@ -16,7 +16,7 @@ type HubElement = { props: { context: { coaching: { visible: boolean; canManage:
 
 describe("Quality hub tools follow the packs their endpoints require", () => {
   it("an administrator gets every tool regardless of packs", () => {
-    expect(qualityHubAccess(null, true)).toEqual({ coaching: { visible: true, canManage: true, fullPageLink: true }, canDecideBonus: true });
+    expect(qualityHubAccess(null, true)).toEqual({ coaching: { visible: true, canManage: true, fullPageLink: true }, canDecideBonus: true, canProposeBonus: true });
   });
 
   it("hides Coaching from a manager whose packs refuse the cleaner list (accounts) or coaching records (quality)", () => {
@@ -32,6 +32,15 @@ describe("Quality hub tools follow the packs their endpoints require", () => {
     const access = qualityHubAccess({ ...allOpsLevels("manage"), workforce: "off", payroll: "read" }, true);
     expect(access.coaching).toMatchObject({ visible: true, fullPageLink: false });
     expect(access.canDecideBonus).toBe(false);
+    expect(access.canProposeBonus).toBe(false);
+  });
+
+  it("offers Propose bonus exactly where a pay adjustment may be created (payroll manage) and quality is manage", () => {
+    expect(qualityHubAccess(allOpsLevels("manage"), true).canProposeBonus).toBe(true);
+    expect(qualityHubAccess({ ...allOpsLevels("manage"), payroll: "read" }, true).canProposeBonus).toBe(false);
+    expect(qualityHubAccess({ ...allOpsLevels("manage"), payroll: "off" }, true).canProposeBonus).toBe(false);
+    // Read-only quality: no hub actions at all.
+    expect(qualityHubAccess({ ...allOpsLevels("manage"), quality: "read" }, false).canProposeBonus).toBe(false);
   });
 
   describe("server page", () => {

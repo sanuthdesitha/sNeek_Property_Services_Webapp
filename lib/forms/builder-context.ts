@@ -36,6 +36,8 @@ export type BuilderContext = {
   hasDraft: boolean;
   draftUpdatedAt: string | null;
   editToken: string;
+  /** The template row's own updatedAt: the stale-write guard of a metadata rename. */
+  templateToken: string;
   schema: FormSchema;
   /** Null when the usage figures could not be read (shown as unavailable, never as zero). */
   usage: BuilderUsage | null;
@@ -60,6 +62,7 @@ export async function loadBuilderContext(templateId: string): Promise<BuilderCon
     hasDraft: Boolean(draft),
     draftUpdatedAt: draft ? draft.updatedAt.toISOString() : null,
     editToken: templateEditToken(template.updatedAt, draft),
+    templateToken: template.updatedAt.toISOString(),
     schema: toEditableSchema(draft ? draft.schema : template.schema),
     usage: await loadBuilderUsage(template.id, template.schema),
   };

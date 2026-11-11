@@ -85,20 +85,32 @@ export function detectIssueSurges(rows: readonly IssueCategoryInput[], span: Day
   return findings;
 }
 
-export type ClientPaymentInput = { clientId: string; clientName: string; daysToPay: Measure; overdueAud: number };
+export type ClientPaymentInput = {
+  clientId: string;
+  clientName: string;
+  daysToPay: Measure;
+  overdueAud: number;
+  /**
+   * The terms this client's paid invoices carried (their snapshot, else the
+   * client's terms, else the default; averaged when they differ). Absent =
+   * the default passed to detectSlowPayers.
+   */
+  termsDays?: number | null;
+};
 
-export function detectSlowPayers(rows: readonly ClientPaymentInput[], paymentTermsDays: number): Finding[] {
+export function detectSlowPayers(rows: readonly ClientPaymentInput[], defaultTermsDays: number): Finding[] {
   const findings: Finding[] = [];
   for (const row of rows) {
     const days = row.daysToPay.value;
     if (days === null || row.daysToPay.basisCount < SLOW_PAY_MIN_INVOICES || row.overdueAud <= 0) continue;
+    const paymentTermsDays = row.termsDays ?? defaultTermsDays;
     const over = days - paymentTermsDays;
     if (over < SLOW_PAY_MIN_DAYS_OVER_TERMS) continue;
     findings.push({
       id: `slow_payer:${row.clientId}`,
       detector: "slow_payer",
       headline: `${row.clientName} pays ${Math.round(days)} days after invoice on average.`,
-      detail: `Terms are ${paymentTermsDays} days. ${formatAud(row.overdueAud)} is overdue now.`,
+      detail: `Terms are ${Math.round(paymentTermsDays)} days. ${formatAud(row.overdueAud)} is overdue now.`,
       basis: `Sent to paid, over ${plural(row.daysToPay.basisCount, "invoice")} paid this period.`,
       link: { label: "See invoices", href: invoicesHref({ clientId: row.clientId, status: "overdue" }) },
       score: over / SLOW_PAY_MIN_DAYS_OVER_TERMS,

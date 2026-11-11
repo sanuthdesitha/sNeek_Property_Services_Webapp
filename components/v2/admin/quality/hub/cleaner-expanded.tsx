@@ -15,11 +15,12 @@ import { toast } from "@/hooks/use-toast";
 import { EButton, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
 import { cn } from "@/lib/utils";
-import { formatIssueDate, hoursSince, qaPhotoKeyList, severityTone, titleCaseKey } from "../issues/issue-format";
+import { formatIssueDayShort, hoursSince, qaPhotoKeyList, severityTone } from "../issues/issue-format";
 import { patchIssue } from "../issues/issue-requests";
 import type { CleanerRow, HubContext, QualityIssueRow } from "./hub-types";
 import { isIssues } from "./hub-types";
 import { useQualityRead, useReloadOn } from "./use-quality-read";
+import { severityLabel } from "@/lib/quality/severity";
 
 const PREVIEW_SIZE = 5;
 const DANGER_OUTLINE = "border-[hsl(var(--e-danger)/0.45)] text-[hsl(var(--e-danger))] hover:bg-[hsl(var(--e-danger-soft))]";
@@ -45,7 +46,7 @@ function IssueLine({
   const age = hoursSince(issue.createdAt);
   const meta = [
     issue.job?.propertyName ?? issue.property?.name ?? null,
-    formatIssueDate(issue.createdAt, context.timeZone),
+    formatIssueDayShort(issue.createdAt, context.timeZone),
     issue.raisedBy?.name ? `raised by ${issue.raisedBy.name}` : null,
     issue.falseConfirmation === "SUSPECTED" ? "suspected false confirmation" : null,
     photos > 0 ? `${photos} photo${photos === 1 ? "" : "s"}` : null,
@@ -58,7 +59,7 @@ function IssueLine({
         <button type="button" onClick={() => onOpen({ issue, action: null })} className="text-left font-[600] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]">
           {issue.description.length > 90 ? `${issue.description.slice(0, 90)}…` : issue.description || labelFor(issue.category)}
         </button>{" "}
-        <EPill tone={severityTone(issue.severity)}>{titleCaseKey(issue.severity)}</EPill>
+        <EPill tone={severityTone(issue.severity)}>{severityLabel(issue.severity)}</EPill>
         <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{meta.join(" · ")}</p>
       </div>
       {context.canManage ? (

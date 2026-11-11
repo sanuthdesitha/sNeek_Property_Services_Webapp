@@ -16,6 +16,7 @@ import { normalizeFormSchema } from "./normalize-schema";
 import { expandRepeatedSections } from "./repeat-sections";
 import { collectFormErrors, EXTENDED_FORM_RULES, ENFORCE_EXTENDED_FORM_VALIDATION, type FormErrorRule } from "./validate-submission";
 import { jobFormPropertySelect } from "./job-form-property";
+import { planSubmissionEffects, wouldHappenSentence } from "./form-effects";
 
 export type TestRunProblem = {
   fieldId: string;
@@ -34,6 +35,8 @@ export type TestRunInput = {
   property: Record<string, unknown>;
   laundryReady?: boolean;
   requiredChecklistTicksBlockSubmit: boolean;
+  /** The organisation's "reject submissions that break the extended checks" switch (default: the release constant). */
+  enforceExtended?: boolean;
 };
 
 export type TestRunResult = {
@@ -42,6 +45,8 @@ export type TestRunResult = {
   warnings: number;
   /** The schema the sample was checked against (after the read-time steps). */
   checkedSchema: unknown;
+  /** What the answers' question effects WOULD do on a real submission (none of it is done). */
+  wouldHappen: string[];
 };
 
 /** Only the cleaner-visible property keys, as a real job form receives. */
@@ -73,7 +78,7 @@ export function runFormTest(input: TestRunInput): TestRunResult {
       ...(error.sectionLabel ? { sectionLabel: error.sectionLabel } : {}),
       message: error.message,
       rule: error.rule ?? "unknown",
-      level: extended && !ENFORCE_EXTENDED_FORM_VALIDATION ? "warning" : "blocking",
+      level: extended && !(input.enforceExtended ?? ENFORCE_EXTENDED_FORM_VALIDATION) ? "warning" : "blocking",
     };
   });
   return {
@@ -81,5 +86,6 @@ export function runFormTest(input: TestRunInput): TestRunResult {
     blocking: problems.filter((problem) => problem.level === "blocking").length,
     warnings: problems.filter((problem) => problem.level === "warning").length,
     checkedSchema,
+    wouldHappen: wouldHappenSentence(planSubmissionEffects(checkedSchema, input.answers, property, input.laundryReady)),
   };
 }

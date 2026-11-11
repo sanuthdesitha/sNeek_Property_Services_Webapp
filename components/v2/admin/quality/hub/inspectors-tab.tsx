@@ -15,6 +15,7 @@ import { formatMoney } from "../issues/issue-format";
 import type { InspectorRow } from "./hub-types";
 import { isInspectors } from "./hub-types";
 import { useQualityRead, useReloadOn } from "./use-quality-read";
+import { SeverityCountPills } from "./cleaners-cells";
 
 function columns(hrefForTab: (tab: QualityTab, extra?: Partial<IssueListFilters>) => string): Array<EDataColumn<InspectorRow, InspectorSort>> {
   return [
@@ -47,11 +48,7 @@ function columns(hrefForTab: (tab: QualityTab, extra?: Partial<IssueListFilters>
         row.issuesFound.total === 0 ? (
           <span className="text-[hsl(var(--e-muted-foreground))]">None</span>
         ) : (
-          <span className="flex flex-wrap gap-1">
-            {row.issuesFound.MINOR > 0 ? <EPill>{`${row.issuesFound.MINOR} minor`}</EPill> : null}
-            {row.issuesFound.MAJOR > 0 ? <EPill tone="warn">{`${row.issuesFound.MAJOR} major`}</EPill> : null}
-            {row.issuesFound.CRITICAL > 0 ? <EPill tone="bad">{`${row.issuesFound.CRITICAL} critical`}</EPill> : null}
-          </span>
+          <SeverityCountPills counts={row.issuesFound} />
         ),
     },
     { key: "fixed", header: "Fixed by QA", sortKey: "fixed", firstDir: "desc", align: "right", cell: (row) => <span className="e-tnum">{row.issuesFixedByQA}</span> },

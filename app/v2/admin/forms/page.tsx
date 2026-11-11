@@ -10,6 +10,9 @@ import { QaTemplatesManager } from "@/components/v2/admin/qa/qa-templates-manage
 import { FormsTabNav, FORMS_TAB_LABEL } from "@/components/v2/admin/forms/library/forms-tab-nav";
 import { JobFormsLibrary } from "@/components/v2/admin/forms/library/job-forms-library";
 import { NewFormMenu } from "@/components/v2/admin/forms/library/new-form-menu";
+import { ImportFormsButton } from "@/components/v2/admin/forms/library/import-forms";
+import { ValidationEnforcementCard } from "@/components/v2/admin/forms/library/validation-enforcement-card";
+import { getAppSettings } from "@/lib/settings";
 import { FormStatsPanel } from "@/components/v2/admin/forms/library/form-stats-panel";
 import { ChecklistBlocksTab, MessageTemplatesTab } from "@/components/v2/admin/forms/library/forms-subviews";
 
@@ -51,7 +54,14 @@ export default async function EstateFormsPage({ searchParams }: { searchParams: 
       <EPageHeader
         title="Forms"
         description="Every form in one library: job checklists, QA inspection templates and message templates"
-        actions={canWrite ? <NewFormMenu canQa={allowed.includes("qa")} canMessages={allowed.includes("messages")} /> : undefined}
+        actions={
+          canWrite ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {allowed.includes("forms") ? <ImportFormsButton /> : null}
+              <NewFormMenu canQa={allowed.includes("qa")} canMessages={allowed.includes("messages")} />
+            </div>
+          ) : undefined
+        }
       />
       <FormsTabNav active={tab ?? "forms"} tabs={allowed} counts={{ forms: counts.forms, qa: counts.qa }} />
       <div className="min-w-0">
@@ -72,7 +82,12 @@ export default async function EstateFormsPage({ searchParams }: { searchParams: 
         ) : null}
         {tab === "blocks" ? <ChecklistBlocksTab view={requested.legacyChecklists || searchParams?.view === "service" ? "service" : "library"} /> : null}
         {tab === "messages" ? <MessageTemplatesTab view={searchParams?.view === "messages" ? "messages" : "notifications"} /> : null}
-        {tab === "stats" ? <FormStatsPanel searchParams={{ templateId: searchParams?.templateId, weeks: searchParams?.weeks }} /> : null}
+        {tab === "stats" ? (
+          <div className="space-y-4">
+            <ValidationEnforcementCard canWrite={canWrite} timezone={(await getAppSettings()).timezone || "Australia/Sydney"} />
+            <FormStatsPanel searchParams={{ templateId: searchParams?.templateId, weeks: searchParams?.weeks }} />
+          </div>
+        ) : null}
       </div>
     </div>
   );

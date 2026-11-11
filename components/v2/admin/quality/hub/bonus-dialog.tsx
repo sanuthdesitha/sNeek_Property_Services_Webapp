@@ -3,7 +3,8 @@
 /**
  * "Review bonus" from a cleaner row. Accountability bonuses are proposed by
  * the nightly job under the existing streak and monthly-ranking rules
- * (lib/accountability/streaks.ts) as PENDING pay adjustments. This dialog
+ * (lib/accountability/streaks.ts) as PENDING pay adjustments; a quality bonus
+ * can also be proposed by hand from the row ("Propose bonus"). This dialog
  * offers the same decision the Approvals centre's Bonuses queue offers, through
  * the same endpoint (PATCH /api/admin/pay-adjustments/[id]). Nothing is
  * proposed or paid from here.
@@ -66,8 +67,8 @@ export function BonusDialog({
     <EModal open onClose={busyId ? () => undefined : onClose} eyebrow="Bonus proposals" title={`Review bonus · ${row.name}`}>
       <div className="space-y-4">
         <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-          Proposed automatically under the streak and monthly ranking rules. Approving adds it to the next pay run; declining
-          removes the proposal.
+          Each proposal is either automatic (the streak and monthly ranking rules) or proposed by hand from Quality. Approving
+          adds it to the next pay run; declining removes the proposal.
         </p>
         <ul className="space-y-2">
           {row.pendingBonuses.map((bonus) => {
@@ -78,7 +79,8 @@ export function BonusDialog({
                 <div className="min-w-0">
                   <p className="text-[0.875rem] font-[600]">{bonus.title}</p>
                   <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    {amountText(bonus.amount)} · proposed {formatIssueDate(bonus.createdAt, timeZone)}
+                    {amountText(bonus.amount)} · {bonus.origin === "manual" ? "proposed by hand" : "proposed automatically"}{" "}
+                    {formatIssueDate(bonus.createdAt, timeZone)}
                   </p>
                   {outcome && "error" in outcome ? (
                     <p role="alert" className="text-[0.75rem] text-[hsl(var(--e-danger))]">

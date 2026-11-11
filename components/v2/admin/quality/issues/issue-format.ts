@@ -53,6 +53,18 @@ export function formatIssueDate(value: string | Date | null | undefined, timeZon
   return formatInTimeZone(date, timeZone, "d MMM yyyy");
 }
 
+/**
+ * Compact form for the expanded cleaner row, as drawn ("6 Nov"): the year is
+ * added only when it is not the current year in the organisation's timezone.
+ */
+export function formatIssueDayShort(value: string | Date | null | undefined, timeZone: string = SYDNEY_TZ, now: Date = new Date()): string {
+  if (!value) return "–";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "–";
+  const sameYear = formatInTimeZone(date, timeZone, "yyyy") === formatInTimeZone(now, timeZone, "yyyy");
+  return formatInTimeZone(date, timeZone, sameYear ? "d MMM" : "d MMM yyyy");
+}
+
 /** Hours since an instant, or null when it cannot be read. */
 export function hoursSince(value: string | Date | null | undefined, now: Date = new Date()): number | null {
   if (!value) return null;

@@ -145,6 +145,8 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
           exportQuery={exportQuery}
           exportDisabled={!ready}
           viewsContext={viewsContext}
+          readOnly={viewsReadOnly}
+          onImported={refreshAll}
         />
         <JobsViewTabs
           state={state}

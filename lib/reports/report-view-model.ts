@@ -25,6 +25,7 @@ import {
   isFlattenedFieldVisible,
 } from "@/lib/forms/visibility";
 import { QA_TOOLS_DATA_KEY } from "@/lib/qa/inspection-tools";
+import { tableAnswerGrid } from "@/lib/forms/structured-answers";
 import { noPhotoReasonLabel, sanitizeNoPhotoReasons } from "@/lib/forms/no-photo-reasons";
 
 const TZ = "Australia/Sydney";
@@ -50,6 +51,7 @@ export type ReportFieldVM = {
     | "instruction"
     | "media"
     | "longtext"
+    | "table"
     | "value";
   /** Formatted display value; em dash when unanswered. */
   value: string;
@@ -63,6 +65,8 @@ export type ReportFieldVM = {
   media: ReportMediaVM[];
   /** True when the cleaner recorded a sanctioned "no photo taken" reason. */
   noPhoto?: boolean;
+  /** "table" questions: header and cells (value holds the same as text). */
+  table?: { columns: string[]; rows: string[][] };
 };
 
 export type ReportSectionVM = {
@@ -391,6 +395,13 @@ function classifyField(field: any, answers: Record<string, unknown>): ReportFiel
 
   if (isUploadFieldType(type)) {
     return { ...base, kind: "media", answered: false, value: UNANSWERED };
+  }
+
+  if (type === "table") {
+    const grid = tableAnswerGrid(field, raw);
+    return grid
+      ? { ...base, kind: "table", answered: true, table: grid, value: formatFieldValue(field, raw) }
+      : { ...base, kind: "table", answered: false, value: UNANSWERED };
   }
 
   if (type === "longtext") {

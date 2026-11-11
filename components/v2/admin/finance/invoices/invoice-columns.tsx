@@ -49,7 +49,7 @@ function DueCell({ invoice, today, termsDays }: { invoice: InvoiceRow; today: st
   if (invoice.status === "DRAFT" || invoice.status === "APPROVED") {
     // Not sent yet: the PDF already prints this day (created + terms).
     return (
-      <span className="e-tnum text-[hsl(var(--e-muted-foreground))]" title={`Printed on the PDF: created + ${termsDays} days`}>
+      <span className="e-tnum text-[hsl(var(--e-muted-foreground))]" title={`Printed on the PDF: created + ${invoice.paymentTermsDays ?? termsDays} days`}>
         {fmtDay(invoice.dueDate)}
       </span>
     );

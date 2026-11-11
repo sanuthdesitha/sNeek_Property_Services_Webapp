@@ -17,6 +17,7 @@ import {
   titleCaseKey,
 } from "../issues/issue-format";
 import type { QualityIssueRow } from "./hub-types";
+import { severityLabel } from "@/lib/quality/severity";
 
 export function issueColumns({
   labelFor,
@@ -85,7 +86,7 @@ export function issueColumns({
       firstDir: "desc",
       cell: (issue) => (
         <span className="inline-flex flex-wrap items-center gap-1">
-          <EPill tone={severityTone(issue.severity)}>{titleCaseKey(issue.severity)}</EPill>
+          <EPill tone={severityTone(issue.severity)}>{severityLabel(issue.severity)}</EPill>
           {issue.guestReadyImpact ? <EPill tone="bad">Guest-ready</EPill> : null}
         </span>
       ),

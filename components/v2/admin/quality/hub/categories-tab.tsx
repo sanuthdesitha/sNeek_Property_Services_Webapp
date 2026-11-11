@@ -15,6 +15,7 @@ import { CATEGORY_SORTS, type CategorySort, type IssueListFilters, type QualityT
 import type { CategorySummary } from "./hub-types";
 import { isCategories } from "./hub-types";
 import { useQualityRead, useReloadOn } from "./use-quality-read";
+import { SeverityCountPills } from "./cleaners-cells";
 
 const NAMED_CLEANERS = 3;
 
@@ -32,11 +33,7 @@ function columns(hrefForTab: (tab: QualityTab, extra?: Partial<IssueListFilters>
       key: "severity",
       header: "By severity",
       cell: (row) => (
-        <span className="flex flex-wrap gap-1">
-          {row.bySeverity.MINOR > 0 ? <EPill>{`${row.bySeverity.MINOR} minor`}</EPill> : null}
-          {row.bySeverity.MAJOR > 0 ? <EPill tone="warn">{`${row.bySeverity.MAJOR} major`}</EPill> : null}
-          {row.bySeverity.CRITICAL > 0 ? <EPill tone="bad">{`${row.bySeverity.CRITICAL} critical`}</EPill> : null}
-        </span>
+        <SeverityCountPills counts={row.bySeverity} />
       ),
     },
     {

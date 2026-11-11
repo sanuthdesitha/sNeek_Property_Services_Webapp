@@ -59,6 +59,8 @@ import { DamageReportForm } from "@/components/v2/cleaner/damage-report-form";
 import { ReportMaintenance } from "@/components/v2/cleaner/report-maintenance";
 import { QuickScanPanel } from "@/components/v2/inventory/quick-scan-panel";
 import { BarcodeFieldInput, BARCODE_CAPTURE_KEY, type BarcodeCapture } from "@/components/v2/cleaner/barcode-field-input";
+import { StockCountFieldInput, TableFieldInput } from "@/components/v2/cleaner/structured-field-inputs";
+import { FormJobContext, QuestionEffectNotice } from "@/components/v2/cleaner/question-effect-notice";
 import { SandboxMediaInput } from "@/components/v2/cleaner/sandbox-media-input";
 
 export type AnswerMap = Record<string, unknown>;
@@ -124,7 +126,20 @@ export function FormRenderer({
   propertyId,
   laundryReady,
   mode = "live",
+  enforceExtendedRules = ENFORCE_EXTENDED_FORM_VALIDATION,
+  effectsJobId,
 }: {
+  /**
+   * The job a question effect acts on ("'Yes' opens a damage report" opens
+   * that job's damage report). Separate from `jobId`, which also turns on the
+   * Extras region. Falls back to `jobId`.
+   */
+  effectsJobId?: string;
+  /**
+   * Show the extended answer checks inline (the organisation enforces them
+   * for this job's submission). Defaults to the release constant (off).
+   */
+  enforceExtendedRules?: boolean;
   /** See FormRenderMode. Admin previews pass "preview" or "sandbox". */
   mode?: FormRenderMode;
   schema: FormSchema;
@@ -244,9 +259,9 @@ export function FormRenderer({
             >) ?? {},
         },
         // The extended rules show on the phone only once the server enforces them.
-        { extended: ENFORCE_EXTENDED_FORM_VALIDATION }
+        { extended: enforceExtendedRules }
       ),
-    [schema, answers, uploadCounts, property, laundryReady, requiredChecklistTicksBlockSubmit, canUseNoPhoto]
+    [schema, answers, uploadCounts, property, laundryReady, requiredChecklistTicksBlockSubmit, canUseNoPhoto, enforceExtendedRules]
   );
   const errorMap = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -320,6 +335,7 @@ export function FormRenderer({
 
   return (
     <RenderModeContext.Provider value={mode}>
+    <FormJobContext.Provider value={mode === "live" ? effectsJobId ?? jobId : undefined}>
     <LaundryVisibilityContext.Provider value={laundryReady}>
     <NoPhotoContext.Provider value={canUseNoPhoto}>
     <ValidationContext.Provider value={validation}>
@@ -360,6 +376,7 @@ export function FormRenderer({
     </ValidationContext.Provider>
     </NoPhotoContext.Provider>
     </LaundryVisibilityContext.Provider>
+    </FormJobContext.Provider>
     </RenderModeContext.Provider>
   );
 }
@@ -1052,6 +1069,9 @@ function FieldBlock({
       {showDetailsError ? (
         <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-danger))]">{detailsError}</p>
       ) : null}
+      {field.effects?.length ? (
+        <QuestionEffectNotice field={field} value={value} sectionTitle={section.title ?? ""} mode={renderMode} />
+      ) : null}
       {showFieldError ? (
         <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-danger))]">{fieldError}</p>
       ) : null}
@@ -1331,6 +1351,12 @@ function FieldControl({
 
     case "location":
       return <LocationCapture value={value as any} onChange={set} disabled={disabled} />;
+
+    case "table":
+      return <TableFieldInput field={field} value={value} onChange={set} disabled={disabled} error={error} />;
+
+    case "stock_count":
+      return <StockCountFieldInput field={field} value={value} onChange={set} disabled={disabled} error={error} />;
 
     case "barcode":
       return (

@@ -112,6 +112,13 @@ export const SETTINGS_DESTINATIONS = [
     adminOnly: true,
   },
   {
+    key: "insights-email",
+    label: "Monthly Insights email",
+    description: "Last month's business summary by email: recipients, day and hour, sections.",
+    group: "notifications",
+    adminOnly: true,
+  },
+  {
     key: "notification-tools",
     label: "Notification tools",
     description: "Check providers and test message delivery.",

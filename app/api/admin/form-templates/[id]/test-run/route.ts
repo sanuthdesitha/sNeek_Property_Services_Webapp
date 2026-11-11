@@ -35,8 +35,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       property: body.property,
       laundryReady: body.laundryReady,
       requiredChecklistTicksBlockSubmit: settings.accountability?.requiredChecklistTicksBlockSubmit === true,
+      // As a job started now would be judged.
+      enforceExtended: settings.formValidation?.enforceExtended === true,
     });
-    return NextResponse.json({ problems: result.problems, blocking: result.blocking, warnings: result.warnings });
+    // `wouldHappen`: what the question effects would do; nothing is raised or reported here.
+    return NextResponse.json({ problems: result.problems, blocking: result.blocking, warnings: result.warnings, wouldHappen: result.wouldHappen });
   } catch (err: unknown) {
     return templateErrorResponse(err);
   }

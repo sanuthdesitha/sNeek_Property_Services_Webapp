@@ -16,6 +16,8 @@ export type InsightsContext = {
   access: InsightsAccess;
   canManageReports: boolean;
   timeZone: string;
+  /** The monthly Insights email's state; canConfigure = may open its settings (ADMIN). */
+  monthlyEmail?: { enabled: boolean; canConfigure: boolean } | null;
 };
 
 export function isBusiness(body: unknown): body is BusinessPayload {

@@ -18,6 +18,7 @@ import { ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { RaiseFromCaseOptions, RaiseFromCaseResult } from "@/lib/quality/raise-from-case";
 import { newRequestKey, officeRequest } from "../office-actions/office-outcomes";
 import type { CaseDetail } from "./case-types";
+import { severityLabel } from "@/lib/quality/severity";
 
 type Options = RaiseFromCaseOptions & { canRaise: boolean };
 type Severity = RaiseFromCaseOptions["severities"][number];
@@ -36,13 +37,12 @@ type Draft = {
 type LoadState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; options: Options };
 type SendState = { status: "idle" } | { status: "sending" } | { status: "failed"; message: string } | { status: "done"; result: RaiseFromCaseResult };
 
-export const QUALITY_FIGURES_NOTE = "This counts in the cleaner's quality figures (issue counts, categories and patterns; a Critical issue also breaks their quality streak). It does not change any QA review score.";
+export const QUALITY_FIGURES_NOTE = "This counts in the cleaner's quality figures (issue counts, categories and patterns; a High issue also breaks their quality streak). It does not change any QA review score.";
 
 function freshDraft(detail: CaseDetail): Draft {
   return { caseId: detail.id, cleanerId: "", category: "", severity: "", description: detail.title, attachmentIds: [], jobMediaIds: [], key: newRequestKey("qa-case") };
 }
 
-const SEVERITY_LABEL: Record<string, string> = { MINOR: "Minor", MAJOR: "Major", CRITICAL: "Critical" };
 const LABEL = "text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]";
 
 function toggle(list: string[], id: string, on: boolean): string[] {
@@ -170,7 +170,7 @@ export function CaseRaiseQaDialog({ open, detail, onClose, onRaised }: { open: b
                 <label htmlFor={ids.severity} className={LABEL}>Severity</label>
                 <ESelect id={ids.severity} value={draft.severity} onChange={(event) => set({ severity: event.target.value as Severity | "" })}>
                   <option value="">Choose</option>
-                  {options.severities.map((value) => <option key={value} value={value}>{SEVERITY_LABEL[value] ?? value}</option>)}
+                  {options.severities.map((value) => <option key={value} value={value}>{severityLabel(value)}</option>)}
                 </ESelect>
               </div>
             </div>

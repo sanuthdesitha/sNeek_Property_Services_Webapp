@@ -20,7 +20,8 @@ export const dynamic = "force-dynamic";
  * only, read-only. An operations manager whose quality pack is read-only
  * also sees no actions, since the action endpoints would refuse them. The
  * Coaching tab is hidden when its endpoints (coaching records, cleaner list)
- * would refuse the manager, and "Review bonus" when payroll would.
+ * would refuse the manager, and "Review bonus" / "Propose bonus" when
+ * payroll would (the bonus proposal route re-checks on the server).
  */
 export default async function AdminQualityPage() {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.QA_INSPECTOR]);
@@ -39,6 +40,7 @@ export default async function AdminQualityPage() {
         inspectorView: !isManager,
         coaching: isManager ? access.coaching : { visible: false, canManage: false, fullPageLink: false },
         canDecideBonus: isManager && access.canDecideBonus,
+        canProposeBonus: isManager && access.canProposeBonus,
         timeZone: settings?.timezone || "Australia/Sydney",
         falseConfirmationDeduction: typeof deduction === "number" ? deduction : null,
       }}

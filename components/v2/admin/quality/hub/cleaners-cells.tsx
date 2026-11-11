@@ -3,7 +3,9 @@
  * pills, "None" in muted text, the streak with "bonus due", and "–" with a
  * reason wherever a figure has no data behind it.
  */
-import { EPill } from "@/components/v2/ui/pill";
+import { EPill, type EPillTone } from "@/components/v2/ui/pill";
+import type { SeverityCounts } from "@/lib/quality/groupings";
+import { severityCountLabel } from "@/lib/quality/severity";
 import type { CleanerRow } from "./hub-types";
 
 const MUTED = "text-[hsl(var(--e-muted-foreground))]";
@@ -12,16 +14,30 @@ export function NoneText({ children = "None" }: { children?: string }) {
   return <span className={MUTED}>{children}</span>;
 }
 
-export function IssueSeverityPills({ row }: { row: CleanerRow }) {
-  const { MINOR, MAJOR, CRITICAL } = row.issues.bySeverity;
-  if (row.issues.total === 0) return <NoneText />;
+const SEVERITY_PILLS: ReadonlyArray<{ severity: keyof SeverityCounts; tone: EPillTone }> = [
+  { severity: "MINOR", tone: "neutral" },
+  { severity: "MAJOR", tone: "warn" },
+  { severity: "CRITICAL", tone: "bad" },
+];
+
+/** "2 low · 1 med · 1 high" pills (labels from lib/quality/severity); nothing for a zero count. */
+export function SeverityCountPills({ counts }: { counts: SeverityCounts }) {
   return (
     <span className="flex flex-wrap gap-1">
-      {MINOR > 0 ? <EPill>{`${MINOR} minor`}</EPill> : null}
-      {MAJOR > 0 ? <EPill tone="warn">{`${MAJOR} major`}</EPill> : null}
-      {CRITICAL > 0 ? <EPill tone="bad">{`${CRITICAL} critical`}</EPill> : null}
+      {SEVERITY_PILLS.map(({ severity, tone }) =>
+        counts[severity] > 0 ? (
+          <EPill key={severity} tone={tone}>
+            {severityCountLabel(counts[severity], severity)}
+          </EPill>
+        ) : null,
+      )}
     </span>
   );
+}
+
+export function IssueSeverityPills({ row }: { row: CleanerRow }) {
+  if (row.issues.total === 0) return <NoneText />;
+  return <SeverityCountPills counts={row.issues.bySeverity} />;
 }
 
 export function OpenFixesCell({ row }: { row: CleanerRow }) {
@@ -46,7 +62,9 @@ export function StreakCell({ row }: { row: CleanerRow }) {
   const label = streak.currentStreak === 0 ? "Reset" : `${streak.currentStreak} clean`;
   const last5 = streak.last5Avg === null ? "–" : Math.round(streak.last5Avg);
   const title = `Current streak of qualifying cleans. Last 5 average ${last5}.`;
-  if (row.pendingBonuses.length > 0) return <EPill tone="gold">{`${label} · bonus due`}</EPill>;
+  // "bonus due" is the automatic streak / ranking rule only; a bonus proposed
+  // by hand does not make a streak "due".
+  if (row.pendingBonuses.some((bonus) => bonus.origin === "automatic")) return <EPill tone="gold">{`${label} · bonus due`}</EPill>;
   return (
     <span title={title} className={streak.currentStreak === 0 ? MUTED : undefined}>
       {label}

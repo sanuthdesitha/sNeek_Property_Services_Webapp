@@ -17,12 +17,18 @@ import { FormsToolbar } from "./forms-toolbar";
 import { FormsBulk } from "./forms-bulk";
 import { FORMS_PAGE_SIZE, formsFilterSignature, useFormGroups, useFormsListData, useFormsListState } from "./use-forms-library";
 import { useFormRowActions } from "./use-form-row-actions";
+import { FormsCompare } from "./forms-compare";
+import { cn } from "@/lib/utils";
+import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
+
+type LibraryView = "list" | "compare";
 
 export function JobFormsLibrary({ canWrite }: { canWrite: boolean }) {
   const [state, update] = useFormsListState();
   const list = useFormsListData(state);
   const groups = useFormGroups();
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
+  const [view, setView] = React.useState<LibraryView>("list");
   const signature = formsFilterSignature(state);
   const { reload: reloadList } = list;
   const { reload: reloadGroups } = groups;
@@ -60,7 +66,18 @@ export function JobFormsLibrary({ canWrite }: { canWrite: boolean }) {
         onGroupsChanged={refresh}
       />
       <section aria-label="Forms in group" className="flex min-w-0 flex-1 flex-col gap-2.5">
-        <FormsToolbar state={state} update={update} problemCount={payload?.counts.problems ?? null} />
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="min-w-0 flex-1">
+            <FormsToolbar state={state} update={update} problemCount={payload?.counts.problems ?? null} usageCovered={payload ? payload.checksBasis === "all" : true} />
+          </div>
+          <div role="group" aria-label="View" className="flex gap-1.5">
+            {(["list", "compare"] as const).map((key) => (
+              <button key={key} type="button" aria-pressed={view === key} onClick={() => setView(key)} className={cn(E_CHIP_CLASS, view === key && E_CHIP_ON_CLASS)}>
+                {key === "list" ? "List" : `Compare${selected.size >= 2 ? ` ${selected.size}` : ""}`}
+              </button>
+            ))}
+          </div>
+        </div>
         {rowActions.notice ? (
           <EAlert tone={rowActions.notice.tone} title={rowActions.notice.tone === "success" ? "Done" : "Not done"}>
             <span>{rowActions.notice.text}</span>{" "}
@@ -71,7 +88,8 @@ export function JobFormsLibrary({ canWrite }: { canWrite: boolean }) {
             ) : null}
           </EAlert>
         ) : null}
-        <ECard className="overflow-hidden p-0">
+        {view === "compare" ? <FormsCompare selectedIds={selectedIds} onApplied={refresh} /> : null}
+        <ECard className={cn("overflow-hidden p-0", view === "compare" && "hidden")}>
           <EDataTable
             label="Job forms"
             columns={columns}

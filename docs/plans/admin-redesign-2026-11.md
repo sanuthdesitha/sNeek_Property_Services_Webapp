@@ -405,6 +405,10 @@ Waves (one wave holds the database at a time):
 
 ### Wave C: Quality and Insights (no database change)
 - Quality: "Propose bonus" by hand from a cleaner's row (a pending bonus adjustment needing the existing approval), alongside the automatic nightly proposals; severity shown as Low / Medium / High; a row may show both the coaching and the bonus action.
+  - [x] Propose bonus by hand (2026-11-11): `POST /api/admin/quality/bonus-proposals`, a PENDING pay adjustment written as the admin create route writes one ($5–$200, reason required, idempotent, warning and 409 when a bonus is already pending; ADMIN, or OPS_MANAGER with payroll and quality at manage). Lands in Approvals "Pay requests"; paid only after approval.
+  - [x] Severity Low / Medium / High (2026-11-11): one mapping, `lib/quality/severity.ts`; stored, API and query values unchanged; CSV adds "Severity label".
+  - [x] Both actions on a row (2026-11-11): one button (Start coaching, else Review bonus, else Propose bonus) and the rest in the row's "more" menu.
+  - [x] Remaining design differences checked element by element; deliberate ones listed in `docs/SYSTEM.md`, "Quality design completion … (Wave C, 2026-11-11)". Awaiting the final build and browser pass.
 - Insights: the overrun finding states the money effect per clean; sorting the five-row preview in place.
 
 ### Wave D: Money (holds the database)
@@ -447,3 +451,7 @@ Items in these waves that change a business rule, money, or who can do what are 
 2. QA inspections keep a copy of the template they were filled in on, so editing a template never changes how a past inspection displays. Needs a database change: Wave E.
 3. Port the classic Forms page's Submissions tab (edit a submission, add or remove media) and Checklists tab to the new Forms page, then redirect the classic page. Wave E.
 4. Build the "Table" and "Stock count" question types and the stock and damage effects. Already in Wave B.
+
+### Rule added in Wave C (Quality), for the final summary
+
+A bonus proposed by hand is limited to $5 to $200 and needs a reason. It is a pending pay adjustment that is paid only after the existing approval. The owner can change the limits.

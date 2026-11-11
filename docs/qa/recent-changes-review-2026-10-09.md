@@ -1026,3 +1026,29 @@ New tests
 
 Not verified
 - Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard, overflow) deferred to the final pass at the owner's request. No real message was sent (providers mocked in tests).
+
+## Quality design completion, Wave C (2026-11-11)
+
+Scope: the Quality half of Wave C (owner decision, sixth set). See `docs/SYSTEM.md`, "Quality design completion: manual bonus proposal, both row actions, Low / Medium / High (Wave C, 2026-11-11)". No schema change; automatic bonus, deduction, scoring and coaching rules unchanged.
+
+Rules added or access changed
+- New `POST /api/admin/quality/bonus-proposals`: a manual quality bonus as a PENDING pay adjustment (paid only after the existing approval). Access mirrors the pay-adjustment create route (ADMIN; OPS_MANAGER with payroll at manage) plus quality at manage for this path; refused while impersonating; CLEANER payees only.
+- New bounds: $5 to $200 in whole cents; reason required (3–1000). A pending bonus for the cleaner (automatic or manual) refuses with 409 unless acknowledged.
+- "Review bonus" now also lists manual quality bonuses (the "bonus due" streak badge stays automatic only).
+
+Behaviour changed on purpose
+- Severity reads Low / Medium / High on the admin Quality hub, the Cases "Raise QA issue" dialog and its internal case note; stored, API and query values unchanged. The Quality CSV gains a "Severity label" column after "Severity".
+- Cleaners rows show one button (Start coaching, Review bonus or Propose bonus) and the other applicable actions in a row menu.
+- Expanded cleaner row dates read "6 Nov" (year outside the current year).
+
+Tests updated on purpose
+- `tests/components/quality-hub-coaching-access.test.tsx`: the access object gains `canProposeBonus` (added a case for the payroll rule).
+- `tests/components/quality-hub-actions.test.tsx`: the pending-bonus fixture carries `origin: "automatic"`.
+
+New tests
+- `tests/api/quality-bonus-proposals.test.ts`, `tests/components/quality-hub-bonus-actions.test.tsx`, `tests/lib/quality-severity.test.ts`.
+
+Verified: `npx tsc --noEmit -p .` clean; the Quality, pay-adjustment, accountability, streak, rectification, approval-history and Cases QA test files pass (27 files, 298 tests), plus the ops-policy and route-guard audits.
+
+Not verified
+- Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard, overflow, the row menu inside the scrolling table) deferred to the final pass at the owner's request.

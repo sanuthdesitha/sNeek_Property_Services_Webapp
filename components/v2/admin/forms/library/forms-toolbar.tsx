@@ -42,7 +42,18 @@ function Options<T extends string>({ name, options, value, onChange }: { name: s
 
 const SEARCH_DELAY_MS = 300;
 
-export function FormsToolbar({ state, update, problemCount }: { state: FormsListState; update: (patch: Partial<FormsListState>) => void; problemCount: number | null }) {
+export function FormsToolbar({
+  state,
+  update,
+  problemCount,
+  usageCovered = true,
+}: {
+  state: FormsListState;
+  update: (patch: Partial<FormsListState>) => void;
+  problemCount: number | null;
+  /** False when "never answered" could only be checked for the rows shown. */
+  usageCovered?: boolean;
+}) {
   const [search, setSearch] = React.useState(state.q);
   const searchId = React.useId();
 
@@ -90,8 +101,14 @@ export function FormsToolbar({ state, update, problemCount }: { state: FormsList
         aria-pressed={state.problems}
         onClick={() => update({ problems: !state.problems })}
         className={cn(E_CHIP_CLASS, state.problems && E_CHIP_ON_CLASS)}
+        title={
+          usageCovered
+            ? "Forms with a check error or warning, including required questions never answered."
+            : "Forms with a check error or warning. Never-answered questions are only checked for the forms shown (too many submissions to check them all)."
+        }
       >
-        Has problems{typeof problemCount === "number" ? <span className="e-tnum">{problemCount}</span> : null}
+        Has problems: {usageCovered ? "errors or warnings" : "check errors or warnings"}
+        {typeof problemCount === "number" ? <span className="e-tnum">{problemCount}</span> : null}
       </button>
     </div>
   );

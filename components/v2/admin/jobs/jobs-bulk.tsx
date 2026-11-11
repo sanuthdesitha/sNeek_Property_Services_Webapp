@@ -5,16 +5,18 @@
  * request over the selection:
  * - Assign cleaner → `/api/admin/jobs/bulk-assign` (existing);
  * - Change status → the reviewed bulk-status flow (opened by the caller);
+ * - Reschedule → `/api/admin/jobs/bulk-reschedule`: a preview from the
+ *   Calendar's move check, then the existing reschedule service per row;
  * - Send reminder → `/api/admin/jobs/bulk-remind` with per-row outcomes;
  * - Assign QA → `/api/admin/qa/assignments` (existing);
  * - Export selected → the reviewed CSV export limited to the selection.
- * Reschedule is not offered: no bulk-safe reschedule service exists.
  */
 import { useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import { EBulkBar, EBulkButton } from "@/components/v2/ui/bulk-bar";
 import { EButton } from "@/components/v2/ui/primitives";
 import { BulkRemindDialog } from "./bulk-remind-dialog";
+import { BulkRescheduleDialog } from "./bulk-reschedule-dialog";
 import { JobsExportPreview } from "./export-preview";
 import { JobDialog } from "./job-dialog";
 import type { JobsPersonOption } from "./jobs-constants";
@@ -34,7 +36,7 @@ type BulkProps = {
   onDone: (keepSelected: string[]) => void;
 };
 
-type ActiveDialog = "assign" | "remind" | "qa" | null;
+type ActiveDialog = "assign" | "reschedule" | "remind" | "qa" | null;
 
 async function postJson(url: string, body: unknown): Promise<{ ok: boolean; body: Record<string, unknown> }> {
   const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -89,6 +91,7 @@ export function JobsBulk({ selectedIds, cleaners, inspectors, exportQuery, views
         className="sticky bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] z-30 lg:bottom-4">
         <EBulkButton onClick={() => setDialog("assign")} disabled={readOnly}>Assign cleaner</EBulkButton>
         <EBulkButton onClick={onChangeStatus} disabled={readOnly}>Change status</EBulkButton>
+        <EBulkButton onClick={() => setDialog("reschedule")} disabled={readOnly}>Reschedule</EBulkButton>
         <EBulkButton onClick={() => setDialog("remind")} disabled={readOnly}>Send reminder</EBulkButton>
         <EBulkButton onClick={() => setDialog("qa")} disabled={readOnly}>Assign QA</EBulkButton>
         <JobsExportPreview query={exportQuery} context={viewsContext} selectionCount={count}
@@ -123,6 +126,7 @@ export function JobsBulk({ selectedIds, cleaners, inspectors, exportQuery, views
         </div>
       </JobDialog>
 
+      <BulkRescheduleDialog open={dialog === "reschedule"} jobIds={selectedIds} onClose={() => setDialog(null)} onFinished={(notMoved) => onDone(notMoved)} />
       <BulkRemindDialog open={dialog === "remind"} jobIds={selectedIds} onClose={() => setDialog(null)} onFinished={(notReminded) => onDone(notReminded)} />
     </>
   );

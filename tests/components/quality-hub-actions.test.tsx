@@ -28,7 +28,7 @@ const ROW: CleanerRow = {
   openFixes: 2,
   falseConfirmations: { suspected: 1, confirmed: 0 },
   streak: { currentStreak: 0, last5Avg: 80, last10Avg: 82, sample: 10 },
-  pendingBonuses: [{ id: "bonus1", title: "Streak bonus — 5 consecutive", amount: 20, source: "STREAK_5", createdAt: "2026-11-10T00:00:00Z" }],
+  pendingBonuses: [{ id: "bonus1", title: "Streak bonus — 5 consecutive", amount: 20, source: "STREAK_5", origin: "automatic", createdAt: "2026-11-10T00:00:00Z" }],
   openCoaching: 0,
   coachingSuggestion: { category: "linen", label: "Linen and beds", count: 4, windowDays: 30, patternKey: "cleaner:c1:linen", issueIds: ["i1", "i9"] },
   action: "start-coaching",

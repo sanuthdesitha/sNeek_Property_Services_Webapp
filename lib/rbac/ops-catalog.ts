@@ -403,6 +403,8 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
   restore: "owner",
   "invoice-cadence": "finance",
   "invoice-numbering": "finance",
+  // The monthly Insights email chooses who gets the business summary: ADMIN only.
+  "insights-email": "owner",
 };
 
 export type OpsRequestFeature = OpsFeature | "owner" | "unmapped" | null;

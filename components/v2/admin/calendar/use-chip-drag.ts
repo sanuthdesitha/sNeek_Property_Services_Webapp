@@ -68,17 +68,18 @@ export function useChipDrag(onDrop: (job: CalendarJob, source: DropPoint, target
   const advance = useCallback((event: GestureEvent): boolean => {
     const current = pending.current;
     if (!current) return false;
-    const before = current.gesture.phase;
-    current.gesture = gestureStep(current.gesture, event);
-    if (current.gesture.phase === "idle") {
-      stop();
+    const before: GestureState = current.gesture;
+    const next: GestureState = gestureStep(before, event);
+    current.gesture = next;
+    if (next.phase === "idle") {
+      if (before.phase !== "idle") stop();
       return false;
     }
-    if (before !== "dragging" && current.gesture.phase === "dragging") {
+    if (before.phase !== "dragging" && next.phase === "dragging") {
       if (current.holdTimer) window.clearTimeout(current.holdTimer);
       current.holdTimer = null;
       const over = readDropPoint(document.elementFromPoint(current.lastX, current.lastY), current.lastX);
-      setDrag({ job: current.job, source: current.source, x: current.lastX, y: current.lastY, over, touch: current.gesture.pointer === "touch" });
+      setDrag({ job: current.job, source: current.source, x: current.lastX, y: current.lastY, over, touch: next.pointer === "touch" });
       return true;
     }
     return false;
@@ -91,10 +92,11 @@ export function useChipDrag(onDrop: (job: CalendarJob, source: DropPoint, target
       current.lastX = event.clientX;
       current.lastY = event.clientY;
       advance({ type: "move", x: event.clientX, y: event.clientY, at: Date.now() });
-      if (pending.current?.gesture.phase !== "dragging") return;
+      const gesture = pending.current?.gesture;
+      if (!gesture || gesture.phase !== "dragging") return;
       event.preventDefault();
       const over = readDropPoint(document.elementFromPoint(event.clientX, event.clientY), event.clientX);
-      setDrag({ job: current.job, source: current.source, x: event.clientX, y: event.clientY, over, touch: current.gesture.pointer === "touch" });
+      setDrag({ job: current.job, source: current.source, x: event.clientX, y: event.clientY, over, touch: gesture.pointer === "touch" });
     };
     const onUp = (event: PointerEvent) => {
       const current = pending.current;

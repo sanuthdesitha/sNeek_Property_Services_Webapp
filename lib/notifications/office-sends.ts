@@ -49,7 +49,8 @@ export type OfficeSendInput = {
   /** Stable per request (includes the caller's idempotency key). */
   eventId: string;
   entity: { type: string; id: string };
-  actorId: string;
+  /** The person who sent it; null for a scheduled send (the envelope allows it). */
+  actorId: string | null;
   scopeType: RecipientScopeType;
   /** The scope entity for a recipient (job id, laundry task id, or the user id for STAFF_MEMBER). */
   scopeId: (recipient: OfficeRecipient) => string;

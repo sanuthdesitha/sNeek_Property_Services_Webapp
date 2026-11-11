@@ -3,14 +3,16 @@
 /**
  * Jobs page heading: "Jobs", a line with the real number of matching jobs and
  * when the list was last read, and the page actions (Export, Import or bulk
- * create, New job). Both create actions open the existing create page, which
- * holds single create and bulk scheduling.
+ * create, New job). "Import or bulk create" opens its own dialog: a link to
+ * the New job page's bulk create and the CSV import.
  */
 import Link from "next/link";
+import { useState } from "react";
 import { formatInTimeZone } from "date-fns-tz";
 import { EButton } from "@/components/v2/ui/primitives";
 import { SYDNEY_TZ } from "@/lib/time/sydney-range";
 import { JobsExportPreview } from "./export-preview";
+import { JobsImportDialog } from "./jobs-import-dialog";
 import type { JobsListStatus } from "./use-jobs-list";
 
 type HeaderProps = {
@@ -23,6 +25,10 @@ type HeaderProps = {
   exportDisabled: boolean;
   viewsContext?: string;
   showTitle: boolean;
+  /** Read-only views cannot create jobs. */
+  readOnly?: boolean;
+  /** Reload the list after an import created jobs. */
+  onImported?: () => void;
 };
 
 export function updatedLabel(loadedAt: Date, now: Date): string {
@@ -42,11 +48,13 @@ function summaryLine({ status, totalCount, loadedAt, now, refreshFailed }: Heade
 }
 
 export function JobsHeader(props: HeaderProps) {
+  const [importOpen, setImportOpen] = useState(false);
   const actions = (
     <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
       <JobsExportPreview query={props.exportQuery} context={props.viewsContext} disabled={props.exportDisabled} />
-      <EButton asChild variant="outline"><Link href="/v2/admin/jobs/new">Import or bulk create</Link></EButton>
+      <EButton variant="outline" onClick={() => setImportOpen(true)} disabled={props.readOnly}>Import or bulk create</EButton>
       <EButton asChild><Link href="/v2/admin/jobs/new">New job</Link></EButton>
+      <JobsImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImported={() => props.onImported?.()} />
     </div>
   );
   return (

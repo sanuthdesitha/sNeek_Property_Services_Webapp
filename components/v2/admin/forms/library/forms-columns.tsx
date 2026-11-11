@@ -61,25 +61,27 @@ export function formatChanged(iso: string, timezone: string, now = new Date()): 
 
 function ChecksCell({ row }: { row: FormLibraryRow }) {
   const { checks } = row;
-  const first = checks.issues[0]?.message;
-  const pill =
-    checks.status === "pass" ? (
-      <EPill tone="ok">Passes</EPill>
-    ) : checks.status === "errors" ? (
-      <EPill tone="bad">{checks.errors} problem{checks.errors === 1 ? "" : "s"}</EPill>
-    ) : (
-      <EPill tone="warn">{checks.warnings} warning{checks.warnings === 1 ? "" : "s"}</EPill>
-    );
+  const never = checks.issues.filter((issue) => issue.rule === "never-answered");
+  const otherWarnings = checks.warnings - never.length;
+  const firstError = checks.issues.find((issue) => issue.severity === "error")?.message;
+  const firstWarning = checks.issues.find((issue) => issue.severity === "warning" && issue.rule !== "never-answered")?.message;
+  if (checks.status === "pass") {
+    return <span title="Every validator passes and no required question went unanswered."><EPill tone="ok">Passes</EPill></span>;
+  }
   return (
-    <div className="max-w-[16rem] space-y-1">
-      <span title={checks.issues.map((issue) => issue.message).join("\n") || "Every validator passes."}>{pill}</span>
-      {first ? <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]" title={first}>{first}</p> : null}
-      {row.neverAnswered.length > 0 ? (
+    <div className="max-w-[16rem] space-y-1" title={checks.issues.map((issue) => `${issue.severity === "error" ? "Error" : "Warning"}: ${issue.message}`).join("\n")}>
+      <div className="flex flex-wrap gap-1">
+        {checks.errors > 0 ? <EPill tone="bad">{checks.errors} error{checks.errors === 1 ? "" : "s"}</EPill> : null}
+        {otherWarnings > 0 ? <EPill tone="warn">{otherWarnings} warning{otherWarnings === 1 ? "" : "s"}</EPill> : null}
+      </div>
+      {firstError ? <p className="truncate text-[0.75rem] text-[hsl(var(--e-danger))]" title={firstError}>{firstError}</p> : null}
+      {!firstError && firstWarning ? <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]" title={firstWarning}>{firstWarning}</p> : null}
+      {never.length > 0 ? (
         <p
           className="text-[0.75rem] font-[500] text-[hsl(var(--e-warning))]"
-          title={`Required and always shown, but not answered in any of the last ${row.usageSample} submissions since this version went live.`}
+          title={`Warning. Required and always shown, but not answered in any of the last ${row.usageSample} submissions since this version went live.`}
         >
-          Never answered: {row.neverAnswered.map((q) => q.label).join(", ")}
+          <span className="sr-only">Warning: </span>Never answered: {never.map((issue) => row.neverAnswered.find((q) => q.id === issue.fieldId)?.label ?? issue.fieldId).join(", ")}
         </p>
       ) : null}
     </div>
@@ -112,6 +114,8 @@ export function formColumns(options: {
     {
       key: "avg",
       header: <span title={`Average time from start to submit. ${basis}`}>Avg time</span>,
+      sortKey: "avgTime",
+      firstDir: "desc",
       align: "right",
       className: "e-tnum whitespace-nowrap",
       cell: (row) => formatMinutes(row.avgMinutes),
@@ -119,6 +123,8 @@ export function formColumns(options: {
     {
       key: "completion",
       header: <span title={`Share of required, always-shown questions answered. ${basis}`}>Completion</span>,
+      sortKey: "completion",
+      firstDir: "desc",
       align: "right",
       className: "e-tnum",
       cell: (row) => (row.completionPct === null ? "–" : `${row.completionPct}%`),

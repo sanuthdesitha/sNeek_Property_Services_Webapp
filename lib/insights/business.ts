@@ -112,6 +112,7 @@ function slowPayerRows(receivables: ReceivablesFacts) {
       clientName: receivables.clientNames.get(clientId) ?? "Client",
       daysToPay: payment.daysToPay,
       overdueAud: payment.overdueAud,
+      termsDays: payment.termsDays,
     };
   });
 }

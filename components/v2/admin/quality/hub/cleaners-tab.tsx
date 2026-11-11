@@ -3,16 +3,19 @@
 /**
  * Cleaners tab, as drawn: a sortable table with an 8-week score sparkline and
  * an expandable row per cleaner (open issues with their actions, by-category
- * breakdown, "Open all N in Issues"). One action per row: "Start coaching"
- * when a recurring-issue pattern suggests it and no coaching is open, else
- * "Review bonus" when the nightly job has proposed a bonus that awaits a
- * decision. Rows are sorted on the server.
+ * breakdown, "Open all N in Issues"). One visible action per row, the rest
+ * in the row's "more" menu (./cleaner-row-actions): "Start coaching" when a
+ * recurring-issue pattern suggests it and no coaching is open, else "Review
+ * bonus" when a bonus awaits a decision, else "Propose bonus". Rows are
+ * sorted on the server.
  */
 import * as React from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ECard, EButton } from "@/components/v2/ui/primitives";
-import { CLEANER_SORTS, type CleanerSort, type IssueListFilters, type QualityTab } from "@/lib/quality/types";
+import { ERowMenu } from "@/components/v2/ui/row-menu";
+import { periodLabel } from "@/lib/quality/period";
+import { CLEANER_SORTS, QUALITY_PERIOD_KEYS, type CleanerSort, type IssueListFilters, type QualityPeriodKey, type QualityTab } from "@/lib/quality/types";
 import type { CleanerRow, HubContext } from "./hub-types";
 import { isCleaners } from "./hub-types";
 import { useQualityRead, useReloadOn } from "./use-quality-read";
@@ -22,11 +25,19 @@ import { FalseConfirmationCell, IssueSeverityPills, NoneText, OpenFixesCell, Sco
 import { CleanerExpanded, type OpenIssueRequest } from "./cleaner-expanded";
 import { CoachingDialog } from "./coaching-dialog";
 import { BonusDialog } from "./bonus-dialog";
+import { ProposeBonusDialog } from "./propose-bonus-dialog";
+import { CLEANER_ROW_ACTION_LABEL, cleanerRowActions, type CleanerRowActionKey } from "./cleaner-row-actions";
 import { TableState } from "./table-state";
 
 const FIRST_DIR: Partial<Record<CleanerSort, "asc" | "desc">> = { cleaner: "asc", topCategory: "asc" };
 
-type Dialog = { kind: "coaching" | "bonus"; row: CleanerRow } | null;
+type Dialog = { kind: "coaching" | "bonus" | "propose"; row: CleanerRow } | null;
+
+const DIALOG_FOR: Record<CleanerRowActionKey, "coaching" | "bonus" | "propose"> = {
+  "start-coaching": "coaching",
+  "review-bonus": "bonus",
+  "propose-bonus": "propose",
+};
 
 export function CleanersTab({
   apiQuery,
@@ -65,6 +76,13 @@ export function CleanersTab({
   React.useEffect(() => setExpanded(null), [apiQuery]);
 
   const rows = read.data?.rows ?? [];
+  const period = read.data?.period;
+  const periodText = period && isPeriodKey(period.key) ? periodLabel({ key: period.key, fromKey: period.fromKey, toKey: period.toKey }) : null;
+  const permissions = {
+    canCoach: context.canManage,
+    canDecideBonus: context.canDecideBonus ?? context.canManage,
+    canProposeBonus: context.canProposeBonus ?? context.canManage,
+  };
   const header = (key: CleanerSort, label: string, align: "left" | "right" = "left") => (
     <SortHeader label={label} sortKey={key} active={activeSort} dir={activeDir} firstDir={FIRST_DIR[key] ?? "desc"} align={align} onSort={onSort} />
   );
@@ -119,12 +137,7 @@ export function CleanersTab({
                         <td className="px-3 py-2.5"><FalseConfirmationCell row={row} /></td>
                         <td className="px-3 py-2.5"><StreakCell row={row} /></td>
                         <td className="px-3 py-2.5 text-right">
-                          {context.canManage && row.action === "start-coaching" ? (
-                            <EButton size="sm" className="h-7 px-2.5 text-[0.75rem]" onClick={() => setDialog({ kind: "coaching", row })}>Start coaching</EButton>
-                          ) : null}
-                          {(context.canDecideBonus ?? context.canManage) && row.action === "review-bonus" ? (
-                            <EButton size="sm" variant="outline" className="h-7 px-2.5 text-[0.75rem]" onClick={() => setDialog({ kind: "bonus", row })}>Review bonus</EButton>
-                          ) : null}
+                          <RowActions row={row} actions={cleanerRowActions(row, permissions)} onAction={(key) => setDialog({ kind: DIALOG_FOR[key], row })} />
                         </td>
                       </tr>
                       {open ? (
@@ -161,6 +174,59 @@ export function CleanersTab({
       {dialog?.kind === "bonus" ? (
         <BonusDialog key={dialog.row.cleanerId} row={dialog.row} timeZone={context.timeZone} onClose={() => setDialog(null)} onDecided={onChanged} />
       ) : null}
+      {dialog?.kind === "propose" ? (
+        <ProposeBonusDialog
+          key={dialog.row.cleanerId}
+          row={dialog.row}
+          apiQuery={apiQuery}
+          periodText={periodText}
+          timeZone={context.timeZone}
+          canReview={permissions.canDecideBonus && dialog.row.pendingBonuses.length > 0}
+          onClose={() => setDialog(null)}
+          onProposed={onChanged}
+          onReview={() => setDialog({ kind: "bonus", row: dialog.row })}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function isPeriodKey(key: string): key is QualityPeriodKey {
+  return (QUALITY_PERIOD_KEYS as readonly string[]).includes(key);
+}
+
+/**
+ * The row's one visible action (coaching is primary and filled, as drawn; a
+ * bonus action is outlined) and, when more than one applies, the rest in the
+ * row's "more" menu.
+ */
+function RowActions({
+  row,
+  actions,
+  onAction,
+}: {
+  row: CleanerRow;
+  actions: ReturnType<typeof cleanerRowActions>;
+  onAction: (key: CleanerRowActionKey) => void;
+}) {
+  if (!actions.primary) return null;
+  const primary = actions.primary;
+  return (
+    <span className="inline-flex items-center justify-end gap-1">
+      <EButton
+        size="sm"
+        variant={primary === "start-coaching" ? "primary" : "outline"}
+        className="h-7 whitespace-nowrap px-2.5 text-[0.75rem]"
+        onClick={() => onAction(primary)}
+      >
+        {CLEANER_ROW_ACTION_LABEL[primary]}
+      </EButton>
+      {actions.more.length > 0 ? (
+        <ERowMenu
+          label={`More actions for ${row.name}`}
+          items={actions.more.map((key) => ({ key, label: CLEANER_ROW_ACTION_LABEL[key], onSelect: () => onAction(key) }))}
+        />
+      ) : null}
+    </span>
   );
 }

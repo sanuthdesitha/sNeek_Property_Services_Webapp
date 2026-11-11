@@ -10,6 +10,25 @@ const OFFICE = "Active administrators and operations managers.";
 
 export const OFFICE_NOTIFICATION_TYPES: NotificationTypeEntry[] = [
   {
+    key: "insights.monthly_email",
+    name: "Monthly Insights email",
+    group: "Office alerts",
+    trigger: "Once a month, on the day and hour set in Settings → Notifications → Monthly Insights email (off by default); plus \"Send me this month's so far\" to the signed-in person only.",
+    audience: "The administrators, and operations managers with Insights access, chosen in its settings; re-checked when it is sent. Money figures only for recipients with finance access.",
+    audienceKeys: ["STAFF_ADMIN"],
+    initiator: "SCHEDULED",
+    transports: ["EMAIL"],
+    defaultTransports: ["EMAIL"],
+    path: "PIPELINE_WITH_FALLBACK",
+    eventKeys: ["insights.monthly_email"],
+    emailKind: "insights_monthly",
+    switches: [{ kind: "EMAIL_KIND", emailKind: "insights_monthly" }, { kind: "TYPE_CONTROL" }],
+    template: { kind: "NONE" },
+    preferences: "IGNORES",
+    producers: ["lib/insights/monthly-email.ts"],
+    notes: "Sent once per month (a stored marker per month prevents a second send after a restart). Email only. While the pipeline's email transport is off, it is sent directly through the email chokepoint and recorded in the delivery log.",
+  },
+  {
     key: "office.cleaner_requests",
     name: "Cleaner requests for the office",
     group: "Office alerts",

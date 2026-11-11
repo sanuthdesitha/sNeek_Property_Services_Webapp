@@ -36,6 +36,7 @@ import { FinalCheckupSettingsSection } from "@/components/v2/admin/settings/fina
 import { NoPhotoSection } from "@/components/v2/admin/settings/no-photo-section";
 import { NotificationAudienceSection } from "@/components/v2/admin/settings/notification-audience-section";
 import { LostFoundSettingsSection } from "@/components/v2/admin/settings/lost-found-section";
+import { InsightsEmailSection } from "@/components/v2/admin/settings/insights-email-section";
 
 export const metadata = { title: "Settings · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -367,6 +368,7 @@ export default async function SettingsPage({
       ) : null}
 
       {activeTab === "integrations" && isAdmin ? <IntegrationsSection /> : null}
+      {activeTab === "insights-email" && isAdmin ? <InsightsEmailSection /> : null}
       {activeTab === "ical-sync" && isAdmin ? <IcalSection /> : null}
       {activeTab === "payment-gateways" && isAdmin ? <GatewaysSection /> : null}
       {activeTab === "xero" && isAdmin ? <XeroSection /> : null}

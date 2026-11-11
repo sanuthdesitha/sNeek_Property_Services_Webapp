@@ -15,6 +15,7 @@ import { EPill } from "@/components/v2/ui/pill";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
 import type { FormUsage } from "@/lib/forms/library-types";
 import type { SaveState } from "./use-draft-autosave";
+import { InlineFormName, type RenameOutcome } from "./inline-form-name";
 
 export type BuilderStatus = {
   liveVersion: number;
@@ -93,8 +94,11 @@ export function BuilderHeader({
   onPublish,
   menuItems,
   onLeave,
+  onRename,
 }: {
   name: string;
+  /** Rename in place (metadata PATCH with the stale-write guard). */
+  onRename: (next: string) => Promise<RenameOutcome>;
   status: BuilderStatus;
   usage: FormUsage | null | undefined;
   saveState: SaveState;
@@ -125,9 +129,9 @@ export function BuilderHeader({
         >
           ← Forms
         </Link>
-        <h1 className="e-display-md mt-1 break-words">
-          {name || "Untitled form"} <EPill tone={pill.tone} className="align-middle">{pill.label}</EPill>
-        </h1>
+        <InlineFormName name={name} disabled={busy || status.archived} onRename={onRename}>
+          <EPill tone={pill.tone} className="align-middle">{pill.label}</EPill>
+        </InlineFormName>
         <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]" aria-live="polite">
           {usageSentence(status.liveVersion, status.isActive && !status.archived, usage)} ·{" "}
           <span className={saveState.status === "failed" || saveState.status === "conflict" ? "font-[600] text-[hsl(var(--e-danger))]" : undefined}>

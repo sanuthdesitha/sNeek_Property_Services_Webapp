@@ -35,6 +35,7 @@ import { useBuilderDocument } from "./use-builder-document";
 import { useBuilderEditing } from "./use-builder-editing";
 import { useBuilderLifecycle } from "./use-builder-lifecycle";
 import { useDraftAutosave } from "./use-draft-autosave";
+import { useInlineRename } from "./use-inline-rename";
 
 export interface EstateFormBuilderProps {
   templateId: string;
@@ -47,6 +48,8 @@ export interface EstateFormBuilderProps {
   initialArchived: boolean;
   /** Edit token this render was built from (draft's updatedAt, else the template's). */
   initialUpdatedAt?: string;
+  /** The template row's updatedAt (stale-write guard for renaming in place). */
+  initialTemplateToken?: string;
   /** The template has unpublished changes saved as a draft version. */
   initialHasDraft?: boolean;
   initialDraftSavedAt?: string | null;
@@ -95,6 +98,7 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
   });
   const editing = useBuilderEditing(document);
   const lifecycle = useBuilderLifecycle({ templateId, document, autosave, status, setStatus });
+  const rename = useInlineRename({ templateId, document, autosave, initialTemplateToken: props.initialTemplateToken, hasDraft: status.hasDraft });
   const [overlay, setOverlay] = React.useState<Overlay>({ kind: "none" });
   const [pane, setPane] = React.useState<Pane>("questions");
   const close = React.useCallback(() => setOverlay({ kind: "none" }), []);
@@ -163,6 +167,7 @@ export function EstateFormBuilder(props: EstateFormBuilderProps) {
           setOverlay({ kind: "publish" });
         }}
         onLeave={leave}
+        onRename={rename}
         menuItems={[
           { key: "settings", label: "Form settings (name, service type, theme)", onSelect: () => setOverlay({ kind: "settings" }) },
           { key: "checks", label: `Checks (${checks.errors} problems, ${checks.warnings} warnings)`, onSelect: () => setOverlay({ kind: "checks" }) },

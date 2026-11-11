@@ -9,6 +9,7 @@
 import * as React from "react";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
 import type { FormLibraryRow } from "@/lib/forms/library-types";
+import { exportFormsHref } from "./import-forms";
 
 export type FormRowActions = {
   duplicate: (row: FormLibraryRow) => void;
@@ -28,6 +29,7 @@ export function FormRowMenu({ row, actions, busy }: { row: FormLibraryRow; actio
     row.status === "archived"
       ? { key: "unarchive", label: "Unarchive (stays a draft)", onSelect: () => actions.unarchive(row) }
       : { key: "archive", label: "Archive", onSelect: () => actions.archive(row) },
+    { key: "export", label: "Export as a file", href: exportFormsHref([row.id]) },
     { key: "stats", label: "Results and stats", href: `/v2/admin/forms?tab=stats&templateId=${encodeURIComponent(row.id)}` },
     { key: "delete", label: "Delete…", danger: true, separated: true, onSelect: () => actions.remove(row) },
   ];
