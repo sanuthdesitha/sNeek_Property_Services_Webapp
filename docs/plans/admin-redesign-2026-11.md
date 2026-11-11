@@ -281,3 +281,14 @@ Build order for these: a "Finance decisions" step (2 to 6, includes a migration 
 | "Resend invite" sends a sign-up code, not a fresh invitation link | Intended? |
 | Operations managers see pay rate and bank details whatever their payroll permission | Keep, or restrict to those with payroll access? |
 | No bulk "Message" to staff | Build once staff are recipients on the notification pipeline (part of "Notifications in one place") |
+
+### More items waiting for the owner (from the Command and Live ops step)
+
+| Item | Question |
+| --- | --- |
+| Money this month and revenue today are hidden from operations managers without finance or payroll access | Confirm this is wanted |
+| "Tell client" about a late cleaner opens the job's Messages tab | Add a one-click "notify client of delay"? It changes who can message clients |
+| "Pause clock" is "Review clock" (opens the job's time records) | Add an administrator clock pause? None exists today |
+| Expiring-document reminder is a link to the account | May it send the existing document request inline? |
+| "Invoiced this month" is shown as "Paid this month" | Define "invoiced this month" (by invoice date, sent date, or approval date) |
+| Declining a continuation from the queue sends no note to the cleaner | Require a reason? |
