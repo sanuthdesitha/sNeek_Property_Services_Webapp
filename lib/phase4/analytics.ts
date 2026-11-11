@@ -324,6 +324,16 @@ export async function suggestReschedulePlan(jobId: string, options?: { daysAhead
   };
 }
 
+/**
+ * The start/finish check `applyReschedule` runs, exported so the calendar's
+ * read-only move check reports the same refusal before anything is saved.
+ */
+export function rescheduleWindowError(startTime: string | null, dueTime: string | null): string | null {
+  const validTime = (value: string | null) => !value || /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+  if (!validTime(startTime) || !validTime(dueTime) || (startTime && dueTime && dueTime < startTime)) return "Enter a valid start and finish window.";
+  return null;
+}
+
 export async function applyReschedule(input: {
   jobId: string;
   date: string;
@@ -340,8 +350,8 @@ export async function applyReschedule(input: {
   if (input.expectedUpdatedAt && new Date(input.expectedUpdatedAt).getTime() !== job.updatedAt.getTime()) throw new Error("This job changed. Reload before rescheduling.");
   const startTime = input.startTime !== undefined ? input.startTime || null : job.startTime;
   const dueTime = input.dueTime !== undefined ? input.dueTime || null : job.dueTime;
-  const validTime = (value: string | null) => !value || /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-  if (!validTime(startTime) || !validTime(dueTime) || (startTime && dueTime && dueTime < startTime)) throw new Error("Enter a valid start and finish window.");
+  const windowError = rescheduleWindowError(startTime, dueTime);
+  if (windowError) throw new Error(windowError);
   if (job.scheduledDate.getTime() === date.getTime() && job.startTime === startTime && job.dueTime === dueTime) return job;
   const updated = await db.$transaction(async (tx) => {
   const guarded = await tx.job.updateMany({ where: { id: job.id, updatedAt: job.updatedAt }, data: { manuallyRescheduledAt: new Date() } });

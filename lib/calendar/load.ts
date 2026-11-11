@@ -7,7 +7,7 @@ import { dayAvailabilityBlocker } from "@/lib/jobs/cleaner-suggestions";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { addDaysToKey, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { calendarMoveBlock } from "./move-rules";
-import { HOURS_BASIS, guestArrivalOnDay, isJobLate, jobScheduledHours } from "./presentation";
+import { HOURS_BASIS, chipCategory, guestArrivalOnDay, isJobLate, jobScheduledHours } from "./presentation";
 import { buildRows, type RowSource } from "./rows";
 import { dayKeyToUtcDate, listDays, utcDateToDayKey, type CalendarRange } from "./range";
 import type { CalendarJob, CalendarLaundryDay, CalendarResponse } from "./types";
@@ -185,7 +185,7 @@ export async function loadCalendarRange(range: CalendarRange, filters: CalendarF
     laundry: filters.includeLaundry ? await loadLaundryCounts(range, filters.clientId) : null,
     summary: {
       jobs: jobs.length,
-      withoutCleaner: jobs.filter((job) => !job.skipped && job.moveBlock === null && job.cleaners.length === 0).length,
+      withoutCleaner: jobs.filter((job) => chipCategory(job) === "unassigned").length,
       skipped: jobs.filter((job) => job.skipped).length,
     },
     hoursBasis: HOURS_BASIS,
