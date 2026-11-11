@@ -464,6 +464,29 @@ export function VisitWorkspace({
         </ECard>
       ) : null}
 
+      {/* Order follows the visit: what the job is, how to get in and get there,
+          the visit itself, then who to call. */}
+      {/* What to fix / before photos */}
+      <ECard>
+        <ECardHeader>
+          <ECardTitle className="flex items-center gap-2 text-[1rem]">
+            <ShieldAlert className="h-4 w-4" /> What to fix
+          </ECardTitle>
+        </ECardHeader>
+        <ECardBody className="space-y-3">
+          {item.area ? (
+            <p className="text-[0.875rem]">
+              <span className="text-[hsl(var(--e-muted-foreground))]">Area: </span>
+              <span className="font-[550]">{item.area}</span>
+            </p>
+          ) : null}
+          {item.description ? (
+            <p className="text-[0.875rem] text-[hsl(var(--e-foreground))]">{item.description}</p>
+          ) : null}
+          <PhotoGrid photos={item.photos} emptyText="No photos provided." />
+        </ECardBody>
+      </ECard>
+
       {/* Access panel */}
       <ECard>
         <ECardHeader>
@@ -492,19 +515,6 @@ export function VisitWorkspace({
           )}
         </ECardBody>
       </ECard>
-
-      {/* Contacts */}
-      {item.contactPerson || prop?.client ? (
-        <ECard>
-          <ECardHeader>
-            <ECardTitle className="text-[1rem]">Contacts</ECardTitle>
-          </ECardHeader>
-          <ECardBody className="space-y-4">
-            {item.contactPerson ? <ContactBlock label="Person in charge" contact={item.contactPerson} /> : null}
-            {prop?.client ? <ContactBlock label="Property client" contact={prop.client} /> : null}
-          </ECardBody>
-        </ECard>
-      ) : null}
 
       {/* Navigate */}
       {prop ? (
@@ -537,27 +547,6 @@ export function VisitWorkspace({
           </ECardBody>
         </ECard>
       ) : null}
-
-      {/* What to fix / before photos */}
-      <ECard>
-        <ECardHeader>
-          <ECardTitle className="flex items-center gap-2 text-[1rem]">
-            <ShieldAlert className="h-4 w-4" /> What to fix
-          </ECardTitle>
-        </ECardHeader>
-        <ECardBody className="space-y-3">
-          {item.area ? (
-            <p className="text-[0.875rem]">
-              <span className="text-[hsl(var(--e-muted-foreground))]">Area: </span>
-              <span className="font-[550]">{item.area}</span>
-            </p>
-          ) : null}
-          {item.description ? (
-            <p className="text-[0.875rem] text-[hsl(var(--e-foreground))]">{item.description}</p>
-          ) : null}
-          <PhotoGrid photos={item.photos} emptyText="No photos provided." />
-        </ECardBody>
-      </ECard>
 
       {/* Visit lifecycle */}
       {!isResolved ? (
@@ -659,6 +648,19 @@ export function VisitWorkspace({
                 )}
               </div>
             </LifecycleStep>
+          </ECardBody>
+        </ECard>
+      ) : null}
+
+      {/* Contacts */}
+      {item.contactPerson || prop?.client ? (
+        <ECard>
+          <ECardHeader>
+            <ECardTitle className="text-[1rem]">Contacts</ECardTitle>
+          </ECardHeader>
+          <ECardBody className="space-y-4">
+            {item.contactPerson ? <ContactBlock label="Person in charge" contact={item.contactPerson} /> : null}
+            {prop?.client ? <ContactBlock label="Property client" contact={prop.client} /> : null}
           </ECardBody>
         </ECard>
       ) : null}

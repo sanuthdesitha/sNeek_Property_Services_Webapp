@@ -20,6 +20,7 @@
  * control, and every committed shot opens in a swipeable lightbox.
  * Zero dependency on v1 UI.
  */
+import { endActivityBatch, publishActivityBatch } from "@/lib/client/activity-batches";
 import * as React from "react";
 import {
   Camera,
@@ -802,6 +803,20 @@ export function MediaCapture({
   const latestValue = React.useRef(value);
   latestValue.current = value;
   const [inFlight, setInFlight] = React.useState<UploadProgress[]>([]);
+  // The one activity bar shows this batch; this component draws no spinner
+  // or per-file bars of its own.
+  const batchId = React.useId();
+  React.useEffect(() => {
+    if (busy === 0) return;
+    publishActivityBatch({
+      id: batchId,
+      total: progress?.total ?? busy,
+      done: progress?.done ?? 0,
+      failed: 0,
+      inFlight: inFlight.map((item) => ({ percent: item.percent, phase: item.phase })),
+    });
+  }, [batchId, busy, progress, inFlight]);
+  React.useEffect(() => () => endActivityBatch(batchId, { done: 0, failed: 0 }), [batchId]);
   const [lightbox, setLightbox] = React.useState<number | null>(null);
   // Cancelling is not an error, so it must not land in the red error line —
   // a cleaner who deliberately stopped an upload should not be told off.
@@ -827,6 +842,8 @@ export function MediaCapture({
       const controller = new AbortController();
       abortRef.current = controller;
       const finishActiveUpload = evidenceScope ? beginActiveEvidenceUpload(evidenceScope) : () => {};
+      // Cancelled files are neither done nor failed, so they are not counted.
+      const outcome = { done: 0, failed: 0 };
       try {
         // Legacy non-job uploads still keep the selected File objects for retry.
         if (!evidenceScope) void deviceStorageAdvice(list.reduce((total, file) => total + file.size, 0)).then(messages => {
@@ -847,6 +864,8 @@ export function MediaCapture({
         // Replaced rather than appended: this list IS the files that just
         // ran, so anything previously failed and now retried disappears.
         setFailures(failed);
+        outcome.done = results.length;
+        outcome.failed = failed.length;
         if (failed.length) setUploadError(`${failed.length} ${failed.length === 1 ? "file did" : "files did"} not upload. ${failed.some(item => item.captureId) ? "Retry the saved upload below to continue." : "Choose the file again to retry."} Uploaded attachments are kept.`);
         if (results.length > 0) {
           onChange(multiple ? Array.from(new Map([...latestValue.current, ...results].map(item => [item.key, item])).values()) : results.slice(-1));
@@ -861,8 +880,10 @@ export function MediaCapture({
           );
         }
       } catch (e: any) {
+        outcome.failed = list.length;
         setUploadError(e?.message || "Upload failed");
       } finally {
+        endActivityBatch(batchId, outcome);
         finishActiveUpload();
         // Only clear the ref if a later batch has not already claimed it,
         // otherwise Cancel silently stops aborting the run that is live.
@@ -872,7 +893,7 @@ export function MediaCapture({
         setInFlight([]);
       }
     },
-    [folder, multiple, onChange, value, stamp, evidenceScope, evidenceFieldId, evidenceDestination]
+    [folder, multiple, onChange, value, stamp, evidenceScope, evidenceFieldId, evidenceDestination, batchId]
   );
 
   // Reopen interrupted photos and videos in their original field after navigation/reload.
@@ -1067,19 +1088,13 @@ export function MediaCapture({
           />
         ) : null}
         {busy > 0 ? (
-          <span className="inline-flex items-center gap-1.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
-            {progress ? `Uploading ${progress.done} of ${progress.total}…` : `Uploading ${busy}…`}
-          </span>
-        ) : null}
-        {busy > 0 ? (
           <button
             type="button"
             onClick={cancelUpload}
             className="inline-flex h-9 items-center gap-1.5 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-danger))] px-3 text-[0.8125rem] font-[550] text-[hsl(var(--e-danger))] transition-colors duration-[160ms] hover:bg-[hsl(var(--e-danger)/0.08)]"
           >
             <Ban className="h-4 w-4" />
-            Cancel
+            Cancel upload
           </button>
         ) : null}
       </div>
@@ -1096,30 +1111,6 @@ export function MediaCapture({
 
       {notice ? (
         <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{notice}</p>
-      ) : null}
-
-      {/* Bytes actually leaving the phone. A big video used to show nothing
-          but a spinner, so cleaners assumed a hang and killed the app. */}
-      {inFlight.length > 0 ? (
-        <ul className="space-y-1">
-          {inFlight.map((item) => (
-            <li
-              key={item.name}
-              className="flex items-center gap-2 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]"
-            >
-              <span className="min-w-0 flex-1 truncate">{item.phase === "compressing" ? "Compressing: " : "Uploading: "}{item.name}</span>
-              <span className="h-1 w-20 overflow-hidden rounded-[var(--e-radius-pill)] bg-[hsl(var(--e-muted))]">
-                <span
-                  className="block h-full bg-[hsl(var(--e-gold))] transition-[width]"
-                  style={{ width: `${item.percent ?? 0}%` }}
-                />
-              </span>
-              <span className="e-tnum w-9 text-right">
-                {item.percent === null ? "…" : `${item.percent}%`}
-              </span>
-            </li>
-          ))}
-        </ul>
       ) : null}
 
       {failures.some(item => item.captureId) ? <div className="flex flex-wrap gap-2">

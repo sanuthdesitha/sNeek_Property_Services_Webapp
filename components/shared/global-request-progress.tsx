@@ -1,228 +1,153 @@
 "use client";
 
-import { useEffect } from "react";
-import { useToast } from "@/hooks/use-toast";
-import { Progress } from "@/components/ui/progress";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { AlertTriangle, CheckCircle2, Loader2, X } from "lucide-react";
+import {
+  EMPTY_ACTIVITY,
+  activityBatchEnded,
+  activityFinished,
+  activityInterrupted,
+  activityStarted,
+  classifyActivityRequest,
+  isActivityBusy,
+  summarizeActivity,
+  type ActivityRequest,
+  type ActivityState,
+} from "@/lib/client/activity-summary";
+import {
+  hasLiveActivityBatch,
+  subscribeActivityBatches,
+  type LiveBatch,
+} from "@/lib/client/activity-batches";
+import "./activity-bar.css";
 
+/** Quick requests finish before the bar would be worth showing. */
 const SHOW_DELAY_MS = 600;
-const SUCCESS_CLOSE_MS = 5000;
+const SUCCESS_CLOSE_MS = 4000;
 const ERROR_CLOSE_MS = 10000;
+/** Longer than the 120s part-transfer deadline: an open file this quiet has stalled. */
+const STALLED_UPLOAD_MS = 150_000;
+/** A plain download link gives the page no completion signal. */
+const DOWNLOAD_LINK_MS = 2600;
 
-function ProgressDescription({ message, progress }: { message: string; progress: number }) {
-  return (
-    <div className="space-y-2">
-      <p className="text-xs opacity-90">{message}</p>
-      <div className="flex items-center gap-2">
-        <Progress value={progress} className="h-1.5 flex-1" />
-        <span className="w-9 text-right text-[11px] font-medium tabular-nums opacity-90">
-          {Math.round(progress)}%
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function looksLikeDownloadPath(pathname: string) {
-  return /\/(download|export|pdf)(\/|$)/i.test(pathname);
-}
-
-function getActionLabel(pathname: string, method: string) {
-  if (pathname.includes("/api/uploads/")) return "Uploading files";
-  if (pathname.includes("/api/laundry/reports")) return "Preparing laundry report";
-  if (pathname.includes("/api/laundry/")) return "Updating laundry";
-  if (pathname.includes("/api/reports/")) return looksLikeDownloadPath(pathname) ? "Preparing report PDF" : "Generating report";
-  if (pathname.includes("/api/invoices/")) return looksLikeDownloadPath(pathname) ? "Preparing invoice PDF" : "Generating invoice";
-  if (pathname.includes("/api/shopping/")) return looksLikeDownloadPath(pathname) ? "Preparing shopping PDF" : "Updating shopping plan";
-  if (pathname.includes("/api/quotes/")) return "Processing quote";
-  if (pathname.includes("/api/notifications/")) return "Sending notification";
-  if (method === "GET") return "Preparing download";
-  return "Processing request";
-}
-
-function buildRequestInfo(input: RequestInfo | URL, init?: RequestInit) {
+function readRequest(input: RequestInfo | URL, init?: RequestInit) {
   let urlString = "";
-  let requestMethod = "GET";
-  let baseHeaders = new Headers();
-
-  if (typeof input === "string") {
-    urlString = input;
-  } else if (input instanceof URL) {
-    urlString = input.toString();
-  } else {
+  let headers = new Headers();
+  if (typeof input === "string") urlString = input;
+  else if (input instanceof URL) urlString = input.toString();
+  else {
     urlString = input.url;
-    requestMethod = input.method || requestMethod;
-    baseHeaders = new Headers(input.headers);
+    headers = new Headers(input.headers);
   }
+  if (init?.headers) new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  return { url: new URL(urlString, window.location.origin), headers };
+}
 
-  if (init?.method) {
-    requestMethod = init.method;
-  }
-  if (init?.headers) {
-    const overrideHeaders = new Headers(init.headers);
-    overrideHeaders.forEach((value, key) => baseHeaders.set(key, value));
-  }
-
-  const absoluteUrl = new URL(urlString, window.location.origin);
-  return {
-    url: absoluteUrl,
-    method: requestMethod.toUpperCase(),
-    headers: baseHeaders,
-  };
+/** Which requests appear in the bar. `x-progress-toast: off|force` still opts out or in. */
+function trackedRequest(url: URL, headers: Headers): ActivityRequest | null {
+  const mode = headers.get("x-progress-toast")?.toLowerCase();
+  if (mode === "off") return null;
+  if (url.origin !== window.location.origin) return null;
+  if (!url.pathname.startsWith("/api/")) return null;
+  if (url.pathname.startsWith("/api/auth/") || url.pathname.startsWith("/api/public/")) return null;
+  return classifyActivityRequest(url.pathname, url.searchParams, mode === "force");
 }
 
 /**
- * Only genuinely slow/heavy operations warrant a progress toast — uploads,
- * file downloads/exports/PDFs, and report/invoice generation. Ordinary quick
- * mutations (saving a form, toggling a status, submitting a quote) finish fast
- * and don't need one; showing it there just floods the screen. Anything that
- * truly needs it can opt in with the `x-progress-toast: force` header.
+ * Watches this tab's slow requests and shows them as ONE bar: a sentence
+ * ("Uploading 3 of 5 files"), a count, and a single track. Completion and
+ * failure are stated once for the whole batch.
  */
-function isHeavyOperation(url: URL): boolean {
-  const p = url.pathname;
-  if (p.startsWith("/api/uploads/")) return true;
-  if (looksLikeDownloadPath(p)) return true;
-  if (url.searchParams.get("download") === "1") return true;
-  if (p.includes("/api/reports/")) return true;
-  if (p.includes("/api/invoices/")) return true;
-  if (p.includes("/api/laundry/reports")) return true;
-  if (p.includes("/api/cleaner/invoice/")) return true; // preview / download / send PDF
-  return false;
-}
-
-function shouldTrackRequest(url: URL, _method: string, headers: Headers) {
-  const explicitMode = headers.get("x-progress-toast")?.toLowerCase();
-  if (explicitMode === "off") return false;
-  if (explicitMode === "force") return true;
-
-  if (url.origin !== window.location.origin) return false;
-  if (!url.pathname.startsWith("/api/")) return false;
-  if (url.pathname.startsWith("/api/auth/")) return false;
-  // Public marketing pages should never surface an internal progress toast.
-  if (url.pathname.startsWith("/api/public/")) return false;
-
-  return isHeavyOperation(url);
-}
-
 export function GlobalRequestProgress() {
-  const { toast } = useToast();
+  const [state, setState] = useState<ActivityState>(EMPTY_ACTIVITY);
+  const [visible, setVisible] = useState(false);
+  const stateRef = useRef<ActivityState>(EMPTY_ACTIVITY);
+  const [live, setLive] = useState<LiveBatch[]>([]);
+  const liveRef = useRef<LiveBatch[]>([]);
+  const pathname = usePathname() ?? "";
 
   useEffect(() => {
     const originalFetch = window.fetch.bind(window);
-    const pendingTimers = new Set<ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>>();
+    let showTimer: ReturnType<typeof setTimeout> | null = null;
+    let closeTimer: ReturnType<typeof setTimeout> | null = null;
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    let shown = false;
+    const downloadTimers = new Set<ReturnType<typeof setTimeout>>();
 
-    const registerTimer = <T extends ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>>(timer: T) => {
-      pendingTimers.add(timer);
-      return timer;
+    const clear = (timer: ReturnType<typeof setTimeout> | null) => {
+      if (timer) clearTimeout(timer);
+      return null;
     };
 
-    const clearTrackedTimer = (timer: ReturnType<typeof setTimeout> | ReturnType<typeof setInterval> | null) => {
-      if (!timer) return;
-      clearTimeout(timer as ReturnType<typeof setTimeout>);
-      clearInterval(timer as ReturnType<typeof setInterval>);
-      pendingTimers.delete(timer);
+    const reset = () => {
+      closeTimer = clear(closeTimer);
+      stateRef.current = EMPTY_ACTIVITY;
+      setState(EMPTY_ACTIVITY);
+      shown = false;
+      setVisible(false);
     };
 
-    const showPassiveDownloadToast = (title: string) => {
-      let progress = 12;
-      const handle = toast({
-        title,
-        duration: Infinity,
-        description: <ProgressDescription message="Preparing download..." progress={progress} />,
-      });
-      const interval = registerTimer(
-        setInterval(() => {
-          progress = Math.min(92, progress + (progress < 60 ? 9 : 4));
-          handle.update({
-            id: handle.id,
-            title,
-            description: <ProgressDescription message="Preparing download..." progress={progress} />,
-          });
-        }, 380)
-      );
-      const doneTimer = registerTimer(
-        setTimeout(() => {
-          clearTrackedTimer(interval);
-          handle.update({
-            id: handle.id,
-            title,
-            description: <ProgressDescription message="Download started." progress={100} />,
-          });
-          const dismissTimer = registerTimer(
-            setTimeout(() => {
-              handle.dismiss();
-              clearTrackedTimer(dismissTimer);
-            }, SUCCESS_CLOSE_MS)
-          );
-          clearTrackedTimer(doneTimer);
-        }, 2600)
-      );
+    const apply = (next: ActivityState) => {
+      stateRef.current = next;
+      setState(next);
+      stallTimer = clear(stallTimer);
+      if (isActivityBusy(next, liveRef.current)) {
+        // New work during the closing summary keeps the same bar and counts.
+        closeTimer = clear(closeTimer);
+        if (!shown && !showTimer) {
+          showTimer = setTimeout(() => {
+            showTimer = null;
+            shown = true;
+            setVisible(true);
+          }, SHOW_DELAY_MS);
+        }
+        if (next.inFlight === 0 && next.uploadsOpen > 0) {
+          stallTimer = setTimeout(() => apply(activityInterrupted(stateRef.current)), STALLED_UPLOAD_MS);
+        }
+        return;
+      }
+      const summary = summarizeActivity(next, liveRef.current);
+      if (summary.tone === "danger") {
+        // A failure is always stated, even when it happened before the delay.
+        showTimer = clear(showTimer);
+        shown = true;
+        setVisible(true);
+      } else if (!shown) {
+        // Finished before the bar appeared: nothing worth announcing.
+        showTimer = clear(showTimer);
+        reset();
+        return;
+      }
+      closeTimer = clear(closeTimer);
+      closeTimer = setTimeout(reset, summary.tone === "danger" ? ERROR_CLOSE_MS : SUCCESS_CLOSE_MS);
+    };
+
+    // Work that starts after a clean finish is a new batch with its own counts.
+    // After a failure the counts are kept, so the failure is not silently erased.
+    const batchBase = (): ActivityState => {
+      const current = stateRef.current;
+      const settledCleanly =
+        !isActivityBusy(current, liveRef.current) &&
+        current.uploadsFailed + current.tasksFailed === 0;
+      return settledCleanly ? EMPTY_ACTIVITY : current;
     };
 
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      const { url, method, headers } = buildRequestInfo(input, init);
-      if (!shouldTrackRequest(url, method, headers)) {
-        return originalFetch(input, init);
-      }
-
-      const title = getActionLabel(url.pathname, method);
-      let progress = 10;
-      let shown = false;
-      let progressInterval: ReturnType<typeof setInterval> | null = null;
-      let toastHandle: ReturnType<typeof toast> | null = null;
-
-      const updateToast = (message: string, nextProgress: number, variant?: "default" | "destructive") => {
-        if (!toastHandle) return;
-        toastHandle.update({
-          id: toastHandle.id,
-          variant,
-          title,
-          description: <ProgressDescription message={message} progress={nextProgress} />,
-        });
-      };
-
-      const showTimer = registerTimer(setTimeout(() => {
-        shown = true;
-        toastHandle = toast({
-          title,
-          duration: Infinity,
-          description: <ProgressDescription message="Working on your request..." progress={progress} />,
-        });
-        progressInterval = registerTimer(setInterval(() => {
-          progress = progress < 60 ? progress + 8 : progress + 4;
-          if (progress > 90) progress = 90;
-          updateToast("Working on your request...", progress);
-        }, 450));
-        clearTrackedTimer(showTimer);
-      }, SHOW_DELAY_MS));
-
+      const { url, headers } = readRequest(input, init);
+      const request = trackedRequest(url, headers);
+      // A component reporting its own batch already counts those files; its
+      // allocation and part requests must not be counted a second time.
+      const ownedByBatch = request?.kind !== "task" && hasLiveActivityBatch();
+      if (!request || ownedByBatch) return originalFetch(input, init);
+      apply(activityStarted(batchBase(), request));
       try {
         const response = await originalFetch(input, init);
-        clearTrackedTimer(showTimer);
-
-        if (shown && toastHandle) {
-          clearTrackedTimer(progressInterval);
-          updateToast(response.ok ? "Request completed." : "Request failed. Check the details and retry.", 100, response.ok ? "default" : "destructive");
-          const dismissTimer = registerTimer(
-            setTimeout(() => {
-              toastHandle?.dismiss();
-              clearTrackedTimer(dismissTimer);
-            }, response.ok ? SUCCESS_CLOSE_MS : ERROR_CLOSE_MS)
-          );
-        }
-
+        // An HTTP error resolved the fetch but the work still failed.
+        apply(activityFinished(stateRef.current, request, response.ok));
         return response;
       } catch (error) {
-        clearTrackedTimer(showTimer);
-        if (shown && toastHandle) {
-          clearTrackedTimer(progressInterval);
-          updateToast("Request failed. Please retry.", 100, "destructive");
-          const dismissTimer = registerTimer(
-            setTimeout(() => {
-              toastHandle?.dismiss();
-              clearTrackedTimer(dismissTimer);
-            }, ERROR_CLOSE_MS)
-          );
-        }
+        apply(activityFinished(stateRef.current, request, false));
         throw error;
       }
     };
@@ -231,37 +156,105 @@ export function GlobalRequestProgress() {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
-      if (!anchor) return;
-      if (anchor.getAttribute("data-progress-toast") === "off") return;
+      if (!anchor || anchor.getAttribute("data-progress-toast") === "off") return;
       const href = anchor.getAttribute("href");
       if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
-
       let url: URL;
       try {
         url = new URL(anchor.href, window.location.origin);
       } catch {
         return;
       }
-      if (url.origin !== window.location.origin) return;
-      if (!url.pathname.startsWith("/api/")) return;
-      if (!looksLikeDownloadPath(url.pathname)) return;
-
-      const title = getActionLabel(url.pathname, "GET");
-      showPassiveDownloadToast(title);
+      const request = trackedRequest(url, new Headers());
+      if (!request || request.kind !== "task") return;
+      apply(activityStarted(batchBase(), request));
+      const timer = setTimeout(() => {
+        downloadTimers.delete(timer);
+        apply(activityFinished(stateRef.current, request, true));
+      }, DOWNLOAD_LINK_MS);
+      downloadTimers.add(timer);
     }
 
+    const unsubscribe = subscribeActivityBatches({
+      onLive: (batches) => {
+        const starting = liveRef.current.length === 0 && batches.length > 0;
+        const base = starting ? batchBase() : stateRef.current;
+        liveRef.current = batches;
+        setLive(batches);
+        apply(base);
+      },
+      onEnd: (result) => {
+        stateRef.current = activityBatchEnded(stateRef.current, result);
+      },
+    });
+    const onDismiss = () => reset();
     document.addEventListener("click", onAnchorClick, true);
+    window.addEventListener("sneek:activity-dismiss", onDismiss);
 
     return () => {
       window.fetch = originalFetch;
+      unsubscribe();
       document.removeEventListener("click", onAnchorClick, true);
-      pendingTimers.forEach((timer) => {
-        clearTimeout(timer as ReturnType<typeof setTimeout>);
-        clearInterval(timer as ReturnType<typeof setInterval>);
-      });
-      pendingTimers.clear();
+      window.removeEventListener("sneek:activity-dismiss", onDismiss);
+      clear(showTimer);
+      clear(closeTimer);
+      clear(stallTimer);
+      downloadTimers.forEach((timer) => clearTimeout(timer));
     };
-  }, [toast]);
+  }, []);
 
-  return null;
+  if (!visible) return null;
+  const summary = summarizeActivity(state, live);
+  const busy = summary.tone === "working";
+  const percent = summary.percent;
+  const estate = pathname === "/v2" || pathname.startsWith("/v2/");
+  const Icon = busy ? Loader2 : summary.tone === "danger" ? AlertTriangle : CheckCircle2;
+
+  return (
+    <div className="activity-bar-layer">
+      <div
+        className="activity-bar"
+        data-tone={summary.tone}
+        data-skin={estate ? "estate" : undefined}
+        role={summary.tone === "danger" ? "alert" : "status"}
+        aria-live={summary.tone === "danger" ? "assertive" : "polite"}
+      >
+        <span className="activity-bar-icon" aria-hidden>
+          <Icon size={18} className={busy ? "activity-bar-spin" : undefined} />
+        </span>
+        <span className="activity-bar-message">{summary.message}</span>
+        {busy && summary.total > 1 ? (
+          <span className="activity-bar-count">
+            {summary.finished}/{summary.total}
+          </span>
+        ) : busy && !summary.indeterminate ? (
+          <span className="activity-bar-count">{percent}%</span>
+        ) : null}
+        {!busy ? (
+          <button
+            type="button"
+            className="activity-bar-dismiss"
+            aria-label="Dismiss"
+            onClick={() => window.dispatchEvent(new Event("sneek:activity-dismiss"))}
+          >
+            <X size={16} aria-hidden />
+          </button>
+        ) : null}
+        <div
+          className="activity-bar-track"
+          role="progressbar"
+          aria-label="Overall progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={busy && summary.indeterminate ? undefined : busy ? percent : 100}
+        >
+          <div
+            className="activity-bar-fill"
+            data-indeterminate={busy && summary.indeterminate ? "true" : undefined}
+            style={busy && summary.indeterminate ? undefined : { width: `${busy ? percent : 100}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  );
 }
