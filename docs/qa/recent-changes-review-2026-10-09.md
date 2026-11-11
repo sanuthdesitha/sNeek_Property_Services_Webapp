@@ -872,7 +872,7 @@ Behaviour changed on purpose
 - Live ops planning lists (dispatch blockers, QA and stale cases, new leads, laundry exceptions, expiring documents, immediate attention) are now rows in Command's work queue; Live ops keeps a counted "Also needs attention" link row.
 
 Existing problems fixed (with tests)
-- Live ops "today" used the server's local clock; counters were lengths of lists capped at 8; two components polled the same location feed; stale-case links used a `?jobId=` filter the Cases page ignores; leads and documents linked to list pages instead of the record.
+- Live ops "today" used the server's local clock; counters were lengths of lists capped at 8; two components polled the same location feed; stale-case links used a `?jobId=` filter the Cases page ignored (now `?open=<caseId>` of the new Cases inbox); leads and documents linked to list pages instead of the record.
 - `getAdminAttentionSummary` (new cases since yesterday) and the cleaner and client attention cut-offs used server-local day boundaries; now Sydney keys (`tests/lib/immediate-attention-days.test.ts`).
 
 Verification
