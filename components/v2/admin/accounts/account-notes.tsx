@@ -9,7 +9,17 @@ import { toast } from "@/hooks/use-toast";
 import { EButton, ECard, ECardBody, ECardHeader, ECardTitle } from "@/components/v2/ui/primitives";
 import { ETextarea } from "@/components/v2/admin/estate-kit";
 
-export function AccountNotes({ userId, initialNotes }: { userId: string; initialNotes: string | null }) {
+export function AccountNotes({
+  userId,
+  initialNotes,
+  ownNotes = null,
+}: {
+  userId: string;
+  /** The office's private note (User.adminNotes). */
+  initialNotes: string | null;
+  /** What this person wrote in their own profile (User.notes). Read-only here. */
+  ownNotes?: string | null;
+}) {
   const [value, setValue] = useState(initialNotes ?? "");
   const [saved, setSaved] = useState(initialNotes ?? "");
   const [saving, setSaving] = useState(false);
@@ -43,14 +53,29 @@ export function AccountNotes({ userId, initialNotes }: { userId: string; initial
         <ETextarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          aria-label="Internal notes"
           placeholder="Private notes about this account (visible to admins only)…"
           className="min-h-[6rem]"
         />
+        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          Only the office can see this. It is never shown to the account holder.
+        </p>
         <div className="flex justify-end">
           <EButton variant="gold" size="sm" onClick={save} disabled={saving || !dirty}>
             {saving ? "Saving…" : "Save notes"}
           </EButton>
         </div>
+        {ownNotes?.trim() ? (
+          <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3">
+            <p className="text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-muted-foreground))]">
+              Written by the account holder
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-[0.8125rem] [overflow-wrap:anywhere]">{ownNotes}</p>
+            <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+              From their own profile. They can see and change this text.
+            </p>
+          </div>
+        ) : null}
       </ECardBody>
     </ECard>
   );

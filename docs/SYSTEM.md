@@ -1659,6 +1659,17 @@ verification, preserved business safeguards and future implementation requiremen
 
 **Other.** Clearing your notification inbox clears your own notifications; for office roles it used to delete every person's notifications and delivery records (the office-wide clear remains `DELETE /api/admin/notifications/log`). The cleaner GPS check-in route never rewrites a recorded arrival; a client-supplied `adjusted` flag used to unlock that. A resumed multipart upload's folder is validated like a new upload's.
 
+### Office notes and a person's own notes are separate (2026-11)
+
+`User.notes` was used for two things: the "notes to admin" a person writes on their own profile, and the office's "Internal notes" on that person in the Accounts hub, which the screen described as visible to admins only. They were one column, so the office's note was readable and editable by the person it was about.
+
+- `User.adminNotes` is the office's private note. `PUT /api/admin/users/[id]/notes` reads and writes it (request and response keep the `notes` key) and audits the change. ADMIN and OPS_MANAGER only.
+- `User.notes` is unchanged and remains the person's own note, edited through `/api/me/profile`.
+- The Accounts hub (Estate and classic) edits the office note and shows the person's own note beneath it, read-only and labelled "Written by the account holder".
+- `adminNotes` is not selected, returned or accepted by any non-office page or API. `tests/api/admin-user-notes.test.ts` fails if it appears in a cleaner, client, laundry, QA or maintenance surface or in the self-service profile endpoint.
+
+**Migration `20261111120000_user_admin_notes`.** Adds the nullable column and copies each non-blank existing `notes` value into it. Nothing is removed or rewritten: an existing value may have been written by either side, so the person keeps their text and the office keeps a private copy of its history. Consequence to know: a note the office wrote before this change is still in that person's own notes field, where they could already see it; the office can ask them to clear it or clear it for them. Run `npx prisma migrate deploy` once before starting the new build.
+
 ### Cleaner workflow presentation and charging (2026-10)
 
 The Estate cleaner heading includes the Sydney job date. The dashboard route is a compact next-stop link to the existing route workflow; totals refresh while visible. Today's brief groups secondary details into disclosures and explains charging evidence. The cleaner journey uses SVG step icons and identity/job-scoped return-stage memory, reset by a full refresh. Travel's Start driving opens the existing route with this assigned job selected; an already active route remains authoritative.
@@ -1674,6 +1685,8 @@ Effective Jackson Airbnb turnover forms add required Ring/Minut charging proof, 
 **Live API authorization and Admin rights (2026-10).** Protected API handlers authorize locally through `requireRole`/`requireSession` or audited wrappers, including live account/role validation, impersonation identity and OPS feature enforcement. Middleware supplies trusted path/method headers but no longer repeats API authorization via an HTTP session callback. Effective ADMIN and accounts holding ADMIN have full feature access independently of manager packs or policy-store availability; this never gives an impersonated target the actor’s owner rights. Revoked/inactive accounts remain unauthorized. Read-only impersonation, retained identity validation and route-specific sensitive-action checks remain enforced. Page navigation and retained-account resolution still use the trusted `NEXTAUTH_URL_INTERNAL` transport (the standard runner defaults to loopback at its Next port); those callbacks reject redirects and time out after five seconds. The Estate Jobs error card distinguishes session, permission, service and malformed-payload failures.
 
 ## Change Log
+
+- **2026-11-11 (office notes):** Added `User.adminNotes` with a data-preserving forward migration; the Accounts hub's internal notes are now private to the office and separate from a person's own profile notes. Run `npx prisma migrate deploy` before starting this build.
 
 - **2026-11-11 (client approvals and access review):** Fixed the client Approvals badge counting the wrong records; one shared approval access rule requiring a verified email for email-based matches. Security review of the cleaner, client and laundry APIs: role gate now sets the acting role; cleaner job payloads redacted; laundry pages, feeds and invoice scope limited to the viewer's properties; stock scan endpoints role-gated; assistant property scope on client task requests, cases and preferred cleaner; staff emails removed from client payloads; quote expiry, payment return address, shopping property claims and inbox clearing corrected. Open items are listed in `docs/qa/recent-changes-review-2026-10-09.md`.
 

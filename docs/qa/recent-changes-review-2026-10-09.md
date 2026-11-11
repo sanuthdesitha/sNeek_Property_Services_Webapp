@@ -557,7 +557,21 @@ Laundry
 - The lost-found detail returns guest contact and the office timeline to the reporting cleaner (possibly intended).
 
 Shared
-- `User.notes` is both the cleaner's "notes to admin" on their own profile and the office's staff note in the Accounts hub, so the office's note is visible to and editable by that person. Separating them needs a new column and a migration.
+- `User.notes` was both the cleaner's "notes to admin" on their own profile and the office's staff note in the Accounts hub. **Resolved in the follow-up below.**
 - The mobile push device endpoint reassigns an existing token to the caller.
 
 **Limits.** Routes the reviews could not fully trace are not cleared: the 1,187-line cleaner submit route beyond key validation, damage investigation field stripping, client purchases and referrals, laundry invoice PDF building, and several helper bodies. Assistant (VA) fixes were not exercised in the browser; there is no VA login in the fixture data. The real-database Playwright suites were not run. Nothing was deployed.
+
+### Follow-up: separate office notes from a person's own notes (2026-11-11)
+
+The owner authorised a database change for the shared notes field, on condition that existing data is preserved.
+
+- Change: new nullable `User.adminNotes`; migration `20261111120000_user_admin_notes` adds the column and copies each non-blank `notes` value into it. `User.notes` is not modified. The office notes route and both Accounts hub editors use the new column; the person's own note is shown to the office read-only.
+- Migration verification on disposable PostgreSQL `127.0.0.1:55439`:
+  - Existing migrated database with data (7 users, 2 with notes, one of them whitespace only): the checksum over every `notes` value was identical before and after (`fbbd3109…`); the non-blank note was copied to `adminNotes`; the whitespace-only note was left alone and not copied.
+  - Repeat `migrate deploy`: no pending migrations.
+  - Fresh empty database: all 129 migrations applied; repeat reports none pending.
+  - `prisma migrate diff` from the migrated database to `schema.prisma`: no difference.
+- Behaviour on the production build: the admin saved an office note and saw it after reload; the cleaner's profile page and `/api/me/profile` contained neither that text nor an `adminNotes` key, and still showed the cleaner's own note; a cleaner `PATCH /api/me/profile` carrying both `notes` and `adminNotes` changed only their own note.
+- TypeScript: pass. Full Vitest suite: **7,354 passed, 2 skipped, 666 files**. Production build: pass, 765 pages.
+- Not verified: the production database. Notes the office wrote before this change remain in the affected person's own notes field, where they were already visible to them; this change does not and cannot tell the two apart.

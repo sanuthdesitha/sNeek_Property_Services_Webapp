@@ -76,6 +76,7 @@ export default async function StaffSummaryPage({ params }: { params: { id: strin
       state: true,
       address: true,
       notes: true,
+      adminNotes: true,
       clientId: true,
     },
   });
@@ -437,7 +438,7 @@ export default async function StaffSummaryPage({ params }: { params: { id: strin
             </Card>
           ) : null}
 
-          <EditableStaffNotes userId={user.id} initialNotes={user.notes} />
+          <EditableStaffNotes userId={user.id} initialNotes={user.adminNotes} ownNotes={user.notes} />
         </div>
       </div>
 

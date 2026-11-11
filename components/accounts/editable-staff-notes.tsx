@@ -14,9 +14,13 @@ import { toast } from "@/hooks/use-toast";
 export function EditableStaffNotes({
   userId,
   initialNotes,
+  ownNotes = null,
 }: {
   userId: string;
+  /** The office's private note (User.adminNotes). */
   initialNotes: string | null;
+  /** What this person wrote in their own profile (User.notes). Read-only here. */
+  ownNotes?: string | null;
 }) {
   const [value, setValue] = useState(initialNotes ?? "");
   const [saved, setSaved] = useState(initialNotes ?? "");
@@ -59,6 +63,17 @@ export function EditableStaffNotes({
           rows={5}
           className="resize-y"
         />
+        {ownNotes?.trim() ? (
+          <div className="rounded-lg border bg-muted/40 p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Written by the account holder
+            </p>
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm">{ownNotes}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              From their own profile. They can see and change this text.
+            </p>
+          </div>
+        ) : null}
         <div className="flex items-center justify-end gap-2">
           {dirty ? (
             <Button variant="ghost" size="sm" onClick={() => setValue(saved)} disabled={saving}>
