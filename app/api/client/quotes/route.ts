@@ -153,7 +153,7 @@ export async function PATCH(req: NextRequest) {
 
     const quote = await db.quote.findUnique({
       where: { id: body.quoteId },
-      select: { id: true, clientId: true, status: true, viewedAt: true },
+      select: { id: true, clientId: true, status: true, viewedAt: true, validUntil: true },
     });
     if (!quote || !portal.clientId || quote.clientId !== portal.clientId) {
       return NextResponse.json({ error: "Quote not found." }, { status: 404 });
@@ -163,6 +163,13 @@ export async function PATCH(req: NextRequest) {
     }
 
     const now = new Date();
+    // An expired quote can be declined but not accepted: its price is no longer on offer.
+    if (body.action === "ACCEPT" && quote.validUntil && quote.validUntil.getTime() < now.getTime()) {
+      return NextResponse.json(
+        { error: "This quote has expired. Ask us for an updated quote." },
+        { status: 400 },
+      );
+    }
     await db.quote.update({
       where: { id: quote.id },
       data:

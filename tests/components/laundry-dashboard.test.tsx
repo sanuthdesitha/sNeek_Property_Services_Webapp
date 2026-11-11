@@ -7,7 +7,8 @@ import LaundryTodayPage from "@/app/v2/laundry/page";
 const mocks = vi.hoisted(() => ({ tasks: vi.fn(), routes: vi.fn(), property: vi.fn(), requireRole: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: {
   laundryTask: { findMany: mocks.tasks }, laundryRoute: { findMany: mocks.routes },
-  property: { findUnique: mocks.property },
+  // findMany answers the viewer-scope lookup: the properties this driver serves.
+  property: { findUnique: mocks.property, findMany: async () => [{ id: "property-1", accessInfo: {}, laundryEnabled: true }] },
 } }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: mocks.requireRole }));
 vi.mock("@/components/v2/laundry/plan-brief", () => ({ PlanBrief: () => <div>Plan brief</div> }));
@@ -166,7 +167,7 @@ describe("laundry dashboard reliability", () => {
     expect(screen.getByText("House 5, Sydney")).toBeVisible();
     expect(screen.queryByText("House 6, Sydney")).not.toBeInTheDocument();
     expect(mocks.tasks).toHaveBeenCalledWith({
-      where: { noPickupRequired: false, OR: [
+      where: { propertyId: { in: ["property-1"] }, noPickupRequired: false, OR: [
         { pickupDate: { gte: scheduledStart, lt: scheduledEnd } }, { dropoffDate: { gte: scheduledStart, lt: scheduledEnd } },
         { droppedAt: { gte: start, lt: end } },
         { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.CONFIRMED] } },
@@ -209,5 +210,10 @@ describe("laundry dashboard reliability", () => {
     expect(filters[2]).toEqual({ droppedAt: { gte: firstInstant, lt: nextMidnight } });
     expect((nextMidnight.getTime() - firstInstant.getTime()) / 3_600_000).toBe(hours);
     expect(mocks.routes.mock.calls[0][0].where.date).toEqual(scheduleRange.gte);
+  });
+
+  it("lists only tasks at the properties this driver serves", async () => {
+    render(await LaundryTodayPage());
+    expect(mocks.tasks.mock.calls[0][0].where.propertyId).toEqual({ in: ["property-1"] });
   });
 });

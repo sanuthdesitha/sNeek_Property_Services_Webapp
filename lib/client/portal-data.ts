@@ -366,7 +366,6 @@ export async function getClientPropertyDetailForUser(
       select: {
         id: true,
         name: true,
-        email: true,
       },
       orderBy: { name: "asc" },
       take: 50,
@@ -417,7 +416,11 @@ export async function getClientPropertyDetailForUser(
     checklistTemplates,
     jobTasks,
     conditionTimeline,
-    preferredCleanerOptions,
+    // A name to choose from. A cleaner's email address is never sent to a client.
+    preferredCleanerOptions: preferredCleanerOptions.map((cleaner) => ({
+      id: cleaner.id,
+      name: cleaner.name?.trim() || "Cleaner",
+    })),
     activity,
   };
 }

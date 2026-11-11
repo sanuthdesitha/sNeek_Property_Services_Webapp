@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { countPendingApprovalsForUser } from "@/lib/commercial/client-approval-access";
 import { CaseState, ClientInvoiceStatus, QuoteStatus } from "@prisma/client";
 import { requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
@@ -34,15 +35,10 @@ export async function GET() {
     const canSeeInvoices = isClient || portal.permissions.invoicesView === true;
 
     const [approvals, cases, quotes, invoices] = await Promise.all([
-      // Extra work this client has been asked to approve.
-      isClient ? db.jobTask
-        .count({
-          where: {
-            source: "CLIENT",
-            approvalStatus: "PENDING_APPROVAL",
-            job: { property: { clientId, ...propertyFilter } },
-          },
-        }) : undefined,
+      // Extras the office has asked this client to approve: exactly the PENDING
+      // rows the Approvals page lists. (This used to count the client's own job
+      // requests waiting on the office, which that page never shows.)
+      isClient ? countPendingApprovalsForUser(portal.userId) : undefined,
       // Only cases actually waiting on the client — not every open case.
       canSeeCases ? db.issueTicket.count({
         where: {

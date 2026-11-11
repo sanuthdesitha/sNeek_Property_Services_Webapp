@@ -1,4 +1,5 @@
 import { savedCleanerLaundryUpdate } from "@/lib/laundry/saved-cleaner-update";
+import { redactJobForCleaner, redactJobMetaForCleaner, redactTransferCandidates } from "@/lib/jobs/cleaner-redaction";
 import { NextRequest, NextResponse } from "next/server";
 import { cleanerBagBaseline, recordedCleanerReadiness } from "@/lib/laundry/quantity-baseline";
 import { requireRole } from "@/lib/auth/session";
@@ -513,8 +514,11 @@ export async function GET(
       if (!(error instanceof UnsupportedFormPropertyConditionError)) throw error;
       formContractError = error.message;
     }
+    // The office views share these queries; a cleaner gets the working details
+    // of the job and their own pay, not the client price or colleagues' pay.
+    const cleanerViewer = session.user.role === Role.CLEANER;
     return NextResponse.json({
-      job,
+      job: cleanerViewer ? redactJobForCleaner(job, session.user.id) : job,
       draftIdentity: cleanerDraftIdentity(session, params.id),
       /** CLASSIC records usage as answers and deducts on submit; SCAN adjusts
        *  the shelf immediately. Both work — this only decides which control
@@ -525,7 +529,10 @@ export async function GET(
       nfcArrival,
       contact,
       nextGuest,
-      jobMeta: { ...jobMeta, reservationContext: preparationContext },
+      jobMeta: {
+        ...(cleanerViewer ? redactJobMetaForCleaner(jobMeta, session.user.id) : jobMeta),
+        reservationContext: preparationContext,
+      },
       jobTasks,
       jobTimingHighlights,
       /** Same labels as jobTimingHighlights (R6c) — explicit name for the v2 UI. */
@@ -591,7 +598,7 @@ export async function GET(
             respondedAt: currentAssignment.respondedAt,
           }
         : null,
-      transferCandidates,
+      transferCandidates: cleanerViewer ? redactTransferCandidates(transferCandidates) : transferCandidates,
       /** Any cleaner on this job has started — unlocks the checklist for co-cleaners. */
       teamStarted,
       timeState: {

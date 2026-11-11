@@ -139,6 +139,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       estimatedUnitCost: row.estimatedUnitCost ?? null,
       estimatedLineCost: row.estimatedLineCost ?? null,
     }));
+    // A row's property is a claim. Every property named must belong to this
+    // client, or the purchase could be attributed (and charged) to another.
+    const claimedPropertyIds = Array.from(
+      new Set(rows.map((row) => row.propertyId).filter((id): id is string => Boolean(id))),
+    );
+    if (claimedPropertyIds.length > 0) {
+      // No linked client means no property can be claimed at all.
+      const owned = clientId
+        ? await db.property.count({ where: { id: { in: claimedPropertyIds }, clientId } })
+        : 0;
+      if (owned !== claimedPropertyIds.length) {
+        return NextResponse.json({ error: "Property not found." }, { status: 404 });
+      }
+    }
     const payment: ShoppingRunPayment | undefined = body.payment
       ? {
           ...body.payment,

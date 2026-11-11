@@ -1553,12 +1553,24 @@ export interface ShoppingRunSelectionOptions {
  * this did — is how a reimbursement paid by a payroll run got billed again on
  * the next cleaner invoice.
  */
+/** Who paid out of pocket for a cleaner-scoped run. */
+export function shoppingRunPayerId(run: {
+  ownerUserId: string;
+  payment: { paidByUserId?: string | null };
+}): string {
+  return run.payment.paidByUserId?.trim() || run.ownerUserId;
+}
+
 export async function listCleanerReimbursableShoppingRuns(input: ShoppingRunSelectionOptions) {
   const runs = await listShoppingRunsForAdmin();
   return runs.filter((run) => {
     if (run.ownerScope !== "CLEANER") return false;
     if (run.payment.paidByScope !== "CLEANER") return false;
-    if (run.payment.paidByUserId && run.payment.paidByUserId !== input.cleanerId) return false;
+    // The payer is the recorded payer, or the cleaner who owns the run when
+    // none was recorded (the cleaner screens never send one). Without the
+    // owner fallback every cleaner's unrecorded-payer run was offered to every
+    // other cleaner's invoice.
+    if (shoppingRunPayerId(run) !== input.cleanerId) return false;
     if (run.totals.actualTotalCost <= 0) return false;
     if (
       !isShoppingExpenseAvailableForSettlement(

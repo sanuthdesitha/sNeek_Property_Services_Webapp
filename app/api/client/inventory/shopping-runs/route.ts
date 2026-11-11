@@ -129,6 +129,17 @@ export async function POST(req: NextRequest) {
       estimatedUnitCost: row.estimatedUnitCost ?? null,
       estimatedLineCost: row.estimatedLineCost ?? null,
     }));
+    // A row's property is a claim. Every property named must belong to this
+    // client, or the purchase could be attributed (and charged) to another.
+    const claimedPropertyIds = Array.from(
+      new Set(rows.map((row) => row.propertyId).filter((id): id is string => Boolean(id))),
+    );
+    if (claimedPropertyIds.length > 0) {
+      const owned = await db.property.count({ where: { id: { in: claimedPropertyIds }, clientId } });
+      if (owned !== claimedPropertyIds.length) {
+        return NextResponse.json({ error: "Property not found." }, { status: 404 });
+      }
+    }
     const payment: ShoppingRunPayment | undefined = body.payment
       ? {
           ...body.payment,

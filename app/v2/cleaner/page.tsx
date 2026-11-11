@@ -400,7 +400,7 @@ export default async function CleanerTodayPage() {
         </section>
       ) : null}
 
-      <section className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-3">
+      <section className="grid grid-cols-3 gap-2 sm:gap-3">
         <EStatCard label="Accepted today" value={jobsResult === null ? "Unavailable" : String(jobCount)} />
         <EStatCard label="Next 7 days" value={jobsResult === null ? "Unavailable" : String(jobs.filter(j => !isOffer(j) && j.scheduledDate >= todayStart && j.scheduledDate < nextWeek).length)} />
         <EStatCard label="Next" value={jobsResult === null ? "Unavailable" : nextJob?.startTime || "—"} />

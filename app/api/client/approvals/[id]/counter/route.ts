@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
+import { canAccessClientApproval, resolveApprovalViewer } from "@/lib/commercial/client-approval-access";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
@@ -43,41 +44,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: "Approval not found." }, { status: 404 });
     }
 
-    const normalizedEmail = user.email?.trim().toLowerCase() || null;
-    const emailMatchedClientIds = normalizedEmail
-      ? (
-          await db.client.findMany({
-            where: { email: normalizedEmail },
-            select: { id: true },
-            take: 20,
-          })
-        ).map((row) => row.id)
-      : [];
-    const allowedClientIds = new Set<string>(
-      [user.clientId, ...emailMatchedClientIds].filter((value): value is string => Boolean(value))
-    );
-
-    const metadata =
-      approval.metadata && typeof approval.metadata === "object"
-        ? (approval.metadata as Record<string, unknown>)
-        : null;
-    const recipientUserIds = Array.isArray(metadata?.recipientUserIds)
-      ? metadata!.recipientUserIds
-          .filter((item): item is string => typeof item === "string")
-          .map((item) => item.trim())
-          .filter(Boolean)
-      : [];
-    const recipientEmails = Array.isArray(metadata?.recipientEmails)
-      ? metadata!.recipientEmails
-          .filter((item): item is string => typeof item === "string")
-          .map((item) => item.trim().toLowerCase())
-          .filter(Boolean)
-      : [];
-
-    const canAccess =
-      allowedClientIds.has(approval.clientId) ||
-      recipientUserIds.includes(session.user.id) ||
-      (normalizedEmail ? recipientEmails.includes(normalizedEmail) : false);
+    const viewer = await resolveApprovalViewer(session.user.id);
+    const canAccess = viewer ? canAccessClientApproval(approval, viewer) : false;
 
     if (!canAccess) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });

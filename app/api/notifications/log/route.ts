@@ -91,10 +91,10 @@ export async function DELETE() {
     if (session.impersonation) return NextResponse.json({ error: "Notifications cannot be cleared while impersonating." }, { status: 403, headers: privateHeaders });
     const role = session.user.role as Role;
 
-    const result =
-      role === Role.ADMIN || role === Role.OPS_MANAGER
-        ? await db.notification.deleteMany({})
-        : await db.notification.deleteMany({ where: { userId: session.user.id } });
+    // Clearing your inbox clears YOUR notifications. For office roles this
+    // used to delete every person's inbox and all email/SMS delivery records.
+    // The audited office-wide clear is DELETE /api/admin/notifications/log.
+    const result = await db.notification.deleteMany({ where: { userId: session.user.id } });
 
     return NextResponse.json({ ok: true, deleted: result.count });
   } catch (err: any) {

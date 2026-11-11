@@ -7,14 +7,15 @@ const mocks = vi.hoisted(() => ({
   invoices: vi.fn(), client: vi.fn(),
 }));
 vi.mock("@/lib/auth/client-portal", () => ({ requireClientPortal: mocks.portal }));
+vi.mock("@/lib/commercial/client-approval-access", () => ({ countPendingApprovalsForUser: mocks.approvals }));
 vi.mock("@/lib/db", () => ({ db: {
-  jobTask: { count: mocks.approvals }, issueTicket: { count: mocks.cases },
+  issueTicket: { count: mocks.cases },
   quote: { count: mocks.quotes }, clientInvoice: { count: mocks.invoices },
   client: { findUnique: mocks.client },
 } }));
 
 function portal(actor = "VA", propertyIds: string[] | null = ["allowed"], permissions = {}) {
-  return { actor, clientId: "client", propertyIds, permissions,
+  return { actor, userId: "portal-user", clientId: "client", propertyIds, permissions,
     team: actor === "VA" ? { name: "Assistants" } : null };
 }
 
@@ -38,9 +39,9 @@ describe("client attention scope", () => {
       counts: { "/v2/client/approvals": 2, "/v2/client/cases": 3,
         "/v2/client/quotes": 4, "/v2/client/finance": 5 },
     });
-    expect(mocks.approvals).toHaveBeenCalledWith({ where: {
-      source: "CLIENT", approvalStatus: "PENDING_APPROVAL", job: { property: { clientId: "client" } },
-    } });
+    // The badge counts what the Approvals page lists for this person, not the
+    // client's own job requests waiting on the office.
+    expect(mocks.approvals).toHaveBeenCalledWith("portal-user");
     expect(mocks.cases).toHaveBeenCalledWith({ where: {
       clientId: "client", state: "AWAITING_CLIENT", clientVisible: true,
     } });

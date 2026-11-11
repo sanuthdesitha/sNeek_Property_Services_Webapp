@@ -1,5 +1,6 @@
 import { toZonedTime } from "date-fns-tz";
 import { LaundryStatus, Role } from "@prisma/client";
+import { laundryTaskScope } from "@/lib/laundry/teams";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import {
@@ -39,7 +40,7 @@ const TONE_VAR: Record<Tone, string> = {
   danger: "--e-danger",
 };
 
-async function getStats() {
+async function getStats(scope: Awaited<ReturnType<typeof laundryTaskScope>>) {
   const nowSyd = toZonedTime(new Date(), TZ);
   const todayStart = new Date(nowSyd.getFullYear(), nowSyd.getMonth(), nowSyd.getDate());
   const tomorrowStart = new Date(todayStart.getTime() + DAY);
@@ -56,28 +57,28 @@ async function getStats() {
     revenueWeek,
     deliveredTasks,
   ] = await Promise.all([
-    db.laundryTask.count({ where: { createdAt: { gte: weekStart } } }).catch(() => 0),
-    db.laundryTask.count({ where: { droppedAt: { gte: weekStart } } }).catch(() => 0),
+    db.laundryTask.count({ where: { ...scope, createdAt: { gte: weekStart } } }).catch(() => 0),
+    db.laundryTask.count({ where: { ...scope, droppedAt: { gte: weekStart } } }).catch(() => 0),
     db.laundryTask
-      .groupBy({ by: ["status"], _count: { _all: true }, where: { noPickupRequired: false } })
+      .groupBy({ by: ["status"], _count: { _all: true }, where: { ...scope, noPickupRequired: false } })
       .catch(() => [] as Array<{ status: LaundryStatus; _count: { _all: number } }>),
     // Immediate attention — same buckets as the v1 planner's panel.
     db.laundryTask
-      .count({ where: { status: LaundryStatus.CONFIRMED, pickupDate: { lt: dayAfterTomorrow } } })
+      .count({ where: { ...scope, status: LaundryStatus.CONFIRMED, pickupDate: { lt: dayAfterTomorrow } } })
       .catch(() => 0),
     db.laundryTask
-      .count({ where: { status: LaundryStatus.PICKED_UP, dropoffDate: { lt: todayStart } } })
+      .count({ where: { ...scope, status: LaundryStatus.PICKED_UP, dropoffDate: { lt: todayStart } } })
       .catch(() => 0),
     db.laundryTask
-      .count({ where: { status: LaundryStatus.PENDING, pickupDate: { lte: tomorrowStart } } })
+      .count({ where: { ...scope, status: LaundryStatus.PENDING, pickupDate: { lte: tomorrowStart } } })
       .catch(() => 0),
     db.laundryTask
-      .aggregate({ _sum: { dropoffCostAud: true }, where: { droppedAt: { gte: weekStart } } })
+      .aggregate({ _sum: { dropoffCostAud: true }, where: { ...scope, droppedAt: { gte: weekStart } } })
       .then((r) => r._sum.dropoffCostAud ?? 0)
       .catch(() => 0),
     db.laundryTask
       .findMany({
-        where: { droppedAt: { gte: weekStart } },
+        where: { ...scope, droppedAt: { gte: weekStart } },
         select: { bagWeightKg: true, dropoffCostAud: true, property: { select: { name: true, suburb: true } } },
         take: 200,
       })
@@ -130,7 +131,7 @@ async function getStats() {
 }
 
 export default async function LaundryStatsPage() {
-  await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
   const {
     weekTotal,
     deliveredWeek,
@@ -143,7 +144,7 @@ export default async function LaundryStatsPage() {
     waitingCleaner,
     revenueWeek,
     rows,
-  } = await getStats();
+  } = await getStats(await laundryTaskScope(session.user));
 
   const attention = [
     { id: "pickups-now", label: "Pickups due now", desc: "Confirmed pickups scheduled today/tomorrow.", count: pickupsDueNow, tone: "danger" as Tone },

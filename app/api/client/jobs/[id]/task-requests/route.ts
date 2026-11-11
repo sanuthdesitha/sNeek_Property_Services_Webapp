@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { propertyScopeWhere, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
+import { findJobInScope, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { createClientJobTaskRequest, listClientJobTasks } from "@/lib/job-tasks/service";
 import { isClientModuleEnabled } from "@/lib/portal-access";
 
@@ -20,6 +20,10 @@ export async function GET(
         const portal = await requireClientPortal({ permission: "bookings" });
     if (!isClientModuleEnabled(portal.visibility, "jobs")) {
       return NextResponse.json({ error: "Jobs are hidden for this client." }, { status: 403 });
+    }
+    // An assistant limited to some properties must not read another property's job.
+    if (!(await findJobInScope(params.id, portal))) {
+      return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
     const tasks = await listClientJobTasks(params.id, portal.clientId);
     return NextResponse.json(tasks);
@@ -42,6 +46,9 @@ export async function POST(
     }
     if (!portal.visibility.showClientTaskRequests) {
       return NextResponse.json({ error: "Client task requests are disabled." }, { status: 403 });
+    }
+    if (!(await findJobInScope(params.id, portal))) {
+      return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
     const body = createSchema.parse(await req.json().catch(() => ({})));
     const created = await createClientJobTaskRequest({

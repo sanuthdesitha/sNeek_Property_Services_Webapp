@@ -65,7 +65,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // destroying the arrival evidence. Later fixes are still captured by the
     // CleanerLocationPing stream; only an explicit admin adjustment may rewrite
     // the arrival record.
-    if (job.gpsCheckInAt && !adjusted) {
+    // `adjusted` is sent by the cleaner's own screen (a moved pin), so it
+    // cannot be what unlocks a rewrite: it let any cleaner replace recorded
+    // arrival evidence. Once recorded, this route never changes it.
+    if (job.gpsCheckInAt) {
       return NextResponse.json({ ok: true, preserved: true, gpsCheckInAt: job.gpsCheckInAt });
     }
     if (job.cleanSkipStatus === "SKIPPED" || ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED", "WAITING_CONTINUATION_APPROVAL"].includes(job.status)) {

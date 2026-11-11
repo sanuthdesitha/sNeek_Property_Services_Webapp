@@ -186,6 +186,10 @@ export async function PATCH(req: NextRequest) {
           }
         }
         data.email = normalizedEmail;
+        // A self-entered address has not been confirmed by anyone. Access that
+        // is granted by email (client approval requests) requires a verified
+        // address, so a changed one starts unverified.
+        if (normalizedEmail !== currentEmail) data.emailVerified = null;
       }
     }
 

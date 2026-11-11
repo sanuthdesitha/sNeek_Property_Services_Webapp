@@ -55,8 +55,8 @@ function Portfolio({ rows, expectedContext }: { rows: PropertyHomeRow[]; scope: 
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-sm">Pin properties for this login. Service summaries are current as of this page load.</p>
       <div className="flex gap-2">
-        <EButton size="sm" variant="outline" disabled={disabled} aria-pressed={state?.view === "cards"} onClick={() => void change("view", "cards")}>Cards</EButton>
-        <EButton size="sm" variant="outline" disabled={disabled} aria-pressed={state?.view === "compact"} onClick={() => void change("view", "compact")}>Compact</EButton>
+        <EButton size="sm" variant={state?.view === "cards" ? "primary" : "outline"} disabled={disabled} aria-pressed={state?.view === "cards"} onClick={() => void change("view", "cards")}>Cards</EButton>
+        <EButton size="sm" variant={state?.view === "compact" ? "primary" : "outline"} disabled={disabled} aria-pressed={state?.view === "compact"} onClick={() => void change("view", "compact")}>Compact</EButton>
       </div>
     </div>
     {contextChanged ? <p role="alert" className="text-sm">Account context could not be confirmed. <a className="underline" href="/v2/client">Reload this page</a> before changing property preferences.</p> : null}

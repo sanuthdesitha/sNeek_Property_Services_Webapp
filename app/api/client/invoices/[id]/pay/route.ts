@@ -4,6 +4,7 @@ import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { getPrimaryGateway, createPaymentAdapter } from "@/lib/payments/service";
+import { getAppBaseUrl } from "@/lib/app-url";
 
 const paySchema = z.object({
   returnUrl: z.string().url(),
@@ -42,7 +43,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!gateway) return NextResponse.json({ error: "No payment gateway configured." }, { status: 503 });
 
     const adapter = createPaymentAdapter(gateway);
-    const amountCents = Math.round(invoice.totalAmount * 100);
+    // After payment the gateway sends the client's browser to this address.
+    // It must be this application, not wherever the request body says.
+    const appBaseUrl = getAppBaseUrl(req);
+    if (!appBaseUrl || new URL(body.returnUrl).origin !== new URL(appBaseUrl).origin) {
+      return NextResponse.json({ error: "Invalid return address." }, { status: 400 });
+    }
+    // A part-paid invoice is charged what is still owed, not the full total again.
+    const outstanding = Math.max(0, invoice.totalAmount - (invoice.paidAmount ?? 0));
+    if (outstanding <= 0) {
+      return NextResponse.json({ error: "Invoice already paid." }, { status: 400 });
+    }
+    const amountCents = Math.round(outstanding * 100);
 
     const result = await adapter.createPaymentIntent({
       amount: amountCents,

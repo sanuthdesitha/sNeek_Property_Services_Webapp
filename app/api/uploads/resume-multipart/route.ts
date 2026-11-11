@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/session";
 import { resolveS3, publicUrl } from "@/lib/s3";
-import { isAllowedUploadContentType } from "@/lib/uploads/validate";
+import { isAllowedUploadContentType, sanitizeUploadFolder } from "@/lib/uploads/validate";
 
 const schema = z.object({
   key: z.string().min(1).max(1000), uploadId: z.string().min(1),
@@ -18,6 +18,10 @@ export async function POST(req: NextRequest) {
     const data = schema.parse(await req.json());
     const segments = data.key.split("/");
     if (segments.at(-2) !== session.user.id || segments.some(p => !p || p === "." || p === "..") || /[\\\u0000-\u0020\u007f]/.test(data.key)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    // The folder part obeys the same rules as a new upload's folder.
+    if (sanitizeUploadFolder(segments.slice(0, -2).join("/")) === null) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const count = Math.ceil(data.size / data.partSize);

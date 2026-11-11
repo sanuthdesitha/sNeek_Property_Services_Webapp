@@ -6,7 +6,7 @@ import { Role, Prisma } from "@prisma/client";
 import { publicUrl } from "@/lib/s3";
 import { startOfDay } from "date-fns";
 import { getAppSettings } from "@/lib/settings";
-import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
+import { isLaundryOfficeRole, propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 
 import { recordFailedPickup, FailedPickupError } from "@/lib/laundry/failed-pickup";
 import { recordQuantityPickup, QuantityPickupError } from "@/lib/laundry/quantity-pickup";
@@ -110,7 +110,7 @@ async function mutateLaundrySnapshot<T>(
     }
     await tx.$queryRaw`SELECT "id" FROM "Property" WHERE "id" = ${current.propertyId} FOR SHARE`;
     const property = await tx.property.findUnique({ where: { id: current.propertyId } });
-    if (actor.role === Role.LAUNDRY && !propertyIsVisibleToLaundry(property, actor.id)) {
+    if (!isLaundryOfficeRole(actor.role) && !propertyIsVisibleToLaundry(property, actor.id)) {
       throw new FailedPickupError(403, "This laundry task is no longer available to you.");
     }
     return write(tx);
@@ -163,7 +163,7 @@ export async function POST(
     if (!existing) {
       return NextResponse.json({ error: "Laundry task not found" }, { status: 404 });
     }
-    if (session.user.role === Role.LAUNDRY && !propertyIsVisibleToLaundry(existing.property, session.user.id)) {
+    if (!isLaundryOfficeRole(session.user.role) && !propertyIsVisibleToLaundry(existing.property, session.user.id)) {
       return NextResponse.json({ error: "You cannot access this property's laundry schedule." }, { status: 403 });
     }
 
@@ -193,7 +193,7 @@ export async function POST(
       );
     }
 
-    if (nextStatus.startsWith("REVERT_") && session.user.role === Role.LAUNDRY) {
+    if (nextStatus.startsWith("REVERT_") && !isLaundryOfficeRole(session.user.role)) {
       return NextResponse.json({ error: "Ask an administrator to correct a completed handoff." }, { status: 403 });
     }
     if (nextStatus.startsWith("REVERT_") && !notes?.trim()) {
@@ -359,7 +359,7 @@ export async function PATCH(
     }
     // Team scoping — mirror the POST handler so a laundry user can't edit a task
     // belonging to another team (was missing on this edit path).
-    if (session.user.role === Role.LAUNDRY && !propertyIsVisibleToLaundry(task.property, session.user.id)) {
+    if (!isLaundryOfficeRole(session.user.role) && !propertyIsVisibleToLaundry(task.property, session.user.id)) {
       return NextResponse.json({ error: "You don't have access to that property." }, { status: 403 });
     }
     if (body.expectedUpdatedAt && task.updatedAt.getTime() !== new Date(body.expectedUpdatedAt).getTime()) {

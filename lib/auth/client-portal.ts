@@ -285,6 +285,21 @@ export async function findJobInScope(
   });
 }
 
+/**
+ * Is a record tied to this property inside the actor's scope?
+ *
+ * A CLIENT (propertyIds null) sees every record of their client. An assistant
+ * limited to some properties sees only records on those properties; a record
+ * with no property is outside any property grant.
+ */
+export function propertyIdInScope(
+  propertyId: string | null | undefined,
+  ctx: Pick<ClientPortalContext, "propertyIds">,
+): boolean {
+  if (!ctx.propertyIds) return true;
+  return Boolean(propertyId) && ctx.propertyIds.includes(propertyId as string);
+}
+
 /** Re-exported so routes assert money rules from the same import. */
 export { assertVaMayAct };
 

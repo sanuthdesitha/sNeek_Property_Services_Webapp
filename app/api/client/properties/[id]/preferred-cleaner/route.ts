@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
-import { requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
+import { propertyScopeWhere, requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { getClientPortalContext } from "@/lib/client/portal";
@@ -30,8 +30,9 @@ export async function PATCH(
     const body = schema.parse(await req.json().catch(() => ({})));
     const property = await db.property.findFirst({
       where: {
+        // Client AND, for an assistant, the properties their client granted.
+        ...propertyScopeWhere(portal0),
         id: params.id,
-        clientId: portal.clientId,
         isActive: true,
       },
       select: {
@@ -79,7 +80,8 @@ export async function PATCH(
       return NextResponse.json({
         ok: true,
         preferredCleanerUserId: eligible.id,
-        preferredCleanerName: eligible.name || eligible.email,
+        // A cleaner's email address is never sent to a client.
+        preferredCleanerName: eligible.name || "Cleaner",
       });
     }
 
