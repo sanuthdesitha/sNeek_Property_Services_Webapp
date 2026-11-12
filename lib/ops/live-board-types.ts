@@ -16,6 +16,18 @@ export type LiveProgress = {
   basis: "checklist" | "time";
 };
 
+/** One cleaner's own state on a job (their clock, their position). */
+export type LiveCleanerState = {
+  userId: string;
+  state: LiveJobState;
+  liveStatus: string;
+  distanceMeters: number | null;
+  minutes: number | null;
+  /** What their phone last reported (lib/gps/staleness TrackingState). */
+  trackingState: string | null;
+  lastFixAt: string | null;
+};
+
 export type LiveJobRow = {
   jobId: string;
   jobNumber: string | null;
@@ -44,6 +56,8 @@ export type LiveJobRow = {
   etaAt?: string | null;
   /** Late: the client delay notice already requested today, if any (who and when). */
   delayNotice?: { at: string; byName: string } | null;
+  /** Each cleaner's own state; the row's state is the most actionable of them. */
+  cleanerStates?: LiveCleanerState[];
   /** Every running clock on the job (the cleaner each belongs to), for "Pause clock". */
   runningClocks?: Array<{ timeLogId: string; userId: string; name: string; startedAt: string }>;
   /** Field status (moved from the old live map page). */
@@ -74,7 +88,10 @@ export type LiveDriverRow = {
   stopsTotal: number;
   lat: number | null;
   lng: number | null;
+  accuracy?: number | null;
+  /** Measured time of the latest fix (clock-corrected). */
   lastPingAt: string | null;
+  trackingState?: string | null;
 };
 
 export type LiveCleanerNext = { userId: string; nextJob: { jobId: string; propertyName: string; startTime: string | null } | null; phone: string | null };
@@ -89,5 +106,7 @@ export type LiveBoardPayload = {
   drivers: LiveDriverRow[];
   cleaners: LiveCleanerNext[];
   counts: { exceptions: number; onSite: number; travelling: number; notStarted: number; cleanersOnShift: number; driversOnShift: number };
+  /** What this viewer's pack withheld (absent: nothing withheld). */
+  visibility?: { drivers: boolean; continuations: boolean };
   generatedAt: string;
 };

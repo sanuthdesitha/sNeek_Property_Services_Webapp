@@ -4,6 +4,11 @@
  * ESTATE v2 portal shell — the deep-green rail + warm-ivory canvas silhouette,
  * with a mobile drawer + bottom tab bar. Accent comes from the data-portal-accent
  * set by each portal layout. Presentation only; nav config passed in.
+ *
+ * Portals with a phone More sheet (admin, board "Admin phone" 2026-11): below
+ * 640px the bar is four tabs plus More, and More replaces the drawer's menu
+ * button. From 640px up to the rail the drawer and the five-tab bar are
+ * exactly as before.
  */
 import { opsNavigationHref } from "@/lib/rbac/ops-catalog";
 import { useOpsAccess } from "@/components/shared/ops-access-provider";
@@ -18,7 +23,8 @@ import { NotificationInbox } from "@/components/v2/portal/notification-inbox";
 import { PortalSearch } from "@/components/v2/portal/portal-search";
 import { ChevronDown, LogOut, Menu, Search, Star, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { mobileTabs } from "@/lib/navigation/mobile-tabs";
+import { hasPhoneMoreSheet, mobileTabs, phoneSheetTabs } from "@/lib/navigation/mobile-tabs";
+import { PhoneMoreTab } from "@/components/v2/portal/phone-more-sheet";
 
 export interface NavItem {
   href: string;
@@ -142,6 +148,8 @@ export function PortalShell({
     else sections.push({ group: item.group, items: [item] });
   }
   const tabs = mobileTabs(accent, permittedNav);
+  const phoneMore = hasPhoneMoreSheet(accent);
+  const phoneTabs = phoneMore ? phoneSheetTabs(accent, permittedNav) : [];
   const focusMode = Boolean(pathname && immersive?.(pathname));
 
   React.useEffect(() => {
@@ -334,7 +342,7 @@ export function PortalShell({
           "sticky top-0 z-30 h-16 items-center gap-3 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.85)] px-4 backdrop-blur lg:px-8",
           focusMode ? "hidden lg:flex" : "flex",
         )}>
-          <button ref={menuRef} className={cn("h-11 w-11 shrink-0 items-center justify-center lg:hidden", hideMobileMenuButton ? "hidden" : "flex")} onClick={() => setOpen(true)} aria-label="Menu" aria-expanded={open} aria-haspopup="dialog">
+          <button ref={menuRef} className={cn("h-11 w-11 shrink-0 items-center justify-center lg:hidden", hideMobileMenuButton ? "hidden" : "flex", phoneMore && "max-sm:hidden")} onClick={() => setOpen(true)} aria-label="Menu" aria-expanded={open} aria-haspopup="dialog">
             <Menu className="h-5 w-5 text-[hsl(var(--e-foreground))]" />
           </button>
           <span className="e-serif min-w-0 truncate text-[1.05rem] font-[520] lg:hidden">{wordmark}</span>
@@ -352,35 +360,46 @@ export function PortalShell({
           <div className="mx-auto max-w-7xl">{children}</div>
         </main>
 
+        {/* Phones, portals with a More sheet: four tabs, then More. */}
+        {phoneMore ? (
+          <nav aria-label="Main tabs" className={cn("fixed bottom-0 left-0 right-0 z-30 border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.95)] backdrop-blur sm:hidden", focusMode ? "hidden" : "flex")}>
+            {phoneTabs.map((item) => renderTab(item))}
+            <PhoneMoreTab tabs={phoneTabs} nav={nav} isActive={isActive} roleLabel={roleLabel} />
+          </nav>
+        ) : null}
+
         {/* Stable daily destinations, independent of sidebar order and favorites. */}
-        <nav className={cn("fixed bottom-0 left-0 right-0 z-30 border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.95)] backdrop-blur lg:hidden", focusMode ? "hidden" : "flex")}>
-          {tabs.map((item) => {
-            const active = isTabActive(item);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[0.625rem] font-medium",
-                  active ? "text-[hsl(var(--e-accent-portal))]" : "text-[hsl(var(--e-muted-foreground))]"
-                )}
-              >
-                <span className="relative">
-                  <Icon className="h-5 w-5" />
-                  {item.badge ? (
-                    <span className="absolute -right-2 -top-1 min-w-[1rem] rounded-full bg-[hsl(var(--e-danger))] px-1 text-[0.5625rem] font-semibold leading-4 text-white">
-                      {item.badge > 9 ? "9+" : item.badge}
-                    </span>
-                  ) : null}
-                </span>
-                {item.label}
-              </Link>
-            );
-          })}
+        <nav className={cn("fixed bottom-0 left-0 right-0 z-30 border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.95)] backdrop-blur lg:hidden", focusMode ? "hidden" : "flex", phoneMore && "max-sm:hidden")}>
+          {tabs.map((item) => renderTab(item))}
         </nav>
       </div>
     </div>
   );
+
+  /** One phone tab link (shared by both phone bars). */
+  function renderTab(item: NavItem) {
+    const active = isTabActive(item);
+    const Icon = item.icon;
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[0.625rem] font-medium",
+          active ? "text-[hsl(var(--e-accent-portal))]" : "text-[hsl(var(--e-muted-foreground))]"
+        )}
+      >
+        <span className="relative">
+          <Icon className="h-5 w-5" />
+          {item.badge ? (
+            <span className="absolute -right-2 -top-1 min-w-[1rem] rounded-full bg-[hsl(var(--e-danger))] px-1 text-[0.5625rem] font-semibold leading-4 text-white">
+              {item.badge > 9 ? "9+" : item.badge}
+            </span>
+          ) : null}
+        </span>
+        {item.label}
+      </Link>
+    );
+  }
 }

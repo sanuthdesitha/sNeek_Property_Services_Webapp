@@ -15,6 +15,7 @@ import { startOfDay } from "date-fns";
 import { LaundryStatus, Prisma } from "@prisma/client";
 import type { LaundryPlanDraftItem } from "@/lib/laundry/planner";
 import { atTimeOnDay, hasLateCheckout, resolveKeyLostServiceTime } from "@/lib/laundry/clean-start";
+import { ORIGINAL_LAUNDRY_PLANNING, type LaundryPlanningRules } from "@/lib/scheduling-rules/values";
 
 /**
  * Marker embedded in the draft item's `scenario` AND `flagNotes`. flagNotes is
@@ -38,9 +39,12 @@ type KeyLostPlannerJob = Prisma.JobGetPayload<{ include: { property: true } }>;
  * midnights), these carry a real wall-clock time so the runs boards show when
  * the driver should arrive.
  */
-export function computeKeyLostDraftItem(job: KeyLostPlannerJob): LaundryPlanDraftItem {
+export function computeKeyLostDraftItem(
+  job: KeyLostPlannerJob,
+  planning: Pick<LaundryPlanningRules, "keyLostServiceTime" | "keyLostLateCheckoutTime"> = ORIGINAL_LAUNDRY_PLANNING,
+): LaundryPlanDraftItem {
   const cleanDay = startOfDay(job.scheduledDate);
-  const serviceTime = resolveKeyLostServiceTime(job);
+  const serviceTime = resolveKeyLostServiceTime(job, { serviceTime: planning.keyLostServiceTime, lateCheckoutTime: planning.keyLostLateCheckoutTime });
   const serviceAt = atTimeOnDay(cleanDay, serviceTime).toISOString();
   const late = hasLateCheckout(job);
 

@@ -10,6 +10,7 @@
  *    by design (NO Distance Matrix here).
  */
 import { haversine } from "@/lib/gps/distance";
+import { LAUNDRY_ROUTE_ARRIVAL_RADIUS_M, LAUNDRY_ROUTE_NAIVE_PER_STOP_MIN, LAUNDRY_ROUTE_NAIVE_SPEED_KMH } from "@/lib/scheduling-rules/constants";
 
 export type RouteStopKind = "PICKUP" | "DROP";
 
@@ -22,9 +23,9 @@ export type RouteStopJson = {
   completedAt?: string | null;
 };
 
-export const ROUTE_ARRIVAL_RADIUS_M = 120;
-export const NAIVE_SPEED_KMH = 35;
-export const NAIVE_PER_STOP_MIN = 7;
+export const ROUTE_ARRIVAL_RADIUS_M = LAUNDRY_ROUTE_ARRIVAL_RADIUS_M;
+export const NAIVE_SPEED_KMH = LAUNDRY_ROUTE_NAIVE_SPEED_KMH;
+export const NAIVE_PER_STOP_MIN = LAUNDRY_ROUTE_NAIVE_PER_STOP_MIN;
 
 /** Within the auto-open geofence of a stop's property? */
 export function isArrivedAtStop(

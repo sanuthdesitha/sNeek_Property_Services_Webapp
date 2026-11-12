@@ -2,6 +2,7 @@ import { JobType, Role } from "@prisma/client";
 import { DEFAULT_FORM_VALIDATION_SETTINGS, sanitizeFormValidationSettings, type FormValidationSettings } from "@/lib/forms/validation-enforcement";
 import { db } from "@/lib/db";
 import { canUseNodePrisma } from "@/lib/database-runtime";
+import { EDITABLE_RULE_SPECS, SETTING_RULE_KEYS, readSettingPath } from "@/lib/scheduling-rules/values";
 import {
   getDefaultEmailTemplates,
   sanitizeEmailTemplates,
@@ -1914,9 +1915,90 @@ export async function getTransactionAppSettings(database: Pick<typeof db, "appSe
   return row ? sanitizeSettings(row.value) : DEFAULT_SETTINGS;
 }
 
+/**
+ * One lock for every write of the "app" settings row: generic saves here and
+ * the scheduling-rule mirror below. A transaction-scoped advisory lock (not a
+ * row lock) so it also serializes the very first insert.
+ */
+export const APP_SETTINGS_WRITE_LOCK = "AppSetting:app";
+
+type SettingsWriteClient = Pick<typeof db, "appSetting" | "$executeRaw">;
+
+async function lockAppSettingsRow(tx: SettingsWriteClient) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${APP_SETTINGS_WRITE_LOCK}))`;
+}
+
+/**
+ * Scheduling rules that were already settings (laundryOperations, recurringJobs,
+ * autoAssign, ...) are OWNED by the versioned rule service (lib/scheduling-rules):
+ * a generic save — the settings PATCH, a whole-blob settings restore, any other
+ * caller — always keeps the stored values of those fields. Returns the merged
+ * object with every rule-owned path copied from `stored`.
+ */
+export function keepSchedulingRuleFields(merged: AppSettings, stored: AppSettings): AppSettings {
+  const next = { ...merged } as unknown as Record<string, Record<string, unknown>>;
+  for (const key of SETTING_RULE_KEYS) {
+    const spec = EDITABLE_RULE_SPECS[key];
+    if (spec.storage.kind !== "setting") continue;
+    const [group, field] = spec.storage.path;
+    next[group] = { ...(next[group] ?? {}), [field]: readSettingPath(stored, spec.storage.path) };
+  }
+  return next as unknown as AppSettings;
+}
+
+/** The rule-owned fields a requested settings change tried to alter (for the PATCH response). */
+export function schedulingRuleFieldsChanged(input: Partial<AppSettings>, stored: AppSettings): string[] {
+  const changed: string[] = [];
+  for (const key of SETTING_RULE_KEYS) {
+    const spec = EDITABLE_RULE_SPECS[key];
+    if (spec.storage.kind !== "setting") continue;
+    const requested = readSettingPath(input, spec.storage.path);
+    if (requested !== undefined && requested !== readSettingPath(stored, spec.storage.path)) changed.push(spec.storage.path.join("."));
+  }
+  return changed;
+}
+
+/**
+ * The ONLY writer of the rule-owned settings fields: the scheduling-rule
+ * service mirrors a version's values here when it becomes live. Patches the
+ * stored JSON in place (other groups and fields untouched) under the same lock
+ * as saveAppSettings, so neither can overwrite the other with a stale read.
+ */
+export async function writeSchedulingRuleSettings(
+  tx: SettingsWriteClient,
+  entries: ReadonlyArray<{ path: readonly [string, string]; value: unknown }>,
+): Promise<void> {
+  await lockAppSettingsRow(tx);
+  const row = await tx.appSetting.findUnique({ where: { key: "app" } });
+  const raw = (row?.value && typeof row.value === "object" && !Array.isArray(row.value) ? { ...(row.value as Record<string, unknown>) } : {}) as Record<string, unknown>;
+  for (const entry of entries) {
+    const [group, field] = entry.path;
+    const current = raw[group] && typeof raw[group] === "object" && !Array.isArray(raw[group]) ? (raw[group] as Record<string, unknown>) : {};
+    raw[group] = { ...current, [field]: entry.value };
+  }
+  const value = sanitizeSettings(raw) as any;
+  await tx.appSetting.upsert({ where: { key: "app" }, create: { key: "app", value }, update: { value } });
+}
+
 export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppSettings> {
-  const current = await getAppSettings();
-  const merged = sanitizeSettings({
+  // Read-merge-write under the settings write lock, reading the CURRENT row in
+  // the same transaction (a read failure now fails the save instead of merging
+  // over defaults), and never writing the rule-owned scheduling fields.
+  return db.$transaction(async (tx) => {
+    await lockAppSettingsRow(tx);
+    const current = await getTransactionAppSettings(tx);
+    const merged = keepSchedulingRuleFields(mergeAppSettingsInput(current, input), current);
+    await tx.appSetting.upsert({
+      where: { key: "app" },
+      create: { key: "app", value: merged as any },
+      update: { value: merged as any },
+    });
+    return merged;
+  });
+}
+
+function mergeAppSettingsInput(current: AppSettings, input: Partial<AppSettings>): AppSettings {
+  return sanitizeSettings({
     ...current,
     ...input,
     smsProvider: input.smsProvider ?? current.smsProvider,
@@ -1962,14 +2044,6 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     // sent [] clears them, undefined keeps the current set.
     pricingVariables: input.pricingVariables ?? current.pricingVariables,
   });
-
-  await db.appSetting.upsert({
-    where: { key: "app" },
-    create: { key: "app", value: merged as any },
-    update: { value: merged as any },
-  });
-
-  return merged;
 }
 
 export async function getProfilePolicyForRole(role: Role): Promise<ProfileEditPolicy> {

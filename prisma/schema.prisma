@@ -920,6 +920,8 @@ model User {
   socialPosts                  SocialPost[]                @relation("SocialPostCreatedBy")
   laundryRoutes                LaundryRoute[]
   cleanerLocationPings         CleanerLocationPing[]
+  lastLocation                 UserLastLocation?
+  locationTrackingNotices      LocationTrackingNotice[]
   nfcScanEvents                NfcScanEvent[]
   submittedOnboardingSurveys   PropertyOnboardingSurvey[]  @relation("OnboardingSubmittedBy")
   reviewedOnboardingSurveys    PropertyOnboardingSurvey[]  @relation("OnboardingReviewedBy")
@@ -1014,6 +1016,9 @@ model Client {
   address                   String?
   notes                     String?   @db.Text
   portalVisibilityOverrides Json?
+  /// The client sees the assigned cleaner's live position while the cleaner
+  /// is on the way (EN_ROUTE). Off by default (live location 2026-11).
+  showCleanerLiveLocation   Boolean   @default(false)
   isActive                  Boolean   @default(true)
   xeroContactId             String?
   xeroSyncedAt              DateTime?
@@ -1753,6 +1758,24 @@ model TimeLog {
   stoppedAt DateTime?
   durationM Int? // minutes (computed on stop)
   notes     String?
+
+  /// Where THIS cleaner was when THIS segment started (live location 2026-11).
+  /// Null on segments recorded before the change or started without a fix.
+  startLat            Float?
+  startLng            Float?
+  startAccuracyM      Float?
+  startDistanceM      Float?
+  /// "ON_SITE" | "OFF_SITE" | "UNRELIABLE" | "NO_GEOFENCE"
+  startVerdict        String?
+  startReasonCode     String?
+  startNote           String?
+  /// "GPS" | "NFC"
+  startLocationSource String?
+  stopLat             Float?
+  stopLng             Float?
+  stopAccuracyM       Float?
+  stopDistanceM       Float?
+  stopLocationAt      DateTime?
 
   job                Job                        @relation(fields: [jobId], references: [id])
   user               User                       @relation(fields: [userId], references: [id])
@@ -4554,6 +4577,52 @@ model AppSetting {
   updatedAt DateTime @updatedAt
 }
 
+/// Scheduling rules (owner decision 2026-11-14): every published version of
+/// the laundry and job auto-scheduling rule values. Rows are never edited or
+/// deleted; an undo or a restore is a NEW version. Version 1 is "Original
+/// (current behaviour)", seeded from the live stored settings and the original
+/// code values the first time the rules are read. See lib/scheduling-rules.
+model SchedulingRuleVersion {
+  id                  String    @id @default(cuid())
+  version             Int       @unique
+  /// "ORIGINAL" | "EDIT" | "RESTORE" | "IMPORT"
+  kind                String
+  /// Every editable rule value (lib/scheduling-rules/values.ts), validated on write.
+  values              Json
+  schemaVersion       Int
+  /// sha256 of the canonical values JSON; checked on every read.
+  checksum            String
+  /// Sydney calendar day (yyyy-MM-dd) the version becomes live, from midnight.
+  effectiveFrom       String
+  /// false: runs and jobs created before effectiveFrom keep the rules they were
+  /// planned with. true: the publisher chose "re-plan existing" in the preview.
+  appliesToExisting   Boolean   @default(false)
+  reason              String    @db.Text
+  restoredFromVersion Int?
+  createdById         String?
+  createdAt           DateTime  @default(now())
+  /// When the settings-backed values were mirrored into AppSettings (null until live).
+  activatedAt         DateTime?
+
+  @@index([effectiveFrom])
+}
+
+/// Point-in-time backups of the scheduling rules: before every publish, weekly,
+/// and on request. Restorable as a new version; never edited.
+model SchedulingRuleSnapshot {
+  id          String   @id @default(cuid())
+  /// "PRE_PUBLISH" | "WEEKLY" | "MANUAL"
+  source      String
+  liveVersion Int
+  /// The same backup document a download produces (lib/scheduling-rules/backup.ts).
+  payload     Json
+  checksum    String
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 // ─────────────────────────────────────────────
 // Real-Time Location Tracking
 // ─────────────────────────────────────────────
@@ -4567,13 +4636,71 @@ model CleanerLocationPing {
   accuracy  Float?
   heading   Float?
   speed     Float?
+  /// When the fix was measured, corrected for the phone's clock offset.
   timestamp DateTime @default(now())
+  /// When the server stored it (the stream cursor; live location 2026-11).
+  receivedAt     DateTime           @default(now())
+  source         LocationPingSource @default(CLEANER_JOB)
+  /// Client-generated id; a retried batch is stored once.
+  clientId       String?
+  /// The driver's ACTIVE route when source = LAUNDRY_ROUTE.
+  laundryRouteId String?
 
   job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, clientId])
   @@index([jobId, timestamp])
   @@index([userId, timestamp])
+  @@index([receivedAt])
+  @@index([timestamp])
+}
+
+enum LocationPingSource {
+  CLEANER_JOB
+  CLEANER_DRIVING
+  LAUNDRY_ROUTE
+}
+
+/// Latest position and tracking state per person, written on ingest so the
+/// office never scans the ping table for "where is everyone".
+model UserLastLocation {
+  userId         String              @id
+  lat            Float?
+  lng            Float?
+  accuracy       Float?
+  heading        Float?
+  speed          Float?
+  /// Measured time of the fix (clock-corrected). Null until a fix arrives.
+  measuredAt     DateTime?
+  receivedAt     DateTime?
+  source         LocationPingSource?
+  jobId          String?
+  laundryRouteId String?
+  /// What the phone reported: "SHARING" | "BACKGROUND" | "PERMISSION_OFF" | "OFFLINE" | "UNAVAILABLE"
+  trackingState  String?
+  trackingStateAt DateTime?
+  updatedAt      DateTime            @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([measuredAt])
+}
+
+/// A person acknowledged the live-location notice (which version, from which portal).
+model LocationTrackingNotice {
+  id             String   @id @default(cuid())
+  userId         String
+  version        Int
+  /// "CLEANER" | "LAUNDRY"
+  portal         String
+  acknowledgedAt DateTime @default(now())
+  userAgent      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, version, portal])
+  @@index([userId, acknowledgedAt])
 }
 
 // ─────────────────────────────────────────────

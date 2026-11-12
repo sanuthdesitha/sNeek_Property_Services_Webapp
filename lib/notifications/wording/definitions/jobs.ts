@@ -8,7 +8,7 @@ import { editable, emailTemplatePart, inCode, linePart, notificationTemplatePart
 import { JOB_CHANGED_WORDING } from "./job-changes";
 import { JOB_OFFER_PARTS, SKIPPED_PARTS } from "./job-offer";
 import { CLEANER_INVOICE_WORDING } from "./cleaner-invoice";
-import { CLOCK_CHANGES_WORDING } from "./clock";
+import { CLOCK_CHANGES_WORDING, LEFT_SITE_WORDING, LOCATION_SHARING_WORDING } from "./clock";
 import { QA_ACCOUNTABILITY_WORDING } from "./accountability-more";
 import { DECISIONS_WORDING } from "./decisions";
 
@@ -95,6 +95,8 @@ export const JOB_WORDING: readonly TypeWordingDefinition[] = [
   JOB_CHANGED_WORDING,
   editable("job.skipped_or_cancelled", SKIPPED_PARTS),
   CLOCK_CHANGES_WORDING,
+  LEFT_SITE_WORDING,
+  LOCATION_SHARING_WORDING,
   DECISIONS_WORDING,
   QA_ACCOUNTABILITY_WORDING,
   CLEANER_INVOICE_WORDING,

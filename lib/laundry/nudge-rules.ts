@@ -30,6 +30,7 @@
  */
 import { dayKeyOf, type PipelineException } from "./pipeline";
 import { isAtLaundryStatus } from "./status-groups";
+import { LAUNDRY_NUDGE_COOL_DOWN_MINUTES } from "@/lib/scheduling-rules/constants";
 
 /** Cleaner nudges. REQUEST_PHOTO is still accepted from older screens but no longer offered. */
 export type LaundryNudgeKind = "ASK_CLEANER" | "REQUEST_PHOTO";
@@ -38,7 +39,7 @@ export type LaundryTeamRequestKind = "TEAM_CONFIRM_PICKUP" | "TEAM_MOVE_PICKUP" 
 
 export const LAUNDRY_TEAM_REQUEST_KINDS: readonly LaundryTeamRequestKind[] = ["TEAM_CONFIRM_PICKUP", "TEAM_MOVE_PICKUP", "TEAM_CONFIRM_DROP", "TEAM_RETURN_ETA", "TEAM_PHOTO"];
 
-export const NUDGE_COOL_DOWN_MINUTES = 30;
+export const NUDGE_COOL_DOWN_MINUTES = LAUNDRY_NUDGE_COOL_DOWN_MINUTES;
 
 type RequestLabel = { button: string; title: string; text: string };
 

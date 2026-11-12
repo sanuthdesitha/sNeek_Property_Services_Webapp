@@ -448,6 +448,9 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
   "payment-gateways": "finance",
   xero: "finance",
   laundry: "laundry-settings",
+  // Scheduling rules (2026-11-14): viewing follows Settings; every change is
+  // ADMIN (or the scheduling.rules_edit grant) plus the person's own PIN.
+  "scheduling-rules": "settings",
   "property-form": "property-form",
   safeguards: "quality-settings",
   accountability: "quality-settings",
@@ -548,6 +551,11 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
   )
     return "inventory";
   if (/^\/admin\/system\/test-as(?:\/|$)/.test(path)) return "owner";
+  // Live ops and its live feeds are the dashboard pack (default pending owner
+  // confirmation, 2026-11-14), not System: the same board Command shows. The
+  // routes filter their payload by pack (continuations: approvals, drivers:
+  // laundry). Other /admin/ops tools (e.g. the SLA run) stay System.
+  if (/^\/(?:api\/)?admin\/ops(?:\/(?:live-locations|live-board|map|live-map)(?:\/|$)|\/?$)/.test(path)) return "dashboard";
   if (/^\/(?:api\/)?admin\/phase4\/payruns/.test(path)) return "payroll";
   if (/^\/(?:api\/)?admin\/phase4\/disputes/.test(path)) return "cases";
   if (/^\/(?:api\/)?admin\/phase4\/reschedule/.test(path)) return "calendar";

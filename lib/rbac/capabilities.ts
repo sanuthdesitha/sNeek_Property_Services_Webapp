@@ -88,6 +88,8 @@ export const CAPABILITIES = [
   { key: "accounts.reset_two_step", area: null, label: "Reset two-step verification", tier: "grant", canText: "Reset two-step verification for someone with no more access than them (asked for their own PIN)", cannotText: "Reset two-step verification", enforcedAt: "POST /api/admin/users/[id]/disable-2fa (requireDelegatedAction)" },
   { key: "access.test_as", area: null, label: "Test as another person", tier: "grant", canText: "Test as someone with no more access than them (asked for their own PIN)", cannotText: "Use Test as", enforcedAt: "POST /api/admin/test-as/unlock, POST /api/admin/impersonate, lib/auth/impersonation-server.ts (every request)" },
   { key: "access.edit_permissions", area: null, label: "Edit access and permissions", tier: "grant", canText: "Change the access of people below them, up to their own access (asked for their own PIN)", cannotText: "Change anyone's access", enforcedAt: "GET/PUT /api/admin/ops-permissions (delegatedPolicyRefusal)" },
+  // Owner decision 2026-11-14: scheduling rules are ADMIN-only until an ADMIN grants this.
+  { key: "scheduling.rules_edit", area: null, label: "Change the scheduling rules", tier: "grant", canText: "Change, restore or import the laundry and job scheduling rules (asked for their own PIN)", cannotText: "Change the scheduling rules", enforcedAt: "/api/admin/settings/scheduling-rules/* (requireDelegatedAction + verifySensitiveAction scheduling.rules_edit)" },
 ] as const satisfies readonly CapabilityDefinition[];
 
 export type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
@@ -123,6 +125,7 @@ export const SENSITIVE_ACTION_CAPABILITY: Readonly<Record<SensitiveAction, Capab
   "laundry.delete": "laundry.delete",
   "invoices.correct": "invoices.correct",
   "invoices.void_credit": "invoices.void_credit",
+  "scheduling.rules_edit": "scheduling.rules_edit",
 };
 
 /**

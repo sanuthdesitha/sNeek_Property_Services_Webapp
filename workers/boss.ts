@@ -55,6 +55,19 @@ import { dispatchLaundryDriverNudges } from "@/lib/laundry/reminders";
 import { runMissedClockInSweep } from "@/lib/ops/missed-clock-in-sweep";
 
 const TZ = "Australia/Sydney";
+
+/**
+ * The live scheduling-rule thresholds for a sweep (lib/scheduling-rules). Fails
+ * closed: when the rules are unavailable the sweep does not run and the
+ * handler records the reason (getRecentWorkerFailures / the job-run history).
+ */
+async function liveRunTimeRules() {
+  const [{ loadSchedulingRuleBook }, { runTimeRulesFrom }] = await Promise.all([
+    import("@/lib/scheduling-rules/store"),
+    import("@/lib/scheduling-rules/values"),
+  ]);
+  return runTimeRulesFrom((await loadSchedulingRuleBook()).live.values);
+}
 const DATABASE_URL = process.env.DATABASE_URL!;
 
 const DEFAULT_HANDLER_TIMEOUT_MS = 10 * 60_000;
@@ -583,7 +596,7 @@ async function main() {
     await boss.work("cleaner-day-reminder", safeHandler("cleaner-day-reminder", async () => {
       // The dispatcher gates on 6AM / within-2h and de-dupes internally, so
       // running every half hour fires once per cleaner per job per day.
-      await dispatchCleanerDayReminders(new Date());
+      await dispatchCleanerDayReminders(new Date(), await liveRunTimeRules());
     }));
   }
 
@@ -599,14 +612,14 @@ async function main() {
   if (jobEnabled("stale-en-route-sweep")) {
     await boss.schedule("stale-en-route-sweep", "*/30 * * * *", {}, { tz: TZ });
     await boss.work("stale-en-route-sweep", safeHandler("stale-en-route-sweep", async () => {
-      await sweepStaleEnRouteJobs(new Date());
+      await sweepStaleEnRouteJobs(new Date(), await liveRunTimeRules());
     }));
   }
 
   if (jobEnabled("auto-pause-stale-jobs")) {
     await boss.schedule("auto-pause-stale-jobs", "*/30 * * * *", {}, { tz: TZ });
     await boss.work("auto-pause-stale-jobs", safeHandler("auto-pause-stale-jobs", async () => {
-      await autoPauseStaleJobs(new Date());
+      await autoPauseStaleJobs(new Date(), await liveRunTimeRules());
     }));
   }
 
@@ -637,7 +650,7 @@ async function main() {
   if (jobEnabled("laundry-driver-nudge")) {
     await boss.schedule("laundry-driver-nudge", "0 15 * * *", {}, { tz: TZ });
     await boss.work("laundry-driver-nudge", safeHandler("laundry-driver-nudge", async () => {
-      await dispatchLaundryDriverNudges(new Date());
+      await dispatchLaundryDriverNudges(new Date(), await liveRunTimeRules());
     }));
   }
 
@@ -683,6 +696,26 @@ async function main() {
     await boss.work("qa-auto-score", safeHandler("qa-auto-score", async () => {
       const { runQaAutoScoreSweep } = await import("@/lib/qa/auto-score");
       await runQaAutoScoreSweep({ now: new Date() });
+    }));
+  }
+
+  // Scheduling rules (2026-11-14): make a version whose effective day has come
+  // live in the settings row its existing readers use. Readers that load the
+  // rule book activate it themselves; this keeps the rest current within the hour.
+  if (jobEnabled("scheduling-rules-activate")) {
+    await boss.schedule("scheduling-rules-activate", "2 * * * *", {}, { tz: TZ });
+    await boss.work("scheduling-rules-activate", safeHandler("scheduling-rules-activate", async () => {
+      const { activateDueSchedulingRules } = await import("@/lib/scheduling-rules/store");
+      await activateDueSchedulingRules(new Date());
+    }));
+  }
+
+  // Weekly backup of the scheduling rules (restorable as a new version).
+  if (jobEnabled("scheduling-rules-weekly-snapshot")) {
+    await boss.schedule("scheduling-rules-weekly-snapshot", "40 2 * * 1", {}, { tz: TZ });
+    await boss.work("scheduling-rules-weekly-snapshot", safeHandler("scheduling-rules-weekly-snapshot", async () => {
+      const { takeSchedulingRuleSnapshot } = await import("@/lib/scheduling-rules/backup");
+      await takeSchedulingRuleSnapshot({ source: "WEEKLY" });
     }));
   }
 

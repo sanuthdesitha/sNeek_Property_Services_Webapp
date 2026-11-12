@@ -8,11 +8,15 @@
  * ping freshness and geofence all agree.
  */
 
-export const LIVE_STALE_AFTER_MS = 3 * 60_000;
+import { LOCATION_LIVE_MS, trackingStateLabel } from "@/lib/gps/staleness";
+
+/** One staleness policy: lib/gps/staleness (a fix is live for 3 minutes). */
+export const LIVE_STALE_AFTER_MS = LOCATION_LIVE_MS;
 
 export type LiveStatusCode =
   | "ON_SITE"
   | "OFF_SITE"
+  | "UNCERTAIN"
   | "NO_SIGNAL"
   | "PAUSED"
   | "LEFT_SITE"
@@ -24,12 +28,18 @@ export interface DeriveLiveStatusInput {
   /** Active job's status (Prisma JobStatus as string), null when none. */
   jobStatus: string | null;
   lastPingAt: Date | null;
-  /** Latest ping inside the fence? null when unknown (no ping / no coords). */
+  /**
+   * Latest ping inside the fence? null when it cannot be judged: no ping, no
+   * coordinates, a fix too coarse to trust, or inside the hysteresis band
+   * (lib/gps/geofence-policy `fenceVerdict`). Unknown is never "off site".
+   */
   insideGeofence: boolean | null;
   departedAt: Date | null;
   now: Date;
   /** Property has usable coordinates (a geofence exists to judge against). */
   hasGeofence: boolean;
+  /** What the phone last reported about its tracking (lib/gps/staleness TrackingState). */
+  trackingState?: string | null;
 }
 
 export interface LiveStatusResult {
@@ -72,11 +82,17 @@ export function deriveLiveStatus(input: DeriveLiveStatusInput): LiveStatusResult
       if (input.insideGeofence === true) {
         return { status: "ON_SITE", label: "On site" };
       }
-      return { status: "OFF_SITE", label: "Clocked in · off site" };
+      if (input.insideGeofence === false) {
+        return { status: "OFF_SITE", label: "Clocked in · off site" };
+      }
+      return { status: "UNCERTAIN", label: "Clocked in · location approximate" };
     }
+    const reason = trackingStateLabel(input.trackingState);
     return {
       status: "NO_SIGNAL",
-      label: `Clocked in · no signal ${formatRelativeAgo(input.lastPingAt, now)}`,
+      label: reason
+        ? `Clocked in · ${reason.toLowerCase()} · last fix ${formatRelativeAgo(input.lastPingAt, now)}`
+        : `Clocked in · no signal ${formatRelativeAgo(input.lastPingAt, now)}`,
     };
   }
 

@@ -3,6 +3,9 @@
 /**
  * ESTATE pagination: Previous / Next with "Showing a–b of N". N is the
  * server's real total for the current filters.
+ *
+ * Phones (below 640px): one compact row with smaller text and 44px Previous
+ * and Next buttons (the wording is unchanged).
  */
 import * as React from "react";
 import { cn } from "@/lib/utils";
@@ -30,11 +33,11 @@ export function EPagination({ page, pageSize, total, onPageChange, disabled = fa
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const { from, to } = paginationRange(page, pageSize, total);
   return (
-    <nav aria-label="Pagination" className={cn("flex flex-wrap items-center justify-between gap-3", className)}>
-      <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))] e-tnum" aria-live="polite">
+    <nav aria-label="Pagination" className={cn("flex flex-wrap items-center justify-between gap-3 max-sm:flex-nowrap max-sm:gap-2", className)}>
+      <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))] e-tnum max-sm:min-w-0 max-sm:text-[0.75rem]" aria-live="polite">
         {total === 0 ? `No ${noun}` : `Showing ${from}–${to} of ${total}`}
       </p>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <EButton size="sm" variant="outline" disabled={disabled || page <= 1} onClick={() => onPageChange(page - 1)}>
           Previous
         </EButton>

@@ -10,6 +10,7 @@ import * as React from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "./filter-chips";
+import { useInFilterSheet } from "./filter-sheet-context";
 
 export type EFilterPopoverProps = {
   label: string;
@@ -22,7 +23,25 @@ export type EFilterPopoverProps = {
   className?: string;
 };
 
-export function EFilterPopover({ label, value, emptyValue, disabled = false, children, className }: EFilterPopoverProps) {
+export function EFilterPopover(props: EFilterPopoverProps) {
+  // Inside the phone filter sheet every filter is an open, labelled section.
+  if (useInFilterSheet()) return <FilterSheetSection {...props} />;
+  return <FilterPopoverChip {...props} />;
+}
+
+function FilterSheetSection({ label, value, emptyValue, disabled = false, children, className }: EFilterPopoverProps) {
+  return (
+    <fieldset disabled={disabled} className={cn("min-w-0 space-y-3 border-t border-[hsl(var(--e-border))] pt-3 first:border-t-0 first:pt-0", className)}>
+      <legend className="float-left mb-2 flex w-full items-baseline justify-between gap-2 text-[0.8125rem] font-[650]">
+        <span>{label}</span>
+        <span className="truncate text-[0.75rem] font-[500] text-[hsl(var(--e-muted-foreground))]">{value ?? emptyValue ?? "Any"}</span>
+      </legend>
+      <div className="clear-both space-y-3">{children}</div>
+    </fieldset>
+  );
+}
+
+function FilterPopoverChip({ label, value, emptyValue, disabled = false, children, className }: EFilterPopoverProps) {
   const [open, setOpen] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);

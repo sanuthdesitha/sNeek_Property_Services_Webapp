@@ -13,9 +13,10 @@
 import type { PipelineException } from "./pipeline";
 import { isAtLaundryStatus } from "./status-groups";
 import type { LaundryTeamRequestKind } from "./nudge-rules";
+import { LAUNDRY_NUDGE_COOL_DOWN_MINUTES } from "@/lib/scheduling-rules/constants";
 
 /** One chase per run within this many minutes (like the cleaner nudges). */
-export const SUPPLIER_CHASE_COOL_DOWN_MINUTES = 30;
+export const SUPPLIER_CHASE_COOL_DOWN_MINUTES = LAUNDRY_NUDGE_COOL_DOWN_MINUTES;
 
 export type SupplierChaseTransport = "EMAIL" | "SMS";
 

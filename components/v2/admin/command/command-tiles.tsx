@@ -1,7 +1,12 @@
 "use client";
 
-/** The four counters above the work queue; each opens its page already filtered. */
+/**
+ * The four counters above the work queue; each opens its page already
+ * filtered. On a phone they fold behind one "4 figures · Show" row so the work
+ * queue is on the first screen (board "Admin phone"); unchanged from 640px up.
+ */
 import Link from "next/link";
+import { CollapsibleFigures } from "@/components/v2/ui/collapsible-figures";
 import { EPill } from "@/components/v2/ui/pill";
 import type { CommandTilesPayload } from "@/lib/dashboard/command-types";
 import { SectionBody } from "./section-state";
@@ -13,6 +18,7 @@ export function CommandTiles({ initial, timeZone }: { initial: CommandTilesPaylo
     <section aria-label="Counters" className="min-w-0">
       <SectionBody state={state} label="Counters" timeZone={timeZone} rows={1}>
         {(data) => data.tiles.length === 0 ? null : (
+          <CollapsibleFigures storageKey="command:counters" count={data.tiles.length} label="Command counters">
           <div className="grid min-w-0 grid-cols-2 gap-3 lg:grid-cols-4">
             {data.tiles.map((tile) => (
               <Link
@@ -28,6 +34,7 @@ export function CommandTiles({ initial, timeZone }: { initial: CommandTilesPaylo
               </Link>
             ))}
           </div>
+          </CollapsibleFigures>
         )}
       </SectionBody>
     </section>

@@ -10,6 +10,7 @@ import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { DAY_REMINDER_LEAD_HOURS, DAY_REMINDER_UNLOCK_HOUR, REMINDER_DEFAULT_JOB_TIME } from "@/lib/scheduling-rules/constants";
 
 /**
  * High-alert day-of reminder to the ASSIGNED cleaner(s) for each job scheduled
@@ -22,8 +23,8 @@ import { loadNotificationWording } from "@/lib/notifications/wording/render";
  * multi-channel attempt before delivery. Concurrent ticks cannot send twice.
  */
 
-const MORNING_HOUR = 6; // Sydney hour the morning reminder unlocks.
-const LEAD_MS = 2 * 3_600_000; // Also send once we're within 2h of start.
+const MORNING_HOUR = DAY_REMINDER_UNLOCK_HOUR; // Sydney hour the morning reminder unlocks.
+const LEAD_MS = DAY_REMINDER_LEAD_HOURS * 3_600_000; // Also send once we're within 2h of start.
 
 function resolveScheduledAt(
   job: { scheduledDate: Date; startTime?: string | null; dueTime?: string | null; endTime?: string | null },
@@ -31,12 +32,18 @@ function resolveScheduledAt(
 ): Date {
   const localDate = toZonedTime(job.scheduledDate, timezone);
   const datePart = format(localDate, "yyyy-MM-dd");
-  const timeValue = job.startTime || job.dueTime || job.endTime || "09:00";
-  const safeTime = /^\d{2}:\d{2}$/.test(timeValue) ? timeValue : "09:00";
+  const timeValue = job.startTime || job.dueTime || job.endTime || REMINDER_DEFAULT_JOB_TIME;
+  const safeTime = /^\d{2}:\d{2}$/.test(timeValue) ? timeValue : REMINDER_DEFAULT_JOB_TIME;
   return fromZonedTime(`${datePart}T${safeTime}:00`, timezone);
 }
 
-export async function dispatchCleanerDayReminders(now: Date = new Date()) {
+/** `rules`: the published scheduling rules the worker passes; default the original 6 AM / 2 hours. */
+export async function dispatchCleanerDayReminders(
+  now: Date = new Date(),
+  rules?: { dayReminderUnlockHour: number; dayReminderLeadHours: number },
+) {
+  const unlockHour = rules?.dayReminderUnlockHour ?? MORNING_HOUR;
+  const leadMs = rules ? rules.dayReminderLeadHours * 3_600_000 : LEAD_MS;
   const settings = await getAppSettings();
   const timezone = settings.timezone || "Australia/Sydney";
 
@@ -44,7 +51,7 @@ export async function dispatchCleanerDayReminders(now: Date = new Date()) {
   const dayKey = format(zonedNow, "yyyy-MM-dd");
   const dayStart = fromZonedTime(`${dayKey}T00:00:00`, timezone);
   const dayEnd = fromZonedTime(`${dayKey}T23:59:59`, timezone);
-  const morningUnlock = fromZonedTime(`${dayKey}T${String(MORNING_HOUR).padStart(2, "0")}:00:00`, timezone);
+  const morningUnlock = fromZonedTime(`${dayKey}T${String(unlockHour).padStart(2, "0")}:00:00`, timezone);
 
   const jobs = await db.job.findMany({
     where: {
@@ -75,7 +82,7 @@ export async function dispatchCleanerDayReminders(now: Date = new Date()) {
   const wording = await loadNotificationWording("job.cleaner_day_reminder");
   for (const job of jobs) {
     const scheduledAt = resolveScheduledAt(job, timezone);
-    const within2h = now.getTime() >= scheduledAt.getTime() - LEAD_MS;
+    const within2h = now.getTime() >= scheduledAt.getTime() - leadMs;
     const pastMorning = now.getTime() >= morningUnlock.getTime();
     if (!within2h && !pastMorning) continue; // too early — wait for 6AM or the 2h window
 

@@ -1,68 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth/session";
-import { z } from "zod";
-import { db } from "@/lib/db";
-import { checkGeofenceForPing } from "@/lib/gps/geofence";
-import { handleGeofenceDeparture } from "@/lib/gps/departure-clockout";
-
-const pingSchema = z.object({
-  jobId: z.string(),
-  lat: z.number(),
-  lng: z.number(),
-  accuracy: z.number().optional(),
-  heading: z.number().optional(),
-  speed: z.number().optional(),
-  timestamp: z.string().datetime().optional(),
-});
-
-const bodySchema = z.union([
-  pingSchema, // single ping
-  z.array(pingSchema).max(50), // batch
-]);
+import { Role } from "@prisma/client";
+import { requireRole } from "@/lib/auth/session";
+import { ingestCleanerBatch } from "@/lib/gps/ingest-service";
 
 export const dynamic = "force-dynamic";
 
-// Per-user rate limit — at most one ping batch every RATE_LIMIT_MS.
-// Client GPS interval is 30s; this gives lots of headroom but stops a
-// buggy / malicious client from flooding the endpoint.
-const RATE_LIMIT_MS = 10_000;
-const STALE_PING_MS = 5 * 60_000;
-const FUTURE_PING_TOLERANCE_MS = 2 * 60_000;
-
-const globalRef = globalThis as unknown as { __sneekPingRateLimit?: Map<string, number> };
-if (!globalRef.__sneekPingRateLimit) globalRef.__sneekPingRateLimit = new Map();
-const lastPingByUser = globalRef.__sneekPingRateLimit;
-
-// Opportunistic cleanup so the map can't grow unbounded.
-function pruneRateLimitMap(now: number) {
-  if (lastPingByUser.size < 1000) return;
-  lastPingByUser.forEach((t, k) => {
-    if (now - t > 60_000) lastPingByUser.delete(k);
-  });
-}
-
+/**
+ * The cleaner tracker's batches: `{ sentAt, pings: [{ clientId, jobId, lat,
+ * lng, accuracy, heading, speed, timestamp }], state? }` (a bare fix or array
+ * from older clients is still accepted). Everything — impersonation refusal,
+ * the tracking window, clock-skew correction, idempotent storage, the latest
+ * position and arrival/departure — lives in lib/gps/ingest-service.
+ *
+ * Refused fixes are answered 200 with counted reasons: the client clears what
+ * the server can never accept instead of retrying it forever, and re-asks
+ * whether it should still be tracking when `window.active` is false.
+ */
 export async function POST(req: NextRequest) {
   let session;
   try {
-    session = await requireSession();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    session = await requireRole([Role.CLEANER]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "FORBIDDEN";
+    return NextResponse.json({ error: message === "UNAUTHORIZED" ? "Unauthorized" : "Forbidden" }, { status: message === "UNAUTHORIZED" ? 401 : 403 });
   }
-
-
-  const userId = session.user.id;
-  const now = new Date();
-  const nowMs = now.getTime();
-
-  const last = lastPingByUser.get(userId);
-  if (last && nowMs - last < RATE_LIMIT_MS) {
-    return NextResponse.json(
-      { error: "Rate limited", retryAfterMs: RATE_LIMIT_MS - (nowMs - last) },
-      { status: 429 },
-    );
-  }
-  lastPingByUser.set(userId, nowMs);
-  pruneRateLimitMap(nowMs);
 
   let body: unknown;
   try {
@@ -71,118 +32,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const parsed = bodySchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid input", details: parsed.error.format() },
-      { status: 400 },
-    );
-  }
-
-  const rawPings = Array.isArray(parsed.data) ? parsed.data : [parsed.data];
-
-  // Drop any ping older than STALE_PING_MS — prevents a queue-flush from
-  // a previously-offline client from spamming us with ancient data.
-  // A ping dated ahead of the server clock (beyond ordinary phone drift) is
-  // dropped too: it would sort as the "latest" position long after it was sent.
-  const pings = rawPings.filter((p) => {
-    if (!p.timestamp) return true;
-    const age = nowMs - new Date(p.timestamp).getTime();
-    return age < STALE_PING_MS && age > -FUTURE_PING_TOLERANCE_MS;
+  const outcome = await ingestCleanerBatch({
+    userId: session.user.id,
+    impersonating: Boolean(session.impersonation),
+    body,
   });
-
-  if (pings.length === 0) {
-    return NextResponse.json({ ok: true, received: 0, dropped: rawPings.length });
-  }
-
-  // The jobId comes from the client and was previously written straight to
-  // the row. Anyone could therefore file location history against a job that
-  // was never theirs — which is both a privacy leak into another cleaner's
-  // movements and a way to forge arrival evidence. Keep only ids this user is
-  // actually assigned to.
-  const claimedJobIds = Array.from(new Set(pings.map((p) => p.jobId)));
-  const ownedJobs = await db.job.findMany({
-    where: {
-      id: { in: claimedJobIds },
-      assignments: { some: { userId, removedAt: null } },
-    },
-    select: { id: true },
-  });
-  const ownedJobIds = new Set(ownedJobs.map((job) => job.id));
-  const ownedPings = pings.filter((p) => ownedJobIds.has(p.jobId));
-
-  if (ownedPings.length === 0) {
-    // 200, not 403. The client clears its queue on a 4xx, which is the right
-    // outcome here — these rows are unusable — and an error would put the
-    // cleaner's app into a retry loop over data it can never get accepted.
-    return NextResponse.json({
-      ok: true,
-      received: 0,
-      dropped: rawPings.length,
-    });
-  }
-
-  // Persist all pings
-  await db.cleanerLocationPing.createMany({
-    data: ownedPings.map((p) => ({
-      jobId: p.jobId,
-      userId,
-      lat: p.lat,
-      lng: p.lng,
-      accuracy: p.accuracy,
-      heading: p.heading,
-      speed: p.speed,
-      timestamp: p.timestamp ? new Date(p.timestamp) : now,
-    })),
-  });
-
-  // Denormalize User.lastSeenAt so the live-locations endpoint can sort by it
-  // without scanning the ping table.
-  await db.user.update({
-    where: { id: userId },
-    data: { lastSeenAt: now },
-  });
-
-  // Check geofence on the LATEST ping only — cheaper, sufficient for
-  // arrival/departure detection at the cleaner's currently-active job.
-  const latest = ownedPings[ownedPings.length - 1];
-  // Best-effort, like the departure work below it. This used to throw
-  // uncaught AFTER createMany had already committed, so the client saw a 500,
-  // never cleared its queue, and re-sent the same rows as duplicates on every
-  // later flush.
-  let geofenceResult: Awaited<ReturnType<typeof checkGeofenceForPing>> = {
-    departed: undefined,
-  };
-  try {
-    geofenceResult = await checkGeofenceForPing({
-      userId,
-      lat: latest.lat,
-      lng: latest.lng,
-      pingAt: latest.timestamp ? new Date(latest.timestamp) : now,
-    });
-  } catch {
-    // Swallow: the pings are persisted, which is this endpoint's job.
-  }
-
-  // Departure work only runs when the latest ping is already outside the
-  // fence, and is fully best-effort — ping ingestion must never fail on it.
-  if (geofenceResult.departed) {
-    try {
-      await handleGeofenceDeparture({
-        jobId: geofenceResult.departed.jobId,
-        userId,
-        distanceM: geofenceResult.departed.distanceM,
-        now,
-      });
-    } catch {
-      // Best-effort: swallow — the pings are already persisted.
-    }
-  }
-
-  return NextResponse.json({
-    ok: true,
-    received: ownedPings.length,
-    dropped: rawPings.length - pings.length,
-    geofence: geofenceResult,
-  });
+  return NextResponse.json(outcome.body, { status: outcome.status });
 }

@@ -5,9 +5,15 @@
  * Invoice, Clear) and the display switches (List | Board, Columns). Each
  * filter is a chip that names its current value, so an active filter stays
  * visible while its panel is closed.
+ *
+ * Phones (below 640px): the filters sit behind one "Filter" button with the
+ * active count, in a bottom sheet holding the same controls, and the active
+ * filters show as removable chips (shared `EFilterBar`). The display switches
+ * stay visible beside the button.
  */
 import { Search } from "lucide-react";
 import { EFilterPopover } from "@/components/v2/ui/filter-popover";
+import { EFilterBar, EFilterBarInlineOnly, type EActiveFilter } from "@/components/v2/ui/filter-bar";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
 import { EButton } from "@/components/v2/ui/primitives";
 import { cn } from "@/lib/utils";
@@ -19,7 +25,7 @@ import { jobTypeLabel } from "./job-row";
 import { JOB_TYPE_VALUES } from "./jobs-constants";
 import type { JobsReferenceData } from "./use-jobs-reference-data";
 
-const FIELD = "h-9 w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] px-2 text-[0.8125rem] text-[hsl(var(--e-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--e-ring))]";
+const FIELD = "h-9 w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] px-2 text-[0.8125rem] text-[hsl(var(--e-foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--e-ring))] max-sm:h-11 max-sm:text-[1rem]";
 const LABEL = "block text-[0.6875rem] font-[600] text-[hsl(var(--e-text-secondary))]";
 
 type FilterBarProps = {
@@ -28,6 +34,8 @@ type FilterBarProps = {
   reference: JobsReferenceData;
   optionsOpen: boolean;
   onToggleOptions: () => void;
+  /** The phone sheet's close button, e.g. "Show 128 jobs". */
+  resultLabel?: string;
 };
 
 function dateValue(state: JobsWorkspaceState): string | null {
@@ -46,11 +54,53 @@ export function hasActiveFilters(state: JobsWorkspaceState): boolean {
   return JOBS_FILTER_KEYS.some((key) => current[key] !== defaults[key]);
 }
 
-export function JobsFilterBar({ state, update, reference, optionsOpen, onToggleOptions }: FilterBarProps) {
+/** The filters that differ from the defaults, in words, each removable on its own (phone chips). */
+function activeFilters(state: JobsWorkspaceState, reference: JobsReferenceData, update: FilterBarProps["update"]): EActiveFilter[] {
+  const defaults = defaultJobsFilters();
+  const { clients, properties, cleaners } = reference;
+  const list: EActiveFilter[] = [];
+  const search = state.search.trim();
+  if (search) list.push({ key: "search", label: `Search: ${search}`, onRemove: () => update({ search: defaults.search }) });
+  const date = dateValue(state);
+  if (date && (state.dateFrom || state.dateTo || state.dateScope !== defaults.dateScope)) {
+    list.push({ key: "date", label: `Date: ${date}`, onRemove: () => update({ dateScope: defaults.dateScope, dateFrom: defaults.dateFrom, dateTo: defaults.dateTo }) });
+  }
+  const status = statusFilterLabel(state.statusChip);
+  if (status && state.statusChip !== defaults.statusChip) list.push({ key: "status", label: `Status: ${status}`, onRemove: () => update({ statusChip: defaults.statusChip }) });
+  if (state.clientId !== defaults.clientId) list.push({ key: "client", label: `Client: ${optionName(clients, state.clientId, "Selected client")}`, onRemove: () => update({ clientId: defaults.clientId }) });
+  if (state.propertyId !== defaults.propertyId) list.push({ key: "property", label: `Property: ${optionName(properties, state.propertyId, "Selected property")}`, onRemove: () => update({ propertyId: defaults.propertyId }) });
+  if (state.cleanerId !== defaults.cleanerId) {
+    const name = state.cleanerId === "unassigned" ? "Nobody assigned" : optionName(cleaners, state.cleanerId, "Selected cleaner");
+    list.push({ key: "cleaner", label: `Cleaner: ${name}`, onRemove: () => update({ cleanerId: defaults.cleanerId }) });
+  }
+  if (state.jobType !== defaults.jobType) list.push({ key: "type", label: `Job type: ${jobTypeLabel(state.jobType)}`, onRemove: () => update({ jobType: defaults.jobType }) });
+  if (state.invoiced !== defaults.invoiced) list.push({ key: "invoice", label: state.invoiced === "yes" ? "Invoiced" : "Not invoiced", onRemove: () => update({ invoiced: defaults.invoiced }) });
+  return list;
+}
+
+export function JobsFilterBar({ state, update, reference, optionsOpen, onToggleOptions, resultLabel }: FilterBarProps) {
   const { clients, properties, cleaners } = reference;
   const cleanerValue = state.cleanerId === "all" ? null : state.cleanerId === "unassigned" ? "Nobody assigned" : optionName(cleaners, state.cleanerId, "Selected cleaner");
+  const tools = (
+    <>
+      <span className="hidden min-w-0 flex-1 sm:block" />
+      <div role="group" aria-label="Layout" className="flex items-center gap-1.5">
+        <button type="button" aria-pressed={state.view === "list"} onClick={() => update({ view: "list" })} className={cn(E_CHIP_CLASS, state.view === "list" && E_CHIP_ON_CLASS)}>List</button>
+        <button type="button" aria-pressed={state.view === "board"} onClick={() => update({ view: "board" })} className={cn(E_CHIP_CLASS, state.view === "board" && E_CHIP_ON_CLASS)}>Board</button>
+      </div>
+      <button type="button" aria-expanded={optionsOpen} aria-controls="jobs-view-options" onClick={onToggleOptions} className={cn(E_CHIP_CLASS, optionsOpen && E_CHIP_ON_CLASS)}>
+        Columns
+      </button>
+    </>
+  );
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <EFilterBar
+      label="Filter jobs"
+      active={activeFilters(state, reference, update)}
+      onClear={() => update(defaultJobsFilters())}
+      resultLabel={resultLabel}
+      tools={tools}
+    >
       <label className="relative w-full sm:w-[240px]">
         <span className="sr-only">Search jobs</span>
         <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
@@ -68,7 +118,7 @@ export function JobsFilterBar({ state, update, reference, optionsOpen, onToggleO
         <fieldset className="space-y-1">
           <legend className={LABEL}>Shortcut</legend>
           {JOBS_DATE_SCOPES.map((scope) => (
-            <label key={scope.id} className="flex min-h-8 items-center gap-2 text-[0.8125rem]">
+            <label key={scope.id} className="flex min-h-8 items-center gap-2 text-[0.8125rem] max-sm:min-h-11">
               <input type="radio" name="jobs-date-scope" checked={!state.dateFrom && !state.dateTo && state.dateScope === scope.id}
                 onChange={() => update({ dateScope: scope.id, dateFrom: "", dateTo: "" })} />
               {scope.label}
@@ -138,16 +188,10 @@ export function JobsFilterBar({ state, update, reference, optionsOpen, onToggleO
         <p className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">Invoiced means the job is marked invoiced or has a line on an invoice that is not void.</p>
       </EFilterPopover>
 
-      <EButton variant="ghost" size="sm" disabled={!hasActiveFilters(state)} onClick={() => update(defaultJobsFilters())}>Clear filters</EButton>
-
-      <span className="hidden min-w-0 flex-1 sm:block" />
-      <div role="group" aria-label="Layout" className="flex items-center gap-1.5">
-        <button type="button" aria-pressed={state.view === "list"} onClick={() => update({ view: "list" })} className={cn(E_CHIP_CLASS, state.view === "list" && E_CHIP_ON_CLASS)}>List</button>
-        <button type="button" aria-pressed={state.view === "board"} onClick={() => update({ view: "board" })} className={cn(E_CHIP_CLASS, state.view === "board" && E_CHIP_ON_CLASS)}>Board</button>
-      </div>
-      <button type="button" aria-expanded={optionsOpen} aria-controls="jobs-view-options" onClick={onToggleOptions} className={cn(E_CHIP_CLASS, optionsOpen && E_CHIP_ON_CLASS)}>
-        Columns
-      </button>
-    </div>
+      {/* The sheet has its own "Clear filters" beside its title. */}
+      <EFilterBarInlineOnly>
+        <EButton variant="ghost" size="sm" disabled={!hasActiveFilters(state)} onClick={() => update(defaultJobsFilters())}>Clear filters</EButton>
+      </EFilterBarInlineOnly>
+    </EFilterBar>
   );
 }

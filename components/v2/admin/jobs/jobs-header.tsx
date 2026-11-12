@@ -53,7 +53,8 @@ export function JobsHeader(props: HeaderProps) {
     <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
       <JobsExportPreview query={props.exportQuery} context={props.viewsContext} disabled={props.exportDisabled} />
       <EButton variant="outline" onClick={() => setImportOpen(true)} disabled={props.readOnly}>Import or bulk create</EButton>
-      <EButton asChild><Link href="/v2/admin/jobs/new">New job</Link></EButton>
+      {/* Phones, on the Jobs page: New job is the docked action bar (see JobsWorkspace). */}
+      <EButton asChild className={props.showTitle ? "max-sm:hidden" : undefined}><Link href="/v2/admin/jobs/new">New job</Link></EButton>
       <JobsImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImported={() => props.onImported?.()} />
     </div>
   );

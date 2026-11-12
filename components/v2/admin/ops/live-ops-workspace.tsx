@@ -66,8 +66,13 @@ export function LiveOpsWorkspace({ properties, attention, initialView, todayKey,
     { key: "travelling", label: "Travelling", count: board?.counts.travelling ?? null },
     { key: "notstarted", label: "Not started", count: board?.counts.notStarted ?? null },
   ];
+  // Drivers are withheld without the Laundry pack: say nothing about them
+  // rather than "0 drivers".
+  const showsDrivers = board?.visibility?.drivers !== false;
+  const cleanersText = board ? `${board.counts.cleanersOnShift} cleaner${board.counts.cleanersOnShift === 1 ? "" : "s"}` : "";
+  const driversText = board && showsDrivers ? ` and ${board.counts.driversOnShift} driver${board.counts.driversOnShift === 1 ? "" : "s"}` : "";
   const summary = board
-    ? `${board.counts.cleanersOnShift} cleaner${board.counts.cleanersOnShift === 1 ? "" : "s"} and ${board.counts.driversOnShift} driver${board.counts.driversOnShift === 1 ? "" : "s"} on shift · ${age === null ? "no GPS positions yet" : `positions ${age < 120 ? `${age} seconds` : `${Math.round(age / 60)} minutes`} old`}`
+    ? `${cleanersText}${driversText} on shift · ${age === null ? "no GPS positions yet" : `positions ${age < 120 ? `${age} seconds` : `${Math.round(age / 60)} minutes`} old`}`
     : feed.board.status === "error" ? "Today's board could not be read." : "Loading today's board…";
 
   return (
@@ -81,7 +86,7 @@ export function LiveOpsWorkspace({ properties, attention, initialView, todayKey,
           <span role="status" aria-live="polite"><EPill tone={indicator.tone}>{indicator.label}</EPill></span>
           <div role="group" aria-label="Map layers" className="flex flex-wrap gap-1.5">
             <Toggle pressed={layers.cleaners} onClick={() => setLayers((l) => ({ ...l, cleaners: !l.cleaners }))}>Cleaners</Toggle>
-            <Toggle pressed={layers.drivers} onClick={() => setLayers((l) => ({ ...l, drivers: !l.drivers }))}>Laundry drivers</Toggle>
+            {showsDrivers ? <Toggle pressed={layers.drivers} onClick={() => setLayers((l) => ({ ...l, drivers: !l.drivers }))}>Laundry drivers</Toggle> : null}
             <Toggle pressed={layers.properties} onClick={() => setLayers((l) => ({ ...l, properties: !l.properties }))}>Properties</Toggle>
           </div>
           <EButton asChild size="sm" variant="outline"><Link href={`/v2/admin/jobs/route-map?date=${todayKey}`}>Plan routes</Link></EButton>

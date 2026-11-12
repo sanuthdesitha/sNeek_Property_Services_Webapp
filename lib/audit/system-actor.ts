@@ -10,11 +10,14 @@
  * Pure: safe for client components and tests.
  */
 export const SYSTEM_XERO_SYNC_ACTOR = "SYSTEM_XERO_SYNC";
+/** Scheduling rules: version 1 seeded from live settings, a version going live, the weekly snapshot. */
+export const SYSTEM_SCHEDULING_RULES_ACTOR = "SYSTEM_SCHEDULING_RULES";
 
-export type SystemActor = typeof SYSTEM_XERO_SYNC_ACTOR;
+export type SystemActor = typeof SYSTEM_XERO_SYNC_ACTOR | typeof SYSTEM_SCHEDULING_RULES_ACTOR;
 
 export const SYSTEM_ACTOR_LABELS: Record<SystemActor, string> = {
   SYSTEM_XERO_SYNC: "System: Xero sync (scheduled)",
+  SYSTEM_SCHEDULING_RULES: "System: scheduling rules",
 };
 
 /** The JSON fragment to merge into an audit row's `after` for a system action. */
@@ -35,6 +38,7 @@ export function systemActorOf(after: unknown): SystemActor | null {
   const fields = record(after);
   if (!fields) return null;
   if (fields.systemActor === SYSTEM_XERO_SYNC_ACTOR) return SYSTEM_XERO_SYNC_ACTOR;
+  if (fields.systemActor === SYSTEM_SCHEDULING_RULES_ACTOR) return SYSTEM_SCHEDULING_RULES_ACTOR;
   if (fields.trigger === "scheduled" && (fields.source === "XERO" || "paymentsRecorded" in fields || "xeroStatus" in fields)) {
     return SYSTEM_XERO_SYNC_ACTOR;
   }

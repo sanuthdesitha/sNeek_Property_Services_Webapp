@@ -11,6 +11,7 @@ import { getJobReference } from "@/lib/jobs/job-number";
 import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { LAUNDRY_CLEANER_FALLBACK_DROPOFF_HOURS, LAUNDRY_CLEANER_FALLBACK_PICKUP_HOURS } from "@/lib/scheduling-rules/constants";
 
 export type CleanerLaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
 export type CleanerLaundryUpdateSource = "EARLY_UPDATE" | "FINAL_SUBMISSION";
@@ -275,8 +276,8 @@ export async function applyCleanerLaundryStatusUpdate(params: {
       : null;
   }
   if (!laundryTask) {
-    const pickupDate = new Date(job.scheduledDate.getTime() + 24 * 60 * 60 * 1000);
-    const dropoffDate = new Date(job.scheduledDate.getTime() + 48 * 60 * 60 * 1000);
+    const pickupDate = new Date(job.scheduledDate.getTime() + LAUNDRY_CLEANER_FALLBACK_PICKUP_HOURS * 60 * 60 * 1000);
+    const dropoffDate = new Date(job.scheduledDate.getTime() + LAUNDRY_CLEANER_FALLBACK_DROPOFF_HOURS * 60 * 60 * 1000);
     laundryTask = await database.laundryTask.create({
       data: {
         jobId: job.id,

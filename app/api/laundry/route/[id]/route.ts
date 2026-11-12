@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
+import { sendDriverSharingNotice } from "@/lib/notifications/location-sharing";
 import { db } from "@/lib/db";
 import { getApiErrorStatus } from "@/lib/api/http";
 import {
@@ -81,6 +82,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         where: { id: route.id },
         data: { status: "COMPLETED", endedAt: now },
       });
+      // Ending an active route ends the driver's live location: tell them.
+      if (route.status === "ACTIVE") {
+        await sendDriverSharingNotice({ kind: "stopped", userId: route.userId, routeId: route.id }).catch(() => undefined);
+      }
       return NextResponse.json({ route: serializeRoute(updated) });
     }
 

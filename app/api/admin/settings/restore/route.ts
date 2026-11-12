@@ -31,6 +31,9 @@ export async function POST(req: NextRequest) {
     }
 
     const before = await getAppSettings();
+    // A whole-settings restore never touches the scheduling rules: saveAppSettings
+    // keeps the live rule-owned fields. Those are restored, as a new version,
+    // only in Settings › Scheduling rules.
     const restored = await saveAppSettings(auditEntry.after as any);
 
     await db.auditLog.create({

@@ -49,11 +49,13 @@ const BTN_VARIANT: Record<ButtonVariant, string> = {
     "bg-[hsl(var(--e-danger))] text-[hsl(var(--e-danger-foreground))] shadow-[var(--e-elevation-1)] hover:brightness-[1.05]",
 };
 
+// Phones (below 640px) get a 44px tap target on every size (board "Admin
+// phone", 2026-11); from 640px up the sizes are unchanged.
 const BTN_SIZE: Record<ButtonSize, string> = {
-  sm: "h-8 rounded-[var(--e-radius-sm)] px-3 text-[0.8125rem]",
-  md: "h-10 rounded-[var(--e-radius)] px-4 text-[0.875rem]",
+  sm: "h-8 rounded-[var(--e-radius-sm)] px-3 text-[0.8125rem] max-sm:h-11 max-sm:px-3.5",
+  md: "h-10 rounded-[var(--e-radius)] px-4 text-[0.875rem] max-sm:h-11",
   lg: "h-12 rounded-[var(--e-radius)] px-6 text-[0.9375rem]",
-  icon: "h-10 w-10 rounded-[var(--e-radius)]",
+  icon: "h-10 w-10 rounded-[var(--e-radius)] max-sm:h-11 max-sm:w-11",
 };
 
 export const EButton = React.forwardRef<

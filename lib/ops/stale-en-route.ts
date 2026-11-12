@@ -1,6 +1,7 @@
 import { JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { STALE_EN_ROUTE_HOURS as ORIGINAL_STALE_EN_ROUTE_HOURS } from "@/lib/scheduling-rules/constants";
 
 /**
  * A job goes EN_ROUTE when the cleaner taps "start driving". The only ways out
@@ -11,10 +12,12 @@ import { logger } from "@/lib/logger";
  * jobs back to ASSIGNED so they don't stay "on the way" indefinitely and the
  * client no longer sees a stale live status.
  */
-const STALE_EN_ROUTE_HOURS = 6;
+const STALE_EN_ROUTE_HOURS = ORIGINAL_STALE_EN_ROUTE_HOURS;
 
-export async function sweepStaleEnRouteJobs(now = new Date()) {
-  const cutoff = new Date(now.getTime() - STALE_EN_ROUTE_HOURS * 60 * 60 * 1000);
+/** `rules`: the published scheduling rule the worker passes; default the original 6 hours. */
+export async function sweepStaleEnRouteJobs(now = new Date(), rules?: { staleEnRouteHours: number }) {
+  const hours = rules?.staleEnRouteHours ?? STALE_EN_ROUTE_HOURS;
+  const cutoff = new Date(now.getTime() - hours * 60 * 60 * 1000);
   const stale = await db.job.findMany({
     where: {
       status: JobStatus.EN_ROUTE,

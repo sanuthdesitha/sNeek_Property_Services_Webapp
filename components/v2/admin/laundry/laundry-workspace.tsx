@@ -55,7 +55,7 @@ function writeUrl(patch: Record<string, string | null>) {
   window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
 }
 
-export function LaundryWorkspace({ canReviewBags = false }: { canReviewBags?: boolean }) {
+export function LaundryWorkspace({ canReviewBags = false, timeZone = "Australia/Sydney" }: { canReviewBags?: boolean; timeZone?: string }) {
   const [tab, setTabState] = useRestorableState<LaundryTab>("laundry-workspace:tab", "pipeline");
   const [view, setView] = useRestorableState<PipelineView>("laundry-workspace:view", "board");
   const [exceptionsFirst, setExceptionsFirst] = useRestorableState("laundry-workspace:exceptions-first", true);
@@ -191,7 +191,7 @@ export function LaundryWorkspace({ canReviewBags = false }: { canReviewBags?: bo
           </p>
         ) : null}
         {tab === "property" ? <LaundryInvestigation initialTasks={feed.tasks} canReviewBags={canReviewBags} /> : null}
-        {tab === "live" ? <LaundryLive /> : null}
+        {tab === "live" ? <LaundryLive timeZone={timeZone} /> : null}
         {tab === "costs" ? <LaundryReports key={reportTask?.id ?? "all"} task={reportTask} onClearTask={() => setReportTask(null)} /> : null}
         {tab === "suppliers" ? <LaundrySuppliers /> : null}
         {tab === "statistics" ? (

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { sendWebPushToUser } from "@/lib/notifications/web-push";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { AUTO_PAUSE_AFTER_HOURS, AUTO_PAUSE_MAX_JOBS_PER_RUN } from "@/lib/scheduling-rules/constants";
 
 /**
  * Auto-pause jobs stuck IN_PROGRESS for more than 24 hours.
@@ -17,8 +18,8 @@ import { loadNotificationWording } from "@/lib/notifications/wording/render";
  * plain elapsed time when closing logs — the 24h threshold already far exceeds
  * any configured cap.
  */
-const STALE_IN_PROGRESS_HOURS = 24;
-const MAX_JOBS_PER_RUN = 50;
+const STALE_IN_PROGRESS_HOURS = AUTO_PAUSE_AFTER_HOURS;
+const MAX_JOBS_PER_RUN = AUTO_PAUSE_MAX_JOBS_PER_RUN;
 
 export type AutoPauseCandidate = {
   status: string;
@@ -27,6 +28,8 @@ export type AutoPauseCandidate = {
   /** startedAt of the most recent TimeLog (open or closed), if any. */
   latestLogStartedAt: Date | null;
   now: Date;
+  /** Published scheduling rule (the worker passes the live version); default: the original 24 hours. */
+  afterHours?: number;
 };
 
 /**
@@ -40,14 +43,15 @@ export function qualifiesForAutoPause({
   openLogStartedAt,
   latestLogStartedAt,
   now,
+  afterHours = STALE_IN_PROGRESS_HOURS,
 }: AutoPauseCandidate): boolean {
   if (status !== JobStatus.IN_PROGRESS) return false;
   const runningSince = openLogStartedAt ?? latestLogStartedAt;
   if (!runningSince) return false;
-  return now.getTime() - runningSince.getTime() > STALE_IN_PROGRESS_HOURS * 60 * 60 * 1000;
+  return now.getTime() - runningSince.getTime() > afterHours * 60 * 60 * 1000;
 }
 
-export async function autoPauseStaleJobs(now = new Date()) {
+export async function autoPauseStaleJobs(now = new Date(), rules?: { autoPauseAfterHours: number }) {
   const jobs = await db.job.findMany({
     where: { status: JobStatus.IN_PROGRESS },
     select: {
@@ -78,6 +82,7 @@ export async function autoPauseStaleJobs(now = new Date()) {
         openLogStartedAt: openLogs[0]?.startedAt ?? null,
         latestLogStartedAt: latestLog?.startedAt ?? null,
         now,
+        afterHours: rules?.autoPauseAfterHours,
       })
     ) {
       continue;

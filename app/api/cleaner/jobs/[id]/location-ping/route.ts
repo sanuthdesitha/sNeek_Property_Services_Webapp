@@ -5,7 +5,8 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getEtaMinutes, geocodeAddress, type EtaMode } from "@/lib/jobs/eta";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
-import { TRACKED_STATUSES } from "@/lib/gps/tracked-statuses";
+import { ingestCleanerBatch } from "@/lib/gps/ingest-service";
+import { TRACKING_REFUSAL_TEXT, resolveCleanerJobWindow } from "@/lib/gps/tracking-window";
 
 const schema = z.object({
   lat: z.number().min(-90).max(90),
@@ -14,9 +15,16 @@ const schema = z.object({
   heading: z.number().optional().nullable(),
   speed: z.number().optional().nullable(),
   manualEtaMinutes: z.number().int().min(1).max(480).optional().nullable(),
+  /** When the fix was measured on the phone (ISO); absent from older clients. */
+  timestamp: z.string().datetime().optional(),
+  /** The phone's clock when it sent, for skew correction. */
+  sentAt: z.string().datetime().optional(),
+  /**
+   * false: the fix came from the layout tracker, which already stores it
+   * (one capture loop per device); this call only recomputes the ETA.
+   */
+  record: z.boolean().optional(),
 });
-
-const PING_INTERVAL_MS = 10_000;
 const ETA_NOTIFICATION_INTERVAL_MS = 5 * 60 * 1000;
 const ETA_CHANGE_THRESHOLD_MINUTES = 5;
 const DELAY_THRESHOLD_MINUTES = 10;
@@ -51,6 +59,11 @@ export async function POST(
   try {
     const session = await requireRole([Role.CLEANER]);
     const body = schema.parse(await req.json());
+    // An administrator viewing as the cleaner is never a location source: no
+    // fix is stored and no ETA (which reaches the client) is computed from it.
+    if (session.impersonation) {
+      return NextResponse.json({ ok: true, skipped: true, reason: "IMPERSONATING" });
+    }
 
     const cleaner = await db.user.findUnique({
       where: { id: session.user.id },
@@ -81,43 +94,31 @@ export async function POST(
     });
 
     if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
-    // Location is tracked for the WHOLE active-job window, not just the drive.
-    // This used to reject anything that was not EN_ROUTE, which meant a cleaner
-    // who checked in stopped reporting: the v1 page keeps its GPS watch running
-    // (and says so in a comment claiming this very bug was fixed) but clears its
-    // queue on a 400, so every fix taken on site was thrown away. The ops map
-    // then showed them frozen at the kerb, or dropped them entirely.
-    if (!TRACKED_STATUSES.includes(job.status)) {
-      return NextResponse.json(
-        { error: "Job is not active." },
-        { status: 400 }
-      );
-    }
 
-    const recentPing = await db.cleanerLocationPing.findFirst({
-      where: {
-        jobId: params.id,
+    // Store through the one ingest path (tracking window, skew correction,
+    // idempotency, latest position, geofence). Outside the window (not today,
+    // clock stopped, not on the way) nothing is stored and no ETA is computed.
+    if (body.record !== false) {
+      const outcome = await ingestCleanerBatch({
         userId: session.user.id,
-        timestamp: { gte: new Date(Date.now() - PING_INTERVAL_MS) },
-      },
-      select: { id: true },
-    });
-
-    if (recentPing) {
-      return NextResponse.json({ ok: true, skipped: true });
+        impersonating: false,
+        jobIdFromUrl: params.id,
+        body: {
+          ...(body.sentAt ? { sentAt: body.sentAt } : {}),
+          pings: [{ lat: body.lat, lng: body.lng, accuracy: body.accuracy ?? null, heading: body.heading ?? null, speed: body.speed ?? null, ...(body.timestamp ? { timestamp: body.timestamp } : {}) }],
+        },
+      });
+      if (outcome.status === 429) return NextResponse.json({ ok: true, skipped: true, etaMinutes: job.enRouteEtaMinutes });
+      if (outcome.status !== 200) return NextResponse.json(outcome.body, { status: outcome.status });
+      if (!outcome.body.window.active) {
+        return NextResponse.json({ error: "Job is not active.", reason: outcome.body.window.reason, message: outcome.body.window.message }, { status: 400 });
+      }
+    } else {
+      const window = await resolveCleanerJobWindow({ userId: session.user.id, jobId: params.id, impersonating: false });
+      if (!window.ok) {
+        return NextResponse.json({ error: "Job is not active.", reason: window.reason, message: TRACKING_REFUSAL_TEXT[window.reason] }, { status: 400 });
+      }
     }
-
-    await db.cleanerLocationPing.create({
-      data: {
-        jobId: params.id,
-        userId: session.user.id,
-        lat: body.lat,
-        lng: body.lng,
-        accuracy: body.accuracy ?? null,
-        heading: body.heading ?? null,
-        speed: body.speed ?? null,
-      },
-    });
 
     // Everything below is ETA/delay maths for a cleaner still driving. Once
     // they have arrived — or the job has moved past EN_ROUTE — the ping has

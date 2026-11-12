@@ -8,6 +8,11 @@
  * hollow "no GPS, shown at the job address" style and info window; clicking a
  * dot selects that person (the page shows their card).
  *
+ * Live location 2026-11: an accuracy ring around every GPS dot; a fix coarser
+ * than 100 m is drawn hollow ("approximate"); drivers take the same age
+ * colours as cleaners; people at the same spot are spread on a small circle;
+ * "Show today's trail" draws the selected person's bounded, audited trail.
+ *
  * Google Maps mounts through the shared lib/maps/loader (runtime key config).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -16,9 +21,11 @@ import { ensureGoogleMaps } from "@/lib/maps/loader";
 import type { LivePing } from "@/lib/ops/live-feed-types";
 import type { LiveDriverRow } from "@/lib/ops/live-board-types";
 import {
-  STALE_TIERS, cleanerInfoHtml, cleanerName, cleanerTooltip, escapeHtml, hasPosition, propertyInfoHtml, staleTier,
+  STALE_TIERS, cleanerInfoHtml, cleanerName, cleanerTooltip, escapeHtml, hasPosition, propertyInfoHtml, spreadOverlapping, staleTier,
   type OpsMapProperty,
 } from "./estate-ops-map-parts";
+import { isApproximateFix, trackingStateLabel } from "@/lib/gps/staleness";
+import { formatRelativeAgo } from "@/lib/ops/live-status";
 
 export type { OpsMapProperty } from "./estate-ops-map-parts";
 
@@ -39,6 +46,12 @@ type MapProps = {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type MapsHandle = any;
 type MarkerEntry = { marker: MapsHandle; info: MapsHandle };
+type TrailPoint = { lat: number; lng: number; accuracy: number | null; measuredAt: string };
+type TrailState =
+  | { status: "idle" }
+  | { status: "loading"; userId: string }
+  | { status: "ready"; userId: string; points: TrailPoint[]; truncated: boolean }
+  | { status: "error"; userId: string };
 
 const MAP_HEIGHT = "h-[320px] sm:h-[440px] xl:h-[600px]";
 const DRIVER_COLOR = "#b8913f";
@@ -84,6 +97,9 @@ export function EstateOpsMap({ properties, pings, drivers, layers, selectedUserI
   const propertyMarkers = useRef<MapsHandle[]>([]);
   const openInfo = useRef<MapsHandle>(null);
   const fitted = useRef(false);
+  const accuracyRings = useRef<Map<string, MapsHandle>>(new Map());
+  const trailLine = useRef<MapsHandle>(null);
+  const [trail, setTrail] = useState<TrailState>({ status: "idle" });
   const [mapReady, setMapReady] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -126,52 +142,131 @@ export function EstateOpsMap({ properties, pings, drivers, layers, selectedUserI
     }
   }, [mapReady, properties, layers.properties, openEntry]);
 
-  // Cleaner dots.
+  // Cleaner dots and laundry drivers share one placement pass so people at
+  // the same spot are spread instead of stacked.
   useEffect(() => {
     const map = mapRef.current;
     if (!mapReady || !map) return;
     const g = google();
-    const wanted = layers.cleaners ? pings.filter(hasPosition).map((ping) => {
+    const cleanerPoints = layers.cleaners
+      ? pings.filter(hasPosition).map((ping) => ({ key: `c:${ping.userId}`, lat: ping.lat as number, lng: ping.lng as number, ping }))
+      : [];
+    const driverPoints = layers.drivers
+      ? drivers.filter((d) => d.lat != null && d.lng != null).map((driver) => ({ key: `d:${driver.userId}`, lat: driver.lat as number, lng: driver.lng as number, driver }))
+      : [];
+    const placed = spreadOverlapping<{ key: string; lat: number; lng: number; ping?: LivePing; driver?: LiveDriverRow }>([...cleanerPoints, ...driverPoints]);
+
+    const wantedCleaners = placed.filter((p) => p.ping).map((p) => {
+      const ping = p.ping as LivePing;
       const fallback = ping.positionSource === "property";
+      const approximate = !fallback && isApproximateFix(ping.accuracy);
       const selected = ping.userId === selectedUserId;
+      const tier = staleTier(ping.timestamp);
       return {
         key: ping.userId,
-        pos: { lat: ping.lat as number, lng: ping.lng as number },
+        pos: { lat: p.displayLat, lng: p.displayLng },
         icon: {
           path: g.maps.SymbolPath.CIRCLE, scale: selected ? 10 : 8,
-          fillColor: fallback ? "#ffffff" : staleTier(ping.timestamp).color, fillOpacity: fallback ? 0.15 : 1,
-          strokeColor: fallback ? "#8a7f70" : selected ? "#1f3d33" : "#ffffff", strokeWeight: selected ? 3 : 2,
+          fillColor: fallback ? "#ffffff" : tier.color, fillOpacity: fallback ? 0.15 : approximate ? 0.25 : 1,
+          strokeColor: fallback ? "#8a7f70" : approximate ? tier.color : selected ? "#1f3d33" : "#ffffff", strokeWeight: selected || approximate ? 3 : 2,
           labelOrigin: new g.maps.Point(0, -2.4),
         },
         label: { text: cleanerName(ping), fontSize: "11px", fontWeight: "600", color: "#2a241d" },
-        title: cleanerTooltip(ping),
+        title: `${cleanerTooltip(ping)}${approximate ? "\nApproximate position" : ""}${p.groupSize > 1 ? `\n${p.groupSize} people here` : ""}`,
         html: cleanerInfoHtml(ping),
       };
-    }) : [];
-    syncMarkers(map, cleanerMarkers.current, wanted, (key, entry) => { onSelect(key); openEntry(entry); });
-    if (!fitted.current && wanted.length > 0) {
+    });
+    syncMarkers(map, cleanerMarkers.current, wantedCleaners, (key, entry) => { onSelect(key); openEntry(entry); });
+
+    const wantedDrivers = placed.filter((p) => p.driver).map((p) => {
+      const driver = p.driver as LiveDriverRow;
+      const tier = staleTier(driver.lastPingAt);
+      const approximate = isApproximateFix(driver.accuracy ?? null);
+      const reason = trackingStateLabel(driver.trackingState ?? null);
+      const age = driver.lastPingAt ? `Last fix ${formatRelativeAgo(driver.lastPingAt)}${driver.accuracy != null ? ` · ±${Math.round(driver.accuracy)}m` : ""}` : "No GPS yet";
+      return {
+        key: driver.userId,
+        pos: { lat: p.displayLat, lng: p.displayLng },
+        icon: {
+          path: g.maps.SymbolPath.BACKWARD_CLOSED_ARROW, scale: 6, fillColor: tier.color, fillOpacity: approximate ? 0.3 : 1,
+          strokeColor: approximate ? tier.color : DRIVER_COLOR, strokeWeight: 2, labelOrigin: new g.maps.Point(0, -3),
+        },
+        label: { text: driver.name, fontSize: "11px", fontWeight: "600", color: "#2a241d" },
+        title: `${driver.name} — laundry driver, stop ${Math.min(driver.stopsDone + 1, driver.stopsTotal)} of ${driver.stopsTotal}\n${age}${reason ? `\nPhone reports: ${reason}` : ""}`,
+        html: `<div style="font:600 13px system-ui;color:#2a241d">${escapeHtml(driver.name)}</div><div style="font:400 12px system-ui;color:#4a4238">Laundry route · ${driver.stopsDone} of ${driver.stopsTotal} stops done</div><div style="font:400 11px system-ui;color:#a39a8a;margin-top:4px">${escapeHtml(age)}</div>${reason ? `<div style="font:500 11px system-ui;color:#b4472e">Phone reports: ${escapeHtml(reason)}</div>` : ""}`,
+      };
+    });
+    syncMarkers(map, driverMarkers.current, wantedDrivers, (key, entry) => { onSelect(key); openEntry(entry); });
+
+    // Accuracy rings: the true position is somewhere inside.
+    const ringsWanted = new Map<string, { center: { lat: number; lng: number }; radius: number; color: string }>();
+    for (const point of cleanerPoints) {
+      const ping = point.ping;
+      if (ping.positionSource !== "gps" || ping.accuracy == null || ping.accuracy <= 0) continue;
+      ringsWanted.set(point.key, { center: { lat: point.lat, lng: point.lng }, radius: Math.min(ping.accuracy, 5_000), color: staleTier(ping.timestamp).color });
+    }
+    for (const point of driverPoints) {
+      const accuracy = point.driver.accuracy;
+      if (accuracy == null || accuracy <= 0) continue;
+      ringsWanted.set(point.key, { center: { lat: point.lat, lng: point.lng }, radius: Math.min(accuracy, 5_000), color: staleTier(point.driver.lastPingAt).color });
+    }
+    ringsWanted.forEach((ring, key) => {
+      const existing = accuracyRings.current.get(key);
+      const options = { center: ring.center, radius: ring.radius, strokeColor: ring.color, strokeOpacity: 0.55, strokeWeight: 1, fillColor: ring.color, fillOpacity: 0.08, clickable: false };
+      if (existing) existing.setOptions(options);
+      else accuracyRings.current.set(key, new g.maps.Circle({ ...options, map }));
+    });
+    accuracyRings.current.forEach((circle, key) => {
+      if (!ringsWanted.has(key)) {
+        circle.setMap(null);
+        accuracyRings.current.delete(key);
+      }
+    });
+
+    if (!fitted.current && wantedCleaners.length > 0) {
       const bounds = new g.maps.LatLngBounds();
-      wanted.forEach((w) => bounds.extend(w.pos));
+      wantedCleaners.forEach((w) => bounds.extend(w.pos));
       map.fitBounds(bounds, 56);
       fitted.current = true;
     }
-  }, [mapReady, pings, layers.cleaners, selectedUserId, onSelect, openEntry]);
+  }, [mapReady, pings, drivers, layers.cleaners, layers.drivers, selectedUserId, onSelect, openEntry]);
 
-  // Laundry drivers.
+  // A trail belongs to one selected person; changing the selection drops it.
+  useEffect(() => {
+    setTrail({ status: "idle" });
+  }, [selectedUserId]);
+
+  const trailController = useRef<AbortController | null>(null);
+  useEffect(() => () => trailController.current?.abort(), []);
+  const loadTrail = useCallback(async () => {
+    if (!selectedUserId) return;
+    const userId = selectedUserId;
+    trailController.current?.abort();
+    const controller = new AbortController();
+    trailController.current = controller;
+    setTrail({ status: "loading", userId });
+    try {
+      const response = await fetch(`/api/admin/ops/live-locations/trail?userId=${encodeURIComponent(userId)}`, { cache: "no-store", signal: controller.signal, headers: { "x-progress-toast": "off" } });
+      if (!response.ok) throw new Error(String(response.status));
+      const body = (await response.json()) as { points?: TrailPoint[]; truncated?: boolean };
+      if (controller.signal.aborted) return;
+      setTrail({ status: "ready", userId, points: Array.isArray(body.points) ? body.points : [], truncated: body.truncated === true });
+    } catch {
+      if (!controller.signal.aborted) setTrail({ status: "error", userId });
+    }
+  }, [selectedUserId]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!mapReady || !map) return;
-    const g = google();
-    const wanted = layers.drivers ? drivers.filter((d) => d.lat != null && d.lng != null).map((driver) => ({
-      key: driver.userId,
-      pos: { lat: driver.lat as number, lng: driver.lng as number },
-      icon: { path: g.maps.SymbolPath.BACKWARD_CLOSED_ARROW, scale: 6, fillColor: DRIVER_COLOR, fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 2, labelOrigin: new g.maps.Point(0, -3) },
-      label: { text: driver.name, fontSize: "11px", fontWeight: "600", color: "#2a241d" },
-      title: `${driver.name} — laundry driver, stop ${Math.min(driver.stopsDone + 1, driver.stopsTotal)} of ${driver.stopsTotal}`,
-      html: `<div style="font:600 13px system-ui;color:#2a241d">${escapeHtml(driver.name)}</div><div style="font:400 12px system-ui;color:#4a4238">Laundry route · ${driver.stopsDone} of ${driver.stopsTotal} stops done</div>`,
-    })) : [];
-    syncMarkers(map, driverMarkers.current, wanted, (key, entry) => { onSelect(key); openEntry(entry); });
-  }, [mapReady, drivers, layers.drivers, onSelect, openEntry]);
+    trailLine.current?.setMap(null);
+    trailLine.current = null;
+    if (trail.status !== "ready" || trail.userId !== selectedUserId || trail.points.length < 2) return;
+    trailLine.current = new (google().maps.Polyline)({
+      map, path: trail.points.map((point) => ({ lat: point.lat, lng: point.lng })), geodesic: true,
+      strokeColor: "#1f3d33", strokeOpacity: 0.75, strokeWeight: 3, clickable: false,
+    });
+  }, [mapReady, trail, selectedUserId]);
 
   // Selecting someone in the list pans to them.
   useEffect(() => {
@@ -215,6 +310,16 @@ export function EstateOpsMap({ properties, pings, drivers, layers, selectedUserI
             <Crosshair className="h-3.5 w-3.5" aria-hidden /> Fit all
           </button>
         ) : null}
+        {mapReady && selectedUserId ? (
+          <div className="absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2">
+            <button type="button" onClick={() => void loadTrail()} disabled={trail.status === "loading"} className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.92)] px-3 py-1.5 text-[0.75rem] font-[550] shadow-[var(--e-elevation-1)] hover:bg-[hsl(var(--e-muted))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))] disabled:opacity-60">
+              {trail.status === "loading" ? "Loading trail…" : trail.status === "ready" ? "Refresh today's trail" : "Show today's trail"}
+            </button>
+            <span role="status" className="rounded-[var(--e-radius-pill)] bg-[hsl(var(--e-surface)/0.92)] px-2 py-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+              {trail.status === "error" ? "Trail could not be loaded." : trail.status === "ready" ? (trail.points.length < 2 ? "No trail recorded today." : `${trail.points.length} points today${trail.truncated ? " (latest 500)" : ""} · viewing is recorded`) : null}
+            </span>
+          </div>
+        ) : null}
         {overlay ? <div className="pointer-events-none absolute right-3 top-3 w-[230px] max-w-[calc(100%-1.5rem)] [&>*]:pointer-events-auto">{overlay}</div> : null}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
@@ -222,6 +327,7 @@ export function EstateOpsMap({ properties, pings, drivers, layers, selectedUserI
           <span key={tier.label} className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full ring-1 ring-white" style={{ backgroundColor: tier.color }} aria-hidden />{tier.label}</span>
         ))}
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full border-2 border-[#8a7f70]" aria-hidden />No GPS · shown at job address</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full border-2 border-[#3f9b6d] bg-[#3f9b6d]/25" aria-hidden />Approximate (± over 100 m) · ring shows accuracy</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-0 w-0 border-x-[5px] border-t-[8px] border-x-transparent" style={{ borderTopColor: DRIVER_COLOR }} aria-hidden />Laundry driver</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-[#7a6f2e] opacity-55" aria-hidden />Property</span>
       </div>

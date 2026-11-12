@@ -88,6 +88,19 @@ export function toneRowCellClass(tone: ETone): string {
   return ROW_CELL[tone];
 }
 
+/** Phones only (below 640px): the band colours, for a list row that turns
+ *  into a card with a title band on a phone and stays a plain row from 640px
+ *  up (board "Admin phone", e.g. the Command work queue). */
+const PHONE_BAND: Record<ETone, string> = {
+  attention: "max-sm:bg-[hsl(var(--e-band-attention-bg))] max-sm:border-[hsl(var(--e-band-attention-line))] max-sm:text-[hsl(var(--e-band-attention-fg))]",
+  problem: "max-sm:bg-[hsl(var(--e-band-problem-bg))] max-sm:border-[hsl(var(--e-band-problem-line))] max-sm:text-[hsl(var(--e-band-problem-fg))]",
+  good: "max-sm:bg-[hsl(var(--e-band-good-bg))] max-sm:border-[hsl(var(--e-band-good-line))] max-sm:text-[hsl(var(--e-band-good-fg))]",
+  info: "max-sm:bg-[hsl(var(--e-band-info-bg))] max-sm:border-[hsl(var(--e-band-info-line))] max-sm:text-[hsl(var(--e-band-info-fg))]",
+};
+export function tonePhoneBandClass(tone: ETone): string {
+  return cn("max-sm:border-b", PHONE_BAND[tone]);
+}
+
 /** Map the older semantic tone names onto band tones. */
 export type ELegacyTone = "warning" | "danger" | "success" | "info";
 const LEGACY_TO_BAND: Record<ELegacyTone, ETone> = {
