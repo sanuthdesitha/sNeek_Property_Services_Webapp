@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const m = vi.hoisted(() => ({ role: vi.fn(), ops: vi.fn(), settings: vi.fn() }));
+const m = vi.hoisted(() => ({ role: vi.fn(), ops: vi.fn(), settings: vi.fn(), emailSettings: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.role }));
 vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
 vi.mock("@/components/v2/admin/insights/insights-page", () => ({ InsightsPage: () => null }));
+vi.mock("@/lib/insights/monthly-email", () => ({ readInsightsEmailSettings: m.emailSettings }));
 
 import Page from "@/app/v2/admin/reports/page";
 import { allOpsLevels, canUseOpsPath, opsRequestFeature } from "@/lib/rbac/ops-catalog";
@@ -16,13 +17,15 @@ beforeEach(() => {
   m.settings.mockResolvedValue({ timezone: "Australia/Sydney" });
   m.role.mockResolvedValue({ user: { id: "a", role: "ADMIN" } });
   m.ops.mockResolvedValue(null);
+  m.emailSettings.mockResolvedValue({ enabled: false, recipientIds: [], dayOfMonth: 1, hour: 8, sections: [] });
 });
 
 describe("Insights page access", () => {
   it("keeps the reports page guard (ADMIN, OPS_MANAGER) and gives an admin everything", async () => {
     const element = (await Page()) as unknown as Element;
     expect(m.role).toHaveBeenCalledWith(["ADMIN", "OPS_MANAGER"]);
-    expect(element.props.context).toEqual({ access: { finance: true }, canManageReports: true, timeZone: "Australia/Sydney" });
+    // The header's "Email monthly" shows the setting's state; an administrator may open it.
+    expect(element.props.context).toEqual({ access: { finance: true }, canManageReports: true, timeZone: "Australia/Sydney", monthlyEmail: { enabled: false, canConfigure: true } });
   });
 
   it("follows the operations pack: finance for money, reports manage for report writes", async () => {

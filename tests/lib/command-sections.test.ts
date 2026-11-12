@@ -41,7 +41,10 @@ beforeEach(() => {
   m.list.mockResolvedValue({ total: 6 });
   m.invoiceAggregate.mockResolvedValue({ _sum: { totalAmount: 4820 } });
   m.board.mockResolvedValue(boardWith([{ state: "late", minutes: 18, sameDayCheckinTime: "14:00" }, { state: "on-site", minutes: null, sameDayCheckinTime: null }]));
-  m.stats.mockResolvedValue({ paidThisMonth: { count: 4, total: 38410, monthStart: "2026-11-01" }, outstanding: { owing: 9260, overdue: 3 }, drafts: { count: 6, total: 4820 } });
+  m.stats.mockResolvedValue({
+    paidThisMonth: { count: 4, total: 38410, monthStart: "2026-11-01" }, outstanding: { owing: 9260, overdue: 3 }, drafts: { count: 6, total: 4820 },
+    invoicedThisMonth: { total: 41200, invoiceCount: 7, invoiceTotal: 42300, creditNoteCount: 1, creditTotal: 1100, monthStart: "2026-11-01" },
+  });
   m.payroll.mockResolvedValue([{ totals: { grossPay: 11940 }, jobs: [{ rateMissing: false }] }]);
   m.metrics.mockResolvedValue({ today: { revenueAud: 80, completed: 2, revenueRateMissingCount: 1 }, tomorrow: { scheduled: 4 }, recentFeedback: [] });
   m.laundryCount.mockResolvedValue(2);
@@ -90,8 +93,10 @@ describe("money this month", () => {
   it("reads the existing finance figures and states missing rates", async () => {
     const money = await loadCommandMoney(ADMIN, NOW, TZ);
     expect(money.rows.map((r) => [r.label, r.value])).toEqual([
-      ["Paid this month", "$38,410"], ["Outstanding", "$9,260"], ["Known charges today", "$80"], ["Cleaner pay due", "$11,940"],
+      // "Invoiced this month" (owner decision 2026-11-11) is shown beside Paid this month and Outstanding.
+      ["Invoiced this month", "$41,200"], ["Paid this month", "$38,410"], ["Outstanding", "$9,260"], ["Known charges today", "$80"], ["Cleaner pay due", "$11,940"],
     ]);
+    expect(money.rows.find((r) => r.key === "invoiced")?.note).toBe("7 invoices first sent since 2026-11-01, less 1 credit note");
     expect(money.rows.find((r) => r.key === "outstanding")?.badge).toEqual({ text: "3 overdue", tone: "warn" });
     expect(money.rows.find((r) => r.key === "today")?.note).toBe("Incomplete: 1 completed job has no charge rate");
     expect(m.payroll).toHaveBeenCalledWith({ startDate: "2026-11-01", endDate: "2026-11-11" });
@@ -105,7 +110,7 @@ describe("money this month", () => {
     m.payroll.mockRejectedValue(new Error("db"));
     const money = await loadCommandMoney(ADMIN, NOW, TZ);
     expect(money.unavailable).toEqual(["Cleaner pay"]);
-    expect(money.rows).toHaveLength(3);
+    expect(money.rows).toHaveLength(4);
   });
 });
 

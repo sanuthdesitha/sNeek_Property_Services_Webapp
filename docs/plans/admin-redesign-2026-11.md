@@ -410,8 +410,11 @@ Waves (one wave holds the database at a time):
 > Deviations: distance is straight-line, not a drive time (no ETA call per candidate); a time move of a job with a separate end time is refused (the reschedule service writes only start and due); Calendar "manage" is also required for bulk Reschedule. Details: `docs/SYSTEM.md`, "Jobs and Calendar: design completion, Wave A (2026-11)".
 
 ### Wave B: Forms library and builder (no database change)
-- Library: Compare view (two or more forms side by side, differences highlighted); Import (a form from an exported file, as a draft, validated) and Export; sortable Avg time and Completion (computed for the whole filtered set); the "never answered" warning inside Checks.
-- Builder: "Table" question type and "Stock count" question type, each end to end (builder, phone, server, tests); question effects "raises an urgent stock need below N" (Stock count) and "Yes opens a damage report" (Yes/No), running through the existing urgent stock and damage services when the form is submitted; a "Monthly" option under How often; rename the form inline in the header.
+- [x] Library: Compare view (two or more forms side by side, differences highlighted); Import (a form from an exported file, as a draft, validated) and Export; sortable Avg time and Completion (computed for the whole filtered set); the "never answered" warning inside Checks.
+- [x] Builder: "Table" question type and "Stock count" question type, each end to end (builder, phone, server, tests); question effects "raises an urgent stock need below N" (Stock count) and "Yes opens a damage report" (Yes/No), running through the existing urgent stock and damage services when the form is submitted; a "Monthly" option under How often; rename the form inline in the header.
+- [x] Owner addition: extended submit validation switchable in the app (default off, in-flight jobs protected, real warning counts).
+
+> **Wave B built 2026-11-12, awaiting the final build and browser pass.** Details and limits: `docs/SYSTEM.md`, "Forms design completion … (Wave B, 2026-11-12)". A Stock count records the count on the submission; on-hand changes only through the urgent stock observation when a need is raised. Urgent needs do not yet store the job (Wave F column). The classic cleaner page does not render the two new types.
 
 ### Wave C: Quality and Insights (no database change)
 - Quality: "Propose bonus" by hand from a cleaner's row (a pending bonus adjustment needing the existing approval), alongside the automatic nightly proposals; severity shown as Low / Medium / High; a row may show both the coaching and the bonus action.
@@ -465,3 +468,10 @@ Items in these waves that change a business rule, money, or who can do what are 
 ### Rule added in Wave C (Quality), for the final summary
 
 A bonus proposed by hand is limited to $5 to $200 and needs a reason. It is a pending pay adjustment that is paid only after the existing approval. The owner can change the limits.
+
+### Carried into Wave E from Wave B
+
+- The office's submission review shows a Table answer as plain text, one line per row; give it a real table.
+- A Stock count answer is recorded on the submission and raises an urgent need when below its limit, but does not set the property's on-hand figure, because no existing path turns a counted number into stock on hand. Build that path (a count observation that sets on-hand, audited, never double-counting the same item in one submission).
+- The classic cleaner job page does not show Table or Stock count questions; only the current cleaner app does. Redirect the classic page or add them.
+- Two cleans in the same month before the first is approved can both show a monthly question.

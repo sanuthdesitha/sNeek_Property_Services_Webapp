@@ -55,3 +55,7 @@ it("sensitive verification failure never enters the lock or teardown", async () 
   m.verify.mockRejectedValue(new Error("INVALID_SECURITY_VERIFICATION"));
   expect((await remove()).status).toBe(423); expect(m.lock).not.toHaveBeenCalled(); expect(m.remove).not.toHaveBeenCalled();
 });
+it("counts only lines on non-void invoices: a voided invoice does not block deletion (owner decision 2026-11-11)", async () => {
+  expect((await remove()).status).toBe(200);
+  expect(m.read.mock.calls[0][0].select.invoiceLines).toEqual({ take: 1, where: { invoice: { status: { not: "VOID" } } }, select: { id: true } });
+});

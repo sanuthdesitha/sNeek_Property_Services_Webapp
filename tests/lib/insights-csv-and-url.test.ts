@@ -28,7 +28,9 @@ describe("CSV export", () => {
   it("writes real values, the basis and exclusions, and escapes text", () => {
     const csv = propertiesCsv([propertyRow(4, true)], true);
     const [header, line] = csv.trim().split("\r\n");
-    expect(header).toContain("Revenue (scheduled charge, AUD)");
+    // Revenue is invoiced amounts plus not-yet-invoiced scheduled charges (2026-11-11), with the split as columns.
+    expect(header).toContain("Revenue (AUD, ex GST)");
+    expect(header).toContain("Not yet invoiced (AUD, at current rates)");
     expect(header).toContain("Margin %");
     expect(line.startsWith('Glebe House,"Northside, Lets",4,')).toBe(true);
     expect(line).toContain("no time log (1)");
@@ -48,7 +50,7 @@ describe("CSV export", () => {
     const current = summarise(facts, { minBasis: MIN_BASIS_SUMMARY, money: true, issues: 0 });
     const csv = businessCsv({ cards: businessCards(current, null), period: periodPayload(period) });
     expect(csv).toContain("Figure,Value (October 2026)");
-    expect(csv).toContain("\"Revenue (scheduled charge, AUD)\",750,5,0");
+    expect(csv).toContain("\"Revenue (AUD, ex GST: invoiced + not yet invoiced at current rates)\",750,5,0");
     expect(csv).toContain("Gross margin %,40,5,0");
   });
 

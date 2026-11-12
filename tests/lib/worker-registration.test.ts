@@ -57,6 +57,7 @@ vi.mock('@/lib/ai/property-model-training', () => ({ processPropertyModelTrainin
 vi.mock('@/lib/qa/auto-score', () => ({ runQaAutoScoreSweep: m.call('runQaAutoScoreSweep') }));
 vi.mock('@/lib/qa/cleaner-property-stats', () => ({ rebuildCleanerPropertyStats: m.call('rebuildCleanerPropertyStats') }));
 vi.mock('@/lib/billing/client-invoice-xero-sync', () => ({ runScheduledXeroSync: m.call('runScheduledXeroSync') }));
+vi.mock('@/lib/insights/monthly-email', () => ({ runMonthlyInsightsEmail: m.call('runMonthlyInsightsEmail') }));
 vi.mock('@/lib/ops/worker-heartbeat', () => ({ startWorkerHeartbeat: m.call('startWorkerHeartbeat') }));
 
 const defaults = { alertedCases: 0, dispatched: 0, campaigns: 0, warned: 0, escalated: 0, alerted: 0, created: 0, expired: 0, streakProposals: 0, monthlyProposals: 0, sent: 0, flagged: 0 };
@@ -65,7 +66,7 @@ beforeEach(() => {
   vi.stubEnv("SNEEK_WORKERS_ENABLED", "true"); vi.stubEnv("SNEEK_WORKERS_DISABLED", "false"); vi.stubEnv("SNEEK_DISABLED_JOBS", "");
   vi.stubEnv("SNEEK_ENABLED_JOBS", "");
   (globalThis as any).__sneekWorkerFailures = []; (globalThis as any).__sneekJobRuns = [];
-  for (const name of ['autoApprovePendingClientJobTasks', 'autoClockOutStaleTimeLogsForUser', 'autoPauseStaleJobs', 'buildLaundryPlanDraft', 'dispatchCleanerDayReminders', 'dispatchClientPostJobAutomationRule', 'dispatchDueCampaigns', 'dispatchJobFollowUp', 'dispatchJobReminders', 'dispatchLaundryDriverNudges', 'dispatchMobileOutbox', 'dispatchNotificationIntents', 'dispatchScheduledEmailCampaigns', 'dispatchScheduledWorkforcePosts', 'dispatchTomorrowPrepSummaries', 'dispatchUnfinishedJobPushReminders', 'generateInvoiceForUser', 'generateJobReport', 'generateRecurringJobs', 'getAppSettings', 'listUsersDueForInvoicing', 'processPhotoReviewQueue', 'processPropertyModelTrainingQueue', 'processQaReportFollowups', 'processSubmissionFollowups', 'rebuildCleanerPropertyStats', 'refreshGoogleReviewsCache', 'runScheduledXeroSync', 'runAccountabilityNightly', 'runCredentialExpiryCheck', 'runDocumentExpiryCheck', 'runMissedClockInSweep', 'runQaAutoScoreSweep', 'runRecognitionCheck', 'runSafetyCheckinAlerts', 'runSlaEscalation', 'runTimingRuleReconcileIfPending', 'sendAdminAttentionSummary', 'sendDailyOpsBriefing', 'sendPendingPayApprovalReminders', 'sendStaleCaseFollowUps', 'sendStockAlerts', 'startWorkerHeartbeat', 'sweepStaleEnRouteJobs', 'syncAllIcal']) m.call(name);
+  for (const name of ['autoApprovePendingClientJobTasks', 'autoClockOutStaleTimeLogsForUser', 'autoPauseStaleJobs', 'buildLaundryPlanDraft', 'dispatchCleanerDayReminders', 'dispatchClientPostJobAutomationRule', 'dispatchDueCampaigns', 'dispatchJobFollowUp', 'dispatchJobReminders', 'dispatchLaundryDriverNudges', 'dispatchMobileOutbox', 'dispatchNotificationIntents', 'dispatchScheduledEmailCampaigns', 'dispatchScheduledWorkforcePosts', 'dispatchTomorrowPrepSummaries', 'dispatchUnfinishedJobPushReminders', 'generateInvoiceForUser', 'generateJobReport', 'generateRecurringJobs', 'getAppSettings', 'listUsersDueForInvoicing', 'processPhotoReviewQueue', 'processPropertyModelTrainingQueue', 'processQaReportFollowups', 'processSubmissionFollowups', 'rebuildCleanerPropertyStats', 'refreshGoogleReviewsCache', 'runScheduledXeroSync', 'runMonthlyInsightsEmail', 'runAccountabilityNightly', 'runCredentialExpiryCheck', 'runDocumentExpiryCheck', 'runMissedClockInSweep', 'runQaAutoScoreSweep', 'runRecognitionCheck', 'runSafetyCheckinAlerts', 'runSlaEscalation', 'runTimingRuleReconcileIfPending', 'sendAdminAttentionSummary', 'sendDailyOpsBriefing', 'sendPendingPayApprovalReminders', 'sendStaleCaseFollowUps', 'sendStockAlerts', 'startWorkerHeartbeat', 'sweepStaleEnRouteJobs', 'syncAllIcal']) m.call(name);
   for (const fn of m.calls.values()) fn.mockResolvedValue({ ...defaults });
   m.call("getAppSettings").mockResolvedValue({ recurringJobs: { enabled: false, lookaheadDays: 7 } });
   m.call("buildLaundryPlanDraft").mockResolvedValue([{ jobId: "job" }]);
@@ -115,6 +116,18 @@ it("registers the hourly Xero invoice pull off the hour in Sydney and runs it on
   vi.stubEnv("SNEEK_DISABLED_JOBS", "xero-invoice-sync");
   await boot();
   expect(m.handlers.has("xero-invoice-sync")).toBe(false);
+});
+it("registers the monthly Insights email check hourly off the hour and runs it only from its handler", async () => {
+  await boot();
+  expect(m.schedule).toHaveBeenCalledWith("insights-monthly-email", "35 * * * *", {}, { tz: "Australia/Sydney" });
+  expect(m.call("runMonthlyInsightsEmail")).not.toHaveBeenCalled();
+  await m.handlers.get("insights-monthly-email")!();
+  expect(m.call("runMonthlyInsightsEmail")).toHaveBeenCalledOnce();
+
+  vi.useRealTimers(); vi.resetModules(); vi.clearAllMocks(); m.handlers.clear();
+  vi.stubEnv("SNEEK_DISABLED_JOBS", "insights-monthly-email");
+  await boot();
+  expect(m.handlers.has("insights-monthly-email")).toBe(false);
 });
 it("honors selective disable flags and advertises disabled mobile dispatch", async () => {
   vi.stubEnv("SNEEK_DISABLED_JOBS", " mobile-notification-dispatch, weekly-laundry-plan ,email-campaign-dispatch,deep-clean-planning");

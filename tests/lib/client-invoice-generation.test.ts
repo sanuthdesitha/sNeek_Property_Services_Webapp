@@ -157,7 +157,7 @@ describe("generateClientInvoice — period basis decides the job window", () => 
     const events:string[]=[];const create=vi.fn();const findFirst=vi.fn(async()=>{events.push("recheck");return {id:"other-line"};});
     dbMock.$transaction.mockImplementation(async fn=>{try{return await fn({$executeRaw:async()=>{events.push("lock");},clientInvoiceLine:{findFirst},clientInvoice:{create}});}catch(e){events.push("rollback");throw e;}});
     await expect(generateClientInvoice({clientId:"client_1",completedOnly:true})).rejects.toThrow("invoiced by another request");
-    expect(events).toEqual(["lock","recheck","rollback"]);expect(create).not.toHaveBeenCalled();expect(findFirst).toHaveBeenCalledWith({where:{jobId:{in:["job1"]},invoice:{clientId:"client_1",status:{not:"VOID"}}},select:{id:true}});
+    expect(events).toEqual(["lock","recheck","rollback"]);expect(create).not.toHaveBeenCalled();expect(findFirst).toHaveBeenCalledWith({where:{jobId:{in:["job1"]},invoice:{kind:"INVOICE",status:{not:"VOID"},creditedInFullAt:null,clientId:"client_1"}},select:{id:true}});
   });
 
   it("creates a review-required draft for evidenced started work and labels older catch-up without double claiming",async()=>{

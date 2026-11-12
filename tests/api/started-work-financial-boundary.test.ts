@@ -3,7 +3,12 @@ import {beforeEach,it,expect,vi} from 'vitest';
 import {NextRequest} from 'next/server';
 const m=vi.hoisted(()=>({invoice:vi.fn(),pdf:vi.fn(),csv:vi.fn(),email:vi.fn(),update:vi.fn(),notify:vi.fn()}));
 vi.mock('@/lib/auth/session',()=>({requireRole:async()=>({user:{id:'admin'}})}));
-vi.mock('@/lib/db',()=>({db:{clientInvoice:{update:m.update},notification:{create:m.notify}}}));
+vi.mock('@/lib/db',()=>{
+  // recordSent stamps the first send under the row lock (and snapshots terms) in a transaction.
+  const db:any={clientInvoice:{update:m.update,findUniqueOrThrow:async()=>({clientId:'client',status:'APPROVED',kind:'INVOICE',creditsInvoiceId:null,sentAt:null,paymentTermsDays:null,metadata:{}})},client:{findUnique:async()=>({paymentTermsDays:null})},notification:{create:m.notify},$queryRaw:async()=>[]};
+  db.$transaction=async(fn:any)=>fn(db);
+  return {db};
+});
 vi.mock('@/lib/billing/client-invoices',()=>({getClientInvoice:m.invoice,renderClientInvoicePdf:m.pdf,buildClientInvoiceXeroCsv:m.csv}));
 vi.mock('@/lib/settings',()=>({getAppSettings:async()=>({companyName:'Test'})}));
 vi.mock('@/lib/commercial/delivery-profiles',()=>({resolveClientDeliveryRecipients:async()=>['client@local']}));

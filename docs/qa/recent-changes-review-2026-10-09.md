@@ -1080,3 +1080,36 @@ Verified: `npx tsc --noEmit -p .` clean; the Jobs, Calendar, suggestions, saved-
 
 Not verified
 - Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard, overflow; real touch devices for press-and-hold and scroll suppression; Day-view drop positions with real layout) deferred to the final pass at the owner's request. No import was run against a real database.
+
+## Forms design completion, Wave B (2026-11-12)
+
+Scope: Wave B of the owner's sixth decision set plus the owner's decision to make extended submit validation switchable. See `docs/SYSTEM.md`, "Forms design completion: Compare, Import/Export, Table, Stock count, effects, Monthly (Wave B, 2026-11-12)". No schema change.
+
+Rules added or access changed
+- New `GET /api/admin/form-templates/compare` (ADMIN, OPS_MANAGER; read only, 2–4 forms).
+- New `GET /api/admin/form-templates/export` and `POST /api/admin/form-templates/import` (ADMIN). Import creates new draft forms only (`isActive: false`), ≤ 1 MB / 20 forms / 500 questions per form, strict save check per form, audit `FORM_TEMPLATE_IMPORTED`.
+- New question types `table` and `stock_count`: their answer rules are enforced (rejected) by the cleaner submit route from the first release (`invalidFields`, rules `table` / `stock-count`).
+- New question effects. Stock count "raises an urgent stock need below N": an urgent need is raised after commit as the submitting cleaner, once per submission and item, through the additive `reportUrgentStockFromSubmission` in `lib/inventory/urgent-stock.ts` (scope proven by the submission; the existing `reportUrgentStock` body was moved unchanged into a shared internal function). Yes / No "opens a damage report": the submit route opens one private damage case per such answer when the cleaner has not submitted a damage report for the job and sent no damage items.
+- New cadence "Monthly" (`frequency: "MONTHLY"`) using `PropertyRotationState.lastCompletedAt`.
+- `settings.formValidation` (default off). New `GET/PUT /api/admin/form-templates/validation-setting` (read ADMIN/OPS_MANAGER, write ADMIN, audit `FORM_VALIDATION_ENFORCEMENT`) and `GET /api/cleaner/jobs/[id]/form-validation` (assigned cleaner). When on, extended checks reject except for jobs the cleaner first clocked in on before the switch-on moment.
+- Notification catalogue: `submission.urgent_stock_review` (inbox only) added to "Urgent stock need".
+
+Behaviour changed on purpose
+- Library Checks include "never answered" as warnings, so "Has problems" counts them; errors and warnings are separate pills; chip label "Has problems: errors or warnings".
+- Avg time and Completion headers sort over the whole filtered set ("–" last); refused above 20,000 submissions.
+- Builder header name is editable in place (metadata PATCH, stale-write guard).
+- Monthly / Table / Stock count / effects change nothing for forms that do not use them; existing every-Nth rotation, published forms and stored submissions are untouched.
+
+Tests updated on purpose
+- `tests/lib/form-schema-save-and-publish.test.ts`: "table" and "MONTHLY" are real now; the refusal rows use "grid" and "WEEKLY".
+- `tests/components/form-field-type-audit.test.tsx`: cases for `table` and `stock_count` (the audit requires one per registered type).
+
+New tests
+- `tests/api/cleaner-submit-form-effects.test.ts` (structured validation, urgent queueing below/at threshold, unstocked skip, damage case once / covered by report / not on No, enforcement both sides of the switch-on boundary), `tests/lib/submission-urgent-stock.test.ts`, `tests/lib/urgent-stock-from-submission.test.ts`, `tests/lib/forms-structured-and-effects.test.ts`, `tests/lib/rotation-monthly.test.ts`, `tests/lib/resolve-monthly-form.test.ts`, `tests/lib/form-validation-enforcement.test.ts`, `tests/lib/form-library-compare-transfer.test.ts`, `tests/lib/form-library-whole-set.test.ts`, `tests/components/inline-form-name.test.tsx`, `tests/components/form-effects-renderer.test.tsx`, `tests/api/form-validation-setting-route.test.ts`.
+
+Verified: `npx tsc --noEmit -p .` clean for these paths; 128 related test files (forms, templates, submit incl. all contract tests unchanged, renderer, rotation, stock, damage, checklist, notification catalogue, library and builder routes, settings) pass, 1284 tests.
+
+Not verified
+- Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard): Compare table overflow at 390px (it scrolls inside its card), the Import dialog, the table cards on a phone, the damage prompt inside the clean stage, the inline rename focus return, the enforcement card.
+- The classic `/cleaner/jobs/[id]` page does not render Table or Stock count controls (the v2 renderer does); a form using them should only be filled in the v2 cleaner app.
+- The raw SQL warning counts (`lib/forms/validation-warning-stats.ts`) were not run against a database.

@@ -8,9 +8,10 @@ const m = vi.hoisted(() => ({
   groupBy: vi.fn(),
   legacy: vi.fn(),
   context: vi.fn(),
+  queryRaw: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.role }));
-vi.mock("@/lib/db", () => ({ db: { clientInvoice: { findMany: m.findMany, count: m.count, groupBy: m.groupBy } } }));
+vi.mock("@/lib/db", () => ({ db: { clientInvoice: { findMany: m.findMany, count: m.count, groupBy: m.groupBy }, $queryRaw: m.queryRaw } }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Australia/Sydney", invoicing: { defaultPaymentTermsDays: 14 } }) }));
 vi.mock("@/lib/billing/client-invoices", () => ({ listInvoiceContext: m.legacy, listInvoiceFormContext: m.context }));
 vi.mock("@/lib/billing/client-invoice-stats", () => ({ getClientInvoiceStats: vi.fn() }));
@@ -41,7 +42,8 @@ function invoice(overrides: Record<string, unknown> = {}) {
     clientReference: null,
     creditsInvoice: null,
     creditNotes: [],
-    client: { id: "c1", name: "Client One", email: "one@example.test" },
+    paymentTermsDays: null,
+    client: { id: "c1", name: "Client One", email: "one@example.test", paymentTermsDays: null },
     ...overrides,
   };
 }
@@ -54,6 +56,8 @@ beforeEach(() => {
     args.select?.invoiceNumber ? [invoice(), invoice({ id: "inv2", invoiceNumber: "INV-0002", status: "DRAFT", paidAmount: null, metadata: { xeroExportState: "PENDING" } })] : [{ id: "inv2" }],
   );
   m.count.mockResolvedValue(42);
+  // Overdue ids are resolved in SQL with per-invoice terms (snapshot, client, default).
+  m.queryRaw.mockResolvedValue([{ id: "inv1" }]);
   m.groupBy.mockResolvedValue([
     { status: "DRAFT", _count: { _all: 4 } },
     { status: "SENT", _count: { _all: 30 } },
@@ -79,6 +83,24 @@ describe("GET /api/admin/invoices?paginated=1", () => {
     const body = await (await get("?paginated=1")).json();
     expect(body.rows[0].overdue).toBe(true);
     expect(body.rows[1].overdue).toBe(false);
+    expect(body.rows[0].paymentTermsDays).toBe(14);
+  });
+
+  it("uses the invoice's snapshot terms, else the client's, for the due day", async () => {
+    m.findMany.mockImplementation(async (args: { select?: { invoiceNumber?: boolean } }) =>
+      args.select?.invoiceNumber
+        ? [invoice({ paymentTermsDays: 7, client: { id: "c1", name: "C", email: null, paymentTermsDays: 30 } }), invoice({ id: "inv3", status: "DRAFT", client: { id: "c1", name: "C", email: null, paymentTermsDays: 30 } })]
+        : [],
+    );
+    const body = await (await get("?paginated=1")).json();
+    expect(body.rows[0]).toMatchObject({ paymentTermsDays: 7, dueDate: "2026-10-23" });
+    expect(body.rows[1]).toMatchObject({ paymentTermsDays: 30, dueDate: "2026-11-15" });
+  });
+
+  it("filters overdue by the per-invoice overdue ids", async () => {
+    await get("?paginated=1&status=overdue");
+    const rowsCall = m.findMany.mock.calls.find(([args]) => args.select?.invoiceNumber)![0];
+    expect(JSON.stringify(rowsCall.where)).toContain('"id":{"in":["inv1"]}');
   });
 
   it("filters needs-action to drafts, approved and pending Xero exports", async () => {

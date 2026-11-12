@@ -23,7 +23,7 @@ const m = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => {
   const client = () => ({
     $queryRaw: vi.fn(),
-    clientInvoice: { findUnique: m.invoice, update: m.update },
+    clientInvoice: { findUnique: m.invoice, findUniqueOrThrow: m.invoice, update: m.update },
     auditLog: { create: m.audit },
     notification: { create: vi.fn() },
     client: { update: vi.fn() },
@@ -120,6 +120,21 @@ describe("send", () => {
     expect(audit).toMatchObject({ userId: "admin", action: "CLIENT_INVOICE_SENT", entityId: "inv", after: { outcome: "sent", recipientCount: 1 } });
     expect(JSON.stringify(audit)).not.toContain("<p>");
     expect(JSON.stringify(audit)).not.toContain("client@example.test");
+  });
+
+  it("stamps sentAt only on the first send; a re-send keeps it and is recorded separately", async () => {
+    m.invoice.mockImplementation(async () => ({ ...stored, status: "APPROVED", sentAt: null, paymentTermsDays: 14, metadata: {} }));
+    await sendClientInvoice({ invoiceId: "inv", origin: "o", actorId: "admin" });
+    expect(m.update.mock.calls.at(-1)![0].data).toMatchObject({ status: "SENT", sentAt: expect.any(Date) });
+    const firstSent = new Date("2026-11-01T00:00:00Z");
+    m.invoice.mockImplementation(async () => ({ ...stored, status: "PART_PAID", sentAt: firstSent, paymentTermsDays: 14, metadata: { resentAt: [] } }));
+    m.getInvoice.mockImplementation(async () => ({ ...stored, status: "PART_PAID", totalAmount: 198 }));
+    await sendClientInvoice({ invoiceId: "inv", origin: "o", actorId: "admin" });
+    const data = m.update.mock.calls.at(-1)![0].data;
+    expect(data).not.toHaveProperty("sentAt");
+    expect(data).not.toHaveProperty("status");
+    expect(data.metadata.resentAt).toHaveLength(1);
+    expect(m.audit.mock.calls.at(-1)![0].data.after).toMatchObject({ outcome: "sent", resend: true });
   });
 
   it("records a provider failure as failed, not sent", async () => {

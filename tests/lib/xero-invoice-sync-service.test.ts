@@ -20,6 +20,7 @@ const m = vi.hoisted(() => ({
   settingFind: vi.fn(),
   settingUpsert: vi.fn(),
   info: vi.fn(),
+  receipt: vi.fn(),
 }));
 vi.mock("@/lib/logger", () => ({ logger: { info: m.info, error: vi.fn(), warn: vi.fn() } }));
 vi.mock("@/lib/xero/client", () => ({
@@ -28,6 +29,7 @@ vi.mock("@/lib/xero/client", () => ({
   readXeroInvoices: m.readInvoices,
   readXeroCreditNote: m.readCredit,
 }));
+vi.mock("@/lib/billing/client-payment-receipt", () => ({ sendClientPaymentReceipt: m.receipt }));
 vi.mock("@/lib/billing/client-invoice-patch", () => ({ patchClientInvoice: m.patch, XERO_PAYMENT_EXCEEDS_OWING: "XERO_PAYMENT_EXCEEDS_OWING" }));
 vi.mock("@/lib/db", () => {
   const tx = { $queryRaw: m.lock, clientInvoice: { findUnique: m.findUnique, update: m.update } };
@@ -81,6 +83,60 @@ beforeEach(() => {
   });
   m.settingFind.mockResolvedValue(null);
   m.audit.mockResolvedValue({});
+  m.receipt.mockResolvedValue({ outcome: "sent", externalId: "email-1" });
+});
+
+const receiptAudits = () => m.audit.mock.calls.map(([call]) => call.data).filter((data) => data.action === "CLIENT_INVOICE_PAYMENT_RECEIPT");
+
+describe("client receipt for a payment read from Xero (owner decision 2026-11-11)", () => {
+  const paymentDoc = (payments: Array<Record<string, unknown>>, extra: Record<string, unknown> = {}) =>
+    new Map([["x-a", xdoc("x-a", { payments, ...extra })]]);
+
+  it("sends the manual path's receipt once per newly recorded Xero payment and records it, marked as the system", async () => {
+    rows.set("a", invoice("a"));
+    m.readInvoices.mockResolvedValue(paymentDoc([{ paymentId: "p1", date: "2026-11-01", amount: 50, status: "AUTHORISED", reference: null }]));
+    await runScheduledXeroSync();
+    expect(m.receipt).toHaveBeenCalledOnce();
+    expect(m.receipt).toHaveBeenCalledWith({ invoiceId: "a", amount: 50, method: "XERO", paidDate: new Date("2026-11-01"), reference: "Xero payment p1" });
+    expect(receiptAudits()).toEqual([expect.objectContaining({ userId: "sys", entityId: "a", after: expect.objectContaining({ outcome: "sent", xeroPaymentId: "p1", systemActor: "SYSTEM_XERO_SYNC" }) })]);
+    // The scheduled sync's own audit row is the system's too.
+    expect(m.audit).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "CLIENT_INVOICE_XERO_SYNC", after: expect.objectContaining({ systemActor: "SYSTEM_XERO_SYNC" }) }) });
+  });
+
+  it("sends nothing again for a payment id already in the ledger", async () => {
+    rows.set("a", invoice("a", { paidAmount: 50, status: "PART_PAID", metadata: { payments: [{ xeroPaymentId: "p1", amount: 50 }] } }));
+    m.readInvoices.mockResolvedValue(paymentDoc([{ paymentId: "p1", date: "2026-11-01", amount: 50, status: "AUTHORISED", reference: null }]));
+    await runScheduledXeroSync();
+    expect(m.receipt).not.toHaveBeenCalled();
+  });
+
+  it("withholds the receipt when the invoice is left as needs review, and records that", async () => {
+    rows.set("a", invoice("a"));
+    // Xero says PAID, but its payments do not settle it here → needs review after recording.
+    m.readInvoices.mockResolvedValue(paymentDoc([{ paymentId: "p1", date: "2026-11-01", amount: 50, status: "AUTHORISED", reference: null }], { status: "PAID", amountDue: 0, amountPaid: 110 }));
+    const summary = await runScheduledXeroSync();
+    expect(summary.results[0].outcome).toBe("needs-review");
+    expect(m.receipt).not.toHaveBeenCalled();
+    expect(receiptAudits()[0].after).toMatchObject({ outcome: "withheld" });
+  });
+
+  it("a failed email never undoes the payment and is recorded", async () => {
+    rows.set("a", invoice("a"));
+    m.receipt.mockRejectedValue(new Error("provider down"));
+    m.readInvoices.mockResolvedValue(paymentDoc([{ paymentId: "p1", date: "2026-11-01", amount: 50, status: "AUTHORISED", reference: null }]));
+    const summary = await runScheduledXeroSync();
+    expect(summary.results[0]).toMatchObject({ outcome: "recorded", paymentsRecorded: 1 });
+    expect(rows.get("a")).toMatchObject({ paidAmount: 50, status: "PART_PAID" });
+    expect(receiptAudits()[0].after).toMatchObject({ outcome: "failed", error: "provider down" });
+  });
+
+  it("a manual refresh is recorded under the person, without the system marker", async () => {
+    rows.set("a", invoice("a"));
+    m.readInvoices.mockResolvedValue(paymentDoc([{ paymentId: "p1", date: "2026-11-01", amount: 50, status: "AUTHORISED", reference: null }]));
+    await refreshInvoicesFromXero({ ids: ["a"], actor: { id: "admin", role: "ADMIN", name: "Ann" } });
+    expect(receiptAudits()[0]).toMatchObject({ userId: "admin" });
+    expect(receiptAudits()[0].after).not.toHaveProperty("systemActor");
+  });
 });
 
 describe("scheduled run", () => {

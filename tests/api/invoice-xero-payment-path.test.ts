@@ -50,15 +50,16 @@ describe("Xero payments through the existing payment path", () => {
     expect(m.update).not.toHaveBeenCalled();
   });
 
-  it("records the payment with source, Xero payment id and date, settles PAID by the owing rule, and sends no receipt", async () => {
+  it("records the payment with source, Xero payment id and date, settles PAID by the owing rule, and leaves the receipt to the sync (sent after the review decision)", async () => {
     m.findMany.mockResolvedValue([{ status: "SENT", totalAmount: -10 }]); // a $10 credit note
     const result = await patchClientInvoice({ invoiceId: "inv", body: xeroBody(100), actor, xeroPayment: { paymentId: "p1", trigger: "scheduled" } });
     expect(result.status).toBe(200);
     const data = m.update.mock.calls[0][0].data;
     expect(data).toMatchObject({ status: "PAID", paidAmount: 100, paymentMethod: "XERO" });
     expect(data.paidDate.toISOString()).toBe("2026-11-01T00:00:00.000Z");
-    expect(data.metadata.payments[0]).toMatchObject({ source: "XERO", xeroPaymentId: "p1", method: "XERO", recordedByName: "Xero sync" });
-    expect(m.audit).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "CLIENT_INVOICE_PAYMENT_RECORD", after: expect.objectContaining({ source: "XERO", xeroPaymentId: "p1", trigger: "scheduled" }) }) });
+    // A scheduled run is the system's action (owner decision 2026-11-11, third set item 8).
+    expect(data.metadata.payments[0]).toMatchObject({ source: "XERO", xeroPaymentId: "p1", method: "XERO", recordedByName: "System: Xero sync (scheduled)" });
+    expect(m.audit).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "CLIENT_INVOICE_PAYMENT_RECORD", after: expect.objectContaining({ source: "XERO", xeroPaymentId: "p1", trigger: "scheduled", systemActor: "SYSTEM_XERO_SYNC" }) }) });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(m.email).not.toHaveBeenCalled();
   });

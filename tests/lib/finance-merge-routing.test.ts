@@ -14,6 +14,11 @@ describe("Invoices and pay redirects", () => {
     expect(() => cleanerInvoices({})).toThrow("REDIRECT /v2/admin/finance?tab=cleaner-invoices");
   });
 
+  it("sends the classic cleaner-invoice screen (which had no Approve step) to the Cleaner invoices tab", async () => {
+    const { default: classic } = await import("@/app/admin/cleaner-invoices/page");
+    expect(() => classic({ searchParams: { status: "SUBMITTED" } })).toThrow("REDIRECT /v2/admin/finance?tab=cleaner-invoices&status=SUBMITTED");
+  });
+
   it("repeats multi-valued params", () => {
     expect(financeTabRedirect("payroll", { a: ["1", "2"], skip: undefined })).toBe("/v2/admin/finance?tab=payroll&a=1&a=2");
   });
