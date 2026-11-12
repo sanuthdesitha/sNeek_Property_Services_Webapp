@@ -56,3 +56,20 @@ describe("client financial information", () => {
     expect(screen.queryAllByRole("button", { name: "Pay invoice" })).toHaveLength(actor === "CLIENT" ? 1 : 0);
   });
 });
+
+describe("payment return states on the new finance page (owner decision 2026-11-13)", () => {
+  it("says the payment was handed to the provider after checkout, without showing Paid", async () => {
+    mocks.finance.mockResolvedValue({
+      summary: { activeRates: 0, pendingChargeCount: 0, pendingChargeTotal: 0, invoiceCount: 1, totalBilled: 100 }, rates: [], recentCharges: [],
+      invoices: [{ id: "open", invoiceNumber: "INV-9", status: "SENT", totalAmount: 100, paidAmount: 0, createdAt: new Date("2026-11-01T00:00:00Z") }],
+    });
+    render(await FinancePage({ searchParams: { paid: "1" } }));
+    expect(screen.getByRole("status")).toHaveTextContent(/handed to the payment provider\. The invoice shows Paid once the provider confirms it/);
+    expect(screen.queryByText("Paid")).toBeNull();
+  });
+
+  it("says checkout was left without paying", async () => {
+    render(await FinancePage({ searchParams: { payment: "cancelled" } }));
+    expect(screen.getByRole("status")).toHaveTextContent(/left the payment page before finishing\. Nothing was recorded as paid/);
+  });
+});
