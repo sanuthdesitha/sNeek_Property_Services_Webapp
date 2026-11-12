@@ -3,10 +3,11 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 const m = vi.hoisted(() => ({
  auth: vi.fn(), job: vi.fn(), jobs: vi.fn(), jobUpdate: vi.fn(), user: vi.fn(), users: vi.fn(), client: vi.fn(), assignment: vi.fn(), assignments: vi.fn(), upsert: vi.fn(), log: vi.fn(), logs: vi.fn(), logUpdate: vi.fn(), adjustment: vi.fn(), notice: vi.fn(), notices: vi.fn(), audit: vi.fn(), transaction: vi.fn(), report: vi.fn(),
+ enqueue: vi.fn(), inline: vi.fn(), authorize: vi.fn(),
  settings: vi.fn(), apply: vi.fn(), approval: vi.fn(), continuationGet: vi.fn(), continuationDecide: vi.fn(), continuationCreate: vi.fn(), earlyList: vi.fn(), earlyDecide: vi.fn(), email: vi.fn(), sms: vi.fn(), push: vi.fn(), lifecycle: vi.fn(), history: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.auth }));
-vi.mock("@/lib/db", () => ({ db: {
+vi.mock("@/lib/db", () => ({ db: { userPayRate: { findMany: async () => [] }, staffLeave: { findMany: async () => [] }, 
  job: { findUnique: m.job, findMany: m.jobs, update: m.jobUpdate }, user: { findFirst: m.user, findMany: m.users }, client: { findUnique: m.client },
  jobAssignment: { findFirst: m.assignment, findMany: m.assignments, upsert: m.upsert }, timeLog: { findUnique: m.log, findMany: m.logs, findFirst: vi.fn(), update: m.logUpdate }, cleanerPayAdjustment: { create: m.adjustment },
  notification: { create: m.notice, createMany: m.notices }, auditLog: { create: m.audit }, $transaction: m.transaction, report: { findUnique: m.report },
@@ -23,6 +24,14 @@ vi.mock("@/lib/notifications/sms", () => ({ sendSmsDetailed: m.sms }));
 vi.mock("@/lib/notifications/web-push", () => ({ sendWebPushToUser: m.push }));
 vi.mock("@/lib/notifications/lifecycle", () => ({ sendLifecycleEmail: m.lifecycle }));
 vi.mock("@/lib/admin/approval-history-write", () => ({ recordApprovalDecision: m.history }));
+// Since 2026-11-11 the manual reminder runs on the notification pipeline: its
+// inbox row is a pipeline INBOX intent (delivered inline) carrying the jobs
+// category for the phone push. The pipeline store is mocked here; the row it
+// produces is covered by tests/lib/notification-entity-scope.test.ts.
+vi.mock("@/lib/notifications/intent-store", () => ({ enqueueNotificationIntent: m.enqueue }));
+vi.mock("@/lib/notifications/inline-dispatch", () => ({ deliverInboxIntentsNow: m.inline }));
+vi.mock("@/lib/notifications/recipient-scopes", () => ({ authorizeEntityRecipient: m.authorize }));
+vi.mock("@/lib/notifications/type-controls", () => ({ getNotificationTypeControls: async () => ({ respectsPreferences: {}, disabledTransports: {}, updatedAt: null }), typeRespectsPreferences: () => false }));
 vi.mock("@/lib/app-url", () => ({ resolveAppUrl: (path: string) => `https://example.invalid${path}` }));
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn() } }));
 import { db } from "@/lib/db";
@@ -50,6 +59,8 @@ beforeEach(() => {
  m.approval.mockResolvedValue({ id: "approval", title: "Extra work" }); m.adjustment.mockResolvedValue({ id: "pay" });
  m.continuationGet.mockResolvedValue({ id: "job" }); m.continuationDecide.mockResolvedValue({ id: "job", jobId: "job", requestedByUserId: "cleaner", status: "APPROVED" }); m.continuationCreate.mockResolvedValue({ id: "request" });
  m.earlyList.mockResolvedValue([{ id: "job", jobId: "job" }]); m.earlyDecide.mockResolvedValue({ id: "job" });
+ m.enqueue.mockResolvedValue({ id: "intent-1" }); m.authorize.mockResolvedValue({ ok: true, role: "CLEANER" });
+ m.inline.mockImplementation(async (ids: string[]) => new Map(ids.map(id => [id, { state: "inbox_available", notificationId: `intent-${id}` }])));
  m.lifecycle.mockResolvedValue({}); m.history.mockResolvedValue({}); m.email.mockResolvedValue({ ok: true }); m.sms.mockResolvedValue({ status: "sent", ok: true });
 });
 const cases = [
@@ -71,14 +82,20 @@ it.each(cases)("$name denies unauthorized entry before data/mutations", async c 
 });
 it.each(cases)("$name emits the intended category to the resolved recipient", async c => {
  const response = await c.run(); expect(response.status).toBe(c.status);
+ if (c.name === "reminder") {
+  expect(m.enqueue.mock.calls[0][1]).toMatchObject({ transport: "INBOX", mobilePushCategory: c.category, recipient: { userId: c.recipient, scope: { kind: "ENTITY", type: "JOB_ASSIGNED_CLEANER", id: "job" } } });
+  expect(c.mutation).toHaveBeenCalled();
+  return;
+ }
  const notice = c.many ? m.notices.mock.calls[0][0].data[0] : m.notice.mock.calls[0][0].data;
  expect(notice).toMatchObject({ userId: c.recipient, externalId: expect.stringContaining(c.category), channel: "PUSH", status: "SENT", sentAt: expect.any(Date) });
  expect(c.mutation).toHaveBeenCalled();
 });
 it.each(cases)("$name reports or deliberately absorbs notification storage failure", async c => {
  (c.many ? m.notices : m.notice).mockRejectedValue(new Error("inbox unavailable"));
+ if (c.name === "reminder") m.enqueue.mockRejectedValue(new Error("inbox unavailable"));
  const response = await c.run();
- if (c.name === "reminder") { expect(response.status).toBe(200); expect(await response.json()).toEqual({ sent: [], failed: ["Actor"] }); }
+ if (c.name === "reminder") { expect(response.status).toBe(200); expect(await response.json()).toEqual({ sent: [], failed: ["Actor"], deliveryState: "QUEUED", message: "Not sent to Actor." }); }
  else if (c.name === "skip decision") expect(response.status).toBe(200);
  else { expect(response.status).toBe(400); expect((await response.json()).error).toBe("inbox unavailable"); }
  expect(c.mutation).toHaveBeenCalled();

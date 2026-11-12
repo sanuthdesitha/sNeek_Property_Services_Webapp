@@ -36,6 +36,7 @@ export async function GET() {
       previews: {
         CLIENT: previewNextInvoiceNumber(sequences.CLIENT),
         CLEANER: previewNextInvoiceNumber(sequences.CLEANER),
+        CREDIT_NOTE: previewNextInvoiceNumber(sequences.CREDIT_NOTE),
       },
     });
   } catch (err: any) {
@@ -68,9 +69,9 @@ export async function PUT(req: NextRequest) {
     }
 
     const key = (body as { key?: unknown }).key;
-    if (key !== "CLIENT" && key !== "CLEANER") {
+    if (key !== "CLIENT" && key !== "CLEANER" && key !== "CREDIT_NOTE") {
       return NextResponse.json(
-        { error: 'Unknown sequence. Expected "CLIENT" or "CLEANER".' },
+        { error: 'Unknown sequence. Expected "CLIENT", "CLEANER" or "CREDIT_NOTE".' },
         { status: 400 }
       );
     }

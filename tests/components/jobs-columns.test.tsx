@@ -4,48 +4,43 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JobsColumnsMenu } from "@/components/v2/admin/jobs/jobs-columns-menu";
 import { JobsWorkspace } from "@/components/v2/admin/jobs/jobs-workspace";
-import { EJobRow, EBoardCard } from "@/components/v2/admin/jobs/job-row";
+import { EBoardCard } from "@/components/v2/admin/jobs/job-row";
+import { JobsTable } from "@/components/v2/admin/jobs/jobs-table";
 import { useJobsWorkspaceState } from "@/components/v2/admin/jobs/use-jobs-workspace-state";
 import { DEFAULT_JOBS_COLUMNS, DEFAULT_JOBS_STATE, jobsSnapshot } from "@/lib/jobs/workspace-state";
 
 const navigate = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: navigate }), useSearchParams: () => new URLSearchParams(window.location.search) }));
 const subsets = Array.from({ length: 8 }, (_, bits) => ({ client: Boolean(bits & 1), cleaner: Boolean(bits & 2), schedule: Boolean(bits & 4) }));
-const props = { job: { id: "synthetic", property: { name: "Readable property with a long name", client: { name: "Client fixture" } },
-  assignments: [{ user: { name: "Cleaner fixture" } }], scheduledDate: "2026-09-09T00:00:00Z", startTime: "09:00", status: "COMPLETED", fixedPrice: 120 },
-  selected: false, onToggleSelect: vi.fn(), onQuickAssign: vi.fn(), onManage: vi.fn() };
+const row = { id: "synthetic", property: { name: "Readable property with a long name", client: { name: "Client fixture" } },
+  assignments: [{ user: { name: "Cleaner fixture" } }], scheduledDate: "2026-09-09T00:00:00Z", startTime: "09:00", status: "COMPLETED",
+  jobType: "AIRBNB_TURNOVER", guestIn: { checkinAt: null, stayStartDate: null, sameDay: false }, charge: { amount: 120, source: "FIXED_JOB" as const, missing: false } };
+const tableProps = { jobs: [row], density: "default" as const, sort: null, onSortChange: vi.fn(), selected: new Set<string>(), onSelectionChange: vi.fn(),
+  activeJobId: null, onOpen: vi.fn(), onQuickAssign: vi.fn(), menuItems: () => [], loading: false, staleError: null, onRetry: vi.fn() };
 
 beforeEach(() => { window.history.replaceState({ marker: true }, "", "/v2/admin/jobs"); vi.stubGlobal("PointerEvent", MouseEvent); });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("Jobs optional list columns", () => {
-  it.each(subsets)("keeps mandatory controls, property minimum and matching mobile/desktop details for %j", columns => {
-    const { container } = render(<EJobRow {...props} columns={columns} />);
-    expect(screen.getByText(props.job.property.name)).toBeVisible();
+  it.each(subsets)("keeps mandatory columns and controls and shows exactly the chosen optional columns for %j", columns => {
+    render(<JobsTable {...tableProps} columns={columns} />);
+    expect(screen.getByRole("button", { name: `Preview ${row.property.name}` })).toBeVisible();
     expect(screen.getByText("Completed")).toBeVisible();
-    expect(screen.getByRole("checkbox", { name: `Select ${props.job.property.name}` })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Open" })).toBeVisible();
-    expect(screen.getByRole("button", { name: `Manage ${props.job.property.name}` })).toBeVisible();
-    const row = screen.getByRole("link");
-    const tracks = row.style.getPropertyValue("--jobs-row-columns");
-    expect(tracks).toContain("18px minmax(14rem, 1fr)");
-    expect(tracks).toContain("minmax(5rem, 8rem) 10rem");
-    const mobile = container.querySelector(".e-job-row-summary");
-    for (const key of ["client", "cleaner", "schedule"] as const) {
-      expect(container.querySelectorAll(`.e-job-row-detail[data-job-column="${key}"]`)).toHaveLength(columns[key] ? 1 : 0);
-      expect(mobile?.querySelectorAll(`[data-job-column="${key}"]`).length ?? 0).toBe(columns[key] ? 1 : 0);
-    }
-    expect(container.querySelector(".e-job-row-property")).toHaveClass("min-w-0");
-    expect(screen.getAllByText("$120").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect(props.onToggleSelect).toHaveBeenCalledWith("synthetic");
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
-    expect(navigate).toHaveBeenCalledWith("/v2/admin/jobs/synthetic");
+    expect(screen.getByRole("checkbox", { name: /Select Readable property/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: `More actions for ${row.property.name}` })).toBeVisible();
+    const headers = screen.getAllByRole("columnheader").map(header => header.textContent?.trim());
+    expect(headers).toEqual(expect.arrayContaining(["Property", "Type", "Status", "Guest in", "Charge"]));
+    expect(headers.includes("When")).toBe(columns.schedule);
+    expect(headers.includes("Client")).toBe(columns.client);
+    expect(headers.includes("Cleaner")).toBe(columns.cleaner);
+    expect(screen.getByText("$120")).toBeVisible();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Select Readable property/ }));
+    expect(tableProps.onSelectionChange).toHaveBeenCalledWith(new Set(["synthetic"]));
   });
   it("leaves board content unchanged when list columns are hidden", () => {
-    render(<EBoardCard {...props} columns={subsets[0]} />);
+    render(<EBoardCard job={row} selected={false} onToggleSelect={vi.fn()} onOpen={vi.fn()} onQuickAssign={vi.fn()} menuItems={[]} />);
     expect(screen.getByText("Cleaner fixture")).toBeVisible();
-    expect(screen.getByText("Client fixture")).toBeVisible();
+    expect(screen.getByText(/Client fixture/)).toBeVisible();
     expect(screen.getByText(/09:00/)).toBeVisible();
   });
   it("supports keyboard checkbox toggles, show-all and Escape focus return", async () => {
@@ -89,8 +84,7 @@ describe("Jobs column URL restoration", () => {
       return { ok: true, json: async () => [] };
     }));
     render(<JobsWorkspace viewsContext="test-context" />);
-    fireEvent.keyDown(screen.getByRole("button", { name: "Jobs options" }), { key: "Enter" });
-    fireEvent.click(screen.getByRole("menuitem", { name: "View options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
     await waitFor(() => expect(screen.queryByText("Saving or loading views...")).toBeNull());
     expect(screen.getByRole("alert")).toHaveTextContent("Invalid columns");
     expect(screen.getByRole("button", { name: "Save as new view" })).toBeDisabled();
@@ -118,8 +112,7 @@ describe("Jobs column URL restoration", () => {
         : url.startsWith("/api/jobs?") ? { jobs: [], pagination: { page: 1, limit: 50, totalCount: 0, totalPages: 1, hasMore: false } } : [],
     })));
     render(<JobsWorkspace viewsContext="test-context" />);
-    fireEvent.keyDown(screen.getByRole("button", { name: "Jobs options" }), { key: "Enter" });
-    fireEvent.click(screen.getByRole("menuitem", { name: "View options" }));
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
     const select = screen.getByRole("combobox", { name: "Personal saved view" });
     await waitFor(() => expect(select).toBeEnabled());
     expect(new URLSearchParams(window.location.search).get("columns")).toBe("bad");

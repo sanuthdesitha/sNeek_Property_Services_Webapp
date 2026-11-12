@@ -27,6 +27,12 @@ export async function clockOutCleaner(input: {
   userId: string;
   now?: Date;
   tx?: Prisma.TransactionClient;
+  /**
+   * Appended to the log's notes when this call closes it, the way the
+   * automatic clock-outs mark a stop the cleaner did not make (e.g. an
+   * administrator's pause). Existing notes are kept.
+   */
+  note?: string;
 }): Promise<ClockOutResult> {
   if (!input.tx) return db.$transaction(tx => clockOutCleaner({ ...input, tx }));
   const client = input.tx;
@@ -36,7 +42,7 @@ export async function clockOutCleaner(input: {
   const openLog = await client.timeLog.findFirst({
     where: { jobId: input.jobId, userId: input.userId, stoppedAt: null },
     orderBy: { startedAt: "desc" },
-    select: { id: true, startedAt: true },
+    select: { id: true, startedAt: true, notes: true },
   });
 
   if (!openLog) return { stopped: false, durationM: 0 };
@@ -48,7 +54,11 @@ export async function clockOutCleaner(input: {
 
   const closed = await client.timeLog.updateMany({
     where: { id: openLog.id, stoppedAt: null },
-    data: { stoppedAt: now, durationM },
+    data: {
+      stoppedAt: now,
+      durationM,
+      ...(input.note ? { notes: [openLog.notes, input.note].filter(Boolean).join(" | ") } : {}),
+    },
   });
 
   if (closed.count !== 1) return { stopped: false, durationM: 0 };

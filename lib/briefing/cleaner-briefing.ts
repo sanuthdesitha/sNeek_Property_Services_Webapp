@@ -65,6 +65,7 @@ import type {
   BriefingWeather,
   CleanerBriefing,
 } from "@/lib/briefing/types";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 function prettyJobType(jobType: string): string {
   return jobType
@@ -253,7 +254,7 @@ export async function assembleCleanerBriefing(input: {
           some: { userId: cleanerId, removedAt: null, responseStatus: JobAssignmentResponseStatus.ACCEPTED },
         },
         scheduledDate: { gte: dayStart, lte: dayEnd },
-        status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+        status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED, JobStatus.CANCELLED] },
       },
       select: {
         id: true,
@@ -282,7 +283,7 @@ export async function assembleCleanerBriefing(input: {
           some: { userId: cleanerId, removedAt: null, responseStatus: JobAssignmentResponseStatus.PENDING },
         },
         scheduledDate: { gte: dayStart, lte: dayEnd },
-        status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+        status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED, JobStatus.CANCELLED] },
       },
       select: {
         id: true,
@@ -368,14 +369,19 @@ export async function assembleCleanerBriefing(input: {
   }
 
   // Sum this cleaner's pay across a set of jobs (reuses the canonical pay math).
+  // The cleaner's default rate in force on each job's day (effective-dated history).
+  const rateBook = await loadPayRateBook([cleanerId]).catch(() => null);
+  const rateOn = (date: Date | string) => (rateBook ? rateBook.rateFor(cleanerId, date, cleanerUser?.hourlyRate ?? null) : null);
   type PayJob = {
     jobType: string;
+    scheduledDate: Date;
     estimatedHours: number | null;
     internalNotes: string | null;
     assignments: Array<{ userId: string; payRate: number | null; removedAt: Date | null }>;
   };
   const paySelect = {
     jobType: true,
+    scheduledDate: true,
     estimatedHours: true,
     internalNotes: true,
     assignments: { select: { userId: true, payRate: true, removedAt: true } },
@@ -389,7 +395,7 @@ export async function assembleCleanerBriefing(input: {
       const meta = parseJobInternalNotes(j.internalNotes);
       const pay = computeCleanerPay(
         { jobType: j.jobType as any, estimatedHours: j.estimatedHours },
-        { payRate: mine?.payRate ?? null, userHourlyRate: cleanerUser?.hourlyRate ?? null },
+        { payRate: mine?.payRate ?? null, userHourlyRate: rateOn(j.scheduledDate) },
         { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
         {
           cleanerId,
@@ -541,7 +547,7 @@ export async function assembleCleanerBriefing(input: {
         const meta = metaById.get(j.id);
         const pay = computeCleanerPay(
           { jobType: j.jobType as any, estimatedHours: j.estimatedHours },
-          { payRate: mine?.payRate ?? null, userHourlyRate: cleanerUser?.hourlyRate ?? null },
+          { payRate: mine?.payRate ?? null, userHourlyRate: rateOn(dayKey) },
           { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
           {
             cleanerId,

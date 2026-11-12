@@ -34,7 +34,7 @@ describe("selected invoice access", () => {
     expect(mocks.ctx).toHaveBeenCalledWith({ settings: {}, permission: "invoicesView" });
     expect(mocks.visible).toHaveBeenCalledWith({}, "finance");
     expect(mocks.invoice.mock.calls[0][0]).toEqual({ where: { AND: [{ id: "inv-1" }, { clientId: "own", status: { notIn: ["DRAFT", "VOID"] } }] },
-      select: { id: true, invoiceNumber: true, status: true, totalAmount: true, createdAt: true, sentAt: true, periodStart: true, periodEnd: true } });
+      select: { id: true, invoiceNumber: true, status: true, totalAmount: true, createdAt: true, sentAt: true, periodStart: true, periodEnd: true, kind: true, creditsInvoice: { select: { invoiceNumber: true } } } });
   });
   it.each([{ propertyIds: [] }, { propertyIds: ["property-1"] }])("excludes empty/mixed/jobless invoices for property-scoped VA %#", async ({ propertyIds }) => {
     mocks.session.mockResolvedValue({ user: { role: "VA" } });

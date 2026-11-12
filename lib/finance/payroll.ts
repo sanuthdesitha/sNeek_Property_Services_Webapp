@@ -11,6 +11,7 @@ import {
 } from "@/lib/finance/qa-pay";
 import { qaAssignmentHasPayeeWhere, qaAssignmentPayeeId } from "@/lib/qa/ownership";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 export async function getPayrollSummary(input: {
   startDate: string;
@@ -179,6 +180,7 @@ export async function getPayrollSummary(input: {
           select: {
             id: true,
             jobNumber: true,
+            scheduledDate: true,
             property: { select: { name: true, suburb: true } },
           },
         },
@@ -236,6 +238,8 @@ export async function getPayrollSummary(input: {
       })
     : [];
   const payees = [...cleaners, ...extraPayees];
+  // The default rate in force on each job's day (effective-dated history).
+  const rateBook = await loadPayRateBook(payees.map((payee) => payee.id));
 
   // Build shopping reimbursement map by cleaner
   const shoppingByCleaner = new Map<string, { id: string; settlementId: string; title: string; amount: number; updatedAt: Date }[]>();
@@ -286,7 +290,7 @@ export async function getPayrollSummary(input: {
       // here (would otherwise be double-counted in grossPay).
       const pay = computeCleanerPay(
         { jobType: job.jobType, estimatedHours: job.estimatedHours },
-        { payRate: assignment.payRate, userHourlyRate: cleaner.hourlyRate },
+        { payRate: assignment.payRate, userHourlyRate: rateBook.rateFor(cleaner.id, job.scheduledDate, cleaner.hourlyRate) },
         { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
         {
           cleanerId: cleaner.id,
@@ -339,7 +343,7 @@ export async function getPayrollSummary(input: {
       .map((row) => {
         const pay = computeQaAssignmentPay({
           assignment: row,
-          inspector: { hourlyRate: cleaner.hourlyRate },
+          inspector: { hourlyRate: rateBook.rateFor(cleaner.id, row.job?.scheduledDate ?? row.completedAt, cleaner.hourlyRate) },
           settings: settings.qaPay,
         });
         return {

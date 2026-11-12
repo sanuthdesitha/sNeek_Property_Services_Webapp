@@ -1,4 +1,5 @@
 "use client";
+import { readSubmissionWarnings } from "@/lib/forms/submission-warnings";
 import { isDeviceException } from "@/lib/forms/device-status";
 
 /**
@@ -14,6 +15,7 @@ import { format } from "date-fns";
 import { formatFieldValue, isUploadFieldType } from "@/lib/forms/field-types";
 import { EBadge } from "@/components/v2/ui/primitives";
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
+import { TableAnswer, inlineAnswerText, isBlockAnswer } from "@/components/v2/admin/forms/submissions/structured-answer";
 
 /* ── Serialized shapes (built server-side in the job detail page) ───────── */
 
@@ -89,7 +91,8 @@ function renderFieldValue(field: any, sub: SubmissionRow): string {
     if (used.length === 0) return "No inventory used";
     return used.map((tx) => `${tx.itemName}: ${Math.abs(tx.quantity)}`).join(", ");
   }
-  return formatFieldValue(field, (answers as Record<string, unknown>)[field.id]);
+  // Stock count reads "item · counted N unit"; a Table answer renders as a table below the label.
+  return field.type === "stock_count" ? inlineAnswerText(field, (answers as Record<string, unknown>)[field.id]) : formatFieldValue(field, (answers as Record<string, unknown>)[field.id]);
 }
 
 /* ── Presigned media set → shared lightbox overlay ──────────────────────────
@@ -226,6 +229,22 @@ export function SubmissionReview({
                 <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Bag location: {sub.bagLocation}</p>
               ) : null}
 
+              {/* Extended answer rules the server recorded (not enforced this release). */}
+              {readSubmissionWarnings(sub.data).length > 0 ? (
+                <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2">
+                  <p className="text-[0.75rem] font-[600]">Answer checks to review</p>
+                  <ul className="mt-1 space-y-0.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+                    {readSubmissionWarnings(sub.data).map((warning) => (
+                      <li key={`${warning.fieldId}-${warning.rule}`}>
+                        {warning.sectionLabel ? `${warning.sectionLabel}: ` : ""}
+                        {warning.label} — {warning.message}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">Recorded by the server when the form was submitted; the submission was accepted.</p>
+                </div>
+              ) : null}
+
               {/* Rework flags from the latest QA review */}
               {reworkLabels.length > 0 ? (
                 <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-danger)/0.4)] bg-[hsl(var(--e-danger)/0.06)] px-3 py-2.5">
@@ -283,10 +302,13 @@ export function SubmissionReview({
                                     <span className="ml-2 align-middle"><EBadge tone="danger" soft>Rework</EBadge></span>
                                   ) : null}
                                 </p>
-                                {!isCheckbox ? (
+                                {!isCheckbox && !isBlockAnswer(field) ? (
                                   <p className="text-[0.8125rem] font-[550]">{value}</p>
                                 ) : null}
                               </div>
+                              {isBlockAnswer(field) ? (
+                                <div className="mt-1.5"><TableAnswer field={field} value={(answers as Record<string, unknown>)[field.id]} /></div>
+                              ) : null}
                               {mediaForField.length > 0 ? (
                                 <div className="mt-2">
                                   <AccessMediaGallery

@@ -10,7 +10,7 @@
 // sweep behave identically (same audit shape, same cleaner notification, same
 // completion side-effects).
 
-import { JobStatus } from "@prisma/client";
+import { JobStatus, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
@@ -55,20 +55,30 @@ const AWAITING_INCLUDE = {
  * suggested score. `olderThanHours` restricts to submissions at least that old
  * — the auto-sweep's window.
  */
+/**
+ * Jobs a quick score may act on, optionally narrowed (e.g. by the Quality
+ * hub's property filter). The narrowing can only remove jobs, never add one.
+ */
+export function quickScoreCandidateWhere(narrow?: Prisma.JobWhereInput): Prisma.JobWhereInput {
+  const base: Prisma.JobWhereInput = {
+    status: { in: SCOREABLE },
+    // "No real inspection" — an ADMIN/AUTO review does not disqualify a job
+    // from being scored here, but a QA one makes it untouchable.
+    qaReviews: { none: { kind: "QA" } },
+    formSubmissions: { some: {} },
+  };
+  return narrow ? { AND: [base, narrow] } : base;
+}
+
 export async function listJobsAwaitingQuickScore(params?: {
   olderThanHours?: number;
   limit?: number;
   now?: Date;
+  narrow?: Prisma.JobWhereInput;
 }): Promise<AwaitingQaJob[]> {
   const now = params?.now ?? new Date();
   const jobs = await db.job.findMany({
-    where: {
-      status: { in: SCOREABLE },
-      // "No real inspection" — an ADMIN/AUTO review does not disqualify a job
-      // from being scored here, but a QA one makes it untouchable.
-      qaReviews: { none: { kind: "QA" } },
-      formSubmissions: { some: {} },
-    },
+    where: quickScoreCandidateWhere(params?.narrow),
     include: AWAITING_INCLUDE,
     orderBy: { scheduledDate: "asc" },
     take: params?.limit ?? 200,

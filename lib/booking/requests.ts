@@ -105,9 +105,8 @@ export async function getTeamAvailability(dateKey: string): Promise<TeamAvailabi
     db.job.findMany({
       where: {
         scheduledDate: { gte: start, lte: end },
-        // There is no CANCELLED status in this schema — a cancelled job is
-        // removed — so only finished work is excluded here.
-        status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+        // Finished and cancelled jobs do not take capacity.
+        status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED, JobStatus.CANCELLED] },
       },
       select: {
         status: true,

@@ -1,4 +1,3 @@
-import { UrgentStockWorkspace } from "@/components/inventory/urgent-stock-workspace";
 import Link from "next/link";
 import { Role } from "@prisma/client";
 import {
@@ -14,7 +13,11 @@ import {
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { listSupplierCatalog } from "@/lib/inventory/suppliers";
-import { ECard, EPageHeader } from "@/components/v2/ui/primitives";
+import { EPageHeader } from "@/components/v2/ui/primitives";
+import { getAppSettings } from "@/lib/settings";
+import { UrgentNeedsWorkspace } from "@/components/v2/admin/inventory/urgent/urgent-needs-workspace";
+import { readUrgentView } from "@/components/v2/admin/inventory/urgent/urgent-view";
+import { CLOSED_STAGES } from "@/lib/inventory/urgent-stock-actions";
 import { EKpiLink } from "@/components/v2/admin/estate-kit";
 import {
   InventoryChipTabs,
@@ -34,7 +37,7 @@ import {
   type EstatePropertyInventoryTotals,
 } from "@/components/v2/admin/inventory/property-matrix-shared";
 
-export const metadata = { title: "Inventory · Estate admin" };
+export const metadata = { title: "Stock · Estate admin" };
 export const dynamic = "force-dynamic";
 
 const PENDING_SHOPPING_STATUSES = ["DRAFT", "ACTIVE", "SUBMITTED", "APPROVED"];
@@ -52,8 +55,20 @@ const TAB_KEYS: InventoryTab[] = [
 
 function normalizeTab(value: string | undefined, canManageUrgentStock: boolean): InventoryTab {
   // Urgent-stock administration is ADMIN-only on the server; mirror that here.
+  // For an administrator it is the first tab, so a bare /v2/admin/inventory
+  // opens it; every existing ?tab= id keeps its tab.
   if (value === "urgent-stock") return canManageUrgentStock ? "urgent-stock" : "items";
-  return (TAB_KEYS as string[]).includes(value ?? "") ? (value as InventoryTab) : "items";
+  if (!value) return canManageUrgentStock ? "urgent-stock" : "items";
+  return (TAB_KEYS as string[]).includes(value) ? (value as InventoryTab) : "items";
+}
+
+function searchString(searchParams: Record<string, string | string[] | undefined> | undefined): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    const first = Array.isArray(value) ? value[0] : value;
+    if (typeof first === "string") query.set(key, first);
+  }
+  return `?${query.toString()}`;
 }
 
 /**
@@ -154,13 +169,22 @@ async function getPropertyOverview(): Promise<{
 export default async function EstateInventoryPage({
   searchParams,
 }: {
-  searchParams?: { tab?: string; filter?: string };
+  searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
   const canManageUrgentStock = session.user.role === Role.ADMIN;
-  const tab = normalizeTab(searchParams?.tab, canManageUrgentStock);
-  const filter = normalizePropertyInventoryFilter(searchParams?.filter);
+  const rawTab = typeof searchParams?.tab === "string" ? searchParams.tab : undefined;
+  const tab = normalizeTab(rawTab, canManageUrgentStock);
+  const filter = normalizePropertyInventoryFilter(typeof searchParams?.filter === "string" ? searchParams.filter : undefined);
+  const urgentCount = canManageUrgentStock ? await db.urgentStockNeed.count({ where: { stage: { notIn: CLOSED_STAGES } } }) : null;
+  const tabBar = <InventoryChipTabs active={tab} showUrgentStock={canManageUrgentStock} urgentCount={urgentCount} />;
+
+  // Urgent needs (first tab, administrators): its own header and list, as drawn.
+  if (tab === "urgent-stock") {
+    const settings = await getAppSettings();
+    return <UrgentNeedsWorkspace initialView={readUrgentView(searchString(searchParams))} tabs={tabBar} timeZone={settings.timezone || "Australia/Sydney"} />;
+  }
 
   const { rows: propertyRows, totals: propertyTotals } = await getPropertyOverview();
   const [itemCount, openShoppingRuns, activeStockCounts, openScanTasks, suppliers, onHandAgg] =
@@ -222,7 +246,7 @@ export default async function EstateInventoryPage({
     <div className="space-y-6">
       <EPageHeader
         eyebrow="Commercial"
-        title="Inventory & supplies"
+        title="Stock"
         description="Items, per-property stock, counts, shopping runs, and suppliers — all in one place."
         actions={
           <div className="flex flex-wrap gap-2">
@@ -293,7 +317,7 @@ export default async function EstateInventoryPage({
         />
       </section>
 
-      <InventoryChipTabs active={tab} showUrgentStock={canManageUrgentStock} />
+      {tabBar}
 
       <div className="min-w-0">
         {tab === "items" ? <EstateItems /> : null}
@@ -305,11 +329,6 @@ export default async function EstateInventoryPage({
         {tab === "scan-tasks" ? <EstateScanTasks /> : null}
         {tab === "shopping-runs" ? <EstateShoppingRuns /> : null}
         {tab === "suppliers" ? <EstateSuppliers /> : null}
-        {tab === "urgent-stock" ? (
-          <ECard className="p-4 sm:p-6">
-            <UrgentStockWorkspace isAdmin panel />
-          </ECard>
-        ) : null}
       </div>
     </div>
   );

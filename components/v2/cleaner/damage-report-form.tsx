@@ -119,6 +119,16 @@ function toFormItem(raw: any): DamageItem {
   };
 }
 
+/** Add the prefilled item unless one with the same area and category is already there. */
+export function withPrefill(items: DamageItem[], prefill?: { area?: string; category?: string }): DamageItem[] {
+  const area = prefill?.area?.trim() ?? "";
+  const category = prefill?.category?.trim() ?? "";
+  if (!area && !category) return items;
+  const same = (value: string, wanted: string) => value.trim().toLowerCase() === wanted.toLowerCase();
+  if (items.some((item) => same(item.area, area) && same(item.category, category))) return items;
+  return [...items, { ...newItem(), area, category }];
+}
+
 /**
  * Same chrome convention as the other cleaner action blocks: a full card by
  * default, a bare block when `embedded` so the ActionFab sheet and the form
@@ -138,11 +148,17 @@ export function DamageReportForm({
   address,
   onSubmitted,
   embedded,
+  prefill,
 }: {
   jobId: string;
   address?: string | null;
   onSubmitted?: () => void;
   embedded?: boolean;
+  /**
+   * Opened from a form question ("'Yes' opens a damage report"): start an
+   * item with this area / category unless the draft already has one.
+   */
+  prefill?: { area?: string; category?: string };
 }) {
   const [items, setItems] = React.useState<DamageItem[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -173,9 +189,9 @@ export function DamageReportForm({
         if (!res.ok) throw new Error(data.error || "Could not load the damage report.");
         if (cancelled) return;
         reportId.current = data.report?.id ?? null;
-        const loaded = Array.isArray(data.report?.items) ? data.report.items.map(toFormItem) : [];
+        const loaded: DamageItem[] = Array.isArray(data.report?.items) ? data.report.items.map(toFormItem) : [];
         savedItems.current = JSON.stringify(loaded);
-        setItems(loaded);
+        setItems(withPrefill(loaded, prefill));
       } catch (err: any) {
         if (!cancelled) setError(err.message);
       } finally {

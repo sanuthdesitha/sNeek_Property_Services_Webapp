@@ -465,8 +465,8 @@ export function ThemeManager() {
 
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
         Themes are applied when a report is regenerated from{" "}
-        <Link href="/v2/admin/reports" className="underline hover:text-[hsl(var(--e-foreground))]">
-          Reports
+        <Link href="/v2/admin/reports?tab=pdfs" className="underline hover:text-[hsl(var(--e-foreground))]">
+          Client report PDFs
         </Link>
         .
       </p>

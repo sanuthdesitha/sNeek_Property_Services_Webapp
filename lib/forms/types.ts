@@ -33,7 +33,10 @@ export type FormFieldType =
   | "barcode"
   // advanced
   | "location"
-  | "instruction";
+  | "instruction"
+  // structured (see lib/forms/structured-answers.ts)
+  | "table"
+  | "stock_count";
 
 export type FieldConditionOperator =
   | "equals"
@@ -47,6 +50,7 @@ export type FieldConditionOperator =
   | "gt"
   | "lt";
 
+/** Show/hide rule that watches another question's answer. */
 export interface FieldCondition {
   fieldId: string;
   operator?: FieldConditionOperator;
@@ -55,6 +59,61 @@ export interface FieldCondition {
   value?: unknown;
   equals?: unknown;
 }
+
+/**
+ * Show/hide rule that reads the job's property instead of an answer
+ * ("if property has a balcony"). `propertyField` must be one of the
+ * cleaner-visible keys in lib/forms/job-form-property.ts
+ * (`jobFormPropertySelect`); any other key fails closed at read time and is
+ * refused when a draft is saved. Compared with `templateValuesEqual`
+ * (lib/forms/visibility.ts): equality only.
+ */
+export interface PropertyFieldCondition {
+  propertyField: string;
+  operator?: "equals";
+  value?: unknown;
+  /** Legacy operand key written by older checklist generators. */
+  equals?: unknown;
+}
+
+/** Any stored show/hide rule on a section or question. */
+export type FormCondition = FieldCondition | PropertyFieldCondition;
+
+export function isPropertyFieldCondition(condition: FormCondition | null | undefined): condition is PropertyFieldCondition {
+  return Boolean(condition) && typeof (condition as PropertyFieldCondition).propertyField === "string";
+}
+
+export function isAnswerCondition(condition: FormCondition | null | undefined): condition is FieldCondition {
+  return Boolean(condition) && typeof (condition as FieldCondition).fieldId === "string";
+}
+
+/**
+ * How often a question is asked (emitted by lib/checklists/compose.ts and read
+ * by lib/accountability/rotation-schema.ts):
+ *  - absent / "EVERY_CLEAN": every job;
+ *  - "ROTATIONAL": only when due, every `rotationEveryNCleans` completed cleans
+ *    of the property (filtered at read time, tracked per property);
+ *  - "CONDITIONAL": generated from the checklist library; shown when the
+ *    matching exception is reported (its `conditional` carries the rule);
+ *  - "MONTHLY": calendar cadence — shown on the first clean of each calendar
+ *    month at the property (organisation timezone), judged from the
+ *    property's last-shown date for the question
+ *    (`PropertyRotationState.lastCompletedAt`, see
+ *    lib/accountability/rotation-schema.ts).
+ */
+export type FieldFrequency = "EVERY_CLEAN" | "ROTATIONAL" | "CONDITIONAL" | "MONTHLY";
+
+/** Smallest and largest "every Nth clean" the builder offers. */
+export const ROTATION_MIN_CLEANS = 2;
+export const ROTATION_MAX_CLEANS = 12;
+
+/**
+ * Per-room repeat of a section: the section is shown once per bedroom or
+ * bathroom of the job's property (lib/forms/repeat-sections.ts expands it at
+ * read time; ids gain `__bedN` / `__bathN`, the suffix the rotation tracker
+ * already strips).
+ */
+export type SectionRepeatBy = "bedrooms" | "bathrooms";
 
 export type FormFieldReferenceKind = "image" | "video" | "link";
 
@@ -92,6 +151,65 @@ export interface FormTheme {
 }
 
 export type FieldSeverity = "low" | "medium" | "high";
+
+/* ── Table question ("table") ─────────────────────────────────────────────
+ * Answer shape: an array of row objects keyed by column id, e.g.
+ * [{ "c1": "Fridge", "c2": 3, "c3": true }]. Fixed rows answer row i of
+ * `rowLabels`; "cleaner can add rows" lets the cleaner add between
+ * `minRows` and `maxRows` rows. Validated by lib/forms/structured-answers.ts.
+ */
+export type TableCellType = "text" | "number" | "yesno" | "choice";
+
+export interface TableColumn {
+  id: string;
+  label: string;
+  cellType: TableCellType;
+  required?: boolean;
+  /** Choice cells only. */
+  options?: string[];
+}
+
+export interface TableConfig {
+  columns: TableColumn[];
+  rowMode: "fixed" | "dynamic";
+  /** Fixed rows: one label per row, shown to the cleaner. */
+  rowLabels?: string[];
+  /** "Cleaner can add rows": limits on how many rows. */
+  minRows?: number;
+  maxRows?: number;
+}
+
+/** Answer of a "stock_count" question: the item counted and how many are there. */
+export interface StockCountAnswer {
+  itemId: string;
+  count: number;
+}
+
+/* ── Question effects ─────────────────────────────────────────────────────
+ * What submitting an answer does beyond storing it. Each effect runs through
+ * an existing service (lib/forms/form-effects.ts):
+ *  - "urgent-stock-below" (Stock count only): a count below `threshold`
+ *    raises an urgent stock NEED through lib/inventory/urgent-stock.ts once per
+ *    submission and item. It orders nothing.
+ *  - "damage-report" (Yes / No only): the answer `when` prompts the cleaner
+ *    into the job's damage report; if none is submitted, the submit route
+ *    opens the private damage case it already opens for reported damage.
+ */
+export interface UrgentStockEffect {
+  kind: "urgent-stock-below";
+  threshold: number;
+}
+
+export interface DamageReportEffect {
+  kind: "damage-report";
+  when: "yes" | "no";
+  /** Prefilled area / room; falls back to the question's location tag or section. */
+  area?: string;
+  /** Prefilled damage category. */
+  category?: string;
+}
+
+export type FieldEffect = UrgentStockEffect | DamageReportEffect;
 
 export interface FormField {
   id: string;
@@ -153,8 +271,20 @@ export interface FormField {
   // to true when references exist; set false to keep references collapsed.
   showExampleOnTick?: boolean;
   // logic + scoring
-  conditional?: FieldCondition;
+  conditional?: FormCondition;
   scoring?: { weight: number; max: number };
+  // cadence (see FieldFrequency)
+  frequency?: FieldFrequency;
+  /** With frequency "ROTATIONAL": due every N completed cleans. */
+  rotationEveryNCleans?: number;
+  /** "table" questions: columns and rows. */
+  table?: TableConfig;
+  /** "stock_count" questions: the inventory item counted (InventoryItem id). */
+  stockItemId?: string;
+  /** "stock_count": the item's name when it was chosen (display only). */
+  stockItemName?: string;
+  /** What submitting this answer does (see FieldEffect). */
+  effects?: FieldEffect[];
 }
 
 export interface FormSection {
@@ -162,7 +292,9 @@ export interface FormSection {
   title: string;
   description?: string;
   collapsible?: boolean;
-  conditional?: FieldCondition;
+  conditional?: FormCondition;
+  /** Repeat this section once per bedroom / bathroom of the property. */
+  repeatBy?: SectionRepeatBy;
   fields: FormField[];
 }
 

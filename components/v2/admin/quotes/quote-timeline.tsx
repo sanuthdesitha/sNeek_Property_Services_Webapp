@@ -75,6 +75,8 @@ function describe(event: QuoteEvent): string {
     }
     case "NOTE":
       return note ?? (typeof d.text === "string" ? d.text : "Note added");
+    case "FROM_CASE":
+      return typeof d.caseTitle === "string" && d.caseTitle ? `Created from case “${d.caseTitle}”` : "Created from a case";
     default:
       return event.type.replace(/_/g, " ").toLowerCase();
   }

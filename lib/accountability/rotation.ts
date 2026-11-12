@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { collectMonthlyItems } from "./rotation-schema";
 
 /**
  * Rotational-evidence scheduling for ROTATIONAL checklist items.
@@ -207,7 +208,7 @@ export async function applyJobRotationCompletion(
   const job = await tx.job.findUnique({ where: { id: input.jobId }, select: { isRework: true, status: true, internalNotes: true } });
   if (!job || job.isRework || parseJobInternalNotes(job.internalNotes).isDraft || !["COMPLETED", "INVOICED"].includes(job.status)) return;
   const submission = await tx.formSubmission.findFirst({
-    where: { jobId: input.jobId }, orderBy: { createdAt: "desc" }, select: { data: true },
+    where: { jobId: input.jobId }, orderBy: { createdAt: "desc" }, select: { data: true, createdAt: true },
   });
   const data = submission?.data as Record<string, any> | undefined;
   if (!data) return;
@@ -219,7 +220,30 @@ export async function applyJobRotationCompletion(
   const fullSections = data.__rotationSections ?? visibleSections;
   const { allRotationalItemKeys } = deriveRotationalCompletion(fullSections, {}, {});
   const { completedItemKeys } = deriveRotationalCompletion(visibleSections, data, media);
-  if (allRotationalItemKeys.length === 0) return;
-  await applyRotationCompletion(tx, { ...input, allRotationalItemKeys, completedItemKeys });
+  const monthlyShownKeys = collectMonthlyItems({ sections: Array.isArray(visibleSections) ? visibleSections : [] });
+  if (allRotationalItemKeys.length === 0 && monthlyShownKeys.length === 0) return;
+  if (allRotationalItemKeys.length > 0) await applyRotationCompletion(tx, { ...input, allRotationalItemKeys, completedItemKeys });
+  if (monthlyShownKeys.length > 0) {
+    await recordMonthlyShown(tx, { ...input, itemKeys: monthlyShownKeys, shownAt: submission?.createdAt ?? new Date() });
+  }
   await tx.appSetting.create({ data: { key: receiptKey, value: { jobId: input.jobId, countedAt: new Date().toISOString() } } });
+}
+
+/**
+ * "Monthly" questions shown on a counted clean: stamp the property's
+ * last-shown date (`lastCompletedAt`, dated by when the clean was submitted so
+ * a late approval does not move it into the next month). `cleansSinceDone` is
+ * left alone, so an "every Nth clean" counter is never disturbed.
+ */
+export async function recordMonthlyShown(
+  tx: RotationTxClient,
+  params: { propertyId: string; jobId: string; itemKeys: string[]; shownAt: Date }
+): Promise<void> {
+  for (const itemKey of params.itemKeys) {
+    await tx.propertyRotationState.upsert({
+      where: { propertyId_itemKey: { propertyId: params.propertyId, itemKey } },
+      create: { propertyId: params.propertyId, itemKey, cleansSinceDone: 0, lastCompletedAt: params.shownAt, lastCompletedJobId: params.jobId },
+      update: { lastCompletedAt: params.shownAt, lastCompletedJobId: params.jobId },
+    });
+  }
 }

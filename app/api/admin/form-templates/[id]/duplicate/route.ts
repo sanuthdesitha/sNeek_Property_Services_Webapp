@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
-import { Prisma, Role } from "@prisma/client";
-import { duplicateTemplateName, nextTemplateVersion } from "@/lib/forms/duplicate-template";
+import { Role } from "@prisma/client";
+import { duplicateFormTemplate } from "@/lib/forms/duplicate-template-service";
+import { templateErrorResponse } from "@/lib/forms/template-errors";
 
 /**
  * Duplicate a FormTemplate — creates a new draft (isActive: false) with the
  * source template's schema copied, the next version number for that kind, and
- * `parentTemplateId` set to the source id so we can render the lineage tree
- * later.
+ * `parentTemplateId` set to the source id (lib/forms/duplicate-template-service).
  *
  * The copy is a DRAFT on purpose (publishing is an explicit, auditable step —
  * see the publish route, which retires the previous global default). Callers
@@ -18,42 +17,16 @@ import { duplicateTemplateName, nextTemplateVersion } from "@/lib/forms/duplicat
  * it.
  */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
     await requireRole([Role.ADMIN]);
-
-    const source = await db.formTemplate.findUnique({ where: { id: params.id } });
-    if (!source) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-
-    // Versions are allocated per kind; names are de-duplicated per kind too, so
-    // repeated duplicates read as "(Copy)", "(Copy 2)", … instead of a pile of
-    // identically named rows the owner cannot tell apart.
-    const siblings = await db.formTemplate.findMany({
-      where: { kind: source.kind },
-      select: { name: true, version: true },
-    });
-
-    const copy = await db.formTemplate.create({
-      data: {
-        name: duplicateTemplateName(
-          source.name,
-          siblings.map((s) => s.name)
-        ),
-        kind: source.kind,
-        serviceType: source.serviceType,
-        version: nextTemplateVersion(siblings.map((s) => s.version)),
-        schema: source.schema as Prisma.InputJsonValue,
-        isActive: false,
-        parentTemplateId: source.id,
-      },
-    });
-
+    // `{ from: "draft" }` (the builder): copy the unpublished draft when there is one.
+    const body = (await req.json().catch(() => ({}))) as { from?: unknown };
+    const copy = await duplicateFormTemplate(params.id, { fromDraft: body?.from === "draft" });
     return NextResponse.json({ template: copy }, { status: 201 });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400 });
+  } catch (err: unknown) {
+    return templateErrorResponse(err);
   }
 }

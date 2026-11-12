@@ -1,0 +1,188 @@
+"use client";
+
+/**
+ * Table columns for the client-invoice list, in the concept's order:
+ * Invoice, Client, Period, Due, Total, Owing, Status, Xero, action + menu.
+ */
+import Link from "next/link";
+import { format } from "date-fns";
+import type { EDataColumn } from "@/components/v2/ui/data-table";
+import { EPill, type EPillTone } from "@/components/v2/ui/pill";
+import type { ClientInvoiceSort } from "@/lib/billing/client-invoice-list-types";
+import { xeroDisplay } from "@/lib/billing/client-invoice-xero-display";
+import { STATUS_LABEL, fmtDate, fmtDay, fmtStamp, money, type InvoiceRow, type InvoiceStatus } from "./invoice-model";
+
+export const STATUS_PILL: Record<InvoiceStatus, EPillTone> = {
+  DRAFT: "neutral",
+  APPROVED: "info",
+  SENT: "gold",
+  PART_PAID: "warn",
+  PAID: "ok",
+  VOID: "neutral",
+};
+
+/** "1–15 Oct" within a month, "28 Sep – 4 Oct" across months. */
+export function formatPeriod(start: string | null, end: string | null): string {
+  if (!start || !end) return "—";
+  const from = new Date(start);
+  const to = new Date(end);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return "—";
+  if (from.getFullYear() === to.getFullYear() && from.getMonth() === to.getMonth()) {
+    return `${format(from, "d")}–${format(to, "d MMM")}`;
+  }
+  return `${format(from, "d MMM")} – ${format(to, "d MMM")}`;
+}
+
+/** Whole days from `today` to `day`, both yyyy-MM-dd calendar days. */
+export function daysBetween(today: string, day: string): number {
+  return Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+}
+
+function DueCell({ invoice, today, termsDays }: { invoice: InvoiceRow; today: string; termsDays: number }) {
+  // Nothing falls due on a void invoice, a credit note or a fully credited invoice.
+  if (invoice.status === "VOID" || invoice.kind === "CREDIT_NOTE" || invoice.fullyCredited) {
+    return <span className="text-[hsl(var(--e-muted-foreground))]">—</span>;
+  }
+  if (invoice.status === "PAID") {
+    return <span className="text-[hsl(var(--e-muted-foreground))]">Paid {fmtDate(invoice.paidDate ?? invoice.paidAt)}</span>;
+  }
+  if (invoice.status === "DRAFT" || invoice.status === "APPROVED") {
+    // Not sent yet: the terms are fixed by the first send, so the due day is
+    // provisional until then (the PDF preview labels it so).
+    const days = invoice.paymentTermsDays ?? termsDays;
+    return (
+      <span className="text-[hsl(var(--e-muted-foreground))]" title={`Provisional due day ${fmtDay(invoice.dueDate)} (created + ${days} days). Fixed when first sent.`}>
+        On send <span className="whitespace-nowrap text-[0.75rem]">· {days}-day terms</span>
+      </span>
+    );
+  }
+  const days = daysBetween(today, invoice.dueDate);
+  if (invoice.overdue || days < 0) {
+    return <span className="e-tnum font-[600] text-[hsl(var(--e-danger))]">{Math.abs(days)} d overdue</span>;
+  }
+  return <span className="e-tnum">{days === 0 ? "Due today" : `In ${days} day${days === 1 ? "" : "s"}`}</span>;
+}
+
+/** The kind and the credit-note link, both ways, under the number. */
+function CreditLinks({ invoice }: { invoice: InvoiceRow }) {
+  if (invoice.kind === "CREDIT_NOTE") {
+    return (
+      <span className="block text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+        Credit note{invoice.credits ? ` · credits ${invoice.credits.invoiceNumber}` : ""}
+      </span>
+    );
+  }
+  const live = (invoice.creditedBy ?? []).filter((note) => note.status !== "VOID");
+  if (!live.length) return null;
+  return (
+    <span className="block text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+      Credited by {live.map((note) => note.invoiceNumber).join(", ")}
+    </span>
+  );
+}
+
+function XeroCell({ invoice }: { invoice: InvoiceRow }) {
+  const view = xeroDisplay(invoice);
+  if (view.key === "none") {
+    // An unsent draft or approved invoice is not expected in Xero yet.
+    const unsent = invoice.status === "DRAFT" || invoice.status === "APPROVED";
+    return <span className="text-[hsl(var(--e-muted-foreground))]">{unsent ? "Not sent" : "Not in Xero"}</span>;
+  }
+  const when = view.checkedAt ? (view.key === "failed" ? `Failed ${fmtStamp(view.checkedAt)}` : `Last checked ${fmtStamp(view.checkedAt)}`) : null;
+  const detail = view.key === "failed" ? [view.reason, when].filter(Boolean).join(" · ") : view.reason ?? when;
+  return (
+    <span className="inline-flex max-w-[14rem] flex-col items-start gap-0.5">
+      <EPill tone={view.tone}>{view.label}</EPill>
+      {detail ? <span className="text-[0.6875rem] leading-tight text-[hsl(var(--e-muted-foreground))]">{detail}</span> : null}
+    </span>
+  );
+}
+
+export function invoiceColumns(input: {
+  today: string;
+  termsDays: number;
+  /** The invoice's editor page; the number becomes a link to it. */
+  invoiceHref?: (invoice: InvoiceRow) => string;
+  renderActions: (invoice: InvoiceRow) => React.ReactNode;
+}): Array<EDataColumn<InvoiceRow, ClientInvoiceSort>> {
+  return [
+    {
+      key: "number",
+      header: "Invoice",
+      sortKey: "number",
+      cell: (row) => (
+        <>
+          {input.invoiceHref ? (
+            <Link
+              href={input.invoiceHref(row)}
+              className="font-mono text-[0.75rem] text-[hsl(var(--e-primary))] underline-offset-2 hover:underline"
+            >
+              {row.invoiceNumber}
+            </Link>
+          ) : (
+            <span className="font-mono text-[0.75rem] text-[hsl(var(--e-foreground))]">{row.invoiceNumber}</span>
+          )}
+          <CreditLinks invoice={row} />
+        </>
+      ),
+    },
+    {
+      key: "client",
+      header: "Client",
+      sortKey: "client",
+      cell: (row) => <span className="block max-w-[14rem] truncate">{row.client.name}</span>,
+    },
+    {
+      key: "period",
+      header: "Period",
+      sortKey: "period",
+      cell: (row) => <span className="whitespace-nowrap">{formatPeriod(row.periodStart, row.periodEnd)}</span>,
+    },
+    {
+      // The due day is created + payment terms, so it sorts by created date.
+      key: "due",
+      header: "Due",
+      sortKey: "created",
+      firstDir: "asc",
+      cell: (row) => <DueCell invoice={row} today={input.today} termsDays={input.termsDays} />,
+    },
+    {
+      key: "total",
+      header: "Total",
+      sortKey: "total",
+      align: "right",
+      firstDir: "desc",
+      cell: (row) => <span className="e-tnum">{money(row.totalAmount)}</span>,
+    },
+    {
+      // Sorted on the server over the whole filtered set (owing in SQL).
+      key: "owing",
+      header: "Owing",
+      sortKey: "owing",
+      firstDir: "desc",
+      align: "right",
+      cell: (row) => (
+        <span className="e-tnum">{row.status === "VOID" || row.kind === "CREDIT_NOTE" ? "—" : money(row.amountOwing)}</span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      sortKey: "status",
+      cell: (row) => (
+        <span className="inline-flex flex-wrap gap-1">
+          <EPill tone={STATUS_PILL[row.status]}>{STATUS_LABEL[row.status]}</EPill>
+          {row.fullyCredited ? <EPill tone="info">Fully credited</EPill> : null}
+          {row.overdue ? <EPill tone="bad">Overdue</EPill> : null}
+          {row.missingRateJobs ? (
+            <EPill tone="warn">
+              {row.missingRateJobs} job{row.missingRateJobs === 1 ? "" : "s"} without a rate
+            </EPill>
+          ) : null}
+        </span>
+      ),
+    },
+    { key: "xero", header: "Xero", sortKey: "xero", cell: (row) => <XeroCell invoice={row} /> },
+    { key: "actions", header: <span className="sr-only">Actions</span>, align: "right", className: "w-[190px]", cell: input.renderActions },
+  ];
+}

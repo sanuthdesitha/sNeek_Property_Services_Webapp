@@ -1,1190 +1,272 @@
 "use client";
 
 /**
- * ESTATE jobs workspace — the v2-native rebuild of the admin jobs list.
- * Same data plane as v1 (/api/jobs with paginated=1, statusGroup/status,
- * sort, dateFrom/dateTo; bulk-assign / bulk-status / assign mutations),
- * entirely new Estate presentation: date-scope tabs, status chips, list ⇄
- * board toggle, serif rows, bulk bar, CSV export.
+ * ESTATE Jobs page: heading with the real match count, view tabs with live
+ * totals, visible filter chips, the list (table grouped by Sydney day) or the
+ * board, the bulk bar, and the peek panel (`?open=<jobId>`).
+ *
+ * This file wires the pieces together; each concern has its own file:
+ * list data (`use-jobs-list`), filters (`jobs-filter-bar`), view tabs
+ * (`jobs-view-tabs`), view options (`jobs-view-options`), table
+ * (`jobs-table`), board (`jobs-board`), bulk (`jobs-bulk`), peek
+ * (`job-peek-panel`). State lives in the URL (`use-jobs-workspace-state`).
  */
-import Link from "next/link";
-import { navigationScope } from "@/lib/navigation/view-memory";
-import { Plus } from "lucide-react";
-import { EPageHeader } from "@/components/v2/ui/primitives";
-import { DEFAULT_JOBS_STATE } from "@/lib/jobs/workspace-state";
-import { JobsViewOptionsMenu } from "./view-options-menu";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { format } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
-import { JobType } from "@prisma/client";
-import { z } from "zod";
-import {
-  BellRing,
-  ChevronLeft,
-  ChevronRight,
-  LayoutGrid,
-  Rows3,
-  RotateCw,
-  Search,
-  ShieldCheck,
-  SlidersHorizontal,
-  UserRoundPlus,
-  X,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "@/hooks/use-toast";
-import { EButton, ECard, EEmptyState, EEyebrow } from "@/components/v2/ui/primitives";
-import {
-  EBoardCard,
-  ECheck,
-  EJobRow,
-  scheduledLabel,
-  statusLabel,
-} from "./job-row";
-import { groupJobsBySydneyDay } from "@/lib/jobs/date-grouping";
-import { useJobsWorkspaceState } from "./use-jobs-workspace-state";
-import { useJobsScrollRestoration } from "./use-jobs-scroll-restoration";
+import { ECard, EButton } from "@/components/v2/ui/primitives";
+import { EPagination } from "@/components/v2/ui/pagination";
+import { pickJobsFilters } from "@/lib/jobs/view-presets";
 import { jobsScrollContentFingerprint } from "@/lib/jobs/scroll-restoration";
-import { SavedViewsControls } from "./saved-views-controls";
-import { JobsColumnsMenu } from "./jobs-columns-menu";
-import { BulkStatusPreviewControls } from "./bulk-status-preview";
-import { JobsExportPreview } from "./export-preview";
-import type { JobsDensity } from "@/lib/jobs/workspace-state";
-import { JobDialog as EModal } from "./job-dialog";
+import { BulkRemindDialog } from "./bulk-remind-dialog";
+import { JobPeekPanel } from "./job-peek-panel";
+import { jobRowMenuItems } from "./job-row-menu";
+import { JobStatusDialog, type StatusChangeRequest } from "./job-status-dialog";
+import type { JobsDensityValue } from "./job-row";
+import { JobsBoard } from "./jobs-board";
+import { JobsBulk } from "./jobs-bulk";
+import { JobsFilterBar } from "./jobs-filter-bar";
+import { JobsHeader } from "./jobs-header";
+import { JOBS_PAGE_SIZE, buildJobsQuery, stateSortFromTable, tableSortFromState, type JobListRow } from "./jobs-query";
+import { JobsTable } from "./jobs-table";
+import { JobsViewOptions } from "./jobs-view-options";
+import { JobsViewTabs } from "./jobs-view-tabs";
+import { QuickAssignDialog } from "./quick-assign-dialog";
+import { useJobsBoard, type JobsBoardLane } from "./use-jobs-board";
+import { useJobsList } from "./use-jobs-list";
+import { useJobsReferenceData } from "./use-jobs-reference-data";
+import { useJobsSavedViews } from "./use-jobs-saved-views";
+import { useSavedViewCounts } from "./use-saved-view-counts";
+import { useJobsScrollRestoration } from "./use-jobs-scroll-restoration";
+import { useJobsWorkspaceState } from "./use-jobs-workspace-state";
+import { usePeekParam } from "./use-peek-param";
+import { CancelJobDialog } from "./cancel-job-dialog";
 
-const TZ = "Australia/Sydney";
-const PAGE_SIZE = 50;
+type WorkspaceProps = {
+  /** Renders the page's h1. Embedded uses pass false and keep their own heading. */
+  showPageHeader?: boolean;
+  viewsContext?: string;
+  viewsReadOnly?: boolean;
+  teamDefaultsEnabled?: boolean;
+};
 
-/* ── Date scope (Australia/Sydney) ─────────────────────────────────────── */
-type DateScope = "today" | "tomorrow" | "upcoming" | "past" | "all";
-const DATE_SCOPES: { id: DateScope; label: string }[] = [
-  { id: "today", label: "Today" },
-  { id: "tomorrow", label: "Tomorrow" },
-  { id: "upcoming", label: "Upcoming" },
-  { id: "past", label: "Past" },
-  { id: "all", label: "All" },
-];
-
-function sydneyKey(offsetDays = 0): string {
-  const base = toZonedTime(new Date(), TZ);
-  return format(new Date(base.getFullYear(), base.getMonth(), base.getDate() + offsetDays), "yyyy-MM-dd");
-}
-
-function scopeRange(scope: DateScope): { dateFrom?: string; dateTo?: string } {
-  if (scope === "today") return { dateFrom: sydneyKey(0), dateTo: sydneyKey(0) };
-  if (scope === "tomorrow") return { dateFrom: sydneyKey(1), dateTo: sydneyKey(1) };
-  if (scope === "upcoming") return { dateFrom: sydneyKey(1) };
-  if (scope === "past") return { dateTo: sydneyKey(-1) };
-  return {};
-}
-
-/* ── Status chips (virtual groups + single statuses, same as v1) ───────── */
-const STATUS_CHIPS: { id: string; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "active", label: "Active" },
-  { id: "UNASSIGNED", label: "Unassigned" },
-  { id: "IN_PROGRESS", label: "In progress" },
-  { id: "QA_REVIEW", label: "QA review" },
-  { id: "COMPLETED", label: "Completed" },
-  { id: "INVOICED", label: "Invoiced" },
-];
-
-/* ── Sort (server-side, same param values as v1) ───────────────────────── */
-type JobSort = "soonest" | "latest" | "created" | "property" | "status";
-const SORT_OPTIONS: { id: JobSort; label: string }[] = [
-  { id: "soonest", label: "Soonest scheduled" },
-  { id: "latest", label: "Latest scheduled" },
-  { id: "created", label: "Recently created" },
-  { id: "property", label: "Property A–Z" },
-  { id: "status", label: "Status" },
-];
-
-/* ── Job type options (from the JobType enum, Title-cased) ─────────────── */
-function titleCase(value: string): string {
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-const JOB_TYPE_OPTIONS: { id: string; label: string }[] = Object.values(JobType).map((value) => ({
-  id: String(value),
-  label: titleCase(String(value)),
-}));
-
-/* ── Invoice status ──────────────────────────────────────────────────── */
-type InvoiceFilter = "all" | "yes" | "no";
-const INVOICE_OPTIONS: { id: InvoiceFilter; label: string }[] = [
-  { id: "all", label: "Any invoice status" },
-  { id: "yes", label: "Invoiced" },
-  { id: "no", label: "Not invoiced" },
-];
-
-/* ── Board columns: 4 Estate lanes over the full status ladder ─────────── */
-const BOARD_LANES: { id: string; label: string; statuses: string[] }[] = [
-  { id: "unassigned", label: "Unassigned", statuses: ["UNASSIGNED", "OFFERED"] },
-  { id: "scheduled", label: "Scheduled", statuses: ["ASSIGNED", "EN_ROUTE"] },
-  { id: "inprogress", label: "In progress", statuses: ["IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL"] },
-  { id: "done", label: "Done", statuses: ["SUBMITTED", "QA_REVIEW", "COMPLETED", "INVOICED"] },
-];
-
-const BULK_STATUSES = [
-  "UNASSIGNED",
-  "OFFERED",
-  "ASSIGNED",
-  "EN_ROUTE",
-  "IN_PROGRESS",
-  "PAUSED",
-  "SUBMITTED",
-  "QA_REVIEW",
-  "COMPLETED",
-  "INVOICED",
-];
-
-type Cleaner = { id: string; name: string; email: string };
-type Pagination = { page: number; limit: number; totalCount: number; totalPages: number; hasMore: boolean };
-
-const jobsResponseSchema = z.object({
-  jobs: z.array(z.object({
-    id: z.string().min(1),
-    status: z.string().min(1),
-    scheduledDate: z.string().refine(value => Number.isFinite(Date.parse(value))).nullish(),
-    property: z.object({ name: z.string().nullish(), suburb: z.string().nullish() }).passthrough().nullish(),
-    assignments: z.array(z.object({
-      user: z.object({ name: z.string().nullish(), email: z.string().nullish() }).passthrough().nullish(),
-    }).passthrough()).optional(),
-  }).passthrough()),
-  pagination: z.object({
-    page: z.number().int().positive().safe(),
-    limit: z.number().int().positive().safe(),
-    totalCount: z.number().int().nonnegative().safe(),
-    totalPages: z.number().int().positive().safe(),
-    hasMore: z.boolean(),
-  }),
-});
-
-/* ── Estate-native form atoms (no components/ui imports) ───────────────── */
-const FIELD_CLS =
-  "h-10 w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] px-3 " +
-  "text-[0.875rem] text-[hsl(var(--e-foreground))] placeholder:text-[hsl(var(--e-text-faint))] " +
-  "focus:outline-none focus:ring-2 focus:ring-[hsl(var(--e-ring))]";
-
-/* ── Workspace ─────────────────────────────────────────────────────────── */
-export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefaultsEnabled = false, showPageHeader = false }: { showPageHeader?: boolean; viewsContext?: string; viewsReadOnly?: boolean; teamDefaultsEnabled?: boolean }) {
-  const router = useRouter();
-  const filtersPanel = useRef<HTMLDetailsElement>(null);
-  const filtersStorageKey = useRef<string | null>(null);
+function useNow(intervalMs: number): Date {
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const key = `sneek:jobs:filters-open:v1:${navigationScope()}:${viewsContext ?? "default"}`;
-    filtersStorageKey.current = key;
-    let open = true;
-    try { open = localStorage.getItem(key) !== "false"; } catch { /* Optional display preference. */ }
-    if (filtersPanel.current) filtersPanel.current.open = open;
-  }, [viewsContext]);
+    const timer = window.setInterval(() => setNow(new Date()), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [intervalMs]);
+  return now;
+}
 
-  const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
-  const viewOptionsTitle = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    if (!viewOptionsOpen) return;
-    const timer = window.setTimeout(() => viewOptionsTitle.current?.focus(), 0);
-    return () => window.clearTimeout(timer);
-  }, [viewOptionsOpen]);
-  const [jobs, setJobs] = useState<any[]>([]);
-  const [loadError, setLoadError] = useState("Could not load jobs. Please try again.");
-  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: PAGE_SIZE, totalCount: 0, totalPages: 0, hasMore: false });
-  const [loadState, setLoadState] = useState<{ status: "loading" | "success" | "error"; query: string }>({ status: "loading", query: "" });
-
+export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefaultsEnabled = false, showPageHeader = false }: WorkspaceProps) {
   const { state, ready, update, applyDefault, columnsError } = useJobsWorkspaceState();
-  const { dateScope, statusChip, sort, search, view, jobType, clientId, propertyId,
-    cleanerId, dateFrom, dateTo, invoiced, page, density, columns } = state;
-  const setDateScope = (value: DateScope) => update({ dateScope: value, dateFrom: "", dateTo: "" });
-  const setStatusChip = (value: string) => update({ statusChip: value });
-  const setSort = (value: JobSort) => update({ sort: value });
-  const setSearch = (value: string) => update({ search: value });
-  const setView = (value: "list" | "board") => update({ view: value });
-  const setJobType = (value: string) => update({ jobType: value });
-  const setClientId = (value: string) => update({ clientId: value });
-  const setPropertyId = (value: string) => update({ propertyId: value });
-  const setCleanerId = (value: string) => update({ cleanerId: value });
-  const setDateFrom = (value: string) => update({ dateFrom: value });
-  const setDateTo = (value: string) => update({ dateTo: value });
-  const setInvoiced = (value: InvoiceFilter) => update({ invoiced: value });
-  const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
-  const [properties, setProperties] = useState<{ id: string; name: string; suburb: string }[]>([]);
+  const reference = useJobsReferenceData();
+  const savedViews = useJobsSavedViews(viewsContext ?? null);
+  const [selectedSavedId, setSelectedSavedId] = useState("");
+  const [createRequest, setCreateRequest] = useState(0);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [openJobId, setOpenJobId] = usePeekParam();
+  const now = useNow(15_000);
 
-  const [cleaners, setCleaners] = useState<Cleaner[]>([]);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // Queries: the list page (with view-tab totals and the derived columns), the
+  // export (same filters and sort, first 5,000) and the board (same filters).
+  const listQuery = buildJobsQuery(state, { page: String(state.page), limit: String(JOBS_PAGE_SIZE), counts: "1", extras: "1" }).toString();
+  const exportQuery = buildJobsQuery(state, { page: "1", limit: "5000" }).toString();
+  const boardParams = buildJobsQuery(state);
+  boardParams.delete("paginated");
+  const boardQuery = boardParams.toString();
 
-  const [assignJob, setAssignJob] = useState<any | null>(null);
-  /**
-   * "Manage" from the board now OPENS THE JOB instead of a modal.
-   *
-   * The modal it used to open is retired: editing lives in the tabs on the
-   * detail page, which is the one home for each concern. Landing on
-   * `?tab=schedule` puts the admin on the same controls the button used to
-   * show, with the rest of the job visible around them.
-   */
-  const openManage = (job: any) => {
-    if (job?.id) router.push(`/v2/admin/jobs/${job.id}?tab=schedule`);
-  };
-  const [assignSelected, setAssignSelected] = useState<string[]>([]);
-  const [assignSubmitting, setAssignSubmitting] = useState(false);
+  const list = useJobsList(listQuery, ready);
+  const savedCounts = useSavedViewCounts(viewsContext ? savedViews.data?.views ?? null : null, list.loadedAt);
+  const board = useJobsBoard(boardQuery, ready && state.view === "board");
+  const loading = list.status === "loading";
 
-  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
-  const [bulkCleanerId, setBulkCleanerId] = useState("");
-  const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
-  const [bulkStatus, setBulkStatus] = useState("ASSIGNED");
-  const [bulkSubmitting, setBulkSubmitting] = useState(false);
-  const [bulkRemindOpen, setBulkRemindOpen] = useState(false);
-  const [bulkRemindMethod, setBulkRemindMethod] = useState<"PUSH" | "EMAIL">("PUSH");
-  const [bulkQaOpen, setBulkQaOpen] = useState(false);
-  const [bulkQaInspectorId, setBulkQaInspectorId] = useState("");
-  const [inspectors, setInspectors] = useState<Cleaner[]>([]);
+  const scrollContent = useMemo(() => jobsScrollContentFingerprint(JSON.stringify([list.jobs, list.pagination.totalCount])), [list.jobs, list.pagination.totalCount]);
+  useJobsScrollRestoration({ context: viewsContext, viewKey: JSON.stringify([state, listQuery]), contentKey: scrollContent, ready: list.status === "success" });
 
-  function buildQuery(overrides?: Record<string, string>): URLSearchParams {
-    const params = new URLSearchParams({ paginated: "1" });
-    if (statusChip === "active" || statusChip === "completed") params.set("statusGroup", statusChip);
-    else if (statusChip !== "all") params.set("status", statusChip);
-    params.set("sort", sort);
-    if (jobType !== "all") params.set("jobType", jobType);
-    if (clientId !== "all") params.set("clientId", clientId);
-    if (propertyId !== "all") params.set("propertyId", propertyId);
-    if (cleanerId !== "all") params.set("cleanerId", cleanerId);
-    if (search.trim()) params.set("search", search.trim());
-    if (invoiced !== "all") params.set("invoiced", invoiced);
-    // An explicit from/to range overrides the scope-tab range.
-    if (dateFrom || dateTo) {
-      if (dateFrom) params.set("dateFrom", dateFrom);
-      if (dateTo) params.set("dateTo", dateTo);
-    } else {
-      const range = scopeRange(dateScope as DateScope);
-      if (range.dateFrom) params.set("dateFrom", range.dateFrom);
-      if (range.dateTo) params.set("dateTo", range.dateTo);
-    }
-    if (overrides) for (const [key, value] of Object.entries(overrides)) params.set(key, value);
-    return params;
-  }
-
-  const jobsQuery = buildQuery({ page: String(page), limit: String(PAGE_SIZE) }).toString();
-  const loadStatus = !ready || loadState.query !== jobsQuery ? "loading" : loadState.status;
-  const loading = loadStatus === "loading";
-  const scrollContent = useMemo(() => jobsScrollContentFingerprint(JSON.stringify([jobs, pagination.totalCount])), [jobs, pagination.totalCount]);
-  useJobsScrollRestoration({ context: viewsContext, viewKey: JSON.stringify([state, jobsQuery]), contentKey: scrollContent, ready: loadStatus === "success" });
-  const latestQuery = useRef(jobsQuery);
-  latestQuery.current = jobsQuery;
-  const requestId = useRef(0);
-  const requestedSearch = useRef<string | null>(null);
-
-  const inFlight = useRef(false);
-  const [refreshFailed, setRefreshFailed] = useState(false);
-
-  async function loadJobs(background = false) {
-    if (background && inFlight.current) return;
-    inFlight.current = true;
-    const query = latestQuery.current;
-    requestedSearch.current = new URLSearchParams(query).get("search") ?? "";
-    const id = ++requestId.current;
-    if (!background) setLoadState({ status: "loading", query });
-    let failureMessage = "Could not load jobs. Check your connection and retry.";
-    try {
-      const res = await fetch(`/api/jobs?${query}`, { cache: "no-store" });
-      if (!res.ok) {
-        failureMessage = res.status === 401 ? "Your session has expired. Sign in again to load jobs."
-          : res.status === 403 ? "This account does not have permission to view jobs."
-          : res.status === 503 ? "Jobs are temporarily unavailable. Please retry shortly. (503)"
-          : `The server could not load jobs. Please retry. (${res.status})`;
-        throw new Error("Jobs request failed");
-      }
-      failureMessage = "Jobs returned an unexpected response. Please retry.";
-      const data = jobsResponseSchema.parse(await res.json());
-      const resultPage = data.pagination;
-      if (resultPage.page !== Number(new URLSearchParams(query).get("page")) ||
-          resultPage.limit !== PAGE_SIZE || data.jobs.length > PAGE_SIZE ||
-          resultPage.totalPages !== Math.max(1, Math.ceil(resultPage.totalCount / resultPage.limit)) ||
-          resultPage.hasMore !== (resultPage.page < resultPage.totalPages)) {
-        throw new Error("Invalid jobs pagination.");
-      }
-      if (id !== requestId.current || query !== latestQuery.current) return;
-      setRefreshFailed(false);
-      setJobs(data.jobs);
-      setPagination(resultPage);
-      setLoadState({ status: "success", query });
-    } catch {
-      if (id !== requestId.current || query !== latestQuery.current) return;
-      if (background) setRefreshFailed(true);
-      else { setLoadError(failureMessage); setLoadState({ status: "error", query }); }
-    } finally {
-      if (id === requestId.current) inFlight.current = false;
-    }
-  }
-
+  // Selection: cleared when the filters change, trimmed to the rows on screen.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const filterSignature = JSON.stringify(pickJobsFilters(state));
+  useEffect(() => setSelected(new Set()), [filterSignature]);
+  const visibleJobs: JobListRow[] = useMemo(
+    () => (state.view === "board" ? board.board?.lanes.flatMap((lane) => lane.jobs) ?? [] : list.jobs),
+    [state.view, board.board, list.jobs],
+  );
   useEffect(() => {
-    if (!ready) return;
-    const nextSearch = new URLSearchParams(jobsQuery).get("search") ?? "";
-    // Restored URLs load immediately; typing coalesces into one request.
-    const delay = requestedSearch.current !== null && requestedSearch.current !== nextSearch ? 300 : 0;
-    const timer = delay ? window.setTimeout(() => { void loadJobs(); }, delay) : undefined;
-    if (!delay) void loadJobs();
-    return () => {
-      window.clearTimeout(timer);
-      requestId.current += 1;
-    };
+    if (state.view === "list" ? list.status !== "success" : board.status !== "success") return;
+    const allowed = new Set(visibleJobs.map((job) => job.id));
+    setSelected((current) => {
+      const next = new Set(Array.from(current).filter((id) => allowed.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [visibleJobs, state.view, list.status, board.status]);
+  const selectedIds = useMemo(() => Array.from(selected), [selected]);
+
+  const [assignJob, setAssignJob] = useState<JobListRow | null>(null);
+  const [statusRequest, setStatusRequest] = useState<StatusChangeRequest | null>(null);
+  const [remindIds, setRemindIds] = useState<string[] | null>(null);
+  const [cancelRequest, setCancelRequest] = useState<{ jobIds: string[]; label?: string } | null>(null);
+
+  const refreshAll = useCallback(() => {
+    list.reload();
+    if (state.view === "board") board.reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, jobsQuery]);
+  }, [list.reload, board.reload, state.view]);
 
-  useEffect(() => {
-    if (!ready) return;
-    const refresh = () => {
-      if (document.visibilityState === "visible") void loadJobs(true);
-    };
-    const timer = window.setInterval(refresh, 15_000);
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-    // Reads the latest query and rejects obsolete responses inside loadJobs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
-
-  useEffect(() => {
-    fetch("/api/admin/clients")
-      .then((r) => r.json().catch(() => []))
-      .then((rows) => {
-        const next = Array.isArray(rows)
-          ? rows
-              .map((row: any) => ({ id: String(row.id ?? ""), name: String(row.name ?? "").trim() }))
-              .filter((row: { id: string }) => row.id)
-          : [];
-        setClients(next);
-      })
-      .catch(() => setClients([]));
-
-    fetch("/api/admin/properties?includeOneOff=1")
-      .then((r) => r.json().catch(() => []))
-      .then((rows) => {
-        const next = Array.isArray(rows)
-          ? rows
-              .map((row: any) => ({
-                id: String(row.id ?? ""),
-                name: String(row.name ?? "").trim(),
-                suburb: String(row.suburb ?? "").trim(),
-              }))
-              .filter((row: { id: string }) => row.id)
-          : [];
-        setProperties(next);
-      })
-      .catch(() => setProperties([]));
-  }, []);
-
-  // QA roster for the bulk "Assign QA" action — same eligibility rule as the
-  // job-detail QaAssignPanel: active QA inspectors + ops managers.
-  useEffect(() => {
-    Promise.all(
-      ["QA_INSPECTOR", "OPS_MANAGER"].map((role) =>
-        fetch(`/api/admin/users?role=${role}`)
-          .then((r) => r.json().catch(() => []))
-          .then((rows) => (Array.isArray(rows) ? rows : []))
-          .catch(() => [])
-      )
-    )
-      .then(([qaRows, opsRows]) => {
-        const next = [...qaRows, ...opsRows.map((row: any) => ({ ...row, name: `${row.name ?? row.email ?? ""} (Ops)` }))]
-          .map((row: any) => ({
-            id: String(row.id ?? ""),
-            name: String(row.name ?? row.email ?? "").trim(),
-            email: String(row.email ?? "").trim(),
-          }))
-          .filter((row: Cleaner) => row.id);
-        setInspectors(next);
-      })
-      .catch(() => setInspectors([]));
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/admin/users?role=CLEANER")
-      .then((r) => r.json().catch(() => []))
-      .then((rows) => {
-        const next = Array.isArray(rows)
-          ? rows
-              .map((row: any) => ({
-                id: String(row.id ?? ""),
-                name: String(row.name ?? row.email ?? "").trim(),
-                email: String(row.email ?? "").trim(),
-              }))
-              .filter((row: Cleaner) => row.id)
-          : [];
-        setCleaners(next);
-      })
-      .catch(() => setCleaners([]));
-  }, []);
-
-  const filteredJobs = jobs;
-
-  useEffect(() => {
-    const allowed = new Set(filteredJobs.map((job) => job.id));
-    setSelectedIds((current) => current.filter((id) => allowed.has(id)));
-  }, [filteredJobs]);
-
-  const allSelected = filteredJobs.length > 0 && filteredJobs.every((job) => selectedIds.includes(job.id));
-
-  function toggleSelect(jobId: string) {
-    setSelectedIds((current) => (current.includes(jobId) ? current.filter((id) => id !== jobId) : [...current, jobId]));
-  }
-
-  function toggleSelectAll() {
-    if (filteredJobs.length === 0) return;
-    setSelectedIds(allSelected ? [] : filteredJobs.map((job) => job.id));
-  }
-
-  function openAssign(job: any) {
-    setAssignJob(job);
-    setAssignSelected([]);
-  }
-
-  async function submitAssign() {
-    if (!assignJob?.id || assignSelected.length === 0) {
-      toast({ title: "Select at least one cleaner.", variant: "destructive" });
-      return;
-    }
-    setAssignSubmitting(true);
-    try {
-      const res = await fetch(`/api/admin/jobs/${assignJob.id}/assign`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userIds: assignSelected, primaryUserId: assignSelected[0] }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error ?? "Could not assign job.");
-      toast({ title: "Assigned", description: `${assignSelected.length} cleaner(s) assigned.` });
-      setAssignJob(null);
-      await loadJobs();
-    } catch (err: any) {
-      toast({ title: "Assign failed", description: err?.message ?? "Could not assign job.", variant: "destructive" });
-    } finally {
-      setAssignSubmitting(false);
-    }
-  }
-
-  async function submitBulkAssign() {
-    if (selectedIds.length === 0 || !bulkCleanerId) {
-      toast({ title: "Select jobs and a cleaner first.", variant: "destructive" });
-      return;
-    }
-    setBulkSubmitting(true);
-    try {
-      const res = await fetch("/api/admin/jobs/bulk-assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobIds: selectedIds, cleanerUserId: bulkCleanerId }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error ?? "Could not bulk assign jobs.");
-      toast({ title: "Bulk assignment complete", description: `${body.updated ?? selectedIds.length} jobs updated.` });
-      setBulkAssignOpen(false);
-      setSelectedIds([]);
-      await loadJobs();
-    } catch (err: any) {
-      toast({ title: "Bulk assign failed", description: err?.message ?? "Request failed.", variant: "destructive" });
-    } finally {
-      setBulkSubmitting(false);
-    }
-  }
-
-  async function submitBulkReminders() {
-    if (selectedIds.length === 0) return;
-    setBulkSubmitting(true);
-    try {
-      // Client-side loop per job — the route rejects non-remindable states
-      // (409) so those report as clean skips rather than failures.
-      let remindedJobs = 0;
-      let remindedCleaners = 0;
-      let skipped = 0;
-      let failed = 0;
-      for (const jobId of selectedIds) {
-        try {
-          const res = await fetch(`/api/admin/jobs/${jobId}/remind`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ method: bulkRemindMethod }),
-          });
-          const body = await res.json().catch(() => ({}));
-          if (res.ok) {
-            remindedJobs += 1;
-            remindedCleaners += Array.isArray(body?.sent) ? body.sent.length : 0;
-          } else if (res.status === 409 || body?.notRemindable) {
-            skipped += 1;
-          } else {
-            failed += 1;
-          }
-        } catch {
-          failed += 1;
-        }
-      }
-      toast({
-        title: "Bulk reminders complete",
-        description: `Reminded ${remindedJobs} job${remindedJobs === 1 ? "" : "s"} (${remindedCleaners} cleaner${
-          remindedCleaners === 1 ? "" : "s"
-        })${skipped > 0 ? `, skipped ${skipped} (not in a remindable state)` : ""}${failed > 0 ? `, ${failed} failed` : ""}.`,
-        variant: remindedJobs === 0 && failed > 0 ? "destructive" : undefined,
-      });
-      setBulkRemindOpen(false);
-      setSelectedIds([]);
-    } finally {
-      setBulkSubmitting(false);
-    }
-  }
-
-  async function submitBulkQaAssign() {
-    if (selectedIds.length === 0 || !bulkQaInspectorId) {
-      toast({ title: "Select jobs and an inspector first.", variant: "destructive" });
-      return;
-    }
-    setBulkSubmitting(true);
-    try {
-      const res = await fetch("/api/admin/qa/assignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobIds: selectedIds, assignedToId: bulkQaInspectorId }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error ?? "Could not create QA assignments.");
-      const created = body.created ?? selectedIds.length;
-      const skippedCount = selectedIds.length - created;
-      toast({
-        title: "QA assignments created",
-        description: `${created} inspection${created === 1 ? "" : "s"} assigned${
-          skippedCount > 0 ? `, ${skippedCount} skipped` : ""
-        }.`,
-      });
-      setBulkQaOpen(false);
-      setSelectedIds([]);
-    } catch (err: any) {
-      toast({ title: "Assign QA failed", description: err?.message ?? "Request failed.", variant: "destructive" });
-    } finally {
-      setBulkSubmitting(false);
-    }
-  }
-
-  const hasActiveFilters =
-    search.trim() !== "" || statusChip !== "all" || dateScope !== "all" ||
-    jobType !== "all" ||
-    clientId !== "all" ||
-    propertyId !== "all" ||
-    cleanerId !== "all" ||
-    invoiced !== "all" ||
-    Boolean(dateFrom) ||
-    Boolean(dateTo);
-
-  function resetFilters() {
-    update({ search: "", statusChip: "all", dateScope: "all", jobType: "all", clientId: "all", propertyId: "all", cleanerId: "all",
-      invoiced: "all", dateFrom: "", dateTo: "" });
-  }
-
-  // List view: agenda-style Sydney-day groups (input order = server sort order).
-  const listGroups = useMemo(() => groupJobsBySydneyDay(filteredJobs, new Date()), [filteredJobs]);
-
-  const boardLanes = useMemo(
-    () =>
-      BOARD_LANES.map((lane) => ({
-        ...lane,
-        jobs: filteredJobs.filter((job) => lane.statuses.includes(String(job?.status ?? ""))),
-      })),
-    [filteredJobs]
+  const openPeek = useCallback((job: JobListRow) => setOpenJobId(job.id), [setOpenJobId]);
+  const menuItems = useCallback(
+    (job: JobListRow) => jobRowMenuItems(job, {
+      onPreview: openPeek,
+      onChangeStatus: (row) => setStatusRequest({ jobIds: [row.id], title: `Change status · ${row.property?.name ?? "job"}` }),
+      onRemind: (row) => setRemindIds([row.id]),
+      onCancel: (row) => setCancelRequest({ jobIds: [row.id], label: row.property?.name ?? undefined }),
+    }, viewsReadOnly),
+    [openPeek, viewsReadOnly],
   );
 
+  function dropToLane(job: JobListRow, lane: JobsBoardLane) {
+    setStatusRequest({
+      jobIds: [job.id],
+      statuses: lane.statuses,
+      title: `Move ${job.property?.name ?? "job"} to ${lane.label}`,
+    });
+  }
+
+  const openRow = openJobId ? visibleJobs.find((job) => job.id === openJobId) ?? list.jobs.find((job) => job.id === openJobId) ?? null : null;
+  const canSaveView = Boolean(viewsContext) && !viewsReadOnly && Boolean(savedViews.data) && !savedViews.busy && !columnsError && (savedViews.data?.views.length ?? 0) < 20;
+
   return (
-    <div className="space-y-5">
-      {showPageHeader ? <EPageHeader className="[&>div:first-child>div:last-child]:ml-auto" eyebrow="Operations" title="Jobs"
-        description="Every engagement across the portfolio — scheduled, in motion, and settled."
-        actions={<div className="flex items-center gap-2">
-          <EButton variant="gold" asChild><Link href="/v2/admin/jobs/new"><Plus className="h-4 w-4" /> New / Bulk</Link></EButton>
-          <JobsViewOptionsMenu onOpen={() => setViewOptionsOpen(true)} />
-        </div>} /> : <div className="flex justify-end"><JobsViewOptionsMenu onOpen={() => setViewOptionsOpen(true)} /></div>}
-      <section hidden={!viewOptionsOpen} aria-labelledby="jobs-view-options-title"
-        className="space-y-5 rounded-lg border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4 sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 id="jobs-view-options-title" ref={viewOptionsTitle} tabIndex={-1} className="e-serif text-xl">View options</h2>
-            <p className="mt-1 text-sm text-[hsl(var(--e-muted-foreground))]">Customise your layout, save personal views and manage the team default.</p>
-          </div>
-          <EButton variant="ghost" size="sm" onClick={() => { setViewOptionsOpen(false); document.querySelector<HTMLButtonElement>('[aria-label="Jobs options"]')?.focus(); }}>Done</EButton>
-        </div>
-        <h3 className="text-sm font-semibold">Layout and appearance</h3>
-      {/* Display tools stay separate from filtering. */}
-      <div className="flex flex-wrap items-center gap-3">
-        <select
-          value={sort}
-          onChange={(event) => setSort(event.target.value as JobSort)}
-          aria-label="Sort jobs"
-          className={FIELD_CLS + " !w-auto min-w-[180px] cursor-pointer"}
-        >
-          {SORT_OPTIONS.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-
-        <select aria-label="Jobs density" value={density} onChange={event => update({ density: event.target.value })}
-          className={FIELD_CLS + " !w-auto cursor-pointer"}>
-          <option value="compact">Compact</option><option value="default">Default density</option><option value="comfortable">Comfortable</option>
-        </select>
-        <JobsColumnsMenu columns={columns} onChange={value => update({ columns: value })} />
-
-        <div className="flex items-center gap-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] p-0.5">
-          <button
-            type="button"
-            aria-label="List view"
-            aria-pressed={view === "list"}
-            onClick={() => setView("list")}
-            className={
-              "rounded-[var(--e-radius-sm)] p-2 transition-colors duration-[160ms] " +
-              (view === "list"
-                ? "bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]"
-                : "text-[hsl(var(--e-text-faint))] hover:text-[hsl(var(--e-foreground))]")
-            }
-          >
-            <Rows3 className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Board view"
-            aria-pressed={view === "board"}
-            onClick={() => setView("board")}
-            className={
-              "rounded-[var(--e-radius-sm)] p-2 transition-colors duration-[160ms] " +
-              (view === "board"
-                ? "bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]"
-                : "text-[hsl(var(--e-text-faint))] hover:text-[hsl(var(--e-foreground))]")
-            }
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </button>
-        </div>
-
-        <EButton variant="ghost" size="sm" onClick={() => update({ view: DEFAULT_JOBS_STATE.view, density: DEFAULT_JOBS_STATE.density, columns: { ...DEFAULT_JOBS_STATE.columns }, sort: DEFAULT_JOBS_STATE.sort })}>Reset appearance</EButton>
-      </div>
-
-        <p className="text-xs text-[hsl(var(--e-muted-foreground))]">List columns apply to list view. Reset appearance keeps your current filters.</p>
-        <h3 className="text-sm font-semibold">Saved views and defaults</h3>
-      {viewsContext ? <SavedViewsControls key={viewsContext} context={viewsContext} readOnly={viewsReadOnly}
-        state={state} apply={update} applyDefault={applyDefault} snapshotInvalid={columnsError} teamDefaultsEnabled={teamDefaultsEnabled} /> : null}
-      {columnsError ? <p role="alert" className="text-sm text-red-700">Invalid columns in this link. Choose list columns or reset the view before saving.</p> : null}
-      </section>
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-[hsl(var(--e-muted-foreground))]">{view === "board" ? "Board" : "List"} view · {density === "default" ? "Standard" : density === "compact" ? "Compact" : "Comfortable"} spacing</p>
-        <JobsExportPreview query={buildQuery({ page: "1", limit: "5000" }).toString()} context={viewsContext} disabled={!ready} />
-      </div>
-
-      <details ref={filtersPanel} onToggle={(event) => {
-        if (!filtersStorageKey.current) return;
-        try { localStorage.setItem(filtersStorageKey.current, String(event.currentTarget.open)); } catch { /* Keep native disclosure usable when storage is blocked. */ }
-      }} className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-          <SlidersHorizontal className="mr-2 inline h-4 w-4" aria-hidden />
-          Filters · {hasActiveFilters ? "Filtered view" : "All jobs"}
-        </summary>
-        <div className="space-y-4 border-t border-[hsl(var(--e-border))] p-4">
-          <div className="flex flex-wrap items-center gap-3">
-        <div className="flex flex-wrap items-center gap-1 rounded-[var(--e-radius)] bg-[hsl(var(--e-muted))] p-1">
-          {DATE_SCOPES.map((scope) => (
-            <button
-              key={scope.id}
-              type="button"
-              aria-pressed={!dateFrom && !dateTo && dateScope === scope.id}
-              onClick={() => setDateScope(scope.id)}
-              className={
-                "rounded-[var(--e-radius-sm)] px-3.5 py-1.5 text-[0.8125rem] font-[550] transition-colors duration-[160ms] " +
-                (!dateFrom && !dateTo && dateScope === scope.id
-                  ? "bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] shadow-[var(--e-elevation-1)]"
-                  : "text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]")
-              }
-            >
-              {scope.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="relative min-w-[220px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
-          <input
-            aria-label="Search jobs"
-            value={search}
-            maxLength={200}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search property, client, cleaner, job number…"
-            className={FIELD_CLS + " pl-9"}
-          />
-        </div>
-
-          </div>
-      {/* ── Status chips ── */}
-      <div className="flex flex-wrap items-center gap-2">
-        {STATUS_CHIPS.map((chip) => {
-          const active = statusChip === chip.id;
-          return (
-            <button
-              key={chip.id}
-              type="button"
-              aria-pressed={active}
-              onClick={() => setStatusChip(chip.id)}
-              className={
-                "rounded-[var(--e-radius-pill)] border px-3.5 py-1.5 text-[0.75rem] font-[550] tracking-[0.02em] transition-colors duration-[160ms] " +
-                (active
-                  ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]"
-                  : "border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-text-secondary))] hover:border-[hsl(var(--e-gold))] hover:text-[hsl(var(--e-foreground))]")
-              }
-            >
-              {chip.label}
-            </button>
-          );
-        })}
-        {loadStatus === "success" && <span className="ml-auto text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-          <span className="e-numeral text-[0.9375rem] text-[hsl(var(--e-foreground))]">{pagination.totalCount}</span>{" "}
-          job{pagination.totalCount !== 1 ? "s" : ""}
-        </span>}
-      </div>
-
-      <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 [&>label]:min-w-0 [&_select]:!w-full [&_select]:!min-w-0 [&_input]:!w-full [&_input]:!min-w-0">
-        <label className="flex flex-col gap-1">
-          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Job type</span>
-          <select
-            value={jobType}
-            onChange={(event) => setJobType(event.target.value)}
-            aria-label="Filter by job type"
-            className={FIELD_CLS + " w-auto min-w-[160px] cursor-pointer"}
-          >
-            <option value="all">All types</option>
-            {JOB_TYPE_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Client</span>
-          <select
-            value={clientId}
-            onChange={(event) => setClientId(event.target.value)}
-            aria-label="Filter by client"
-            className={FIELD_CLS + " w-auto min-w-[160px] cursor-pointer"}
-          >
-            <option value="all">All clients</option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name || client.id}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Property</span>
-          <select
-            value={propertyId}
-            onChange={(event) => setPropertyId(event.target.value)}
-            aria-label="Filter by property"
-            className={FIELD_CLS + " w-auto min-w-[160px] cursor-pointer"}
-          >
-            <option value="all">All properties</option>
-            {properties.map((property) => (
-              <option key={property.id} value={property.id}>
-                {property.name || property.id}
-                {property.suburb ? ` · ${property.suburb}` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">
-            Cleaner
-          </span>
-          <select
-            value={cleanerId}
-            onChange={(event) => setCleanerId(event.target.value)}
-            aria-label="Filter by assigned cleaner"
-            className={FIELD_CLS + " w-auto min-w-[160px] cursor-pointer"}
-          >
-            <option value="all">Any cleaner</option>
-            <option value="unassigned">Nobody assigned</option>
-            {cleaners.map((cleaner) => (
-              <option key={cleaner.id} value={cleaner.id}>
-                {cleaner.name || cleaner.email || cleaner.id}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">From</span>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(event) => setDateFrom(event.target.value)}
-            aria-label="Scheduled from date"
-            className={FIELD_CLS + " w-auto min-w-[150px] cursor-pointer"}
-          />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">To</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(event) => setDateTo(event.target.value)}
-            aria-label="Scheduled to date"
-            className={FIELD_CLS + " w-auto min-w-[150px] cursor-pointer"}
-          />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-[0.6875rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Invoice</span>
-          <select
-            value={invoiced}
-            onChange={(event) => setInvoiced(event.target.value as InvoiceFilter)}
-            aria-label="Filter by invoice status"
-            className={FIELD_CLS + " w-auto min-w-[160px] cursor-pointer"}
-          >
-            {INVOICE_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {hasActiveFilters ? (
-          <EButton variant="ghost" size="sm" onClick={resetFilters} className="self-center">
-            <X className="h-3.5 w-3.5" />
-            Clear filters
-          </EButton>
-        ) : null}
-        {(dateFrom || dateTo) ? (
-          <span className="self-center text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-            Custom range overrides the scope tabs.
-          </span>
-        ) : null}
-      </div>
-        </div>
-      </details>
-
-      {refreshFailed && <p role="status" className="text-sm">Live refresh unavailable. Showing the last loaded jobs; retrying automatically.</p>}
-      {/* ── Content ── */}
-      {loading ? (
-        <ECard className="px-6 py-16 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-          Preparing the ledger…
-        </ECard>
-      ) : loadStatus === "error" ? (
-        <ECard className="px-6 py-12 text-center">
-          <p role="alert" className="mb-4 text-[0.875rem]">{loadError}</p>
-          <EButton variant="outline" onClick={() => void loadJobs()}>
-            <RotateCw className="h-4 w-4" />
-            Retry
-          </EButton>
-        </ECard>
-      ) : filteredJobs.length === 0 ? (
-        <EEmptyState
-          eyebrow="Operations"
-          title="Nothing on the books"
-          description="No jobs match the current scope. Adjust the date range, status, or search."
+    <div className="lg:flex lg:items-start lg:gap-5">
+      <div className="min-w-0 flex-1 space-y-[14px]">
+        <JobsHeader
+          showTitle={showPageHeader}
+          status={list.status}
+          totalCount={list.pagination.totalCount}
+          loadedAt={list.loadedAt}
+          now={now}
+          refreshFailed={list.refreshFailed}
+          exportQuery={exportQuery}
+          exportDisabled={!ready}
+          viewsContext={viewsContext}
+          readOnly={viewsReadOnly}
+          onImported={refreshAll}
         />
-      ) : view === "list" ? (
-        // overflow-clip (not hidden) keeps the rounded-corner clipping without
-        // creating a scroll container, so the sticky day headers can stick.
-        <ECard className="overflow-clip">
-          {/* header rule with select-all */}
-          <div className="flex items-center gap-4 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised)/0.5)] px-5 py-2.5">
-            <ECheck checked={allSelected} onChange={toggleSelectAll} label="Select all jobs" />
-            <EEyebrow className="text-[0.5625rem]">
-              {selectedIds.length > 0 ? `${selectedIds.length} selected` : "Engagements"}
-            </EEyebrow>
-          </div>
-          {listGroups.map((group) => (
-            <div key={group.dayKey}>
-              {/* Sticky agenda day header */}
-              <div className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-5 py-2">
-                <span className="text-[0.6875rem] font-[600] uppercase tracking-[0.08em] text-[hsl(var(--e-text-secondary))]">
-                  {group.label}
-                </span>
-                <span className="e-numeral rounded-[var(--e-radius-pill)] bg-[hsl(var(--e-muted))] px-2 py-0.5 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
-                  {group.jobs.length}
-                </span>
-              </div>
-              <div className="divide-y divide-[hsl(var(--e-border))]">
-                {group.jobs.map((job) => (
-                  <EJobRow
-                    columns={columns}
-                    density={density as JobsDensity}
-                    key={job.id}
-                    job={job}
-                    selected={selectedIds.includes(job.id)}
-                    onToggleSelect={toggleSelect}
-                    onQuickAssign={openAssign}
-                    onManage={openManage}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </ECard>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {boardLanes.map((lane) => (
-            <div key={lane.id} className="min-w-0">
-              <div className="mb-3 flex items-baseline justify-between border-b border-[hsl(var(--e-border))] pb-2">
-                <EEyebrow>{lane.label}</EEyebrow>
-                <span className="e-numeral text-[1rem]">{lane.jobs.length}</span>
-              </div>
-              <div className="space-y-2.5">
-                {lane.jobs.map((job) => (
-                  <EBoardCard
-                    density={density as JobsDensity}
-                    key={job.id}
-                    job={job}
-                    selected={selectedIds.includes(job.id)}
-                    onToggleSelect={toggleSelect}
-                    onQuickAssign={openAssign}
-                    onManage={openManage}
-                  />
-                ))}
-                {lane.jobs.length === 0 ? (
-                  <div className="rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border-strong))] px-4 py-8 text-center text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-                    Empty
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+        <JobsViewTabs
+          state={state}
+          update={update}
+          counts={list.counts}
+          savedCounts={savedCounts}
+          savedViews={viewsContext ? savedViews : null}
+          selectedSavedId={selectedSavedId}
+          onSelectSaved={setSelectedSavedId}
+          onSaveView={() => { setCreateRequest((value) => value + 1); }}
+          canSave={canSaveView}
+        />
+        <JobsFilterBar state={state} update={update} reference={reference} optionsOpen={optionsOpen} onToggleOptions={() => setOptionsOpen((open) => !open)} />
+        <JobsViewOptions
+          open={optionsOpen}
+          onClose={() => setOptionsOpen(false)}
+          state={state}
+          update={update}
+          applyDefault={applyDefault}
+          columnsError={columnsError}
+          viewsContext={viewsContext}
+          viewsReadOnly={viewsReadOnly}
+          teamDefaultsEnabled={teamDefaultsEnabled}
+          savedViews={viewsContext ? savedViews : null}
+          selectedSavedId={selectedSavedId}
+          onSelectSaved={setSelectedSavedId}
+          createRequest={createRequest}
+        />
 
-      {/* ── Pagination ── */}
-      {loadStatus === "success" && pagination.totalPages > 1 ? (
-        <div className="flex items-center justify-between">
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            Page <span className="e-numeral">{pagination.page}</span> of{" "}
-            <span className="e-numeral">{pagination.totalPages}</span>
-          </p>
-          <div className="flex items-center gap-2">
-            <EButton variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => update({ page: page - 1 })}>
-              <ChevronLeft className="h-3.5 w-3.5" />
-              Previous
-            </EButton>
-            <EButton variant="outline" size="sm" disabled={!pagination.hasMore || loading} onClick={() => update({ page: page + 1 })}>
-              Next
-              <ChevronRight className="h-3.5 w-3.5" />
-            </EButton>
-          </div>
-        </div>
-      ) : null}
+        {list.refreshFailed && state.view === "list" ? (
+          <p role="status" className="text-[0.8125rem]">Live refresh unavailable. Showing the last loaded jobs; retrying automatically.</p>
+        ) : null}
 
-      {/* ── Bulk action bar ── */}
-      {loadStatus === "success" && selectedIds.length > 0 ? (
-        // Floats clear of the mobile tab bar (4.75rem) plus the home
-        // indicator; `flex-wrap` made it grow into a tall block that covered
-        // the rows it acts on, so the actions scroll sideways instead.
-        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] left-1/2 z-40 flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-3 overflow-x-auto rounded-[var(--e-radius-xl)] border border-[hsl(var(--e-border-gold)/0.5)] bg-[hsl(var(--e-surface)/0.96)] px-5 py-3 shadow-[var(--e-elevation-3)] backdrop-blur lg:bottom-6">
-          <p className="text-[0.875rem]">
-            <span className="e-numeral text-[1rem]">{selectedIds.length}</span> selected
-          </p>
-          <EButton size="sm" variant="gold" onClick={() => setBulkAssignOpen(true)}>
-            <UserRoundPlus className="h-3.5 w-3.5" />
-            Bulk assign
-          </EButton>
-          <EButton size="sm" variant="outline" onClick={() => setBulkStatusOpen(true)}>
-            Change status
-          </EButton>
-          <EButton size="sm" variant="outline" onClick={() => setBulkRemindOpen(true)}>
-            <BellRing className="h-3.5 w-3.5" />
-            Send reminders
-          </EButton>
-          <EButton size="sm" variant="outline" onClick={() => setBulkQaOpen(true)}>
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Assign QA
-          </EButton>
-          <EButton size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
-            Clear
-          </EButton>
-        </div>
-      ) : null}
+        {state.view === "board" ? (
+          <JobsBoard
+            data={board}
+            density={state.density as JobsDensityValue}
+            selected={selected}
+            activeJobId={openJobId}
+            readOnly={viewsReadOnly}
+            onToggleSelect={(id) => setSelected((current) => {
+              const next = new Set(current);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            })}
+            onOpen={openPeek}
+            onQuickAssign={setAssignJob}
+            menuItems={menuItems}
+            onDropToLane={dropToLane}
+          />
+        ) : list.status === "error" ? (
+          <ECard className="px-6 py-12 text-center">
+            <p role="alert" className="mb-4 text-[0.875rem]">{list.error}</p>
+            <EButton variant="outline" onClick={list.reload}>Retry</EButton>
+          </ECard>
+        ) : (
+          <ECard className="overflow-hidden">
+            <JobsTable
+              jobs={loading ? [] : list.jobs}
+              columns={state.columns}
+              density={state.density as JobsDensityValue}
+              sort={tableSortFromState(state.sort)}
+              onSortChange={(sort) => update({ sort: stateSortFromTable(sort) })}
+              selected={selected}
+              onSelectionChange={setSelected}
+              activeJobId={openJobId}
+              onOpen={openPeek}
+              onQuickAssign={setAssignJob}
+              menuItems={menuItems}
+              loading={loading}
+              staleError={null}
+              onRetry={list.reload}
+            />
+          </ECard>
+        )}
 
-      {/* ── Quick assign ── */}
-      <EModal open={Boolean(assignJob)} title="Assign cleaners" busy={assignSubmitting} onClose={() => setAssignJob(null)}>
-        <div className="space-y-4">
-          <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted)/0.5)] p-3">
-            <p className="e-serif text-[0.9375rem] font-[520]">{assignJob?.property?.name ?? "Unassigned job"}</p>
-            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-              {String(assignJob?.jobType ?? "").replace(/_/g, " ").toLowerCase() || "job"} ·{" "}
-              {scheduledLabel(assignJob?.scheduledDate, "dd MMM yyyy")}
-              {assignJob?.startTime ? ` · ${assignJob.startTime}` : ""}
-            </p>
-          </div>
-          <div className="max-h-64 space-y-1 overflow-y-auto">
-            {cleaners.length === 0 ? (
-              <p className="py-4 text-center text-[0.8125rem] text-[hsl(var(--e-text-faint))]">No active cleaner accounts.</p>
-            ) : (
-              cleaners.map((cleaner) => {
-                const checked = assignSelected.includes(cleaner.id);
-                return (
-                  <button
-                    key={cleaner.id}
-                    type="button"
-                    onClick={() =>
-                      setAssignSelected((current) =>
-                        checked ? current.filter((id) => id !== cleaner.id) : [...current, cleaner.id]
-                      )
-                    }
-                    className={
-                      "flex w-full items-center gap-3 rounded-[var(--e-radius)] border px-3 py-2 text-left transition-colors duration-[160ms] " +
-                      (checked
-                        ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))]"
-                        : "border-transparent hover:bg-[hsl(var(--e-muted))]")
-                    }
-                  >
-                    <ECheck checked={checked} onChange={() => {}} label={cleaner.name} />
-                    <span className="min-w-0">
-                      <span className="block truncate text-[0.875rem] font-[550]">{cleaner.name || cleaner.email}</span>
-                      <span className="block truncate text-[0.75rem] text-[hsl(var(--e-text-faint))]">{cleaner.email}</span>
-                    </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-          <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-            <EButton variant="outline" onClick={() => setAssignJob(null)} disabled={assignSubmitting}>
-              Cancel
-            </EButton>
-            <EButton variant="gold" onClick={submitAssign} disabled={assignSubmitting || assignSelected.length === 0}>
-              {assignSubmitting ? "Assigning…" : `Assign${assignSelected.length > 0 ? ` (${assignSelected.length})` : ""}`}
-            </EButton>
-          </div>
-        </div>
-      </EModal>
+        {state.view === "list" && list.status === "success" && list.pagination.totalPages > 1 ? (
+          <EPagination page={list.pagination.page} pageSize={JOBS_PAGE_SIZE} total={list.pagination.totalCount} noun="jobs"
+            onPageChange={(page) => update({ page })} disabled={loading} />
+        ) : null}
 
-      {/* ── Bulk assign ── */}
-      <EModal open={bulkAssignOpen} title="Bulk assign cleaner" busy={bulkSubmitting} onClose={() => setBulkAssignOpen(false)}>
-        <div className="space-y-4">
-          <div>
-            <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Cleaner</p>
-            <select value={bulkCleanerId} onChange={(event) => setBulkCleanerId(event.target.value)} className={FIELD_CLS + " cursor-pointer"}>
-              <option value="">Choose cleaner…</option>
-              {cleaners.map((cleaner) => (
-                <option key={cleaner.id} value={cleaner.id}>
-                  {cleaner.name || cleaner.email}
-                </option>
-              ))}
-            </select>
-          </div>
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            Assigns this cleaner to the {selectedIds.length} selected jobs; unassigned jobs move to Assigned.
-          </p>
-          <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-            <EButton variant="outline" onClick={() => setBulkAssignOpen(false)} disabled={bulkSubmitting}>
-              Cancel
-            </EButton>
-            <EButton variant="gold" onClick={submitBulkAssign} disabled={bulkSubmitting || !bulkCleanerId}>
-              {bulkSubmitting ? "Applying…" : "Apply assignment"}
-            </EButton>
-          </div>
-        </div>
-      </EModal>
+        <JobsBulk
+          selectedIds={selectedIds}
+          cleaners={reference.cleaners}
+          inspectors={reference.inspectors}
+          exportQuery={buildJobsQuery(state, { page: "1", limit: "5000", ids: selectedIds.join(",") }).toString()}
+          viewsContext={viewsContext}
+          readOnly={viewsReadOnly}
+          onClear={() => setSelected(new Set())}
+          onChangeStatus={() => setStatusRequest({ jobIds: selectedIds })}
+          onCancelJobs={() => setCancelRequest({ jobIds: selectedIds })}
+          onDone={(keep) => { setSelected(new Set(keep)); refreshAll(); }}
+        />
+      </div>
 
-      {/* ── Bulk reminders ── */}
-      <EModal open={bulkRemindOpen} title="Send reminders" busy={bulkSubmitting} onClose={() => setBulkRemindOpen(false)}>
-        <div className="space-y-4">
-          <div>
-            <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Method</p>
-            <select
-              value={bulkRemindMethod}
-              onChange={(event) => setBulkRemindMethod(event.target.value as "PUSH" | "EMAIL")}
-              className={FIELD_CLS + " cursor-pointer"}
-            >
-              <option value="PUSH">Push notification</option>
-              <option value="EMAIL">Email</option>
-            </select>
-          </div>
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            Reminds the assigned cleaners on the {selectedIds.length} selected jobs to finish and
-            submit their checklist. Jobs that aren&apos;t paused, in progress, or submitted are skipped.
-          </p>
-          <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-            <EButton variant="outline" onClick={() => setBulkRemindOpen(false)} disabled={bulkSubmitting}>
-              Cancel
-            </EButton>
-            <EButton variant="gold" onClick={submitBulkReminders} disabled={bulkSubmitting}>
-              {bulkSubmitting ? "Sending…" : "Send reminders"}
-            </EButton>
-          </div>
-        </div>
-      </EModal>
+      <JobPeekPanel jobId={openJobId} row={openRow} readOnly={viewsReadOnly} onClose={() => setOpenJobId(null)} onChanged={refreshAll} />
 
-      {/* ── Bulk QA assign ── */}
-      <EModal open={bulkQaOpen} title="Assign QA inspections" busy={bulkSubmitting} onClose={() => setBulkQaOpen(false)}>
-        <div className="space-y-4">
-          <div>
-            <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Inspector</p>
-            <select
-              value={bulkQaInspectorId}
-              onChange={(event) => setBulkQaInspectorId(event.target.value)}
-              className={FIELD_CLS + " cursor-pointer"}
-            >
-              <option value="">Choose inspector…</option>
-              {inspectors.map((inspector) => (
-                <option key={inspector.id} value={inspector.id}>
-                  {inspector.name || inspector.email}
-                </option>
-              ))}
-            </select>
-          </div>
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            Creates a QA inspection for each of the {selectedIds.length} selected jobs, assigned to
-            this inspector.
-          </p>
-          <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-            <EButton variant="outline" onClick={() => setBulkQaOpen(false)} disabled={bulkSubmitting}>
-              Cancel
-            </EButton>
-            <EButton variant="gold" onClick={submitBulkQaAssign} disabled={bulkSubmitting || !bulkQaInspectorId}>
-              {bulkSubmitting ? "Assigning…" : "Assign QA"}
-            </EButton>
-          </div>
-        </div>
-      </EModal>
-
-      {/* ── Bulk status ── */}
-      <EModal open={bulkStatusOpen} title="Bulk change status" busy={bulkSubmitting} onClose={() => setBulkStatusOpen(false)}>
-        <div className="space-y-4">
-          <div>
-            <p className="mb-1.5 text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Status</p>
-            <select aria-label="Bulk status" disabled={bulkSubmitting} value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value)} className={FIELD_CLS + " cursor-pointer"}>
-              {BULK_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {statusLabel(status)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            Applies this status to the {selectedIds.length} selected jobs.
-          </p>
-          {viewsContext && !viewsReadOnly ? <BulkStatusPreviewControls jobIds={selectedIds} status={bulkStatus} context={viewsContext} onBusy={setBulkSubmitting} onApplied={() => {
-            toast({ title: "Bulk status update complete", description: `${selectedIds.length} jobs updated.` });
-            setBulkStatusOpen(false); setSelectedIds([]); void loadJobs();
-          }} /> : <p role="alert">Reload Jobs outside read-only mode to review and apply changes.</p>}
-          <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-            <EButton variant="outline" onClick={() => setBulkStatusOpen(false)} disabled={bulkSubmitting}>
-              Cancel
-            </EButton>
-          </div>
-        </div>
-      </EModal>
+      <QuickAssignDialog job={assignJob} cleaners={reference.cleaners} onClose={() => setAssignJob(null)}
+        onAssigned={() => { setAssignJob(null); refreshAll(); }} />
+      <JobStatusDialog
+        request={statusRequest}
+        viewsContext={viewsContext}
+        readOnly={viewsReadOnly}
+        onClose={() => setStatusRequest(null)}
+        onApplied={(count) => {
+          toast({ title: "Status updated", description: `${count} job${count === 1 ? "" : "s"} moved to the reviewed status.` });
+          setStatusRequest(null);
+          setSelected(new Set());
+          refreshAll();
+        }}
+      />
+      <CancelJobDialog open={cancelRequest !== null} jobIds={cancelRequest?.jobIds ?? []} label={cancelRequest?.label}
+        onClose={() => setCancelRequest(null)}
+        onDone={(remaining) => { setSelected(new Set(remaining)); refreshAll(); }} />
+      <BulkRemindDialog open={remindIds !== null} jobIds={remindIds ?? []} onClose={() => setRemindIds(null)} onFinished={() => refreshAll()} />
     </div>
   );
 }
+

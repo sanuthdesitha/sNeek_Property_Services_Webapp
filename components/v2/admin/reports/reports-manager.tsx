@@ -1,225 +1,237 @@
 "use client";
 
-import { useRestorableState } from "@/hooks/use-restorable-state";
-
 /**
- * ESTATE reports manager — search, property + visibility filters, pagination,
- * visibility toggles, regenerate (with theme), PDF and delete. Same endpoints
- * as the legacy manager (/api/admin/reports, /api/admin/report-themes,
- * /api/admin/reports/[jobId]/*, /api/reports/[jobId]/download); new Estate UI.
+ * Client report PDFs manager (the last Insights tab): search, property,
+ * visibility and sort filters, paging, client / cleaner / laundry visibility
+ * toggles, regenerate with a theme, PDF download and delete, plus bulk
+ * visibility / regenerate / delete on selected rows. Same endpoints as before
+ * (/api/admin/reports, /api/admin/report-themes, /api/admin/reports/[jobId]/*,
+ * /api/reports/[jobId]/download) and the bulk endpoint.
+ *
+ * Filters live in the URL (lib/reports/manager-query), so old links to
+ * /v2/admin/reports?q=… land here with their filters, and back/forward
+ * returns the list as it was. Reads are cancelled when the filters change and
+ * checked again after the body is parsed.
  */
-
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { format } from "date-fns";
-import { Check, ChevronLeft, ChevronRight, Download, FileText, Palette, RefreshCcw, Search, Trash2, X } from "lucide-react";
-import {
-  EBadge,
-  EButton,
-  ECard,
-  EEmptyState,
-} from "@/components/v2/ui/primitives";
-import { EModal } from "@/components/v2/admin/estate-kit";
+import * as React from "react";
+import { Palette, RefreshCcw, Search } from "lucide-react";
+import { EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
+import { EPagination } from "@/components/v2/ui/pagination";
+import { EConfirmModal } from "@/components/v2/admin/estate-kit";
 import { toast } from "@/hooks/use-toast";
 import { downloadFromApi } from "@/lib/client/download";
+import { DEFAULT_REPORT_FILTERS, type ReportManagerFilters } from "@/lib/reports/manager-query";
+import { ReportBulkActions, type BulkSummary } from "./report-bulk";
+import { ReportRowView } from "./report-row";
+import { ReportThemePicker } from "./report-theme-picker";
+import { DEFAULT_THEME_ID, errorText, isReportList, readThemes, type ReportListBody, type ReportRow, type ThemeOption, type VisibilityPatch } from "./report-types";
+import { useReportFilters } from "./use-report-filters";
 
 const INPUT_CLS =
   "h-9 w-full rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] px-3 " +
   "text-[0.8125rem] text-[hsl(var(--e-foreground))] outline-none transition-colors " +
   "focus:border-[hsl(var(--e-ring))] focus:ring-1 focus:ring-[hsl(var(--e-ring))]";
-
 const LABEL_CLS = "text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--e-text-faint))]";
+const PAGE_SIZE = 25;
 
-export function ReportsManager() {
-  const [reports, setReports] = useState<any[]>([]);
-  const [properties, setProperties] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useRestorableState("reports-manager:filters", { q: "", propertyId: "all", visibility: "all", sort: "newest" });
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ page: 1, limit: 25, totalCount: 0, totalPages: 1, hasMore: false });
-  const [generatingJobId, setGeneratingJobId] = useState<string | null>(null);
-  const [updatingVisibility, setUpdatingVisibility] = useState<string | null>(null);
-  const [reportToDelete, setReportToDelete] = useState<any | null>(null);
-  const [deletingReport, setDeletingReport] = useState(false);
-  const [themes, setThemes] = useState<Array<{ id: string; name: string; kind: string; isDefault: boolean; primaryColorHsl?: string | null; accentColorHsl?: string | null }>>([]);
-  const [exportThemeId, setExportThemeId] = useState("__default__");
-  const [showThemePicker, setShowThemePicker] = useState(false);
+function listUrl(filters: ReportManagerFilters, query: string): string {
+  const params = new URLSearchParams({ page: String(filters.page), limit: String(PAGE_SIZE), sort: filters.sort });
+  if (query) params.set("q", query);
+  if (filters.propertyId !== "all") params.set("propertyId", filters.propertyId);
+  if (filters.visibility !== "all") params.set("visibility", filters.visibility);
+  return `/api/admin/reports?${params.toString()}`;
+}
 
-  useEffect(() => {
-    fetch("/api/admin/report-themes")
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data?.themes)) setThemes(data.themes);
+export function ReportsManager({ timeZone = "Australia/Sydney", canManage = true }: { timeZone?: string; canManage?: boolean }) {
+  const { filters, setFilters } = useReportFilters();
+  const [search, setSearch] = React.useState(filters.q);
+  const [list, setList] = React.useState<ReportListBody | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [token, setToken] = React.useState(0);
+  const [themes, setThemes] = React.useState<ThemeOption[]>([]);
+  const [themeId, setThemeId] = React.useState(DEFAULT_THEME_ID);
+  const [showThemePicker, setShowThemePicker] = React.useState(false);
+  const [generatingJobId, setGeneratingJobId] = React.useState<string | null>(null);
+  const [updatingJobId, setUpdatingJobId] = React.useState<string | null>(null);
+  const [toDelete, setToDelete] = React.useState<ReportRow | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [bulkSummary, setBulkSummary] = React.useState<BulkSummary | null>(null);
+
+  // Keep the search box in step with the URL (back/forward, a new link).
+  React.useEffect(() => setSearch(filters.q), [filters.q]);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/admin/report-themes", { signal: controller.signal })
+      .then((response) => response.json())
+      .then((body: unknown) => {
+        if (!controller.signal.aborted) setThemes(readThemes(body));
       })
-      .catch(() => {});
+      .catch(() => undefined);
+    return () => controller.abort();
   }, []);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedQuery(filters.q.trim()), 220);
+  React.useEffect(() => {
+    if (search === filters.q) return;
+    const timer = window.setTimeout(() => setFilters({ q: search.trim() === "" ? "" : search, page: 1 }), 220);
     return () => window.clearTimeout(timer);
-  }, [filters.q]);
+  }, [search, filters.q, setFilters]);
 
-  async function loadReports() {
+  const url = listUrl(filters, filters.q.trim());
+  React.useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
-    const params = new URLSearchParams({ page: String(page), limit: "25", sort: filters.sort });
-    if (debouncedQuery) params.set("q", debouncedQuery);
-    if (filters.propertyId !== "all") params.set("propertyId", filters.propertyId);
-    if (filters.visibility !== "all") params.set("visibility", filters.visibility);
-    const res = await fetch(`/api/admin/reports?${params.toString()}`);
-    const data = await res.json().catch(() => ({}));
-    setReports(Array.isArray(data?.reports) ? data.reports : []);
-    setProperties(Array.isArray(data?.properties) ? data.properties : []);
-    setPagination(data?.pagination ?? { page: 1, limit: 25, totalCount: 0, totalPages: 1, hasMore: false });
-    setLoading(false);
-  }
+    (async () => {
+      try {
+        const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+        const body: unknown = await response.json().catch(() => null);
+        if (controller.signal.aborted) return;
+        if (!response.ok || !isReportList(body)) {
+          setLoadError(errorText(body, "Reports could not be loaded."));
+          return;
+        }
+        setList(body);
+        setLoadError(null);
+      } catch (cause) {
+        if (!controller.signal.aborted) setLoadError(cause instanceof Error ? cause.message : "Reports could not be loaded.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [url, token]);
 
-  useEffect(() => {
-    void loadReports();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, debouncedQuery, filters.propertyId, filters.sort, filters.visibility]);
+  // A different filter set is a different scope: selection does not carry over.
+  React.useEffect(() => setSelected(new Set()), [filters.propertyId, filters.visibility, filters.q]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedQuery, filters.propertyId, filters.sort, filters.visibility]);
+  const reload = React.useCallback(() => setToken((value) => value + 1), []);
+  const themeQuery = themeId !== DEFAULT_THEME_ID ? themeId : null;
+  const themeName = themes.find((theme) => theme.id === themeId)?.name ?? "Default theme";
+  const reports = list?.reports ?? [];
 
   async function downloadReport(jobId: string) {
     try {
       await downloadFromApi(`/api/reports/${jobId}/download`, `job-report-${jobId}.pdf`);
-    } catch (error: any) {
-      toast({ title: "Download failed", description: error?.message ?? "Could not export report.", variant: "destructive" });
+    } catch (error) {
+      toast({ title: "Download failed", description: error instanceof Error ? error.message : "Could not export report.", variant: "destructive" });
     }
   }
 
-  async function regenerateReport(jobId: string) {
+  async function regenerate(jobId: string) {
     setGeneratingJobId(jobId);
-    const qs = exportThemeId && exportThemeId !== "__default__" ? `?themeId=${encodeURIComponent(exportThemeId)}` : "";
-    const res = await fetch(`/api/admin/reports/${jobId}/generate${qs}`, { method: "POST" });
-    const body = await res.json().catch(() => ({}));
+    const qs = themeQuery ? `?themeId=${encodeURIComponent(themeQuery)}` : "";
+    const response = await fetch(`/api/admin/reports/${jobId}/generate${qs}`, { method: "POST" }).catch(() => null);
+    const body: unknown = await response?.json().catch(() => null);
     setGeneratingJobId(null);
-    if (!res.ok) {
-      toast({ title: "Generate failed", description: body.error ?? "Could not regenerate report.", variant: "destructive" });
+    if (!response?.ok) {
+      toast({ title: "Generate failed", description: errorText(body, "Could not regenerate report."), variant: "destructive" });
       return;
     }
     toast({ title: "Report regenerated" });
-    void loadReports();
+    reload();
   }
 
-  async function updateVisibility(
-    jobId: string,
-    patch: { clientVisible?: boolean; cleanerVisible?: boolean; laundryVisible?: boolean }
-  ) {
-    setUpdatingVisibility(jobId);
-    const res = await fetch(`/api/admin/reports/${jobId}/visibility`, {
+  async function updateVisibility(jobId: string, patch: VisibilityPatch) {
+    setUpdatingJobId(jobId);
+    const response = await fetch(`/api/admin/reports/${jobId}/visibility`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
-    });
-    const body = await res.json().catch(() => ({}));
-    setUpdatingVisibility(null);
-    if (!res.ok) {
-      toast({ title: "Visibility update failed", description: body.error ?? "Could not update report visibility.", variant: "destructive" });
+    }).catch(() => null);
+    const body: unknown = await response?.json().catch(() => null);
+    setUpdatingJobId(null);
+    if (!response?.ok) {
+      toast({ title: "Visibility update failed", description: errorText(body, "Could not update report visibility."), variant: "destructive" });
       return;
     }
-    setReports((prev) =>
-      prev.map((report) =>
-        report.jobId === jobId
-          ? { ...report, ...patch, visibilityUpdatedAt: body.visibilityUpdatedAt, visibilityUpdatedBy: body.visibilityUpdatedBy }
-          : report
-      )
+    setList((previous) =>
+      previous ? { ...previous, reports: previous.reports.map((row) => (row.jobId === jobId ? { ...row, ...patch } : row)) } : previous,
     );
   }
 
-  async function deleteReport() {
-    if (!reportToDelete) return;
-    setDeletingReport(true);
-    const res = await fetch(`/api/admin/reports/${reportToDelete.jobId}`, { method: "DELETE" });
-    const body = await res.json().catch(() => ({}));
-    setDeletingReport(false);
-    if (!res.ok) {
-      toast({ title: "Delete failed", description: body.error ?? "Could not delete report.", variant: "destructive" });
+  async function confirmDelete() {
+    if (!toDelete) return;
+    setDeleting(true);
+    const response = await fetch(`/api/admin/reports/${toDelete.jobId}`, { method: "DELETE" }).catch(() => null);
+    const body: unknown = await response?.json().catch(() => null);
+    setDeleting(false);
+    if (!response?.ok) {
+      toast({ title: "Delete failed", description: errorText(body, "Could not delete report."), variant: "destructive" });
       return;
     }
     toast({ title: "Report deleted" });
-    setReportToDelete(null);
-    void loadReports();
+    setToDelete(null);
+    reload();
   }
+
+  function onBulkDone(failedIds: string[], summary: BulkSummary) {
+    setSelected(new Set(failedIds));
+    setBulkSummary(summary);
+    reload();
+  }
+
+  function selectAllOnPage(checked: boolean) {
+    setSelected(checked ? new Set(reports.map((row) => row.jobId)) : new Set());
+  }
+
+  const propertyName = (jobId: string) => reports.find((row) => row.jobId === jobId)?.job?.property?.name ?? jobId;
+  const allSelected = reports.length > 0 && reports.every((row) => selected.has(row.jobId));
 
   return (
     <div className="space-y-5">
-      {/* Filters */}
       <ECard className="p-5">
         <div className="grid gap-4 md:grid-cols-[1.6fr_1fr_1fr_1fr_auto]">
-          <div className="space-y-1.5">
-            <p className={LABEL_CLS}>Search</p>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
-              <input
-                className={`${INPUT_CLS} pl-9`}
-                value={filters.q}
-                onChange={(event) => setFilters((prev) => ({ ...prev, q: event.target.value }))}
-                placeholder="Property, client, or job number"
-              />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <p className={LABEL_CLS}>Property</p>
-            <select
-              className={INPUT_CLS}
-              value={filters.propertyId}
-              onChange={(event) => setFilters((prev) => ({ ...prev, propertyId: event.target.value }))}
-            >
+          <label className="space-y-1.5">
+            <span className={LABEL_CLS}>Search</span>
+            <span className="relative block">
+              <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[hsl(var(--e-text-faint))]" />
+              <input className={`${INPUT_CLS} pl-9`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Property, client, or job number" />
+            </span>
+          </label>
+          <label className="space-y-1.5">
+            <span className={LABEL_CLS}>Property</span>
+            <select className={INPUT_CLS} value={filters.propertyId} onChange={(event) => setFilters({ propertyId: event.target.value, page: 1 })}>
               <option value="all">All properties</option>
-              {properties.map((property) => (
+              {(list?.properties ?? []).map((property) => (
                 <option key={property.id} value={property.id}>
                   {property.name} ({property.suburb})
                 </option>
               ))}
             </select>
-          </div>
-          <div className="space-y-1.5">
-            <p className={LABEL_CLS}>Client visibility</p>
+          </label>
+          <label className="space-y-1.5">
+            <span className={LABEL_CLS}>Client visibility</span>
             <select
               className={INPUT_CLS}
               value={filters.visibility}
-              onChange={(event) => setFilters((prev) => ({ ...prev, visibility: event.target.value }))}
+              onChange={(event) => setFilters({ visibility: event.target.value as ReportManagerFilters["visibility"], page: 1 })}
             >
               <option value="all">All reports</option>
               <option value="client-visible">Visible to client</option>
               <option value="client-hidden">Hidden from client</option>
             </select>
-          </div>
-          <div className="space-y-1.5">
-            <p className={LABEL_CLS}>Sort</p>
-            <select
-              className={INPUT_CLS}
-              value={filters.sort}
-              onChange={(event) => setFilters((prev) => ({ ...prev, sort: event.target.value }))}
-            >
+          </label>
+          <label className="space-y-1.5">
+            <span className={LABEL_CLS}>Sort</span>
+            <select className={INPUT_CLS} value={filters.sort} onChange={(event) => setFilters({ sort: event.target.value as ReportManagerFilters["sort"], page: 1 })}>
               <option value="newest">Newest first</option>
               <option value="service-date">Service date</option>
               <option value="oldest">Oldest first</option>
             </select>
-          </div>
+          </label>
           <div className="flex items-end">
-            <EButton
-              variant="ghost"
-              size="sm"
-              onClick={() => setFilters({ q: "", propertyId: "all", visibility: "all", sort: "newest" })}
-            >
+            <EButton variant="ghost" size="sm" onClick={() => setFilters(DEFAULT_REPORT_FILTERS)}>
               Clear
             </EButton>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[hsl(var(--e-border))] pt-4">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <p className={LABEL_CLS}>Regenerate theme</p>
-            <select
-              className={`${INPUT_CLS} w-auto min-w-0 max-w-full sm:min-w-[200px]`}
-              value={exportThemeId}
-              onChange={(event) => setExportThemeId(event.target.value)}
-            >
-              <option value="__default__">Use default theme</option>
+            <label htmlFor="report-regenerate-theme" className={LABEL_CLS}>Regenerate theme</label>
+            <select id="report-regenerate-theme" className={`${INPUT_CLS} w-auto min-w-0 max-w-full sm:min-w-[200px]`} value={themeId} onChange={(event) => setThemeId(event.target.value)}>
+              <option value={DEFAULT_THEME_ID}>Use default theme</option>
               {themes.map((theme) => (
                 <option key={theme.id} value={theme.id}>
                   {theme.name}
@@ -228,19 +240,54 @@ export function ReportsManager() {
               ))}
             </select>
             <EButton variant="ghost" size="sm" onClick={() => setShowThemePicker(true)}>
-              <Palette className="h-3.5 w-3.5" /> Themes
+              <Palette aria-hidden className="h-3.5 w-3.5" /> Themes
             </EButton>
           </div>
-          <EButton variant="outline" size="sm" onClick={() => void loadReports()}>
-            <RefreshCcw className="h-3.5 w-3.5" /> Refresh
+          <EButton variant="outline" size="sm" onClick={reload}>
+            <RefreshCcw aria-hidden className="h-3.5 w-3.5" /> Refresh
           </EButton>
         </div>
       </ECard>
 
-      {/* Rows */}
+      {canManage ? (
+        <ReportBulkActions
+          selected={Array.from(selected)}
+          themeId={themeQuery}
+          themeName={themeName}
+          onClear={() => setSelected(new Set())}
+          onDone={onBulkDone}
+        />
+      ) : null}
+      {bulkSummary ? (
+        <div role="status" className="space-y-1 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-3 text-[0.8125rem]">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-[600]">{bulkSummary.text}</p>
+            <EButton size="sm" variant="ghost" onClick={() => setBulkSummary(null)}>Dismiss</EButton>
+          </div>
+          {bulkSummary.failures.length ? (
+            <ul className="list-disc pl-5 text-[hsl(var(--e-muted-foreground))]">
+              {bulkSummary.failures.map((failure) => (
+                <li key={failure.jobId}>{`${propertyName(failure.jobId)}: ${failure.error}`}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
       <ECard>
-        {loading ? (
-          <p className="py-12 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Loading reports…</p>
+        {loadError && list ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-2 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-warning-soft))] px-4 py-2 text-[0.8125rem]">
+            <span>Showing the last loaded reports. {loadError}</span>
+            <EButton size="sm" variant="outline" onClick={reload}>Try again</EButton>
+          </div>
+        ) : null}
+        {!list && loading ? (
+          <p role="status" className="py-12 text-center text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Loading reports…</p>
+        ) : !list && loadError ? (
+          <div role="alert" className="space-y-2 py-12 text-center">
+            <p className="text-[0.875rem]">{loadError}</p>
+            <EButton size="sm" variant="outline" onClick={reload}>Try again</EButton>
+          </div>
         ) : reports.length === 0 ? (
           <EEmptyState
             eyebrow="Reports"
@@ -249,212 +296,79 @@ export function ReportsManager() {
             className="border-0"
           />
         ) : (
-          <div>
+          <div aria-busy={loading || undefined}>
+            {canManage ? (
+              <label className="flex items-center gap-2 border-b border-[hsl(var(--e-border))] px-5 py-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                <input type="checkbox" className="h-[15px] w-[15px] accent-[hsl(var(--e-primary))]" checked={allSelected} onChange={(event) => selectAllOnPage(event.target.checked)} />
+                Select all on this page
+              </label>
+            ) : null}
             {reports.map((report) => (
-              <div
+              <ReportRowView
                 key={report.id}
-                className="flex flex-wrap items-center justify-between gap-3 border-b border-[hsl(var(--e-border))] px-5 py-4 last:border-0 hover:bg-[hsl(var(--e-muted))]"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[hsl(var(--e-border-strong))] text-[hsl(var(--e-accent-portal))]">
-                    <FileText className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0">
-                    <Link
-                      href={`/v2/admin/jobs/${report.jobId}`}
-                      className="block truncate text-[0.875rem] font-[550] hover:underline"
-                    >
-                      {report.job?.property?.name ?? "Property"}
-                    </Link>
-                    <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      {report.job?.property?.client?.name ?? "—"} ·{" "}
-                      {String(report.job?.jobType ?? "").replace(/_/g, " ")} ·{" "}
-                      {report.job?.scheduledDate ? format(new Date(report.job.scheduledDate), "dd MMM yyyy") : "—"}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  {report.sentToClient ? <EBadge tone="success" soft>Sent to client</EBadge> : null}
-                  <button
-                    type="button"
-                    disabled={updatingVisibility === report.jobId}
-                    onClick={() => void updateVisibility(report.jobId, { clientVisible: !report.clientVisible })}
-                    className="disabled:opacity-50"
-                    title="Toggle client visibility"
-                  >
-                    <EBadge tone={report.clientVisible ? "gold" : "neutral"} soft={report.clientVisible}>
-                      {report.clientVisible ? "Client sees it" : "Hidden from client"}
-                    </EBadge>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={updatingVisibility === report.jobId}
-                    onClick={() => void updateVisibility(report.jobId, { cleanerVisible: !report.cleanerVisible })}
-                    className="disabled:opacity-50"
-                    title="Toggle cleaner visibility"
-                  >
-                    <EBadge tone={report.cleanerVisible ? "info" : "neutral"} soft={report.cleanerVisible}>
-                      {report.cleanerVisible ? "Cleaner sees it" : "Hidden from cleaner"}
-                    </EBadge>
-                  </button>
-                  <EButton variant="ghost" size="sm" onClick={() => void downloadReport(report.jobId)}>
-                    <Download className="h-3.5 w-3.5" /> PDF
-                  </EButton>
-                  <EButton
-                    variant="ghost"
-                    size="sm"
-                    disabled={generatingJobId === report.jobId}
-                    onClick={() => void regenerateReport(report.jobId)}
-                  >
-                    <RefreshCcw className="h-3.5 w-3.5" />
-                    {generatingJobId === report.jobId ? "Generating…" : "Regenerate"}
-                  </EButton>
-                  <EButton
-                    variant="ghost"
-                    size="sm"
-                    className="text-[hsl(var(--e-danger))] hover:text-[hsl(var(--e-danger))]"
-                    onClick={() => setReportToDelete(report)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </EButton>
-                </div>
-              </div>
+                report={report}
+                timeZone={timeZone}
+                selected={selected.has(report.jobId)}
+                onSelect={(checked) =>
+                  setSelected((previous) => {
+                    const next = new Set(previous);
+                    if (checked) next.add(report.jobId);
+                    else next.delete(report.jobId);
+                    return next;
+                  })
+                }
+                canManage={canManage}
+                busy={updatingJobId === report.jobId}
+                generating={generatingJobId === report.jobId}
+                onToggle={(patch) => void updateVisibility(report.jobId, patch)}
+                onDownload={() => void downloadReport(report.jobId)}
+                onRegenerate={() => void regenerate(report.jobId)}
+                onDelete={() => setToDelete(report)}
+              />
             ))}
           </div>
         )}
       </ECard>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-5 py-3">
-        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-          Page <span className="e-numeral">{pagination.page}</span> of{" "}
-          <span className="e-numeral">{pagination.totalPages}</span> ·{" "}
-          <span className="e-numeral">{pagination.totalCount}</span> reports
-        </p>
-        <div className="flex items-center gap-2">
-          <EButton variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
-            <ChevronLeft className="h-3.5 w-3.5" /> Previous
-          </EButton>
-          <EButton variant="outline" size="sm" disabled={!pagination.hasMore} onClick={() => setPage((current) => current + 1)}>
-            Next <ChevronRight className="h-3.5 w-3.5" />
-          </EButton>
-        </div>
-      </div>
-
-      {/* Theme picker (native Estate modal — sets the regenerate theme) */}
-      <EModal
-        open={showThemePicker}
-        onClose={() => setShowThemePicker(false)}
-        eyebrow="Reports"
-        title="Report theme"
-        wide
-      >
-        <div className="space-y-3">
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            Choose the theme applied when you regenerate a report. Selecting one here sets it for the
-            &quot;Regenerate&quot; action on every row.
-          </p>
-          <div className="space-y-2">
-            {[{ id: "__default__", name: "Default theme", kind: "system", isDefault: false, primaryColorHsl: null, accentColorHsl: null }, ...themes].map(
-              (theme) => {
-                const selected = exportThemeId === theme.id;
-                return (
-                  <button
-                    key={theme.id}
-                    type="button"
-                    onClick={() => {
-                      setExportThemeId(theme.id);
-                      setShowThemePicker(false);
-                      toast({ title: "Regenerate theme set", description: theme.name });
-                    }}
-                    className={
-                      "flex w-full items-center justify-between gap-3 rounded-[var(--e-radius)] border px-4 py-3 text-left transition-colors " +
-                      (selected
-                        ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))]"
-                        : "border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] hover:border-[hsl(var(--e-border-strong))]")
-                    }
-                  >
-                    <span className="flex items-center gap-3">
-                      <span className="flex gap-1">
-                        <span
-                          className="h-6 w-6 rounded-full border border-[hsl(var(--e-border-strong))]"
-                          style={{
-                            backgroundColor: theme.primaryColorHsl
-                              ? `hsl(${theme.primaryColorHsl})`
-                              : "hsl(var(--e-muted))",
-                          }}
-                        />
-                        <span
-                          className="h-6 w-6 rounded-full border border-[hsl(var(--e-border-strong))]"
-                          style={{
-                            backgroundColor: theme.accentColorHsl
-                              ? `hsl(${theme.accentColorHsl})`
-                              : "hsl(var(--e-gold-soft))",
-                          }}
-                        />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-[0.875rem] font-[550] text-[hsl(var(--e-foreground))]">
-                          {theme.name}
-                        </span>
-                        <span className="block text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-                          {theme.kind}
-                          {theme.isDefault ? " · default" : ""}
-                        </span>
-                      </span>
-                    </span>
-                    {selected ? <Check className="h-4 w-4 shrink-0 text-[hsl(var(--e-gold-ink))]" /> : null}
-                  </button>
-                );
-              },
-            )}
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-              Theme authoring (colours, logo, layout) lives in the theme manager.
-            </p>
-            {/* Link (not a nested route) so the picker modal state is simply left behind */}
-            <EButton variant="outline" size="sm" asChild>
-              <Link href="/v2/admin/reports/themes">Manage themes</Link>
-            </EButton>
-          </div>
-        </div>
-      </EModal>
-
-      {/* Delete confirm */}
-      {reportToDelete ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setReportToDelete(null)} />
-          <div className="relative w-full max-w-md rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] p-6 shadow-[var(--e-elevation-3)]">
-            <div className="flex items-start justify-between gap-3">
-              <p className="e-display-sm">Delete report</p>
-              <button
-                type="button"
-                onClick={() => setReportToDelete(null)}
-                aria-label="Close"
-                className="rounded-[var(--e-radius-sm)] p-1 text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))]"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="mt-3 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              This removes the generated report file and metadata for{" "}
-              <span className="font-[550] text-[hsl(var(--e-foreground))]">
-                {reportToDelete.job?.property?.name ?? "this job"}
-              </span>
-              .
-            </p>
-            <div className="mt-5 flex justify-end gap-2">
-              <EButton variant="outline" size="sm" onClick={() => setReportToDelete(null)} disabled={deletingReport}>
-                Cancel
-              </EButton>
-              <EButton variant="danger" size="sm" onClick={() => void deleteReport()} disabled={deletingReport}>
-                {deletingReport ? "Deleting…" : "Delete report"}
-              </EButton>
-            </div>
-          </div>
+      {list ? (
+        <div className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-5 py-3">
+          <EPagination
+            page={list.pagination.page}
+            pageSize={list.pagination.limit}
+            total={list.pagination.totalCount}
+            onPageChange={(page) => setFilters({ page })}
+            disabled={loading}
+            noun="reports"
+          />
         </div>
       ) : null}
+
+      <ReportThemePicker
+        open={showThemePicker}
+        themes={themes}
+        selectedId={themeId}
+        onClose={() => setShowThemePicker(false)}
+        onSelect={(theme) => {
+          setThemeId(theme.id);
+          setShowThemePicker(false);
+          toast({ title: "Regenerate theme set", description: theme.name });
+        }}
+      />
+
+      <EConfirmModal
+        open={toDelete !== null}
+        onClose={() => (deleting ? undefined : setToDelete(null))}
+        title="Delete report"
+        description={
+          <>
+            This removes the generated report file and metadata for{" "}
+            <span className="font-[550] text-[hsl(var(--e-foreground))]">{toDelete?.job?.property?.name ?? "this job"}</span>.
+          </>
+        }
+        confirmLabel={deleting ? "Deleting…" : "Delete report"}
+        loading={deleting}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

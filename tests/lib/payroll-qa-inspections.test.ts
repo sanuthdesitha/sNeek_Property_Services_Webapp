@@ -11,7 +11,7 @@ const userFindMany = vi.fn(async (_args?: any) => [] as any[]);
 const qaFindMany = vi.fn(async (_args?: any) => [] as any[]);
 
 vi.mock("@/lib/db", () => ({
-  db: {
+  db: { userPayRate: { findMany: async () => [] }, staffLeave: { findMany: async () => [] }, 
     user: { findMany: userFindMany },
     job: { findMany: vi.fn(async () => []) },
     cleanerPayAdjustment: { findMany: vi.fn(async () => []) },

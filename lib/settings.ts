@@ -1,4 +1,5 @@
 import { JobType, Role } from "@prisma/client";
+import { DEFAULT_FORM_VALIDATION_SETTINGS, sanitizeFormValidationSettings, type FormValidationSettings } from "@/lib/forms/validation-enforcement";
 import { db } from "@/lib/db";
 import { canUseNodePrisma } from "@/lib/database-runtime";
 import {
@@ -458,6 +459,12 @@ export interface AppSettings {
   /** What a QA inspection pays by default (per-assignment overrides win). */
   qaPay: QaPaySettings;
   accountability: AccountabilitySettings;
+  /**
+   * "Reject submissions that break these checks" (extended form rules).
+   * Optional for older fixtures; read through sanitizeFormValidationSettings
+   * (lib/forms/validation-enforcement.ts), default off.
+   */
+  formValidation?: FormValidationSettings;
   /** Pre-submit final check-up acknowledgement dialog for cleaners (R7). */
   finalCheckup: FinalCheckupSettings;
   pricing: PricingSettings;
@@ -881,6 +888,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   qaPay: DEFAULT_QA_PAY_SETTINGS,
   accountability: DEFAULT_ACCOUNTABILITY_SETTINGS,
+  formValidation: DEFAULT_FORM_VALIDATION_SETTINGS,
   finalCheckup: { enabled: false, items: [] },
   pricing: {
     gstEnabled: true,
@@ -1815,6 +1823,7 @@ function sanitizeSettings(input: unknown): AppSettings {
       (parsed as any).accountability,
       DEFAULT_SETTINGS.accountability
     ),
+    formValidation: sanitizeFormValidationSettings((parsed as any).formValidation),
     finalCheckup: sanitizeFinalCheckupSettings(
       (parsed as any).finalCheckup,
       DEFAULT_SETTINGS.finalCheckup
@@ -1902,6 +1911,7 @@ export async function saveAppSettings(input: Partial<AppSettings>): Promise<AppS
     qaPay: sanitizeQaPaySettings({ ...current.qaPay, ...(input.qaPay ?? {}) }, current.qaPay),
     accountability: input.accountability ?? current.accountability,
     finalCheckup: input.finalCheckup ?? current.finalCheckup,
+    formValidation: input.formValidation ?? current.formValidation,
     pricing: { ...current.pricing, ...(input.pricing ?? {}) },
     evidenceStamp: input.evidenceStamp ?? current.evidenceStamp,
     websiteContent: input.websiteContent ?? current.websiteContent,

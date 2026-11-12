@@ -47,7 +47,7 @@ describe("client attention scope", () => {
     } });
     expect(mocks.quotes).toHaveBeenCalledWith({ where: { clientId: "client", status: "SENT" } });
     expect(mocks.invoices).toHaveBeenCalledWith({ where: {
-      clientId: "client", status: { in: ["SENT", "APPROVED", "PART_PAID"] },
+      clientId: "client", kind: "INVOICE", status: { in: ["SENT", "APPROVED", "PART_PAID"] },
     } });
     expect(mocks.client).not.toHaveBeenCalled();
   });
@@ -76,7 +76,7 @@ describe("client attention scope", () => {
       ...(propertyIds ? { property } : {}),
     } });
     expect(mocks.invoices).toHaveBeenCalledWith({ where: {
-      clientId: "client", status: { in: ["SENT", "APPROVED", "PART_PAID"] },
+      clientId: "client", kind: "INVOICE", status: { in: ["SENT", "APPROVED", "PART_PAID"] },
       ...(propertyIds ? { lines: { some: {}, every: { job: { property } } } } : {}),
     } });
   });

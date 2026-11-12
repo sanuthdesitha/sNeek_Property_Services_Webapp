@@ -26,6 +26,13 @@ export const notificationEnvelopeSchema = z.object({
     try { return new URL(value, "https://notification.invalid").origin === "https://notification.invalid"; } catch { return false; }
   }, "Notification links must remain within the application.").optional(),
   templateRecipientRole: z.nativeEnum(NotificationRecipientRole).optional(),
+  // INBOX only: the producer explicitly asks for the phone-app push that the
+  // legacy inbox rows of this category get (mobile outbox marker). Absent means
+  // no phone push, exactly as before.
+  mobilePushCategory: z.enum(["account", "jobs", "laundry", "cases", "reports", "quotes", "shopping", "billing", "approvals", "ical"]).optional(),
+  // Office-directed messages (e.g. a manual job reminder) whose catalog type
+  // does not respect personal preferences. Absent means preferences apply.
+  recipientPreferences: z.literal("IGNORE").optional(),
   subject: z.string().max(300).nullable(),
   body: z.string().min(1).max(20000),
   jobId: identifier.nullable(),

@@ -7,6 +7,7 @@ import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/met
 import { computeCleanerPay } from "@/lib/finance/job-money";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 function parseDateOnly(value?: string | null, endOfDay = false) {
   if (!value) return null;
@@ -50,6 +51,8 @@ export async function buildSlaHeatmap(input?: {
   const jobs = await db.job.findMany({
     where: {
       scheduledDate: { gte: start, lte: end },
+      // Cancelled jobs are not capacity (Wave E).
+      status: { not: JobStatus.CANCELLED },
       ...(Array.isArray(propertyIds) ? { propertyId: { in: propertyIds } } : {}),
     },
     select: {
@@ -146,10 +149,12 @@ export async function buildBranchScorecards(input?: {
 
   const settings = await getAppSettings();
   const jobs = await db.job.findMany({
-    where: { scheduledDate: { gte: start, lte: end } },
+    // Cancelled jobs are not work: left out of branch job counts and cost.
+    where: { scheduledDate: { gte: start, lte: end }, status: { not: JobStatus.CANCELLED } },
     select: {
       id: true,
       propertyId: true,
+      scheduledDate: true,
       status: true,
       estimatedHours: true,
       internalNotes: true,
@@ -163,6 +168,8 @@ export async function buildBranchScorecards(input?: {
       qaReviews: { select: { score: true } },
     },
   });
+  // The default rate in force on each job's day (effective-dated history).
+  const rateBook = await loadPayRateBook(jobs.flatMap((job) => job.assignments.map((assignment) => assignment.userId)));
 
   const quotes = await db.quote.findMany({
     where: {
@@ -218,7 +225,7 @@ export async function buildBranchScorecards(input?: {
       for (const assignment of job.assignments) {
         const pay = computeCleanerPay(
           { jobType: job.jobType, estimatedHours: job.estimatedHours },
-          { payRate: assignment.payRate, userHourlyRate: assignment.user?.hourlyRate },
+          { payRate: assignment.payRate, userHourlyRate: rateBook.rateFor(assignment.userId, job.scheduledDate, assignment.user?.hourlyRate ?? null) },
           { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
           {
             cleanerId: assignment.userId,
@@ -301,6 +308,7 @@ export async function suggestReschedulePlan(jobId: string, options?: { daysAhead
           lte: new Date(`${dateKey}T23:59:59.999Z`),
         },
         id: { not: job.id },
+        status: { not: JobStatus.CANCELLED },
       },
     });
     if (overlaps > 0) continue;
@@ -324,11 +332,23 @@ export async function suggestReschedulePlan(jobId: string, options?: { daysAhead
   };
 }
 
+/**
+ * The start/finish check `applyReschedule` runs, exported so the calendar's
+ * read-only move check reports the same refusal before anything is saved.
+ */
+export function rescheduleWindowError(startTime: string | null, dueTime: string | null): string | null {
+  const validTime = (value: string | null) => !value || /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+  if (!validTime(startTime) || !validTime(dueTime) || (startTime && dueTime && dueTime < startTime)) return "Enter a valid start and finish window.";
+  return null;
+}
+
 export async function applyReschedule(input: {
   jobId: string;
   date: string;
   startTime?: string | null;
   dueTime?: string | null;
+  /** A job's separate end time; sent only when a time move carries it along. */
+  endTime?: string | null;
   userId: string;
   reason?: string | null;
   expectedUpdatedAt?: string;
@@ -338,11 +358,13 @@ export async function applyReschedule(input: {
   const job = await db.job.findUnique({ where: { id: input.jobId } });
   if (!job) throw new Error("Job not found.");
   if (input.expectedUpdatedAt && new Date(input.expectedUpdatedAt).getTime() !== job.updatedAt.getTime()) throw new Error("This job changed. Reload before rescheduling.");
+  if (job.status === "CANCELLED") throw new Error("This job is cancelled. Restore it before rescheduling.");
   const startTime = input.startTime !== undefined ? input.startTime || null : job.startTime;
   const dueTime = input.dueTime !== undefined ? input.dueTime || null : job.dueTime;
-  const validTime = (value: string | null) => !value || /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-  if (!validTime(startTime) || !validTime(dueTime) || (startTime && dueTime && dueTime < startTime)) throw new Error("Enter a valid start and finish window.");
-  if (job.scheduledDate.getTime() === date.getTime() && job.startTime === startTime && job.dueTime === dueTime) return job;
+  const endTime = input.endTime !== undefined ? input.endTime || null : job.endTime;
+  const windowError = rescheduleWindowError(startTime, dueTime) ?? rescheduleWindowError(startTime, endTime);
+  if (windowError) throw new Error(windowError);
+  if (job.scheduledDate.getTime() === date.getTime() && job.startTime === startTime && job.dueTime === dueTime && job.endTime === endTime) return job;
   const updated = await db.$transaction(async (tx) => {
   const guarded = await tx.job.updateMany({ where: { id: job.id, updatedAt: job.updatedAt }, data: { manuallyRescheduledAt: new Date() } });
   if (guarded.count !== 1) throw new Error("This job changed. Reload before rescheduling.");
@@ -352,6 +374,7 @@ export async function applyReschedule(input: {
       scheduledDate: date,
       startTime: input.startTime !== undefined ? input.startTime || null : job.startTime,
       dueTime: input.dueTime !== undefined ? input.dueTime || null : job.dueTime,
+      endTime,
       // The reschedule reason is NOT written here any more.
       //
       // `internalNoteText` is the note READ OUT TO THE CLEANER before every
@@ -384,11 +407,13 @@ export async function applyReschedule(input: {
         scheduledDate: job.scheduledDate,
         startTime: job.startTime,
         dueTime: job.dueTime,
+        endTime: job.endTime,
       } as any,
       after: {
         scheduledDate: updated.scheduledDate,
         startTime: updated.startTime,
         dueTime: updated.dueTime,
+        endTime: updated.endTime,
         reason: input.reason ?? null,
       } as any,
     },

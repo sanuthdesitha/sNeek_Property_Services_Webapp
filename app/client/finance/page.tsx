@@ -175,7 +175,7 @@ export default async function ClientFinancePage() {
                         <Badge variant={invoice.status === "PAID" ? "success" : invoice.status === "SENT" ? "default" : "secondary"}>
                           {invoice.status.replace(/_/g, " ")}
                         </Badge>
-                        {invoice.status === "SENT" || invoice.status === "APPROVED" ? (
+                        {invoice.kind !== "CREDIT_NOTE" && (invoice.status === "SENT" || invoice.status === "APPROVED") ? (
                           <div className="mt-2">
                             <PayNowButton invoiceId={invoice.id} />
                           </div>

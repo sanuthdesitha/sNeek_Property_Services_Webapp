@@ -8,6 +8,7 @@ import { computeClientCharge } from "./job-money";
 import { DEFAULT_HOLIDAY_POLICY, applyHolidayMultiplier, holidayCalendarSchema, holidayFraction, holidayPolicySchema, multiplier, resolveHolidayMultipliers, type HolidayCalendar, type HolidayPolicy } from "./holiday-policy";
 import { NSW_HOLIDAY_SOURCE, parseNswHolidayCalendar } from "./holiday-calendar";
 import bundledCalendar from "./nsw-holiday-cache.json";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 type Tx = Prisma.TransactionClient;
 const POLICY = "holiday_rates_v1:policy", CALENDAR = "holiday_rates_v1:calendar:";
@@ -114,10 +115,12 @@ async function calculate(tx: Tx, job: RateJob, input: JobInput, actorId: string)
   if (charge.amount === null && clientMultiplier !== 1) throw new Error("Configure the client's normal base rate before applying a holiday multiplier.");
   const clientAfter = input.clientFinalPrice ?? (preservedQuote || clientMultiplier === 1 || clientFraction.fraction === 0 ? job.fixedPrice : applyHolidayMultiplier(charge.amount!, clientMultiplier, clientFraction.fraction));
   for (const id of Object.keys(input.cleanerMultipliers)) if (!job.assignments.some(row => row.userId === id)) throw new Error("Cleaner override must belong to a current assignment.");
+  // The default rate in force on the job's day (effective-dated history).
+  const rateBook = await loadPayRateBook(job.assignments.map(row => row.userId), tx);
   const cleaners = job.assignments.map(assignment => {
     const rate = resolveHolidayMultipliers(policy, { clientId: job.property.clientId, clientName: job.property.client.name, propertyId: job.propertyId, cleanerId: assignment.userId, cleanerOverride: input.cleanerMultipliers[assignment.userId] }).cleaner;
     const fraction = fractions(job, policy, calendar, input, resolved.area, assignment.userId).fraction;
-    const base = money(assignment.payRate) ?? money(settings.cleanerJobHourlyRates?.[assignment.userId]?.[job.jobType]) ?? money(assignment.user.hourlyRate);
+    const base = money(assignment.payRate) ?? money(settings.cleanerJobHourlyRates?.[assignment.userId]?.[job.jobType]) ?? money(rateBook.rateFor(assignment.userId, job.scheduledDate, assignment.user.hourlyRate));
     const custom = typeof meta.cleanerPayouts?.[assignment.userId] === "number" || job.isRework;
     if (base === null && rate !== 1 && fraction > 0 && !custom) throw new Error(`Configure a normal pay rate for ${assignment.user.name || assignment.userId}.`);
     return { id: assignment.userId, name: assignment.user.name, before: assignment.payRate, after: custom || rate === 1 || fraction === 0 ? assignment.payRate : applyHolidayMultiplier(base!, rate, fraction), base, multiplier: custom ? 1 : rate, fraction, source: custom ? "CUSTOM_PAYOUT_PRESERVED" : "NORMAL_HOURLY_BASE" };

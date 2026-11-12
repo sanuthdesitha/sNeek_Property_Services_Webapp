@@ -6,6 +6,9 @@
  * the v1 dispatch console uses:  POST /api/admin/jobs/:id/assign
  *   body { userIds: string[], primaryUserId?: string }
  * Passing an empty userIds list clears every assignee (matches the API).
+ * A newly added cleaner with recorded leave that day is refused (409
+ * LEAVE_CONFLICT) with the reason; "Assign anyway" resends with the explicit
+ * override `confirmLeaveConflict`.
  */
 
 import { useEffect, useState } from "react";
@@ -14,6 +17,7 @@ import { toast } from "@/hooks/use-toast";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EModal } from "@/components/v2/admin/estate-kit";
 import { ECheck } from "@/components/v2/admin/jobs/job-row";
+import { ReassignNoteDialog, parseReassignPreview, type ReassignPreview } from "@/components/v2/admin/jobs/reassign-note-dialog";
 
 export type AssignCleaner = { id: string; name: string; email: string };
 
@@ -44,25 +48,20 @@ export function AssignCleanersModal({
   const [submitting, setSubmitting] = useState(false);
   // The pending "your cleaner has changed" draft, when this assignment
   // replaced an existing primary. Null means there is nothing to confirm.
-  const [reassign, setReassign] = useState<{
-    clientId: string;
-    jobId: string;
-    cleanerName: string | null;
-    recipients: string[];
-    reason: string | null;
-  } | null>(null);
-  const [reassignSubject, setReassignSubject] = useState("");
-  const [reassignHtml, setReassignHtml] = useState("");
-  const [sendingReassign, setSendingReassign] = useState(false);
+  const [reassign, setReassign] = useState<ReassignPreview | null>(null);
+  // The leave refusal for the current selection; cleared when it changes.
+  const [leaveConflict, setLeaveConflict] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const init = initialAssignedIds ?? [];
     setSelected(init);
     setPrimary(initialPrimaryId ?? init[0] ?? null);
-  }, [open, initialAssignedIds, initialPrimaryId]);
+    setLeaveConflict(null);
+  }, [open, initialAssignedIds, initialPrimaryId, jobId]);
 
   function toggle(id: string) {
+    setLeaveConflict(null);
     setSelected((current) => {
       const next = current.includes(id) ? current.filter((c) => c !== id) : [...current, id];
       // Keep a valid primary: default to the first still-selected cleaner.
@@ -73,7 +72,7 @@ export function AssignCleanersModal({
     });
   }
 
-  async function submit() {
+  async function submit(confirmLeaveConflict = false) {
     if (!jobId) return;
     setSubmitting(true);
     try {
@@ -83,9 +82,14 @@ export function AssignCleanersModal({
         body: JSON.stringify({
           userIds: selected,
           primaryUserId: selected.length > 0 ? primary ?? selected[0] : undefined,
+          ...(confirmLeaveConflict ? { confirmLeaveConflict: true } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
+      if (res.status === 409 && body?.code === "LEAVE_CONFLICT") {
+        setLeaveConflict(typeof body.error === "string" ? body.error : "A selected cleaner is on leave that day.");
+        return;
+      }
       if (!res.ok) throw new Error(body.error ?? "Could not assign job.");
       toast({
         title: selected.length === 0 ? "Assignees cleared" : "Assignment saved",
@@ -101,64 +105,12 @@ export function AssignCleanersModal({
       // someone, the server declined to email the client on its own and handed
       // back a draft instead — telling a client their cleaner has changed is a
       // message a person should read before it goes out.
-      if (body.reassignPreview?.clientId) {
-        const preview = body.reassignPreview;
-        setReassign({
-          clientId: String(preview.clientId),
-          jobId: String(preview.jobId ?? jobId),
-          cleanerName: preview.cleanerName ?? null,
-          recipients: Array.isArray(preview.recipients) ? preview.recipients : [],
-          reason: preview.reason ?? null,
-        });
-        setReassignSubject(String(preview.subject ?? ""));
-        setReassignHtml(String(preview.html ?? ""));
-      }
+      const preview = parseReassignPreview(body, jobId);
+      if (preview) setReassign(preview);
     } catch (err: any) {
       toast({ title: "Assign failed", description: err?.message ?? "Could not assign job.", variant: "destructive" });
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  /**
-   * Send the reassignment note as the admin has edited it.
-   *
-   * `override` carries the edited text through to the server, because showing
-   * someone a draft, letting them rewrite it, and then sending the untouched
-   * template would be worse than never offering the edit.
-   */
-  async function sendReassignNote() {
-    if (!reassign) return;
-    setSendingReassign(true);
-    try {
-      const res = await fetch(`/api/admin/clients/${reassign.clientId}/communications/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "send",
-          stage: "CLEANER_REASSIGNED",
-          jobId: reassign.jobId,
-          extra: { cleanerName: reassign.cleanerName },
-          override: { subject: reassignSubject, html: reassignHtml },
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error ?? "Could not send the note.");
-      toast({
-        title: "Client told",
-        description: body.recipients?.length
-          ? `Sent to ${body.recipients.join(", ")}.`
-          : "The note has been sent.",
-      });
-      setReassign(null);
-    } catch (err: any) {
-      toast({
-        title: "Not sent",
-        description: err?.message ?? "Could not send the note.",
-        variant: "destructive",
-      });
-    } finally {
-      setSendingReassign(false);
     }
   }
 
@@ -167,67 +119,8 @@ export function AssignCleanersModal({
   const dirty = original !== current || (selected.length > 0 && (primary ?? selected[0]) !== (initialPrimaryId ?? (initialAssignedIds ?? [])[0] ?? null));
 
   if (reassign) {
-    // Shown AFTER the assignment has saved. Closing without sending is a
-    // legitimate outcome — sometimes the office would rather ring the client —
-    // so "Don't send" is a plain button, not a cancel.
-    return (
-      <EModal
-        open
-        onClose={() => setReassign(null)}
-        title="Tell the client their cleaner changed?"
-        eyebrow="Not sent yet"
-        size="wide"
-      >
-        <div className="space-y-4">
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            The assignment is saved. This note has <strong>not</strong> been sent — read it, change
-            anything you want, then send or close.
-          </p>
-
-          {reassign.recipients.length === 0 ? (
-            <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-muted)/0.5)] p-3 text-[0.8125rem]">
-              {reassign.reason ?? "No client email on file, so there is nobody to send this to."}
-            </p>
-          ) : (
-            <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-              To: {reassign.recipients.join(", ")}
-            </p>
-          )}
-
-          <label className="block space-y-1">
-            <span className="text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Subject</span>
-            <input
-              value={reassignSubject}
-              onChange={(e) => setReassignSubject(e.target.value)}
-              className="w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3 py-2 text-[0.875rem]"
-            />
-          </label>
-
-          <label className="block space-y-1">
-            <span className="text-[0.75rem] font-[550] text-[hsl(var(--e-muted-foreground))]">Message</span>
-            <textarea
-              value={reassignHtml}
-              onChange={(e) => setReassignHtml(e.target.value)}
-              rows={10}
-              className="w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3 py-2 font-mono text-[0.75rem]"
-            />
-          </label>
-
-          <div className="flex items-center justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
-            <EButton variant="outline" onClick={() => setReassign(null)} disabled={sendingReassign}>
-              Don&apos;t send
-            </EButton>
-            <EButton
-              variant="gold"
-              onClick={sendReassignNote}
-              disabled={sendingReassign || reassign.recipients.length === 0 || !reassignSubject.trim()}
-            >
-              {sendingReassign ? "Sending…" : "Send to client"}
-            </EButton>
-          </div>
-        </div>
-      </EModal>
-    );
+    // Shown AFTER the assignment has saved (see ReassignNoteDialog).
+    return <ReassignNoteDialog preview={reassign} onClose={() => setReassign(null)} />;
   }
 
   return (
@@ -300,6 +193,13 @@ export function AssignCleanersModal({
           )}
         </div>
 
+        {leaveConflict ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-warning))]">
+            <span className="min-w-0 [overflow-wrap:anywhere]">{leaveConflict}</span>
+            <EButton size="sm" variant="outline" disabled={submitting} onClick={() => void submit(true)}>Assign anyway</EButton>
+          </div>
+        ) : null}
+
         <div className="flex items-center justify-between gap-2 border-t border-[hsl(var(--e-border))] pt-4">
           <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
             Assigned cleaners are notified by email &amp; SMS.
@@ -308,7 +208,7 @@ export function AssignCleanersModal({
             <EButton variant="outline" onClick={onClose} disabled={submitting}>
               Cancel
             </EButton>
-            <EButton variant="gold" onClick={submit} disabled={submitting || !dirty}>
+            <EButton variant="gold" onClick={() => void submit()} disabled={submitting || !dirty}>
               {submitting
                 ? "Saving…"
                 : selected.length === 0

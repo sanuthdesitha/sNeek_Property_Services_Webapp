@@ -1,98 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LaundryOutcome, MediaType, Role } from "@prisma/client";
-import { z } from "zod";
+import { Role } from "@prisma/client";
+import { ZodError } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { deleteObject } from "@/lib/s3";
-import { generateJobReport } from "@/lib/reports/generator";
+import { SubmissionEditError, editFormSubmission } from "@/lib/forms/submission-edit";
+import { loadSubmissionDetail } from "@/lib/forms/submission-detail";
 
-const mediaSchema = z.object({
-  url: z.string().trim().min(1),
-  s3Key: z.string().trim().min(1),
-  fieldId: z.string().trim().min(1),
-  mimeType: z.string().trim().optional().nullable(),
-  label: z.string().trim().optional().nullable(),
-});
+const headers = { "Cache-Control": "private, no-store", Vary: "Cookie" };
 
-const patchSchema = z.object({
-  data: z.record(z.any()).optional(),
-  laundryReady: z.boolean().optional().nullable(),
-  laundryOutcome: z.nativeEnum(LaundryOutcome).optional().nullable(),
-  bagLocation: z.string().trim().optional().nullable(),
-  addMediaUrls: z.array(mediaSchema).optional(),
-  deleteMediaIds: z.array(z.string().trim().min(1)).optional(),
-});
-
-function detectMediaType(mimeType: string | null | undefined) {
-  return String(mimeType ?? "").toLowerCase().startsWith("video/") ? MediaType.VIDEO : MediaType.PHOTO;
+function errorStatus(err: unknown): number {
+  const message = err instanceof Error ? err.message : "";
+  return message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+/** GET — one submission with its questions, media, edit history and removed media (Forms → Submissions). */
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const body = patchSchema.parse(await req.json().catch(() => ({})));
+    const detail = await loadSubmissionDetail(params.id);
+    if (!detail) return NextResponse.json({ error: "Submission not found." }, { status: 404, headers });
+    return NextResponse.json(detail, { headers });
+  } catch (err: unknown) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Could not load the submission." }, { status: errorStatus(err), headers });
+  }
+}
 
-    const existing = await db.formSubmission.findUnique({
-      where: { id: params.id },
-      include: { media: true },
-    });
-    if (!existing) {
-      return NextResponse.json({ error: "Submission not found." }, { status: 404 });
-    }
-
-    const nextData =
-      body.data !== undefined
-        ? {
-            ...(existing.data && typeof existing.data === "object" && !Array.isArray(existing.data) ? (existing.data as Record<string, unknown>) : {}),
-            ...body.data,
-          }
-        : undefined;
-
-    const deleteMediaIds = Array.isArray(body.deleteMediaIds) ? body.deleteMediaIds : [];
-    const mediaToDelete = existing.media.filter((media) => deleteMediaIds.includes(media.id));
-
-    await db.$transaction(async (tx) => {
-      await tx.formSubmission.update({
-        where: { id: params.id },
-        data: {
-          data: nextData as any,
-          laundryReady: body.laundryReady !== undefined ? body.laundryReady : undefined,
-          laundryOutcome: body.laundryOutcome !== undefined ? body.laundryOutcome || null : undefined,
-          bagLocation: body.bagLocation !== undefined ? body.bagLocation || null : undefined,
-        },
-      });
-
-      if (deleteMediaIds.length > 0) {
-        await tx.submissionMedia.deleteMany({
-          where: {
-            submissionId: params.id,
-            id: { in: deleteMediaIds },
-          },
-        });
-      }
-
-      if ((body.addMediaUrls ?? []).length > 0) {
-        await tx.submissionMedia.createMany({
-          data: (body.addMediaUrls ?? []).map((media) => ({
-            submissionId: params.id,
-            fieldId: media.fieldId,
-            mediaType: detectMediaType(media.mimeType),
-            url: media.url,
-            s3Key: media.s3Key,
-            mimeType: media.mimeType || null,
-            label: media.label || null,
-          })),
-        });
-      }
-    });
-
-    for (const media of mediaToDelete) {
-      if (!media.s3Key) continue;
-      deleteObject(media.s3Key).catch(() => {});
-    }
-
-    generateJobReport(existing.jobId).catch(() => {});
-
+/**
+ * PATCH — the office edits a submission: answers (history kept as before/after
+ * in the audit log; internal fields refused), laundry fields, add media (upload
+ * ownership checked), remove media (the stored original is kept as a tombstone)
+ * and restore removed media. The report regenerates in the background. The
+ * response keeps its old shape for the job pages.
+ */
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    await editFormSubmission({ id: session.user.id }, params.id, await req.json().catch(() => ({})));
     const updated = await db.formSubmission.findUnique({
       where: { id: params.id },
       include: {
@@ -111,10 +54,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         },
       },
     });
-
-    return NextResponse.json(updated);
-  } catch (err: any) {
-    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message ?? "Could not update submission." }, { status });
+    return NextResponse.json(updated, { headers });
+  } catch (err: unknown) {
+    if (err instanceof SubmissionEditError) return NextResponse.json({ error: err.message }, { status: err.status, headers });
+    if (err instanceof ZodError) return NextResponse.json({ error: err.issues[0]?.message ?? "Check the submission changes." }, { status: 400, headers });
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Could not update submission." }, { status: errorStatus(err), headers });
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 import { isDeviceStatusField } from "@/lib/forms/device-status";
-import { DeviceStatusInput } from "./device-status-input";
+import { DeviceStatusInput } from "@/components/shared/device-status-input";
 
 import * as React from "react";
 import { Minus, Plus, Star, MapPin, Loader2, QrCode, X } from "lucide-react";
@@ -22,6 +22,7 @@ import { ExampleOnTickReferences, FieldReferences } from "./field-references";
 import { InstructionsReveal } from "./instructions-reveal";
 import { useFormTheme } from "./form-theme";
 import { isDividerField } from "./form-blocks";
+import { CLASSIC_STRUCTURED_KIT, StockCountFieldInput, TableFieldInput } from "@/components/v2/cleaner/structured-field-inputs";
 
 export interface FieldInputProps {
   field: FormField;
@@ -426,6 +427,22 @@ export function FieldInput({ field, value, onChange, hideLabel }: FieldInputProp
       return (
         <FieldShell field={field} value={value} hideLabel={hideLabel}>
           <LocationCapture value={value} onChange={onChange} />
+        </FieldShell>
+      );
+
+    // Structured types (Wave B): the same shared controls the v2 cleaner job
+    // page uses, styled with the classic tokens, answering the same shapes.
+    case "table":
+      return (
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
+          <TableFieldInput field={field} value={value} onChange={onChange} kit={CLASSIC_STRUCTURED_KIT} />
+        </FieldShell>
+      );
+
+    case "stock_count":
+      return (
+        <FieldShell field={field} value={value} hideLabel={hideLabel}>
+          <StockCountFieldInput field={field} value={value} onChange={onChange} kit={CLASSIC_STRUCTURED_KIT} />
         </FieldShell>
       );
 

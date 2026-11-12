@@ -63,6 +63,8 @@ import { ReportActions } from "@/components/v2/admin/jobs/report-actions";
 import { FormsQaCentre } from "@/components/v2/admin/jobs/forms-qa-centre";
 import { TaskEvidence } from "@/components/v2/admin/jobs/task-evidence";
 import { JobReminderButton } from "@/components/v2/admin/jobs/job-reminder-button";
+import { isLiveInvoiceLine } from "@/lib/jobs/invoiced-rule";
+import { JobCancelButton, JobCancelledNotice } from "@/components/v2/admin/jobs/job-cancel-section";
 
 export const metadata = { title: "Job · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -175,6 +177,7 @@ async function getJob(id: string) {
         updatedAt: true,
         jobType: true,
         status: true,
+        cancelReason: true,
         scheduledDate: true,
         startTime: true,
         dueTime: true,
@@ -274,6 +277,8 @@ async function getJob(id: string) {
               select: {
                 invoiceNumber: true,
                 status: true,
+                kind: true,
+                creditedInFullAt: true,
                 totalAmount: true,
                 paidDate: true,
                 paidAt: true,
@@ -819,6 +824,9 @@ export default async function AdminJobDetailPage({
   const linkedCases = job.issueTickets ?? [];
   const linkedInvoiceLines = job.invoiceLines ?? [];
   const hasLinkedRefs = linkedCases.length > 0 || linkedInvoiceLines.length > 0;
+  // Lines on voided or fully credited invoices stay listed, but they do not
+  // make the job invoiced (lib/invoicing/invoiced-job-rule.ts).
+  const onlyVoidInvoiceLines = linkedInvoiceLines.length > 0 && !linkedInvoiceLines.some(isLiveInvoiceLine);
 
   const tab = resolveJobDetailTab(searchParams?.tab);
   const tabHref = (key: string) => jobDetailTabHref(job.id, key);
@@ -866,6 +874,8 @@ export default async function AdminJobDetailPage({
           </div>
         }
       />
+
+      {job.status === "CANCELLED" ? <JobCancelledNotice jobId={job.id} cancelReason={job.cancelReason} /> : null}
 
       <ETabs items={tabItems} active={tab} hrefFor={tabHref} ariaLabel="Job sections" />
 
@@ -1184,7 +1194,31 @@ export default async function AdminJobDetailPage({
             />
           </ECardBody>
         </ECard>
-
+        {/* Photo review and the QA score were a second "Quality" block further
+            down the page; merged here so the tab renders once, in this order. */}
+        <PhotoReviewPanel jobId={job.id} />
+        {/* QA */}
+        <ECard>
+          <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><ShieldCheck className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Quality</ECardTitle></ECardHeader>
+          <ECardBody className="space-y-1 pt-0 text-[0.8125rem]">
+            {qa ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="e-numeral text-[1.25rem] leading-none">{Math.round(qa.score)}</span>
+                  <EBadge tone={qa.passed ? "success" : "danger"} soft>{qa.passed ? "Passed" : "Failed"}</EBadge>
+                  <EBadge tone="neutral" soft>{qa.kind}</EBadge>
+                </div>
+                {qa.notes ? <p className="pt-1 text-[hsl(var(--e-muted-foreground))]">{qa.notes}</p> : null}
+                <p className="text-[hsl(var(--e-text-faint))]">{format(new Date(qa.createdAt), "d MMM yyyy")}</p>
+              </>
+            ) : (
+              <p className="text-[hsl(var(--e-muted-foreground))]">No QA review yet.</p>
+            )}
+            <div className="pt-2">
+              <QuickQaReview jobId={job.id} jobStatus={job.status} hasReview={!!qa} defaultScore={qa ? Math.round(qa.score) : 90} />
+            </div>
+          </ECardBody>
+        </ECard>
       </div>
       ) : null}
 
@@ -1255,35 +1289,6 @@ export default async function AdminJobDetailPage({
         <ECard>
           <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Billing &amp; pay ledger</ECardTitle></ECardHeader>
           <ECardBody className="pt-0"><JobDetailManage job={manageJob} section="billing" /></ECardBody>
-        </ECard>
-      </div>
-      ) : null}
-
-      {/* ── Quality (continued) ──────────────────────────────────────────── */}
-      {tab === "quality" ? (
-      <div className="space-y-4">
-        <PhotoReviewPanel jobId={job.id} />
-        {/* QA */}
-        <ECard>
-          <ECardHeader className="pb-2"><ECardTitle className="flex items-center gap-2 text-[0.95rem]"><ShieldCheck className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Quality</ECardTitle></ECardHeader>
-          <ECardBody className="space-y-1 pt-0 text-[0.8125rem]">
-            {qa ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <span className="e-numeral text-[1.25rem] leading-none">{Math.round(qa.score)}</span>
-                  <EBadge tone={qa.passed ? "success" : "danger"} soft>{qa.passed ? "Passed" : "Failed"}</EBadge>
-                  <EBadge tone="neutral" soft>{qa.kind}</EBadge>
-                </div>
-                {qa.notes ? <p className="pt-1 text-[hsl(var(--e-muted-foreground))]">{qa.notes}</p> : null}
-                <p className="text-[hsl(var(--e-text-faint))]">{format(new Date(qa.createdAt), "d MMM yyyy")}</p>
-              </>
-            ) : (
-              <p className="text-[hsl(var(--e-muted-foreground))]">No QA review yet.</p>
-            )}
-            <div className="pt-2">
-              <QuickQaReview jobId={job.id} jobStatus={job.status} hasReview={!!qa} defaultScore={qa ? Math.round(qa.score) : 90} />
-            </div>
-          </ECardBody>
         </ECard>
       </div>
       ) : null}
@@ -1731,6 +1736,10 @@ export default async function AdminJobDetailPage({
               {linkedInvoiceLines.length === 0 ? (
                 <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Not invoiced yet.</p>
               ) : (
+                <>
+                {onlyVoidInvoiceLines ? (
+                  <p className="mb-1.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Not on a live invoice. Every line below is on a voided or fully credited invoice, so this job can be billed again.</p>
+                ) : null}
                 <ul className="space-y-1.5">
                   {linkedInvoiceLines.map((line) => (
                     <li key={line.id} className="flex flex-wrap items-center justify-between gap-2 text-[0.8125rem]">
@@ -1780,6 +1789,7 @@ export default async function AdminJobDetailPage({
                     </li>
                   ))}
                 </ul>
+                </>
               )}
             </div>
           </ECardBody>
@@ -1787,6 +1797,17 @@ export default async function AdminJobDetailPage({
       ) : null}
 
       {/* ── Danger ───────────────────────────────────────────────────────── */}
+      {tab === "danger" && job.status !== "CANCELLED" ? (
+        <ECard>
+          <ECardHeader className="pb-2">
+            <ECardTitle className="text-[0.95rem]">Cancel this job</ECardTitle>
+          </ECardHeader>
+          <ECardBody className="pt-0">
+            <JobCancelButton jobId={job.id} status={job.status} label={`${propLabel} · ${scheduledLabel}`} />
+          </ECardBody>
+        </ECard>
+      ) : null}
+
       {tab === "danger" ? (
         <ECard>
           <ECardHeader className="pb-2">

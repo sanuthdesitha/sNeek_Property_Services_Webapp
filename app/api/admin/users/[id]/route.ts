@@ -11,6 +11,10 @@ import {
   syncClientContactFromPrimaryUser,
 } from "@/lib/clients/contact-sync";
 import { autoAssignCleanerLearning, ensureDefaultLearningPaths } from "@/lib/workforce/service";
+import { assertAnotherActiveAdmin, leavesAdminSet } from "@/lib/accounts/account-status";
+import { loadPersonProfile } from "@/lib/accounts/person-profile";
+import { toPersonProfile } from "@/lib/accounts/person-types";
+import { personCapabilities, resolveAccountsViewer } from "@/lib/accounts/viewer";
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -108,6 +112,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (nextClientId !== undefined) data.clientId = nextClientId;
 
     const updated = await db.$transaction(async (tx) => {
+      // The last active admin can be neither disabled nor demoted. Checked
+      // inside this transaction under the admin-set lock (lib/accounts/account-status).
+      if (leavesAdminSet(existing, { role: body.role, isActive: body.isActive })) {
+        await assertAnotherActiveAdmin(tx, existing.id);
+      }
       const nextUser = await tx.user.update({
         where: { id: params.id },
         data,
@@ -275,5 +284,23 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
             ? 423
             : 400;
     return NextResponse.json({ error: err.message ?? "Delete failed." }, { status });
+  }
+}
+
+/**
+ * One account for the Accounts person panel, plus what the viewer may do with
+ * it. ADMIN and OPS_MANAGER, as the account page always was. Secrets (password
+ * hash, 2FA secret, invitation token, admin PIN) are never selected.
+ */
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const raw = await loadPersonProfile(params.id);
+    if (!raw) return NextResponse.json({ error: "User not found." }, { status: 404 });
+    const viewer = await resolveAccountsViewer(session.user);
+    return NextResponse.json({ profile: toPersonProfile(raw), capabilities: personCapabilities(viewer) });
+  } catch (err: any) {
+    const status = err?.message === "UNAUTHORIZED" ? 401 : err?.message === "FORBIDDEN" ? 403 : 500;
+    return NextResponse.json({ error: status === 500 ? "Could not load this account." : err.message }, { status });
   }
 }

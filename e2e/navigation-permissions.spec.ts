@@ -145,9 +145,7 @@ test("return navigation restores Jobs views and detail tabs; refresh resets temp
   const context = await login(browser, admin);
   const page = await context.newPage();
   await page.goto(`${origin}/v2/admin/jobs`);
-  await page.getByRole("button", { name: "Jobs options" }).click();
-  await page.getByRole("menuitem", { name: "View options" }).click();
-  await page.getByRole("button", { name: "Board view", exact: true }).click();
+  await page.getByRole("button", { name: "Board", exact: true }).click();
   await expect(page).toHaveURL(/view=board/);
   await page.goto(`${origin}/v2/admin/jobs/${job}?tab=money`);
   await expect(page).toHaveURL(/tab=money/);
@@ -155,20 +153,16 @@ test("return navigation restores Jobs views and detail tabs; refresh resets temp
     .getByRole("link", { name: "Back to jobs board", exact: true })
     .click();
   await expect(page).toHaveURL(/view=board/);
-  await page.getByRole("button", { name: "Jobs options" }).click();
-  await page.getByRole("menuitem", { name: "View options" }).click();
   await expect(
-    page.getByRole("button", { name: "Board view", exact: true }),
+    page.getByRole("button", { name: "Board", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await page.goto(`${origin}/v2/admin/jobs/${job}`);
   await expect(page).toHaveURL(/tab=money/);
   await page.goto(`${origin}/v2/admin/jobs`);
   await expect(page).toHaveURL(/view=board/);
   await page.reload();
-  await page.getByRole("button", { name: "Jobs options" }).click();
-  await page.getByRole("menuitem", { name: "View options" }).click();
   await expect(
-    page.getByRole("button", { name: "List view", exact: true }),
+    page.getByRole("button", { name: "List", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   expect(new URL(page.url()).searchParams.get("view")).not.toBe("board");
   await context.close();

@@ -89,9 +89,9 @@ const apiRule = (rule: TimingRule) =>
     : { enabled: true, preset: rule.preset, time: rule.preset === "custom" ? rule.time || undefined : undefined };
 
 /** Compact Estate section shell. */
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, id }: { title: string; children: React.ReactNode; id?: string }) {
   return (
-    <ECard>
+    <ECard id={id} className={id ? "scroll-mt-24" : undefined}>
       <ECardHeader className="pb-2">
         <ECardTitle className="text-[1rem]">{title}</ECardTitle>
       </ECardHeader>
@@ -785,7 +785,8 @@ export function NewJobForm({ initialPropertyId }: { initialPropertyId?: string }
         </div>
 
         <div className="space-y-6">
-          <Section title="Bulk create">
+          {/* Deep link target of Jobs → "Import or bulk create" (#bulk-create). */}
+          <Section title="Bulk create" id="bulk-create">
             {usesExistingProperty ? (
               <EField label="Bulk properties" hint="Leave empty to use the single property above.">
                 <Checklist options={propertyChecklist} selected={bulkPropertyIds} onChange={setBulkPropertyIds} emptyText="No properties." />

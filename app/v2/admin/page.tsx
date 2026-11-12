@@ -1,683 +1,82 @@
-import { LivePageRefresh } from "@/components/shared/live-page-refresh";
-import { STATUS_LABELS } from "@/lib/jobs/status-labels";
-import { parseJobInternalNotes } from "@/lib/jobs/meta";
+import { Suspense } from "react";
 import Link from "next/link";
-import { format } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
-import { JobStatus } from "@prisma/client";
-import { db } from "@/lib/db";
-import { getDashboardMetrics } from "@/lib/admin/dashboard";
-import { getAdminAttentionSummary } from "@/lib/dashboard/immediate-attention";
-import { addDaysToKey, sydneyDayEndInclusive, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
-import {
-  EBadge,
-  EButton,
-  ECard,
-  ECardBody,
-  ECardHeader,
-  ECardTitle,
-  EEyebrow,
-  EStatCard,
-  EEmptyState,
-} from "@/components/v2/ui/primitives";
-import {
-  AlertTriangle,
-  ArrowRight,
-  CalendarClock,
-  CheckCircle2,
-  ClipboardCheck,
-  MapPin,
-  MapPinned,
-  Navigation,
-  Radio,
-  Shirt,
-  Star,
-  Wallet,
-} from "lucide-react";
+import { EButton } from "@/components/v2/ui/primitives";
+import { CommandSearch } from "@/components/v2/admin/command/command-search";
+import { SectionLoading } from "@/components/v2/admin/command/section-state";
+import { CleanersSection, GlanceSection, MoneySection, QueueSection, TilesSection } from "@/components/v2/admin/command/command-sections";
+import { requireCommandViewer } from "@/lib/dashboard/command-access";
+import { commandTimeZone, loadCommandHeader } from "@/lib/dashboard/command-sections";
+import { viewerSeesMoney } from "@/lib/dashboard/command-money";
+import { viewerCanOpen } from "@/lib/dashboard/command-viewer";
+import { CALENDAR_HREF } from "@/lib/dashboard/work-queue-links";
 
 export const metadata = { title: "Command · Estate admin" };
 export const dynamic = "force-dynamic";
 
-const TZ = "Australia/Sydney";
-
-type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
-
-function statusTone(status: JobStatus): Tone {
-  switch (status) {
-    case JobStatus.UNASSIGNED:
-    case JobStatus.OFFERED:
-      return "warning";
-    case JobStatus.ASSIGNED:
-      return "primary";
-    case JobStatus.EN_ROUTE:
-      return "primary";
-    case JobStatus.IN_PROGRESS:
-    case JobStatus.PAUSED:
-    case JobStatus.WAITING_CONTINUATION_APPROVAL:
-      return "info";
-    case JobStatus.SUBMITTED:
-      return "warning";
-    case JobStatus.QA_REVIEW:
-      return "aubergine";
-    case JobStatus.COMPLETED:
-    case JobStatus.INVOICED:
-      return "success";
-    default:
-      return "neutral";
-  }
-}
-
-function titleCase(value: string): string {
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
-function money(n: number): string {
-  return "$" + Math.round(n).toLocaleString("en-AU");
-}
-
-const ACTIVE_JOB_STATUSES: JobStatus[] = [
-  JobStatus.UNASSIGNED,
-  JobStatus.OFFERED,
-  JobStatus.ASSIGNED,
-  JobStatus.EN_ROUTE,
-  JobStatus.IN_PROGRESS,
-  JobStatus.PAUSED,
-  JobStatus.WAITING_CONTINUATION_APPROVAL,
-  JobStatus.SUBMITTED,
-  JobStatus.QA_REVIEW,
-];
-
-function sydToday() {
-  // scheduledDate is a UTC-midnight calendar key, not an event timestamp.
-  const key = sydneyTodayKey();
-  const todayStart = new Date(`${key}T00:00:00.000Z`);
-  const todayEnd = new Date(`${addDaysToKey(key, 1)}T00:00:00.000Z`);
-  return { todayStart, todayEnd };
-}
-
-async function getTodayDispatch() {
-  const { todayStart, todayEnd } = sydToday();
-  return db.job
-    .findMany({
-      where: { scheduledDate: { gte: todayStart, lt: todayEnd } },
-      orderBy: [{ startTime: "asc" }, { scheduledDate: "asc" }],
-      select: {
-        id: true,
-        jobType: true,
-        internalNotes: true,
-        status: true,
-        startTime: true,
-        property: { select: { name: true, suburb: true } },
-        assignments: { select: { user: { select: { name: true } } }, take: 1 },
-      },
-    })
-    .then((jobs) => jobs.filter((job) => !parseJobInternalNotes(job.internalNotes).isDraft).slice(0, 12))
-    .catch(() => null);
-}
-
 /**
- * Cleaners on the move right this second — drives the "Live now" strip.
+ * Command: today's date and summary, four filtered counters, the work queue
+ * (every decision waiting, most urgent first, with inline actions), today by
+ * cleaner, money this month (finance or payroll access only) and, below the
+ * fold, today by status, on shift, upcoming, recent feedback and laundry due.
  *
- * Mirrors the ops live-locations feed's liveness definition (keep in sync with
- * app/api/admin/ops/live-locations/route.ts): only TODAY's (Sydney) work counts
- * — an EN_ROUTE / IN_PROGRESS job scheduled today (PAUSED is excluded from the
- * on-site count: a paused cleaner is not actively on site), or an open timer
- * started today (or on a job scheduled today) — AND the cleaner must have a
- * fresh GPS ping (within STALE_AFTER_MS). A leftover open timer or active-status
- * job from a previous day, and cleaners whose only ping is stale, are excluded
- * so this KPI matches the ops map's live count instead of inflating it.
+ * Each section loads and refreshes on its own (every 30 s, money every 5 min),
+ * so one failed query fails one section, with its own Retry.
  */
-async function getLiveNow() {
-  const STALE_AFTER_MS = 3 * 60_000;
-  const now = Date.now();
-  const todayKey = sydneyTodayKey();
-  const todayStart = sydneyDayStart(todayKey);
-  const todayEnd = sydneyDayEndInclusive(todayKey);
-
-  try {
-    const [freshPings, enRoute, onSite, timers] = await Promise.all([
-      db.cleanerLocationPing.findMany({
-        where: { timestamp: { gte: new Date(now - STALE_AFTER_MS) } },
-        distinct: ["userId"],
-        select: { userId: true },
-      }),
-      db.job.findMany({
-        where: {
-          status: JobStatus.EN_ROUTE,
-          scheduledDate: { gte: todayStart, lte: todayEnd },
-          assignments: { some: { removedAt: null } },
-        },
-        select: { assignments: { where: { removedAt: null }, select: { userId: true } } },
-      }),
-      db.job.findMany({
-        // GPS-truth: only IN_PROGRESS counts as "on site" — a PAUSED job's
-        // cleaner is by definition not actively working (often already gone),
-        // so counting it inflated the KPI.
-        where: {
-          status: JobStatus.IN_PROGRESS,
-          scheduledDate: { gte: todayStart, lte: todayEnd },
-          assignments: { some: { removedAt: null } },
-        },
-        select: { assignments: { where: { removedAt: null }, select: { userId: true } } },
-      }),
-      db.timeLog.findMany({
-        where: {
-          stoppedAt: null,
-          OR: [
-            { startedAt: { gte: todayStart } },
-            { job: { scheduledDate: { gte: todayStart, lte: todayEnd } } },
-          ],
-        },
-        select: { userId: true },
-      }),
-    ]);
-
-    // A cleaner is live only with a fresh ping; a job is live if any of its
-    // active assignees is.
-    const fresh = new Set(freshPings.map((p) => p.userId));
-    const liveJobs = (jobs: { assignments: { userId: string }[] }[]) =>
-      jobs.filter((j) => j.assignments.some((a) => fresh.has(a.userId))).length;
-
-    return {
-      enRouteJobs: liveJobs(enRoute),
-      onSiteJobs: liveJobs(onSite),
-      runningTimers: timers.filter((t) => fresh.has(t.userId)).length,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function getTodayStatusCounts() {
-  const { todayStart, todayEnd } = sydToday();
-  try {
-    const jobs = await db.job.findMany({
-      where: { scheduledDate: { gte: todayStart, lt: todayEnd } },
-      select: { status: true, internalNotes: true },
-    });
-    const map = new Map<JobStatus, number>();
-    for (const job of jobs) {
-      if (!parseJobInternalNotes(job.internalNotes).isDraft) map.set(job.status, (map.get(job.status) ?? 0) + 1);
-    }
-    return map;
-  } catch {
-    return null;
-  }
-}
-
-async function getLaundryDueToday() {
-  const { todayStart, todayEnd } = sydToday();
-  return db.laundryTask
-    .count({
-      where: {
-        OR: [
-          { pickupDate: { gte: todayStart, lt: todayEnd } },
-          { dropoffDate: { gte: todayStart, lt: todayEnd } },
-        ],
-      },
-    })
-    .catch(() => null);
-}
-
-async function getUpcomingJobs() {
-  const { todayEnd } = sydToday();
-  const weekEnd = new Date(todayEnd.getTime() + 6 * 86_400_000);
-  return db.job
-    .findMany({
-      where: {
-        scheduledDate: { gte: todayEnd, lt: weekEnd },
-        status: { in: ACTIVE_JOB_STATUSES },
-      },
-      orderBy: [{ scheduledDate: "asc" }, { startTime: "asc" }],
-      select: {
-        id: true,
-        jobType: true,
-        internalNotes: true,
-        status: true,
-        startTime: true,
-        scheduledDate: true,
-        property: { select: { name: true, suburb: true } },
-      },
-    })
-    .then((jobs) => jobs.filter((job) => !parseJobInternalNotes(job.internalNotes).isDraft).slice(0, 6))
-    .catch(() => null);
-}
-
 export default async function AdminCommandPage() {
-  const [metrics, dispatch, attention, liveNow, statusCounts, laundryDue, upcoming] = await Promise.all([
-    getDashboardMetrics({ strict: true }).catch(() => null),
-    getTodayDispatch(),
-    getAdminAttentionSummary().catch(() => null),
-    getLiveNow(),
-    getTodayStatusCounts(),
-    getLaundryDueToday(),
-    getUpcomingJobs(),
-  ]);
-
-  if (!metrics || !dispatch || !attention || !liveNow || !statusCounts || laundryDue === null || !upcoming) {
-    return (
-      <div className="space-y-4">
-        <h1 className="e-display-lg">Command</h1>
-        <div role="alert" className="rounded-[var(--e-radius)] border p-5">
-          <p>Command data could not be loaded. Current workload and totals are unavailable.</p>
-          <div className="mt-3 flex gap-4">
-            <a href="/v2/admin" className="underline">Retry</a>
-            <Link href="/v2/admin/jobs" className="underline">Open jobs</Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const nowSyd = toZonedTime(new Date(), TZ);
-  const dateLine = format(nowSyd, "EEEE · d MMMM").toUpperCase();
-
-  const jobsTotal = metrics?.today.total ?? 0;
-  const unassigned = statusCounts.get(JobStatus.UNASSIGNED) ?? 0;
-  const revenue = metrics?.today.revenueAud ?? 0;
-  const missingRates = metrics.today.revenueRateMissingCount ?? 0;
-  const revenueLabel = missingRates > 0 ? "Known charges today" : "Revenue today";
-  const qaPending = metrics?.qaPending ?? 0;
-  const invoicesOutstanding = metrics?.invoices.outstandingCount ?? 0;
-  const cleanersLiveNow = liveNow.enRouteJobs + liveNow.onSiteJobs;
-
-  // Today jobs-by-status breakdown for the command summary strip.
-  const statusBreakdown = Object.values(JobStatus).map((status) => ({
-    status, label: STATUS_LABELS[status] ?? titleCase(status),
-  }));
-
-  // "Needs attention" — richer, sourced from the shared admin attention summary
-  // so the count matches the rest of the app.
-  const attentionItems: { tone: Tone; label: string; text: string; href: string }[] = [];
-  if (unassigned > 0) {
-    attentionItems.push({
-      tone: "danger",
-      label: "Unassigned",
-      text: `${unassigned} job${unassigned === 1 ? "" : "s"} today ${unassigned === 1 ? "has" : "have"} no cleaner`,
-      href: "/v2/admin/jobs",
-    });
-  }
-  const otherUnassigned = Math.max(0, (attention.unassignedJobs ?? 0) - unassigned);
-  if (otherUnassigned > 0) attentionItems.push({ tone: "warning", label: "Other unassigned jobs",
-    text: `${otherUnassigned} unassigned job${otherUnassigned === 1 ? "" : "s"} outside today's schedule`, href: "/v2/admin/jobs" });
-  const otherOpenCases = Math.max(0, (attention.openCases ?? 0) - (attention.overdueCases ?? 0));
-  if (otherOpenCases > 0) attentionItems.push({ tone: "warning", label: "Open cases",
-    text: `${otherOpenCases} open case${otherOpenCases === 1 ? "" : "s"} without an overdue deadline to review`, href: "/v2/admin/cases" });
-  for (const queue of [
-    { count: attention.pendingTimeAdjustments, label: "Clock adjustments", detail: "clock adjustment requests" },
-    { count: attention.pendingClientTaskRequests, label: "Client tasks", detail: "client task requests" },
-    { count: attention.pendingTimingRequests, label: "Timing requests", detail: "timing requests" },
-    { count: attention.pendingQaReworkTransfers, label: "QA rework", detail: "QA rework transfers" },
-    { count: attention.pendingSkipRequests, label: "Skip requests", detail: "skip requests" },
-    { count: attention.pendingQaOutcomes, label: "QA outcomes", detail: "QA outcomes" },
-    { count: attention.pendingLaundryRescheduleDraft, label: "Laundry reschedules", detail: "laundry schedule changes", href: "/v2/admin/laundry" },
-  ]) {
-    if (queue.count > 0) attentionItems.push({ tone: "warning", label: queue.label,
-      text: `${queue.count} ${queue.detail} awaiting review`, href: queue.href ?? "/v2/admin/approvals" });
-  }
-  if (attention?.overdueCases) {
-    attentionItems.push({
-      tone: "danger",
-      label: "Cases",
-      text: `${attention.overdueCases} overdue case${attention.overdueCases === 1 ? "" : "s"} past SLA`,
-      href: "/v2/admin/cases",
-    });
-  }
-  if (attention?.pendingContinuations) {
-    attentionItems.push({
-      tone: "warning",
-      label: "Approvals",
-      text: `${attention.pendingContinuations} pause/continue request${attention.pendingContinuations === 1 ? "" : "s"} waiting`,
-      href: "/v2/admin/ops",
-    });
-  }
-  if (attention?.pendingClientApprovals) {
-    attentionItems.push({
-      tone: "warning",
-      label: "Client",
-      text: `${attention.pendingClientApprovals} client approval${attention.pendingClientApprovals === 1 ? "" : "s"} outstanding`,
-      href: "/v2/admin/approvals",
-    });
-  }
-  if (attention?.pendingPayRequests) {
-    attentionItems.push({
-      tone: "info",
-      label: "Pay",
-      text: `${attention.pendingPayRequests} cleaner pay request${attention.pendingPayRequests === 1 ? "" : "s"} pending`,
-      href: "/v2/admin/approvals",
-    });
-  }
-  if (invoicesOutstanding > 0) {
-    attentionItems.push({
-      tone: "warning",
-      label: "Invoices",
-      text: `${invoicesOutstanding} outstanding · ${money(metrics?.invoices.outstandingAud ?? 0)}`,
-      href: "/v2/admin/finance",
-    });
-  }
-  if (qaPending > 0) {
-    attentionItems.push({
-      tone: "info",
-      label: "QA",
-      text: `${qaPending} job${qaPending === 1 ? "" : "s"} awaiting quality review`,
-      href: "/v2/admin/quality",
-    });
-  }
-  if (attention?.flaggedLaundry) {
-    attentionItems.push({
-      tone: "warning",
-      label: "Laundry",
-      text: `${attention.flaggedLaundry} flagged laundry task${attention.flaggedLaundry === 1 ? "" : "s"}`,
-      href: "/v2/admin/laundry",
-    });
-  }
-  if (metrics?.lowStockCount) {
-    attentionItems.push({
-      tone: "warning",
-      label: "Stock",
-      text: `${metrics.lowStockCount} item${metrics.lowStockCount === 1 ? "" : "s"} at or below reorder level`,
-      href: "/v2/admin/inventory",
-    });
-  }
-  const attentionTotal = attention?.attentionCount ?? attentionItems.length;
-  const recentFeedback = metrics?.recentFeedback ?? [];
+  const viewer = await requireCommandViewer();
+  const timeZone = await commandTimeZone();
+  const header = await loadCommandHeader(new Date(), timeZone);
+  const showMoney = viewerSeesMoney(viewer);
+  const canCreateJob = !viewer.readOnly && viewerCanOpen(viewer, "/v2/admin/jobs/new");
 
   return (
-    <div className="min-w-0 space-y-8 break-words">
-      <LivePageRefresh />
-      {/* Greeting header */}
-      <header className="e-rise">
-        <EEyebrow>{dateLine} · SYDNEY</EEyebrow>
-        <h1 className="e-display-lg mt-2">Operations command</h1>
-        <p className="mt-1 text-[0.9375rem] text-[hsl(var(--e-muted-foreground))]">
-          {jobsTotal === 0
-            ? "No jobs scheduled today."
-            : `${jobsTotal} job${jobsTotal === 1 ? "" : "s"} on the board${unassigned > 0 ? ` — ${unassigned} still need${unassigned === 1 ? "s" : ""} a cleaner.` : "."}`}
-        </p>
-        <div className="e-signature-rule mt-4" />
+    <div className="min-w-0 space-y-[14px] break-words">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="e-display-md">{header.dateLabel}</h1>
+          <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            {header.summary ?? "Today's summary could not be read just now."}
+          </p>
+        </div>
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-3 sm:w-auto">
+          <CommandSearch />
+          {canCreateJob ? <EButton asChild size="sm"><Link href="/v2/admin/jobs/new">New job</Link></EButton> : null}
+        </div>
       </header>
 
-      {/* KPI row */}
-      <section className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <EStatCard
-          label="Jobs today"
-          value={String(jobsTotal)}
-          delta={unassigned > 0 ? `${unassigned} unassigned` : "all assigned"}
-          deltaTone="neutral"
-          icon={<CalendarClock className="h-4 w-4" />}
-        />
-        <EStatCard
-          label={revenueLabel}
-          value={money(revenue)}
-          delta={missingRates > 0 ? `Excludes ${missingRates} completed jobs with no rate` : `${metrics?.today.completed ?? 0} completed`}
-          deltaTone="neutral"
-          icon={<Wallet className="h-4 w-4" />}
-        />
-        <EStatCard
-          label="QA pending"
-          value={String(qaPending)}
-          delta={qaPending > 0 ? "awaiting review" : "all clear"}
-          deltaTone="neutral"
-          icon={<ClipboardCheck className="h-4 w-4" />}
-        />
-        <EStatCard
-          label="Live now"
-          value={String(cleanersLiveNow)}
-          delta={`${liveNow.enRouteJobs} en route · ${liveNow.onSiteJobs} on site`}
-          deltaTone="neutral"
-          icon={<Radio className="h-4 w-4" />}
-        />
-      </section>
+      <Suspense fallback={<SectionLoading label="counters" rows={1} />}>
+        <TilesSection viewer={viewer} timeZone={timeZone} />
+      </Suspense>
 
-      {/* Live-now band + today status breakdown */}
-      <section className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-3">
-        <ECard className="min-w-0 lg:col-span-1">
-          <ECardHeader className="flex-row flex-wrap items-center justify-between gap-3">
-            <ECardTitle className="flex items-center gap-2">
-              <Radio className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> On shift now
-            </ECardTitle>
-            <EButton asChild variant="outline" size="sm">
-              <Link href="/v2/admin/ops/map"><MapPinned className="h-3.5 w-3.5" /> Live map</Link>
-            </EButton>
-          </ECardHeader>
-          <ECardBody className="grid grid-cols-3 gap-2 pt-0">
-            {[
-              { label: "En route", value: liveNow.enRouteJobs, icon: <Navigation className="h-3.5 w-3.5" /> },
-              { label: "On site", value: liveNow.onSiteJobs, icon: <MapPin className="h-3.5 w-3.5" /> },
-              { label: "Clocked in", value: liveNow.runningTimers, icon: <ClipboardCheck className="h-3.5 w-3.5" /> },
-            ].map((s) => (
-              <div key={s.label} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 text-center">
-                <div className="mb-1 flex justify-center text-[hsl(var(--e-accent-portal))]">{s.icon}</div>
-                <p className="e-numeral text-[1.375rem] leading-none">{s.value}</p>
-                <p className="mt-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">{s.label}</p>
-              </div>
-            ))}
-          </ECardBody>
-        </ECard>
+      <div className="grid min-w-0 grid-cols-1 items-start gap-[14px] xl:grid-cols-[minmax(0,1fr)_420px]">
+        <Suspense fallback={<SectionLoading label="the work queue" rows={6} />}>
+          <QueueSection viewer={viewer} timeZone={timeZone} />
+        </Suspense>
 
-        <ECard className="min-w-0 lg:col-span-2">
-          <ECardHeader>
-            <ECardTitle className="flex items-center gap-2">
-              <CalendarClock className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Today by status
-            </ECardTitle>
-          </ECardHeader>
-          <ECardBody className="pt-0">
-            <div className="flex flex-wrap gap-2">
-              {statusBreakdown.map((s) => {
-                const count = statusCounts.get(s.status) ?? 0;
-                return (
-                  <div
-                    key={s.status}
-                    className={`flex items-center gap-2 rounded-[var(--e-radius-pill)] border px-3 py-1.5 text-[0.8125rem] ${
-                      count > 0
-                        ? "border-[hsl(var(--e-border-strong))]"
-                        : "border-[hsl(var(--e-border))] text-[hsl(var(--e-text-faint))]"
-                    }`}
-                  >
-                    <EBadge tone={statusTone(s.status)} soft>{count}</EBadge>
-                    {s.label}
-                  </div>
-                );
-              })}
-            </div>
-          </ECardBody>
-        </ECard>
-      </section>
-
-      <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Attention queue */}
-        <section className="min-w-0 lg:col-span-1">
-          <ECard>
-            <ECardHeader className="flex-row flex-wrap items-center justify-between gap-3">
-              <ECardTitle className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-warning))]" /> Needs attention
-              </ECardTitle>
-              {attentionTotal > 0 ? <EBadge tone="danger" soft>{attentionTotal}</EBadge> : null}
-            </ECardHeader>
-            <ECardBody className="space-y-2">
-              {attentionItems.length === 0 ? (
-                attentionTotal > 0 ? <div className="space-y-2 text-sm"><p>Pending work exists, but its category breakdown is unavailable here.</p><Link className="inline-flex min-h-11 items-center underline" href="/v2/admin/approvals">Review approval queues</Link></div>
-                  : <EEmptyState eyebrow="All clear" title="Nothing needs you" description="Every queue is caught up." />
-              ) : (
-                attentionItems.map((item) => (
-                  <Link
-                    key={item.label}
-                    href={item.href}
-                    className="block rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 transition-colors hover:bg-[hsl(var(--e-muted))]"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <EBadge tone={item.tone} soft>{item.label}</EBadge>
-                      <ArrowRight className="h-4 w-4 text-[hsl(var(--e-text-faint))]" />
-                    </div>
-                    <p className="mt-1.5 text-[0.8125rem]">{item.text}</p>
-                  </Link>
-                ))
-              )}
-            </ECardBody>
-          </ECard>
-        </section>
-
-        {/* Today's dispatch */}
-        <section className="min-w-0 lg:col-span-2">
-          <ECard>
-            <ECardHeader className="flex-row flex-wrap items-center justify-between gap-3">
-              <ECardTitle>Today&apos;s dispatch</ECardTitle>
-              <div className="flex gap-2">
-                <EButton asChild variant="outline" size="sm"><Link href="/v2/admin/ops/map"><MapPin className="h-3.5 w-3.5" /> Map</Link></EButton>
-                <EButton asChild variant="primary" size="sm"><Link href="/v2/admin/jobs">Open board</Link></EButton>
-              </div>
-            </ECardHeader>
-            <ECardBody className="pt-0">
-              {dispatch.length === 0 ? (
-                <EEmptyState eyebrow="Quiet day" title="No jobs scheduled today" description="Nothing on the board for today." />
-              ) : (
-                <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-                  <table className="w-full text-[0.8125rem]">
-                    <thead>
-                      <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
-                        {["Time", "Property", "Cleaner", "Service", "Status"].map((h) => (
-                          <th key={h} className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dispatch.map((job) => {
-                        const cleaner = job.assignments[0]?.user?.name ?? "—";
-                        const propLabel = [job.property?.name, job.property?.suburb].filter(Boolean).join(", ") || "Property";
-                        return (
-                          <tr key={job.id} className="border-t border-[hsl(var(--e-border)/0.7)] transition-colors hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
-                            <td className="px-3 py-2.5 font-medium tabular-nums whitespace-nowrap">{job.startTime || "—"}</td>
-                            <td className="px-3 py-2.5">{propLabel}</td>
-                            <td className="px-3 py-2.5 text-[hsl(var(--e-text-secondary))]">{cleaner}</td>
-                            <td className="px-3 py-2.5 text-[hsl(var(--e-text-secondary))]">{titleCase(job.jobType)}</td>
-                            <td className="px-3 py-2.5"><EBadge tone={statusTone(job.status)} soft>{STATUS_LABELS[job.status] ?? titleCase(job.status)}</EBadge></td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </ECardBody>
-          </ECard>
-        </section>
+        <aside aria-label="Today by cleaner" className="min-w-0 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+          <div className="flex items-center justify-between gap-2 border-b border-[hsl(var(--e-border))] px-4 py-3.5">
+            <h2 className="text-[0.8125rem] font-[600]">Today by cleaner</h2>
+            <Link href={CALENDAR_HREF} className="text-[0.8125rem]">Open calendar</Link>
+          </div>
+          <div className="space-y-3 px-4 py-3.5">
+            <Suspense fallback={<SectionLoading label="today by cleaner" rows={4} />}>
+              <CleanersSection viewer={viewer} timeZone={timeZone} />
+            </Suspense>
+            {showMoney ? (
+              <>
+                <div className="h-px bg-[hsl(var(--e-border))]" />
+                <Suspense fallback={<SectionLoading label="money this month" rows={3} />}>
+                  <MoneySection viewer={viewer} timeZone={timeZone} />
+                </Suspense>
+              </>
+            ) : null}
+          </div>
+        </aside>
       </div>
 
-      {/* Money · Laundry · Upcoming · Recent activity */}
-      <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Money snapshot */}
-        <ECard>
-          <ECardHeader>
-            <ECardTitle className="flex items-center gap-2">
-              <Wallet className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Money snapshot
-            </ECardTitle>
-          </ECardHeader>
-          <ECardBody className="space-y-3 pt-0">
-            <div className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
-              <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{revenueLabel}</span>
-              <span className="e-numeral text-[1.125rem]">{money(revenue)}</span>
-            </div>
-            {missingRates > 0 ? <p className="text-sm text-[hsl(var(--e-muted-foreground))]">Incomplete total: {missingRates} completed job{missingRates === 1 ? " has" : "s have"} no charge rate. <Link href="/v2/admin/pricing" className="underline">Review pricing</Link></p> : null}
-            <div className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
-              <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Completed today</span>
-              <span className="e-numeral text-[1.125rem]">{metrics?.today.completed ?? 0}</span>
-            </div>
-            <Link
-              href="/v2/admin/finance"
-              className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5 transition-colors hover:bg-[hsl(var(--e-muted))]"
-            >
-              <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Invoices outstanding</span>
-              <span className="flex items-center gap-2">
-                <span className="e-numeral text-[1.125rem]">{money(metrics?.invoices.outstandingAud ?? 0)}</span>
-                {invoicesOutstanding > 0 ? <EBadge tone="warning" soft>{invoicesOutstanding}</EBadge> : null}
-              </span>
-            </Link>
-            <div className="flex items-center justify-between rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
-              <span className="flex items-center gap-1.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                <Shirt className="h-3.5 w-3.5" /> Laundry due today
-              </span>
-              <span className="e-numeral text-[1.125rem]">{laundryDue}</span>
-            </div>
-          </ECardBody>
-        </ECard>
-
-        {/* Upcoming (next 6 days) */}
-        <ECard>
-          <ECardHeader className="flex-row flex-wrap items-center justify-between gap-3">
-            <ECardTitle className="flex items-center gap-2">
-              <CalendarClock className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Upcoming
-            </ECardTitle>
-            <EBadge tone="neutral" soft>{metrics?.tomorrow.scheduled ?? 0} cleaners tmrw</EBadge>
-          </ECardHeader>
-          <ECardBody className="space-y-2 pt-0">
-            {upcoming.length === 0 ? (
-              <EEmptyState eyebrow="Clear" title="Nothing scheduled ahead" description="No upcoming jobs in the next six days." />
-            ) : (
-              upcoming.map((job) => (
-                <Link
-                  key={job.id}
-                  href={`/v2/admin/jobs/${job.id}`}
-                  className="flex items-center justify-between gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5 transition-colors hover:bg-[hsl(var(--e-muted))]"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-[0.8125rem] font-[550]">{job.property?.name ?? "Property"}</p>
-                    <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      {format(new Date(job.scheduledDate), "EEE d MMM")}
-                      {job.startTime ? ` · ${job.startTime}` : ""} · {titleCase(job.jobType)}
-                    </p>
-                  </div>
-                  <EBadge tone={statusTone(job.status)} soft>{STATUS_LABELS[job.status] ?? titleCase(job.status)}</EBadge>
-                </Link>
-              ))
-            )}
-          </ECardBody>
-        </ECard>
-
-        {/* Recent activity — latest client feedback */}
-        <ECard>
-          <ECardHeader>
-            <ECardTitle className="flex items-center gap-2">
-              <Star className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Recent feedback
-            </ECardTitle>
-          </ECardHeader>
-          <ECardBody className="space-y-2 pt-0">
-            {recentFeedback.length === 0 ? (
-              <EEmptyState eyebrow="Quiet" title="No recent feedback" description="No client ratings in the last week." />
-            ) : (
-              recentFeedback.map((fb) => (
-                <div key={fb.id} className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="truncate text-[0.8125rem] font-[550]">{fb.client?.name ?? "Client"}</p>
-                    <span className="flex items-center gap-0.5 text-[hsl(var(--e-gold-ink))]">
-                      {fb.rating != null ? (
-                        <>
-                          <Star className="h-3.5 w-3.5 fill-current" />
-                          <span className="e-tnum text-[0.8125rem]">{fb.rating.toFixed(1)}</span>
-                        </>
-                      ) : (
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                      )}
-                    </span>
-                  </div>
-                  {fb.comment ? (
-                    <p className="mt-1 line-clamp-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      &ldquo;{fb.comment}&rdquo;
-                    </p>
-                  ) : null}
-                </div>
-              ))
-            )}
-          </ECardBody>
-        </ECard>
-      </div>
-
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-        Estate preview · live data from your workspace.
-      </p>
+      <Suspense fallback={<SectionLoading label="today at a glance" rows={3} />}>
+        <GlanceSection viewer={viewer} timeZone={timeZone} />
+      </Suspense>
     </div>
   );
 }

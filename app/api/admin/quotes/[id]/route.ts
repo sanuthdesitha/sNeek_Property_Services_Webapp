@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { QuoteReferenceError, assertQuoteReferenceKeys, caseForQuoteDetail } from "@/lib/cases/repair-quote";
 
 const updateQuoteSchema = z.object({
   status: z.nativeEnum(QuoteStatus).optional(),
@@ -84,7 +85,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = updateQuoteSchema.parse(await req.json());
     const data: Record<string, unknown> = {};
 
@@ -141,6 +142,16 @@ export async function PATCH(
       data.serviceContext = body.serviceContext === null ? Prisma.JsonNull : body.serviceContext;
     }
     if (body.referenceImages !== undefined) {
+      // New keys must be the caller's own (or an office account's) uploads, or
+      // the evidence of the case the quote came from; keys already on the
+      // quote are not a new claim.
+      if (body.referenceImages) {
+        const current = await db.quote.findUnique({ where: { id: params.id }, select: { referenceImages: true } });
+        const known = new Set((Array.isArray(current?.referenceImages) ? (current?.referenceImages as Array<{ key?: unknown }>) : []).map((image) => String(image?.key ?? "")));
+        const fresh = body.referenceImages.map((image) => image.key).filter((key) => !known.has(key));
+        const fromCase = fresh.length ? await caseForQuoteDetail(params.id) : null;
+        await assertQuoteReferenceKeys({ keys: fresh, callerId: session.user.id, caseId: fromCase?.caseId ?? null });
+      }
       data.referenceImages = body.referenceImages === null ? Prisma.JsonNull : body.referenceImages;
     }
     if (body.showAddOnPrices !== undefined) data.showAddOnPrices = body.showAddOnPrices;
@@ -176,6 +187,7 @@ export async function PATCH(
     });
     return NextResponse.json(quote);
   } catch (err: any) {
+    if (err instanceof QuoteReferenceError) return NextResponse.json({ error: err.message }, { status: err.status });
     const status =
       err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : err.code === "P2025" ? 404 : 400;
     return NextResponse.json({ error: err.message }, { status });

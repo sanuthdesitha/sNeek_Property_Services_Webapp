@@ -131,7 +131,7 @@ export async function handleGeofenceDeparture(
       where: {
         id: job.id,
         status: {
-          notIn: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED],
+          notIn: [JobStatus.SUBMITTED, JobStatus.QA_REVIEW, JobStatus.COMPLETED, JobStatus.INVOICED, JobStatus.CANCELLED],
         },
       },
       data: { status: JobStatus.PAUSED },

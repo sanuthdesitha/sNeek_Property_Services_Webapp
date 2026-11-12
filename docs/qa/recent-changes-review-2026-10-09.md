@@ -642,3 +642,635 @@ Request: show the departing guest's contact details where only the upcoming gues
 - Chromium on the production build at 390px and 1280px, light and dark, with a fixture booking on the job: the Call sheet (opened by keyboard) listed the departing guest; the drawer showed the block with a working `tel:` link and check-out time; the admin card showed name, phone and email; one h1 and no horizontal overflow on each. The cleaner API response contained neither the guest's email nor the reservation code.
 - Not verified: a job with both an arriving and a departing guest in the browser (the fixture has no incoming booking; ordering and labels are covered by the component test); the classic pages, which were not changed; the mobile app; production data. Check-out time is shown in the viewer's device timezone, the same as the existing arrival time.
 
+
+### Follow-up: Invoices and pay — admin redesign phase 0 and Money sub-phase (a) (2026-11-11)
+
+Request: the first build phase of `docs/plans/admin-redesign-2026-11.md` — shared list building blocks, then list, paging, sort, bulk and the merge of the three Money entries, with no change to invoice rules. The owner asked mid-phase to follow the approved concept (`Money.dc.html`) closely and to defer the production build, full suite and browser checks to one pass at the end of the project.
+
+Changed
+- Shared UI: `EDataTable`, `EBulkBar`/`EBulkButton`, `EFilterChips`, `EFilterPopover`, `ERowMenu`, `EPagination`, `EPill` in `components/v2/ui/`; `lib/admin/list-query.ts`.
+- API: `GET /api/admin/invoices` gains `?paginated=1`, `?view=context`, `?view=stats` (the original shape is kept when none is given); new `POST /api/admin/invoices/bulk` and `GET /api/admin/invoices/export`. PATCH/send/Xero push logic moved verbatim into `lib/billing/client-invoice-{patch,send,xero}.ts`; the single routes now delegate to them.
+- Screen: `/v2/admin/finance` is "Invoices and pay" with five tabs; `/v2/admin/payroll` and `/v2/admin/cleaner-invoices` redirect; one sidebar entry; badges fixed (client invoices to send + cleaner invoices awaiting review). `estate-invoices.tsx` split into `components/v2/admin/finance/invoices/*` (largest file 335 lines).
+- Deliberate behaviour changes: Void and Reverse ask for confirmation; Re-send offered for SENT/PART_PAID; "Force status" and the editor's duplicate Push to Xero removed from the screen (API untouched); the default chip is "Needs action"; operations-manager gating of `?tab=payroll|adjustments|time` follows the payroll feature (was finance); the old KPI strip moved into the Pay runs and Overview tabs.
+- Departures from the concept, for honesty: no dollar "Ready to bill" figure (a count of finished jobs on no non-void invoice; charges depend on rates), and its button is "Create a draft" (the generator does one client at a time); no "missing rates" badge on Drafts; "Paid this month" is invoices with a PAID stamp this month as recorded here, not payments pulled from Xero; the Xero badge shows "last sync" only when a sync time is stored; the Due column shows the date printed on the PDF for unsent invoices instead of "On send"; Xero states are "In Xero", "Pending or failed" and "Not in Xero" (no "synced" — there is no pull); "Download PDFs" omitted from the bulk bar (no multi-PDF endpoint; it would mean looping downloads in the browser); an "All" chip added after "Void"; a Clear button added to the bulk bar.
+
+Verified
+- TypeScript (`npx tsc --noEmit -p .` with a 6 GB heap): pass.
+- New tests: `tests/lib/list-query.test.ts`, `tests/lib/finance-merge-routing.test.ts` (redirects, tab ownership, nav fallback), `tests/lib/admin-attention-money.test.ts`, `tests/api/admin-invoices-list.test.ts`, `tests/api/admin-invoices-bulk.test.ts`, `tests/components/estate-data-table.test.tsx`, `tests/components/invoice-row-actions.test.tsx`, `tests/components/invoice-list.test.tsx`.
+- Targeted run of the new tests plus every existing file covering touched code (all of `tests/components`, the invoice/started-work/cleaner-invoice/ops/receivables/attention API and lib tests): 187 files, 1,689 tests, all passing. `tests/components/invoice-generation-summary.test.tsx` was updated on purpose: the generator is no longer opened by a "Generate invoice" button on the list, so the test renders the moved dialog directly; its assertions are unchanged.
+
+Not verified in this phase (deferred by the owner to one final pass)
+- Production build, the full Vitest suite and the database-backed suites.
+- Chromium at 390px and 1280px, light and dark, including keyboard sorting, chips, paging, bulk approve with mixed results, the row menu, the three old URLs and an operations manager's view.
+- Xero: no provider credentials. Bulk Xero push is covered by mocked tests only; the Xero connection badge has not been seen against a real connection.
+- Email: bulk send was not exercised against a provider.
+- Note: a checkpoint commit (`fe562dd`, "WIP: shared list components …") appeared on the branch during this work; it was not made by this change, and the remaining work is uncommitted in the working tree.
+
+### Follow-up: Invoices and pay — Money sub-phase (b), invoice editor page (2026-11-11)
+
+Request: the next step of `docs/plans/admin-redesign-2026-11.md` — the invoice editor becomes a page at `/v2/admin/finance/invoices/[id]`, matching the approved concept `InvoiceEditor.dc.html`, with no change to invoice rules, transitions, numbering, money arithmetic or the schema. The owner asked to defer the production build, the full suite and browser checks to one pass at the end of the project.
+
+Changed
+- Page and read model: `app/v2/admin/finance/invoices/[id]/page.tsx` (was the read-only summary; `components/v2/shared/invoice-summary-page.tsx` is kept for the client portal), `GET /api/admin/invoices/[id]?view=editor`, `lib/billing/client-invoice-{editor,editor-types,checks,history,stage,access,guards}.ts`, `getClientInvoiceListRow` in `client-invoice-list.ts`.
+- Extracted, behaviour unchanged: `startedWorkRefusal` (what `assertStartedWorkReviewed` throws), `billedJobLinesWhere` (the generator's double-billing rule), `invoiceTotalsMismatch` (from `getClientInvoice`), and the PATCH's Xero/payment lock predicates and messages (`client-invoice-guards.ts`, now imported by `client-invoice-patch.ts`).
+- Screen: `components/v2/admin/finance/invoices/editor/*` (largest file 277 lines) and the shared `components/v2/ui/stage-bar.tsx` (`EStageBar`). The editor modal (`invoice-editor.tsx`) and its line row are deleted. List rows' Review / "Review and edit" and the invoice number link to the page with `?back=` so the back link keeps the list's filters; approve and Xero push from the list and the page share `invoice-direct-actions.ts`; the send dialog accepts the page's "To".
+- Deliberate behaviour changes: editing is a page with explicit "Save draft" (several line edits in one PATCH) instead of a per-line ✓ save; the old "Group by property" button (which saved a clustered order) is now a view toggle showing the PDF's own grouping, and dragging reorders within a section; financial actions wait while edits are unsaved; an operations manager with finance read access sees a view-only editor instead of controls that 403.
+- Departures from the concept: Bill to, Period and Due are read-only (no API to change them; Due is created + payment terms, as printed); no Client reference, Add finished jobs, Add discount or Add note to client (no field or service); Send has a "To" field and states that the PDF is always attached, without the payment-link or push-on-send options; the Xero card shows the configured account code (no account name is stored) and says payments are not read back; the checklist marks rates, other invoices and totals as advice ("Check") because approval does not enforce them; the subtitle shows the last-changed time instead of "saved N seconds ago"; the add-line placeholder does not offer picking a job or saved item; section rows count lines, not jobs.
+
+Verified
+- TypeScript (`npx tsc --noEmit -p .` with a 6 GB heap): pass.
+- New tests: `tests/lib/client-invoice-checks.test.ts` (checklist versus the real approve PATCH, including unresolved and changed started-work reviews, an unreadable snapshot, a pending Xero reservation, advice checks that do not block, unreadable checks shown as unknown; read-only reasons equal the PATCH refusals), `tests/lib/client-invoice-editor-rules.test.ts` (stage bar for every status including pending Xero and VOID, primary-action reuse, menu contents, back-link sanitising, line drafts, section reordering), `tests/components/invoice-editor-page.test.tsx` (one h1, primary action, refused save keeps the draft and retries the identical request, fields frozen during a save, a lost add-line response is not resent, read-only and void presentation, Review as a link), `tests/api/admin-invoice-editor-route.test.tsx` (page and `?view=editor` role list, ops finance off/read/manage, ADMIN independent of packs, 404), `tests/lib/client-invoice-history.test.ts`.
+- Targeted run of those plus every existing test file covering touched code (invoice list and row actions, started-work reconciliation and boundary, shopping protection, invoice list/bulk/PDF/reconciliation routes, generation, summary page, portal search, finance routing, ops guards and policy, data table): 29 files, 324 tests, all passing. No existing test was changed.
+
+Not verified (deferred by the owner to one final pass)
+- Production build, the full Vitest suite and the database-backed suites.
+- Chromium at 390px and 1280px, light and dark: layout against the concept, the stacked columns and the table's own scroll at 390px, keyboard drag on the handle, the row and line menus, the leave-page prompt, the started-work panel inside the page, and dark-mode contrast of the stage bar and tinted unsaved rows.
+- Xero and email providers: no credentials; push, send and payment receipts were not exercised beyond mocked tests.
+- The leave-page prompt covers browser unload and the back link only; other in-app links (sidebar) navigate without asking.
+
+### Follow-up: Forms library — one Forms page, draft versions and bulk edits (2026-11-11)
+
+Request: the library half of the Forms step of `docs/plans/admin-redesign-2026-11.md` (items 16–18), matching the approved concept `FormsLibrary.dc.html`: one library at `/v2/admin/forms` with five tabs, draft versus live versions, groups and tags, Checks, real figures and bulk edits with a preview; no change to what cleaners see, how submissions validate or what jobs resolve to. The builder redesign is the next step. The owner asked to defer the production build, the full suite and browser checks to one pass at the end of the project.
+
+Changed
+- Schema: migration `20261111150000_form_template_library` — enum `FormTemplateVersionKind`, tables `FormTemplateVersion` and `FormTemplateGroup`, `FormTemplate.groupId` (FK, ON DELETE SET NULL) and `FormTemplate.tags`, indexes, and one PUBLISHED baseline version row per existing template copied verbatim (dated at its `updatedAt`). No existing row changed. Found beforehand: no version table existed; `lib/phase4/template-versions.ts` (API only) versions by sibling FormTemplate rows and switches `isActive`, which changes job resolution, so it was not extended; it is unchanged.
+- Services: `lib/forms/template-{drafts,publish,history,groups,checks,questions,bulk-edits,bulk,bulk-lifecycle,bulk-types,errors}.ts`, `library-{list,usage,figures,types,tab-counts}.ts`, `submission-stats.ts`, `form-stats-data.ts`, `duplicate-template-service.ts`; `lib/admin/forms-redirects.ts`; `FORMS_TAB_FEATURES` and the nav fallback in `lib/rbac/ops-catalog.ts`.
+- API: new `GET /api/admin/form-templates/library`, `GET …/questions`, `POST …/bulk`, `GET|POST …/groups`, `PATCH|DELETE …/groups/[groupId]`, `GET|PUT|DELETE …/[id]/draft`, `GET …/[id]/versions`, `POST …/[id]/versions/[versionId]/restore`. `…/[id]/publish` and `…/[id]/duplicate` now delegate to shared services (same role lists and rules; publish also applies a draft and accepts an optional edit token; a missing template answers 404 instead of 400).
+- Screen: `app/v2/admin/forms/page.tsx` (tabs), `components/v2/admin/forms/library/*` (largest file 243 lines). `/v2/admin/qa-templates`, `/v2/admin/templates`, `/v2/admin/checklists`, `/v2/admin/forms/stats` redirect. One "Forms" sidebar entry replaces four. `QaTemplatesManager` takes `canWrite`. `components/v2/admin/forms/management/estate-forms-list.tsx` is deleted (every function moved into the Job forms tab: list, search, archived view, duplicate, publish, archive, unarchive, delete with PIN, stats link).
+- Deliberate behaviour changes: the builder's "Save draft" saves a DRAFT version (`PUT …/draft`, same 409 stale guard, token = the draft's `updatedAt`) instead of overwriting the live schema; publishing makes it live as a new version and the builder shows "Publish changes" for a live form with a saved draft; the edit page opens the draft. Operations managers no longer see QA-template create/edit/reset buttons or an active switch the API refuses (API unchanged). On the merged page QA templates are gated by `quality` and message templates by `communications`, as before the merge. The old forms list's per-row buttons are one Edit plus a row menu.
+- Departures from the concept: no Compare toggle (not built) and no List toggle on its own; no Import button (no import function exists); "New form ▾" is a menu of links to the existing creators; an extra "Tags" bulk button (there was no other way to tag forms); row menus beside Edit and rename/delete menus beside groups (the old functions had to stay reachable); Avg time and Completion headers are not sortable (computed for the page's rows only); the version line adds the job type; Completion is the mean share of required, always-shown questions answered (the stats tab's per-field definition, averaged); the "Barcode question never answered" style badge is shown as a separate "Never answered: …" warning line under Checks (≥20 submissions in 90 days since the live version; conservative exclusions) and is not counted by "Has problems"; after a bulk apply the whole selection stays selected so the per-form results stay on screen (the list conventions say keep refused rows selected); no "Ideas" note.
+
+Migration verification (disposable PostgreSQL 16 at 127.0.0.1:55439, user `sneek`)
+- Fresh: `createdb -h 127.0.0.1 -p 55439 -U sneek forms_fresh`; `DATABASE_URL=postgresql://sneek@127.0.0.1:55439/forms_fresh npx prisma migrate deploy` → all migrations applied including `20261111150000_form_template_library`; repeated → "No pending migrations to apply."; `npx prisma migrate diff --from-url postgresql://sneek@127.0.0.1:55439/forms_fresh --to-schema-datamodel prisma/schema.prisma --exit-code` → "No difference detected.", exit 0.
+- Existing migrated `sneek_ui` (3 templates): md5 over every FormTemplate row (id, version, schema, name, updatedAt, isActive) before = after = `ff6ca923fbaec379fe7b3250593e5279`; `migrate deploy` applied only the new migration; repeated → "No pending migrations to apply."; `migrate diff … --exit-code` → "No difference detected.", exit 0; each template has one PUBLISHED baseline row with the same version and an identical schema.
+- `npx prisma generate` run after the schema change.
+
+Verified
+- TypeScript (`NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`): pass on the final run. An earlier run during this work showed 3 errors, all in `components/v2/admin/jobs/jobs-view-tabs.tsx` and `jobs-workspace.tsx` (another engineer's in-progress Jobs work in the same tree, not touched here); they were gone by the final run.
+- New tests: `tests/lib/form-library-edits.test.ts` (checks; matching by id and wording; never guessing between two matches; edits do not mutate input; refusal of edits that add an error; add-section ids and placement; find-and-replace never touches ids; option used by a condition), `tests/lib/form-library-figures.test.ts` ("–" with too little data; time and completion definitions; usage check threshold and live-version window; Used by resolution order), `tests/api/form-library-routes.test.ts` (list paging/sort/filter validation and roles; every write route ADMIN only before any service call; bulk cap and schema; 409 stale draft; restore replace flag; publish token), `tests/lib/forms-merge-routing.test.ts` (four redirects keep parameters incl. `templateId`/`weeks`; old tab values; ops feature per tab, API not steerable; nav fallback), `tests/components/qa-templates-gating.test.tsx`, `tests/components/form-builder-drafts.test.tsx` (save goes to the draft with the token, never PATCH; publish waits for a save and sends the token), `tests/components/forms-bulk-panels.test.tsx` (picker limited to the selection; save only after a matching preview; per-form reasons), and `tests/db/form-template-library.test.ts` on the disposable `forms_fresh` database (`SNEEK_TEST_DATABASE_URL=postgresql://sneek@127.0.0.1:55439/forms_fresh`): a saved draft leaves the live row and `resolveEffectiveJobForm` unchanged; stale save refused and one draft per form; publish raises the version, records it and the resolver then returns the new schema; restore keeps history and refuses to replace a draft unasked; bulk dry run changes nothing; bulk apply saves drafts only for matching forms with per-form outcomes and leaves live forms alone; bulk publish refuses two defaults of one job type; groups and ungroup on delete; list paging, sort, question search, problems filter and "–" figures.
+- Updated on purpose: `tests/components/forms-authority-surface.test.tsx` (the old `EstateFormsList` cases now exercise the Job forms library and the merged page: read-only for operations managers, one h1, write controls from held roles) and `tests/api/audit-form-template-pages.test.tsx` (its database stub gains `formTemplateVersion`, plus a case that the editor opens the draft with the draft's token). No assertion about admission was weakened.
+- Targeted run of the new tests plus existing files covering touched code (form-template auth and pages, form-templates contract, resolve-effective-job-form, list-query, lint-template, template-concurrency, ops middleware and policy, finance routing, legacy form builder, impact notes, live-location auth, ops permissions, schema and migration-retention on `forms_fresh`): 25 files, 207 tests, all passing.
+
+Not verified (deferred by the owner to one final pass)
+- Production build and the full Vitest suite; database suites other than those listed.
+- Chromium at 390px and 1280px, light and dark: layout against the concept, groups panel stacking, the table's own scroll, the bulk bar wrapping, keyboard use of filters, row and group menus, panel draft retention when switching bulk actions, the stats tab's GET form staying on its tab, the four redirects, an operations manager's tabs.
+- The usage check and the figures were exercised with fixtures only, not against production-sized submission data; the list reads every template's schema per request (fine for tens to low hundreds of forms).
+
+### Follow-up: Quality hub — QA issues, accountability and QA performance on one page (2026-11-11)
+
+Request: the Quality step of `docs/plans/admin-redesign-2026-11.md` (items 12, 13), matching the approved concept `Quality.dc.html`: one hub at `/v2/admin/quality` with one period control and one shared filter set, five stat cards, and Review queue, Issues, Cleaners, Inspectors, Categories and Coaching tabs; one service with one period helper and the groupings over one filtered query; no change to QA scoring, deduction, bonus, false-confirmation penalty or coaching rules and no schema change. The owner asked to defer the production build, the full suite and browser checks to one pass at the end of the project.
+
+Changed
+- Service: `lib/quality/{types,period,filters,where,authority,groupings,cleans,facts,summary,cleaners,cleaner-signals,streaks,inspectors,categories,issue-rows,issue-list,inspections,rectify,bulk-fix,redirects,legacy,http}.ts`; `lib/laundry/team-metrics.ts`. Extracted, behaviour unchanged: the rectify transaction from `PATCH /api/admin/qa/issues/[id]` (`lib/quality/rectify.ts`, which the route now calls), the accountability streak arithmetic (`summariseAccountabilityStreak` in `lib/workforce/performance.ts`, used by `getPerformanceMetrics`), the quick-score candidate filter (`quickScoreCandidateWhere` in `lib/qa/auto-score.ts`, same base filter, optional narrowing).
+- API: new `GET /api/admin/quality/{summary,issues,issues/export,options,cleaners,inspectors,categories,inspections}`, `POST /api/admin/quality/issues/bulk`, `GET /api/admin/laundry/team-metrics`. `GET /api/admin/qa/issues` keeps its shape (rows via the shared mapper); `/api/admin/accountability/qa-performance` is a thin caller of the inspector grouping (shape and order kept); `/api/admin/accountability/overview` keeps its shape, uses the shared period helper, the batched streaks and the laundry helper. `/api/admin/qa/awaiting` accepts optional `propertyId`/`q`. Callers checked by grep: classic `components/admin/{qa-issues-workspace,accountability-dashboard,qa-performance-dashboard}.tsx`, the Approvals centre and classic approvals page (PATCH issue), no `mobile-app/` callers.
+- Screen: `app/v2/admin/quality/page.tsx`, `components/v2/admin/quality/hub/*` and `issues/*` (largest file 221 lines), `quick-score-queue.tsx` (select all / clear / sort, cancellable read, hub filters), `components/v2/admin/laundry/laundry-team-metrics.tsx` on `/v2/admin/laundry/stats`. The three old pages redirect with their parameters; the v2 accountability, QA performance and QA issues components are deleted (classic ones untouched). Sidebar: the QA Issues, Accountability and QA Performance entries are gone; Quality is badged with the new `qualityHub` count (`lib/admin/attention-counts.ts`).
+- Deliberate behaviour changes: period boundaries are Sydney calendar days (the routes used rolling `now − N×24h`); cleaner "Cleans" and "Score" use submitted cleans scheduled in the period (the overview counted reviews created in the window); the Quality badge adds issues awaiting rectification; quick score refreshes the hub's figures instead of `router.refresh()`; the false-confirmation Confirm label shows the configured deduction (was hard-coded −10); QA inspectors reach the Issues tab only (the old register's read-only access) and an operations manager with a read-only quality pack sees no actions.
+- Departures from the concept: severity pills read minor / major / critical (the system's severities) instead of low / med / high; the row action for a waiting bonus reads "Review bonus" (bonuses are proposed by the nightly job under the existing rules, so the decision the hub can offer is approve / decline through the existing endpoint; there is no manual "propose" flow to call); "Start coaching" appears when the existing recurring-issue pattern flags a category and no coaching is open; the search placeholder is "Search cleaner, property or job" because the one search applies to every tab; the by-category bars colour only the top category red; Export downloads the issues CSV for the period and filters; the cleaner name cell has an expand chevron and a "Not an active cleaner" note where relevant; a caption under each table states its basis; a footer links to the laundry metrics; no "Ideas" note or sidebar regroup.
+- N+1: streak/last-5/last-10 cost one query per visible cleaner (was `getPerformanceMetrics`, about a dozen queries, per cleaner); "latest 10 completed jobs per cleaner" is not expressible as one Prisma query without raw SQL, so it was not merged further.
+
+Verified
+- TypeScript (`NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`): pass on the final run. Earlier runs during this work showed errors only in `components/v2/admin/forms/library/forms-bulk.tsx` and `components/v2/admin/jobs/jobs-view-tabs.tsx` (other engineers' in-progress work in the same tree); they were gone by the final run.
+- ESLint over every new and changed Quality file: clean.
+- New tests (9 files, 49 tests): `tests/lib/quality-period.test.ts` (Sydney-day fixed periods, custom and end-only ranges, previous-period rules, DST boundary, refusals, classic leniency), `tests/lib/quality-groupings.test.ts` (cleaner / inspector / category groupings agree with the totals; open-fix, flag and QA-fix definitions; null fix cost and minutes without records; clean totals; 8-week trend gaps never 0; authoritative review priority; coaching suggestion and one-action rule), `tests/lib/quality-hub-service.test.ts` (summary, cleaners, inspectors and categories report the same issue total for one fixture; inactive cleaner with issues still a row; no score for no data; no delta without previous reviews; one streak query per cleaner), `tests/api/quality-hub-issues.test.ts` (server paging and sort, real total, count and rows share the where, sort allow-list and filter values refused, inspector read allowed, 401/403, bulk ADMIN/OPS only, per-row outcomes through the shared rectify, malformed bodies, CSV and refusal above the cap, options from the database), `tests/api/quality-rectify-shared.test.ts` (PATCH rectify still pays the QA as a PENDING adjustment, never the admin; manager fix creates no money; inspector-only rectify kept), `tests/components/quality-hub-routing.test.tsx` (three redirects keep params, from/to become the same custom period, nav has one Quality entry with the real badge and keeps Reports), `tests/components/quality-hub-actions.test.tsx` (expanded row reads the cleaner's open issues with the hub filters, Mark fixed / Propose deduction open the detail, Confirm calls the existing PATCH, read-only viewers see no actions; Start coaching posts to the coaching route with the pattern; failed coaching save keeps the draft; Review bonus PATCHes the pay adjustment; stat cards show "–" / "Not enough data" and no delta without previous data; loading versus failure), `tests/components/quality-hub-state.test.ts`, `tests/components/quality-hub-page-access.test.tsx` (roles, inspector view, ops read-only pack, no invented deduction).
+- Existing test files covering touched code, run with the new ones: attention counts (component and money), laundry page scope, laundry stats, performance, rectification and rectification payee, worker registration, streaks, list-query, client layout gates, client navigation refresh, client attention scope, maintenance item scope — 23 files, 199 tests, all passing. No existing test was changed.
+
+Not verified (deferred by the owner to one final pass)
+- Production build, the full Vitest suite and the database-backed suites (no database test was added; the hub's queries were exercised against mocked Prisma only).
+- Chromium at 390px and 1280px, light and dark: layout against the concept (stat cards wrapping, tab row scrolling, filter row wrapping, the Cleaners table's own scroll and expanded row at 390px, sparkline colours in dark mode), keyboard use of the period panel, filter popovers, sort headers, expand buttons and dialogs, the custom-period draft, the bulk bar's status select on the dark bar, and the redirects in a browser.
+- No production data: figures were checked with fixtures only.
+
+### Follow-up: Jobs list — view tabs, visible filters, peek panel and server board (2026-11-11)
+
+Request: the Jobs step of `docs/plans/admin-redesign-2026-11.md` (item 2), matching the approved concept `Jobs.dc.html`, plus merging the job detail's duplicated Quality block.
+
+Changed
+- Service: `lib/jobs/{list-filters,list-include,list-sort,date-scope,view-presets,view-counts,list-row-extras,board-lanes,job-reminder,cleaner-suggestions,cleaner-suggestions-load,peek-summary,peek-types}.ts`. Moved unchanged in meaning: the `/api/jobs` where builder, include and default orderings; the single-job remind logic (now `sendJobReminder`, used by the single and bulk routes).
+- API: paginated `GET /api/jobs` gained the `parseListQuery` sort allow-list (unknown sort/dir → 400), comma-separated `status` (unknown → 400), `ids` (≤ 500), `counts=1` (one grouped count query) and `extras=1` (`guestIn`, `charge` via `computeClientCharge`). New `GET /api/admin/jobs/board`, `GET /api/admin/jobs/[id]/peek`, `GET /api/admin/jobs/[id]/cleaner-suggestions`, `POST /api/admin/jobs/bulk-remind`, all ADMIN / OPS_MANAGER through live `requireRole` (and so the Jobs ops pack). Non-paginated `/api/jobs`, the cleaner scope and `redactJobForCleaner` unchanged.
+- Screen: `components/v2/admin/jobs/*` split into workspace (260 lines), header, view tabs, filter bar, status filter, view options, table, row menu, board, bulk bar, bulk-remind and status dialogs, quick assign, peek panel and sections, and their hooks (largest new file 211 lines). `components/v2/ui/side-panel.tsx` (`ESidePanel`, reusable). `EDataTable` gained optional group rows, row click, active row and cell padding (existing callers unchanged). `SavedViewsControls` split into a self-loading wrapper and `SavedViewsPanel` (list and selection owned by the page). `view-options-menu.tsx` and `EJobRow` removed. `app/v2/admin/jobs/[id]/page.tsx`: the second Quality block merged into the first (no content lost).
+- Deliberate behaviour changes: row Manage/Open buttons → menu items, row click previews; sort select → column headers (`sort` values gain `property_desc`, `client`, `client_desc`, `type`, `type_desc`, `status_desc`); filters always visible (no disclosure, its stored preference is ignored); status filter accepts any set of statuses; date shortcut "Next 7 days" (`dateScope=week`) added; board lanes and totals from the server; bulk reminders in one request with per-job outcomes; selection cleared on filter change.
+- Departures from the concept: the Unassigned pill keeps the app's status tone (warning) rather than the concept's red; group rows read "Today · Thu 12 Nov" (the shared Sydney-day label) instead of "Thursday 12 November"; a status vector icon sits beside the status pill (kept for the existing job-vector behaviour); a disabled suggestion reads "Clash" for a time clash and "Unavailable" for a day or hours outside the saved roster; suggestions omit travel distance and QA score (no distance service over stored coordinates; no batch QA-score function); Cleaner, Guest in and Charge headers are not sortable (not database columns); "Import or bulk create" opens the same create page as "New job" (bulk create lives there); "Cancel job" opens the Schedule tab's "Skip this clean" (no cancelled status exists); Reschedule is absent from the bulk bar (no bulk-safe reschedule service); saved-view tabs show no count; a Property chip appears only while a property filter is active (its picker sits in the Client chip).
+
+Verified
+- TypeScript (`NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`): pass. An earlier run showed errors only in `components/v2/admin/forms/library/*` (another engineer's in-progress work); the final run was clean.
+- New tests: `tests/lib/jobs-view-presets.test.ts` (presets, current-tab rule, grouped count SQL, Sydney-day bounds, no invented totals), `tests/lib/jobs-list-route-v2.test.ts` (sort allow-list refusal, every order, all-status and unknown-status filter, ids, counts, extras with "No rate", legacy array shape, cleaner redaction unchanged, board lane counts from one groupBy), `tests/api/jobs-bulk-remind.test.ts` (per-row outcomes incl. partial email, truthful wording, input and role refusal, single route responses), `tests/lib/cleaner-suggestions.test.ts` (ranking, clash, leave/outside hours, unknown times, limits), `tests/components/side-panel.test.tsx` (focus in, Escape and close return focus, sheet Tab containment), `tests/components/job-peek-panel.test.tsx` (tabs on demand, suggestions with a disabled Clash, stale loads aborted on job change, failure and retry).
+- Updated on purpose: `tests/components/jobs-workspace-url.test.tsx` (rewritten for tabs, chips, header sorting, peek and selection export; refresh/stale/503/malformed/debounce/restore cases kept), `tests/components/jobs-columns.test.tsx`, `tests/components/jobs-density.test.tsx`, `tests/components/admin-job-row.test.tsx` (now test the table row: one primary action, row click vs nested controls, menu destinations); e2e selectors in `e2e/job-vectors.spec.ts`, `e2e/navigation-permissions.spec.ts`, `e2e/jobs/scroll-local.spec.ts` updated for the new controls but not run.
+- Run together (37 files, 489 tests, all passing): every `tests/components/jobs-*`, `tests/lib/jobs-*`, `tests/api/jobs-*` file, admin job row, estate data table, invoice list, audit notification producers, audit report authorization, job detail tabs, cleaner job redaction, ops middleware and request guard, account middleware, job manage save safety; plus ops policy, view memory, maintenance scope and job money.
+
+Not verified (deferred by the owner to one final pass)
+- Production build, the full Vitest suite, Playwright (including the three updated e2e specs) and database suites; the grouped count SQL and the board `groupBy` ran against mocked Prisma only, not PostgreSQL.
+- Chromium at 390px and 1280px, light and dark: the table's own horizontal scroll, tab and chip wrapping, the side panel as a column at 1280px and a full-height sheet at 390px, the bulk bar's sticky position above the mobile tab bar, drag and drop on the board, keyboard use of chips, menus and the panel, scroll restoration with the panel open.
+
+### Follow-up: Invoices and pay — Money sub-phase (c), credit notes and server-side invoice locks (2026-11-11)
+
+What changed (details in `docs/SYSTEM.md`, "Credit notes, blank invoices, discounts and server-side invoice locks")
+- Server-side content lock shared with the editor (`invoiceContentLock`): content edits refused on SENT, PART_PAID, PAID and VOID with a message pointing to credit notes.
+- Server-side PIN/password (`verifySensitiveAction`, 423 on refusal, 403 while impersonating) for removing a line and deleting an invoice. Reconcile / void already verified it server-side (unchanged). Standard Void has no PIN prompt.
+- Client reference / PO (new column), note to client (new column, not `metadata.notes`), DISCOUNT lines (amount or percentage, basis stored, never below zero), blank invoices, credit notes (own `CN-` rail, partial and limit-checked, Xero `ACCRECCREDIT`, owing reduced, "Fully credited" display state), Reverse only for APPROVED.
+- PDF due day from the list's function (organisation timezone); invoice email button opens the client portal invoice page.
+- Pre-existing problems fixed in this step: 400 instead of 401/403 on GET/DELETE `/api/admin/invoices/[id]` and POST `…/send`; unreadable started-work snapshot broke the GET route and editor (now read only, approval refused); single send and Xero push wrote no audit row; bulk rows never appeared in an invoice's history (now one row per affected invoice plus the existing request row); the CSV export escaped negative amounts as formulas; the old screen's Refresh button had been dropped from the list.
+
+Migration verification (disposable PostgreSQL 127.0.0.1:55439, user `sneek`)
+- Fresh: `createdb money_fresh`; `npx prisma migrate deploy` applied all 131 migrations; repeat: "No pending migrations to apply"; `npx prisma migrate diff --from-url …/money_fresh --to-schema-datamodel prisma/schema.prisma --exit-code`: "No difference detected" (exit 0).
+- Existing `sneek_ui` (130 applied, the new one pending): inserted five fixture invoices (DRAFT, SENT, PART_PAID with a payment ledger, PAID, VOID) and five lines; md5 of every pre-existing column of every ClientInvoice and ClientInvoiceLine before and after deploy: identical (`41a4093d…` / `d29ac94d…`). New columns: all INVOICE, all nulls. Repeat deploy: nothing pending; diff: no difference (exit 0). CHECK constraint refused a credit note without `creditsInvoiceId`. Fixtures deleted afterwards. `npx prisma generate` run.
+
+Verified
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: clean.
+- 58 test files (every existing invoice/billing/receivables/Xero/finance/portal file touched plus five new `invoice-step-c-*` files): 711 tests passed. Existing tests updated on purpose: Reverse on SENT/PART_PAID/PAID (transitions, row actions, editor menu), sends with no lines now refused (started-work boundary fixture given a line), mocks extended for the new PIN check, credit read, per-invoice bulk rows, `kind` in client scope and summary queries.
+
+Not verified
+- Xero credit-note push: mocked only (no provider credentials); the real `PUT /CreditNotes` payload, and allocation in Xero, are unexercised.
+- Production build, full Vitest suite, browser checks at 390/1280 light/dark (deferred by the owner to the final pass): editor reference field, discount and note dialogs, credit-note links, "New invoice ▾" blank and credit-note dialogs, Fully credited pills.
+
+## Follow-up: Insights (admin redesign step 14, 2026-11-11)
+
+What changed
+- `/v2/admin/reports` is now Insights (sidebar label renamed; route and page guard unchanged). Tabs Business, Properties, Clients, Cleaners, Time and cost, and the existing Client report PDFs manager. Services in `lib/insights/*`, API `GET /api/admin/insights/*`, components `components/v2/admin/insights/*`. Definitions and exclusion rules: `docs/SYSTEM.md`, "Insights".
+- Revenue is the scheduled charge (`computeClientCharge`), cleaner cost the recorded pay (`computeJobPaySummary`); margin only over cleans with both; QA and issue figures reuse the Quality hub's clean set, authoritative-review rule and issue period. Missing inputs are excluded and counted; figures below the minimum basis are withheld; no change is shown without comparable data.
+- Operations managers: Insights follows the `reports` feature (`insights` added to the ops catalog); financial fields need `finance` and are omitted server-side.
+- PDFs tab: laundry visibility toggle, bulk visibility / regenerate / delete (`POST /api/admin/reports/bulk`, per-row outcomes), single delete confirmation moved to the shared `EConfirmModal`, write controls disabled for a read-only reports pack, filters in the URL; old manager links (and the Cases screen's `?reportId=` link) open the PDFs tab. Single report routes now call `lib/reports/admin-report-actions.ts` (same behaviour).
+- "Email monthly" was not built (no schedule, stored recipient or settings destination exists to send it through the notification pipeline).
+
+Verified
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- 21 test files, 170 tests passed: new `insights-period`, `insights-measures`, `insights-findings`, `insights-csv-and-url`, `insights-routes`, `report-bulk`, `reports-manager`, `insights-page-access`; existing report-route, ops-catalog/policy, quality and merge-routing files. `quality-hub-routing` updated on purpose for the "Insights" nav label.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard) deferred by the owner to the final pass. No database-backed test ran: the loaders (`lib/insights/load-facts.ts`, `receivables.ts`) are exercised only through mocks, so query shapes against a real schema are covered by TypeScript only.
+- Figures against production-like data (e.g. how many cleans lack a start time, time log or pay rate) were not inspected.
+
+## 2026-11-11 — Existing problems fixed (backlog under the owner's standing rule)
+
+What changed
+- Jobs Invoice filter, "Not invoiced" tab and its count: a line on a VOID invoice no longer counts as invoiced (`lib/jobs/invoiced-rule.ts`, mirroring `billedJobLinesWhere`, pinned by a test). Job detail notes when every invoice line is on a voided invoice. INVOICED status still counts; deletion / reset guards unchanged.
+- Job reminder (single and bulk): audit stores `requested`, `deliveryState` (QUEUED / PROVIDER_ACCEPTED) and `deliveryConfirmed: false`; single route keeps 404 / 409 / 400 and `sent` / `failed`, adds `deliveryState` and `message`; toast says queued / accepted; browser-push error after the inbox notice no longer counts as not reminded; email HTML escaped. Not moved to the intent pipeline (cleaner recipients need a new authorization adapter, no phone-app transport, external transports are env opt-in) — owner decision.
+- `EField` (admin kit, settings kit, worker kit) ties its label and hint to a single control child (`components/v2/admin/field-association.tsx`); other children render unchanged. Quality screens use `EField` again.
+- `GET /api/admin/qa/issues`: `from` / `to` are inclusive Sydney calendar days (`sydneyCreatedAtFilter`), DST-safe; 500s no longer echo internal messages.
+- Quality hub: Coaching tab hidden when its endpoints would refuse the manager (quality or accounts pack), create / update only with quality manage, full-page link only with workforce, "Review bonus" only with payroll manage; coaching workspace shows explicit no-access / failure / cleaner-list states and cancels stale reads; refused evidence photos show "Photo unavailable".
+- Old template-versions API: create and rollback answer 410 pointing to the Forms library versions / restore; read route kept; write functions removed.
+- Removed leftover "Estate preview" / "Estate workspace" footers and the superseded `forms/builder/new-template.tsx`.
+
+Verified
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- New and affected tests: `jobs-invoiced-rule`, `jobs-view-presets` (updated, it encoded the void rule), `jobs-bulk-remind`, `audit-v03-notification-producers` (response shape updated), `estate-field-label`, `qa-issues-sydney-range`, `quality-hub-coaching-access`, `legacy-template-versions-gone`, plus every existing test file importing the touched modules (50 files, 616 tests) and `tests/components` (167 files) — all passed.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard) deferred by the owner to the final pass. No database-backed test ran for the VOID rule's SQL; it is checked as generated SQL / Prisma `where` only.
+
+## Follow-up: Calendar (admin redesign step 3, 2026-11-11)
+
+What changed
+- `/v2/admin/calendar` rebuilt to the approved design: "Calendar" heading with a real summary line, Previous / Today / Next, Day | Week | Month | Agenda (Week default ≥1024px, Day below), chip row (Rows: cleaners / properties, Client, Status, Show laundry runs, Show guest arrivals, drag hint). URL state for view, date, rows, filters and toggles; rows and toggles also saved per view scope (a full refresh resets view parameters app-wide).
+- Week = resource grid (Unassigned lane, every active cleaner plus anyone with work in range, "N h this week" on the stated hours basis, "Not rostered" from saved availability — no leave data exists, laundry-runs row linking to Laundry for that day). Day = rows across hours with a "No time" column. Month kept, "+N more" opens that day. Agenda = a fortnight from the cursor day, stated in the header. Phones: Week/Day as a day-by-day list grouped by row.
+- `GET /api/admin/calendar` returns only the asked days (≤ 45; 400 otherwise), slim shape, drafts excluded, UTC-midnight calendar dates unshifted. The page no longer calls `/api/jobs` (unchanged itself).
+- Moves (drag with mouse/pen, or "Move or reassign…" from every chip menu): read-only `POST /api/admin/calendar/check-move` → confirmation with clashes / roster / booking / notices → the Schedule tab's reschedule endpoint and/or the assign endpoint as the server planned. Started, finished, skipped and draft jobs are not offered for moving and say why. No optimistic success; mid-save chips are frozen and not redrawn by the 60 s / focus refresh; failures stay on screen.
+- Small shared changes: `dayAvailabilityBlocker` exported from `lib/jobs/cleaner-suggestions.ts`; `rescheduleWindowError` extracted from `applyReschedule` (same check, same message); the reassignment client-note dialog extracted from `AssignCleanersModal` into `reassign-note-dialog.tsx` (same behaviour) and reused after a drag reassignment; Laundry reads `?date=`.
+- Removed: `components/v2/admin/calendar/estate-schedule.tsx`, the now-unused `lib/calendar/agenda-window.ts` and its test (the agenda no longer starts "today within the cursor month").
+- Existing problems fixed in this area: the unbounded job load; a failed fetch rendering an empty calendar; "+N more" switching to Agenda; the agenda description promising a fortnight while listing the month; drafts shown on the calendar; the calendar not refreshing after a QA inspector was assigned from it (the panel only refreshes the server route).
+
+Verified
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- New tests: `tests/lib/calendar-rules.test.ts` (ranges, span cap, DST change date, hours basis, late, guest arrival, chip categories, move rule, rows by cleaner/property, drops, refresh merge, day axis, URL round-trip, ops permission), `tests/api/admin-calendar-range.test.ts` (roles, bounds, span cap, unshifted days across the DST change, slim shape, drafts, rows and hours, filters, laundry, move block and arrival), `tests/api/calendar-check-move.test.ts` (clash, roster, booking note, non-movable statuses, agreement with the real assign route and `applyReschedule`), `tests/components/calendar-workspace.test.tsx` (visible range only, error not empty, grid, peek, keyboard move, drop calls only check → reschedule → assign, refused and failed moves leave the chip, mid-save refresh, "+N more", URL and saved toggles), `tests/components/laundry-calendar-day-link.test.tsx`, `tests/components/assign-reassign-note.test.tsx`. With the existing files covering touched code (job peek panel, cleaner suggestions, reschedule contract and safety, assignment draft, ops policy and middleware, laundry dashboard and investigation, admin task sync): 18 files, all passed.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, real pointer drag) deferred by the owner to the final pass. Drag was tested with synthetic pointer events in jsdom only. No database-backed test: queries are covered through mocks and TypeScript.
+
+## Follow-up: Accounts (admin redesign step 11, 2026-11-11)
+
+Scope: `/v2/admin/accounts` rebuilt as drawn (one table, role tabs with counts including Needs attention, filters, export, bulk bar, person panel with sections edited in place) and the full account page reusing the same sections; `PATCH /api/admin/users/[id]/pay`; `POST /api/admin/users/bulk`; `GET /api/admin/users/export`; `GET /api/admin/users?paginated=1` and `GET /api/admin/users/[id]`. Details in `docs/SYSTEM.md` → "Accounts: one table for every login…". No schema change.
+
+Rules kept
+- Role/permission, impersonation, 2FA/PIN and pay arithmetic unchanged. ADMIN-only writes stay ADMIN-only (pay rate is new and ADMIN-only); OPS_MANAGER keeps the office note and resend invite and sees no control that would answer 403. Bank/ABN and rate visibility unchanged (ADMIN, OPS_MANAGER). The paginated list, export and person read never select password hashes, 2FA secrets, invitation tokens or the admin PIN.
+- Rate change writes only `User.hourlyRate` plus an audit row; payroll payouts, cleaner invoice submissions, assignment snapshots and settled pay are untouched (tested). No "Applies from" date (needs an effective-dated rate table, i.e. a migration).
+
+Existing problems fixed (with tests)
+- No guard against disabling or demoting the last active admin (race between two admins): added, in-transaction under an advisory lock, for the account PATCH and bulk disable.
+- VA screens' account menu (`account-actions-menu.tsx`) sent Reset password, Reset 2FA and Delete without the PIN/password the routes verify, so they always failed (423); Reset password also asked for a password the route ignores. Fixed.
+- Client logins had no profile (the detail page 404'd for CLIENT): they now have the panel and the page.
+- Edited ABN and extended-profile bank details were never displayed on the account page (it showed only the User-row fields); both are shown now, labelled by source.
+- Account activity timestamps were formatted in the browser's timezone; now Australia/Sydney.
+
+Verification
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors at the time of the last run.
+- New tests: `tests/lib/accounts-list-rules.test.ts` (tabs, old `?tab=` mapping, Needs attention rules, counts, missing figures, column omission, filters, sort allow-list and nulls-last, paging, CSV escaping and omitted columns), `tests/api/admin-users-list.test.ts` (old array shape unchanged, paginated shape, 400 on unknown/hidden sort, office roles only, export), `tests/api/admin-user-pay.test.ts` (ADMIN only, bounds, audit, frozen records untouched, snapshot and job-type rate win in `computeCleanerPay`), `tests/api/admin-users-bulk.test.ts` (per-person outcomes, self and last-admin refused, OPS limits, cap), `tests/api/admin-user-guards.test.ts` (last-admin on PATCH; reset password, reset 2FA and delete still 423 without PIN/password), `tests/components/accounts-person-panel.test.tsx` (failed save keeps draft, freeze during save, late response not applied to another person, OPS controls, admin actions, PIN sent, client login panel), `tests/components/accounts-hub.test.tsx` (old tab link, counts and summary, one h1, dash for missing, OPS sees no Invite / admin bulk actions, export href), `tests/components/account-actions-menu.test.tsx` (VA menu sends the PIN). Existing related files (notes, accounts stats, VA team manager, test-as unlock, impersonation, ops policy/middleware/guards, sensitive-action grants and the files grep found for users/roles/VA/impersonation): all passed; two database suites were skipped (no disposable database in this run).
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard) deferred by the owner to the final pass. No database-backed test of the list queries; they are covered through mocks and TypeScript.
+
+## Command and Live ops redesign (2026-11-11)
+
+Scope: `/v2/admin` (Command) and `/v2/admin/ops` (Live ops) rebuilt to the approved designs; `/v2/admin/ops/map` redirects. Details in `docs/SYSTEM.md`, "Command and Live ops: work queue, filtered counters, one live feed (2026-11)".
+
+Rules kept
+- Inline actions call existing endpoints with their existing bodies only: continuation approve/decline, shopping reimbursement approve (`READY`), assignment through the Jobs peek panel. No assignment, continuation, pay, clock or notification rule changed; no schema change.
+- Access: live `requireRole` on the page and on `GET /api/admin/command/[section]` (mapped to the dashboard pack) and `GET /api/admin/ops/live-board` (same pack as the Live ops page). Queue rows, tiles and actions are filtered server-side by the viewer's ops packs; money needs finance (pay also payroll); a read-only impersonation gets no actions.
+- Unknown is never zero: failed tiles show "—", failed queue sources are named, failed money figures are listed, a failed section shows its own Retry; a refused action keeps its row with the server's reason.
+
+Behaviour changed on purpose
+- The old Command failed as a whole on any query error; sections now fail alone. `tests/components/admin-command-reliability.test.tsx` was rewritten for this (its legacy guarantees kept: no false empty state, no private error text, every approval category surfaced with its link, no "all clear" while work is pending).
+- "Money this month" and the revenue-today figure are shown only to finance/payroll viewers (previously anyone who could open Command saw revenue today and outstanding invoices). Owner to confirm.
+- "Invoiced" in the design is shown as "Paid this month" (no existing invoiced-this-month figure; adding one is a money rule).
+- Live ops planning lists (dispatch blockers, QA and stale cases, new leads, laundry exceptions, expiring documents, immediate attention) are now rows in Command's work queue; Live ops keeps a counted "Also needs attention" link row.
+
+Existing problems fixed (with tests)
+- Live ops "today" used the server's local clock; counters were lengths of lists capped at 8; two components polled the same location feed; stale-case links used a `?jobId=` filter the Cases page ignored (now `?open=<caseId>` of the new Cases inbox); leads and documents linked to list pages instead of the record.
+- `getAdminAttentionSummary` (new cases since yesterday) and the cleaner and client attention cut-offs used server-local day boundaries; now Sydney keys (`tests/lib/immediate-attention-days.test.ts`).
+
+Verification
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors at the last run.
+- New tests: `tests/lib/work-queue-rules.test.ts`, `tests/lib/work-queue.test.ts`, `tests/lib/command-sections.test.ts`, `tests/lib/live-board-rules.test.ts`, `tests/lib/live-board.test.ts`, `tests/lib/live-feed-and-redirect.test.ts`, `tests/lib/immediate-attention-days.test.ts`, `tests/api/command-section-route.test.ts`, `tests/components/live-ops-feed.test.tsx`, rewritten `tests/components/admin-command-reliability.test.tsx`. Existing related suites (attention counts, dashboard metrics, live status/positions, live-location auth, client/cleaner attention, client job progress, ops policy, portal search, route plan) pass.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, map rendering with a real Maps key, the SSE stream against a live server) deferred to the final pass. No database-backed test of the new queries.
+
+## Follow-up: Money (d) Xero status and payment pull, (e) cleaner invoices on the shared design (2026-11-11)
+
+Scope: details in `docs/SYSTEM.md` → "Xero status and payment pull; cleaner invoices on the shared design". No schema change and no migration (state in `ClientInvoice.metadata.xeroSync`, Xero payments in `metadata.payments[]`, last run in `AppSetting` `xeroInvoiceSync`, `APPROVED` as a string status).
+
+What changed
+- Xero reads for ACCREC invoices (batched by IDs, ≤ 50) and ACCRECCREDIT credit notes; typed failures for every read problem; a 429 retried once after Retry-After ≤ 60 s.
+- Hourly `xero-invoice-sync` worker job (:20 Sydney) and `POST /api/admin/invoices/xero-sync`; new Xero payments recorded through `patchClientInvoice` (method XERO, Xero payment id once, existing PAID settlement); discrepancies (void/deleted in Xero, totals differ, over/prepayments, credits not known here, vanished payment, would exceed total, Xero PAID but not settled) left for review; failed reads stored as "Xero state unknown: …". No client receipt email for a payment read from Xero.
+- Screens: real Xero states in the list column, Xero filter, CSV, editor card (with Refresh from Xero), stage-bar notes, header badge (stored last successful run only).
+- Pre-existing fixes: Stripe webhook records the amount charged and settles by payments + credits, idempotent per checkout session, never assumes the full amount; `POST /api/client/invoices/[id]/pay` stores the amount charged on its attempt row. What clients are charged is unchanged. The header badge's "last sync" was a token-refresh time; the cleaner portal showed a reversed invoice as "Submitted"; rejecting a payment claim on an invoice already in Xero was refused (now returns it to In Xero); the PATCH accepted a send-back or void of a PAID_CLAIMED invoice (releasing work the payee says was paid), which the screen never offered — now refused.
+- Cleaner invoices: APPROVED step (ADMIN only, 403 for operations managers), one transition table used by every route, the bulk route and the screen, audit row per transition; push and payment need APPROVED (legacy XERO_PUSHED rows can still be paid); paged list with chips, search, payee and period filters, real stats, bulk approve / push / CSV with per-row outcomes; review page with stage bar, snapshot lines, notes, proof, comparison and history; admin PDF from the submission snapshot. A payee may claim payment on APPROVED. The old 834- and 677-line components are split (largest new file 315 lines).
+
+Verified (this run)
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors in these paths (errors seen only in other engineers' in-flight files: `lib/dashboard/work-queue-sources.ts`, and transient TS6053 for deleted accounts components).
+- New tests: `tests/lib/xero-invoice-sync-rules.test.ts`, `tests/lib/xero-read-transport.test.ts`, `tests/lib/xero-invoice-sync-service.test.ts`, `tests/api/invoice-xero-payment-path.test.ts`, `tests/api/invoice-xero-sync-route.test.ts`, `tests/lib/stripe-checkout-payment.test.ts`, `tests/lib/client-invoice-xero-display.test.ts`, `tests/lib/cleaner-invoice-transitions.test.ts`, `tests/api/cleaner-invoice-list-bulk-pdf.test.ts`, `tests/api/cleaner-invoice-pay-claim-approved.test.ts`, `tests/components/cleaner-invoice-review.test.tsx`, plus the worker schedule test added to `tests/lib/worker-registration.test.ts`.
+- Existing tests updated on purpose: `cleaner-invoice-admin-transitions` and `cleaner-invoice-export-guards` (push and payment now need APPROVED; fixtures moved to APPROVED/XERO_PUSHED, SUBMITTED added to the refusals), `cleaner-invoice-delivery-review` (rewritten for the paged table; same rules), `admin-attention-money` (badge statuses now the Needs action set), `invoice-step-c-history-owing` (asserts the amount charged on the attempt row), `worker-registration` (mocks the new job).
+- 100 files covering touched code (xero, invoice, cleaner-invoice, payroll, settlement, attention, worker/scheduler, stripe, ops catalog, approvals, editor and list components): 1,164 passed, 3 skipped; the skipped database suite `tests/db/client-invoice-started-jobs.test.ts` was then run on a fresh disposable database on 127.0.0.1:55439 (migrations deployed): 3 passed; database dropped afterwards.
+
+Not verified
+- Nothing was exercised against real Xero or Stripe (no provider credentials here). Every Xero rule is covered with a mocked client only.
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard) deferred by the owner to the final pass.
+
+First real Xero run: what to check
+- Response shape: that `GET Invoices?IDs=…&page=1` returns `Payments` (PaymentID, Date, Amount, Status), `AmountPaid`, `AmountCredited` and `UpdatedDateUTC` for each invoice; if Payments are absent in the list response, every invoice with Xero payments will read "Xero state unknown: listed payments but no amount paid" or record nothing — check one invoice paid in Xero.
+- That ids are matched (case-insensitive) and none come back "missing".
+- Totals: invoices pushed GST-exclusive may differ from the stored total by Xero's per-line rounding; any difference over half a cent is flagged "Totals differ" — review the first few flagged before deciding whether a tolerance is needed (owner decision).
+- Rate limits: with many invoices, watch for "rate limit" unknowns; the run is bounded to 200 invoices + 20 credit notes per hour.
+- The token: without `offline_access` there is no refresh token, so after ~30 minutes every scheduled run reads "No active Xero connection, or its sign-in has lapsed" (state unknown) until someone reconnects. Expect this to be the common state until offline access is granted in the Xero app.
+- Who appears in History: scheduled runs are attributed to the earliest active administrator account and labelled "Xero sync (scheduled)".
+
+## Follow-up: Cases inbox and Laundry pipeline (2026-11-11)
+
+Scope: details in `docs/SYSTEM.md` → "Cases inbox and Laundry pipeline". No schema change and no migration.
+
+What changed
+- Cases: four-column inbox; queues with real counts (`lib/cases/queues.ts`, incl. "Needs my reply"); `GET /api/admin/cases?shape=summary` (summaries only, server paging and allow-listed sort; old shape unchanged without `shape`); `GET /api/admin/cases/[id]/linked`; `POST /api/admin/cases/bulk` (per-row outcomes through `applyCaseUpdate`, which `PATCH /api/admin/cases/[id]` now also uses); create validates job/property/client links; `/v2/admin/cases/[id]` redirects to `?open=` (damage notifications linked there and got a 404); `?caseId=` from the client page opens the case.
+- Laundry: Pipeline lanes (`GET /api/admin/laundry/pipeline`, `lib/laundry/pipeline*.ts`), moves (`POST /api/admin/laundry/reschedule`, stale-write guard per row, audit row), `GET /api/admin/laundry/[taskId]` for linked runs, optional `expectedUpdatedAt` on the admin edit PATCH (sent by the edit dialog), Statistics tab (`GET /api/admin/laundry/stats`; `/v2/admin/laundry/stats` redirects), Add run over `POST /api/admin/laundry`, By property restyled, polling only on Pipeline lanes and Drivers live.
+- Pre-existing fixes: live laundry stops used the server's local midnight (now the Sydney day); the admin laundry edit could overwrite a newer change; stat captions misdescribed their scope; the case notification link 404.
+
+Verified (this run)
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- New tests: `tests/lib/case-queues.test.ts`, `tests/api/admin-cases-summary-route.test.ts`, `tests/lib/case-bulk-and-update.test.ts`, `tests/lib/case-linked-context.test.ts`, `tests/components/cases-inbox.test.tsx`, `tests/api/cases-legacy-links.test.ts`, `tests/lib/laundry-pipeline.test.ts`, `tests/lib/laundry-reschedule-and-pipeline-server.test.ts`, `tests/api/admin-laundry-pipeline-routes.test.ts`, `tests/components/laundry-pipeline-workspace.test.tsx`.
+- Existing tests updated on purpose: `tests/components/admin-laundry-investigation-entry.test.tsx` (Investigate is the "By property" tab on the shared feed) and `tests/components/laundry-calendar-day-link.test.tsx` (`?date=` opens the Pipeline day).
+- Existing tests covering touched code (cases, damage, laundry, ops policy, restorable state, command reliability, client laundry): all passed.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, overflow, draft retention) deferred by the owner to the final pass. No database run: routes and services are tested with mocked Prisma only.
+
+## Follow-up: Notifications in one place (admin redesign, owner decision second set item 1, 2026-11-11)
+
+Changed
+- Manual job reminder (`lib/jobs/job-reminder.ts`) on the notification pipeline via `lib/notifications/office-sends.ts`: explicit `JOB_ASSIGNED_CLEANER` scope (`recipient-scopes.ts`), re-checked in `deliverInboxIntent` / `deliverProviderIntent`; INBOX intent delivered inline (`inline-dispatch.ts`) with an explicit `mobilePushCategory` so the phone app's row (`PUSH`, `SENT`, `mobile-outbox:pending:jobs`) is still produced; email / browser push via the pipeline only when `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS` lists them, else the previous direct send (claimed once, recorded). Truthful per-recipient outcomes in the response and the audit row; pipeline failure reports everyone as not reminded.
+- Envelope: optional `mobilePushCategory`, `recipientPreferences: "IGNORE"` (existing envelopes and hashes unchanged).
+- Catalog `lib/notifications/catalog*.ts` (45 types) + per-type controls (`type-controls.ts`, AppSetting, audited) + switch resolver (`catalog-switches.ts`).
+- `/v2/admin/notifications` extended (Comms center becomes the one area): Types, Delivery log, Health, Preferences. Every former Comms center control kept (control center and overrides → Preferences; classic log, review queue, Clear log → Delivery log; manual dispatch, resend, test push → Health). Nav entry "Notifications" (Configuration); settings destination "All notifications"; notification settings tabs show a pointer and keep working.
+- New routes: `GET/PATCH /api/admin/notifications/catalog`, `POST .../catalog/test`, `GET .../deliveries`, `GET .../health`, `POST .../actions/{staff-message,laundry-nudge,client-delay,guest-message}`.
+- Composer sends (`/api/admin/messages/send`) recorded in the delivery log.
+
+Parity (former Comms center, `git show origin/main:components/v2/admin/comms/comms-center.tsx`)
+- Control center → Preferences (same component). Manual dispatch → Health disclosure (same component). Delivery log → Delivery log tab "Classic log" disclosure (same component) plus the new unified table. Delivery queue → Delivery log "Review queue" disclosure (same component; `e2e/notifications/intent-queue-local.spec.ts` updated to the new location). Header "Test push" → Health. Header "Clear logs" → Delivery log "Clear log", same endpoint and confirmation (no PIN existed). Header "Refresh" → each tab's reload / Retry.
+
+Verified (this run)
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- New tests: `tests/lib/notification-catalog.test.ts`, `tests/lib/notification-office-sends.test.ts`, `tests/lib/notification-entity-scope.test.ts`, `tests/lib/notification-paths-controls.test.ts`, `tests/lib/notification-delivery-log.test.ts`, `tests/lib/notification-office-actions.test.ts`, `tests/api/notifications-area-routes.test.ts`, `tests/api/messages-send-record.test.ts`, `tests/components/notifications-area.test.tsx`.
+- Existing tests updated on purpose: `tests/api/jobs-bulk-remind.test.ts` and `tests/api/audit-v03-notification-producers.test.ts` (the reminder's inbox row is now a pipeline intent; same recipients, category, wording and "not sent" absorption).
+- 67 notification-related test files (notification, outbox, intent, reminder, push, email, SMS, mobile, worker, dispatch, settings navigation): 66 passed, 1 skipped (DB suite); plus every test importing the changed modules: 24 passed, 4 skipped (DB suites).
+
+Not verified
+- DB suites (`tests/db/*`) skipped: no `SNEEK_TEST_DATABASE_URL` set in this run (other engineers' fixtures share the working tree). Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, overflow, draft retention) deferred to the final pass. No real message sent; providers mocked. Production env (`SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS`, worker jobs, provider keys) not inspected.
+
+## Follow-up: Lost and found and urgent stock (admin redesign sections 9 and 10, 2026-11-11)
+
+Changed
+- Lost and found page rebuilt as drawn (`components/v2/admin/lost-found/*`; old `lost-found-board.tsx` removed): stage tabs with real counts over the unchanged statuses, filters, server paging and sorting, CSV export, bulk Move to storage / Mark unclaimed / Donate or dispose with per-item answers, item panel with stage bar, photos and lightbox, job link, guest card from the job's booking (edit, pick another booking), Next step, Stored at, Est. value, every old action, Reopen, timeline with comments; Log an item for the office.
+- Guest import on create (`lib/lost-found/create.ts`, used by the cleaner route and the office route); BOOKING / MANUAL source; system timeline entry; redaction extended to the new fields.
+- Transition table and Reopen (`lib/lost-found/transitions.ts`, `mutations.ts`); holding period setting (`lib/lost-found/settings.ts`, Settings → Operations → Lost and found).
+- Message guest: Send by email / text through the notification step's `guest-message` action (ADMIN; moves to Guest contacted only when the provider accepted); copy / mailto / sms / tel and "Mark guest contacted" otherwise; Tell client is copy-and-record only (no pipeline path).
+- Urgent stock: first Stock tab (`components/v2/admin/inventory/urgent/*`), all-property list (`lib/inventory/urgent-stock-list.ts`), bulk (`urgent-stock-bulk.ts`), one next action per stage (`urgent-stock-actions.ts`), need panel with stay preparation; storage moved to `UrgentStockNeed` / `UrgentStockEvent` (`urgent-stock-store.ts`) with every export of `lib/inventory/urgent-stock.ts` kept; stay preparation reads the table; `/urgent-stock` redirects administrators; Inventory nav badge (REPORTED, administrators).
+- Existing problems fixed: a status move back from a decision silently erased the decision (now Reopen with a reason, decision kept in the entry; archiving keeps the decision); the board's search was case-sensitive and missed property names; found-date filters used server-local midnight (now organisation calendar days); the job on an item was plain text (now a link); the property filter only listed properties on the loaded rows.
+
+Migration `20261111200000_lost_found_guest_urgent_stock_tables` — verification (Postgres 127.0.0.1:55439)
+- Fresh: `createdb lf_fresh`; `DATABASE_URL=…/lf_fresh npx prisma migrate deploy` → "All migrations have been successfully applied."; repeated → "No pending migrations to apply."; `npx prisma migrate diff --from-url …/lf_fresh --to-schema-datamodel prisma/schema.prisma --exit-code` → "No difference detected." (exit 0).
+- Existing `sneek_ui` (at `20261111180000`): fixtures inserted first — items (a) empty guest + job with booking (two rows, one whitespace-only), (b) existing guest name / contact-only text, (c) no job, (d) job without booking, (e) booking without name or phone; urgent stock JSON: open need with pointer and three events (incl. reminder with null actor), closed need with an offset `observedAt` and 12.5 purchase quantity, legacy need missing optional keys, and malformed rows (bad stage, string value, key/id mismatch, missing property, "not a date", "2026-13-45" date, missing remindersSent, count stored as text) plus four unreadable events (orphan, bad time, array value, reportId mismatch) and a receipt. Checksums (md5 of every pre-existing column per item, of all AppSetting rows, of all LostFoundEvent rows) recorded before.
+- `migrate deploy` → applied; repeated → no pending; diff → "No difference detected." (exit 0).
+- After: only the two (a) rows changed (guest from booking, `guestSource` BOOKING, `reservationId` set, name trimmed); (b) rows got MANUAL with every pre-existing column checksum unchanged; (c), (d), (e) unchanged (no source); AppSetting and LostFoundEvent checksums unchanged (old JSON rows kept). Needs: 11 JSON rows → 3 copied + 8 left in AppSetting (all eight malformed ones), ids, stages, versions, counts, `observedAt` text, reminders, reporter (from the REPORTED event) and `openPairKey` (from the pointer) as stored. Events: 8 JSON rows → 4 copied + 4 left (the unreadable ones), notes from the stored reason/note, `fromStage` null (unknown). Count query (in SYSTEM.md) returned 8 / 4. Fixtures then removed from `sneek_ui` (the migration stays applied there).
+- `npx prisma generate` run. No `db push`; no applied migration rewritten.
+
+Verified (this run)
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- New tests: `tests/lib/lost-found-guest-transitions.test.ts`, `tests/lib/lost-found-holding.test.ts`, `tests/components/lost-found-format.test.ts`, `tests/api/lost-found-office.test.ts`, `tests/db/lost-found.test.ts`, `tests/lib/urgent-stock-actions.test.ts`, `tests/api/urgent-stock-office.test.ts`, `tests/components/urgent-needs-table.test.tsx`, `tests/lib/admin-attention-urgent.test.ts`; office list / bulk / table-parity cases added to `tests/db/urgent-stock.test.ts` (same file as the reminder test because the reminder worker reads every open need).
+- Existing tests updated on purpose: `tests/db/urgent-stock.test.ts` and `tests/db/stay-preparation.test.ts` count and clean the new tables instead of `urgent_stock_v1:open:` / `event:` AppSetting rows (storage moved); `tests/lib/lost-found-reporter-redaction.test.ts` gained the new fields.
+- Every test file touching lost and found, urgent stock, stay preparation, inventory, attention counts, settings navigation and the guest message (101 files, 1093 tests) passed with `SNEEK_TEST_DATABASE_URL` on the disposable `lf_fresh` database. All database suites together: 140 passed, 1 skipped, 1 failed — `tests/db/form-template-library.test.ts` (Template builder work in progress; not this step).
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard, overflow, draft retention) deferred to the final pass. No real guest email or SMS sent (providers mocked in tests).
+
+## Forms builder step (2026-11-11)
+
+Scope: `/v2/admin/forms/[id]/edit` rebuilt to the "Template builder" design; typed schema and strict save check; per-room repeat; server validation warnings on cleaner submit; field type audit, barcode scanner, searchable dropdown; QA template revisions, overlap warning, duplicate, delete; legacy PATCH routed to drafts; classic builder retired with redirects. See `docs/SYSTEM.md`, "Form builder: outline, questions, shared settings, versions and test as cleaner".
+
+Behaviour changed on purpose
+- Publishing (single, builder and bulk) is refused while the form has a check error or fails the strict save check (`CHECKS_FAILED` / `INVALID_SCHEMA`, 422). Previously only bulk publish checked.
+- Saving a draft refuses unknown question types and malformed rules (legacy aliases accepted). Restore skips the check.
+- `PATCH /api/admin/form-templates/[id]` saves `schema` / `serviceType` to the draft instead of the live form.
+- Cleaner submit stores `data.__validationWarnings` for extended rules; no new rejections (`ENFORCE_EXTENDED_FORM_VALIDATION = false`).
+- `/admin/forms/[id]/edit`, `/admin/forms/new`, `/admin/forms/stats` redirect to v2; the classic forms page's builder tab only links to the v2 builder.
+
+Tests updated on purpose
+- `tests/components/form-builder-drafts.test.tsx` rewritten for autosave and the publish dialog (same intent: draft-only saves with the token, publish with the current token, not while unsaved).
+- `tests/api/audit-form-template-pages.test.tsx`: the legacy edit page now redirects (admission unchanged).
+- `tests/components/forms-authority-surface.test.tsx`, `tests/components/qa-templates-gating.test.tsx`: controls moved (links to the v2 builder; QA Edit/Reset in the row menu).
+- `tests/components/device-status-input.test.tsx`: import path only.
+- `tests/components/form-builder.test.tsx` deleted with the classic builder it tested.
+
+Not verified
+- Production build, full Vitest suite and browser checks (Chromium 390/1280, light/dark, keyboard drag, camera scanner on a phone, overflow) deferred to the final pass. Database tests not run (no disposable database in this session).
+
+## Live ops follow-up step (2026-11-11)
+
+Scope: owner decisions third set items 2, 3, 5 and fourth set item 1, plus the deferred Laundry nudges, Accounts bulk Message and the Cases Refresh parity item. See `docs/SYSTEM.md`, "Live ops follow-up: delay notice, clock pause, decline reason, QA issue from a case, laundry nudges, bulk message (2026-11-11)". No schema change.
+
+Behaviour changed on purpose
+- `PATCH /api/admin/job-continuations/[id]` refuses `REJECT` without a non-blank `decisionNote` (400); `decideContinuationRequest` refuses it too. Approve unchanged.
+- The laundry nudge route refuses a second nudge of the same kind for the same run within 30 minutes (409 with the first time) unless the idempotency key is the same.
+- `clockOutCleaner` takes an optional `note` (only written when given; the cleaner's Stop is unchanged).
+- The client delay notice and laundry nudge audit rows record the idempotency key.
+- Quality hub Issues search also matches an exact issue id; Issues table gains a "Raised from" column.
+- `CaseLinkedContext.cleaners` entries carry the user id.
+
+New server surface
+- `GET /api/admin/notifications/actions/client-delay` (ADMIN; preview, sends nothing).
+- `POST /api/admin/jobs/[id]/pause-clock` (ADMIN; 409 "No running clock").
+- `POST /api/admin/quality/issues` and `GET /api/admin/quality/issues/case-options` (ADMIN; OPS_MANAGER with quality at manage).
+- Catalog entry `jobs.clock_paused_by_office`.
+
+Tests updated on purpose
+- `tests/components/live-ops-feed.test.tsx` and `tests/components/admin-command-reliability.test.tsx`: Decline now goes through the reason dialog before the server's refusal is shown (same intent: the row stays and shows the server's reason).
+- `tests/lib/notification-office-actions.test.ts`: the db mock gained `auditLog.findFirst` for the cool-down read.
+- `tests/api/cleaner-start-preserves-briefing.test.ts`: added a case resuming a job the office paused.
+
+New tests
+- `tests/api/admin-clock-pause.test.ts`, `tests/api/admin-client-delay-notice.test.ts`, `tests/api/admin-continuation-decline-reason.test.ts`, `tests/api/raise-qa-issue-from-case.test.ts`, `tests/lib/laundry-nudges.test.ts`, `tests/components/live-ops-follow-up.test.tsx`, `tests/components/cases-refresh-and-qa.test.tsx`, `tests/components/office-actions-ui.test.tsx`.
+
+Not verified
+- Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard, overflow) deferred to the final pass at the owner's request. No real message was sent (providers mocked in tests).
+
+## Quality design completion, Wave C (2026-11-11)
+
+Scope: the Quality half of Wave C (owner decision, sixth set). See `docs/SYSTEM.md`, "Quality design completion: manual bonus proposal, both row actions, Low / Medium / High (Wave C, 2026-11-11)". No schema change; automatic bonus, deduction, scoring and coaching rules unchanged.
+
+Rules added or access changed
+- New `POST /api/admin/quality/bonus-proposals`: a manual quality bonus as a PENDING pay adjustment (paid only after the existing approval). Access mirrors the pay-adjustment create route (ADMIN; OPS_MANAGER with payroll at manage) plus quality at manage for this path; refused while impersonating; CLEANER payees only.
+- New bounds: $5 to $200 in whole cents; reason required (3–1000). A pending bonus for the cleaner (automatic or manual) refuses with 409 unless acknowledged.
+- "Review bonus" now also lists manual quality bonuses (the "bonus due" streak badge stays automatic only).
+
+Behaviour changed on purpose
+- Severity reads Low / Medium / High on the admin Quality hub, the Cases "Raise QA issue" dialog and its internal case note; stored, API and query values unchanged. The Quality CSV gains a "Severity label" column after "Severity".
+- Cleaners rows show one button (Start coaching, Review bonus or Propose bonus) and the other applicable actions in a row menu.
+- Expanded cleaner row dates read "6 Nov" (year outside the current year).
+
+Tests updated on purpose
+- `tests/components/quality-hub-coaching-access.test.tsx`: the access object gains `canProposeBonus` (added a case for the payroll rule).
+- `tests/components/quality-hub-actions.test.tsx`: the pending-bonus fixture carries `origin: "automatic"`.
+
+New tests
+- `tests/api/quality-bonus-proposals.test.ts`, `tests/components/quality-hub-bonus-actions.test.tsx`, `tests/lib/quality-severity.test.ts`.
+
+Verified: `npx tsc --noEmit -p .` clean; the Quality, pay-adjustment, accountability, streak, rectification, approval-history and Cases QA test files pass (27 files, 298 tests), plus the ops-policy and route-guard audits.
+
+Not verified
+- Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard, overflow, the row menu inside the scrolling table) deferred to the final pass at the owner's request.
+
+## Jobs and Calendar design completion, Wave A (2026-11-11)
+
+Scope: Wave A of the owner's sixth decision set. See `docs/SYSTEM.md`, "Jobs and Calendar: design completion, Wave A (2026-11)". No schema change; scheduling, assignment, status and charge rules unchanged; all writes go through the existing reschedule, job-create and assign code.
+
+Rules added or access changed
+- New `POST /api/admin/jobs/view-counts` (ADMIN, OPS_MANAGER; read-only, POST for the body): saved-view tab totals. An operations manager with Jobs "view" gets none (POST needs manage) — fails closed.
+- New `POST /api/admin/jobs/bulk-reschedule` (ADMIN; OPS_MANAGER with Jobs manage AND Calendar manage, matching the single reschedule and the Calendar move check). At most 100 jobs.
+- New `POST /api/admin/jobs/import` (ADMIN, OPS_MANAGER with Jobs manage, as job creation). At most 200 rows / 200 KB. Each created row writes an `AuditLog` receipt (`JOB_CSV_IMPORT_ROW`).
+- `POST /api/admin/calendar/check-move` accepts `toStartTime` / `shiftMinutes`; a time move of a job with a separate end time is refused (the reschedule service writes only start and due).
+- Guest in and Charge sorts refuse a filtered set above 5,000 jobs (400, `SORT_SET_TOO_LARGE`).
+- The admin job create moved unchanged into `lib/jobs/admin-create.ts`; `POST /api/admin/jobs` calls it.
+
+Behaviour changed on purpose
+- Cleaner, Guest in and Charge headers sort (list and board). Day rows read "Thursday 12 November", today "… · today". Unassigned is in the danger tone on the Jobs list, board and peek only. Bulk bar gains Reschedule. "Import or bulk create" opens a dialog instead of linking to the New job page. Suggested cleaners add a straight-line distance with its basis and the 30-day QA score, and use them as tie-breaks. Calendar chips drag on touch after press-and-hold and show a grip; Day-view drops can change the time; the Calendar keeps its view (always) and date (same session, same day) across a refresh — a documented exception in `docs/style/operational-ui.md`.
+
+Tests updated on purpose
+- `tests/lib/jobs-list-route-v2.test.ts`: cleaner/guestIn/charge are no longer "unknown sorts"; the refusal cases use other unknown values.
+- `tests/components/jobs-workspace-url.test.tsx`: the three headers now sort and send `sort=charge|cleaner|guestIn`; the bulk bar includes Reschedule; "Import or bulk create" is a button opening the dialog with the bulk-create deep link.
+- `tests/api/calendar-check-move.test.ts`: added time-change cases.
+
+New tests
+- `tests/lib/jobs-computed-sort.test.ts`, `tests/lib/jobs-saved-view-counts.test.ts`, `tests/lib/cleaner-suggestions-signals.test.ts`, `tests/lib/jobs-bulk-reschedule.test.ts`, `tests/lib/calendar-time-drop.test.ts`, `tests/lib/jobs-csv-import.test.ts`, `tests/lib/jobs-admin-create-once.test.ts`, `tests/lib/jobs-day-label.test.ts`, `tests/lib/calendar-touch-drag.test.ts`, `tests/lib/jobs-wave-a-route-coverage.test.ts`, `tests/components/calendar-touch-time-restore.test.tsx`.
+
+Verified: `npx tsc --noEmit -p .` clean; the Jobs, Calendar, suggestions, saved-views and view-memory test files plus the new ones pass, except failures that are not Wave A's: `tests/lib/jobs-invoiced-rule.test.ts`, `tests/lib/jobs-route-filters.test.ts` (3 cases) and `tests/lib/jobs-view-presets.test.ts` (1 case) assert the previous `lib/jobs/invoiced-rule.ts` shape, which changed in an earlier commit outside this wave (Finance path). The Cleaner sort SQL was planned (EXPLAIN only) on the disposable 55439 database; no rows were read or written.
+
+Not verified
+- Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard, overflow; real touch devices for press-and-hold and scroll suppression; Day-view drop positions with real layout) deferred to the final pass at the owner's request. No import was run against a real database.
+
+## Forms design completion, Wave B (2026-11-12)
+
+Scope: Wave B of the owner's sixth decision set plus the owner's decision to make extended submit validation switchable. See `docs/SYSTEM.md`, "Forms design completion: Compare, Import/Export, Table, Stock count, effects, Monthly (Wave B, 2026-11-12)". No schema change.
+
+Rules added or access changed
+- New `GET /api/admin/form-templates/compare` (ADMIN, OPS_MANAGER; read only, 2–4 forms).
+- New `GET /api/admin/form-templates/export` and `POST /api/admin/form-templates/import` (ADMIN). Import creates new draft forms only (`isActive: false`), ≤ 1 MB / 20 forms / 500 questions per form, strict save check per form, audit `FORM_TEMPLATE_IMPORTED`.
+- New question types `table` and `stock_count`: their answer rules are enforced (rejected) by the cleaner submit route from the first release (`invalidFields`, rules `table` / `stock-count`).
+- New question effects. Stock count "raises an urgent stock need below N": an urgent need is raised after commit as the submitting cleaner, once per submission and item, through the additive `reportUrgentStockFromSubmission` in `lib/inventory/urgent-stock.ts` (scope proven by the submission; the existing `reportUrgentStock` body was moved unchanged into a shared internal function). Yes / No "opens a damage report": the submit route opens one private damage case per such answer when the cleaner has not submitted a damage report for the job and sent no damage items.
+- New cadence "Monthly" (`frequency: "MONTHLY"`) using `PropertyRotationState.lastCompletedAt`.
+- `settings.formValidation` (default off). New `GET/PUT /api/admin/form-templates/validation-setting` (read ADMIN/OPS_MANAGER, write ADMIN, audit `FORM_VALIDATION_ENFORCEMENT`) and `GET /api/cleaner/jobs/[id]/form-validation` (assigned cleaner). When on, extended checks reject except for jobs the cleaner first clocked in on before the switch-on moment.
+- Notification catalogue: `submission.urgent_stock_review` (inbox only) added to "Urgent stock need".
+
+Behaviour changed on purpose
+- Library Checks include "never answered" as warnings, so "Has problems" counts them; errors and warnings are separate pills; chip label "Has problems: errors or warnings".
+- Avg time and Completion headers sort over the whole filtered set ("–" last); refused above 20,000 submissions.
+- Builder header name is editable in place (metadata PATCH, stale-write guard).
+- Monthly / Table / Stock count / effects change nothing for forms that do not use them; existing every-Nth rotation, published forms and stored submissions are untouched.
+
+Tests updated on purpose
+- `tests/lib/form-schema-save-and-publish.test.ts`: "table" and "MONTHLY" are real now; the refusal rows use "grid" and "WEEKLY".
+- `tests/components/form-field-type-audit.test.tsx`: cases for `table` and `stock_count` (the audit requires one per registered type).
+
+New tests
+- `tests/api/cleaner-submit-form-effects.test.ts` (structured validation, urgent queueing below/at threshold, unstocked skip, damage case once / covered by report / not on No, enforcement both sides of the switch-on boundary), `tests/lib/submission-urgent-stock.test.ts`, `tests/lib/urgent-stock-from-submission.test.ts`, `tests/lib/forms-structured-and-effects.test.ts`, `tests/lib/rotation-monthly.test.ts`, `tests/lib/resolve-monthly-form.test.ts`, `tests/lib/form-validation-enforcement.test.ts`, `tests/lib/form-library-compare-transfer.test.ts`, `tests/lib/form-library-whole-set.test.ts`, `tests/components/inline-form-name.test.tsx`, `tests/components/form-effects-renderer.test.tsx`, `tests/api/form-validation-setting-route.test.ts`.
+
+Verified: `npx tsc --noEmit -p .` clean for these paths; 128 related test files (forms, templates, submit incl. all contract tests unchanged, renderer, rotation, stock, damage, checklist, notification catalogue, library and builder routes, settings) pass, 1284 tests.
+
+Not verified
+- Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard): Compare table overflow at 390px (it scrolls inside its card), the Import dialog, the table cards on a phone, the damage prompt inside the clean stage, the inline rename focus return, the enforcement card.
+- The classic `/cleaner/jobs/[id]` page does not render Table or Stock count controls (the v2 renderer does); a form using them should only be filled in the v2 cleaner app.
+- The raw SQL warning counts (`lib/forms/validation-warning-stats.ts`) were not run against a database.
+
+## Finance decisions (2026-11-12)
+
+Scope: owner decisions of 2026-11-11 (second set 2–6; third set 4, 6, 8) and two existing problems (Xero `offline_access`; classic cleaner-invoice screen). Details: `docs/SYSTEM.md`, "Finance decisions".
+
+Behaviour deliberately changed
+- The INVOICED job status alone no longer makes a job "invoiced" (Jobs filter, Not invoiced count, Ready to bill, generator, Money tab). Fully credited invoices stop billing their jobs.
+- Voiding / deleting a draft / fully crediting returns INVOICED jobs to their previous status (audit) or COMPLETED.
+- Voiding a credit note is refused when its invoice's work has since been billed on another live invoice.
+- A line on a VOID invoice no longer blocks job delete, QA reset or option reset; a line on a non-void invoice now also locks evidence in the option reset (before, only the INVOICED status did).
+- `sentAt` is the first send; re-sends go to `metadata.resentAt[]`. Past rows restamped by a re-send cannot be repaired.
+- Command's Money this month adds "Invoiced this month" (first row); the stats strip adds the same card.
+- Due dates use per-invoice terms (snapshot, else client terms, else default); overdue is resolved per invoice in SQL.
+- Insights revenue = invoiced (ex GST, net of credit notes) + not yet invoiced (scheduled charge), split shown; findings and CSV updated.
+- Finance summary excludes and flags cleans with no pay rate instead of costing them at $40/h. Pay itself is unchanged.
+- Xero-read payments send the client receipt; scheduled Xero rows show as "System: Xero sync (scheduled)"; `offline_access` requested.
+- Classic `/admin/cleaner-invoices` and `/admin/finance?tab=invoices` redirect to Invoices and pay.
+
+Migration verification (`20261112090000_finance_decisions`, PostgreSQL 16 on 127.0.0.1:55439)
+- Fresh: `createdb fin_fresh` → `DATABASE_URL=…/fin_fresh npx prisma migrate deploy` → "All migrations have been successfully applied."; repeated → "No pending migrations to apply."; `npx prisma migrate diff --from-url …/fin_fresh --to-schema-datamodel prisma/schema.prisma --exit-code` → "No difference detected." (exit 0). Repair record: count 0.
+- Existing `sneek_ui` (already at `20261111200000`; its own data had 0 INVOICED jobs and no invoices, so fixture clients, jobs, invoices in every status (DRAFT, APPROVED, SENT, PART_PAID, PAID, VOID), a full and a partial credit note were added first): md5 of every pre-existing column of Client, ClientInvoice, ClientInvoiceLine, of non-repaired Job rows (all columns) and of Job identity columns, before and after deploy → identical; index list md5 identical. Results: issued invoices (SENT/PART_PAID/PAID/VOID, incl. the sent credit note) got `paymentTermsDays = 14`, drafts/approved stayed null; the fully credited invoice got `creditedInFullAt`; 3 legacy jobs repaired (no line; only on VOID; only on the fully credited invoice); INVOICED jobs on SENT and DRAFT invoices unchanged. Repeat deploy → no pending; migrate diff → no difference (exit 0). The fixtures were deleted afterwards; the repair record row in `sneek_ui` still says count 3 (fixture ids).
+- Production count before deploy (works on the schema after the credit-notes migration):
+  `SELECT COUNT(*) FROM "Job" j WHERE j."status"::text='INVOICED' AND NOT EXISTS (SELECT 1 FROM "ClientInvoiceLine" l JOIN "ClientInvoice" i ON i."id"=l."invoiceId" WHERE l."jobId"=j."id" AND i."kind"::text='INVOICE' AND i."status"::text<>'VOID' AND NOT COALESCE((SELECT SUM(ABS(c."totalAmount"))>0.005 AND SUM(ABS(c."totalAmount"))+0.005>=i."totalAmount" FROM "ClientInvoice" c WHERE c."creditsInvoiceId"=i."id" AND c."kind"::text='CREDIT_NOTE' AND c."status"::text IN ('APPROVED','SENT')),false));`
+  If production does not yet have `ClientInvoice.kind` (credit-notes migration not deployed), use: `SELECT COUNT(*) FROM "Job" j WHERE j."status"::text='INVOICED' AND NOT EXISTS (SELECT 1 FROM "ClientInvoiceLine" l JOIN "ClientInvoice" i ON i."id"=l."invoiceId" WHERE l."jobId"=j."id" AND i."status"::text<>'VOID');`
+
+Checks run
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → clean at the end (earlier runs showed errors only in others' in-progress files: `lib/forms/structured-answers.ts`, `components/v2/admin/calendar/use-chip-drag.ts`, `lib/cleaner/submission-followups.ts`).
+- 256 existing and new test files covering invoices, billing, receivables, finance, insights, Xero, payroll, pay, delete/reset guards, jobs filters, clients, accounts, workers, notifications catalog, settings → 3,023 tests passed.
+- `tests/db` on the disposable `fin_fresh` database (`--no-file-parallelism`): 21 files passed incl. new `tests/db/finance-decisions.test.ts`; 1 skipped (its own condition); 1 failed: `tests/db/form-template-library.test.ts` (Forms, another engineer's in-progress area).
+- Tests updated because they encoded the old behaviour on purpose: `jobs-invoiced-rule`, `jobs-route-filters`, `jobs-view-presets` (INVOICED status no longer counts), `client-invoice-generation` (live-invoice recheck), `admin-invoices-list` (per-invoice overdue ids), `command-sections` (Invoiced this month row), `insights-csv-and-url` (revenue labels), `invoice-xero-payment-path` (system label and marker), `insights-page-access` (Email monthly state), `started-work-financial-boundary` and `invoice-step-c-xero-send` (send now stamps under a transaction), `worker-registration` (new job).
+
+Mocked only / not verified
+- Xero (offline_access, refresh, receipts, system marker) and every email: mocked providers only; nothing real was sent and nothing ran against Xero. The owner must reconnect Xero once after deploy.
+- Production build, full Vitest suite and browser checks (Client 360 Payment terms card, Settings → Monthly Insights email, Insights header, Finance stats strip at 5 cards, Accounts "No pay rate" chip, Xero reconnect alert; 390/1280, light/dark) were not run in this step.
+- The embedded web scheduler (`lib/ops/web-scheduler.ts`) does not run `insights-monthly-email` (nor `xero-invoice-sync`): a dedicated worker is needed for the monthly email.
+
+## Insights design completion (Wave C, 2026-11-12)
+
+Scope: the Insights half of Wave C in `docs/plans/admin-redesign-2026-11.md` plus an element-by-element pass against `Insights.dc.html`. No schema change; read-only analytics; no money, business or access rule changed. Details: `docs/SYSTEM.md`, "Insights design completion … (Wave C, 2026-11-12)".
+
+Changed
+- Overrun finding adds "At the current rate this property makes $N per clean." from `marginPerClean` = (revenue − cleaner cost) ÷ cleans over the margin's basis; basis count in the finding's basis line; "not enough data" and no number below 3; computed and sent only with finance access.
+- Business preview sorts in place: the first five of the whole property set in the chosen order via the properties route (`pageSize=5`); "All N properties" keeps the order. Shared ordering in `lib/insights/property-order.ts`; new non-financial sort key `ratio` ("Actual vs planned" column on Properties).
+- Client filter is the shared `EFilterPopover` chip with a searchable, keyboard-operable list (`EFilterPopover` gains optional `emptyValue`; other callers unchanged).
+- Margin badge bands from named thresholds (`lib/insights/margin-band.ts`), number always shown.
+- Design pass: header order (… Export, Email monthly), Email monthly as a state button opening the owner-only setting, subtitle "compared with September", findings in a row, card definitions in one disclosure, chart legend badges in the header and solid gold bars, actual-hours danger above 110%.
+
+Existing problems fixed
+- Without finance, the preview ranked by time over plan but "All N properties" opened name order; Time and cost's "All N properties" did the same. Both now open `ratio` highest first.
+- Actual hours were red at exactly 110% of planned; the design marks only above it.
+
+Checks run
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → no errors in Insights files; remaining errors only in Wave D Money paths in progress (`components/v2/admin/finance/invoices/invoice-filters.tsx`, `lib/billing/client-invoice-list.ts`).
+- Vitest: `tests/lib/insights-design-completion.test.ts` (new), `tests/components/insights-header-controls.test.tsx` (new), `tests/api/insights-routes.test.ts` (2 new cases), and the existing `insights-*`, `finance-decisions-rules`, `worker-registration`, `insights-page-access` files → 12 files, 109 tests passed. No existing test was changed or weakened.
+- ESLint on the touched files: clean.
+
+Not run (owner asked to save time)
+- Production build, full Vitest suite, browser checks. For the final browser pass: Business tab at 390/1280, light/dark — findings row and money sentence, cards with the disclosure, chart header legend wrapping at 390, preview header sort (busy state, error retry, URL survives refresh), "All N properties" order, Client chip popover (search, arrows, Escape, overflow at 390), Email monthly button for ADMIN and for an operations manager, PDFs tab with no header controls.
+
+
+## Money design completion (Wave D, 2026-11-12)
+
+Scope: Wave D in `docs/plans/admin-redesign-2026-11.md` (list and editor differences from `Money.dc.html` / `InvoiceEditor.dc.html`). No schema change, no migration. Details: `docs/SYSTEM.md`, "Money design completion … (Wave D, 2026-11-12)".
+
+Changed
+- Ready to bill dollar figure and "Create N drafts" (`POST /api/admin/invoices/generate-batch`, idempotent per key); drafts with missing rates counted; Xero push failures recorded as FAILED with reason (Synced / Push pending / Push failed / not yet checked); "On send" in Due and a provisional due line on the admin PDF preview; bulk Download PDFs (`POST /api/admin/invoices/pdf-archive`); Owing sorted in SQL.
+- Editor: Bill to / Period / Due on drafts (PATCH `clientId`, `period`, `paymentTermsDays`), Add finished jobs (`GET/POST /api/admin/invoices/[id]/jobs`), send options (`includePaymentLink`, `pushToXero`), autosave with the PATCH stale-write guard (`expectedUpdatedAt`, 409 `STALE_INVOICE`), add-line suggestions and saved invoice items (`/api/admin/invoices/saved-items`), Xero account name, approval checks enforced on drafts.
+
+Rules added (business / money / access; owner asked for the design to be made real)
+- A DRAFT is not approved, sent directly or marked paid while a job line's job has no client rate (or a line amount is not a number), a job is on another live invoice or twice on it, the stored total does not match the lines, or any of these cannot be checked. Existing APPROVED/SENT invoices are unaffected.
+- A draft's Bill to may change only when every job belongs to the new client (and no shopping allocation, property-grouped manual line or started-work snapshot ties it); never on a credit note.
+- An invoice-specific payment-terms override set on a draft is kept at first send (the snapshot does not overwrite it).
+- A send asking for a payment link is refused when no gateway could serve it; push-after-send never undoes a send.
+- Xero OAuth now also requests `accounting.settings.read` (opt out `XERO_REQUEST_SETTINGS_READ=false`).
+
+Existing behaviour changed on purpose, and the tests updated for it
+- `tests/lib/client-invoice-checks.test.ts`: rates / other invoice / totals were advice ("Check") on a draft; they now block approval (new cases for double lines, unknown, and approved invoices staying advisory).
+- `tests/api/invoice-step-c-patch.test.ts`: the partial credit-note approval now needs lines that match its total; mock gains `$executeRaw`.
+- `tests/api/started-work-financial-boundary.test.ts`: the non-started draft send fixture now has matching totals (GST off); mock gains `$executeRaw`.
+- `tests/lib/invoice-step-c-xero-send.test.ts`: mock gains `$executeRaw` (the approval rule takes the billing lock).
+- `tests/api/admin-invoices-list.test.ts`: needs-action includes FAILED reservations; new case separating `pending` and `failed`.
+- `tests/api/admin-invoices-bulk.test.ts`: the send route now passes explicit default options.
+- `tests/lib/client-invoice-xero-display.test.ts`: new labels (Synced, Synced · paid in Xero, In Xero · not yet checked, Push failed) and stage notes.
+- `tests/lib/finance-decisions-rules.test.ts`: the scope string gains `accounting.settings.read`, with an opt-out case.
+- `tests/components/invoice-editor-page.test.tsx`: PATCH bodies carry `expectedUpdatedAt`; the new-line description is a combobox; fixtures gain the new fields.
+
+Checks run
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → no errors.
+- Vitest, 178 files (every non-DB test file mentioning invoice / billing / receivables / finance / xero, plus the four new Wave D files) → 2,269 passed, 1 failed: `tests/lib/notification-paths-controls.test.ts` ("shows no banner once the transports are on the pipeline"), in notification / settings code this step did not touch (other engineers' work in progress).
+- DB tests on a fresh disposable database (`moneyd_fresh` on 127.0.0.1:55439, `prisma migrate deploy` from empty, `prisma migrate diff --exit-code` → no difference): `tests/db/money-wave-d.test.ts` (6), `client-invoice-started-jobs`, `finance-decisions`, `holiday-rates` → 25 passed.
+
+Not run / not verified
+- Production build, the full Vitest suite and browser checks (owner asked to save time). For the final browser pass, at 390px and 1280px, light and dark: stats cards (Ready to bill with button, Drafts pill), Create drafts dialog (loading, outcomes list, retry), Due "On send", Owing header sort, Xero cell states and reasons, bulk Download PDFs result panel, editor header fields (Bill to select width at 390, period inputs wrapping, Due hint), Add finished jobs dialog, add-line combobox (keyboard, list in flow), Send card options and reasons, Xero card name / reason, checklist links, autosave states and conflict banner, Billing schedule → Saved invoice items disclosure.
+- Xero (push failure recording, account name read, new scope), Stripe payment link and email are mocked only. First real Xero use: reconnect Xero once (now also for `accounting.settings.read`); if the app refuses the scope, set `XERO_REQUEST_SETTINGS_READ=false` and the card shows "name unavailable".
+
+## Wave E without a database change (2026-11-12, uncommitted step)
+
+Scope: the Wave E items of `docs/plans/admin-redesign-2026-11.md` that need no schema change. No Prisma schema change, no migration. Details: `docs/SYSTEM.md`, "Wave E without a database change".
+
+Changed
+- Cases "Create repair quote" → `/v2/admin/quotes/new?fromCase=` pre-filled on the server (client, address, title, description, case image evidence); the created quote is linked by a `FROM_CASE` quote event and an internal case note in its own transaction; the case lists "Quote Q-… created", the quote shows "From case …". Nothing is sent.
+- Laundry "Chase supplier" on runs over turnaround: preview `GET /api/admin/laundry/[taskId]/supplier-chase`, send `POST /api/admin/notifications/actions/supplier-chase` (ADMIN, stored contact only, 30-minute cool-down per run, masked audit, truthful states); Copy / `mailto:` / `tel:` for everyone who can open the run. New shared `lib/notifications/external-recipient.ts` (guest message moved onto it unchanged).
+- Command "Send reminder" for an expiring document → `REQUEST_DOCUMENT` with `documentId` (explicit transports, one per document per day, replay of the same key).
+- Lost and found "Tell client" sent from the app (`POST /api/admin/lost-found/[id]/send-client-notice`, ADMIN, new pipeline scope `LOST_ITEM_PROPERTY_CLIENT`, client switch honoured, timeline records real states); Property column and sort menu sort by property name across pages.
+- Forms: Results and stats → Submissions (server paging, sort, filters, PDF, submission view with answers, media, laundry, report preview, history; administrators edit, add / remove / restore media). `/admin/forms` redirects with its tabs mapped; `components/forms/checklists-workspace.tsx` removed.
+- Office submission views show Table answers as a table and Stock count as "item · counted N unit"; the classic cleaner job page renders both types with the shared controls (not redirected; reason in SYSTEM.md).
+- A monthly question already shown on a clean at the property this month that is submitted but not approved is not shown again; due again after that clean is reset or rejected.
+- Design: Laundry tiles moved into Statistics and lane cards carry their exception action; Cases "Client can" as one choice; Live ops late row "Tell client"; Command lost-item row opens the item.
+
+Existing problems fixed (standing rule)
+- `REQUEST_DOCUMENT` wrote its notice as "SENT" and fired email / SMS without recording the answers or escaping the title; it now returns and audits each transport's real state (catalog `workforce.document_request`, `workforce.document_request_sms`).
+- Submission edits overwrote answers with no history; removing submission media deleted the stored file; added media had no ownership check; internal `__` fields could be overwritten. Now: before/after audit, originals kept as restorable tombstones, ownership checked, internal fields refused.
+- Quote reference images (create and PATCH) accepted any storage key; now the case's evidence or own / office uploads only.
+- The app-sent guest message's timeline entry said "recorded by the office"; it now says sent by the app.
+
+Rules added (who can do what) — for the owner
+- Chase supplier and Tell client: administrators send; operations managers copy and record (mirrors the guest message). Owner decision still open for all three.
+- Submissions editing in the Forms page is shown to administrators only (as the classic page); the PATCH route still admits operations managers as before (used by the job pages).
+
+Existing behaviour changed on purpose, and the tests updated for it
+- `tests/components/forms-authority-surface.test.tsx`: the classic Forms page now redirects (tab map and refusal cases).
+- `tests/api/lost-found-office.test.ts`, `tests/components/lost-found-format.test.ts`: a client message is now sendable by an administrator when the client has a login.
+- `tests/components/live-ops-follow-up.test.tsx`: the row button reads "Tell client" (dialog unchanged).
+- `tests/lib/case-linked-context.test.ts`, `tests/components/cases-refresh-and-qa.test.tsx`: linked context gains `quotes`.
+- `tests/lib/work-queue.test.ts`: lost-item row href opens the item; new Send reminder case.
+
+Checks run
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → no errors.
+- New focused tests: `tests/api/case-repair-quote.test.ts` (7), `tests/api/laundry-supplier-chase.test.ts` (11), `tests/api/document-reminder.test.ts` (6), `tests/api/lost-found-client-notice.test.ts` (9), `tests/api/form-submissions-office.test.ts` (12), `tests/components/structured-answer-display.test.tsx` (9), `tests/lib/monthly-pending-clean.test.ts` (7), `tests/db/lost-found-property-sort.test.ts` (3, PostgreSQL) → all passed.
+- Existing tests covering the touched code (notifications catalog / office sends / entity scope / paths, work queue, Command, laundry pipeline and nudges, lost and found, cases, forms resolution and submit, field type audit, renderers, live ops) → all passed.
+- DB tests on my own fresh disposable database (`wave_e_fresh` on 127.0.0.1:55439, `prisma migrate deploy` from empty): `lost-found-property-sort`, `lost-found`, `form-template-library`, `laundry-early-evidence` → passed.
+
+Not run / not verified
+- Production build, the full Vitest suite and browser checks (owner asked to save time). Final browser pass, 390px and 1280px, light and dark: quote builder "From case" notice and prefill; case Next steps quote list and "Client can" select; laundry lane card actions (wrapping at 390px), Chase supplier dialog (disabled reasons, outcomes), Statistics tab tiles; Command Send reminder dialog; Lost and found Tell client send block, Property sort; Forms → Results and stats → Submissions table (62rem horizontal scroll at 390px), submission side panel (edit, media remove confirm, restore, history, report preview); classic cleaner page Table / Stock count controls with classic tokens; Live ops "Tell client".
+- Email / SMS providers mocked only; no real message sent.
+
+
+## Wave E with the database: People, Jobs, Calendar, Quality (2026-11-12)
+
+Scope: effective-dated pay rates with one Pay editor, required documents per role, last seen for everyone, leave and days off, a real Cancel job with Restore, end-time-keeping day-view drops, QA template copies. Details: `docs/SYSTEM.md`, "Wave E with the database".
+
+Migration `20261112120000_wave_e_people_jobs` (forward only, additive; `ALTER TYPE "JobStatus" ADD VALUE 'CANCELLED'` with nothing in the same migration writing or comparing it).
+- Fresh database `wavee_fresh` (127.0.0.1:55439): `migrate deploy` → all 135 applied; repeated → "No pending migrations to apply"; `migrate diff --from-url … --to-schema-datamodel prisma/schema.prisma --exit-code` → "No difference detected", exit 0.
+- Existing `sneek_ui`: checksums (row JSON minus the new columns and lastSeenAt) of User, Job, QaFormSubmission, JobAssignment, ClientInvoice, ClientInvoiceLine, Payout, PayrollRun, AuditLog identical before/after; repeat deploy no pending; diff empty, exit 0. That copy holds no rated users and no inspections, so the backfills were exercised on a seeded database: users with rates 34.5 / 40 got one BACKFILL row each effective 1970-01-01 (a user without a rate got none); an inspection before the first revision got the first revision's "before" schema with revision 0, one between revisions got the second's with revision 1, both RECONSTRUCTED; a user with a trusted device got lastSeenAt, the others stayed null. `npx prisma generate` run.
+
+Job-status enumerations audited (root app; `app/`, `lib/`, `components/`; 218 files mention a job status). Decision per kind:
+- Changed to leave CANCELLED out (or refuse it): invoice generator (`lib/billing/client-invoices.ts`, `NOT status CANCELLED`, also covers the time-logged and started-work branches); Jobs list where-builder default and "active" group (`lib/jobs/list-filters.ts`) and built-in tab counts (`lib/jobs/view-counts.ts`); calendar load (`lib/calendar/load.ts`, plus `url-state` "Cancelled" group, `presentation` chip category, `move-rules`); Live ops board (`lib/ops/live-board.ts`); daily briefing email (`lib/ops/daily-briefing.ts`); branch scorecards, schedule analytics and reschedule overlap count (`lib/phase4/analytics.ts`); commercial SLA breaches (`lib/phase3/commercial-sla.ts`); cleaner briefing day queries (`lib/briefing/cleaner-briefing.ts`); booking capacity (`lib/booking/requests.ts`) and public availability (`lib/public-site/availability.ts`); open rework de-duplication (`lib/qa/outcome-approvals.ts`, `lib/qa/rework-jobs.ts`, `lib/qa/admin-rework.ts`); geofence auto-pause (`lib/gps/departure-clockout.ts`); task carry-forward targets (`lib/job-tasks/service.ts`); iCal sync never updates or revives a cancelled job (`lib/ical/sync.ts`); classic dashboard queries and tone map (`app/admin/page.tsx`); plain status edits (`app/api/admin/jobs/[id]/route.ts`), bulk status (`lib/jobs/bulk-status-store.ts`) and the Jobs status dialog targets (`STATUS_CHANGE_TARGETS`); assign, bulk assign, auto-dispatch (`lib/ops/dispatch.ts`) and `applyReschedule` refuse a cancelled job.
+- Extended (labels / tones / schemas): `lib/jobs/status-labels.ts` ("Cancelled"), `lib/jobs/status-presentation.ts`, calendar chip maps, `lib/calendar/types.ts` and `lib/jobs/peek-types.ts` (`leave` kind).
+- Inclusion lists, kept (CANCELLED is outside them, so already excluded): payroll (`lib/finance/payroll.ts`, `lib/payroll/engine.ts`, `lib/phase4/payruns.ts`), cleaner invoices (`lib/cleaner/invoice.ts`), finance summary, Ready to bill and invoice stats, Quality/Insights clean basis (`lib/quality/where.ts` SUBMITTED_JOB_STATUSES), every reminder (`lib/ops/reminders.ts`, `cleaner-day-reminders`, `missed-clock-in-sweep`, `unfinished-reminders`, `lib/jobs/job-reminder.ts`), safety check-ins, stale en-route, tomorrow prep, live locations, accounts open assignments, board lanes (a cancelled job is in no lane), view presets, SLA case auto-resolve (a cancelled job is "not active", so its SLA case heals — intended), suggestion history.
+- Cleaner-scoped queries (`app/api/cleaner/**`, `app/v2/cleaner/**`, `app/cleaner/**`, mobile APIs) exclude by `notIn [COMPLETED, INVOICED]` plus an active assignment: safe without edits because a cancel releases the assignments. `app/cleaner/**` is outside this step's paths and was not edited.
+- Kept on purpose: property pending tasks (`app/api/admin/properties/[id]/pending-tasks`) still lists open tasks on a cancelled job so the office can move them; Command "status counts" (`lib/dashboard/command-glance.ts`, other engineer's path) lists each status including Cancelled; client portal job pages show the job as "Cancelled" (honest; no client notice is sent automatically); equality checks (`status === X`) are unaffected; recurring generation counts a cancelled job as existing, so it is not re-created.
+
+Tests run (all pass):
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → clean.
+- New: `tests/db/wave-e.test.ts` (7, PostgreSQL `wavee_fresh`, `--no-file-parallelism`), `tests/lib/wave-e-rules.test.ts` (14), `tests/lib/wave-e-session.test.ts` (3), `tests/lib/wave-e-cancel-notice.test.ts` (1), `tests/api/job-assignment-leave.test.ts` (3), end-time cases in `tests/lib/calendar-time-drop.test.ts`.
+- Every existing test file referencing a touched module: 293 files, 3,223 passed, 9 skipped (DB-gated), 0 failed. DB-backed: wave-e, finance-decisions, money-wave-d, holiday-rates, client-invoice-started-jobs, schema, migration-retention, jobs-saved-views-store, property-care → 54 passed.
+- Updated on purpose (behaviour changed): admin-user-pay, admin-users-bulk (history rows, Applies from), calendar-check-move and calendar-time-drop (end-time drops now move), jobs-route-filters, jobs-list-route-v2, jobs-saved-view-counts, jobs-view-presets, jobs-workspace-url (twelve statuses; cancelled out by default), cleaner-briefing-audience (CANCELLED in the day exclusion). Mock-only additions (`userPayRate`, `staffLeave`, audit `count`, `qaFormSubmission.findFirst`) in 15 test files.
+
+Not run / not verified
+- Production build, the full Vitest suite and browser checks (owner asked to save time). Final browser pass, 390px and 1280px, light and dark: person panel Pay (date input, history list, Remove), Leave and days off form, Documents "required" rows, Settings → Required documents (checkbox grid at 390px), Accounts "Never signed in" / "Not recorded yet"; Jobs row menu "Cancel job…", peek "Cancel job" (danger outline) and Restore block, bulk bar "Cancel job" (bar width at 390px), cancel dialog (focus trap, reason kept on error), job page cancelled notice and Danger tab; assign modal / quick assign / bulk assign "Assign anyway"; calendar "Leave" / "Day off" cells, Status "Cancelled" filter, struck-through cancelled chips, end-time drop confirmation text; QA amending notice with the template-copy line.
+- No real message sent (notification pipeline mocked in tests).

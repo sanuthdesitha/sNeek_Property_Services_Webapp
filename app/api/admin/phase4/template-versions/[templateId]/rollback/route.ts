@@ -1,26 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
-import { rollbackTemplateVersion } from "@/lib/phase4/template-versions";
+import { LEGACY_TEMPLATE_VERSION_WRITES_GONE } from "@/lib/phase4/template-versions";
 
-const schema = z.object({
-  targetTemplateId: z.string().trim().min(1),
-});
-
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { templateId: string } }
-) {
+/**
+ * Old rollback (switched `isActive` between sibling templates, changing which
+ * form jobs resolve to, with no screen). Refuses with 410 and points to the
+ * Forms library's version history and restore-as-draft.
+ */
+export async function POST() {
   try {
     await requireRole([Role.ADMIN]);
-    const body = schema.parse(await req.json().catch(() => ({})));
-    const updated = await rollbackTemplateVersion(params.templateId, body.targetTemplateId);
-    return NextResponse.json(updated);
-  } catch (err: any) {
-    const status =
-      err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
-    return NextResponse.json({ error: err.message ?? "Could not rollback template version." }, { status });
+    return NextResponse.json({ error: LEGACY_TEMPLATE_VERSION_WRITES_GONE, gone: true }, { status: 410 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "";
+    const status = message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 500;
+    return NextResponse.json({ error: status === 500 ? "Request failed." : message }, { status });
   }
 }
-

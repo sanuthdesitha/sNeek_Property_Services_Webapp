@@ -1,4 +1,4 @@
-import { JobType } from "@prisma/client";
+import { JobStatus, JobType } from "@prisma/client";
 import { z } from "zod";
 
 export const jobsColumnsSchema = z.object({ client: z.boolean(), cleaner: z.boolean(), schedule: z.boolean() }).strict();
@@ -24,13 +24,43 @@ export const DEFAULT_JOBS_STATE = {
 };
 export type JobsWorkspaceState = typeof DEFAULT_JOBS_STATE;
 export type JobsDensity = "compact" | "default" | "comfortable";
+/**
+ * Sort values. "soonest"/"latest" are When ascending/descending; a column sort
+ * is its key, with `_desc` for descending. Older saved views keep working.
+ */
+export const JOBS_SORT_VALUES = [
+  "soonest", "latest", "created", "property", "property_desc", "client", "client_desc",
+  "type", "type_desc", "status", "status_desc",
+  // Computed on the server over the whole filtered set (list-computed-sort.ts).
+  "cleaner", "cleaner_desc", "guestIn", "guestIn_desc", "charge", "charge_desc",
+] as const;
 const enums = {
-  dateScope: ["all", "today", "tomorrow", "upcoming", "past"],
-  statusChip: ["all", "active", "UNASSIGNED", "IN_PROGRESS", "QA_REVIEW", "COMPLETED", "INVOICED"],
-  sort: ["soonest", "latest", "created", "property", "status"],
+  dateScope: ["all", "today", "tomorrow", "week", "upcoming", "past"],
+  sort: [...JOBS_SORT_VALUES] as string[],
   view: ["list", "board"], jobType: ["all", ...Object.values(JobType)],
   invoiced: ["all", "yes", "no"], density: ["compact", "default", "comfortable"],
 };
+
+const STATUS_ORDER: readonly string[] = Object.values(JobStatus);
+/**
+ * The status filter value: "all", the legacy "active" group, or a list of real
+ * JobStatus values joined by commas in workflow order ("UNASSIGNED,OFFERED").
+ * Returns the canonical spelling, or null when the value is not valid.
+ */
+export function normalizeStatusChip(value: string): string | null {
+  if (value === "all" || value === "active") return value;
+  const parts = value.split(",");
+  if (parts.length === 0 || parts.length > STATUS_ORDER.length) return null;
+  if (parts.some(part => !STATUS_ORDER.includes(part)) || new Set(parts).size !== parts.length) return null;
+  return [...parts].sort((a, b) => STATUS_ORDER.indexOf(a) - STATUS_ORDER.indexOf(b)).join(",");
+}
+
+/** The statuses a status filter value selects; null = no status restriction. */
+export function statusChipStatuses(value: string): JobStatus[] | null {
+  if (value === "all" || value === "active") return null;
+  const normalized = normalizeStatusChip(value);
+  return normalized ? (normalized.split(",") as JobStatus[]) : null;
+}
 
 function validDate(value: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith("0000")) return "";
@@ -45,6 +75,8 @@ export function readJobsState(params: URLSearchParams): JobsWorkspaceState {
     const value = params.get(key);
     if (value && enums[key].includes(value)) state[key] = value;
   }
+  const statusChip = normalizeStatusChip(params.get("statusChip") ?? "");
+  if (statusChip) state.statusChip = statusChip;
   for (const key of ["clientId", "propertyId", "cleanerId"] as const) {
     const value = params.get(key);
     if (value && /^[a-zA-Z0-9_-]{1,128}$/.test(value)) state[key] = value;
@@ -79,7 +111,7 @@ const identifier = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
 const date = z.string().refine(value => value === "" || validDate(value) === value, "Invalid date");
 const choice = (values: string[]) => z.string().refine(value => values.includes(value), "Invalid option");
 export const jobsSnapshotSchema = z.object({
-  dateScope: choice(enums.dateScope), statusChip: choice(enums.statusChip), sort: choice(enums.sort),
+  dateScope: choice(enums.dateScope), statusChip: z.string().max(200).refine(value => normalizeStatusChip(value) === value, "Invalid status"), sort: choice(enums.sort),
   search: z.string().max(200), view: choice(enums.view), jobType: choice(enums.jobType),
   clientId: identifier, propertyId: identifier, cleanerId: identifier,
   dateFrom: date, dateTo: date, invoiced: choice(enums.invoiced),

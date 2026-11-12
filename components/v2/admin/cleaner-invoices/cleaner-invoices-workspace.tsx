@@ -1,834 +1,156 @@
 "use client";
 
-import { useRestorableState } from "@/hooks/use-restorable-state";
-
 /**
- * Estate-native admin view of cleaner-submitted invoices (CleanerInvoiceSubmission).
- * Review each cleaner's invoice, push it to Xero, mark it paid, reverse (void) or
- * delete it. Reversing/deleting frees the cleaner to resend a corrected invoice.
- * Same endpoints as v1: GET /api/admin/cleaner-invoices, PATCH/DELETE
- * /api/admin/cleaner-invoices/[id], POST .../[id]/xero-push.
+ * Cleaner invoices tab ("Submitted" view): the four figures, status chips with
+ * real counts, search and payee / period filters, the server-paged table with
+ * one action per row plus a menu, the bulk bar and the dialogs. Rows open the
+ * read-only review page. Endpoints: GET /api/admin/cleaner-invoices?paginated=1,
+ * PATCH/DELETE /api/admin/cleaner-invoices/[id], POST .../[id]/xero-push,
+ * POST .../bulk, GET .../export.
  */
-import { Fragment, useEffect, useMemo, useState } from "react";
-import { format } from "date-fns";
-import { formatInTimeZone } from "date-fns-tz";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { EButton, ECard } from "@/components/v2/ui/primitives";
+import { EDataTable } from "@/components/v2/ui/data-table";
+import { EPagination } from "@/components/v2/ui/pagination";
+import type { CleanerBulkResponse, CleanerPayeeOption } from "@/lib/cleaner/invoice-admin-list-types";
+import { CleanerInvoiceFilters, CleanerInvoiceStatsCards } from "./cleaner-invoice-filters";
+import { CleanerRowActions, cleanerColumns, cleanerReviewHref } from "./cleaner-invoice-columns";
+import { CleanerInvoiceBulkBar } from "./cleaner-invoice-bulk";
+import { CleanerInvoiceDialogs } from "./cleaner-invoice-dialogs";
+import { useCleanerInvoiceActions } from "./use-cleaner-invoice-actions";
+import type { CleanerRow } from "./cleaner-invoice-model";
 import {
-  Loader2, RefreshCw, Undo2, Trash2, CheckCircle2, Send, Eye, FileSpreadsheet,
-  MessageSquareWarning,
-} from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import {
-  EBadge, EButton, ECard, ECardBody, EEmptyState, EStatCard,
-} from "@/components/v2/ui/primitives";
-import {
-  ETableShell, EModal, EConfirmModal, EInput, ETextarea, EField, ESelect,
-} from "@/components/v2/admin/estate-kit";
-import { EvidenceThumbs, type EvidenceThumbItem } from "@/components/v2/shared/evidence-thumbs";
+  CLEANER_PAGE_SIZE,
+  cleanerFilterSignature,
+  cleanerListApiQuery,
+  useCleanerListData,
+  useCleanerListState,
+  writeCleanerListState,
+} from "./use-cleaner-invoice-list";
 
-const CLEANER_PAY_METHODS = [
-  { value: "BANK_TRANSFER", label: "Bank transfer" },
-  { value: "CARD", label: "Card" },
-  { value: "CASH", label: "Cash" },
-  { value: "XERO", label: "Xero" },
-  { value: "OTHER", label: "Other" },
-];
-const CLEANER_PAY_METHOD_LABEL: Record<string, string> = Object.fromEntries(
-  CLEANER_PAY_METHODS.map((m) => [m.value, m.label]),
-);
-
-type LineRow = { label?: string; description?: string; hours?: number; rate?: number; amount?: number; unitAmount?: number; quantity?: number; jobNumber?: string };
-type Submission = {
-  id: string;
-  /** From the CLEANER sequence. Null on everything submitted before numbering
-   *  existed — those invoices went out without a number and never had one. */
-  invoiceNumber: string | null;
-  cleanerId: string;
-  cleanerName: string;
-  /** CLEANER or QA_INSPECTOR — inspectors self-invoice on this same rail. */
-  cleanerRole?: string | null;
-  periodStart: string;
-  periodEnd: string;
-  hours: number;
-  totalAmount: number;
-  jobCount: number;
-  status: "XERO_EXPORTING" | "SENDING" | "SUBMITTED" | "CHANGES_REQUESTED" | "XERO_PUSHED" | "PAID_CLAIMED" | "PAID" | "VOID";
-  xeroBillId: string | null;
-  xeroExportedAt: string | null;
-  lineData: any;
-  createdAt: string;
-  paidAmount: number | null;
-  paidBankAccount: string | null;
-  paidNote: string | null;
-  paymentMethod: string | null;
-  paidDate: string | null;
-  paidAt: string | null;
-  /** The payee's own "I've been paid" claim, still waiting on the office. */
-  paidClaimedAt: string | null;
-  paidClaimedNote: string | null;
-  paidClaimedProofUrls?: EvidenceThumbItem[];
-  /** Set while the invoice sits with the payee for a fix; cleared the moment it
-   *  moves to any other status, so a stale note never explains a live invoice. */
-  changesRequestedAt: string | null;
-  changesRequestedNote: string | null;
-};
-
-/** Best-effort read of the cleaner's bank account from the snapshotted lineData. */
-function bankFromLineData(lineData: any): string {
-  if (!lineData || typeof lineData !== "object") return "";
-  const name = lineData.cleanerBankAccountName;
-  const bsb = lineData.cleanerBankBsb;
-  const acc = lineData.cleanerBankAccountNumber;
-  const parts = [
-    typeof name === "string" && name.trim() ? name.trim() : null,
-    typeof bsb === "string" && bsb.trim() ? `BSB ${bsb.trim()}` : null,
-    typeof acc === "string" && acc.trim() ? `Acc ${acc.trim()}` : null,
-  ].filter(Boolean);
-  return parts.join(" · ");
-}
-
-const STATUS_TONE: Record<Submission["status"], "info" | "success" | "gold" | "danger" | "warning"> = {
-  SUBMITTED: "info",
-  // Warning, not danger: nothing is wrong with the system, the ball is simply
-  // back with the payee — and it must not read like a settled/void invoice.
-  CHANGES_REQUESTED: "warning",
-  SENDING: "warning",
-  XERO_EXPORTING: "warning",
-  XERO_PUSHED: "gold",
-  PAID_CLAIMED: "gold",
-  PAID: "success",
-  VOID: "danger",
-};
-const STATUS_LABEL: Record<Submission["status"], string> = {
-  SUBMITTED: "Submitted",
-  CHANGES_REQUESTED: "Changes requested",
-  SENDING: "Delivery review",
-  XERO_EXPORTING: "Xero export pending",
-  XERO_PUSHED: "In Xero",
-  PAID_CLAIMED: "Payment claimed",
-  PAID: "Paid",
-  VOID: "Reversed",
-};
-
-/** Statuses a send-back is allowed from.
- *
- *  SUBMITTED is the obvious one. XERO_PUSHED is included because the office
- *  routinely spots the mistake AFTER pushing the draft bill, and the invoice is
- *  still unpaid at that point — refusing there would leave the only remedy as a
- *  reverse or a delete, neither of which tells the payee what to fix. The modal
- *  says the Xero bill must be voided over there, because nothing here can.
- *
- *  Deliberately excluded: PAID and VOID (both finished), and PAID_CLAIMED —
- *  the payee has said the money landed, and a send-back releases their items to
- *  be billed again, which on money that already moved is a double payment. */
-const CHANGE_REQUEST_STATUSES: ReadonlySet<Submission["status"]> = new Set<Submission["status"]>([
-  "SUBMITTED",
-  "XERO_PUSHED",
-]);
-
-function money(v: number | null | undefined) {
-  return `$${Number(v ?? 0).toFixed(2)}`;
-}
-function fmt(d: string | null) {
-  if (!d) return "—";
-  try {
-    return format(new Date(d), "d MMM yyyy");
-  } catch {
-    return d;
-  }
-}
-/** A moment in time, pinned to the business timezone. An admin in another
- *  timezone reading "sent back 21 Aug" off their own clock would argue with the
- *  payee about a day that never existed. */
-function fmtStamp(d: string | null) {
-  if (!d) return "—";
-  try {
-    return formatInTimeZone(new Date(d), "Australia/Sydney", "d MMM yyyy, h:mma");
-  } catch {
-    return d;
-  }
-}
-
-export function CleanerInvoicesWorkspace() {
-  const { toast } = useToast();
-  const [rows, setRows] = useState<Submission[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useRestorableState<"all" | Submission["status"]>("cleaner-invoices-workspace:filter", "all");
-  const [query, setQuery] = useRestorableState("cleaner-invoices-workspace:query", "");
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<Submission | null>(null);
-  const [confirm, setConfirm] = useState<{ kind: "void" | "delete"; row: Submission } | null>(null);
-  const [payFor, setPayFor] = useState<Submission | null>(null);
-  const [payAmount, setPayAmount] = useState("");
-  const [payBank, setPayBank] = useState("");
-  const [payNote, setPayNote] = useState("");
-  const [payMethod, setPayMethod] = useState("BANK_TRANSFER");
-  const [payDate, setPayDate] = useState("");
-  const [changesFor, setChangesFor] = useState<Submission | null>(null);
-  const [changesNote, setChangesNote] = useState("");
-  const [deliveryFor, setDeliveryFor] = useState<Submission | null>(null);
-  const [deliveryEvidence, setDeliveryEvidence] = useState("");
-  async function resolveDelivery(resolution: "CONFIRMED_SENT" | "CONFIRMED_NOT_SENT") {
-    if (!deliveryFor || deliveryEvidence.trim().length < 10) return;
-    setBusyId(deliveryFor.id);
-    try {
-      const response = await fetch(`/api/admin/cleaner-invoices/${deliveryFor.id}/delivery-review`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resolution, evidenceNote: deliveryEvidence.trim() }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error);
-      setRows(previous => previous.map(row => row.id === deliveryFor.id ? { ...row, status: result.status } : row));
-      setDeliveryFor(null);
-      toast({ title: "Delivery review recorded", description: "No email was sent or retried." });
-    } catch (error) { toast({ title: "Review not saved", description: error instanceof Error ? error.message : "Refresh and try again.", variant: "destructive" }); }
-    finally { setBusyId(null); }
-  }
-
-  function openPay(row: Submission) {
-    setPayAmount(String(Number(row.totalAmount ?? 0).toFixed(2)));
-    setPayBank(bankFromLineData(row.lineData));
-    setPayNote("");
-    setPayMethod("BANK_TRANSFER");
-    setPayDate(format(new Date(), "yyyy-MM-dd"));
-    setPayFor(row);
-  }
-
-  async function submitPayment() {
-    if (!payFor) return;
-    const id = payFor.id;
-    const amount = Number(payAmount);
-    if (payAmount.trim() && (Number.isNaN(amount) || amount < 0)) {
-      toast({ title: "Enter a valid amount", variant: "destructive" });
-      return;
-    }
-    setBusyId(id);
-    try {
-      const res = await fetch(`/api/admin/cleaner-invoices/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: "PAID",
-          paidAmount: payAmount.trim() ? amount : undefined,
-          paidBankAccount: payBank.trim() || undefined,
-          paidNote: payNote.trim() || undefined,
-          paymentMethod: payMethod,
-          paidDate: payDate ? `${payDate}T00:00:00.000Z` : undefined,
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast({ title: "Could not mark paid", description: body.error, variant: "destructive" });
-        return;
-      }
-      const paidAmount = payAmount.trim() ? amount : Number(payFor.totalAmount ?? 0);
-      setRows((rs) =>
-        rs.map((r) =>
-          r.id === id
-            ? {
-                ...r,
-                status: "PAID",
-                paidAmount,
-                paidBankAccount: payBank.trim() || null,
-                paidNote: payNote.trim() || null,
-                paymentMethod: payMethod,
-                paidDate: payDate ? `${payDate}T00:00:00.000Z` : new Date().toISOString(),
-                paidAt: new Date().toISOString(),
-              }
-            : r
-        )
-      );
-      toast({ title: "Marked paid", description: `${money(paidAmount)} · ${CLEANER_PAY_METHOD_LABEL[payMethod] ?? payMethod}${payBank.trim() ? ` → ${payBank.trim()}` : ""}` });
-      setPayFor(null);
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  /**
-   * Send the invoice back to the payee with a reason.
-   *
-   * The note is mandatory on the endpoint, so the button that calls this is
-   * disabled until there is one — firing a request the API is guaranteed to
-   * reject would show the admin a validation error for a rule the screen never
-   * mentioned.
-   */
-  async function submitChangeRequest() {
-    if (!changesFor) return;
-    const id = changesFor.id;
-    const note = changesNote.trim();
-    if (!note) return;
-    setBusyId(id);
-    try {
-      const res = await fetch(`/api/admin/cleaner-invoices/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "CHANGES_REQUESTED", changesNote: note }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        // Verbatim: the endpoint's refusals name the exact field it rejected,
-        // and paraphrasing them here leaves the admin guessing what to fix.
-        toast({
-          title: "Could not request changes",
-          description: body.error ?? `Request failed (${res.status}).`,
-          variant: "destructive",
-        });
-        return;
-      }
-      const requestedAt = new Date().toISOString();
-      setRows((rs) =>
-        rs.map((r) =>
-          r.id === id
-            ? { ...r, status: "CHANGES_REQUESTED", changesRequestedAt: requestedAt, changesRequestedNote: note }
-            : r
-        )
-      );
-      toast({
-        title: "Sent back to the payee",
-        description: `${changesFor.cleanerName} has been emailed, and everything on this invoice is billable again.`,
-      });
-      setChangesFor(null);
-      setChangesNote("");
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function load() {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin/cleaner-invoices", { cache: "no-store" });
-      const body = await res.json().catch(() => []);
-      setRows(Array.isArray(body) ? body : []);
-    } finally {
-      setLoading(false);
-    }
-  }
+function usePayees(): CleanerPayeeOption[] {
+  const [payees, setPayees] = useState<CleanerPayeeOption[]>([]);
   useEffect(() => {
-    load();
+    const controller = new AbortController();
+    fetch("/api/admin/cleaner-invoices?view=context", { cache: "no-store", signal: controller.signal })
+      .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
+      .then(({ ok, body }) => {
+        if (!controller.signal.aborted && ok && Array.isArray(body.payees)) setPayees(body.payees);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
   }, []);
+  return payees;
+}
 
-  // LOOKING AN INVOICE UP BY ITS NUMBER IS THE POINT OF NUMBERING THEM. This
-  // screen had a status filter and nothing else, so a payee ringing about
-  // "PAY-0041" left the admin scrolling a list. The name is matched too, since
-  // half the time the question arrives as "what did Sam send last month".
-  const filtered = useMemo(() => {
-    const byStatus = filter === "all" ? rows : rows.filter((r) => r.status === filter);
-    const needle = query.trim().toLowerCase();
-    if (!needle) return byStatus;
-    return byStatus.filter((r) =>
-      [r.invoiceNumber, r.cleanerName].some((field) => (field ?? "").toLowerCase().includes(needle))
-    );
-  }, [rows, filter, query]);
+export function CleanerInvoicesWorkspace({ role }: { role: string }) {
+  const canApprove = role === "ADMIN";
+  const [state, update] = useCleanerListState();
+  const { payload, loading, error, reload } = useCleanerListData(state);
+  const payees = usePayees();
+  const [statsToken, setStatsToken] = useState(0);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [selected, setSelected] = useState<Map<string, CleanerRow>>(new Map());
+  const signature = cleanerFilterSignature(state);
+  useEffect(() => setSelected(new Map()), [signature]);
 
-  const totals = useMemo(() => {
-    const open = rows.filter((r) => r.status === "SUBMITTED");
-    return {
-      submitted: open.length,
-      submittedValue: open.reduce((s, r) => s + Number(r.totalAmount || 0), 0),
-      inXero: rows.filter((r) => r.status === "XERO_PUSHED").length,
-      paid: rows.filter((r) => r.status === "PAID").length,
-    };
-  }, [rows]);
+  const refresh = useCallback(() => {
+    reload();
+    setStatsToken((token) => token + 1);
+  }, [reload]);
 
-  async function patchStatus(id: string, status: Submission["status"], okMsg: string) {
-    setBusyId(id);
-    try {
-      const res = await fetch(`/api/admin/cleaner-invoices/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast({ title: "Action failed", description: body.error, variant: "destructive" });
-        return;
-      }
-      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, status } : r)));
-      toast({ title: okMsg });
-    } finally {
-      setBusyId(null);
-    }
+  // The review page's back link returns to this exact view.
+  const back = `/v2/admin/finance?${writeCleanerListState(new URLSearchParams({ tab: "cleaner-invoices" }), state).toString()}`;
+  const reviewHref = useCallback((row: CleanerRow) => cleanerReviewHref(row.id, back), [back]);
+  const { busyId, dialog, setDialog, onAction } = useCleanerInvoiceActions(refresh, reviewHref);
+
+  const columns = useMemo(
+    () =>
+      cleanerColumns({
+        reviewHref,
+        renderActions: (row) => (
+          <CleanerRowActions row={row} role={role} busy={busyId === row.id} disabled={bulkRunning} reviewHref={reviewHref(row)} onAction={onAction} />
+        ),
+      }),
+    [reviewHref, role, busyId, bulkRunning, onAction],
+  );
+
+  function onBulkFinished(response: CleanerBulkResponse) {
+    // Done rows leave the selection; refused and unchanged stay for a retry.
+    const keep = new Set(response.results.filter((row) => row.outcome !== "done").map((row) => row.id));
+    setSelected((previous) => new Map(Array.from(previous).filter(([id]) => keep.has(id))));
+    refresh();
   }
 
-  async function pushXero(id: string) {
-    setBusyId(id);
-    try {
-      const res = await fetch(`/api/admin/cleaner-invoices/${id}/xero-push`, { method: "POST" });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast({ title: "Xero push failed", description: body.error, variant: "destructive" });
-        return;
-      }
-      setRows((rs) =>
-        rs.map((r) => (r.id === id ? { ...r, status: "XERO_PUSHED", xeroBillId: body.xeroBillId } : r))
-      );
-      toast({ title: "Pushed to Xero" });
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function del(id: string) {
-    setBusyId(id);
-    try {
-      const res = await fetch(`/api/admin/cleaner-invoices/${id}`, { method: "DELETE" });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast({ title: "Delete failed", description: body.error, variant: "destructive" });
-        return;
-      }
-      setRows((rs) => rs.filter((r) => r.id !== id));
-      toast({ title: "Invoice deleted — the cleaner can resend a corrected one." });
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  const FILTERS: { key: typeof filter; label: string }[] = [
-    { key: "all", label: "All" },
-    { key: "SUBMITTED", label: "Submitted" },
-    { key: "CHANGES_REQUESTED", label: "Changes requested" },
-    { key: "XERO_PUSHED", label: "In Xero" },
-    { key: "PAID_CLAIMED", label: "Payment claimed" },
-    { key: "PAID", label: "Paid" },
-    { key: "VOID", label: "Reversed" },
-  ];
+  const selectedRows = Array.from(selected.values());
+  const unfiltered = !state.q.trim() && !state.cleaner && !state.from && !state.to;
+  const nothingAtAll = Boolean(payload && unfiltered && payload.counts.all === 0);
+  const exportParams = new URLSearchParams(cleanerListApiQuery(state));
+  if (selectedRows.length) exportParams.set("ids", selectedRows.map((row) => row.id).join(","));
 
   return (
-    <div className="space-y-6">
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <EStatCard label="Awaiting action" value={totals.submitted} />
-        <EStatCard label="Submitted value" value={money(totals.submittedValue)} />
-        <EStatCard label="In Xero" value={totals.inXero} />
-        <EStatCard label="Paid" value={totals.paid} />
-      </section>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-1.5">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={`rounded-full px-3 py-1 text-[0.75rem] font-medium transition-colors ${
-                filter === f.key
-                  ? "bg-[hsl(var(--e-foreground))] text-[hsl(var(--e-background))]"
-                  : "border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))]"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Invoice number or name…"
-            aria-label="Search invoices by number or name"
-            className="h-8 w-52 rounded-[var(--e-radius-sm,0.5rem)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-2.5 text-[0.8125rem] text-[hsl(var(--e-foreground))] placeholder:text-[hsl(var(--e-text-faint))]"
-          />
-          <EButton variant="outline" size="sm" onClick={load}>
-            <RefreshCw className="h-4 w-4" /> Refresh
-          </EButton>
-        </div>
+    <div className="space-y-3.5">
+      <CleanerInvoiceStatsCards reloadToken={statsToken} />
+      <CleanerInvoiceFilters state={state} counts={payload?.counts ?? null} payees={payees} disabled={bulkRunning} onChange={update} />
+      <div className="flex justify-end">
+        <EButton type="button" size="sm" variant="ghost" disabled={loading || bulkRunning} onClick={refresh}>Refresh</EButton>
       </div>
-
-      {loading ? (
-        <ECard>
-          <ECardBody className="flex items-center gap-2 py-10 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading cleaner invoices…
-          </ECardBody>
-        </ECard>
-      ) : filtered.length === 0 ? (
-        // "Nothing here yet" is only true when there is genuinely nothing. Said
-        // over a search that simply missed, it reads as "no invoices exist" and
-        // sends the admin off to ask why a payee's invoice never arrived.
-        rows.length > 0 ? (
-          <EEmptyState
-            eyebrow="Cleaner invoices"
-            title="No invoices match"
-            description={
-              query.trim()
-                ? `Nothing matching “${query.trim()}”. Clear the search or pick a different status.`
-                : "No invoices in this status. Try another one."
-            }
-          />
-        ) : (
-          <EEmptyState
-            eyebrow="Cleaner invoices"
-            title="Nothing here yet"
-            description="When cleaners email an invoice from their portal, it appears here for review and Xero export."
-          />
-        )
-      ) : (
-        <ETableShell
-          headers={[
-            { label: "Invoice" },
-            { label: "Cleaner" },
-            { label: "Period" },
-            { label: "Jobs" },
-            { label: "Hours" },
-            { label: "Amount" },
-            { label: "Status" },
-            { label: "", align: "right" },
-          ]}
-        >
-          {filtered.map((r) => {
-            const busy = busyId === r.id;
-            return (
-              <Fragment key={r.id}>
-              <tr className="border-t border-[hsl(var(--e-border))] align-middle">
-                {/* Blank here would read as a column that failed to load. These
-                    invoices really have no number: they were sent before the
-                    sequence existed, and back-filling would print a reference
-                    the payee never received. */}
-                <td className="px-4 py-3 text-[0.8125rem]">
-                  {r.invoiceNumber ? (
-                    <span className="e-numeral">{r.invoiceNumber}</span>
-                  ) : (
-                    <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Not numbered</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-[0.8125rem] font-medium">
-                  {r.cleanerName}
-                  {/* An inspections-only invoice shows 0 jobs / 0 hours — without
-                      this the row reads like a broken cleaner invoice. */}
-                  {r.cleanerRole === "QA_INSPECTOR" ? (
-                    <span className="ml-2 text-[0.6875rem] font-normal uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">
-                      QA inspector
-                    </span>
-                  ) : null}
-                </td>
-                <td className="px-4 py-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                  {fmt(r.periodStart)} – {fmt(r.periodEnd)}
-                </td>
-                <td className="px-4 py-3 text-[0.8125rem]">{r.jobCount}</td>
-                <td className="px-4 py-3 text-[0.8125rem]">{Number(r.hours || 0).toFixed(2)}</td>
-                <td className="e-serif px-4 py-3 text-[0.9375rem]">{money(r.totalAmount)}</td>
-                <td className="px-4 py-3">
-                  <EBadge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</EBadge>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-1.5">
-                    <EButton variant="ghost" size="sm" onClick={() => setDetail(r)} title="View lines">
-                      <Eye className="h-4 w-4" />
-                    </EButton>
-                    {!r.xeroBillId && (r.status === "SUBMITTED" || r.status === "XERO_EXPORTING") ? (
-                      <EButton variant="outline" size="sm" disabled={busy} onClick={() => pushXero(r.id)}>
-                        <Send className="h-3.5 w-3.5" /> Xero
-                      </EButton>
-                    ) : null}
-                    {r.status === "SUBMITTED" || r.status === "XERO_PUSHED" || r.status === "PAID_CLAIMED" ? (
-                      <EButton variant="outline" size="sm" disabled={busy} onClick={() => openPay(r)}>
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Paid
-                      </EButton>
-                    ) : null}
-                    {CHANGE_REQUEST_STATUSES.has(r.status) && !r.xeroBillId && !r.paidAt ? (
-                      <EButton
-                        variant="outline"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => {
-                          setChangesNote("");
-                          setChangesFor(r);
-                        }}
-                        title="Send this invoice back to the payee with a reason"
-                      >
-                        <MessageSquareWarning className="h-3.5 w-3.5" /> Request changes
-                      </EButton>
-                    ) : null}
-                    {r.status === "SENDING" ? <EButton size="sm" variant="outline" onClick={() => { setDeliveryEvidence(""); setDeliveryFor(r); }}>Review delivery</EButton> : null}
-                    {r.status === "SUBMITTED" && !r.xeroBillId && !r.paidAt ? (
-                      <EButton variant="outline" size="sm" disabled={busy} onClick={() => setConfirm({ kind: "void", row: r })}>
-                        <Undo2 className="h-3.5 w-3.5" /> Reverse
-                      </EButton>
-                    ) : null}
-                    <EButton
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy || r.status === "SENDING" || r.status === "XERO_EXPORTING" || r.status === "PAID" || !!r.xeroBillId || !!r.paidAt}
-                      onClick={() => setConfirm({ kind: "delete", row: r })}
-                      title="Delete"
-                    >
-                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-[hsl(var(--e-danger))]" />}
-                    </EButton>
-                  </div>
-                </td>
-              </tr>
-              {/* What was actually asked for, on the row itself. A bare
-                  "Changes requested" badge makes the admin open a modal (or ring
-                  the payee) to remember what they sent it back for. */}
-              {r.status === "CHANGES_REQUESTED" ? (
-                <tr className="align-top">
-                  <td
-                    colSpan={8}
-                    className="bg-[hsl(var(--e-warning)/0.07)] px-4 py-2.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]"
-                  >
-                    <span className="font-[600] text-[hsl(var(--e-warning))]">
-                      Sent back {fmtStamp(r.changesRequestedAt)}
-                    </span>
-                    {r.changesRequestedNote ? (
-                      <span className="ml-2">“{r.changesRequestedNote}”</span>
-                    ) : (
-                      <span className="ml-2 text-[hsl(var(--e-text-faint))]">No reason recorded.</span>
-                    )}
-                  </td>
-                </tr>
-              ) : null}
-              </Fragment>
-            );
-          })}
-        </ETableShell>
-      )}
-
-      {/* Line detail */}
-      {detail ? (
-        <EModal open onClose={() => setDetail(null)} size="wide" eyebrow={detail.cleanerName} title={`${detail.invoiceNumber ?? "Invoice (not numbered)"} · ${fmt(detail.periodStart)} – ${fmt(detail.periodEnd)}`}>
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-4 text-[0.8125rem]">
-              <span><span className="text-[hsl(var(--e-muted-foreground))]">Jobs:</span> {detail.jobCount}</span>
-              <span><span className="text-[hsl(var(--e-muted-foreground))]">Hours:</span> {Number(detail.hours || 0).toFixed(2)}</span>
-              <span><span className="text-[hsl(var(--e-muted-foreground))]">Total:</span> <span className="e-serif">{money(detail.totalAmount)}</span></span>
-              <span><span className="text-[hsl(var(--e-muted-foreground))]">Submitted:</span> {fmt(detail.createdAt)}</span>
-              {detail.xeroBillId ? <span className="flex items-center gap-1 text-[hsl(var(--e-gold-ink))]"><FileSpreadsheet className="h-3.5 w-3.5" /> Xero {detail.xeroBillId.slice(0, 8)}…</span> : null}
-            </div>
-            {detail.status === "CHANGES_REQUESTED" ? (
-              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.45)] bg-[hsl(var(--e-warning)/0.08)] p-3 text-[0.8125rem]">
-                <p className="mb-1 font-medium text-[hsl(var(--e-warning))]">
-                  Sent back for changes
-                  <span className="ml-2 font-normal text-[hsl(var(--e-muted-foreground))]">
-                    {fmtStamp(detail.changesRequestedAt)}
-                  </span>
-                </p>
-                <p className="whitespace-pre-wrap text-[hsl(var(--e-text-secondary))]">
-                  {detail.changesRequestedNote || "No reason recorded."}
-                </p>
-                <p className="mt-1.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                  Everything on it was released, so the payee can rebuild the invoice for this period
-                  and resend it as a new submission.
-                </p>
-              </div>
-            ) : null}
-            {detail.status === "PAID" ? (
-              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-success)/0.35)] bg-[hsl(var(--e-success)/0.06)] p-3 text-[0.8125rem]">
-                <p className="mb-1 font-medium text-[hsl(var(--e-success))]">Payment recorded</p>
-                <div className="flex flex-wrap gap-4">
-                  <span><span className="text-[hsl(var(--e-muted-foreground))]">Amount paid:</span> <span className="e-serif">{money(detail.paidAmount ?? detail.totalAmount)}</span></span>
-                  {detail.paymentMethod ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Method:</span> {CLEANER_PAY_METHOD_LABEL[detail.paymentMethod] ?? detail.paymentMethod}</span> : null}
-                  {detail.paidBankAccount ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Bank account:</span> {detail.paidBankAccount}</span> : null}
-                  {detail.paidDate ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Paid on:</span> {fmt(detail.paidDate)}</span> : null}
-                  {detail.paidAt ? <span><span className="text-[hsl(var(--e-muted-foreground))]">Recorded:</span> {fmt(detail.paidAt)}</span> : null}
-                </div>
-                {detail.paidNote ? <p className="mt-1.5 text-[hsl(var(--e-muted-foreground))]"><span className="text-[hsl(var(--e-foreground))]">Comments:</span> {detail.paidNote}</p> : null}
-              </div>
-            ) : null}
-            {/* The payee's claim and the receipt behind it. Kept separate from
-                the block above because a claim is not a settlement — the
-                reviewer is looking at evidence, not at the business's record. */}
-            {detail.paidClaimedAt ? (
-              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3 text-[0.8125rem]">
-                <p className="mb-1 font-medium">
-                  Payee claimed payment
-                  <span className="ml-2 font-normal text-[hsl(var(--e-muted-foreground))]">{fmt(detail.paidClaimedAt)}</span>
-                </p>
-                {detail.paidClaimedNote ? (
-                  <p className="mb-2 text-[hsl(var(--e-muted-foreground))]">“{detail.paidClaimedNote}”</p>
-                ) : null}
-                {(detail.paidClaimedProofUrls?.length ?? 0) > 0 ? (
-                  <>
-                    <p className="mb-1.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      Proof attached ({detail.paidClaimedProofUrls?.length})
-                    </p>
-                    <EvidenceThumbs
-                      items={detail.paidClaimedProofUrls ?? []}
-                      alt="Payment proof"
-                      docLabel="Open receipt"
-                    />
-                  </>
-                ) : null}
-              </div>
-            ) : null}
-            <ETableShell headers={[{ label: "Description" }, { label: "Hours" }, { label: "Rate" }, { label: "Amount", align: "right" }]}>
-              {(Array.isArray(detail.lineData?.lines) ? detail.lineData.lines : Array.isArray(detail.lineData) ? detail.lineData : []).map(
-                (l: LineRow, i: number) => (
-                  <tr key={i} className="border-t border-[hsl(var(--e-border))]">
-                    <td className="px-4 py-2 text-[0.8125rem]">{l.description ?? l.label ?? l.jobNumber ?? "Line"}</td>
-                    <td className="px-4 py-2 text-[0.8125rem]">{l.hours != null ? Number(l.hours).toFixed(2) : "—"}</td>
-                    <td className="px-4 py-2 text-[0.8125rem]">{l.rate != null ? money(l.rate) : "—"}</td>
-                    <td className="px-4 py-2 text-right text-[0.8125rem]">{money(l.amount ?? (l.unitAmount != null ? l.unitAmount * (l.quantity ?? 1) : undefined))}</td>
-                  </tr>
-                )
-              )}
-            </ETableShell>
-            {!(Array.isArray(detail.lineData?.lines) ? detail.lineData.lines.length : Array.isArray(detail.lineData) ? detail.lineData.length : 0) ? (
-              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No line snapshot stored for this submission.</p>
-            ) : null}
-          </div>
-        </EModal>
-      ) : null}
-
-      {deliveryFor ? <EModal open onClose={() => setDeliveryFor(null)} title="Review invoice delivery" size="md">
-        <div className="space-y-4">
-          <p className="text-sm">Check accounts&apos; received email and provider delivery evidence for this exact invoice. Its money is reserved. If delivery is uncertain, close this dialog and keep it reserved. Neither action sends an email.</p>
-          <EField label="Evidence checked and conclusion (required)"><ETextarea value={deliveryEvidence} onChange={event => setDeliveryEvidence(event.target.value)} placeholder="Reference the received invoice or provider evidence confirming it was not delivered." /></EField>
-          <div className="flex flex-wrap gap-2">
-            <EButton disabled={busyId === deliveryFor.id || deliveryEvidence.trim().length < 10} onClick={() => resolveDelivery("CONFIRMED_SENT")}>Confirmed received — keep invoice</EButton>
-            <EButton variant="outline" disabled={busyId === deliveryFor.id || deliveryEvidence.trim().length < 10} onClick={() => resolveDelivery("CONFIRMED_NOT_SENT")}>Confirmed not delivered — void and release</EButton>
-          </div>
-        </div>
-      </EModal> : null}
-
-      {/* Reverse / delete confirm */}
-      {confirm ? (
-        <EConfirmModal
-          open
-          onClose={() => setConfirm(null)}
-          title={confirm.kind === "void" ? "Reverse this invoice?" : "Delete this invoice?"}
-          description={
-            confirm.kind === "void"
-              ? `Mark ${confirm.row.cleanerName}'s invoice (${money(confirm.row.totalAmount)}) as reversed. The cleaner can then resend a corrected invoice.`
-              : `Permanently delete ${confirm.row.cleanerName}'s invoice (${money(confirm.row.totalAmount)}). The cleaner can resend a corrected one.${confirm.row.xeroBillId ? " NOTE: this is in Xero and cannot be deleted here — void it in Xero first." : ""}`
-          }
-          confirmLabel={confirm.kind === "void" ? "Reverse invoice" : "Delete invoice"}
-          onConfirm={async () => {
-            const row = confirm.row;
-            setConfirm(null);
-            if (confirm.kind === "void") await patchStatus(row.id, "VOID", "Invoice reversed — the cleaner can resend.");
-            else await del(row.id);
+      <ECard className="overflow-hidden">
+        <EDataTable
+          label="Cleaner invoices"
+          columns={columns}
+          rows={payload?.rows ?? []}
+          rowKey={(row) => row.id}
+          sort={{ key: state.sort, dir: state.dir }}
+          onSortChange={(next) => update({ sort: next.key, dir: next.dir })}
+          selection={{
+            selected: new Set(selected.keys()),
+            disabled: bulkRunning,
+            rowLabel: (row) => `Select ${row.invoiceNumber ?? `${row.cleanerName}'s invoice`}`,
+            onChange: (ids) => {
+              const pageRows = new Map((payload?.rows ?? []).map((row) => [row.id, row]));
+              setSelected((previous) => {
+                const next = new Map<string, CleanerRow>();
+                for (const id of Array.from(ids)) {
+                  const row = pageRows.get(id) ?? previous.get(id);
+                  if (row) next.set(id, row);
+                }
+                return next;
+              });
+            },
           }}
+          loading={loading}
+          error={error}
+          onRetry={reload}
+          emptyTitle={nothingAtAll ? "Nothing here yet" : "No invoices match"}
+          emptyDescription={
+            nothingAtAll
+              ? "When cleaners email an invoice from their portal, it appears here for review and Xero export."
+              : "Nothing matches these filters. Choose another status or clear a filter."
+          }
+          minWidth="62rem"
         />
-      ) : null}
-
-      {/* Mark paid — capture amount, bank account + comments */}
-      {payFor ? (
-        <EModal
-          open
-          onClose={() => setPayFor(null)}
-          size="md"
-          eyebrow={payFor.cleanerName}
-          title="Record payment"
-        >
-          <div className="space-y-4">
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Invoice total {money(payFor.totalAmount)} · {fmt(payFor.periodStart)} – {fmt(payFor.periodEnd)}
-            </p>
-            <EField label="Amount paid" hint="Defaults to the invoice total — edit if you paid a different amount.">
-              <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">$</span>
-                <EInput
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  min="0"
-                  className="pl-6"
-                  value={payAmount}
-                  onChange={(e) => setPayAmount(e.target.value)}
-                />
-              </div>
-            </EField>
-            <div className="grid grid-cols-2 gap-3">
-              <EField label="Payment method">
-                <ESelect value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
-                  {CLEANER_PAY_METHODS.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </ESelect>
-              </EField>
-              <EField label="Paid date">
-                <EInput type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
-              </EField>
-            </div>
-            <EField label="Bank account paid to" hint="Which account the money was sent to (prefilled from the cleaner's details when available).">
-              <EInput
-                value={payBank}
-                onChange={(e) => setPayBank(e.target.value)}
-                placeholder="e.g. Jane Doe · BSB 062-000 · Acc 1234 5678"
-              />
-            </EField>
-            <EField label="Comments (optional)">
-              <ETextarea
-                rows={3}
-                value={payNote}
-                onChange={(e) => setPayNote(e.target.value)}
-                placeholder="Reference, part-payment note, etc."
-              />
-            </EField>
-            <div className="flex justify-end gap-2 pt-1">
-              <EButton variant="ghost" onClick={() => setPayFor(null)} disabled={busyId === payFor.id}>
-                Cancel
-              </EButton>
-              <EButton variant="gold" onClick={submitPayment} disabled={busyId === payFor.id}>
-                {busyId === payFor.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                Mark paid
-              </EButton>
-            </div>
-          </div>
-        </EModal>
-      ) : null}
-
-      {/* Request changes — the note IS the feature. Sent back without one, the
-          same invoice comes straight back and nobody is any wiser. */}
-      {changesFor ? (
-        <EModal
-          open
-          onClose={() => setChangesFor(null)}
-          size="md"
-          eyebrow={changesFor.cleanerName}
-          title="Send this invoice back"
-        >
-          <div className="space-y-4">
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              {changesFor.invoiceNumber ? `${changesFor.invoiceNumber} · ` : ""}
-              {money(changesFor.totalAmount)} · {fmt(changesFor.periodStart)} – {fmt(changesFor.periodEnd)}
-            </p>
-            <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-              The payee is emailed your note, and every job, adjustment, inspection and expense on this
-              invoice is released so they can correct it and resend.
-            </p>
-            {/* Nothing on this screen can reach into Xero. Saying so here is the
-                difference between a stale draft bill being voided and it sitting
-                there until someone pays it twice. */}
-            {changesFor.xeroBillId ? (
-              <p className="rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.45)] bg-[hsl(var(--e-warning)/0.08)] p-3 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-                This invoice is already in Xero. Void the bill there as well — sending it back here
-                does not touch Xero, and the corrected invoice will arrive as a new submission.
-              </p>
-            ) : null}
-            <EField
-              label="What needs changing"
-              hint="Required. Name the line or the amount — the payee cannot guess which of them is wrong."
-            >
-              <ETextarea
-                rows={4}
-                value={changesNote}
-                onChange={(e) => setChangesNote(e.target.value)}
-                placeholder="e.g. The 14 Aug clean at Bondi is billed at 4h — the job record shows 2.5h."
-              />
-            </EField>
-            <div className="flex justify-end gap-2 pt-1">
-              <EButton variant="ghost" onClick={() => setChangesFor(null)} disabled={busyId === changesFor.id}>
-                Cancel
-              </EButton>
-              <EButton
-                variant="gold"
-                onClick={submitChangeRequest}
-                disabled={busyId === changesFor.id || changesNote.trim().length === 0}
-              >
-                {busyId === changesFor.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <MessageSquareWarning className="h-4 w-4" />
-                )}
-                Request changes
-              </EButton>
-            </div>
-          </div>
-        </EModal>
-      ) : null}
+        {payload && payload.total > 0 ? (
+          <EPagination
+            className="border-t border-[hsl(var(--e-border))] px-4 py-3"
+            page={payload.page}
+            pageSize={payload.pageSize ?? CLEANER_PAGE_SIZE}
+            total={payload.total}
+            noun="invoices"
+            disabled={loading || bulkRunning}
+            onPageChange={(page) => update({ page })}
+          />
+        ) : null}
+      </ECard>
+      <CleanerInvoiceBulkBar
+        rows={selectedRows}
+        canApprove={canApprove}
+        exportHref={`/api/admin/cleaner-invoices/export?${exportParams.toString()}`}
+        onClear={() => setSelected(new Map())}
+        onFinished={onBulkFinished}
+        onRunningChange={setBulkRunning}
+      />
+      <CleanerInvoiceDialogs dialog={dialog} onClose={() => setDialog(null)} onDone={refresh} />
     </div>
   );
 }

@@ -39,6 +39,7 @@ import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
 import { getDashboardMetrics } from "@/lib/admin/dashboard";
+import { NOT_CANCELLED_JOB_WHERE } from "@/lib/jobs/cancel-rules";
 
 function statusToPillVariant(
   status: JobStatus,
@@ -87,7 +88,7 @@ async function getRecentJobs(todayStart: Date, todayEnd: Date) {
   const [todaysRecentJobs, upcomingRecentJobs, recentPastJobs, chartRows] =
     await Promise.all([
       db.job.findMany({
-        where: { scheduledDate: { gte: todayStart, lt: todayEnd } },
+        where: { scheduledDate: { gte: todayStart, lt: todayEnd }, ...NOT_CANCELLED_JOB_WHERE },
         take: 6,
         orderBy: [
           { priorityBucket: "asc" },
@@ -108,7 +109,7 @@ async function getRecentJobs(todayStart: Date, todayEnd: Date) {
         },
       }),
       db.job.findMany({
-        where: { scheduledDate: { gte: todayEnd } },
+        where: { scheduledDate: { gte: todayEnd }, ...NOT_CANCELLED_JOB_WHERE },
         take: 4,
         orderBy: [
           { scheduledDate: "asc" },
@@ -125,7 +126,7 @@ async function getRecentJobs(todayStart: Date, todayEnd: Date) {
         },
       }),
       db.job.findMany({
-        where: { scheduledDate: { lt: todayStart } },
+        where: { scheduledDate: { lt: todayStart }, ...NOT_CANCELLED_JOB_WHERE },
         take: 4,
         orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }],
         select: {
@@ -140,6 +141,7 @@ async function getRecentJobs(todayStart: Date, todayEnd: Date) {
       db.job.findMany({
         where: {
           scheduledDate: { gte: todayStart, lt: addDays(todayStart, 7) },
+          ...NOT_CANCELLED_JOB_WHERE,
         },
         select: { status: true, scheduledDate: true },
         take: 2000,
@@ -199,6 +201,7 @@ const STATUS_TONE: Record<
   QA_REVIEW: "accent",
   COMPLETED: "success",
   INVOICED: "success",
+  CANCELLED: "info",
 };
 
 const STATUS_COLORS: Record<JobStatus, string> = {
@@ -257,6 +260,7 @@ export default async function AdminDashboard() {
     db.job.findMany({
       where: {
         scheduledDate: { gte: todayStripStart, lt: todayStripEnd },
+        ...NOT_CANCELLED_JOB_WHERE,
       },
       orderBy: [{ startTime: "asc" }, { scheduledDate: "asc" }],
       take: 20,

@@ -3,10 +3,16 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
 import { listJobsAwaitingQuickScore } from "@/lib/qa/auto-score";
+import { parseQualityFiltersLenient } from "@/lib/quality/filters";
+import { queueJobNarrow } from "@/lib/quality/where";
 
 // Submitted jobs with NO real QA inspection, each carrying a suggested score
 // derived from the cleaner's own submission, so an admin can bulk-approve.
+// Optional Quality hub narrowing: ?propertyId= and ?q= (property, job number or
+// cleaner name). Narrowing can only remove jobs from the list.
 export const dynamic = "force-dynamic";
+
+const AWAITING_LIMIT = 200;
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,10 +25,12 @@ export async function GET(req: NextRequest) {
         ? Math.max(0, Number(olderThanParam))
         : undefined;
 
-    const jobs = await listJobsAwaitingQuickScore({ olderThanHours, limit: 200 });
+    const narrow = queueJobNarrow(parseQualityFiltersLenient(req.nextUrl.searchParams));
+    const jobs = await listJobsAwaitingQuickScore({ olderThanHours, limit: AWAITING_LIMIT, narrow });
 
     return NextResponse.json({
       jobs,
+      limit: AWAITING_LIMIT,
       threshold: settings.qaAutomation.failureThreshold,
       autoScore: {
         enabled: settings.qaAutomation.autoScoreEnabled,

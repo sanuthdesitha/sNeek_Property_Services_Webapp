@@ -1139,22 +1139,26 @@ export function InvoicesPanel({
                     ? "Needs changes"
                     : s.status === "PAID_CLAIMED"
                       ? "Awaiting confirmation"
-                      : s.status === "XERO_PUSHED"
-                        ? "Processing"
-                        : "Submitted";
+                      : s.status === "APPROVED"
+                        ? "Approved — awaiting payment"
+                        : s.status === "XERO_PUSHED" || s.status === "XERO_EXPORTING"
+                          ? "Processing"
+                          : s.status === "VOID"
+                            ? "Reversed"
+                            : "Submitted";
               // Danger, not warning: every other state here is the office working
               // through it. This one is the only one that is waiting on the payee.
               const tone: "success" | "info" | "warning" | "danger" = needsChanges
                 ? "danger"
                 : s.status === "PAID"
                   ? "success"
-                  : s.status === "XERO_PUSHED"
+                  : s.status === "XERO_PUSHED" || s.status === "APPROVED"
                     ? "info"
                     : "warning";
               // Only the payee's own unconfirmed invoices can be claimed. PAID
               // is already settled by the office, and a second claim on an
               // existing one would just be noise in the approval queue.
-              const canClaimPaid = s.status === "SUBMITTED" || s.status === "XERO_PUSHED";
+              const canClaimPaid = s.status === "SUBMITTED" || s.status === "APPROVED" || s.status === "XERO_PUSHED";
               return (
                 <div
                   key={s.id}

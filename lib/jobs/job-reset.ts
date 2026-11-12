@@ -126,7 +126,7 @@ export interface JobResetContext {
   photoCount?: number;
   qaReviewCount?: number;
   hasLaundryTask?: boolean;
-  /** The job already has a client invoice line. */
+  /** Lines on non-void client invoices (lines on VOID invoices are not counted). */
   invoicedLineCount?: number;
 }
 
@@ -169,7 +169,8 @@ function isPayCommitted(context: JobResetContext): boolean {
  * Turn the ticked options into the exact set of mutations, plus the guards.
  *
  * Guards:
- *  · INVOICED jobs, or jobs whose cleaner pay is already committed to a payroll
+ *  · INVOICED jobs, jobs with a line on a non-void invoice, or jobs whose
+ *    cleaner pay is already committed to a payroll
  *    run / paid invoice, may NEVER have their data cleared — the money is
  *    downstream of those records. The status-only reset is still allowed but
  *    demands an explicit extra confirmation.
@@ -178,7 +179,11 @@ function isPayCommitted(context: JobResetContext): boolean {
 export function planJobReset(options: JobResetOptions, context: JobResetContext): JobResetPlan {
   const status = String(context.status ?? "");
   const payCommitted = isPayCommitted(context);
-  const locked = status === "INVOICED" || payCommitted;
+  // A line on a non-void invoice (counted by the route with the shared
+  // FINANCIAL_RECORD_LINE_WHERE) locks the evidence exactly like the INVOICED
+  // status does; a line on a voided invoice does not.
+  const onInvoice = status === "INVOICED" || (context.invoicedLineCount ?? 0) > 0;
+  const locked = onInvoice || payCommitted;
 
   const wantsTimeLogs = options.clearTimeLogs && (context.timeLogCount ?? 0) > 0;
   const wantsFormData = options.clearFormData && (context.submissionCount ?? 0) > 0;
@@ -249,7 +254,7 @@ export function planJobReset(options: JobResetOptions, context: JobResetContext)
     return {
       allowed: false,
       blockedReason:
-        status === "INVOICED"
+        onInvoice
           ? "This job is invoiced — its time logs, forms, photos and QA are the evidence behind the invoice and cannot be cleared. Reset the status only, or reverse the invoice first."
           : "This job's cleaner pay is already committed to a payroll run or a paid invoice — its records cannot be cleared. Reset the status only.",
       requiresExtraConfirm: true,

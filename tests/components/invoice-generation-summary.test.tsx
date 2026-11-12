@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { EstateInvoices } from "@/components/v2/admin/finance/estate-invoices";
+import { GenerateInvoiceDialog } from "@/components/v2/admin/finance/invoices/generate-invoice-dialog";
 const mocks = vi.hoisted(() => ({ toast: vi.fn() }));
 vi.mock("@/hooks/use-toast", () => ({ toast: mocks.toast }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
@@ -8,10 +8,12 @@ it("keeps selected period scope and explains included jobs versus existing invoi
   const requests: any[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url, init) => {
     if (String(url).endsWith("/generate")) { requests.push(JSON.parse(init.body)); return new Response(JSON.stringify({ id: "draft", generationSummary: { includedJobCount: 12, alreadyInvoicedJobCount: 3 } })); }
-    return new Response(JSON.stringify({ clients: [{ id: "client", name: "Client", email: "client@example.test" }], properties: [{ id: "property", name: "House", suburb: "Sydney", clientId: "client" }], rates: [], invoices: [] }));
+    throw new Error(`Unexpected request ${String(url)}`);
   }));
-  render(<EstateInvoices/>);
-  const launch = await screen.findByRole("button", { name: "Generate invoice" }); fireEvent.click(launch);
+  // The generator moved out of the old monolithic screen; it now opens from
+  // "New invoice → From finished jobs" with the form context already loaded.
+  const done = vi.fn();
+  render(<GenerateInvoiceDialog context={{ clients: [{ id: "client", name: "Client", email: "client@example.test" }], properties: [{ id: "property", name: "House", suburb: "Sydney", clientId: "client" }] }} onClose={() => undefined} onDone={done}/>);
   const modal = within(screen.getByRole("dialog"));
   await waitFor(() => expect(modal.getAllByRole("combobox")[0]).toHaveValue("client"));
   const dates = screen.getByRole("dialog").querySelectorAll('input[type="date"]');

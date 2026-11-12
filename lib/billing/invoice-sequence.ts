@@ -91,7 +91,7 @@ async function seedAndTake(key: InvoiceSequenceKey): Promise<string | null> {
 }
 
 /**
- * Both sequences as they currently stand, for the settings screen.
+ * Every sequence as it currently stands, for the settings screen.
  *
  * Falls back to the defaults rather than throwing: a settings page that will not
  * render is a worse answer than one showing that numbering is not set up yet.
@@ -105,7 +105,7 @@ export async function readInvoiceSequences(): Promise<
     });
     const out = { ...DEFAULT_SEQUENCES };
     for (const row of rows) {
-      if (row.key === "CLIENT" || row.key === "CLEANER") {
+      if (row.key === "CLIENT" || row.key === "CLEANER" || row.key === "CREDIT_NOTE") {
         out[row.key] = { prefix: row.prefix, lastNumber: row.lastNumber, padding: row.padding };
       }
     }

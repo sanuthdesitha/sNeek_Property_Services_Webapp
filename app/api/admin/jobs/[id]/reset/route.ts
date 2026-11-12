@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { verifySensitiveAction, type SensitiveActionCredentials } from "@/lib/security/admin-verification";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { getJobReference } from "@/lib/jobs/job-number";
+import { FINANCIAL_RECORD_LINE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
 import {
   normalizeJobResetOptions,
   planJobReset,
@@ -39,7 +40,8 @@ async function loadContext(jobId: string) {
         where: { removedAt: null },
         select: { user: { select: { id: true, name: true, email: true, phone: true, role: true, isActive: true } } },
       },
-      _count: { select: { timeLogs: true, formSubmissions: true, qaReviews: true, invoiceLines: true } },
+      // Lines on VOID invoices are not counted (owner decision 2026-11-11).
+      _count: { select: { timeLogs: true, formSubmissions: true, qaReviews: true, invoiceLines: { where: FINANCIAL_RECORD_LINE_WHERE } } },
       laundryTask: { select: { id: true } },
     },
   });

@@ -11,6 +11,7 @@ import { isDeviceException, formatDeviceException } from "./device-status";
 // so the server can import this safely.
 
 import type { FormField, FormFieldType } from "./types";
+import { formatStockCountAnswer, formatTableAnswer } from "./structured-answers";
 
 export type FieldCategory = "basic" | "choice" | "scale" | "media" | "advanced";
 
@@ -161,6 +162,26 @@ export const FIELD_TYPES: Record<FormFieldType, FieldTypeDef> = {
     },
   },
   instruction: { type: "instruction", label: "Instruction / info", icon: "Info", category: "advanced", isReadOnly: true, formatValue: () => EMPTY },
+
+  // ---- structured (lib/forms/structured-answers.ts) ----
+  // Columns and rows are set in the builder; a new table starts with one text
+  // column the cleaner can add rows to.
+  table: {
+    type: "table",
+    label: "Table",
+    icon: "Table",
+    category: "advanced",
+    defaultConfig: { table: { columns: [{ id: "c1", label: "Item", cellType: "text", required: true }], rowMode: "dynamic", minRows: 1, maxRows: 10 } },
+    formatValue: (field, value) => formatTableAnswer(field, value),
+  },
+  // Counts one inventory item; the item is chosen in the builder.
+  stock_count: {
+    type: "stock_count",
+    label: "Stock count",
+    icon: "Package",
+    category: "advanced",
+    formatValue: (field, value) => formatStockCountAnswer(field, value),
+  },
 };
 
 export const FIELD_CATEGORY_LABELS: Record<FieldCategory, string> = {

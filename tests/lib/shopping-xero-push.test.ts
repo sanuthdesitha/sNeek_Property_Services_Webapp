@@ -2,7 +2,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 const m = vi.hoisted(() => ({ invoice: vi.fn(), push: vi.fn(), update: vi.fn(), settings: vi.fn() }));
-vi.mock("@/lib/auth/session", () => ({ requireRole: async () => ({ id: "admin", role: "ADMIN" }) }));
+vi.mock("@/lib/auth/session", () => ({ requireRole: async () => ({ user: { id: "admin", role: "ADMIN" } }) }));
 vi.mock("@/lib/db", () => ({ db: { clientInvoice: { findUnique: m.invoice, update: m.update }, client: { update: vi.fn() }, $transaction: async (fn: any) => fn({ $queryRaw: vi.fn(), clientInvoice: { findUnique: m.invoice, update: m.update } }) } }));
 vi.mock("@/lib/xero/client", () => ({ pushClientInvoiceToXero: m.push }));
 vi.mock("@/lib/phase3/integrations", () => ({ getPhase3IntegrationsSettings: m.settings }));

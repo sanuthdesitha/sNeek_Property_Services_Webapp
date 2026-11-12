@@ -4,7 +4,7 @@ import { Check, Columns3 } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { DEFAULT_JOBS_COLUMNS, JOBS_COLUMN_KEYS, type JobsColumns } from "@/lib/jobs/workspace-state";
 
-const labels = { client: "Client", cleaner: "Cleaner", schedule: "Schedule" };
+const labels = { client: "Client", cleaner: "Cleaner", schedule: "When" };
 export function JobsColumnsMenu({ columns, onChange }: { columns: JobsColumns; onChange: (columns: JobsColumns) => void }) {
   return <Menu.Root>
     <Menu.Trigger asChild>

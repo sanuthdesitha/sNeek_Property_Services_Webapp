@@ -10,8 +10,6 @@ import {
   Inbox,
   Building2,
   ShieldCheck,
-  ShieldAlert,
-  Trophy,
   Activity,
   ClipboardCheck,
   Shirt,
@@ -23,8 +21,8 @@ import {
   PackageSearch,
   GraduationCap,
   UsersRound,
-  Map, Wrench, Sparkles, ClipboardList, ReceiptText, FileText,
-  Tags, Truck, ListChecks, Eye, UserCircle,
+  Map, Wrench, Sparkles, ClipboardList, FileText,
+  Tags, Truck, Eye, UserCircle, Bell,
 } from "lucide-react";
 
 const NAV: NavItem[] = [
@@ -49,26 +47,27 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/onboarding", label: "Property onboarding", icon: ClipboardList, group: "People & property" },
   { href: "/v2/admin/hiring", label: "Hiring", icon: Briefcase, group: "People & property" },
 
+  // One Quality hub: review queue, issues, cleaners, inspectors, categories
+  // and coaching. /quality/issues, /accountability and /qa-performance
+  // redirect to its tabs.
   { href: "/v2/admin/quality", label: "Quality", icon: ShieldCheck, group: "Quality" },
-  { href: "/v2/admin/quality/issues", label: "QA Issues", icon: ShieldAlert, group: "Quality" },
-  { href: "/v2/admin/quality/accountability", label: "Accountability", icon: Trophy, group: "Quality" },
-  { href: "/v2/admin/quality/qa-performance", label: "QA Performance", icon: Activity, group: "Quality" },
-  { href: "/v2/admin/reports", label: "Reports", icon: FileText, group: "Quality" },
+  { href: "/v2/admin/reports", label: "Insights", icon: FileText, group: "Quality" },
 
-  { href: "/v2/admin/finance", label: "Finance", icon: Wallet, group: "Commercial" },
-  { href: "/v2/admin/payroll", label: "Payroll", icon: Wallet, group: "Commercial" },
-  { href: "/v2/admin/cleaner-invoices", label: "Cleaner invoices", icon: ReceiptText, group: "Commercial" },
+  // One entry for client invoices, cleaner invoices, pay runs and adjustments.
+  // /v2/admin/payroll and /v2/admin/cleaner-invoices redirect to their tabs.
+  { href: "/v2/admin/finance", label: "Invoices and pay", icon: Wallet, group: "Commercial" },
   { href: "/v2/admin/growth", label: "Growth", icon: Megaphone, group: "Commercial" },
   { href: "/v2/admin/quotes", label: "Quotes & leads", icon: FileText, group: "Commercial" },
   { href: "/v2/admin/pricing", label: "Pricing", icon: Tags, group: "Commercial" },
   { href: "/v2/admin/delivery-profiles", label: "Delivery profiles", icon: Truck, group: "Commercial" },
 
   { href: "/v2/admin/settings", label: "Settings", icon: Settings, group: "Configuration" },
+  // The one notifications area (types, delivery log, health, preferences).
+  { href: "/v2/admin/notifications", label: "Notifications", icon: Bell, group: "Configuration" },
   { href: "/v2/admin/ai", label: "AI configuration", icon: Sparkles, group: "Configuration" },
-  { href: "/v2/admin/checklists", label: "Checklists library", icon: ListChecks, group: "Configuration" },
-  { href: "/v2/admin/qa-templates", label: "QA templates", icon: ClipboardCheck, group: "Configuration" },
-  { href: "/v2/admin/forms", label: "Forms & stats", icon: ClipboardList, group: "Configuration" },
-  { href: "/v2/admin/templates", label: "Templates", icon: FileText, group: "Configuration" },
+  // One Forms library: job forms, QA templates, checklist blocks, message
+  // templates and results. The old entries' routes redirect to its tabs.
+  { href: "/v2/admin/forms", label: "Forms", icon: ClipboardList, group: "Configuration" },
   { href: "/v2/admin/activity", label: "Activity log", icon: Activity, group: "Configuration", adminOnly: true },
   { href: "/v2/admin/system/test-as", label: "Test as", icon: Eye, group: "Configuration", adminOnly: true },
   { href: "/v2/admin/profile", label: "My profile", icon: UserCircle, group: "Configuration" },
@@ -81,13 +80,16 @@ const NAV: NavItem[] = [
 const COUNT_KEY_BY_HREF: Record<string, keyof AdminAttentionCounts> = {
   "/v2/admin/jobs": "jobs",
   "/v2/admin/approvals": "approvals",
-  "/v2/admin/quality": "quality",
-  "/v2/admin/quality/issues": "qaIssues",
+  // Unclaimed inspections + QA issues awaiting rectification.
+  "/v2/admin/quality": "qualityHub",
   "/v2/admin/cases": "cases",
   "/v2/admin/lost-found": "lostFound",
   "/v2/admin/laundry": "laundry",
+  // Client invoices to send (draft or approved) + cleaner invoices awaiting the office.
   "/v2/admin/finance": "finance",
   "/v2/admin/growth": "growth",
+  // Urgent stock needs awaiting acknowledgement (null for non-administrators).
+  "/v2/admin/inventory": "urgentStock",
 };
 
 const POLL_MS = 60_000;
@@ -135,7 +137,7 @@ export default function V2AdminLayout({ children }: { children: React.ReactNode 
     () =>
       NAV.map((item) => {
         const key = COUNT_KEY_BY_HREF[item.href];
-        const badge = key && counts ? counts[key] : 0;
+        const badge = (key && counts ? counts[key] : 0) ?? 0;
         return badge > 0 ? { ...item, badge } : item;
       }),
     [counts]

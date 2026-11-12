@@ -138,6 +138,14 @@ stock, holiday rates, care, stay preparation, linen custody and profit review.
   onboarding surveys move to their saved record URL. Booking and evidence
   recovery retain their existing draft protocols; never resume an empty form at
   a remembered completion step. Validate stored enum values when displaying them.
+- Documented exception (2026-11, Calendar only): the Calendar restores its view and
+  date after a full refresh. The view is saved per view scope in local storage and
+  restored always; the date is saved in session storage with the Sydney day it was
+  saved on and restored only in the same browser session on that day, so a refresh
+  keeps the week being planned while a new visit (or the next day) opens on today.
+  Restored values are written back to the URL; an explicit URL wins; "Today" clears
+  the saved date. Keys live outside the view-memory prefix. Do not copy this to
+  other workspaces without the same owner decision.
 
 ## Operations-manager permissions
 
@@ -222,3 +230,33 @@ Mobile grid panels must use an explicit shrinkable base track (`grid-cols-1`) an
 - Group one audience's access into a single labelled panel: guide entries first, flat lockbox/codes/parking after, photos as buttons. Do not repeat the same instruction in two panels.
 - A refused attachment explains what to do next ("Remove it and attach the file again"), not which check failed.
 
+
+### Lists, bulk actions and row menus (2026-11)
+
+These match the approved concept (`table.t`, `.chip`, `.bulk`, `.b`) using Estate tokens. Reuse them for every redesigned list.
+
+- Use `EDataTable` from `components/v2/ui/data-table.tsx`. Sorting is server-side: a sortable header is a real button and its `<th>` carries `aria-sort`; the table never re-sorts a page itself. Money columns open largest first (`firstDir: "desc"`). The table scrolls inside its own labelled region; give it a `minWidth` and put it in an `ECard` with `overflow-hidden`.
+- Keep loading, error, empty and stale apart: no rows + loading is a status, no rows + error is an alert with retry, rows + error is a stale banner over the last good rows. Never show rows from a different filter as if they answered the current one.
+- List routes read `page`, `pageSize`, `sort`, `dir` through `parseListQuery`, refuse unknown sort columns with 400, and return `listResponse` plus real grouped counts. Chips show a count only when the server sent one.
+- Filters: `EFilterChips` for the single-choice status row; `EFilterPopover` for client, period and similar filters, so an active filter stays visible on its chip. Keep filter, sort and page in the URL beside `tab`, and reset selection when the filter set changes.
+- One primary action per row, chosen from the record's state; every other existing action goes in `ERowMenu`. Corrections and destructive actions sit after a separator and keep their own confirmation, PIN and typed-phrase rules. The menu is keyboard operable (arrows, Home/End, Escape returns focus) and renders in `EstatePortal` so a scrolling table cannot clip it.
+- `EBulkBar` (dark, `--e-sidebar-*` tokens) appears only with a selection, says how many and of what, and offers `EBulkButton` actions. A bulk action is one request to a server endpoint that answers per row (done / refused with reason / no change); show those results and keep refused rows selected. Never loop single requests from the browser.
+- `EPill` is the status badge: written text always, tone from status, unknown states neutral.
+- A disabled menu item that is planned says so (`hint: "Coming in a later step"`) rather than disappearing silently.
+- `EStageBar` (`components/v2/ui/stage-bar.tsx`) is a read-only stage strip. Map stages from stored state only: "done" needs a recorded fact (e.g. a Xero invoice id), an unconfirmed step is "pending", an optional step that left no record is "passed", and a terminal state (void) replaces the strip. Every stage carries its state in words.
+- A record editor page (first: `/v2/admin/finance/invoices/[id]`) keeps the list's URL state in `?back=` for its back link, offers the list's own primary action plus a "more" menu, and saves explicitly unless the write is last-write guarded. Show the server's lock reason when the record is read-only.
+
+### Peek panels and view tabs (2026-11, first used on Jobs)
+
+- `ESidePanel` (`components/v2/ui/side-panel.tsx`) previews one record beside a list: a column from `lg`, a full-height modal sheet below it. Keep the record id in the URL (`?open=<id>`), key the panel by that id, and load secondary tabs only when chosen; abort a tab's read when the record changes and check the response still belongs to the open record. Focus goes to the panel title on open and back to the opener on Escape or close.
+- Clicking a row may open the panel, but the row must also have a real control (the record name as a button) for keyboards; nested checkboxes, buttons and menus never open it.
+- View tabs are filter presets defined once on the server side of the list (`lib/jobs/view-presets.ts`); a tab applies exactly its filters, is current only while the filters match, and shows a count only when one grouped server query produced it.
+
+## Builder conventions (form builder, 2026-11)
+
+- Three panes (outline · items · settings/preview) side by side from `lg`; below it they are steps in a labelled pane nav with 44px targets, never a page-level horizontal scroll.
+- Every drag has a keyboard path: dnd-kit's keyboard sensor on the handle, plus row-menu items (Move up, Move down, Move to…). The handle is a real button with an instruction in its accessible name.
+- Edits go through one document with undo/redo; shortcuts are handled on the builder root, never a global listener, and skipped inside text inputs.
+- Autosave only with the stale-write token, serialised; a 409 stops autosave and offers explicit choices. Show saving / saved / failed / conflict truthfully in the header line.
+- Previews of cleaner forms use the real renderer (`FormRenderer mode="preview" | "sandbox"`), never a look-alike, and never upload or submit.
+- Badges on a row state behaviour the stored data really drives; a usage warning comes only from a real usage check.

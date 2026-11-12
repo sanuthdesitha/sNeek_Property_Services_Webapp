@@ -1,15 +1,25 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Download } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { JobDialog } from "./job-dialog";
 import { statusLabel } from "./job-row";
 import { JOBS_EXPORT_HEADERS, jobsExportCsv, parseJobsExport, type JobsExportSnapshot } from "@/lib/jobs/export-preview";
 
-export function JobsExportPreview({ query, context, disabled = false }: { query: string; context?: string; disabled?: boolean }) {
-  return <ScopedExport key={JSON.stringify([context, query])} query={query} disabled={disabled} />;
+export type JobsExportTrigger = (props: { onClick: () => void; disabled: boolean }) => ReactNode;
+type ExportProps = {
+  query: string;
+  context?: string;
+  disabled?: boolean;
+  /** When set, the query is limited to these selected jobs and the dialog says so. */
+  selectionCount?: number;
+  /** Custom trigger (e.g. a bulk-bar button); defaults to the outline Export button. */
+  trigger?: JobsExportTrigger;
+};
+export function JobsExportPreview({ query, context, disabled = false, selectionCount, trigger }: ExportProps) {
+  return <ScopedExport key={JSON.stringify([context, query])} query={query} disabled={disabled} selectionCount={selectionCount} trigger={trigger} />;
 }
-function ScopedExport({ query, disabled }: { query: string; disabled: boolean }) {
+function ScopedExport({ query, disabled, selectionCount, trigger }: { query: string; disabled: boolean; selectionCount?: number; trigger?: JobsExportTrigger }) {
   const [open, setOpen] = useState(false);
   const [snapshot, setSnapshot] = useState<JobsExportSnapshot | null>(null);
   const [error, setError] = useState("");
@@ -47,10 +57,13 @@ function ScopedExport({ query, disabled }: { query: string; disabled: boolean })
     } catch { setError("Could not prepare the download. Try again."); }
   }
   return <>
-    <EButton variant="outline" size="md" disabled={disabled} onClick={() => setOpen(true)}><Download className="h-4 w-4" />Export</EButton>
-    <JobDialog open={open} title="Review Jobs export" onClose={() => setOpen(false)}>
+    {trigger ? trigger({ onClick: () => setOpen(true), disabled })
+      : <EButton variant="outline" size="md" disabled={disabled} onClick={() => setOpen(true)}><Download className="h-4 w-4" />Export</EButton>}
+    <JobDialog open={open} title={selectionCount ? "Review export of selected jobs" : "Review Jobs export"} onClose={() => setOpen(false)}>
       <div className="space-y-3 text-sm">
-        <p>Exports jobs matching the current filters and sort order, starting at the first result. Selected checkboxes do not limit this export.</p>
+        {selectionCount
+          ? <p>Exports the {selectionCount} selected job{selectionCount === 1 ? "" : "s"} in the current sort order.</p>
+          : <p>Exports jobs matching the current filters and sort order, starting at the first result. Selected checkboxes do not limit this export; use Export selected in the bulk bar for those.</p>}
         {loading ? <p role="status">Loading export preview…</p> : null}
         {error ? <p role="alert">{error}</p> : null}
         {!loading ? <button type="button" className="min-h-11 rounded border px-3" onClick={() => setRevision(value => value + 1)}>Refresh preview</button> : null}

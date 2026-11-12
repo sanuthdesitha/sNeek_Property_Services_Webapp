@@ -138,4 +138,7 @@ export const createQuoteSchema = z.object({
     .optional(),
   // When true, add-on prices are shown to the client (email + online).
   showAddOnPrices: z.boolean().optional(),
+  // Cases "Create repair quote": the case the quote was started from. Not a
+  // quote column; the route records the link as a FROM_CASE quote event.
+  fromCaseId: z.string().trim().min(1).max(200).optional(),
 });

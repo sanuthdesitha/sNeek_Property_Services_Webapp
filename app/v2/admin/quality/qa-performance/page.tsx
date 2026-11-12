@@ -1,22 +1,11 @@
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
-import { EPageHeader } from "@/components/v2/ui/primitives";
-import { QaPerformanceDashboard } from "@/components/v2/admin/quality/qa-performance-dashboard";
+import { redirect } from "next/navigation";
+import { qualityTabRedirect } from "@/lib/quality/redirects";
 
-export const metadata = { title: "QA Performance · Estate admin" };
-export const dynamic = "force-dynamic";
-
-export default async function V2AdminQaPerformancePage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-
-  return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Quality"
-        title="QA Performance"
-        description="Per-inspector accountability — inspections, issues found and fixed, rectification cost, and missed-issue caution signals."
-      />
-      <QaPerformanceDashboard />
-    </div>
-  );
+// QA performance is the Inspectors tab of the Quality hub.
+export default function V2AdminQaPerformanceRedirect({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
+  redirect(qualityTabRedirect("inspectors", searchParams));
 }

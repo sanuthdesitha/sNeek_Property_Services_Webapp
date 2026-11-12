@@ -6,7 +6,7 @@ import { getPropertyFormConfig } from "@/lib/property-form/config-store";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
+import { EAlert, EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import Link from "next/link";
 import { getAppSettings } from "@/lib/settings";
 import { CompanySection } from "@/components/v2/admin/settings/company-section";
@@ -35,6 +35,9 @@ import { AccountabilitySection } from "@/components/v2/admin/settings/accountabi
 import { FinalCheckupSettingsSection } from "@/components/v2/admin/settings/final-checkup-settings";
 import { NoPhotoSection } from "@/components/v2/admin/settings/no-photo-section";
 import { NotificationAudienceSection } from "@/components/v2/admin/settings/notification-audience-section";
+import { LostFoundSettingsSection } from "@/components/v2/admin/settings/lost-found-section";
+import { InsightsEmailSection } from "@/components/v2/admin/settings/insights-email-section";
+import { RequiredDocumentsSettingsSection } from "@/components/v2/admin/settings/required-documents-section";
 
 export const metadata = { title: "Settings · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -233,6 +236,13 @@ export default async function SettingsPage({
         />
       ) : null}
 
+      {["notifications", "message-channels", "finance-notifications", "notification-tools"].includes(activeTab) ? (
+        <EAlert tone="info" title="Notifications now have one area">
+          Every notification type, its switches, the delivery log and transport health are in{" "}
+          <Link href="/v2/admin/notifications" className="font-medium underline">Notifications</Link>. These controls are also there; this tab keeps working.
+        </EAlert>
+      ) : null}
+
       {activeTab === "notifications" && isAdmin ? (
         <NotificationsAutomationSection
           initial={{
@@ -314,6 +324,10 @@ export default async function SettingsPage({
         />
       ) : null}
 
+      {activeTab === "lost-found" && isAdmin ? <LostFoundSettingsSection /> : null}
+
+      {activeTab === "required-documents" ? <RequiredDocumentsSettingsSection canSave={isAdmin} /> : null}
+
       {activeTab === "laundry" && isAdmin ? (
         <LaundrySection
           initial={{
@@ -357,6 +371,7 @@ export default async function SettingsPage({
       ) : null}
 
       {activeTab === "integrations" && isAdmin ? <IntegrationsSection /> : null}
+      {activeTab === "insights-email" && isAdmin ? <InsightsEmailSection /> : null}
       {activeTab === "ical-sync" && isAdmin ? <IcalSection /> : null}
       {activeTab === "payment-gateways" && isAdmin ? <GatewaysSection /> : null}
       {activeTab === "xero" && isAdmin ? <XeroSection /> : null}

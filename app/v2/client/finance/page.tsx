@@ -250,13 +250,19 @@ export default async function V2ClientFinancePage() {
                 />
               ) : (
                 invoices.map((invoice, i) => {
-                  const payable = invoice.status === "SENT" || invoice.status === "APPROVED";
+                  const creditNote = invoice.kind === "CREDIT_NOTE";
+                  const payable = !creditNote && (invoice.status === "SENT" || invoice.status === "APPROVED");
                   return (
                     <div key={invoice.id}>
                       {i > 0 ? <EThread className="my-1" /> : null}
                       <div className="flex flex-wrap items-start justify-between gap-3 py-2">
                         <div className="min-w-0">
                           <Link className="text-[0.875rem] font-semibold underline" href={`/v2/client/finance/invoices/${invoice.id}`}>{invoice.invoiceNumber}</Link>
+                          {creditNote ? (
+                            <p className="text-[0.75rem] font-[550]">
+                              Credit note{invoice.creditsInvoice ? ` for ${invoice.creditsInvoice.invoiceNumber}` : ""}
+                            </p>
+                          ) : null}
                           <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
                             Created {format(toZonedTime(invoice.createdAt, TZ), "d MMM yyyy")}
                             {invoice.periodStart || invoice.periodEnd

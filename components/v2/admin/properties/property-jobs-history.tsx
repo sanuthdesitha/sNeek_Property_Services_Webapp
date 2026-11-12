@@ -97,7 +97,7 @@ function titleCase(value?: string | null) {
 const QUICK_LINKS: Array<{ href: string; label: string; icon: React.ReactNode }> = [
   { href: "/v2/admin/cases", label: "Damage cases", icon: <AlertTriangle className="mr-1 h-3.5 w-3.5" /> },
   { href: "/v2/admin/maintenance", label: "Maintenance", icon: <Wrench className="mr-1 h-3.5 w-3.5" /> },
-  { href: "/v2/admin/reports", label: "Reports", icon: <FileText className="mr-1 h-3.5 w-3.5" /> },
+  { href: "/v2/admin/reports?tab=pdfs", label: "Reports", icon: <FileText className="mr-1 h-3.5 w-3.5" /> },
   { href: "/v2/admin/laundry", label: "Laundry", icon: <Shirt className="mr-1 h-3.5 w-3.5" /> },
 ];
 

@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 const m = vi.hoisted(() => ({ auth: vi.fn(), job: vi.fn(), users: vi.fn(), settings: vi.fn(), remove: vi.fn(), upsert: vi.fn(), current: vi.fn(), update: vi.fn(), audit: vi.fn(), notification: vi.fn(), many: vi.fn(), rules: vi.fn(), attach: vi.fn(), lifecycle: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.auth }));
-vi.mock("@/lib/db", () => ({ db: { job: { findUnique: m.job }, user: { findMany: m.users }, auditLog: { create: m.audit }, notification: { create: m.notification, createMany: m.many }, $transaction: (fn: any) => fn({ jobAssignment: { updateMany: m.remove, upsert: m.upsert, findMany: m.current }, job: { update: m.update } }) } }));
+vi.mock("@/lib/db", () => ({ db: { staffLeave: { findMany: async () => [] }, job: { findUnique: m.job }, user: { findMany: m.users }, auditLog: { create: m.audit }, notification: { create: m.notification, createMany: m.many }, $transaction: (fn: any) => fn({ jobAssignment: { updateMany: m.remove, upsert: m.upsert, findMany: m.current }, job: { update: m.update } }) } }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
 vi.mock("@/lib/notifications/email", () => ({ sendEmailDetailed: vi.fn() }));
 vi.mock("@/lib/notifications/sms", () => ({ sendSmsDetailed: vi.fn() }));

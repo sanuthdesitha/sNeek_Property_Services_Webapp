@@ -44,6 +44,7 @@ export const EMAIL_AUTO_KINDS = [
   { key: "payout_notice", label: "Payout notices", description: "A cleaner's own payout sent or failed." },
   { key: "payroll_update", label: "Payroll updates", description: "Payroll run lifecycle and ABA file notices." },
   { key: "integration_sync", label: "Integration sync notices", description: "Xero connection and sync events." },
+  { key: "insights_monthly", label: "Monthly Insights email", description: "The previous month's business summary to the chosen administrators." },
 ] as const;
 
 export type EmailAutoKind = (typeof EMAIL_AUTO_KINDS)[number]["key"];

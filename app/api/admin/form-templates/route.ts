@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { z } from "zod";
 import { Prisma, Role, JobType, FormKind } from "@prisma/client";
+import { validateFormSchemaForSave } from "@/lib/forms/template-schema";
 
 const createTemplateSchema = z.object({
   name: z.string().min(1).max(100),
@@ -87,6 +88,17 @@ export async function POST(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN]);
     const body = createTemplateSchema.parse(await req.json());
+    // A new form must pass the same strict check as a saved draft: no unknown
+    // question types, no malformed show/hide rules.
+    if (body.schema && Array.isArray(body.schema.sections)) {
+      const strict = validateFormSchemaForSave(body.schema);
+      if (!strict.ok) {
+        return NextResponse.json(
+          { error: strict.issues[0]?.message ?? "The form structure is invalid.", code: "INVALID_SCHEMA", issues: strict.issues },
+          { status: 422 }
+        );
+      }
+    }
 
     // For the V1 flow: if a `kind` is provided, find the next version number
     // for that kind and start the template as a DRAFT (isActive: false).

@@ -11,6 +11,7 @@ import Link from "next/link";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
+import { markFieldControl, useAssociatedField } from "./field-association";
 
 /* ── Field styling (mirrors app/v2/login/page.tsx conventions) ─────────── */
 export const E_INPUT_CLASS =
@@ -30,6 +31,7 @@ export const EInput = React.forwardRef<
   <input ref={ref} className={cn(E_INPUT_CLASS, className)} {...props} />
 ));
 EInput.displayName = "EInput";
+markFieldControl(EInput);
 
 export function ETextarea({
   className,
@@ -54,6 +56,8 @@ export function ESelect({
     </select>
   );
 }
+markFieldControl(ETextarea);
+markFieldControl(ESelect);
 
 export function EField({
   label,
@@ -66,12 +70,14 @@ export function EField({
   className?: string;
   children: React.ReactNode;
 }) {
+  // A single control child gets an id so the label (and hint) describe it.
+  const field = useAssociatedField(children, { hasHint: Boolean(hint) });
   return (
     <div className={cn("space-y-1.5", className)}>
-      <label className={E_LABEL_CLASS}>{label}</label>
-      {children}
+      <label htmlFor={field.controlId} className={E_LABEL_CLASS}>{label}</label>
+      {field.control}
       {hint ? (
-        <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">{hint}</p>
+        <p id={field.hintId} className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">{hint}</p>
       ) : null}
     </div>
   );

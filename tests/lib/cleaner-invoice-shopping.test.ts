@@ -15,7 +15,7 @@ const listExpenseRuns = vi.fn(async (_input?: any) => [] as any[]);
 const listTimeRuns = vi.fn(async (_input?: any) => [] as any[]);
 
 vi.mock("@/lib/db", () => ({
-  db: {
+  db: { userPayRate: { findMany: async () => [] }, staffLeave: { findMany: async () => [] }, 
     user: {
       findUnique: vi.fn(async () => ({
         name: "Cleaner One",

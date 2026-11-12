@@ -51,6 +51,8 @@ export type SettingsDestination = {
   description: string;
   group: SettingsGroup;
   adminOnly: boolean;
+  /** A destination that lives on its own page instead of a settings tab. */
+  href?: string;
 };
 
 export const SETTINGS_DESTINATIONS = [
@@ -77,6 +79,18 @@ export const SETTINGS_DESTINATIONS = [
     adminOnly: true,
   },
   {
+    // The one notifications area: every notification type, its switches, the
+    // delivery log, transport health and organisation preferences. The tabs
+    // below keep working at their old URLs.
+    key: "notifications-area",
+    label: "All notifications",
+    description:
+      "Every notification type, who receives it, its switches, delivery log and health.",
+    group: "notifications",
+    adminOnly: false,
+    href: "/v2/admin/notifications",
+  },
+  {
     key: "notifications",
     label: "Scheduled notifications",
     description: "Reminder schedules and default delivery channels.",
@@ -94,6 +108,13 @@ export const SETTINGS_DESTINATIONS = [
     key: "finance-notifications",
     label: "Finance notifications",
     description: "Invoice and payment notification preferences.",
+    group: "notifications",
+    adminOnly: true,
+  },
+  {
+    key: "insights-email",
+    label: "Monthly Insights email",
+    description: "Last month's business summary by email: recipients, day and hour, sections.",
     group: "notifications",
     adminOnly: true,
   },
@@ -171,6 +192,13 @@ export const SETTINGS_DESTINATIONS = [
     adminOnly: true,
   },
   {
+    key: "lost-found",
+    label: "Lost and found",
+    description: "How long found items are held before they are flagged for a decision.",
+    group: "operations",
+    adminOnly: true,
+  },
+  {
     key: "property-form",
     label: "Property form",
     description:
@@ -198,6 +226,13 @@ export const SETTINGS_DESTINATIONS = [
     description: "Choose which features clients and cleaners can see.",
     group: "access",
     adminOnly: true,
+  },
+  {
+    key: "required-documents",
+    label: "Required documents",
+    description: "Which staff documents each role must have on file. Nothing is required until you choose.",
+    group: "access",
+    adminOnly: false,
   },
   {
     key: "profile-permissions",
@@ -236,6 +271,8 @@ export function availableSettings(isAdmin: boolean) {
 }
 
 export function settingsHref(key: string, jobId?: string) {
+  const destination: SettingsDestination | undefined = SETTINGS_DESTINATIONS.find((section) => section.key === key);
+  if (destination?.href) return destination.href;
   const query = new URLSearchParams({ tab: key });
   if (key === "holiday-rates" && jobId) query.set("jobId", jobId);
   return `/v2/admin/settings?${query}`;

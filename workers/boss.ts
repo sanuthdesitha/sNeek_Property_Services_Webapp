@@ -442,6 +442,31 @@ async function main() {
     }));
   }
 
+  // Hourly Xero status and payment pull for client invoices (owner decision
+  // 2026-11-11: a payment seen in Xero is recorded automatically). Off the
+  // hour so it does not join the :00 cluster. A no-op, logged, when Xero is
+  // not connected.
+  if (jobEnabled("xero-invoice-sync")) {
+    await boss.schedule("xero-invoice-sync", "20 * * * *", {}, { tz: TZ });
+    await boss.work("xero-invoice-sync", safeHandler("xero-invoice-sync", async () => {
+      const { runScheduledXeroSync } = await import("@/lib/billing/client-invoice-xero-sync");
+      await runScheduledXeroSync();
+    }));
+  }
+
+  // Monthly Insights email (owner decision 2026-11-11). Checks hourly, off the
+  // hour; sends the previous month's summary once the configured day and hour
+  // (organisation timezone) is reached. Off by default; a stored marker per
+  // month means a restart or a second worker never sends twice.
+  if (jobEnabled("insights-monthly-email")) {
+    await boss.schedule("insights-monthly-email", "35 * * * *", {}, { tz: TZ });
+    await boss.work("insights-monthly-email", safeHandler("insights-monthly-email", async () => {
+      const { runMonthlyInsightsEmail } = await import("@/lib/insights/monthly-email");
+      const result = await runMonthlyInsightsEmail();
+      if (result.status === "sent") logger.info({ month: result.month, outcomes: result.outcomes.length, skipped: result.skippedRecipients.length }, "[insights-monthly-email] sent");
+    }));
+  }
+
   if (jobEnabled("recognition-check")) {
     await boss.schedule("recognition-check", "0 9 * * 0", {}, { tz: TZ });
     await boss.work("recognition-check", safeHandler("recognition-check", async () => {

@@ -21,7 +21,11 @@ function review(rows: Row[], status: JobStatus) {
   return {
     status, reviewToken: createHash("sha256").update(JSON.stringify({ status, rows: sorted })).digest("hex"),
     rows: sorted.map(row => ({ id: row.id, label: `${row.jobNumber} · ${row.property.name} · ${row.scheduledDate.toISOString().slice(0, 10)}`, before: row.status, after: status,
-      blocked: row.status === "INVOICED", consequences: row.status === "INVOICED" ? ["Invoiced jobs are locked. Remove this job from the selection."] : bulkStatusConsequences(status, row.assignments.length) })),
+      blocked: row.status === "INVOICED" || row.status === "CANCELLED" || status === "CANCELLED",
+      consequences: row.status === "INVOICED" ? ["Invoiced jobs are locked. Remove this job from the selection."]
+        : row.status === "CANCELLED" ? ["Cancelled jobs change only through Restore. Remove this job from the selection."]
+        : status === "CANCELLED" ? ["Use Cancel job, which asks for a reason and checks invoices and pay."]
+        : bulkStatusConsequences(status, row.assignments.length) })),
   };
 }
 export async function previewBulkStatus(value: unknown) {

@@ -103,6 +103,12 @@ function fieldValueHtml(field: ReportFieldVM): string {
       return field.answered
         ? `<div class="est-longtext">${esc(field.value)}</div>`
         : `<span class="est-muted">—</span>`;
+    case "table":
+      return field.answered && field.table
+        ? `<table class="est-table"><thead><tr>${field.table.columns.map((column) => `<th>${esc(column)}</th>`).join("")}</tr></thead><tbody>${field.table.rows
+            .map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join("")}</tr>`)
+            .join("")}</tbody></table>`
+        : `<span class="est-muted">—</span>`;
     default:
       return field.answered ? esc(field.value) : `<span class="est-muted">—</span>`;
   }
@@ -455,6 +461,9 @@ ${c.headTags}
   .est-row.child .est-row-label { color: var(--muted); }
   .est-row-label { font-weight: 500; }
   .est-row-value { text-align: right; }
+  .est-table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 12px; text-align: left; }
+  .est-table th, .est-table td { border: 1px solid var(--line, #ddd); padding: 4px 6px; vertical-align: top; }
+  .est-table th { background: var(--bg-soft); font-weight: 600; }
   .est-longtext { white-space: pre-wrap; background: var(--bg-soft); border-radius: 10px; padding: 10px 12px; margin: 8px 0; text-align: left; }
   .est-row-value .est-longtext { text-align: left; }
   .est-muted { color: var(--muted); }

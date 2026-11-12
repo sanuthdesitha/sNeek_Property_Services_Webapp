@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { QuoteDetail } from "@/components/v2/admin/quotes/quote-detail";
+import { caseForQuoteDetail } from "@/lib/cases/repair-quote";
 
 export const metadata = { title: "Quote · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -48,6 +50,7 @@ export default async function V2QuoteDetailPage({ params }: { params: { id: stri
 
   if (!quote) notFound();
 
+  const fromCase = await caseForQuoteDetail(quote.id);
   const clients = await db.client.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },
@@ -134,6 +137,11 @@ export default async function V2QuoteDetailPage({ params }: { params: { id: stri
         title="Quote detail"
         description="Review, address, and send this quote — same endpoints as the pipeline."
       />
+      {fromCase ? (
+        <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
+          From case <Link className="font-[600] text-[hsl(var(--e-primary))] hover:underline" href={fromCase.href}>{fromCase.caseTitle}</Link>
+        </p>
+      ) : null}
       <QuoteDetail
         initial={initial}
         clients={clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "" }))}

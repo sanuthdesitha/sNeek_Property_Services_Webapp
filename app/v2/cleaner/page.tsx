@@ -29,6 +29,7 @@ import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
 import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
 import { computeJobPayForCleaner } from "@/lib/finance/job-pay-for-cleaner";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 export const metadata = { title: "Today · Estate cleaner" };
 export const dynamic = "force-dynamic";
@@ -163,13 +164,15 @@ export default async function CleanerTodayPage() {
   const todayStart = new Date(`${dayKey}T00:00:00.000Z`);
   const nextWeek = new Date(`${addDaysToKey(dayKey, 7)}T00:00:00.000Z`);
 
-  const [jobsResult, attentionResult, settings, cleanerUser] = await Promise.all([
+  const [jobsResult, attentionResult, settings, cleanerUser, rateBook] = await Promise.all([
     getCleanerWeekJobs(session.user.id, todayStart, nextWeek),
     getCleanerImmediateAttention(session.user.id).catch(() => null),
     getAppSettings().catch(() => null),
     db.user
       .findUnique({ where: { id: session.user.id }, select: { hourlyRate: true } })
       .catch(() => null),
+    // The default rate in force on each job's day (effective-dated history).
+    loadPayRateBook([session.user.id]).catch(() => null),
   ]);
 
   const jobs = jobsResult ?? [];
@@ -195,7 +198,7 @@ export default async function CleanerTodayPage() {
           userId: a.userId,
           payRate: a.payRate ?? null,
         })),
-        userHourlyRate: cleanerUser?.hourlyRate ?? null,
+        userHourlyRate: rateBook ? rateBook.rateFor(session.user.id, j.scheduledDate, cleanerUser?.hourlyRate ?? null) : null,
         cleanerJobHourlyRates: settings.cleanerJobHourlyRates,
         cleanerPayouts: meta.cleanerPayouts,
         transportAllowances: meta.transportAllowances,

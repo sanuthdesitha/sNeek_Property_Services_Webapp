@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const jobFindMany = vi.fn(async () => [] as any[]);
 
 vi.mock("@/lib/db", () => ({
-  db: {
+  db: { userPayRate: { findMany: async () => [] }, staffLeave: { findMany: async () => [] }, 
     user: {
       findUnique: vi.fn(async () => ({
         name: "Cleaner",

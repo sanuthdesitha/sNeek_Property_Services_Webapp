@@ -380,6 +380,8 @@ export async function decideContinuationRequest(input: {
   const now = new Date().toISOString();
 
   if (input.decision === "REJECT") {
+    // A decline always carries the reason the cleaner is shown (owner decision).
+    if (!sanitizeText(input.decisionNote, 2000)) throw new Error("A reason is required to decline.");
     // Only pause the job if it's still waiting on this decision. If it already
     // advanced by another path (submitted, QA, completed, invoiced), don't drag
     // it back to PAUSED — mirrors the guard the APPROVE branch already applies.

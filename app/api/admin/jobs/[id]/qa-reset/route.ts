@@ -3,6 +3,7 @@ import { JobStatus, QaAssignmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { z } from "zod";
+import { FINANCIAL_RECORD_LINE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
 
 /**
  * Reset a job's QA and re-request an inspection. Clears any existing QA reviews
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await db.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.id}))`;
       await tx.$queryRaw`SELECT id FROM "Job" WHERE id = ${params.id} OR "reworkOfJobId" = ${params.id} ORDER BY id FOR UPDATE`;
-      const relatedJobs = await tx.job.findMany({ where: { OR: [{ id: params.id }, { reworkOfJobId: params.id }] }, select: { id: true, status: true, payrollRunId: true, cleanerPaidAt: true, invoiceLines: { select: { id: true }, take: 1 } } });
+      const relatedJobs = await tx.job.findMany({ where: { OR: [{ id: params.id }, { reworkOfJobId: params.id }] }, select: { id: true, status: true, payrollRunId: true, cleanerPaidAt: true, invoiceLines: { where: FINANCIAL_RECORD_LINE_WHERE, select: { id: true }, take: 1 } } });
       const ids = relatedJobs.map(row => row.id);
       const [adjustments, transfers, cleanerClaim] = await Promise.all([
         tx.cleanerPayAdjustment.count({ where: { jobId: { in: ids } } }),

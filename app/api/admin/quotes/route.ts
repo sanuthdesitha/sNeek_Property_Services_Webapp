@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { createQuoteSchema } from "@/lib/validations/quote";
 import { getAppSettings } from "@/lib/settings";
 import { Role } from "@prisma/client";
+import { ZodError } from "zod";
+import { QuoteReferenceError, assertQuoteReferenceKeys, caseForQuote, linkQuoteToCase } from "@/lib/cases/repair-quote";
 
 /**
  * Warn (never block) when a quote's net price falls below the configured margin
@@ -57,8 +59,13 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const { newLead, ...quoteData } = createQuoteSchema.parse(await req.json());
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const { newLead, fromCaseId, ...quoteData } = createQuoteSchema.parse(await req.json());
+    // A quote started from a case: the case must still exist (re-checked here,
+    // not trusted from the page), and reference images must be the case's own
+    // evidence or uploads the caller may attach.
+    const linkedCase = fromCaseId ? await caseForQuote(fromCaseId) : null;
+    await assertQuoteReferenceKeys({ keys: (quoteData.referenceImages ?? []).map((image) => image.key), callerId: session.user.id, caseId: linkedCase?.id ?? null });
 
     let leadId = quoteData.leadId;
     // A brand-new recipient with their details → create the lead, link it.
@@ -76,7 +83,13 @@ export async function POST(req: NextRequest) {
       leadId = lead.id;
     }
 
-    const quote = await db.quote.create({ data: { ...quoteData, leadId } });
+    const quote = linkedCase
+      ? await db.$transaction(async (tx) => {
+          const created = await tx.quote.create({ data: { ...quoteData, leadId } });
+          await linkQuoteToCase(tx, { quoteId: created.id, caseId: linkedCase.id, caseTitle: linkedCase.title, actorId: session.user.id });
+          return created;
+        })
+      : await db.quote.create({ data: { ...quoteData, leadId } });
     const marginWarning = await computeMarginFloorWarning(
       quoteData.lineItems as Array<{ total?: number | null }> | undefined,
       Number(quoteData.subtotal ?? 0)
@@ -86,6 +99,8 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (err: any) {
+    if (err instanceof QuoteReferenceError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ZodError) return NextResponse.json({ error: err.issues[0]?.message ?? "Check the quote." }, { status: 400 });
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
   }

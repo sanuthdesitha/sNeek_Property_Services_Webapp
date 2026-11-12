@@ -1,27 +1,29 @@
 "use client";
 
 /**
- * ESTATE jobs workspace — row + board card presentation.
- * Pure Estate language: hairline dividers, serif property names, e-numeral
- * money, EBadge status pills. Data comes straight from /api/jobs rows.
+ * ESTATE jobs workspace — shared row facts and the board card.
+ *
+ * The list itself is a table (`jobs-table.tsx`); this file keeps the helpers
+ * every Jobs surface uses (labels, tones, names, flags) and the board card.
+ * A card opens the peek panel like a table row does; the full job is one
+ * click further ("Open full job").
  */
-import { statusBlockStyle, JOB_STATUS_TONES } from "@/lib/jobs/status-presentation";
-import { JobStatusIcon } from "@/components/shared/job-status-icon";
-import { useRouter } from "next/navigation";
-import type { CSSProperties } from "react";
-import { DEFAULT_JOBS_COLUMNS, type JobsColumns } from "@/lib/jobs/workspace-state";
+import type { DragEvent } from "react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { CalendarDays, Settings2, UserRound, UserRoundPlus } from "lucide-react";
+import { UserRound } from "lucide-react";
+import { JOB_STATUS_TONES, statusBlockStyle } from "@/lib/jobs/status-presentation";
+import { STATUS_LABELS } from "@/lib/jobs/status-labels";
+import { JobStatusIcon } from "@/components/shared/job-status-icon";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
+import { EPill, type EPillTone } from "@/components/v2/ui/pill";
+import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
+import type { JobListRow } from "./jobs-query";
 
 const TZ = "Australia/Sydney";
 
 export type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
-
-import { STATUS_LABELS } from "@/lib/jobs/status-labels";
 export { STATUS_LABELS };
-
 export const STATUS_TONES: Record<string, Tone> = JOB_STATUS_TONES;
 
 export function statusLabel(status: string): string {
@@ -32,6 +34,26 @@ export function statusTone(status: string): Tone {
   return STATUS_TONES[status] ?? "neutral";
 }
 
+const PILL_TONE: Record<Tone, EPillTone> = {
+  neutral: "neutral", primary: "info", gold: "gold", success: "ok", warning: "warn", danger: "bad", info: "info", aubergine: "neutral",
+};
+
+/**
+ * Jobs-surface override of the shared tones: the approved Jobs design draws
+ * "Unassigned" in the danger tone. The shared `JOB_STATUS_TONES` (used by
+ * other portals) is unchanged; only the Jobs list, board and peek read this.
+ */
+export const JOBS_PILL_TONE_OVERRIDES: Readonly<Record<string, EPillTone>> = { UNASSIGNED: "bad" };
+
+export function jobsPillTone(status: string): EPillTone {
+  return JOBS_PILL_TONE_OVERRIDES[status] ?? PILL_TONE[statusTone(status)];
+}
+
+/** The status pill: written status (never colour alone), tone as drawn for Jobs. */
+export function JobStatusPill({ status }: { status: string }) {
+  return <EPill tone={jobsPillTone(status)}>{statusLabel(status)}</EPill>;
+}
+
 export function scheduledLabel(value: unknown, pattern = "EEE dd MMM"): string {
   if (!value) return "No date";
   const parsed = new Date(value as string);
@@ -39,35 +61,47 @@ export function scheduledLabel(value: unknown, pattern = "EEE dd MMM"): string {
   return format(toZonedTime(parsed, TZ), pattern);
 }
 
-export function assignmentNames(job: any): string[] {
+type NamedAssignments = { assignments?: Array<{ user?: { name?: string | null; email?: string | null } | null }> | null };
+
+export function assignmentNames(job: NamedAssignments): string[] {
   const names = Array.isArray(job?.assignments)
-    ? job.assignments
-        .map((a: any) => a?.user?.name?.trim() || a?.user?.email?.trim() || "")
-        .filter(Boolean)
+    ? job.assignments.map((a) => a?.user?.name?.trim() || a?.user?.email?.trim() || "").filter(Boolean)
     : [];
   return Array.from(new Set<string>(names));
 }
 
-export function moneyLabel(job: any): string | null {
-  const value = Number(job?.fixedPrice);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return `$${value.toLocaleString("en-AU", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+export function jobTypeLabel(value: string | null | undefined): string {
+  if (!value) return "Job";
+  const text = value.replace(/_/g, " ").toLowerCase();
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function FlagPills({ job }: { job: any }) {
-  const hasPayRequest = Array.isArray(job?.payAdjustments) && job.payAdjustments.length > 0;
-  const hasDamage = Array.isArray(job?.issueTickets) && job.issueTickets.length > 0;
-  const skip = String(job?.cleanSkipStatus ?? "");
-  // Server-computed timing-rule chips from /api/jobs (`timingBadges`):
-  // early = "finish before HH:MM" (early check-in), late = "start after HH:MM"
-  // (late checkout). Only present when the admin rule is enabled.
-  const earlyTime = typeof job?.timingBadges?.early === "string" ? job.timingBadges.early : "";
-  const lateTime = typeof job?.timingBadges?.late === "string" ? job.timingBadges.late : "";
+/** "10:00 – 14:00", "From 10:00", "Due 14:00" or "Time not set". */
+export function timeWindowLabel(job: Pick<JobListRow, "startTime" | "endTime" | "dueTime">): string {
+  const end = job.endTime || job.dueTime;
+  if (job.startTime && end) return `${job.startTime} – ${end}`;
+  if (job.startTime) return `From ${job.startTime}`;
+  if (job.dueTime) return `Due ${job.dueTime}`;
+  return "Time not set";
+}
+
+/** Quick assign is offered only where it applies: nobody on it and not skipped. */
+export function canQuickAssign(job: Pick<JobListRow, "status" | "cleanSkipStatus">): boolean {
+  return job.status === "UNASSIGNED" && String(job.cleanSkipStatus ?? "") !== "SKIPPED";
+}
+
+export function FlagPills({ job }: { job: JobListRow }) {
+  const hasPayRequest = Array.isArray(job.payAdjustments) && job.payAdjustments.length > 0;
+  const hasDamage = Array.isArray(job.issueTickets) && job.issueTickets.length > 0;
+  const skip = String(job.cleanSkipStatus ?? "");
+  // Server-computed timing-rule chips from /api/jobs (`timingBadges`).
+  const earlyTime = typeof job.timingBadges?.early === "string" ? job.timingBadges.early : "";
+  const lateTime = typeof job.timingBadges?.late === "string" ? job.timingBadges.late : "";
   return (
     <>
       {earlyTime ? <EBadge tone="warning" soft>{`EARLY ${earlyTime}`}</EBadge> : null}
       {lateTime ? <EBadge tone="info" soft>{`LATE ${lateTime}`}</EBadge> : null}
-      {job?.isRework ? <EBadge tone="aubergine" soft>Rework</EBadge> : null}
+      {job.isRework ? <EBadge tone="aubergine" soft>Rework</EBadge> : null}
       {hasPayRequest ? <EBadge tone="info" soft>Pay request</EBadge> : null}
       {hasDamage ? <EBadge tone="danger" soft>Damage</EBadge> : null}
       {skip === "REQUESTED" ? <EBadge tone="warning" soft>Skip requested</EBadge> : null}
@@ -77,15 +111,7 @@ function FlagPills({ job }: { job: any }) {
 }
 
 /** Estate checkbox — a hairline square that fills gold when checked. */
-export function ECheck({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: () => void;
-  label?: string;
-}) {
+export function ECheck({ checked, onChange, label }: { checked: boolean; onChange: () => void; label?: string }) {
   return (
     <button
       type="button"
@@ -112,244 +138,66 @@ export function ECheck({
   );
 }
 
-type RowProps = {
-  columns?: JobsColumns;
-  density?: "compact" | "default" | "comfortable";
-  job: any;
+export type JobsDensityValue = "compact" | "default" | "comfortable";
+
+type BoardCardProps = {
+  job: JobListRow;
+  density?: JobsDensityValue;
   selected: boolean;
+  active?: boolean;
   onToggleSelect: (jobId: string) => void;
-  onQuickAssign: (job: any) => void;
-  onManage?: (job: any) => void;
+  onOpen: (job: JobListRow) => void;
+  onQuickAssign: (job: JobListRow) => void;
+  menuItems: ERowMenuItem[];
+  draggable?: boolean;
+  onDragStart?: (event: DragEvent<HTMLElement>, job: JobListRow) => void;
 };
 
-/** Container queries keep the property readable when the sidebar narrows the list. */
-export function EJobRow({ job, selected, onToggleSelect, onQuickAssign, onManage, density = "default", columns = DEFAULT_JOBS_COLUMNS }: RowProps) {
-  const router = useRouter();
+/** Board card — the same facts as a row, compact. Opens the peek panel. */
+export function EBoardCard({ job, density = "default", selected, active = false, onToggleSelect, onOpen, onQuickAssign, menuItems, draggable = false, onDragStart }: BoardCardProps) {
   const cleaners = assignmentNames(job);
-  const clientName = job?.property?.client?.name ?? job?.client?.name ?? "—";
-  const money = moneyLabel(job);
-  const status = String(job?.status ?? "");
-  const propertyName = job?.property?.name ?? "Unknown property";
-  const cleanerLabel = cleaners.length > 0 ? cleaners.join(", ") : "";
-  const tracks = ["18px", "minmax(14rem, 1fr)",
-    ...(columns.client ? ["minmax(6rem, .65fr)"] : []),
-    ...(columns.cleaner ? ["minmax(6rem, .65fr)"] : []),
-    ...(columns.schedule ? ["6rem"] : []), "minmax(5rem, 8rem)", "10rem"].join(" ");
-
+  const status = String(job.status ?? "");
+  const propertyName = job.property?.name ?? "Unknown property";
+  const padding = density === "compact" ? "p-2.5" : density === "comfortable" ? "p-5" : "p-3.5";
   return (
-    <div className="e-job-row-container">
-    <div
-      role="link"
-      tabIndex={0}
-      style={{ ...statusBlockStyle(status), "--jobs-row-columns": tracks } as CSSProperties}
-      onClick={() => router.push(`/v2/admin/jobs/${job.id}`)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && event.target === event.currentTarget) router.push(`/v2/admin/jobs/${job.id}`);
-      }}
-      className={
-        "e-job-row group grid cursor-pointer items-start gap-x-4 gap-y-2 px-4 " +
-        (density === "compact" ? "py-2 " : density === "comfortable" ? "py-5 " : "py-3 ") +
-        "transition-colors duration-[160ms] hover:bg-[hsl(var(--e-muted)/0.6)]"
-      }
-    >
-      <ECheck
-        checked={selected}
-        onChange={() => onToggleSelect(job.id)}
-        label={`Select ${propertyName}`}
-      />
-
-      {/* Property — the identifier, so it gets the room and never truncates */}
-      <div className="e-job-row-property min-w-0">
-        <span className="float-left mr-3 mb-1"><JobStatusIcon status={status} /></span>
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <p className="e-serif text-[1rem] font-[520] leading-snug [overflow-wrap:anywhere]">
-            {propertyName}
-          </p>
-          {job?.jobNumber ? (
-            <span className="e-tnum min-w-0 break-all text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-              {job.jobNumber}
-            </span>
-          ) : null}
-        </div>
-        <p className="mt-0.5 truncate text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-          {[job?.property?.suburb, String(job?.jobType ?? "").replace(/_/g, " ").toLowerCase()]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
-
-        {/* Mobile carries what the desktop columns show */}
-        {columns.client || columns.cleaner || columns.schedule ? <div className="e-job-row-summary mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.75rem]">
-          {columns.schedule ? <span data-job-column="schedule" className="inline-flex items-center gap-1 rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-muted))] px-1.5 py-0.5 text-[hsl(var(--e-text-secondary))]">
-            <CalendarDays className="h-3 w-3 shrink-0 text-[hsl(var(--e-text-faint))]" aria-hidden />
-            <span className="e-tnum">{scheduledLabel(job?.scheduledDate)}</span>
-            {job?.startTime ? (
-              <span className="e-tnum text-[hsl(var(--e-text-faint))]">· {job.startTime}</span>
-            ) : null}
-          </span> : null}
-          {columns.cleaner ? <span data-job-column="cleaner" className="inline-flex min-w-0 items-center gap-1 text-[hsl(var(--e-text-secondary))]">
-            <UserRound className="h-3 w-3 shrink-0 text-[hsl(var(--e-text-faint))]" aria-hidden />
-            <span className="truncate" title={cleanerLabel || undefined}>
-              {cleanerLabel || (
-                <span className="text-[hsl(var(--e-text-faint))]">Unassigned</span>
-              )}
-            </span>
-          </span> : null}
-          {columns.client ? <span data-job-column="client" className="truncate text-[hsl(var(--e-text-faint))]" title={clientName}>
-            {clientName}
-          </span> : null}
-          {money && columns.schedule ? (
-            <span className="e-numeral text-[hsl(var(--e-text-secondary))]">{money}</span>
-          ) : null}
-        </div> : null}
-        {money && !columns.schedule ? <p className="e-numeral mt-1 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{money}</p> : null}
-
-        <div className="mt-1 flex flex-wrap gap-1.5 empty:hidden">
-          <FlagPills job={job} />
-        </div>
-      </div>
-
-      {/* Client */}
-      {columns.client ? <div data-job-column="client" className="e-job-row-detail min-w-0">
-        <p className="e-eyebrow text-[0.5625rem]">Client</p>
-        <p
-          className="truncate text-[0.8125rem] text-[hsl(var(--e-text-secondary))]"
-          title={clientName}
-        >
-          {clientName}
-        </p>
-      </div> : null}
-
-      {/* Cleaner */}
-      {columns.cleaner ? <div data-job-column="cleaner" className="e-job-row-detail min-w-0">
-        <p className="e-eyebrow text-[0.5625rem]">Cleaner</p>
-        <p
-          className="flex items-center gap-1.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]"
-          title={cleanerLabel || undefined}
-        >
-          <UserRound className="h-3 w-3 shrink-0 text-[hsl(var(--e-text-faint))]" />
-          <span className="truncate">
-            {cleanerLabel || (
-              <span className="text-[hsl(var(--e-text-faint))]">Unassigned</span>
-            )}
-          </span>
-        </p>
-      </div> : null}
-
-      {/* Schedule shares its desktop track with price. */}
-      {columns.schedule ? <div data-job-column="schedule" className="e-job-row-detail min-w-0 text-right">
-        <p className="e-tnum text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-          {scheduledLabel(job?.scheduledDate)}
-        </p>
-        <p className="e-tnum text-[0.75rem] text-[hsl(var(--e-text-faint))]">
-          {job?.startTime ?? "—"}
-        </p>
-        {money ? (
-          <p className="e-numeral mt-0.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-            {money}
-          </p>
-        ) : null}
-      </div> : null}
-
-      {/* Status */}
-      <div className="e-job-row-status min-w-0">
-        <EBadge tone={statusTone(status)} soft>
-          {statusLabel(status)}
-        </EBadge>
-      </div>
-
-      {/* Actions — reserved width so the row does not reflow on hover */}
-      <div
-        className="e-job-row-actions flex min-w-0 flex-wrap items-center justify-end gap-2"
-        onClick={(event) => event.stopPropagation()}
-      >
-        {status === "UNASSIGNED" && String(job?.cleanSkipStatus ?? "") !== "SKIPPED" ? (
-          <EButton size="sm" variant="outline-gold" onClick={() => onQuickAssign(job)}>
-            <UserRoundPlus className="h-3.5 w-3.5" />
-            Assign
-          </EButton>
-        ) : null}
-        {onManage ? (
-          <EButton
-            size="sm"
-            variant="ghost"
-            aria-label={`Manage ${propertyName}`}
-            onClick={() => onManage(job)}
-          >
-            <Settings2 className="h-3.5 w-3.5" />
-            Manage
-          </EButton>
-        ) : null}
-        <EButton
-          size="sm"
-          variant="ghost"
-          onClick={() => router.push(`/v2/admin/jobs/${job.id}`)}
-        >
-          Open
-        </EButton>
-      </div>
-    </div>
-    </div>
-  );
-}
-
-/** Board card — compact ceremony of the same facts. */
-export function EBoardCard({ job, selected, onToggleSelect, onQuickAssign, onManage, density = "default" }: RowProps) {
-  const router = useRouter();
-  const cleaners = assignmentNames(job);
-  const money = moneyLabel(job);
-  const status = String(job?.status ?? "");
-
-  return (
-    <div
-      role="link"
-      tabIndex={0}
-      onClick={() => router.push(`/v2/admin/jobs/${job.id}`)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && event.target === event.currentTarget) router.push(`/v2/admin/jobs/${job.id}`);
-      }}
-      style={statusBlockStyle(String(job.status ?? ""))}
-      className={"cursor-pointer rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] transition-shadow duration-[160ms] hover:shadow-[var(--e-elevation-2)] " +
-        (density === "compact" ? "p-2.5" : density === "comfortable" ? "p-5" : "p-3.5")}
+    <article
+      draggable={draggable}
+      onDragStart={draggable && onDragStart ? (event) => onDragStart(event, job) : undefined}
+      data-active={active || undefined}
+      style={statusBlockStyle(status)}
+      className={`rounded-[var(--e-radius)] border bg-[hsl(var(--e-surface))] ${padding} ${active ? "border-[hsl(var(--e-primary))]" : "border-[hsl(var(--e-border))]"}`}
     >
       <div className="flex items-start justify-between gap-2">
         <JobStatusIcon status={status} />
-        <p className="e-serif min-w-0 truncate text-[0.9375rem] font-[520] leading-snug">
-          {job?.property?.name ?? "Unknown property"}
-        </p>
-        <ECheck checked={selected} onChange={() => onToggleSelect(job.id)} label={`Select ${job?.property?.name ?? "job"}`} />
+        <button
+          type="button"
+          onClick={() => onOpen(job)}
+          className="e-serif min-w-0 flex-1 truncate text-left text-[0.9375rem] font-[520] leading-snug hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]"
+        >
+          <span className="sr-only">Preview </span>{propertyName}
+        </button>
+        <ECheck checked={selected} onChange={() => onToggleSelect(job.id)} label={`Select ${propertyName}`} />
       </div>
       <p className="mt-0.5 truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-        {[job?.property?.suburb, job?.property?.client?.name ?? job?.client?.name].filter(Boolean).join(" · ")}
+        {[job.property?.suburb, job.property?.client?.name].filter(Boolean).join(" · ")}
       </p>
-      <div className="mt-2.5 flex items-center justify-between gap-2">
-        <p className="e-tnum text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
-          {scheduledLabel(job?.scheduledDate, "dd MMM")}
-          {job?.startTime ? ` · ${job.startTime}` : ""}
-        </p>
-        {money ? <p className="e-numeral text-[0.875rem]">{money}</p> : null}
-      </div>
+      <p className="e-tnum mt-2 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+        {scheduledLabel(job.scheduledDate, "dd MMM")} · {timeWindowLabel(job)}
+      </p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <EBadge tone={statusTone(status)} soft>{statusLabel(status)}</EBadge>
+        <JobStatusPill status={status} />
         <FlagPills job={job} />
       </div>
       <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-[hsl(var(--e-border))] pt-2.5">
         <p className="flex min-w-0 items-center gap-1.5 truncate text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
-          <UserRound className="h-3 w-3 shrink-0 text-[hsl(var(--e-text-faint))]" />
+          <UserRound aria-hidden className="h-3 w-3 shrink-0 text-[hsl(var(--e-text-faint))]" />
           {cleaners.length > 0 ? cleaners.join(", ") : <span className="text-[hsl(var(--e-text-faint))]">Unassigned</span>}
         </p>
-        <span className="flex items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
-          {onManage ? (
-            <EButton size="sm" variant="ghost" aria-label={`Manage ${job?.property?.name ?? "job"}`} onClick={() => onManage(job)}>
-              <Settings2 className="h-3.5 w-3.5" />
-            </EButton>
-          ) : null}
-          {status === "UNASSIGNED" && String(job?.cleanSkipStatus ?? "") !== "SKIPPED" ? (
-            <EButton size="sm" variant="outline-gold" onClick={() => onQuickAssign(job)}>
-              Assign
-            </EButton>
-          ) : null}
+        <span className="flex items-center gap-1">
+          {canQuickAssign(job) ? <EButton size="sm" variant="outline" onClick={() => onQuickAssign(job)}>Assign</EButton> : null}
+          <ERowMenu label={`More actions for ${propertyName}`} items={menuItems} />
         </span>
       </div>
-    </div>
+    </article>
   );
 }

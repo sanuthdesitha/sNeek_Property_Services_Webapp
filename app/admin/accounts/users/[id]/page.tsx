@@ -35,6 +35,7 @@ import { getUserExtendedProfile } from "@/lib/accounts/user-details";
 import { formatBirthday } from "@/lib/accounts/overview";
 import { EditableStaffNotes } from "@/components/accounts/editable-staff-notes";
 import { StaffJobsTrend } from "@/components/accounts/staff-jobs-trend";
+import { currentHourlyRates } from "@/lib/accounts/pay-rate-history";
 
 export const dynamic = "force-dynamic";
 
@@ -85,8 +86,10 @@ export default async function StaffSummaryPage({ params }: { params: { id: strin
 
   const isFieldRole = user.role === Role.CLEANER || user.role === Role.QA_INSPECTOR;
 
+  // The rate in force today (effective-dated history); edited only in the one Pay editor.
+  const currentRate = (await currentHourlyRates([user])).get(user.id) ?? null;
   const [summary, extended, perf] = await Promise.all([
-    getUserSummary(user.id, user.hourlyRate),
+    getUserSummary(user.id, currentRate),
     getUserExtendedProfile(user.id),
     isFieldRole ? getPerformanceMetrics(user.id, 30) : Promise.resolve(null),
   ]);
@@ -188,12 +191,15 @@ export default async function StaffSummaryPage({ params }: { params: { id: strin
                   <CalendarClock className="h-3.5 w-3.5" />
                   {user.hireDate ? "Hired" : "Joined"} {hireDate.toLocaleDateString("en-AU")}
                 </span>
-                {user.hourlyRate != null ? (
+                {currentRate != null ? (
                   <span className="inline-flex items-center gap-1">
                     <Wallet className="h-3.5 w-3.5" />
-                    {fmtMoney.format(user.hourlyRate)}/hr
+                    {fmtMoney.format(currentRate)}/hr
                   </span>
                 ) : null}
+                <Link href={`/v2/admin/accounts/users/${user.id}`} className="underline underline-offset-2">
+                  Change pay rate
+                </Link>
               </div>
             </div>
           </div>

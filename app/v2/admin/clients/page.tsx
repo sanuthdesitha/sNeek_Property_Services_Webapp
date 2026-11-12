@@ -132,7 +132,6 @@ export default async function AdminClientsPage() {
           )}
         </ECardBody>
       </ECard>
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · live data from your workspace.</p>
     </div>
   );
 }

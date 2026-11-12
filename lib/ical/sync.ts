@@ -108,7 +108,8 @@ export type IcalSyncSummary = {
   warnings: string[];
 };
 
-const TERMINAL_SYNC_JOB_STATUSES = new Set(["COMPLETED", "INVOICED"]);
+// Cancelled (Wave E) is the office's decision: the feed never updates or revives it.
+const TERMINAL_SYNC_JOB_STATUSES = new Set(["COMPLETED", "INVOICED", "CANCELLED"]);
 
 export interface SyncPropertyIcalOptions {
   triggeredById?: string | null;

@@ -153,8 +153,9 @@ async function buildDocumentEmail(clientId: string, docType: DocumentType, targe
       clientName: invoice.client.name,
       invoiceNumber: invoice.invoiceNumber,
       totalAmount: invoice.totalAmount.toFixed(2),
-      actionLabel: "View invoice",
-      actionUrl: resolveAppUrl("/client/finance"),
+      actionLabel: invoice.kind === "CREDIT_NOTE" ? "View credit note" : "View invoice",
+      // The current client-facing page for this invoice.
+      actionUrl: resolveAppUrl(`/v2/client/finance/invoices/${encodeURIComponent(invoice.id)}`),
     });
     return {
       ok: recipients.length > 0,

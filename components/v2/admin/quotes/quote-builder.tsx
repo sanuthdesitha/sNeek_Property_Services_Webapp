@@ -34,6 +34,7 @@ import { calculateGstBreakdown, getGstDisplayLabel } from "@/lib/pricing/gst";
 import { EXTRAS_BY_CATEGORY, EXTRAS_BY_ID } from "@/lib/pricing/extras-catalog";
 import type { PricingSelections, PricingVariable } from "@/lib/pricing/variables";
 import type { ServiceChecklist } from "@/lib/checklists/types";
+import type { CaseQuotePrefill } from "@/lib/cases/repair-quote";
 import {
   EButton,
   ECard,
@@ -185,6 +186,8 @@ interface QuoteBuilderProps {
   /** When present, the builder loads in "edit" mode: all state is seeded from
    *  this quote and the primary action becomes "Save changes" (PATCH). */
   editQuote?: QuoteEditSeed;
+  /** Cases "Create repair quote": read on the server from the case. Create mode only. */
+  casePrefill?: CaseQuotePrefill;
 }
 
 /** Pull + parse the [[META:{…}]] JSON block out of stored quote notes. */
@@ -350,7 +353,10 @@ export function QuoteBuilder({
   gstEnabled,
   pricingVariables = [],
   editQuote,
+  casePrefill: casePrefillProp,
 }: QuoteBuilderProps) {
+  // A case prefill only seeds a new quote; editing never re-applies it.
+  const casePrefill = editQuote ? undefined : casePrefillProp;
   const router = useRouter();
 
   const isEdit = Boolean(editQuote);
@@ -359,7 +365,7 @@ export function QuoteBuilder({
   const seed = useMemo(() => (editQuote ? buildEditSeed(editQuote, pricingVariables) : null), []);
 
   const [recipientMode, setRecipientMode] = useState<RecipientMode>(seed?.recipientMode ?? "client");
-  const [clientId, setClientId] = useState(seed?.clientId ?? "");
+  const [clientId, setClientId] = useState(seed?.clientId ?? casePrefill?.client?.id ?? "");
   const [leadId, setLeadId] = useState(seed?.leadId ?? "");
   const [newLead, setNewLead] = useState({ name: "", email: "", phone: "", suburb: "" });
 
@@ -367,8 +373,8 @@ export function QuoteBuilder({
     seed?.serviceType ?? services[0]?.jobType ?? "AIRBNB_TURNOVER",
   );
   const [frequency, setFrequency] = useState<string>(seed?.frequency ?? "one_off");
-  const [serviceAddress, setServiceAddress] = useState(seed?.serviceAddress ?? "");
-  const [serviceSuburb, setServiceSuburb] = useState(seed?.serviceSuburb ?? "");
+  const [serviceAddress, setServiceAddress] = useState(seed?.serviceAddress ?? casePrefill?.property?.address ?? "");
+  const [serviceSuburb, setServiceSuburb] = useState(seed?.serviceSuburb ?? casePrefill?.property?.suburb ?? "");
   const [bedrooms, setBedrooms] = useState(seed?.bedrooms ?? "2");
   const [bathrooms, setBathrooms] = useState(seed?.bathrooms ?? "1");
   const [sqm, setSqm] = useState(seed?.sqm ?? "50");
@@ -395,12 +401,12 @@ export function QuoteBuilder({
   const [manualDiscountInput, setManualDiscountInput] = useState("");
   const [discountBusy, setDiscountBusy] = useState(false);
   const [pricing, setPricing] = useState(false);
-  const [notes, setNotes] = useState(seed?.notes ?? "");
-  // In edit mode the seeded prose notes must survive (don't let auto-draft run).
-  const [notesTouched, setNotesTouched] = useState(isEdit);
+  const [notes, setNotes] = useState(seed?.notes ?? casePrefill?.description ?? "");
+  // In edit mode (and from a case) the seeded prose notes must survive (don't let auto-draft run).
+  const [notesTouched, setNotesTouched] = useState(isEdit || Boolean(casePrefill));
   const [validUntilDate, setValidUntilDate] = useState(seed?.validUntilDate ?? "");
   // Editable presentation overrides (persisted in the notes [[META]] block).
-  const [quoteHeading, setQuoteHeading] = useState(seed?.quoteHeading ?? "");
+  const [quoteHeading, setQuoteHeading] = useState(seed?.quoteHeading ?? casePrefill?.title ?? "");
   const [emailSubject, setEmailSubject] = useState(seed?.emailSubject ?? "");
   const [emailMessage, setEmailMessage] = useState(seed?.emailMessage ?? "");
   const [saving, setSaving] = useState(false);
@@ -448,7 +454,7 @@ export function QuoteBuilder({
   }, [pricingVariables, variableChoices, variableCustom, variableNumbers]);
 
   // ── Client reference photos ───────────────────────────────────────────────
-  const [refImages, setRefImages] = useState<ReferenceImage[]>(seed?.refImages ?? []);
+  const [refImages, setRefImages] = useState<ReferenceImage[]>(seed?.refImages ?? casePrefill?.referenceImages ?? []);
   const [uploadingRefs, setUploadingRefs] = useState(false);
   const refFileInput = useRef<HTMLInputElement | null>(null);
 
@@ -996,6 +1002,7 @@ export function QuoteBuilder({
       notes:
         [notes.trim(), `[[META:${JSON.stringify(buildMeta())}]]`].filter(Boolean).join("\n") || undefined,
       validUntil: validUntilDate ? new Date(`${validUntilDate}T23:59:59`).toISOString() : undefined,
+      fromCaseId: casePrefill?.caseId,
     };
   }
 
@@ -1025,7 +1032,7 @@ export function QuoteBuilder({
       // Recipient is irrelevant to the rendered preview (the endpoint renders
       // client/lead as empty), so strip it — this also allows previewing
       // before a recipient is chosen.
-      const { clientId: _c, leadId: _l, newLead: _n, ...payload } = buildPayload();
+      const { clientId: _c, leadId: _l, newLead: _n, fromCaseId: _f, ...payload } = buildPayload();
       const res = await fetch("/api/admin/quotes/preview-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1228,6 +1235,13 @@ export function QuoteBuilder({
 
   return (
     <div className="space-y-6">
+      {casePrefill ? (
+        <p role="note" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]">
+          From case <a className="font-[600] text-[hsl(var(--e-primary))] hover:underline" href={`/v2/admin/cases?open=${encodeURIComponent(casePrefill.caseId)}`}>{casePrefill.caseTitle}</a>:{" "}
+          {[casePrefill.client ? "client" : null, casePrefill.property ? "service address" : null, "title", "description", casePrefill.referenceImages.length ? `${casePrefill.referenceImages.length} reference photo${casePrefill.referenceImages.length === 1 ? "" : "s"}` : null].filter(Boolean).join(", ")} filled in.
+          {" "}Nothing is sent to the client until you choose to send it.
+        </p>
+      ) : null}
       {/* Inline draft preview — exact render the recipient will receive */}
       <EModal open={Boolean(previewUrl)} onClose={closePreview} eyebrow="Quotes" title="Quote preview" size="full">
         {previewUrl ? (

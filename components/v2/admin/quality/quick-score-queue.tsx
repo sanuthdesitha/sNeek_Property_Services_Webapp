@@ -6,9 +6,13 @@
 //
 // Jobs WITH a real inspection never appear here: that score stands and the job
 // is completed on its authority (lib/qa/authority.ts).
+//
+// The list is the whole queue for the hub's property/search filters (up to the
+// API's 200 oldest), so sorting it here re-orders a complete set, not a page.
+// A newer read cancels an older one; score edits and the selection survive a
+// re-sort but reset when the filters change.
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, Info, Loader2 } from "lucide-react";
 import { EBadge, EButton, ECard, ECardBody, ECardHeader, ECardTitle } from "@/components/v2/ui/primitives";
@@ -28,39 +32,97 @@ type AwaitingJob = {
   hoursSinceSubmission: number | null;
   suggestion: { score: number; factors: Factor[]; summary: string; clean: boolean };
 };
+type AwaitingPayload = {
+  jobs: AwaitingJob[];
+  limit?: number;
+  threshold?: number;
+  autoScore?: { enabled: boolean; afterHours: number } | null;
+};
 
-export function QuickScoreQueue() {
-  const router = useRouter();
+const SORTS = [
+  { key: "scheduled", label: "Oldest clean first" },
+  { key: "waiting", label: "Waiting longest" },
+  { key: "property", label: "Property" },
+  { key: "score-asc", label: "Lowest suggested score" },
+  { key: "score-desc", label: "Highest suggested score" },
+] as const;
+type QueueSort = (typeof SORTS)[number]["key"];
+
+function sortJobs(jobs: AwaitingJob[], sort: QueueSort): AwaitingJob[] {
+  const copy = [...jobs];
+  switch (sort) {
+    case "property":
+      return copy.sort((a, b) => a.propertyName.localeCompare(b.propertyName) || a.jobNumber.localeCompare(b.jobNumber));
+    case "score-asc":
+      return copy.sort((a, b) => a.suggestion.score - b.suggestion.score);
+    case "score-desc":
+      return copy.sort((a, b) => b.suggestion.score - a.suggestion.score);
+    case "waiting":
+      return copy.sort((a, b) => (b.hoursSinceSubmission ?? -1) - (a.hoursSinceSubmission ?? -1));
+    default:
+      // The API's own order: scheduled date, oldest first.
+      return copy;
+  }
+}
+
+function isPayload(body: unknown): body is AwaitingPayload {
+  return Boolean(body) && typeof body === "object" && Array.isArray((body as AwaitingPayload).jobs);
+}
+
+export function QuickScoreQueue({
+  filterQuery = "",
+  totalCandidates = null,
+  onScored,
+}: {
+  /** Hub property / search filters as a query string. */
+  filterQuery?: string;
+  /** Real count of candidates for these filters, when known (the list stops at the API limit). */
+  totalCandidates?: number | null;
+  onScored?: () => void;
+}) {
   const [jobs, setJobs] = React.useState<AwaitingJob[]>([]);
+  const [limit, setLimit] = React.useState<number | null>(null);
   const [threshold, setThreshold] = React.useState(80);
   const [autoScore, setAutoScore] = React.useState<{ enabled: boolean; afterHours: number } | null>(null);
   const [scores, setScores] = React.useState<Record<string, number>>({});
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
+  const [sort, setSort] = React.useState<QueueSort>("scheduled");
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
-
-  const load = React.useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin/qa/awaiting", { cache: "no-store" });
-      if (!res.ok) return;
-      const body = await res.json();
-      const rows: AwaitingJob[] = body.jobs ?? [];
-      setJobs(rows);
-      setThreshold(body.threshold ?? 80);
-      setAutoScore(body.autoScore ?? null);
-      // Pre-fill every row with its suggestion — the admin only touches the
-      // ones they disagree with, which is the whole point of the queue.
-      setScores(Object.fromEntries(rows.map((r) => [r.jobId, r.suggestion.score])));
-      setSelected(new Set(rows.map((r) => r.jobId)));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [token, setToken] = React.useState(0);
 
   React.useEffect(() => {
-    void load();
-  }, [load]);
+    const controller = new AbortController();
+    setLoading(true);
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/qa/awaiting${filterQuery ? `?${filterQuery}` : ""}`, { cache: "no-store", signal: controller.signal });
+        const body: unknown = await res.json().catch(() => null);
+        if (controller.signal.aborted) return;
+        if (!res.ok || !isPayload(body)) {
+          setError("The quick-score queue could not be loaded.");
+          return;
+        }
+        setError(null);
+        setJobs(body.jobs);
+        setLimit(typeof body.limit === "number" ? body.limit : null);
+        setThreshold(body.threshold ?? 80);
+        setAutoScore(body.autoScore ?? null);
+        // Pre-fill every row with its suggestion — the admin only touches the
+        // ones they disagree with, which is the whole point of the queue.
+        setScores(Object.fromEntries(body.jobs.map((row) => [row.jobId, row.suggestion.score])));
+        setSelected(new Set(body.jobs.map((row) => row.jobId)));
+      } catch {
+        if (!controller.signal.aborted) setError("The quick-score queue could not be loaded.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [filterQuery, token]);
+
+  const sorted = React.useMemo(() => sortJobs(jobs, sort), [jobs, sort]);
 
   function toggle(jobId: string) {
     setSelected((prev) => {
@@ -86,62 +148,88 @@ export function QuickScoreQueue() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items }),
       });
-      const body = await res.json().catch(() => ({}));
+      const body = (await res.json().catch(() => ({}))) as { error?: string; applied?: number; passed?: number; skipped?: unknown[] };
       if (!res.ok) {
-        toast({
-          title: "Bulk score failed",
-          description: body.error ?? "Could not apply scores.",
-          variant: "destructive",
-        });
+        toast({ title: "Bulk score failed", description: body.error ?? "Could not apply scores.", variant: "destructive" });
         return;
       }
       const skipped = Array.isArray(body.skipped) ? body.skipped.filter(Boolean).length : 0;
       toast({
         title: `${body.applied} job${body.applied === 1 ? "" : "s"} scored`,
-        description: `${body.passed} marked completed.${
-          skipped > 0 ? ` ${skipped} skipped (already inspected or not scoreable).` : ""
-        }`,
+        description: `${body.passed} marked completed.${skipped > 0 ? ` ${skipped} skipped (already inspected or not scoreable).` : ""}`,
       });
-      await load();
-      router.refresh();
+      setToken((value) => value + 1);
+      onScored?.();
     } finally {
       setBusy(false);
     }
   }
 
   const selectedCount = selected.size;
+  const capped = limit !== null && totalCandidates !== null && totalCandidates > jobs.length;
 
   return (
     <ECard className="min-w-0">
-      <ECardHeader className="flex-row items-start justify-between gap-3 pb-2">
+      <ECardHeader className="flex-row flex-wrap items-start justify-between gap-3 pb-2">
         <div className="min-w-0">
           <ECardTitle className="flex flex-wrap items-center gap-2 text-[0.95rem]">
-            <CheckCircle2 className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Awaiting QA — quick score
+            <CheckCircle2 aria-hidden className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Awaiting QA — quick score
             {jobs.length > 0 ? <EBadge tone="warning" soft>{jobs.length}</EBadge> : null}
           </ECardTitle>
           <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-            Submitted jobs with no QA inspection. Scores are suggested from the submission — adjust
-            any you disagree with, then approve.
-            {autoScore?.enabled
-              ? ` Anything left is auto-scored after ${autoScore.afterHours}h.`
-              : " Auto-scoring is off."}
+            Submitted jobs with no QA inspection. Scores are suggested from the submission — adjust any you disagree with, then approve.
+            {autoScore?.enabled ? ` Anything left is auto-scored after ${autoScore.afterHours}h.` : " Auto-scoring is off."}
           </p>
+          {capped ? (
+            <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-warning))]">{`Showing the ${jobs.length} oldest of ${totalCandidates}. Approve these to see the rest.`}</p>
+          ) : null}
         </div>
         <EButton size="sm" variant="gold" onClick={() => void approveSelected()} disabled={busy || selectedCount === 0}>
-          {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+          {busy ? <Loader2 aria-hidden className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
           Approve {selectedCount > 0 ? selectedCount : ""}
         </EButton>
       </ECardHeader>
       <ECardBody className="pt-0">
-        {loading ? (
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Loading…</p>
-        ) : jobs.length === 0 ? (
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            Nothing waiting — every submitted job has a QA outcome.
+        {jobs.length > 0 ? (
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-[0.75rem]">
+            <EButton size="sm" variant="outline" disabled={busy} onClick={() => setSelected(new Set(jobs.map((job) => job.jobId)))}>
+              Select all
+            </EButton>
+            <EButton size="sm" variant="outline" disabled={busy || selectedCount === 0} onClick={() => setSelected(new Set())}>
+              Clear
+            </EButton>
+            <label className="ml-auto inline-flex items-center gap-1.5 text-[hsl(var(--e-text-secondary))]">
+              Sort
+              <select
+                value={sort}
+                onChange={(event) => setSort(event.target.value as QueueSort)}
+                className="h-8 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-2 text-[0.75rem]"
+              >
+                {SORTS.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
+        {error ? (
+          <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">
+            {jobs.length > 0 ? "Showing the last loaded queue. " : ""}
+            {error}{" "}
+            <button type="button" className="underline" onClick={() => setToken((value) => value + 1)}>
+              Try again
+            </button>
           </p>
+        ) : null}
+        {loading && jobs.length === 0 ? (
+          <p role="status" className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Loading…</p>
+        ) : !error && jobs.length === 0 ? (
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Nothing waiting — every submitted job has a QA outcome.</p>
         ) : (
-          <ul className="divide-y divide-[hsl(var(--e-border))]">
-            {jobs.map((job) => {
+          <ul className="divide-y divide-[hsl(var(--e-border))]" aria-busy={loading || undefined}>
+            {sorted.map((job) => {
               const score = scores[job.jobId] ?? job.suggestion.score;
               const wouldPass = score >= threshold;
               return (
@@ -156,16 +244,11 @@ export function QuickScoreQueue() {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Link
-                        href={`/v2/admin/jobs/${job.jobId}?tab=forms`}
-                        className="text-[0.875rem] font-[600] text-[hsl(var(--e-accent-portal))] hover:underline"
-                      >
+                      <Link href={`/v2/admin/jobs/${job.jobId}?tab=forms`} className="text-[0.875rem] font-[600] text-[hsl(var(--e-accent-portal))] hover:underline">
                         {job.jobNumber}
                       </Link>
                       <span className="text-[0.8125rem]">{job.propertyName}</span>
-                      {job.suburb ? (
-                        <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{job.suburb}</span>
-                      ) : null}
+                      {job.suburb ? <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{job.suburb}</span> : null}
                       {job.hoursSinceSubmission != null ? (
                         <EBadge tone={job.hoursSinceSubmission >= 24 ? "warning" : "info"} soft>
                           {job.hoursSinceSubmission}h ago
@@ -176,14 +259,8 @@ export function QuickScoreQueue() {
                       {job.jobTypeLabel}
                       {job.cleanerNames.length ? ` · ${job.cleanerNames.join(", ")}` : ""}
                     </p>
-                    <p
-                      className={
-                        job.suggestion.clean
-                          ? "mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]"
-                          : "mt-1 text-[0.75rem] text-[hsl(var(--e-warning))]"
-                      }
-                    >
-                      <Info className="mr-1 inline h-3 w-3" />
+                    <p className={job.suggestion.clean ? "mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]" : "mt-1 text-[0.75rem] text-[hsl(var(--e-warning))]"}>
+                      <Info aria-hidden className="mr-1 inline h-3 w-3" />
                       {job.suggestion.summary}
                     </p>
                   </div>
@@ -195,12 +272,7 @@ export function QuickScoreQueue() {
                       value={score}
                       disabled={busy}
                       className="h-8 w-20"
-                      onChange={(e) =>
-                        setScores((prev) => ({
-                          ...prev,
-                          [job.jobId]: Math.max(0, Math.min(100, Number(e.target.value))),
-                        }))
-                      }
+                      onChange={(e) => setScores((prev) => ({ ...prev, [job.jobId]: Math.max(0, Math.min(100, Number(e.target.value))) }))}
                       aria-label={`Score for ${job.jobNumber}`}
                     />
                     <EBadge tone={wouldPass ? "success" : "danger"} soft>

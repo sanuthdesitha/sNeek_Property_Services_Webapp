@@ -65,7 +65,7 @@ export async function listQaOutcomeApprovals(limit = 100): Promise<QaOutcomeAppr
         },
       },
       reworkChildren: {
-        where: { status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] } },
+        where: { status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED, JobStatus.CANCELLED] } },
         select: { id: true },
         take: 1,
       },

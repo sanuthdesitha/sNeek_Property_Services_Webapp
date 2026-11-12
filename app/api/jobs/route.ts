@@ -9,228 +9,21 @@ import { parseJobInternalNotes } from "@/lib/jobs/meta";
 // derivation moved to lib/jobs/timing-badges.ts when the cleaner's own list
 // needed the same pills (2026-08).
 import { withTimingBadges } from "@/lib/jobs/timing-badges";
-import { Role, JobStatus, JobType, PayAdjustmentStatus } from "@prisma/client";
+import { Role, JobStatus } from "@prisma/client";
+import { isListQueryError } from "@/lib/admin/list-query";
+import { buildJobsWhere, isJobsFilterError, parseIdList, parseStatusList, readJobsFilterParams } from "@/lib/jobs/list-filters";
+import { buildJobsOrderBy, readJobsListOrder, readLegacyJobsOrder } from "@/lib/jobs/list-sort";
+import { findJobsPage, isJobsSortTooLargeError } from "@/lib/jobs/list-computed-sort";
+import { withListExtras } from "@/lib/jobs/list-row-extras";
+import { loadJobViewCounts } from "@/lib/jobs/view-counts";
+import { JOB_INCLUDE } from "@/lib/jobs/list-include";
 
-function buildWhereClause(params: {
-  status: JobStatus | null;
-  statusGroup: string | null;
-  jobType: JobType | null;
-  propertyId: string | null;
-  clientId: string | null;
-  /** A user id, or "unassigned" for jobs nobody is on. */
-  cleanerId: string | null;
-  date: string | null;
-  dateFrom: string | null;
-  dateTo: string | null;
-  search: string;
-  invoiced: string | null;
-  role: Role;
-  userId: string;
-}) {
-  const completedStatuses: JobStatus[] = [JobStatus.COMPLETED, JobStatus.INVOICED];
-  const where: Record<string, unknown> = {};
-
-  if (params.status) {
-    where.status = params.status;
-  } else if (params.statusGroup === "active") {
-    where.status = { notIn: completedStatuses };
-  } else if (params.statusGroup === "completed") {
-    where.status = { in: completedStatuses };
-  }
-
-  if (params.jobType) where.jobType = params.jobType;
-  if (params.propertyId) where.propertyId = params.propertyId;
-  if (params.clientId) where.property = { clientId: params.clientId };
-
-  if (params.search) {
-    // Prisma contains uses LIKE: treat user-entered wildcards literally.
-    const contains = params.search.replace(/[\\%_]/g, "\\$&");
-    const text = { contains, mode: "insensitive" };
-    where.OR = [
-      { jobNumber: text },
-      { property: { name: text } },
-      { property: { suburb: text } },
-      { property: { client: { name: text } } },
-      { assignments: { some: { removedAt: null, user: { name: text } } } },
-    ];
-  }
-  // Keep invoice alternatives separate from search and the explicit status.
-  if (params.invoiced === "yes") {
-    where.AND = [{ OR: [{ status: JobStatus.INVOICED }, { invoiceLines: { some: {} } }] }];
-  } else if (params.invoiced === "no") {
-    where.AND = [{ status: { not: JobStatus.INVOICED }, invoiceLines: { none: {} } }];
-  }
-
-  // Set before the CLEANER branch below so that branch always wins: a
-  // cleaner may only ever see their own jobs, whatever they pass here.
-  if (params.cleanerId) {
-    where.assignments =
-      params.cleanerId === "unassigned"
-        ? { none: { removedAt: null } }
-        : { some: { userId: params.cleanerId, removedAt: null } };
-  }
-
-  if (params.date) {
-    const d = new Date(params.date);
-    // Ignore an unparseable date rather than passing Invalid Date to Prisma (500).
-    if (!Number.isNaN(d.getTime())) {
-      where.scheduledDate = { gte: d, lt: new Date(d.getTime() + 86400000) };
-    }
-  } else if (params.dateFrom || params.dateTo) {
-    const dateRange: Record<string, Date> = {};
-    if (params.dateFrom) {
-      const from = new Date(`${params.dateFrom}T00:00:00.000Z`);
-      if (!Number.isNaN(from.getTime())) dateRange.gte = from;
-    }
-    if (params.dateTo) {
-      // scheduledDate is a UTC date-only key, independent of the server timezone.
-      const to = new Date(`${params.dateTo}T00:00:00.000Z`);
-      if (!Number.isNaN(to.getTime())) dateRange.lt = new Date(to.getTime() + 86400000);
-    }
-    if (Object.keys(dateRange).length > 0) where.scheduledDate = dateRange;
-  }
-
-  if (params.role === Role.CLEANER) {
-    where.assignments = { some: { userId: params.userId, removedAt: null } };
-    // Skipped cleans are not part of a cleaner's actionable workload.
-    where.cleanSkipStatus = { not: "SKIPPED" };
-  }
-
-  return where;
-}
-
-const JOB_INCLUDE = {
-  property: {
-    select: {
-      name: true,
-      suburb: true,
-      address: true,
-      latitude: true,
-      longitude: true,
-      client: { select: { id: true, name: true, email: true } },
-    },
-  },
-  assignments: {
-    where: { removedAt: null },
-    include: { user: { select: { id: true, name: true } } },
-  },
-  // The job's ACTIVE QA assignment, so a list can offer "assign inspector"
-  // without a second round trip. Cancelled/completed inspections are excluded:
-  // the question these surfaces ask is "who is inspecting this now?".
-  qaAssignments: {
-    where: { status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] as any } },
-    select: {
-      id: true,
-      status: true,
-      assignedToId: true,
-      assignedTo: { select: { id: true, name: true, email: true } },
-    },
-    orderBy: { createdAt: "desc" as const },
-    take: 1,
-  },
-  qaReviews: {
-    // `kind` distinguishes a real review (QA inspection / ADMIN quick score)
-    // from a client rating, so the QA queue can tell "not yet reviewed" from
-    // "reviewed and failed".
-    select: { id: true, score: true, passed: true, createdAt: true, kind: true },
-    orderBy: { createdAt: "desc" as const },
-    take: 1,
-  },
-  report: { select: { id: true } },
-  issueTickets: {
-    where: { caseType: "DAMAGE", status: { not: "RESOLVED" } },
-    select: { id: true, status: true, severity: true, title: true },
-    take: 5,
-  },
-  // Pending extra-pay requests on this job — surfaced so the list can flag jobs
-  // that need a pay decision.
-  payAdjustments: {
-    where: { status: PayAdjustmentStatus.PENDING },
-    select: { id: true },
-    take: 5,
-  },
-  _count: { select: { formSubmissions: true } },
-};
-
-// Supported sort modes for the jobs list/board. "soonest" (default) puts the
-// nearest scheduled date first; the rest map to explicit Prisma orderBy lists.
-type JobSort = "soonest" | "latest" | "created" | "property" | "status";
-
-function buildOrderBy(statusGroup: string | null, sort: JobSort | null) {
-  if (sort === "latest") {
-    return [
-      { scheduledDate: "desc" as const },
-      { priorityBucket: "asc" as const },
-      { dueTime: "desc" as const },
-      { startTime: "desc" as const },
-    ];
-  }
-  if (sort === "created") {
-    return [{ createdAt: "desc" as const }];
-  }
-  if (sort === "property") {
-    return [
-      { property: { name: "asc" as const } },
-      { scheduledDate: "asc" as const },
-    ];
-  }
-  if (sort === "status") {
-    return [
-      { status: "asc" as const },
-      { scheduledDate: "asc" as const },
-    ];
-  }
-  if (sort === "soonest") {
-    return [
-      { scheduledDate: "asc" as const },
-      { priorityBucket: "asc" as const },
-      { dueTime: "asc" as const },
-      { startTime: "asc" as const },
-    ];
-  }
-  // No explicit sort: fall back to the legacy statusGroup-aware default so older
-  // callers keep their previous ordering.
-  if (statusGroup === "completed") {
-    return [
-      { scheduledDate: "desc" as const },
-      { priorityBucket: "asc" as const },
-      { dueTime: "desc" as const },
-      { startTime: "desc" as const },
-    ];
-  }
-  return [
-    { scheduledDate: "asc" as const },
-    { priorityBucket: "asc" as const },
-    { dueTime: "asc" as const },
-    { startTime: "asc" as const },
-  ];
-}
 
 export async function GET(req: NextRequest) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER]);
     const { searchParams } = new URL(req.url);
-
-    const status = searchParams.get("status") as JobStatus | null;
-    const statusGroup = searchParams.get("statusGroup");
-    const jobType = searchParams.get("jobType") as JobType | null;
-    const propertyId = searchParams.get("propertyId");
-    const clientId = searchParams.get("clientId");
-    const cleanerId = searchParams.get("cleanerId");
-    const date = searchParams.get("date");
-    const dateFrom = searchParams.get("dateFrom");
-    const dateTo = searchParams.get("dateTo");
-    const search = (searchParams.get("search") ?? "").slice(0, 200).trim();
-    const invoiced = searchParams.get("invoiced");
-    const rawSort = searchParams.get("sort");
-    const sort: JobSort | null =
-      rawSort === "soonest" ||
-      rawSort === "latest" ||
-      rawSort === "created" ||
-      rawSort === "property" ||
-      rawSort === "status"
-        ? rawSort
-        : null;
+    const filters = readJobsFilterParams(searchParams);
 
     const page = Math.max(1, Math.floor(Number(searchParams.get("page") ?? "1")));
     const limit = Math.min(5000, Math.max(10, Math.floor(Number(searchParams.get("limit") ?? "50"))));
@@ -240,39 +33,43 @@ export async function GET(req: NextRequest) {
     // longer required — the page now filters by explicit `status` + date params.
     const paginated = searchParams.get("paginated");
     const wantsPaginatedPayload =
-      role !== Role.CLEANER && (Boolean(statusGroup) || paginated === "1" || paginated === "true");
-
-    const where = buildWhereClause({
-      status,
-      statusGroup,
-      jobType,
-      propertyId,
-      clientId,
-      cleanerId,
-      date,
-      dateFrom,
-      dateTo,
-      search,
-      invoiced,
-      role,
-      userId: session.user.id,
-    });
-
-    const orderBy = buildOrderBy(statusGroup, sort);
+      role !== Role.CLEANER && (Boolean(filters.statusGroup) || paginated === "1" || paginated === "true");
 
     if (wantsPaginatedPayload) {
-      const [totalCount, jobs] = await Promise.all([
+      // The paginated list is strict: an unknown status, selection or sort is
+      // refused (400) rather than silently widened to every job or reordered.
+      const status = parseStatusList(searchParams.get("status"));
+      const ids = parseIdList(searchParams.get("ids"));
+      // Cleaner, Guest in and Charge are ordered over the whole filtered set
+      // before paging (`list-computed-sort.ts`); the rest are Prisma orders.
+      const order = readJobsListOrder(searchParams);
+      const where = buildJobsWhere({ ...filters, status, ids, role, userId: session.user.id });
+      const [totalCount, counts] = await Promise.all([
         db.job.count({ where }),
-        db.job.findMany({ where, include: JOB_INCLUDE, orderBy, skip: (page - 1) * limit, take: limit }),
+        // View-tab totals are requested only by the redesigned Jobs page.
+        searchParams.get("counts") === "1" ? loadJobViewCounts() : Promise.resolve(undefined),
       ]);
+      const jobs = await findJobsPage({
+        where, order, statusGroup: filters.statusGroup, skip: (page - 1) * limit, take: limit, totalCount,
+      });
 
+      const rows = jobs.map(withTimingBadges);
       const totalPages = Math.max(1, Math.ceil(totalCount / limit));
       return NextResponse.json({
-        jobs: jobs.map(withTimingBadges),
+        jobs: searchParams.get("extras") === "1" ? await withListExtras(rows) : rows,
         pagination: { page, limit, totalCount, totalPages, hasMore: page < totalPages },
+        ...(counts ? { counts } : {}),
       });
     }
 
+    // The legacy array contract is unchanged: one raw status, lenient sort.
+    const where = buildJobsWhere({
+      ...filters,
+      status: searchParams.get("status") as JobStatus | null,
+      role,
+      userId: session.user.id,
+    });
+    const orderBy = buildJobsOrderBy(readLegacyJobsOrder(searchParams), filters.statusGroup);
     const jobs = await db.job.findMany({ where, include: JOB_INCLUDE, orderBy });
     return NextResponse.json(jobs
       .filter((job) => role !== Role.CLEANER || !parseJobInternalNotes(job.internalNotes).isDraft)
@@ -281,6 +78,12 @@ export async function GET(req: NextRequest) {
       // price and colleagues' pay are then removed for a cleaner.
       .map((job) => (role === Role.CLEANER ? redactJobForCleaner(job, session.user.id) : job)));
   } catch (err: any) {
+    if (isJobsSortTooLargeError(err)) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
+    }
+    if (isListQueryError(err) || isJobsFilterError(err)) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
     let httpStatus = 500;
     if (err.message === "UNAUTHORIZED") httpStatus = 401;
     else if (err.message === "FORBIDDEN") httpStatus = 403;

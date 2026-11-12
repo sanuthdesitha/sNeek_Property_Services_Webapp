@@ -8,15 +8,32 @@ import { JobDialog } from "./job-dialog";
 import { useJobsSavedViews } from "./use-jobs-saved-views";
 import { TeamDefaultControls } from "./team-default-controls";
 
-export function SavedViewsControls({ context, readOnly, state, apply, applyDefault, snapshotInvalid = false, teamDefaultsEnabled = false }: {
+type SavedViewsBaseProps = {
   context: string; readOnly: boolean; state: JobsWorkspaceState;
   apply: (state: Partial<JobsWorkspaceState>) => void;
   applyDefault: (snapshot: JobsSnapshot) => boolean;
   snapshotInvalid?: boolean;
   teamDefaultsEnabled?: boolean;
-}) {
-  const views = useJobsSavedViews(context);
+};
+
+export type JobsSavedViewsState = ReturnType<typeof useJobsSavedViews>;
+
+/** Self-contained saved views (loads its own list). */
+export function SavedViewsControls(props: SavedViewsBaseProps) {
+  const views = useJobsSavedViews(props.context);
   const [selectedId, setSelectedId] = useState("");
+  return <SavedViewsPanel {...props} views={views} selectedId={selectedId} onSelectedIdChange={setSelectedId} />;
+}
+
+/**
+ * Saved views with the list and the selected view owned by the caller, so the
+ * Jobs page can show the same views as tabs. `createRequest` opens the
+ * "Save view as" dialog each time it increases (the "+ Save view" tab).
+ */
+export function SavedViewsPanel({ context, readOnly, state, apply, applyDefault, snapshotInvalid = false, teamDefaultsEnabled = false,
+  views, selectedId, onSelectedIdChange: setSelectedId, createRequest = 0 }: SavedViewsBaseProps & {
+  views: JobsSavedViewsState; selectedId: string; onSelectedIdChange: (id: string) => void; createRequest?: number;
+}) {
   const [dialog, setDialog] = useState<"create" | "rename" | "delete" | null>(null);
   const [name, setName] = useState("");
   const [pendingChange, setPendingChange] = useState<JobsViewAction | null>(null);
@@ -32,12 +49,17 @@ export function SavedViewsControls({ context, readOnly, state, apply, applyDefau
     defaultHandled.current = true;
     const initial = views.data.views.find(view => view.id === views.data!.defaultId);
     if (initial && applyDefault(initial.snapshot)) setSelectedId(initial.id);
-  }, [views.data, views.contextChanged, applyDefault]);
+  }, [views.data, views.contextChanged, applyDefault, setSelectedId]);
 
   useEffect(() => {
     if (!views.contextChanged) return;
     setSelectedId(""); setPendingChange(null); setName(""); setDialog(null);
-  }, [views.contextChanged]);
+  }, [views.contextChanged, setSelectedId]);
+
+  useEffect(() => {
+    if (createRequest <= 0) return;
+    setName(""); setDialog("create");
+  }, [createRequest]);
 
   async function save(change: JobsViewAction) {
     if (snapshotInvalid && (change.action === "create" || change.action === "update")) return;

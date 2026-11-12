@@ -103,6 +103,12 @@ export interface WorkspaceApi {
   requiredChecklistTicksBlockSubmit: boolean;
   /** Admin-granted "no photo taken" exemption for this cleaner (form payload). */
   canUseNoPhoto: boolean;
+  /**
+   * The extended answer checks are enforced for this cleaner on this job
+   * (organisation switch + work started after it was switched on), so the
+   * phone shows them inline exactly as the submit route rejects them.
+   */
+  enforceExtendedRules: boolean;
   setupGuideEntries: Array<{
     id?: string;
     kind?: string;

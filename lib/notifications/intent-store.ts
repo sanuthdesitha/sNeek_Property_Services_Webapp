@@ -7,6 +7,8 @@ import { deliverProviderIntent, enabledIntentProviderTransports } from "./intent
 import { canDeliverNotification } from "./preferences";
 import { getAppSettings } from "@/lib/settings";
 import { audienceForRole, isChannelAllowed } from "./audience-controls";
+import { authorizeEntityRecipient, isSupportedEntityScope } from "./recipient-scopes";
+import { mobilePendingMarker } from "./mobile-outbox-marker";
 
 export class NotificationIntentError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -81,8 +83,13 @@ export async function deliverInboxIntent(id: string, token: string, now = new Da
     }
     const envelope = parsed.data;
     // Each domain scope needs a current authorization adapter. Do not generalize
-    // the admin producer's role-only rule to clients, VA teams or assignments.
-    if (envelope.recipient.scope.kind !== "ADMIN_OPERATIONS" || !["ADMIN", "OPS_MANAGER"].includes(envelope.recipient.role)) {
+    // the admin producer's role-only rule to clients, VA teams or assignments;
+    // entity scopes use their own named rule in recipient-scopes.ts.
+    const entityScope = envelope.recipient.scope.kind === "ENTITY";
+    if (!entityScope && !["ADMIN", "OPS_MANAGER"].includes(envelope.recipient.role)) {
+      return finish(tx, intent, { kind: "SKIPPED", errorCode: "unsupported_recipient_scope" }, now);
+    }
+    if (entityScope && !isSupportedEntityScope((envelope.recipient.scope as { type: string }).type)) {
       return finish(tx, intent, { kind: "SKIPPED", errorCode: "unsupported_recipient_scope" }, now);
     }
     // Serialize active/role changes through the local inbox disclosure commit.
@@ -91,11 +98,15 @@ export async function deliverInboxIntent(id: string, token: string, now = new Da
     if (!recipient?.isActive || recipient.role !== envelope.recipient.role) {
       return finish(tx, intent, { kind: "SKIPPED", errorCode: "recipient_unavailable" }, now);
     }
+    if (entityScope) {
+      const authorization = await authorizeEntityRecipient(tx, envelope.recipient);
+      if (!authorization.ok) return finish(tx, intent, { kind: "SKIPPED", errorCode: authorization.errorCode }, now);
+    }
     if (envelope.templateRecipientRole) {
       const preference = await tx.notificationPreference.findUnique({ where: { eventKey_recipientRole_channel: { eventKey: envelope.eventKey, recipientRole: envelope.templateRecipientRole, channel: "PUSH" } } });
       if (preference && !preference.enabled) return finish(tx, intent, { kind: "SKIPPED", errorCode: "event_preference" }, now);
     }
-    if (envelope.category) {
+    if (envelope.category && envelope.recipientPreferences !== "IGNORE") {
       const allowed = await canDeliverNotification({ userId: envelope.recipient.userId, role: recipient.role, category: envelope.category, channel: "WEB" });
       const settings = await getAppSettings();
       if (!allowed || !isChannelAllowed(settings.notificationAudienceControls, audienceForRole(recipient.role), "push")) return finish(tx, intent, { kind: "SKIPPED", errorCode: "recipient_preference" }, now);
@@ -103,6 +114,9 @@ export async function deliverInboxIntent(id: string, token: string, now = new Da
     const notification = await tx.notification.create({ data: {
       id: `intent-${intent.id}`, userId: envelope.recipient.userId, jobId: envelope.jobId,
       channel: "PUSH", status: "SENT", sentAt: now, subject: envelope.subject, body: envelope.body,
+      // Explicitly declared phone push: the mobile outbox picks this row up the
+      // same way it picks up the legacy inbox rows of the category.
+      ...(envelope.mobilePushCategory ? { externalId: mobilePendingMarker(envelope.mobilePushCategory) } : {}),
     } });
     return finish(tx, intent, { kind: "ACCEPTED" }, now, notification.id);
   });

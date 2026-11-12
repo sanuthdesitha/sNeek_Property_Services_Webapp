@@ -7,6 +7,7 @@
  */
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { markFieldControl, useAssociatedField } from "@/components/v2/admin/field-association";
 
 const FIELD_BASE =
   "w-full rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] " +
@@ -27,6 +28,8 @@ export const ETextarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTM
   )
 );
 ETextarea.displayName = "ETextarea";
+markFieldControl(EInput);
+markFieldControl(ETextarea);
 
 export function ESelectNative({
   className,
@@ -39,6 +42,7 @@ export function ESelectNative({
     </select>
   );
 }
+markFieldControl(ESelectNative);
 
 /** Label + control + optional hint, Estate style. */
 export function EField({
@@ -54,16 +58,18 @@ export function EField({
   className?: string;
   children: React.ReactNode;
 }) {
+  // A single control child gets an id so the label (and hint) describe it.
+  const field = useAssociatedField(children, { hasHint: Boolean(hint), htmlFor });
   return (
     <div className={cn("space-y-1.5", className)}>
       <label
-        htmlFor={htmlFor}
+        htmlFor={field.controlId}
         className="block text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-[hsl(var(--e-text-secondary))]"
       >
         {label}
       </label>
-      {children}
-      {hint ? <p className="text-[0.75rem] leading-relaxed text-[hsl(var(--e-text-faint))]">{hint}</p> : null}
+      {field.control}
+      {hint ? <p id={field.hintId} className="text-[0.75rem] leading-relaxed text-[hsl(var(--e-text-faint))]">{hint}</p> : null}
     </div>
   );
 }

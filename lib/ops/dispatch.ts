@@ -231,6 +231,7 @@ export async function applyAutoAssignment(jobId: string, cleanerIds: string[], a
     }),
   ]);
   if (!job) throw new Error("Job not found.");
+  if (job.status === "CANCELLED") throw new Error("This job is cancelled. Restore it before assigning cleaners.");
 
   const uniqueCleanerIds = Array.from(new Set(cleanerIds));
   const changedAt = new Date();

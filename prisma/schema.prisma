@@ -94,6 +94,9 @@ enum JobStatus {
   QA_REVIEW
   COMPLETED
   INVOICED
+  /// Cancelled by the office (Wave E, 2026-11). Never billed, paid, reminded or
+  /// shown as live work; see lib/jobs/cancel.ts for who may cancel and restore.
+  CANCELLED
 }
 
 enum JobAssignmentResponseStatus {
@@ -262,6 +265,14 @@ enum ClientInvoiceStatus {
   PART_PAID
   PAID
   VOID
+}
+
+/// INVOICE bills the client; CREDIT_NOTE corrects an issued invoice by
+/// reducing what is owed on it (negative lines, its own number). A credit note
+/// never edits the invoice it credits.
+enum ClientInvoiceKind {
+  INVOICE
+  CREDIT_NOTE
 }
 
 enum JobTaskSource {
@@ -890,6 +901,11 @@ model User {
   caseTransitions              CaseTransition[]            @relation("CaseTransitionActor")
   invitation                   UserInvitation?
   invitationsCreated           UserInvitation[]            @relation("UserInvitationCreatedBy")
+  payRates                     UserPayRate[]               @relation("UserPayRateUser")
+  payRatesCreated              UserPayRate[]               @relation("UserPayRateCreatedBy")
+  staffLeave                   StaffLeave[]                @relation("StaffLeaveUser")
+  staffLeaveCreated            StaffLeave[]                @relation("StaffLeaveCreatedBy")
+  jobsCancelled                Job[]                       @relation("JobCancelledBy")
 
   latitude           Float?
   longitude          Float?
@@ -964,6 +980,9 @@ model Client {
   isActive                  Boolean   @default(true)
   xeroContactId             String?
   xeroSyncedAt              DateTime?
+  /// The client's own payment terms in days (0–120). Null = the organisation
+  /// default (settings.invoicing.defaultPaymentTermsDays).
+  paymentTermsDays          Int?
   latitude                  Float?
   longitude                 Float?
   placeId                   String?
@@ -998,6 +1017,7 @@ model Client {
 
 model Property {
   shoppingClientCharges ShoppingClientCharge[]
+  urgentStockNeeds      UrgentStockNeed[]
   aiModelTraining            AiPropertyModelTraining?
   id                         String   @id @default(cuid())
   clientId                   String
@@ -1414,6 +1434,7 @@ model Reservation {
 
   property Property @relation(fields: [propertyId], references: [id])
   job      Job?
+  lostFoundItems LostFoundItem[]
 
   @@unique([propertyId, uid])
 }
@@ -1534,10 +1555,19 @@ model Job {
   lastEtaNotificationAt     DateTime?
   lastEtaNotifiedMinutes    Int?
   lastDelayedNotificationAt DateTime?
+  /// Cancellation (status CANCELLED). The reason is required by the service;
+  /// `cancelledFromStatus` is the unstarted status "Restore" returns to. The
+  /// fields stay after a restore as the last cancellation's record; the full
+  /// history is in the audit log (JOB_CANCELLED / JOB_CANCEL_RESTORED).
+  cancelledAt               DateTime?
+  cancelledById             String?
+  cancelReason              String?   @db.Text
+  cancelledFromStatus       JobStatus?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 
   property               Property                   @relation(fields: [propertyId], references: [id])
+  cancelledBy            User?                      @relation("JobCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
   reservation            Reservation?               @relation(fields: [reservationId], references: [id])
   formTemplate           FormTemplate?              @relation("JobPinnedFormTemplate", fields: [formTemplateId], references: [id], onDelete: SetNull)
   reworkOfJob            Job?                       @relation("JobRework", fields: [reworkOfJobId], references: [id], onDelete: SetNull)
@@ -1747,13 +1777,61 @@ model FormTemplate {
   // the settings override map; job-scoped rows have no entry there, so they need
   // this explicit marker.
   isJobScoped      Boolean        @default(false)
+  // Library organisation (admin only; never read by job-form resolution).
+  groupId          String?
+  group            FormTemplateGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  tags             String[]       @default([])
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
   submissions FormSubmission[]
-  pinnedJobs  Job[]            @relation("JobPinnedFormTemplate")
+  pinnedJobs  Job[]                 @relation("JobPinnedFormTemplate")
+  versions    FormTemplateVersion[]
 
   @@index([kind, isActive])
+  @@index([groupId])
+}
+
+// A folder in the forms library. Deleting a group leaves its forms ungrouped.
+model FormTemplateGroup {
+  id        String         @id @default(cuid())
+  name      String
+  sortOrder Int            @default(0)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  templates FormTemplate[]
+
+  @@index([sortOrder])
+}
+
+enum FormTemplateVersionKind {
+  PUBLISHED
+  DRAFT
+}
+
+// History of one FormTemplate's schema. PUBLISHED rows are records of what
+// went live (FormTemplate.schema stays the only thing jobs read). A DRAFT row
+// is the template's single working copy: saving it never changes what cleaners
+// receive; publishing copies it to FormTemplate and writes a new PUBLISHED
+// row. For a DRAFT, `version` is the live version it was based on.
+model FormTemplateVersion {
+  id                    String                  @id @default(cuid())
+  templateId            String
+  template              FormTemplate            @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  kind                  FormTemplateVersionKind @default(PUBLISHED)
+  version               Int
+  schema                Json
+  // Name and service type as of this version (applied on publish for a draft).
+  name                  String?
+  serviceType           JobType?
+  note                  String?
+  restoredFromVersionId String?
+  createdById           String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  @@unique([templateId, kind, version])
+  @@index([templateId, createdAt])
 }
 
 model FormSubmission {
@@ -2176,6 +2254,16 @@ model QaFormSubmission {
   score          Float
   passed         Boolean
   notes          String?  @db.Text
+  /// Copy of the QA template the inspection was filled in on, so later
+  /// template edits never change how it reads or scores (Wave E, 2026-11).
+  /// EXACT = copied when the inspection was saved; RECONSTRUCTED = backfilled
+  /// for an older inspection from the best available revision (the template
+  /// exactly as it was is not known). Null only if the copy could not be made.
+  templateSnapshot       Json?
+  templateSnapshotName   String?
+  templateSnapshotSource String?
+  /// The template's content revision number (audit-log count) at the time.
+  templateRevision       Int?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -3268,7 +3356,7 @@ model PropertyClientRate {
 /// same second must never be handed the same number, and a read-modify-write
 /// against a JSON blob cannot promise that.
 model InvoiceSequence {
-  /// "CLIENT" | "CLEANER"
+  /// "CLIENT" | "CLEANER" | "CREDIT_NOTE"
   key        String   @id
   prefix     String   @default("INV-")
   lastNumber Int      @default(0)
@@ -3377,16 +3465,38 @@ model ClientInvoice {
   paidDate              DateTime?
   stripePaymentIntentId String?
   metadata              Json?
+  /// INVOICE for every row created before credit notes existed.
+  kind                  ClientInvoiceKind   @default(INVOICE)
+  /// Set only on a CREDIT_NOTE: the issued invoice it reduces.
+  creditsInvoiceId      String?
+  /// The client's own reference or purchase order number, printed on the PDF
+  /// and sent to Xero as the reference.
+  clientReference       String?             @db.VarChar(100)
+  /// A note to the client printed on the PDF. Not the internal metadata.notes.
+  clientNote            String?             @db.Text
+  /// Payment terms (days) snapshotted when the invoice was first issued (sent,
+  /// paid or voided), so a later change to the client's terms never moves the
+  /// due date of a document the client already has. Null while DRAFT/APPROVED:
+  /// those use the live value (client terms, else the organisation default).
+  paymentTermsDays      Int?
+  /// Set while approved/sent credit notes cover this invoice's whole total. A
+  /// fully credited invoice no longer bills its jobs (lib/invoicing/invoiced-job-rule).
+  creditedInFullAt      DateTime?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 
   client              Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // NoAction (checked at the end of the statement) so deleting a client still
+  // cascades through an invoice and its credit notes together.
+  creditsInvoice      ClientInvoice?       @relation("ClientInvoiceCredits", fields: [creditsInvoiceId], references: [id], onDelete: NoAction)
+  creditNotes         ClientInvoice[]      @relation("ClientInvoiceCredits")
   lines               ClientInvoiceLine[]
   shoppingSettlements ShoppingSettlement[]
   payments            ClientPayment[]
 
   @@index([status])
   @@index([clientId, status])
+  @@index([creditsInvoiceId])
 }
 
 // A cleaner's own invoice, snapshotted when they "send" it, so admin can review
@@ -3456,6 +3566,10 @@ model ClientInvoiceLine {
   /// happened somewhere it did not. This exists so a hand-added charge can sit
   /// under the property it relates to instead of sinking into "Other charges".
   propertyId    String?
+  /// A DISCOUNT line entered as a percentage keeps that percentage here; its
+  /// stored lineTotal is the amount worked out when it was added. Null for a
+  /// discount entered as an amount, and for every other line.
+  discountPercent Float?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -3794,6 +3908,52 @@ model CleanerAvailability {
 
   @@index([userId, dayOfWeek])
   @@index([userId, date])
+}
+
+/// Effective-dated default hourly rate (Wave E, 2026-11). The rate for a job is
+/// the newest non-removed row whose effectiveFrom is on or before the job's
+/// calendar date (lib/accounts/pay-rate-history.ts). Rows are never edited; a
+/// future row may be removed before it starts (removedAt tombstone). Rate
+/// snapshots already stored on assignments, payouts and invoices are untouched.
+model UserPayRate {
+  id            String    @id @default(cuid())
+  userId        String
+  hourlyRate    Float
+  effectiveFrom DateTime  @db.Date
+  /// EDITOR | BULK | BACKFILL
+  source        String    @default("EDITOR")
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  removedAt     DateTime?
+  removedById   String?
+
+  user      User  @relation("UserPayRateUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("UserPayRateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([userId, effectiveFrom])
+}
+
+/// Leave and days off (Wave E, 2026-11). Calendar dates, end inclusive. Treated
+/// as unavailable by the calendar, cleaner suggestions and assignment checks.
+model StaffLeave {
+  id          String    @id @default(cuid())
+  userId      String
+  startDate   DateTime  @db.Date
+  endDate     DateTime  @db.Date
+  /// LEAVE | DAY_OFF
+  kind        String    @default("LEAVE")
+  note        String?   @db.Text
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  removedAt   DateTime?
+  removedById String?
+
+  user      User  @relation("StaffLeaveUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("StaffLeaveCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([userId, startDate, endDate])
+  @@index([startDate, endDate])
 }
 
 // ─────────────────────────────────────────────
@@ -4785,12 +4945,28 @@ model LostFoundItem {
   resolvedAt       DateTime?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
+  /// Copied from the linked booking, or typed by the office. Never invented.
+  guestEmail       String?
+  /// BOOKING = copied from `reservationId`; MANUAL = entered or edited by the
+  /// office and never overwritten by a later sync or backfill. Null = unknown.
+  guestSource      LostFoundGuestSource?
+  /// The departing guest's booking the guest details came from.
+  reservationId    String?
+  /// Where the office keeps the item, e.g. "Office shelf B2".
+  storageLocation  String?
   events           LostFoundEvent[]
+  reservation      Reservation?     @relation(fields: [reservationId], references: [id], onDelete: SetNull)
 
   @@index([propertyId])
   @@index([jobId])
   @@index([status])
   @@index([createdAt])
+  @@index([reservationId])
+}
+
+enum LostFoundGuestSource {
+  BOOKING
+  MANUAL
 }
 
 model LostFoundEvent {
@@ -4804,6 +4980,61 @@ model LostFoundEvent {
   item      LostFoundItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@index([itemId])
+}
+
+// Urgent stock needs, moved from `urgent_stock_v1:need:*` AppSetting JSON (ids
+// preserved). A need records a request; it never places a purchase, changes a
+// price or proves a delivery. `observedAt` keeps the exact submitted text
+// because the stock-ledger note quotes it verbatim.
+model UrgentStockNeed {
+  id                     String             @id
+  propertyId             String
+  /// Inventory item id as stored by the report (no FK: history outlives items).
+  itemId                 String
+  propertyName           String
+  itemName               String
+  unit                   String
+  /// REPORTED | ACKNOWLEDGED | ORDERED | DELIVERED | PROPERTY_CONFIRMED | ADMIN_RESOLVED
+  stage                  String
+  version                Int
+  observedCount          Float?
+  purchaseQuantity       Float?
+  observedAt             String?
+  observationDisposition String
+  note                   String             @db.Text
+  lastReminderAt         DateTime?
+  remindersSent          Int                @default(0)
+  reportedById           String?
+  reportedByName         String?
+  /// Set while open: one open need per property and item.
+  openPairKey            String?            @unique
+  createdAt              DateTime
+  updatedAt              DateTime
+  property               Property           @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  events                 UrgentStockEvent[]
+
+  @@index([propertyId, stage])
+  @@index([stage, updatedAt])
+}
+
+model UrgentStockEvent {
+  id         String          @id
+  needId     String
+  propertyId String
+  actorId    String?
+  actorName  String
+  /// REPORTED | REPORT_UPDATED | a stage name | REMINDER
+  kind       String
+  /// Unknown (null) for events copied from the JSON store.
+  fromStage  String?
+  toStage    String?
+  note       String?         @db.Text
+  detail     Json
+  at         DateTime
+  createdAt  DateTime        @default(now())
+  need       UrgentStockNeed @relation(fields: [needId], references: [id], onDelete: Restrict)
+
+  @@index([needId, createdAt])
 }
 
 // Durable new-event delivery only. Legacy Notification/NotificationLog rows are never replayed.

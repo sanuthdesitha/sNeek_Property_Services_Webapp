@@ -33,12 +33,15 @@ export function JobReminderButton({ jobId, statusLabel }: { jobId: string; statu
       if (!res.ok) throw new Error(body?.error ?? "Could not send the reminder.");
       const sent: string[] = Array.isArray(body?.sent) ? body.sent : [];
       const failed: string[] = Array.isArray(body?.failed) ? body.failed : [];
+      // Queued (push) and provider-accepted (email) are not delivery.
+      const queuedTitle = method === "PUSH" ? "Reminder queued" : "Reminder accepted for email";
       toast({
-        title: sent.length > 0 ? "Reminder sent" : "Reminder not delivered",
+        title: sent.length > 0 ? queuedTitle : "Reminder not sent",
         description:
+          (typeof body?.message === "string" && body.message) ||
           [
-            sent.length > 0 ? `Sent to ${sent.join(", ")}` : null,
-            failed.length > 0 ? `Failed for ${failed.join(", ")}` : null,
+            sent.length > 0 ? `Requested for ${sent.join(", ")}; delivery is not confirmed` : null,
+            failed.length > 0 ? `Not sent to ${failed.join(", ")}` : null,
           ]
             .filter(Boolean)
             .join(" · ") || "No recipients.",

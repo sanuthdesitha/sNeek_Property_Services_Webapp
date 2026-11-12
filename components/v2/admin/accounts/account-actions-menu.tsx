@@ -31,7 +31,6 @@ import {
   EField,
   EInput,
   EModal,
-  verifyAdminSecurity,
 } from "@/components/v2/admin/estate-kit";
 
 export interface ManagedAccount {
@@ -57,7 +56,6 @@ export function AccountActionsMenu({
   const [busy, setBusy] = React.useState(false);
   const [name, setName] = React.useState(account.name ?? "");
   const [email, setEmail] = React.useState(account.email);
-  const [newPassword, setNewPassword] = React.useState("");
 
   // Re-sync when the caller refetches: without this, editing one member and
   // then opening another shows the first one's details.
@@ -69,7 +67,6 @@ export function AccountActionsMenu({
   function close() {
     setDialog(null);
     setOpen(false);
-    setNewPassword("");
   }
 
   async function run(label: string, fn: () => Promise<Response>) {
@@ -170,42 +167,28 @@ export function AccountActionsMenu({
         </div>
       </EModal>
 
-      <EModal open={dialog === "password"} onClose={close} title="Reset password">
-        <div className="space-y-3">
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            Sets a new password for {account.email}. Tell them what it is — this is the only time
-            it is shown.
-          </p>
-          <EField label="New password">
-            <EInput
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              type="text"
-              autoComplete="off"
-            />
-          </EField>
-          <div className="flex justify-end gap-2">
-            <EButton variant="ghost" onClick={close}>
-              Cancel
-            </EButton>
-            <EButton
-              variant="gold"
-              disabled={busy || newPassword.trim().length < 8}
-              onClick={() =>
-                run("Password reset", () =>
-                  fetch(`/api/admin/users/${account.id}/reset-password`, {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ password: newPassword }),
-                  })
-                )
-              }
-            >
-              Reset
-            </EButton>
-          </div>
-        </div>
-      </EModal>
+      {/* The server generates the temporary password and emails it (or
+          returns it when the email fails); it never took a password from
+          here. PIN or password is verified by the route itself. */}
+      <EConfirmModal
+        open={dialog === "password"}
+        onClose={close}
+        title="Reset password"
+        description={`Generate a temporary password for ${account.email} and email it to them. Enter your PIN or password to continue.`}
+        confirmLabel="Reset password"
+        requireSecurity
+        danger={false}
+        loading={busy}
+        onConfirm={(credentials) =>
+          run("Password reset", () =>
+            fetch(`/api/admin/users/${account.id}/reset-password`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ security: credentials }),
+            })
+          )
+        }
+      />
 
       <EConfirmModal
         open={dialog === "twofa"}
@@ -216,11 +199,13 @@ export function AccountActionsMenu({
         requireSecurity
         loading={busy}
         onConfirm={async (credentials) => {
-          // The 2FA route takes no security payload of its own, so the PIN is
-          // verified here — otherwise the prompt is decoration.
-          await verifyAdminSecurity(credentials);
+          // The route verifies the PIN or password itself; it must be sent.
           await run("Two-factor reset", () =>
-            fetch(`/api/admin/users/${account.id}/disable-2fa`, { method: "POST" })
+            fetch(`/api/admin/users/${account.id}/disable-2fa`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ security: credentials }),
+            })
           );
         }}
       />
@@ -235,9 +220,12 @@ export function AccountActionsMenu({
         requireSecurity
         loading={busy}
         onConfirm={async (credentials) => {
-          await verifyAdminSecurity(credentials);
           await run("Account deleted", () =>
-            fetch(`/api/admin/users/${account.id}`, { method: "DELETE" })
+            fetch(`/api/admin/users/${account.id}`, {
+              method: "DELETE",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ security: credentials }),
+            })
           );
         }}
       />

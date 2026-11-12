@@ -8,6 +8,7 @@ const schema = z.object({
   date: z.string().date(),
   startTime: z.string().trim().max(5).optional().nullable(),
   dueTime: z.string().trim().max(5).optional().nullable(),
+  endTime: z.string().trim().max(5).optional().nullable(),
   expectedUpdatedAt: z.string().datetime().optional(),
   reason: z.string().trim().max(1200).optional().nullable(),
 });
@@ -24,6 +25,7 @@ export async function POST(
       date: body.date,
       startTime: body.startTime,
       dueTime: body.dueTime,
+      endTime: body.endTime,
       reason: body.reason ?? null,
       userId: session.user.id,
       expectedUpdatedAt: body.expectedUpdatedAt,

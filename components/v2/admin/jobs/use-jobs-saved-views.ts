@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { jobsViewsResponseSchema, type JobsViewAction, type JobsViews } from "@/lib/jobs/saved-views";
 
-export function useJobsSavedViews(context: string) {
+/** `context` null (no saved-views identity) loads nothing. */
+export function useJobsSavedViews(context: string | null) {
   const [data, setData] = useState<JobsViews | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -14,6 +15,7 @@ export function useJobsSavedViews(context: string) {
   const sequence = useRef(0);
 
   const request = useCallback(async (change?: JobsViewAction) => {
+    if (!context) return null;
     if (current.current.pending || current.current.blocked || (change && (!current.current.data || current.current.reload))) return null;
     current.current.pending = true;
     const id = ++sequence.current;
@@ -29,7 +31,7 @@ export function useJobsSavedViews(context: string) {
     try {
       const response = await fetch("/api/me/jobs-views", {
         method: change ? "PATCH" : "GET", cache: "no-store",
-        headers: { "Content-Type": "application/json", "x-jobs-view-context": context },
+        headers: { "Content-Type": "application/json", "x-jobs-view-context": context ?? "" },
         ...(change ? { body: JSON.stringify({ revision, change }) } : {}),
       });
       if (!active()) return null;

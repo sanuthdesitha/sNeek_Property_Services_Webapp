@@ -5,7 +5,9 @@ import { getInventoryUnitCosts } from "@/lib/inventory/unit-costs";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
 import { laundryTaskAmount } from "@/lib/laundry/invoice";
+import { payRateUnknown } from "@/lib/insights/job-facts";
 import { sydneyDayStart, sydneyDayEndInclusive, sydneyTodayKey, monthStartKey } from "@/lib/time/sydney-range";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 export interface FinanceSummaryRow {
   clientId: string;
@@ -17,7 +19,12 @@ export interface FinanceSummaryRow {
   totalCost: number;
   grossMargin: number;
   marginPct: number | null;
+  /** Cleans left out of cleanerCost because a payee has no pay rate set. */
+  uncostedNoPayRate: number;
 }
+
+/** Where to set the missing rates: Accounts, cleaners with no pay rate. */
+export const NO_PAY_RATE_ACCOUNTS_HREF = "/v2/admin/accounts?tab=cleaners&rate=none";
 
 export interface FinanceSummary {
   start: string;
@@ -31,6 +38,13 @@ export interface FinanceSummary {
     grossMargin: number;
     marginPct: number | null;
   };
+  /**
+   * Cleans NOT costed because a payee has no known pay rate (no assignment
+   * snapshot, no per-cleaner job-type rate, no User.hourlyRate, no custom
+   * payout). They are excluded from cleanerCost, not priced at the default
+   * rate, so the cost total is a known-cost total. Same rule as Insights.
+   */
+  uncosted: { noPayRate: number; jobIds: string[]; href: string };
   byClient: FinanceSummaryRow[];
   counts: {
     quotesCount: number;
@@ -81,6 +95,7 @@ function ensureClientRow(
       cleanerCost: 0,
       laundryCost: 0,
       suppliesCost: 0,
+      uncostedNoPayRate: 0,
     });
   }
   return map.get(key)!;
@@ -146,6 +161,8 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
       },
     }),
   ]);
+  // The default rate in force on each job's day (effective-dated history).
+  const rateBook = await loadPayRateBook(jobs.flatMap((job) => job.assignments.map((assignment) => assignment.userId)));
 
   const byClient = new Map<string, MutableRow>();
 
@@ -158,6 +175,7 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
   }
 
   let cleanerCost = 0;
+  const uncostedJobIds: string[] = [];
   for (const job of jobs) {
     const row = ensureClientRow(byClient, job.property.clientId, job.property.client?.name ?? null);
     const assignments = job.assignments.filter((assignment) => !assignment.removedAt);
@@ -188,13 +206,14 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
       : undefined;
 
     let jobCleanerCost = orphanAdjustmentTotal;
+    const pays: Array<{ rateMissing: boolean }> = [];
     for (const assignment of assignments) {
       const timerHoursForCleaner = job.timeLogs
         .filter((log) => log.userId === assignment.userId && log.stoppedAt)
         .reduce((sum, log) => sum + Number(log.durationM ?? 0) / 60, 0);
       const pay = computeCleanerPay(
         { jobType: job.jobType, estimatedHours: job.estimatedHours },
-        { payRate: assignment.payRate, userHourlyRate: assignment.user?.hourlyRate },
+        { payRate: assignment.payRate, userHourlyRate: rateBook.rateFor(assignment.userId, job.scheduledDate, assignment.user?.hourlyRate ?? null) },
         { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
         {
           cleanerId: assignment.userId,
@@ -213,9 +232,19 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
           approvedAdjustments: 0,
         }
       );
+      pays.push(pay);
       jobCleanerCost += pay.total;
       // Raw per-cleaner adjustment total (may be negative for rework deductions).
       jobCleanerCost += adjustmentsByCleaner.get(assignment.userId) ?? 0;
+    }
+
+    // No silent default rate in this estimate: a clean whose payee has no pay
+    // rate is left out of the cost, counted and flagged. (What the cleaner is
+    // actually PAID is decided by payroll / cleaner invoices, not here.)
+    if (payRateUnknown(pays)) {
+      uncostedJobIds.push(job.id);
+      row.uncostedNoPayRate += 1;
+      continue;
     }
 
     cleanerCost += jobCleanerCost;
@@ -284,6 +313,7 @@ export async function getFinanceSummary(input: { startDate?: string; endDate?: s
       grossMargin,
       marginPct: revenue > 0 ? (grossMargin / revenue) * 100 : null,
     },
+    uncosted: { noPayRate: uncostedJobIds.length, jobIds: uncostedJobIds, href: NO_PAY_RATE_ACCOUNTS_HREF },
     byClient: byClientRows,
     counts: {
       quotesCount: quotes.length,

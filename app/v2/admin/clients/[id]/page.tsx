@@ -19,6 +19,9 @@ import { ArrowLeft, Building2, FileText, Mail, Phone, TrendingUp, Wallet } from 
 import { ClientAutomationRules } from "@/components/v2/admin/clients/client-automation-rules";
 import { ClientActions } from "@/components/v2/admin/clients/client-actions";
 import { ClientProfit } from "@/components/v2/admin/clients/client-profit";
+import { ClientPaymentTerms } from "@/components/v2/admin/clients/client-payment-terms";
+import { canEditClientPaymentTerms } from "@/lib/billing/client-payment-terms";
+import { paymentTermsDaysFrom } from "@/lib/billing/invoice-due";
 import { ClientTimeline } from "@/components/v2/admin/clients/client-timeline";
 import ClientCommunications from "@/components/v2/admin/clients/client-communications";
 import ClientDocuments from "@/components/v2/admin/clients/client-documents";
@@ -164,6 +167,7 @@ async function getClient(id: string) {
         notes: true,
         isActive: true,
         portalVisibilityOverrides: true,
+        paymentTermsDays: true,
         createdAt: true,
         properties: {
           where: { isActive: true },
@@ -300,10 +304,14 @@ async function getClient(id: string) {
 }
 
 export default async function AdminClientDetailPage({ params }: { params: { id: string } }) {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   // Settings are needed alongside client data: the edit modal's visibility
   // overrides must show what each "Default" resolves to right now.
-  const [data, settings] = await Promise.all([getClient(params.id), getAppSettings()]);
+  const [data, settings, canEditTerms] = await Promise.all([
+    getClient(params.id),
+    getAppSettings(),
+    canEditClientPaymentTerms(session.user),
+  ]);
   if (!data) notFound();
 
   const { client, recentJobs, outstanding, outstandingAud, quotes, cases, leads, profitRow, activeRateCount, ratedPropertyCount } = data;
@@ -405,6 +413,14 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
           </ECardBody>
         </ECard>
       </div>
+
+      {/* Payment terms (per-client; issued invoices keep their snapshot) */}
+      <ClientPaymentTerms
+        clientId={client.id}
+        paymentTermsDays={client.paymentTermsDays ?? null}
+        organisationDefaultDays={paymentTermsDaysFrom(settings.invoicing?.defaultPaymentTermsDays)}
+        canEdit={canEditTerms}
+      />
 
       {/* Profit & pricing */}
       <ClientProfit
@@ -605,8 +621,6 @@ export default async function AdminClientDetailPage({ params }: { params: { id: 
 
       {/* Per-client message automation rules */}
       <ClientAutomationRules clientId={client.id} />
-
-      <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Estate preview · read-only · live data from your workspace.</p>
     </div>
   );
 }

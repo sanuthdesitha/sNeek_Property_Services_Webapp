@@ -8,15 +8,19 @@ import {
 } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { ISSUE_ROW_INCLUDE, toIssueRows } from "@/lib/quality/issue-rows";
+import { sydneyCreatedAtFilter } from "@/lib/quality/period";
 
 /**
- * QA issue register — list endpoint powering the admin QA Issues workspace
- * (accountability Phase 5b). Read-only; every mutation goes through
+ * QA issue register — list endpoint (accountability Phase 5b). The v2 admin
+ * now reads the Quality hub's paged list (/api/admin/quality/issues); this
+ * route keeps its shape for the classic admin workspace. Read-only; every mutation goes through
  * /api/admin/qa/issues/[id]. ADMIN + OPS_MANAGER get full access; QA_INSPECTOR
  * may read (the workspace hides mutating actions for them).
  *
  * Filters (all optional, via query string): cleanerId, propertyId, category,
- * severity, rectificationStatus, falseConfirmation, from, to (createdAt range).
+ * severity, rectificationStatus, falseConfirmation, from, to (createdAt range,
+ * inclusive Australia/Sydney calendar days — `sydneyCreatedAtFilter`).
  * Paginated with take/skip (default take 50), ordered createdAt desc.
  *
  * The pay adjustment referenced by QaIssue.payAdjustmentId has no Prisma
@@ -56,19 +60,8 @@ export async function GET(req: NextRequest) {
         ? (falseConfRaw as FalseConfirmationStatus)
         : undefined;
 
-    let createdAt: Prisma.DateTimeFilter | undefined;
-    const from = fromRaw ? new Date(fromRaw) : undefined;
-    const to = toRaw ? new Date(toRaw) : undefined;
-    if ((from && !Number.isNaN(from.getTime())) || (to && !Number.isNaN(to.getTime()))) {
-      createdAt = {};
-      if (from && !Number.isNaN(from.getTime())) createdAt.gte = from;
-      if (to && !Number.isNaN(to.getTime())) {
-        // Inclusive of the whole `to` day.
-        const end = new Date(to);
-        end.setHours(23, 59, 59, 999);
-        createdAt.lte = end;
-      }
-    }
+    // Sydney calendar days, inclusive, the same days the Quality hub means.
+    const createdAt: Prisma.DateTimeFilter | undefined = sydneyCreatedAtFilter(fromRaw, toRaw);
 
     const where: Prisma.QaIssueWhereInput = {
       ...(cleanerId ? { cleanerId } : {}),
@@ -87,98 +80,13 @@ export async function GET(req: NextRequest) {
         orderBy: { createdAt: "desc" },
         take,
         skip,
-        include: {
-          job: {
-            select: {
-              id: true,
-              jobNumber: true,
-              scheduledDate: true,
-              property: { select: { id: true, name: true, suburb: true } },
-            },
-          },
-          property: { select: { id: true, name: true, suburb: true } },
-          cleaner: { select: { id: true, name: true, email: true } },
-          raisedBy: { select: { id: true, name: true, email: true } },
-          rectifiedBy: { select: { id: true, name: true } },
-          qaReview: { select: { id: true, score: true, rating: true, managementReview: true } },
-        },
+        include: ISSUE_ROW_INCLUDE,
       }),
     ]);
 
-    // Resolve linked pay adjustments (no FK relation on QaIssue.payAdjustmentId).
-    const payAdjustmentIds = Array.from(
-      new Set(issues.map((i) => i.payAdjustmentId).filter((id): id is string => Boolean(id)))
-    );
-    const payAdjustments = payAdjustmentIds.length
-      ? await db.cleanerPayAdjustment.findMany({
-          where: { id: { in: payAdjustmentIds } },
-          select: { id: true, status: true, requestedAmount: true, approvedAmount: true, source: true },
-        })
-      : [];
-    const payMap = Object.fromEntries(payAdjustments.map((p) => [p.id, p]));
-
-    const rows = issues.map((issue) => ({
-      id: issue.id,
-      category: issue.category,
-      severity: issue.severity,
-      description: issue.description,
-      rectificationStatus: issue.rectificationStatus,
-      rectificationMinutes: issue.rectificationMinutes,
-      rectificationCost: issue.rectificationCost,
-      rectificationBeforeKeys: issue.rectificationBeforeKeys ?? null,
-      rectificationAfterKeys: issue.rectificationAfterKeys ?? null,
-      falseConfirmation: issue.falseConfirmation,
-      guestReadyImpact: issue.guestReadyImpact,
-      cleanerMarkedComplete: issue.cleanerMarkedComplete,
-      qaPhotoKeys: issue.qaPhotoKeys ?? null,
-      escalatedAt: issue.escalatedAt,
-      createdAt: issue.createdAt,
-      updatedAt: issue.updatedAt,
-      jobId: issue.jobId,
-      propertyId: issue.propertyId,
-      cleanerId: issue.cleanerId,
-      job: issue.job
-        ? {
-            id: issue.job.id,
-            jobNumber: issue.job.jobNumber,
-            scheduledDate: issue.job.scheduledDate,
-            propertyName: issue.job.property?.name ?? issue.property?.name ?? null,
-            propertySuburb: issue.job.property?.suburb ?? issue.property?.suburb ?? null,
-          }
-        : null,
-      property: issue.property
-        ? { id: issue.property.id, name: issue.property.name, suburb: issue.property.suburb }
-        : null,
-      cleaner: issue.cleaner
-        ? { id: issue.cleaner.id, name: issue.cleaner.name ?? issue.cleaner.email }
-        : null,
-      raisedBy: issue.raisedBy
-        ? { id: issue.raisedBy.id, name: issue.raisedBy.name ?? issue.raisedBy.email }
-        : null,
-      rectifiedBy: issue.rectifiedBy ? { id: issue.rectifiedBy.id, name: issue.rectifiedBy.name } : null,
-      review: issue.qaReview
-        ? {
-            id: issue.qaReview.id,
-            score: issue.qaReview.score,
-            rating: issue.qaReview.rating,
-            managementReview: issue.qaReview.managementReview,
-          }
-        : null,
-      payAdjustment: issue.payAdjustmentId
-        ? (() => {
-            const pa = payMap[issue.payAdjustmentId];
-            return pa
-              ? {
-                  id: pa.id,
-                  status: pa.status,
-                  requestedAmount: pa.requestedAmount,
-                  approvedAmount: pa.approvedAmount,
-                  source: pa.source,
-                }
-              : { id: issue.payAdjustmentId, status: null, requestedAmount: null, approvedAmount: null, source: null };
-          })()
-        : null,
-    }));
+    // Same row shape as before, now built by the helper the Quality hub's
+    // paged list also uses (it stitches on the linked pay adjustment).
+    const rows = await toIssueRows(issues);
 
     return NextResponse.json({
       issues: rows,
@@ -186,6 +94,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 500;
-    return NextResponse.json({ error: err.message ?? "Failed to load QA issues." }, { status });
+    // Internal failures are not echoed to the browser.
+    return NextResponse.json({ error: status === 500 ? "Failed to load QA issues." : err.message }, { status });
   }
 }

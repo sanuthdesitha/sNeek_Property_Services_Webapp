@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { cleanerPreparationContext } from "@/lib/jobs/guest-summary";
 import { urgentStockProperties, type StockActor, type UrgentNeed } from "./urgent-stock";
+import { needFromRow } from "./urgent-stock-store";
 import { emptyStayPolicy, stayPreparationPolicySchema, stayNights, stayDemand, longStayInstruction, suppliedFromLedger } from "./stay-preparation-policy";
 const key = (id: string) => `stay_preparation_v1:${id}`;
 export async function readStayPolicy(propertyId: string) {
@@ -32,12 +33,12 @@ export async function buildStayPreparation(job: { id: string; propertyId: string
     readStayPolicy(job.propertyId),
     db.propertyStock.findMany({ where: { propertyId: job.propertyId, item: { isActive: true } }, include: { item: { select: { name: true, unit: true } }, transactions: { orderBy: { createdAt: "desc" }, take: 1 } } }),
     db.stockTx.findMany({ where: { submission: { jobId: job.id }, txType: "USED" }, select: { id: true, quantity: true, txType: true, propertyStockId: true } }),
-    db.appSetting.findMany({ where: { key: { startsWith: "urgent_stock_v1:need:" }, value: { path: ["propertyId"], equals: job.propertyId } }, orderBy: { updatedAt: "desc" } }),
+    db.urgentStockNeed.findMany({ where: { propertyId: job.propertyId }, orderBy: [{ updatedAt: "desc" }, { id: "asc" }] }),
     db.appSetting.findUnique({ where: { key: `job_submission_stock_v1:${job.id}` } }),
   ]);
   const rows = policy.items.flatMap(rule => {
     const stock = stocks.find(row => row.itemId === rule.itemId); if (!stock) return [];
-    const report = reports.map(row => row.value as unknown as UrgentNeed).find(row => row.itemId === rule.itemId) ?? null;
+    const report: UrgentNeed | null = reports.map(needFromRow).find(row => row.itemId === rule.itemId) ?? null;
     const ledger = stock.transactions[0];
     // Only the latest applied physical observation can establish availability.
     // A later stock write or an aged observation makes verification unknown.

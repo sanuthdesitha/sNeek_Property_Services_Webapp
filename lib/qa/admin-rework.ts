@@ -50,7 +50,7 @@ export async function getAdminReworkContext(
     db.job.findFirst({
       where: {
         reworkOfJobId: job.id,
-        status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+        status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED, JobStatus.CANCELLED] },
       },
       select: { id: true },
     }),
@@ -60,7 +60,7 @@ export async function getAdminReworkContext(
         propertyId: job.propertyId,
         jobType: job.jobType as never,
         internalNotes: { contains: reworkTagFor(job.id) },
-        status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+        status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED, JobStatus.CANCELLED] },
       },
       select: { id: true },
     }),

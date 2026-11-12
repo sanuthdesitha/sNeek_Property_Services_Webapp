@@ -19,10 +19,13 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { assignmentLeaveConflicts } from "@/lib/accounts/leave-conflicts";
 
 const schema = z.object({
   jobIds: z.array(z.string().trim().min(1)).min(1),
   cleanerUserId: z.string().trim().min(1),
+  /** Assign even on days the cleaner has recorded leave (explicit override). */
+  confirmLeaveConflict: z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -80,6 +83,21 @@ export async function POST(req: NextRequest) {
     }
     if (jobs.length !== jobIds.length) {
       return NextResponse.json({ error: "One or more jobs were not found." }, { status: 404 });
+    }
+    const cancelled = jobs.filter((job) => job.status === "CANCELLED");
+    if (cancelled.length > 0) {
+      return NextResponse.json({ error: `${cancelled.length} selected job${cancelled.length === 1 ? " is" : "s are"} cancelled. Restore before assigning.` }, { status: 409 });
+    }
+    if (!body.confirmLeaveConflict) {
+      const conflicts: string[] = [];
+      for (const job of jobs) {
+        if (job.assignments.some((assignment) => assignment.userId === cleaner.id)) continue;
+        const [conflict] = await assignmentLeaveConflicts([cleaner.id], job.scheduledDate, [cleaner]);
+        if (conflict) conflicts.push(`${job.jobNumber}: ${conflict.reason}`);
+      }
+      if (conflicts.length > 0) {
+        return NextResponse.json({ error: `${cleaner.name ?? cleaner.email} — ${conflicts.join("; ")}`, code: "LEAVE_CONFLICT" }, { status: 409 });
+      }
     }
 
     const changedAt = new Date();

@@ -32,6 +32,7 @@ import {
   transportAllowanceLines,
   transportAllowanceTotal,
 } from "@/lib/finance/qa-transport";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 interface InvoiceOptions {
   userId: string;
@@ -547,11 +548,13 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       includedInPayrollRunId: true,
       includedInCleanerInvoiceId: true,
       job: {
-        select: { id: true, jobNumber: true, property: { select: { name: true } } },
+        select: { id: true, jobNumber: true, scheduledDate: true, property: { select: { name: true } } },
       },
     },
     orderBy: [{ completedAt: "asc" }],
   });
+  // The payee's default rate in force on each job's day (effective-dated history).
+  const rateBook = await loadPayRateBook([options.userId]);
 
   const qaInspectionRows = qaAssignmentRows
     // THE selector — re-applied in memory so the rule lives in one pure place
@@ -566,7 +569,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
     .map((row) => {
       const pay = computeQaAssignmentPay({
         assignment: row,
-        inspector: { hourlyRate: user.hourlyRate },
+        inspector: { hourlyRate: rateBook.rateFor(options.userId, row.job?.scheduledDate ?? row.completedAt, user.hourlyRate) },
         settings: settings.qaPay,
       });
       return {
@@ -759,7 +762,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       // overridden pay for the actual amounts.
       const original = computeCleanerPay(
         { jobType: job.jobType, estimatedHours: job.estimatedHours },
-        { payRate: cleanerAssignment.payRate, userHourlyRate: user.hourlyRate },
+        { payRate: cleanerAssignment.payRate, userHourlyRate: rateBook.rateFor(options.userId, job.scheduledDate, user.hourlyRate) },
         { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
         {
           cleanerId: options.userId,
@@ -773,7 +776,7 @@ export async function getCleanerInvoiceData(options: InvoiceOptions): Promise<Cl
       const pay = hasOverride
         ? computeCleanerPay(
             { jobType: job.jobType, estimatedHours: job.estimatedHours },
-            { payRate: cleanerAssignment.payRate, userHourlyRate: user.hourlyRate },
+            { payRate: cleanerAssignment.payRate, userHourlyRate: rateBook.rateFor(options.userId, job.scheduledDate, user.hourlyRate) },
             { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
             {
               cleanerId: options.userId,

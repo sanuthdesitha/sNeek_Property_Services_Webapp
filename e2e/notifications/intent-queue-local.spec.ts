@@ -8,7 +8,8 @@ test("uncertain delivery investigation is audited without sending or blindly ret
     await db.notificationIntent.create({ data: { id: intentId, idempotencyKey: intentId, envelopeHash: "fixture", eventId: intentId, eventKey: "fixture.uncertain", recipientId: id, transport: "EMAIL", status: "UNCERTAIN", attemptCount: 1, nextAttemptAt: null,
       envelope: { version: 1, eventId: intentId, eventKey: "fixture.uncertain", entity: { type: "Fixture", id: intentId }, actorId: id, recipient: { userId: id, role: "ADMIN", scope: { kind: "ADMIN_OPERATIONS" } }, severity: "ACTION", transport: "EMAIL", subject: "Isolated uncertain delivery", body: "No provider send", jobId: null },
       attempts: { create: { number: 1, leaseToken: "fixture", status: "UNCERTAIN", errorCode: "timeout", finishedAt: new Date() } } } });
-    await page.goto("/v2/admin/notifications"); await page.getByRole("button", { name: "Delivery queue", exact: true }).click();
+    // The review queue moved into the Delivery log tab of the one notifications area (2026-11-11).
+    await page.goto("/v2/admin/notifications?tab=log"); await page.getByText("Review queue: failed or uncertain pipeline deliveries", { exact: true }).click();
     const item = page.getByRole("listitem").filter({ hasText: "Isolated uncertain delivery" }); await expect(item).toBeVisible({ timeout: 30000 });
     await expect(item.getByRole("button", { name: "Retry known rejection" })).toHaveCount(0); await expect(item.getByRole("button", { name: "Reconcile inbox receipt" })).toHaveCount(0);
     await item.getByText("Attempt receipts", { exact: true }).click(); await expect(item.getByText(/No provider reference recorded/)).toBeVisible();

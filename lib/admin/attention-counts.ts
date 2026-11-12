@@ -11,13 +11,15 @@
 // rework transfers) go through the same list helpers the Approvals page uses,
 // so those counts can never drift from the rows the page shows.
 
-import { FalseConfirmationStatus, JobStatus, PayAdjustmentStatus, QaReworkTransferStatus } from "@prisma/client";
+import { ClientInvoiceStatus, FalseConfirmationStatus, JobStatus, PayAdjustmentStatus, QaReworkTransferStatus } from "@prisma/client";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { listEarlyCheckoutRequests } from "@/lib/jobs/early-checkout-requests";
 import { listClientApprovals } from "@/lib/commercial/client-approvals";
 import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
+import { CLEANER_NEEDS_ACTION_STATUSES } from "@/lib/cleaner/invoice-transitions";
+import { countUrgentNeedsAwaitingAcknowledgement } from "@/lib/inventory/urgent-stock-list";
 
 const TZ = "Australia/Sydney";
 
@@ -36,17 +38,58 @@ export type AdminAttentionCounts = {
   quality: number;
   /** QA issues awaiting rectification (rectificationStatus PENDING). */
   qaIssues: number;
+  /** Quality hub entry: `quality` + `qaIssues` (both real counts, no overlap). */
+  qualityHub: number;
   /** Cases not yet triaged (CaseState OPEN or TRIAGE). */
   cases: number;
   /** Lost & found items still only REPORTED. */
   lostFound: number;
   /** Laundry tasks FLAGGED (cleaner said not ready — needs a decision). */
   laundry: number;
-  /** Payee invoices awaiting the business (SUBMITTED or PAID_CLAIMED). */
+  /**
+   * "Invoices and pay" entry: client invoices still to send plus payee
+   * invoices awaiting the business. The two parts are exposed below so each
+   * tab can badge its own queue.
+   */
   finance: number;
+  /** Client invoices not yet sent: DRAFT (to review) or APPROVED (to send). */
+  clientInvoicesToSend: number;
+  /** Payee invoices awaiting the business (CLEANER_NEEDS_ACTION_STATUSES). */
+  cleanerInvoices: number;
   /** New, uncontacted leads. */
   growth: number;
+  /**
+   * Urgent stock needs awaiting acknowledgement (stage REPORTED) — the
+   * Inventory entry. Null for a viewer who cannot open the Urgent needs tab
+   * (administrators only), so no badge counts work they cannot see.
+   */
+  urgentStock: number | null;
 };
+
+export type AdminAttentionOptions = {
+  /** Count urgent stock needs (administrators only). */
+  includeUrgentStock?: boolean;
+};
+
+export type MoneyAttentionCounts = {
+  clientInvoicesToSend: number;
+  cleanerInvoices: number;
+};
+
+/**
+ * The two "Invoices and pay" queues. Shared by the nav badge and the tab
+ * badges on the page, so the two can never disagree.
+ */
+export async function getMoneyAttentionCounts(): Promise<MoneyAttentionCounts> {
+  const [clientInvoicesToSend, cleanerInvoices] = await Promise.all([
+    db.clientInvoice.count({ where: { status: { in: [ClientInvoiceStatus.DRAFT, ClientInvoiceStatus.APPROVED] } } }),
+    // The cleaner-invoice tab's own "Needs action" chip, so badge and chip
+    // agree: APPROVED still needs the office until it is paid or in Xero, and
+    // a delivery review or a pending export needs someone too.
+    db.cleanerInvoiceSubmission.count({ where: { status: { in: [...CLEANER_NEEDS_ACTION_STATUSES] } } }),
+  ]);
+  return { clientInvoicesToSend, cleanerInvoices };
+}
 
 function startOfTodaySydney(now: Date): Date {
   const local = toZonedTime(now, TZ);
@@ -54,7 +97,7 @@ function startOfTodaySydney(now: Date): Date {
   return fromZonedTime(local, TZ);
 }
 
-export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAttentionCounts> {
+export async function getAdminAttentionCounts(now = new Date(), options: AdminAttentionOptions = {}): Promise<AdminAttentionCounts> {
   const [
     unassignedJobs,
     payRequests, // all-approvals: payAdjustments queue
@@ -76,8 +119,9 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
     pendingQaIssues,
     openCases,
     reportedLostFound,
-    payeeInvoicesAwaiting,
+    money,
     newLeads,
+    awaitingAcknowledgement,
   ] = await Promise.all([
     db.job.count({
       where: { status: JobStatus.UNASSIGNED, scheduledDate: { gte: startOfTodaySydney(now) } },
@@ -116,8 +160,9 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
     db.qaIssue.count({ where: { rectificationStatus: "PENDING" } }),
     db.issueTicket.count({ where: { state: { in: ["OPEN", "TRIAGE"] } } }),
     db.lostFoundItem.count({ where: { status: "REPORTED" } }),
-    db.cleanerInvoiceSubmission.count({ where: { status: { in: ["SUBMITTED", "PAID_CLAIMED"] } } }),
+    getMoneyAttentionCounts(),
     db.quoteLead.count({ where: { status: "NEW" } }),
+    options.includeUrgentStock ? countUrgentNeedsAwaitingAcknowledgement() : Promise.resolve(null),
   ]);
 
   return {
@@ -140,10 +185,14 @@ export async function getAdminAttentionCounts(now = new Date()): Promise<AdminAt
       payClaims,
     quality: openQaAssignments,
     qaIssues: pendingQaIssues,
+    qualityHub: openQaAssignments + pendingQaIssues,
     cases: openCases,
     lostFound: reportedLostFound,
     laundry: flaggedLaundry,
-    finance: payeeInvoicesAwaiting,
+    finance: money.clientInvoicesToSend + money.cleanerInvoices,
+    clientInvoicesToSend: money.clientInvoicesToSend,
+    cleanerInvoices: money.cleanerInvoices,
     growth: newLeads,
+    urgentStock: awaitingAcknowledgement,
   };
 }

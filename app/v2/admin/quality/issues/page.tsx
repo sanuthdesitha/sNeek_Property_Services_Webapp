@@ -1,26 +1,14 @@
-import { Role } from "@prisma/client";
-import { requireRole } from "@/lib/auth/session";
-import { getAppSettings } from "@/lib/settings";
-import { EPageHeader } from "@/components/v2/ui/primitives";
-import { QaIssuesWorkspace } from "@/components/v2/admin/quality/qa-issues-workspace";
+import { redirect } from "next/navigation";
+import { qualityTabRedirect } from "@/lib/quality/redirects";
 
-export const metadata = { title: "QA Issues · Estate admin" };
-export const dynamic = "force-dynamic";
-
-export default async function V2AdminQaIssuesPage() {
-  // QA inspectors may read; only ADMIN / OPS_MANAGER may action issues.
-  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.QA_INSPECTOR]);
-  const canManage = session.user.role === Role.ADMIN || session.user.role === Role.OPS_MANAGER;
-  const settings = await getAppSettings();
-
-  return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Quality"
-        title="QA Issues"
-        description="Every raised QA issue — rectification tracking, false-confirmation review, and deductions."
-      />
-      <QaIssuesWorkspace canManage={canManage} categories={settings.accountability.issueCategories} />
-    </div>
-  );
+// QA issues is the Issues tab of the Quality hub. Filters (cleanerId,
+// propertyId, category, severity, rectificationStatus, falseConfirmation) are
+// carried across under the same names; from/to become a custom period. The
+// hub itself checks the role (QA inspectors keep read-only access).
+export default function V2AdminQaIssuesRedirect({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
+  redirect(qualityTabRedirect("issues", searchParams));
 }

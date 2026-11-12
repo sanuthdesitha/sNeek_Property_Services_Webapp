@@ -53,15 +53,22 @@ export const REVERSAL_TARGET = "DRAFT";
  * NOT REVERSIBLE FROM VOID: a void has already released its items, and pulling
  * the invoice back to DRAFT would let it re-bill work another invoice may have
  * picked up in the meantime — the same charge alive on two invoices.
+ *
+ * NOT REVERSIBLE ONCE SENT (owner decision, 2026-11-11): the client has the
+ * document, so it is corrected by a credit note, never rewritten in place.
+ * Only an APPROVED invoice, which nobody outside the office has seen, reverses.
  */
 export function canReverseInvoice(from: string): boolean {
-  return from === "APPROVED" || from === "SENT" || from === "PART_PAID" || from === "PAID";
+  return from === "APPROVED";
 }
 
 /** Why a reversal was refused, in words an admin can act on. */
 export function reverseRefusalReason(from: string): string | null {
   if (canReverseInvoice(from)) return null;
   if (from === "DRAFT") return "This invoice is already a draft — edit it directly.";
+  if (from === "SENT" || from === "PART_PAID" || from === "PAID") {
+    return "This invoice has been sent to the client, so it cannot be reversed. Issue a credit note to correct it.";
+  }
   if (from === "VOID") {
     return "A void invoice cannot be reversed. Its work has already been released, so generate a replacement instead.";
   }

@@ -1,6 +1,6 @@
 "use client";
 import { isDeviceStatusField } from "@/lib/forms/device-status";
-import { DeviceStatusInput } from "@/components/forms/device-status-input";
+import { DeviceStatusInput } from "@/components/shared/device-status-input";
 
 /**
  * Native Estate renderer for a lib/forms FormSchema. Renders every field type
@@ -35,7 +35,7 @@ import {
   isFlattenedFieldVisible,
   fieldDetailsKey,
 } from "@/lib/forms/visibility";
-import { collectFormErrors, type FormFieldError } from "@/lib/forms/validate-submission";
+import { collectFormErrors, ENFORCE_EXTENDED_FORM_VALIDATION, type FormFieldError } from "@/lib/forms/validate-submission";
 import { isUploadFieldType } from "@/lib/forms/field-types";
 import {
   NO_PHOTO_REASONS,
@@ -58,6 +58,10 @@ import { ExtraPayRequest } from "@/components/v2/cleaner/job-actions";
 import { DamageReportForm } from "@/components/v2/cleaner/damage-report-form";
 import { ReportMaintenance } from "@/components/v2/cleaner/report-maintenance";
 import { QuickScanPanel } from "@/components/v2/inventory/quick-scan-panel";
+import { BarcodeFieldInput, BARCODE_CAPTURE_KEY, type BarcodeCapture } from "@/components/v2/cleaner/barcode-field-input";
+import { StockCountFieldInput, TableFieldInput } from "@/components/v2/cleaner/structured-field-inputs";
+import { FormJobContext, QuestionEffectNotice } from "@/components/v2/cleaner/question-effect-notice";
+import { SandboxMediaInput } from "@/components/v2/cleaner/sandbox-media-input";
 
 export type AnswerMap = Record<string, unknown>;
 export type UploadMap = Record<string, CapturedMedia[]>;
@@ -92,6 +96,16 @@ const ValidationContext = React.createContext<ValidationCtx>({
 const NoPhotoContext = React.createContext<boolean>(false);
 
 const LaundryVisibilityContext = React.createContext<boolean | undefined>(undefined);
+
+/**
+ * "live": the cleaner's job form (default; behaviour unchanged).
+ * "preview": the builder's phone preview — the same fields, but media capture
+ *   is a stand-in that uploads nothing and the job-only extras are hidden.
+ * "sandbox": "Test as cleaner" — like preview, with pretend media counts so
+ *   upload rules can be exercised. Neither writes anything.
+ */
+export type FormRenderMode = "live" | "preview" | "sandbox";
+const RenderModeContext = React.createContext<FormRenderMode>("live");
 export function FormRenderer({
   schema,
   answers,
@@ -111,7 +125,23 @@ export function FormRenderer({
   stockUpdateMode,
   propertyId,
   laundryReady,
+  mode = "live",
+  enforceExtendedRules = ENFORCE_EXTENDED_FORM_VALIDATION,
+  effectsJobId,
 }: {
+  /**
+   * The job a question effect acts on ("'Yes' opens a damage report" opens
+   * that job's damage report). Separate from `jobId`, which also turns on the
+   * Extras region. Falls back to `jobId`.
+   */
+  effectsJobId?: string;
+  /**
+   * Show the extended answer checks inline (the organisation enforces them
+   * for this job's submission). Defaults to the release constant (off).
+   */
+  enforceExtendedRules?: boolean;
+  /** See FormRenderMode. Admin previews pass "preview" or "sandbox". */
+  mode?: FormRenderMode;
   schema: FormSchema;
   answers: AnswerMap;
   uploads: UploadMap;
@@ -227,9 +257,11 @@ export function FormRenderer({
               string,
               { reasonCode: string }
             >) ?? {},
-        }
+        },
+        // The extended rules show on the phone only once the server enforces them.
+        { extended: enforceExtendedRules }
       ),
-    [schema, answers, uploadCounts, property, laundryReady, requiredChecklistTicksBlockSubmit, canUseNoPhoto]
+    [schema, answers, uploadCounts, property, laundryReady, requiredChecklistTicksBlockSubmit, canUseNoPhoto, enforceExtendedRules]
   );
   const errorMap = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -302,6 +334,8 @@ export function FormRenderer({
     : errors.filter((e) => touched.has(e.fieldId));
 
   return (
+    <RenderModeContext.Provider value={mode}>
+    <FormJobContext.Provider value={mode === "live" ? effectsJobId ?? jobId : undefined}>
     <LaundryVisibilityContext.Provider value={laundryReady}>
     <NoPhotoContext.Provider value={canUseNoPhoto}>
     <ValidationContext.Provider value={validation}>
@@ -326,7 +360,7 @@ export function FormRenderer({
           />
         ))}
 
-        <ExtrasRegion
+        {mode === "live" ? <ExtrasRegion
           jobId={jobId}
           property={property}
           inventoryStock={inventoryStock}
@@ -337,11 +371,13 @@ export function FormRenderer({
           onAnswer={handleAnswer}
           onChanged={onExtrasChanged}
           disabled={disabled}
-        />
+        /> : null}
       </div>
     </ValidationContext.Provider>
     </NoPhotoContext.Provider>
     </LaundryVisibilityContext.Provider>
+    </FormJobContext.Provider>
+    </RenderModeContext.Provider>
   );
 }
 
@@ -901,6 +937,7 @@ function FieldBlock({
 }) {
   const validation = React.useContext(ValidationContext);
   const laundryReady = React.useContext(LaundryVisibilityContext);
+  const renderMode = React.useContext(RenderModeContext);
   const anchorRef = React.useRef<HTMLDivElement | null>(null);
 
   const detailsKey = fieldDetailsKey(field.id);
@@ -1006,8 +1043,10 @@ function FieldBlock({
         disabled={disabled}
         property={property}
         error={showFieldError}
+        answers={answers}
+        onAnswer={onAnswer}
       />
-      {isUploadFieldType(field.type) &&
+      {renderMode === "live" && isUploadFieldType(field.type) &&
       (field.type === "photo" || (field as { mediaMode?: string }).mediaMode === "both") ? (
         <NoPhotoOption
           fieldId={String(field.id)}
@@ -1030,6 +1069,9 @@ function FieldBlock({
       {showDetailsError ? (
         <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-danger))]">{detailsError}</p>
       ) : null}
+      {field.effects?.length ? (
+        <QuestionEffectNotice field={field} value={value} sectionTitle={section.title ?? ""} mode={renderMode} />
+      ) : null}
       {showFieldError ? (
         <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-danger))]">{fieldError}</p>
       ) : null}
@@ -1049,6 +1091,8 @@ function FieldControl({
   disabled,
   property,
   error,
+  answers,
+  onAnswer,
 }: {
   field: FormField;
   section: FormSection;
@@ -1059,7 +1103,26 @@ function FieldControl({
   disabled: boolean;
   property: Record<string, unknown>;
   error?: boolean;
+  /** For reserved per-field metadata (how a barcode was captured). */
+  answers?: AnswerMap;
+  onAnswer?: (fieldId: string, value: unknown) => void;
 }) {
+  const renderMode = React.useContext(RenderModeContext);
+  // Admin preview / sandbox: a stand-in that never opens the camera or uploads.
+  if (isUploadFieldType(field.type) && renderMode !== "live") {
+    return (
+      <SandboxMediaInput
+        fieldId={String(field.id)}
+        label={field.label || String(field.id)}
+        value={uploads[field.id] ?? []}
+        onChange={(media) => onUpload(field.id, media)}
+        minPhotos={Math.max(field.required ? 1 : 0, field.type === "video" ? 0 : Number(field.minPhotos ?? 0)) || undefined}
+        maxFiles={field.maxFiles}
+        kind={field.type === "video" ? "video" : field.type === "file" ? "file" : "image"}
+        interactive={renderMode === "sandbox"}
+      />
+    );
+  }
   // Media/upload fields → native capture.
   if (isUploadFieldType(field.type)) {
     const mode =
@@ -1289,14 +1352,25 @@ function FieldControl({
     case "location":
       return <LocationCapture value={value as any} onChange={set} disabled={disabled} />;
 
+    case "table":
+      return <TableFieldInput field={field} value={value} onChange={set} disabled={disabled} error={error} />;
+
+    case "stock_count":
+      return <StockCountFieldInput field={field} value={value} onChange={set} disabled={disabled} error={error} />;
+
     case "barcode":
       return (
-        <EInput
-          placeholder="Scan or type code"
+        <BarcodeFieldInput
+          label={field.label || field.id}
+          placeholder={field.placeholder}
           value={String(value ?? "")}
           disabled={disabled}
-          className={errCls}
-          onChange={(e) => set(e.target.value)}
+          errorClassName={errCls}
+          onChange={(code) => set(code)}
+          onCapture={(capture: BarcodeCapture) => {
+            const current = (answers?.[BARCODE_CAPTURE_KEY] as Record<string, BarcodeCapture> | undefined) ?? {};
+            onAnswer?.(BARCODE_CAPTURE_KEY, { ...current, [field.id]: capture });
+          }}
         />
       );
 
@@ -1551,9 +1625,28 @@ function SelectControl({
   const valueIsOther = Boolean(current) && !options.includes(current);
   const [otherOpen, setOtherOpen] = React.useState(valueIsOther);
   const showOther = Boolean(field.allowOther) && (otherOpen || valueIsOther);
+  // "Searchable": a filter box narrows a long list. The chosen option always
+  // stays listed so filtering never hides (or silently changes) the answer.
+  const [query, setQuery] = React.useState("");
+  const needle = query.trim().toLowerCase();
+  const matches = needle ? options.filter((opt) => opt.toLowerCase().includes(needle)) : options;
+  const shown = field.searchable && needle ? options.filter((opt) => matches.includes(opt) || opt === current) : options;
 
   return (
     <div className="space-y-1.5">
+      {field.searchable ? (
+        <EInput
+          type="search"
+          aria-label={`Search options for ${field.label || field.id}`}
+          placeholder="Search options"
+          value={query}
+          disabled={disabled}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      ) : null}
+      {field.searchable && needle && matches.length === 0 ? (
+        <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">No option matches “{query.trim()}”.</p>
+      ) : null}
       <ESelect
         value={showOther ? OTHER_SENTINEL : current}
         disabled={disabled}
@@ -1569,7 +1662,7 @@ function SelectControl({
         }}
       >
         <option value="">Select…</option>
-        {options.map((opt) => (
+        {shown.map((opt) => (
           <option key={opt} value={opt}>
             {opt}
           </option>
