@@ -12,6 +12,8 @@
 import * as React from "react";
 import type { PipelineException, PipelineLane, PipelineSettings } from "@/lib/laundry/pipeline";
 import type { LaundryTaskDTO } from "./laundry-shared";
+import type { SupplierTeamSummary } from "@/lib/laundry/nudge-rules";
+import type { TeamReplySummary } from "@/lib/laundry/team-request-reply-rules";
 
 export type PipelineCardDTO = LaundryTaskDTO & {
   updatedAt: string;
@@ -24,6 +26,10 @@ export type PipelineCardDTO = LaundryTaskDTO & {
   dayOf: { day: number; planned: number } | null;
   nextGuest: { checkinAt: string | null; name: string | null } | null;
   cleaners: string[];
+  /** The run's laundry partner team who can be asked (names only); null when the run has no supplier. */
+  supplierTeam: SupplierTeamSummary;
+  /** The laundry team's answers to office requests (newest first). */
+  teamReplies?: TeamReplySummary[];
 };
 
 export type PipelineData = {

@@ -9,6 +9,7 @@ import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 /**
  * High-alert day-of reminder to the ASSIGNED cleaner(s) for each job scheduled
@@ -71,6 +72,7 @@ export async function dispatchCleanerDayReminders(now: Date = new Date()) {
   let sent = 0;
   let skipped = 0;
 
+  const wording = await loadNotificationWording("job.cleaner_day_reminder");
   for (const job of jobs) {
     const scheduledAt = resolveScheduledAt(job, timezone);
     const within2h = now.getTime() >= scheduledAt.getTime() - LEAD_MS;
@@ -80,28 +82,21 @@ export async function dispatchCleanerDayReminders(now: Date = new Date()) {
     const jobRef = getJobReference(job);
     const timing = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ");
     const whenLabel = job.startTime || job.dueTime || "today";
-    const subject = `Today's job: ${job.property.name} (${jobRef})`;
-    const body = `You're rostered at ${job.property.name} today at ${whenLabel}. ${job.property.address}${
-      timing ? ` — ${timing}` : ""
-    }`;
-    const smsBody = `sNeek Ops: Today at ${whenLabel} you're cleaning ${job.property.name} (${jobRef}). ${job.property.address}.${
-      timing ? ` ${timing}.` : ""
-    }`;
-    const emailHtml = `
-      <div style="font-family:Arial,sans-serif;color:#111;">
-        <h2 style="margin:0 0 6px;">Your job today</h2>
-        <p style="margin:0 0 10px;color:#555;">${subject}</p>
-        <table style="font-size:14px;border-collapse:collapse;">
-          <tr><td style="padding:2px 10px 2px 0;color:#666;">Property</td><td><strong>${job.property.name}</strong></td></tr>
-          <tr><td style="padding:2px 10px 2px 0;color:#666;">Address</td><td>${job.property.address}</td></tr>
-          <tr><td style="padding:2px 10px 2px 0;color:#666;">Start</td><td>${whenLabel}</td></tr>
-          <tr><td style="padding:2px 10px 2px 0;color:#666;">Job</td><td>${job.jobType.replace(/_/g, " ")} · ${jobRef}</td></tr>
-          ${timing ? `<tr><td style="padding:2px 10px 2px 0;color:#666;">Notes</td><td>${timing}</td></tr>` : ""}
-        </table>
-        <p style="margin:16px 0;">
-          <a href="/cleaner/jobs" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;">Open my jobs</a>
-        </p>
-      </div>`;
+    const timingValues = { timingFlags: timing };
+    const values = {
+      propertyName: job.property.name,
+      jobNumber: jobRef,
+      when: whenLabel,
+      propertyAddress: job.property.address,
+      jobType: job.jobType.replace(/_/g, " "),
+      timingDash: wording.line("timing-dash", "INBOX", timingValues, Boolean(timing)),
+      timingSuffix: wording.line("timing-line", "SMS", timingValues, Boolean(timing)),
+      timingRow: wording.line("timing-row", "EMAIL", timingValues, Boolean(timing)),
+    };
+    const { title: subject, body } = wording.render("cleaner", "INBOX", values);
+    const email = wording.render("cleaner", "EMAIL", values);
+    const smsBody = wording.render("cleaner", "SMS", values).body;
+    const emailHtml = email.html;
 
     for (const assignment of job.assignments) {
       const cleaner = assignment.user;
@@ -125,7 +120,7 @@ export async function dispatchCleanerDayReminders(now: Date = new Date()) {
         jobId: job.id,
         web: { subject, body },
         url: "/cleaner/jobs",
-        email: { subject, html: emailHtml, logBody: body },
+        email: { subject: email.subject, html: emailHtml, logBody: body },
         sms: smsBody,
       }); }, now);
       if (attempted) sent += 1;

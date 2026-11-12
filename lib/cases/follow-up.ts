@@ -4,6 +4,8 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { isCaseOpenStatus } from "@/lib/cases/status";
 import { db } from "@/lib/db";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { escapeHtml } from "@/lib/utils/escape-html";
 
 const FOLLOW_UP_THRESHOLD_MS = 48 * 60 * 60 * 1000;
 const REPEAT_ALERT_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -93,30 +95,28 @@ export async function sendStaleCaseFollowUps(now = new Date()) {
     };
   });
 
-  const subject =
-    staleCases.length === 1
-      ? "1 case needs follow-up"
-      : `${staleCases.length} cases need follow-up`;
-
-  const html = `
-    <h2 style="margin:0 0 12px;">Cases needing follow-up</h2>
-    <p>The following cases have been open without an update for more than 48 hours.</p>
-    <ul style="margin:16px 0;padding-left:20px;line-height:1.7;">
-      ${summaryLines.map((item) => `<li>${item.line}</li>`).join("")}
-    </ul>
-    <p><a href="${resolveAppUrl("/admin/cases")}" style="color:#0f766e;font-weight:600;">Open cases board</a></p>
-  `.trim();
+  const wording = await loadNotificationWording("office.cases");
+  const followUp = wording.render(staleCases.length === 1 ? "follow-up-one" : "follow-up-many", "INBOX", {
+    count: staleCases.length,
+    caseLine: summaryLines[0]?.line ?? "",
+  });
+  const subject = followUp.title;
+  const followUpEmail = wording.render("follow-up", "EMAIL", {
+    title: subject,
+    caseItems: summaryLines.map((item) => `<li>${escapeHtml(item.line)}</li>`).join(""),
+    casesUrl: resolveAppUrl("/admin/cases"),
+  });
 
   await deliverNotificationToRecipients({
     recipients,
     category: "cases",
     web: {
       subject,
-      body: summaryLines.length === 1 ? summaryLines[0].line : `${summaryLines.length} cases have been open for more than 48 hours.`,
+      body: followUp.body,
     },
     email: {
-      subject: `sNeek follow-up: ${subject}`,
-      html,
+      subject: followUpEmail.subject,
+      html: followUpEmail.html,
       logBody: summaryLines.slice(0, 3).map((item) => item.line).join(" | "),
     },
   });

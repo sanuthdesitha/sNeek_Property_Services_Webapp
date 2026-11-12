@@ -11,6 +11,7 @@ import { renderEmailTemplate } from "@/lib/email-templates";
 import { resolveAppUrl } from "@/lib/app-url";
 import { upsertAuthUserState } from "@/lib/auth/account-state";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export async function GET(req: NextRequest) {
   try {
@@ -140,7 +141,7 @@ export async function POST(req: NextRequest) {
         tempPassword,
         welcomeNote,
         actionUrl: resolveAppUrl("/login", req),
-        actionLabel: "Sign in and complete setup",
+        actionLabel: (await loadNotificationWording("account.invitations")).line("button-complete-setup", "INBOX", {}),
       });
       const emailResult = await sendEmailDetailed({
         to: result.invitedUser.email,

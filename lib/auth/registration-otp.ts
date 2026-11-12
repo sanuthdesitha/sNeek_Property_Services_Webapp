@@ -16,7 +16,8 @@ export async function issueSignupOtp(email: string, options: IssueSignupOtpOptio
   if (options.enforceCooldown) {
     const resendStatus = await assertCanResendOtp(identifier);
     if (!resendStatus.ok) {
-      return { ok: false as const, error: resendStatus.message };
+      // Refused by the code cool-down before anything was issued or sent.
+      return { ok: false as const, error: resendStatus.message, acceptance: null, skipped: false, sendAttempted: false as const };
     }
   }
 
@@ -42,9 +43,9 @@ export async function issueSignupOtp(email: string, options: IssueSignupOtpOptio
   });
 
   if (!sent.ok) {
-    return { ok: false as const, error: sent.error ?? "Could not send verification code." };
+    return { ok: false as const, error: sent.error ?? "Could not send verification code.", acceptance: sent.acceptance ?? ("NOT_ACCEPTED" as const), skipped: sent.skipped === true, sendAttempted: true as const };
   }
 
   await recordOtpSent(identifier);
-  return { ok: true as const };
+  return { ok: true as const, acceptance: "ACCEPTED" as const, externalId: sent.externalId ?? null };
 }

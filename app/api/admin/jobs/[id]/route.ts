@@ -11,10 +11,12 @@ import {
   serializeJobInternalNotes,
 } from "@/lib/jobs/meta";
 import { classifyPriorityFromTimingRule } from "@/lib/jobs/priority";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { verifySensitiveAction, isSensitiveRefusal } from "@/lib/security/admin-verification";
 import { getAppSettings } from "@/lib/settings";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { escapeHtml } from "@/lib/utils/escape-html";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
@@ -486,20 +488,24 @@ export async function PATCH(
           formatJobDate(current.scheduledDate) !== formatJobDate(refreshed.scheduledDate) ||
           current.startTime !== refreshed.startTime ||
           current.dueTime !== refreshed.dueTime;
-        const summaryLines = changes.map((row) => `<li>${row}</li>`).join("");
-        const emailHtml = `
-          <h2 style="margin:0 0 12px;">Job updated${immediateAttention ? " - immediate attention" : ""}</h2>
-          <p><strong>${jobReference}</strong> for <strong>${propertyLabel}</strong> has been updated.</p>
-          <ul style="padding-left:18px;margin:12px 0;">${summaryLines}</ul>
-          <p>Open the job for the latest instructions and schedule details.</p>
-        `;
+        const wording = await loadNotificationWording("job.changed");
+        const summaryLines = changes.map((row) => `<li>${escapeHtml(row)}</li>`).join("");
         const notificationTemplate = renderNotificationTemplate(settings, "jobUpdated", {
           jobNumber: jobReference,
           propertyName: propertyLabel,
           changeSummary: changes.join(" | "),
           immediateAttention: immediateAttention ? "Immediate attention required. " : "",
         });
-        const webSubject = `${companyName}: ${notificationTemplate.webSubject}`;
+        const updatedEmail = wording.render("job-updated", "EMAIL", {
+          companyName,
+          templateSubject: notificationTemplate.webSubject,
+          attentionSuffix: wording.line("attention-suffix", "EMAIL", {}, immediateAttention),
+          jobNumber: jobReference,
+          propertyName: propertyLabel,
+          changeList: summaryLines,
+        });
+        const emailHtml = updatedEmail.html;
+        const webSubject = updatedEmail.subject;
         const webBody = notificationTemplate.webBody;
         const smsBody = notificationTemplate.smsBody.slice(0, 320);
 
@@ -623,7 +629,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         ? 401
         : err.message === "FORBIDDEN"
           ? 403
-          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+          : isSensitiveRefusal(err)
             ? 423
             : 400;
     return NextResponse.json({ error: err.message }, { status });
@@ -757,7 +763,7 @@ export async function POST(
         ? 401
         : err.message === "FORBIDDEN"
           ? 403
-          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+          : isSensitiveRefusal(err)
             ? 423
             : 400;
     return NextResponse.json({ error: err.message }, { status });

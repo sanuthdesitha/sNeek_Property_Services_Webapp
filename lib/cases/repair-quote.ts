@@ -15,6 +15,7 @@ import "server-only";
  * any other key must pass the upload-ownership rule (own upload, or an office
  * account's upload).
  */
+import { formatQuoteReference } from "@/lib/quotes/quote-reference";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { findForeignUploadKeys } from "@/lib/uploads/ownership-server";
@@ -37,8 +38,9 @@ export type CaseQuotePrefill = {
 export type CaseQuoteLink = { quoteId: string; reference: string; createdAt: string; href: string };
 
 /** The short reference shown for a quote ("Q-1A2B3C"); quotes have no number column. */
-export function quoteReference(quoteId: string): string {
-  return `Q-${quoteId.slice(-6).toUpperCase()}`;
+/** "Q-204" from the quote's number; the older id form only when no number was read. */
+export function quoteReference(quoteId: string, quoteNumber?: number | null): string {
+  return formatQuoteReference(quoteNumber) ?? `Q-${quoteId.slice(-6).toUpperCase()}`;
 }
 
 function isImage(attachment: { mimeType: string | null; s3Key: string }): boolean {
@@ -120,14 +122,14 @@ export async function caseForQuote(caseId: string): Promise<{ id: string; title:
  */
 export async function linkQuoteToCase(
   tx: Prisma.TransactionClient,
-  input: { quoteId: string; caseId: string; caseTitle: string; actorId: string },
+  input: { quoteId: string; quoteNumber?: number | null; caseId: string; caseTitle: string; actorId: string },
 ): Promise<void> {
   await tx.quoteEvent.create({ data: { quoteId: input.quoteId, type: QUOTE_FROM_CASE_EVENT, detail: { caseId: input.caseId, caseTitle: input.caseTitle, actorId: input.actorId } } });
   await tx.caseComment.create({ data: {
     caseId: input.caseId,
     authorUserId: input.actorId,
     isInternal: true,
-    body: `Repair quote ${quoteReference(input.quoteId)} created from this case as a draft. Nothing has been sent to the client.`,
+    body: `Repair quote ${quoteReference(input.quoteId, input.quoteNumber)} created from this case as a draft. Nothing has been sent to the client.`,
   } });
 }
 
@@ -136,9 +138,9 @@ export async function quotesFromCase(caseId: string): Promise<CaseQuoteLink[]> {
     where: { type: QUOTE_FROM_CASE_EVENT, detail: { path: ["caseId"], equals: caseId } },
     orderBy: { createdAt: "desc" },
     take: 20,
-    select: { quoteId: true, createdAt: true },
+    select: { quoteId: true, createdAt: true, quote: { select: { quoteNumber: true } } },
   });
-  return events.map((event) => ({ quoteId: event.quoteId, reference: quoteReference(event.quoteId), createdAt: event.createdAt.toISOString(), href: `/v2/admin/quotes/${event.quoteId}` }));
+  return events.map((event) => ({ quoteId: event.quoteId, reference: quoteReference(event.quoteId, event.quote?.quoteNumber), createdAt: event.createdAt.toISOString(), href: `/v2/admin/quotes/${event.quoteId}` }));
 }
 
 export async function caseForQuoteDetail(quoteId: string): Promise<{ caseId: string; caseTitle: string; href: string } | null> {

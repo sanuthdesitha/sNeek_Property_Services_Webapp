@@ -4,6 +4,7 @@ import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import {
   decideContinuationRequest,
   getContinuationRequestById,
@@ -63,20 +64,18 @@ export async function PATCH(
       },
     });
 
+    const continuationWording = await loadNotificationWording("job.cleaner_requests_decided");
+    const continuation = decided.status === "APPROVED"
+      ? continuationWording.render("continuation-approved", "INBOX", { continuationJobId: decided.continuationJobId ?? "-" })
+      : continuationWording.render("continuation-declined", "INBOX", { decisionNote: decided.decisionNote ?? continuationWording.line("declined-default", "INBOX", {}) });
     await db.notification.create({
       data: {
         userId: decided.requestedByUserId,
         jobId: decided.jobId,
         externalId: mobilePendingMarker("jobs"),
         channel: NotificationChannel.PUSH,
-        subject:
-          decided.status === "APPROVED"
-            ? "Continuation approved"
-            : "Continuation request declined",
-        body:
-          decided.status === "APPROVED"
-            ? `A continuation has been scheduled for your job (${decided.continuationJobId ?? "-"})`
-            : decided.decisionNote ?? "Admin declined this request.",
+        subject: continuation.title,
+        body: continuation.body,
         status: NotificationStatus.SENT,
         sentAt: new Date(),
       },

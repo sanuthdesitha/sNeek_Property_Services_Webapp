@@ -23,6 +23,8 @@ export type EStage = {
   state: EStageState;
   /** Short qualifier shown under the label, e.g. "Part paid" or "Pending". */
   note?: string | null;
+  /** Drawn without a number (an alternative ending such as "or Declined"). */
+  unnumbered?: boolean;
 };
 
 export type EStageBarProps = {
@@ -80,7 +82,7 @@ export function EStageBar({ label, stages, terminal, className }: EStageBarProps
           )}
         >
           <span className="break-words">
-            {index + 1} {stage.label}
+            {stage.unnumbered ? stage.label : `${index + 1} ${stage.label}`}
           </span>
           {stage.note ? <span className="mt-0.5 text-[0.6875rem] font-[500] no-underline">{stage.note}</span> : null}
           <span className="sr-only">, {STATE_WORDS[stage.state]}</span>

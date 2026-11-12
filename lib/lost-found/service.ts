@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import type { LostFoundItem, LostFoundEvent } from "@prisma/client";
 import { bookingSummary, type BookingRecord, type BookingSummary } from "./guest";
+import { lostFoundPhotoSrc } from "./photo-src";
 
 /**
  * Lost & Found keeps scalar refs to Property / User / Job (only the booking is
@@ -9,7 +10,13 @@ import { bookingSummary, type BookingRecord, type BookingSummary } from "./guest
  * New fields are additive: every field the old board read is unchanged.
  */
 
-export type LostFoundPhoto = { url: string; key: string; caption?: string | null };
+/**
+ * `url` is the link stored when the photo was saved (public bucket link);
+ * `src` is where screens show it from: the item's photo route, which signs a
+ * fresh link for whoever may open the item (./photo-src.ts). `src` is added
+ * when an item is serialized; parsePhotos alone does not know the item.
+ */
+export type LostFoundPhoto = { url: string; key: string; caption?: string | null; src?: string };
 
 export function parsePhotos(value: unknown): LostFoundPhoto[] {
   if (!Array.isArray(value)) return [];
@@ -96,7 +103,7 @@ export function serializeItemRow(item: LostFoundItem, maps: NameMaps) {
     itemName: item.itemName,
     description: item.description,
     foundLocation: item.foundLocation,
-    photos: parsePhotos(item.photos),
+    photos: parsePhotos(item.photos).map((photo) => ({ ...photo, src: lostFoundPhotoSrc(item.id, photo.key) })),
     status: item.status,
     guestName: item.guestName,
     guestContact: item.guestContact,

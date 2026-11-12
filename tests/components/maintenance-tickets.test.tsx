@@ -39,13 +39,13 @@ describe("maintenance lifecycle tickets", () => {
   it("preserves the same tickets and filter through keyboard-operated board/list switches", async () => {
     render(<MaintenanceTicketsWorkspace tickets={[ticket("a"), ticket("b", { status: "ORDERED", outcome: "NEEDS_PARTS" })]} />);
     const user = userEvent.setup();
-    screen.getByRole("button", { name: "Board view" }).focus();
+    screen.getByRole("button", { name: "By stage" }).focus();
     await user.keyboard("{Enter}");
-    expect(screen.getByRole("button", { name: "Board view" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "By stage" })).toHaveAttribute("aria-pressed", "true");
     expect(within(screen.getByRole("region", { name: "Parts ordered tickets" })).getByRole("link", { name: "Repair b" })).toBeVisible();
     fireEvent.change(screen.getByRole("combobox", { name: "Work order status" }), { target: { value: "ORDERED" } });
     expect(screen.queryByRole("link", { name: "Repair a" })).not.toBeInTheDocument();
-    screen.getByRole("button", { name: "List view" }).focus();
+    screen.getByRole("button", { name: "By day" }).focus();
     await user.keyboard("{Enter}");
     expect(screen.getByRole("link", { name: "Repair b" })).toBeVisible();
     expect(screen.queryByRole("region", { name: "Parts ordered tickets" })).not.toBeInTheDocument();
@@ -65,7 +65,7 @@ describe("maintenance lifecycle tickets", () => {
     expect(screen.getByText("No access")).toBeVisible();
     expect(screen.getByText("Needs follow-up")).toBeVisible();
     expect(screen.queryByText("Done")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Board view" }));
+    fireEvent.click(screen.getByRole("button", { name: "By stage" }));
     expect(screen.getByRole("region", { name: "FUTURE_STATUS tickets" })).toBeVisible();
   });
   it("serializes visit dates safely at the server/client boundary", async () => {

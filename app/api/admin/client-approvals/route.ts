@@ -4,6 +4,7 @@ import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import {
   createClientApproval,
   listClientApprovals,
@@ -145,13 +146,14 @@ export async function POST(req: NextRequest) {
     });
 
     if (recipients.length > 0) {
+      const approvalNotice = (await loadNotificationWording("client.approvals")).render("approval-required", "INBOX", { placeName: client.name, approvalTitle: created.title });
       await db.notification.createMany({
         data: recipients.map((recipient) => ({
           userId: recipient.id,
           externalId: mobilePendingMarker("approvals"),
           channel: NotificationChannel.PUSH,
-          subject: "Approval required",
-          body: `${client.name}: ${created.title}`,
+          subject: approvalNotice.title,
+          body: approvalNotice.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         })),

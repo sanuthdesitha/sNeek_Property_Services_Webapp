@@ -14,10 +14,10 @@ export type AccountTab = (typeof ACCOUNT_TABS)[number];
 export const ACCOUNT_TAB_LABEL: Record<AccountTab, string> = {
   everyone: "Everyone",
   cleaners: "Cleaners",
-  office: "Office",
+  office: "Office and other staff",
   clients: "Client logins",
   assistants: "Assistants",
-  partners: "Partners",
+  partners: "Laundry partners",
   attention: "Needs attention",
 };
 
@@ -25,10 +25,12 @@ export const ACCOUNT_TAB_LABEL: Record<AccountTab, string> = {
 export const ACCOUNT_TAB_ROLES: Record<AccountTab, readonly Role[] | null> = {
   everyone: null,
   cleaners: ["CLEANER"],
-  office: ["ADMIN", "OPS_MANAGER", "QA_INSPECTOR"],
+  // People board (2026-11-12): "Office and other staff" includes Maintenance;
+  // "Laundry partners and suppliers" holds the LAUNDRY logins.
+  office: ["ADMIN", "OPS_MANAGER", "QA_INSPECTOR", "MAINTENANCE"],
   clients: ["CLIENT"],
   assistants: ["VA"],
-  partners: ["LAUNDRY", "MAINTENANCE"],
+  partners: ["LAUNDRY"],
   attention: null,
 };
 
@@ -41,6 +43,8 @@ export const LEGACY_ACCOUNT_TABS: Readonly<Record<string, AccountTab>> = {
   clients: "clients",
   assistants: "assistants",
   partners: "partners",
+  // People › Everyone › Client logins (the People route's name for this list).
+  logins: "clients",
 };
 
 export const DEFAULT_ACCOUNT_TAB: AccountTab = "everyone";

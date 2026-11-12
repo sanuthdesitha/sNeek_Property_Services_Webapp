@@ -5,6 +5,7 @@
  * All tokens from [data-skin="estate"][data-portal-accent="public"] via estate.css.
  * No dependency on components/ui/* or the v1 PublicSiteShell.
  */
+import { PUBLIC_MENU_GROUPS } from "@/components/v2/public/public-menu";
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -245,7 +246,7 @@ export function EstatePublicShell({
           {/* Desktop CTAs */}
           <div className="hidden items-center gap-2 lg:flex">
             <EButton asChild variant="ghost" size="sm">
-              <Link href="/v2/login">Login</Link>
+              <Link href="/v2/login">Sign in</Link>
             </EButton>
             <EButton asChild variant="gold" size="sm">
               <Link href="/v2/quote">Get a quote</Link>
@@ -254,7 +255,9 @@ export function EstatePublicShell({
 
           {/* Mobile hamburger */}
           <button
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-[hsl(var(--e-border))] lg:hidden"
+            type="button"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-[hsl(var(--e-border))] lg:hidden"
+            aria-expanded={mobileOpen}
             onClick={() => setMobileOpen((o) => !o)}
             aria-label={mobileOpen ? "Close menu" : "Open menu"}
           >
@@ -275,28 +278,34 @@ export function EstatePublicShell({
                 {PHONE_DISPLAY}
               </a>
             </div>
-            <nav className="space-y-1">
-              {NAV_LINKS.map((item) => {
-                const isActive = pathname === item.href || (item.hasDropdown && pathname.startsWith("/v2/services"));
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "block rounded-[var(--e-radius)] px-4 py-3 text-[0.875rem] font-medium transition-colors",
-                      isActive
-                        ? "bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))]"
-                        : "hover:bg-[hsl(var(--e-muted))]"
-                    )}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
+            <nav aria-label="Site menu" className="space-y-3">
+              {PUBLIC_MENU_GROUPS.map((group, index) => (
+                <ul key={index} className="space-y-0.5 border-b border-[hsl(var(--e-border))] pb-3 last:border-b-0">
+                  {group.map((item) => {
+                    const isActive = pathname === item.href || (item.href === "/v2/services" && pathname.startsWith("/v2/services"));
+                    return (
+                      <li key={item.href}>
+                        <Link
+                          href={item.href}
+                          aria-current={isActive ? "page" : undefined}
+                          className={cn(
+                            "flex min-h-11 items-center rounded-[var(--e-radius)] px-4 text-[0.875rem] font-medium transition-colors",
+                            isActive
+                              ? "bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))]"
+                              : "hover:bg-[hsl(var(--e-muted))]"
+                          )}
+                        >
+                          {item.label}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ))}
             </nav>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <EButton asChild variant="outline" size="sm">
-                <Link href="/v2/login">Login</Link>
+                <Link href="/v2/login">Sign in</Link>
               </EButton>
               <EButton asChild variant="gold" size="sm">
                 <Link href="/v2/quote">Get a quote</Link>

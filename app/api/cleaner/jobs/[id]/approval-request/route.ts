@@ -4,6 +4,7 @@ import { JobStatus, NotificationChannel, NotificationStatus, PayAdjustmentType, 
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   title: z.string().trim().min(1).max(160),
@@ -75,16 +76,20 @@ export async function POST(
       select: { id: true },
     });
     if (admins.length > 0) {
+      const extraPay = (await loadNotificationWording("office.cleaner_requests")).render("job-extra-pay", "INBOX", {
+        propertyName: job.property.name,
+        requestTitle: body.title,
+        currency: (body.currency ?? "AUD").toUpperCase(),
+        amount: requestedAmount.toFixed(2),
+      });
       await db.notification.createMany({
         data: admins.map((recipient) => ({
           userId: recipient.id,
           jobId: job.id,
           externalId: mobilePendingMarker("approvals"),
           channel: NotificationChannel.PUSH,
-          subject: "Cleaner extra pay request",
-          body: `${job.property.name}: ${body.title} (${(body.currency ?? "AUD").toUpperCase()} ${requestedAmount.toFixed(
-            2
-          )})`,
+          subject: extraPay.title,
+          body: extraPay.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         })),

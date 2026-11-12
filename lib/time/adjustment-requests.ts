@@ -3,6 +3,7 @@ import { NotificationChannel, NotificationStatus, TimeAdjustmentStatus } from "@
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export type TimeAdjustmentRequestRow = {
   id: string;
@@ -171,20 +172,18 @@ export async function reviewTimeAdjustmentRequest(params: {
       },
     });
 
+    const clockNotice = (await loadNotificationWording("job.cleaner_requests_decided")).render(params.status === TimeAdjustmentStatus.APPROVED ? "clock-approved" : "clock-rejected", "INBOX", {
+      jobNumber: existing.job.jobNumber,
+      propertyName: existing.job.property.name,
+    });
     await tx.notification.create({
       data: {
         userId: existing.cleanerId,
         jobId: existing.jobId,
         externalId: mobilePendingMarker("jobs"),
         channel: NotificationChannel.PUSH,
-        subject:
-          params.status === TimeAdjustmentStatus.APPROVED
-            ? "Clock adjustment approved"
-            : "Clock adjustment rejected",
-        body:
-          params.status === TimeAdjustmentStatus.APPROVED
-            ? `${existing.job.jobNumber}: Admin approved your requested final time for ${existing.job.property.name}.`
-            : `${existing.job.jobNumber}: Admin rejected your requested clock change for ${existing.job.property.name}.`,
+        subject: clockNotice.title,
+        body: clockNotice.body,
         status: NotificationStatus.SENT,
         sentAt: new Date(),
       },
@@ -210,22 +209,22 @@ export async function reviewTimeAdjustmentRequest(params: {
 
   const settings = await getAppSettings();
   if (existing.cleaner.email) {
-    const approvedLabel =
-      params.status === TimeAdjustmentStatus.APPROVED && approvedTotalDurationM != null
-        ? `<p><strong>Approved total time:</strong> ${approvedTotalDurationM} minutes</p>`
-        : "";
-    const adminNoteLabel = params.adminNote?.trim()
-      ? `<p><strong>Admin note:</strong> ${params.adminNote.trim().replace(/</g, "&lt;")}</p>`
-      : "";
+    const wording = await loadNotificationWording("job.cleaner_requests_decided");
+    const adminNote = params.adminNote?.trim();
+    const email = wording.render("clock-decision", "EMAIL", {
+      companyName: settings.companyName,
+      status: params.status,
+      recipientName: existing.cleaner.name ?? existing.cleaner.email,
+      propertyName: existing.job.property.name,
+      jobNumber: existing.job.jobNumber,
+      decision: params.status.toLowerCase(),
+      approvedTimeParagraph: wording.line("approved-time", "EMAIL", { minutes: approvedTotalDurationM }, params.status === TimeAdjustmentStatus.APPROVED && approvedTotalDurationM != null),
+      adminNoteParagraph: wording.line("admin-note", "EMAIL", { note: adminNote }, Boolean(adminNote)),
+    });
     await sendEmailDetailed({ kind: "time_adjustment",
       to: existing.cleaner.email,
-      subject: `${settings.companyName} - Clock Adjustment ${params.status}`,
-      html: `
-        <p>Hello ${existing.cleaner.name ?? existing.cleaner.email},</p>
-        <p>Your clock adjustment request for <strong>${existing.job.property.name}</strong> (${existing.job.jobNumber}) has been <strong>${params.status.toLowerCase()}</strong>.</p>
-        ${approvedLabel}
-        ${adminNoteLabel}
-      `,
+      subject: email.subject,
+      html: email.html,
     }).catch(() => undefined);
   }
 

@@ -3,6 +3,7 @@ import { JobStatus, NotificationChannel, NotificationStatus } from "@prisma/clie
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { sendWebPushToUser } from "@/lib/notifications/web-push";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 /**
  * Auto-pause jobs stuck IN_PROGRESS for more than 24 hours.
@@ -119,7 +120,7 @@ export async function autoPauseStaleJobs(now = new Date()) {
 
       // Best-effort notify every assigned cleaner (in-app feed + web push).
       const propertyName = job.property?.name ?? "your job";
-      const body = `${job.jobNumber || job.id}: ${propertyName} ran for over 24 hours and was automatically paused. Please open it and submit your checklist, or resume if you're still on site.`;
+      const { title, body } = (await loadNotificationWording("job.clock_changes")).render("auto-paused", "INBOX", { jobNumber: job.jobNumber || job.id, propertyName });
       for (const assignment of job.assignments) {
         try {
           await db.notification.create({
@@ -128,14 +129,14 @@ export async function autoPauseStaleJobs(now = new Date()) {
               jobId: job.id,
               externalId: mobilePendingMarker("jobs"),
               channel: NotificationChannel.PUSH,
-              subject: "Job auto-paused",
+              subject: title,
               body,
               status: NotificationStatus.SENT,
               sentAt: new Date(),
             },
           });
           await sendWebPushToUser(assignment.userId, {
-            title: "Job auto-paused",
+            title,
             body,
             url: "/cleaner/jobs",
             tag: `job-auto-paused-${job.id}`,

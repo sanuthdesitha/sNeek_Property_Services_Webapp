@@ -4,6 +4,7 @@
  * returned from here MUST be client-safe — no internal pricing config, margins,
  * cost rates, or other clients' data.
  */
+import { formatQuoteReference } from "@/lib/quotes/quote-reference";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { getChecklist } from "@/lib/checklists/store";
@@ -221,7 +222,7 @@ export async function buildPublicQuotePayload(
       name: settings.companyName || "sNeek Property Services",
       logoUrl: toAbsoluteAssetUrl(settings.logoUrl),
     },
-    quoteRef: String(quote.id).slice(-7).toUpperCase(),
+    quoteRef: formatQuoteReference(quote.quoteNumber) ?? String(quote.id).slice(-7).toUpperCase(),
     recipientFirstName: firstName(quote.client?.name ?? quote.lead?.name),
     serviceLabel: serviceTypeLabel(quote.serviceType as string),
     serviceAddress:

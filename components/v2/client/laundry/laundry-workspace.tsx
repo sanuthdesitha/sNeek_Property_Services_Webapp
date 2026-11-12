@@ -30,6 +30,7 @@ import { EBadge, EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/
 import { EInput } from "@/components/v2/admin/estate-kit";
 import { buildLaundryConfirmationMediaItems, getLaundryConfirmationLabel, describeLaundryConfirmation } from "@/lib/laundry/media";
 import { cn } from "@/lib/utils";
+import { CLIENT_LAUNDRY_STATUS_LABELS, clientLaundryStatusLabel, clientLaundryStatusTone } from "@/lib/client/laundry-status";
 
 const TZ = "Australia/Sydney";
 // Terminal states from the client's view, using the real LaundryStatus enum
@@ -107,35 +108,11 @@ function getFilterRange(mode: FilterMode, anchorDate: string) {
 // must read (and colour) differently so the client can tell "we've scheduled
 // it" apart from "the linen has left the property". Mirrors the admin helper
 // in components/v2/admin/laundry/laundry-shared.ts.
-const LAUNDRY_STATUS_LABELS: Record<string, string> = {
-  PENDING: "Pending",
-  CONFIRMED: "Confirmed",
-  PICKED_UP: "Picked up",
-  DROPPED: "Delivered",
-  FLAGGED: "Flagged",
-  SKIPPED_PICKUP: "Skipped",
-};
 function formatLaundryStatus(task: any) {
-  const status = String(task.status ?? "");
-  return LAUNDRY_STATUS_LABELS[status] ?? status.replace(/_/g, " ");
+  return clientLaundryStatusLabel(task.status);
 }
 function statusTone(task: any): "success" | "gold" | "info" | "warning" | "danger" | "neutral" {
-  switch (String(task.status ?? "")) {
-    case "DROPPED":
-      return "success";
-    // Scheduled with the laundry team, but the linen hasn't moved yet.
-    case "CONFIRMED":
-      return "info";
-    // Collected and in transit — the gold "in flight" state.
-    case "PICKED_UP":
-      return "gold";
-    case "FLAGGED":
-      return "danger";
-    case "SKIPPED_PICKUP":
-      return "warning";
-    default:
-      return "neutral";
-  }
+  return clientLaundryStatusTone(task.status);
 }
 function buildLatestLaundrySummary(task: any) {
   const latest = Array.isArray(task.confirmations) ? task.confirmations[0] : null;
@@ -155,6 +132,9 @@ function buildLatestLaundrySummary(task: any) {
       title: "Laundry delivered",
       detail: task.droppedAt ? format(toLocalDate(task.droppedAt), "dd MMM yyyy") : "Delivered back to the property",
     };
+  }
+  if (task.status === "READY_TO_RETURN") {
+    return { title: "Laundry ready to come back", detail: "Clean at the laundry and waiting to be returned" };
   }
   if (task.status === "PICKED_UP" || task.pickedUpAt) {
     return {
@@ -424,7 +404,7 @@ export function LaundryWorkspace({ tasks, showLaundryImages, properties: availab
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="min-w-0 text-sm">Property<select aria-label="Property" value={propertyId} onChange={e => setPropertyId(e.target.value)} className="mt-1 w-full rounded border bg-transparent p-2"><option value="">All properties</option>{properties.map(property => <option key={property.id} value={property.id}>{property.name}</option>)}</select></label>
-            <label className="min-w-0 text-sm">Status<select aria-label="Status" value={status} onChange={e => setStatus(e.target.value)} className="mt-1 w-full rounded border bg-transparent p-2"><option value="">All statuses</option>{Object.entries(LAUNDRY_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label className="min-w-0 text-sm">Status<select aria-label="Status" value={status} onChange={e => setStatus(e.target.value)} className="mt-1 w-full rounded border bg-transparent p-2"><option value="">All statuses</option>{Object.entries(CLIENT_LAUNDRY_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <label className="min-w-0 text-sm">Filter dates by<select aria-label="Filter dates by" value={dateField} onChange={e => setDateField(e.target.value)} className="mt-1 w-full rounded border bg-transparent p-2"><option value="any">Any laundry or cleaning date</option><option value="cleaning">Cleaning date</option><option value="pickup">Pickup date</option><option value="dropoff">Drop-off date</option></select></label>
           </div>
           <div className="flex flex-wrap items-center gap-2">

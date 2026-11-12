@@ -10,7 +10,8 @@ import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { resolveAppUrl } from "@/lib/app-url";
 import { sendEmailDetailed } from "@/lib/notifications/email";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { verifySensitiveAction, isSensitiveRefusal } from "@/lib/security/admin-verification";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const inviteSchema = z.object({
   welcomeNote: z.string().trim().max(4000).optional(),
@@ -18,6 +19,7 @@ const inviteSchema = z.object({
     .object({
       pin: z.string().optional(),
       password: z.string().optional(),
+      newPin: z.string().max(32).optional(),
     })
     .optional(),
 });
@@ -136,7 +138,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       tempPassword,
       welcomeNote: body.welcomeNote ?? "",
       actionUrl: resolveAppUrl("/login", req),
-      actionLabel: "Sign in and set your password",
+      actionLabel: (await loadNotificationWording("account.invitations")).line("button-set-password", "INBOX", {}),
     });
     const emailResult = await sendEmailDetailed({
       to: targetUser.email,
@@ -165,7 +167,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ? 401
         : err.message === "FORBIDDEN"
           ? 403
-          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+          : isSensitiveRefusal(err)
             ? 423
             : prismaCode === "P2002"
               ? 409

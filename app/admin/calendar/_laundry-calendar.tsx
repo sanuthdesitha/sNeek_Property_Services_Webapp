@@ -28,6 +28,7 @@ const STATUS_META: Record<
   PENDING: { variant: "muted", label: "Pending" },
   CONFIRMED: { variant: "primary", label: "Confirmed" },
   PICKED_UP: { variant: "info", label: "Picked up" },
+  READY_TO_RETURN: { variant: "info", label: "Ready to return" },
   DROPPED: { variant: "success", label: "Completed" },
   FLAGGED: { variant: "danger", label: "Flagged" },
   SKIPPED_PICKUP: { variant: "warning", label: "Skipped pickup" },

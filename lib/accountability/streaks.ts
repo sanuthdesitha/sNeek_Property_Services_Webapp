@@ -36,6 +36,7 @@ import type { AccountabilityBonusSettings } from "@/lib/settings";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { resolveAppUrl } from "@/lib/app-url";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const KIND_PRIORITY: Record<string, number> = { QA: 3, ADMIN: 2, AUTO: 1 };
 
@@ -408,14 +409,20 @@ export async function runAccountabilityNightly(
       });
       if (admins.length > 0) {
         const actionUrl = resolveAppUrl("/admin/pay-adjustments");
-        const summary =
-          `${totalNew} accountability bonus proposal${totalNew === 1 ? "" : "s"} awaiting approval` +
-          ` (${streakProposals} streak, ${monthlyProposals} monthly) across ${newlyProposedCleaners.size} cleaner${
-            newlyProposedCleaners.size === 1 ? "" : "s"
-          }.`;
-        const subject = `${settings.companyName}: ${totalNew} quality bonus proposal${
-          totalNew === 1 ? "" : "s"
-        } to review`;
+        const wording = await loadNotificationWording("job.qa_and_accountability");
+        const proposalValues = {
+          companyName: settings.companyName,
+          count: totalNew,
+          proposalWord: totalNew === 1 ? "proposal" : "proposals",
+          streakCount: streakProposals,
+          monthlyCount: monthlyProposals,
+          cleanerCount: newlyProposedCleaners.size,
+          cleanerWord: newlyProposedCleaners.size === 1 ? "cleaner" : "cleaners",
+        };
+        const proposalInbox = wording.render("bonus-proposals", "INBOX", proposalValues);
+        const summary = proposalInbox.body;
+        const subject = proposalInbox.title;
+        const proposalEmail = wording.render("bonus-proposals", "EMAIL", { ...proposalValues, title: subject, summary, actionUrl });
         await deliverNotificationToRecipients({
           recipients: admins.map((a) => ({
             id: a.id,
@@ -428,12 +435,8 @@ export async function runAccountabilityNightly(
           url: actionUrl,
           web: { subject, body: summary },
           email: {
-            subject,
-            html: `<div style="font-family:Arial,sans-serif;color:#111;">
-              <h2 style="margin:0 0 8px;">${subject}</h2>
-              <p style="color:#555;margin:0 0 12px;">${summary} All proposals are PENDING and must be approved before they reach payroll.</p>
-              <p style="margin:16px 0;"><a href="${actionUrl}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;">Review bonus proposals</a></p>
-            </div>`,
+            subject: proposalEmail.subject,
+            html: proposalEmail.html,
           },
         });
       }

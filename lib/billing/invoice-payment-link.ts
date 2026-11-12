@@ -40,3 +40,24 @@ export function paymentLinkHtml(url: string): string {
   const safe = url.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   return `<p style="margin:16px 0 0;font-family:Arial,sans-serif;font-size:14px;">Pay online: <a href="${safe}">open your invoices and choose Pay now</a>.</p>`;
 }
+
+/**
+ * Where the payment provider sends the client back after checkout (owner
+ * decision 2026-11-13): the NEW client finance page. `?paid=1` says the payment
+ * was handed to the provider (the invoice shows Paid only once the provider
+ * confirms it); `?payment=cancelled` says checkout was left without paying.
+ * The classic `/client/finance?paid=1` keeps working for links already sent.
+ */
+export const CLIENT_PAYMENT_SUCCESS_PATH = "/v2/client/finance?paid=1";
+export const CLIENT_PAYMENT_CANCEL_PATH = "/v2/client/finance?payment=cancelled";
+
+export function clientPaymentReturnUrls(
+  resolve: (path: string) => string,
+  configured: { successUrl?: string | null; cancelUrl?: string | null } = {},
+): { successUrl: string; cancelUrl: string } {
+  return {
+    // An address an administrator typed into Integrations still wins.
+    successUrl: configured.successUrl?.trim() || resolve(CLIENT_PAYMENT_SUCCESS_PATH),
+    cancelUrl: configured.cancelUrl?.trim() || resolve(CLIENT_PAYMENT_CANCEL_PATH),
+  };
+}

@@ -27,7 +27,7 @@ function age(iso: string | null): string {
 
 const WORKER_TONE = { ACTIVE: "ok", STALE: "warn", MISSING: "bad" } as const;
 
-export function HealthTab({ isAdmin, onToast }: { isAdmin: boolean; onToast: (toast: EstateToast) => void }) {
+export function HealthTab({ isAdmin, onToast, timeZone }: { isAdmin: boolean; onToast: (toast: EstateToast) => void; timeZone?: string }) {
   const read = useNotificationRead("/api/admin/notifications/health", parseHealth, "Notification health is unavailable.");
   const [testingPush, setTestingPush] = React.useState(false);
   const health = read.data;
@@ -81,7 +81,7 @@ export function HealthTab({ isAdmin, onToast }: { isAdmin: boolean; onToast: (to
           </div>
           <article className="space-y-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] p-4 text-sm">
             <h3 className="flex flex-wrap items-center gap-2 font-semibold">Worker <EPill tone={WORKER_TONE[health.worker.status]}>{health.worker.status.toLowerCase()}</EPill></h3>
-            <p className="text-xs">Last heartbeat: {health.worker.lastSeenAt ? formatDeliveryTime(health.worker.lastSeenAt) : "never"}. Phone push dispatcher: {health.worker.mobileDispatcherActive ? "running" : "not running"}. Pipeline dispatcher: {health.worker.intentDispatcherActive === null ? "unknown" : health.worker.intentDispatcherActive ? "running" : "not registered"}.</p>
+            <p className="text-xs">Last heartbeat: {health.worker.lastSeenAt ? formatDeliveryTime(health.worker.lastSeenAt, timeZone) : "never"}. Phone push dispatcher: {health.worker.mobileDispatcherActive ? "running" : "not running"}. Pipeline dispatcher: {health.worker.intentDispatcherActive === null ? "unknown" : health.worker.intentDispatcherActive ? "running" : "not registered"}.</p>
             <p className="text-xs">Master switches: email {health.masterSwitches.email ? "on" : "OFF"}, SMS {health.masterSwitches.sms ? "on" : "OFF"}, push {health.masterSwitches.push ? "on" : "OFF"}, automatic email {health.masterSwitches.automaticEmail ? "on" : "OFF"}.</p>
             <p className="text-xs">Pipeline intents by status: {Object.entries(health.intentStatusCounts).map(([status, count]) => `${status.toLowerCase()} ${count}`).join(", ") || "none"}.</p>
           </article>

@@ -42,7 +42,7 @@ it("new item save uses the selected module and a stable derived key", async () =
 it.each([true, false])("module deletion verifies security before DELETE (verification accepted=%s)", async accepted => {
  m.fetch.mockImplementation(async (url, options) => url === "/api/admin/security/verify" ? response(accepted ? { ok: true } : { error: "Denied" }, accepted) : response(fixture));
  render(<EstateChecklistLibrary />); await screen.findByText("Living"); fireEvent.click(screen.getByRole("button", { name: "Delete module" }));
- fireEvent.change(screen.getByText("Security PIN").parentElement!.querySelector("input")!, { target: { value: "1234" } });
+ fireEvent.change(screen.getByText("Your PIN").parentElement!.querySelector("input")!, { target: { value: "1234" } });
  fireEvent.click(screen.getAllByRole("button", { name: "Delete module" }).at(-1)!);
  await waitFor(() => expect(m.fetch.mock.calls.some(([url]) => url === "/api/admin/security/verify")).toBe(true));
  if (accepted) await waitFor(() => expect(m.fetch.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(true));

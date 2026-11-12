@@ -20,7 +20,6 @@ import {
   Settings,
   PackageSearch,
   GraduationCap,
-  UsersRound,
   Map, Wrench, Sparkles, ClipboardList, FileText,
   Tags, Truck, Eye, UserCircle, Bell,
 } from "lucide-react";
@@ -39,10 +38,11 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/laundry", label: "Laundry", icon: Shirt, group: "Operations" },
   { href: "/v2/admin/inventory", label: "Inventory", icon: Boxes, group: "Operations" },
 
-  { href: "/v2/admin/accounts", label: "Accounts", icon: Users, group: "People & property" },
-  { href: "/v2/admin/clients", label: "Clients", icon: Users, group: "People & property" },
-  { href: "/v2/admin/cleaners", label: "Cleaners", icon: Sparkles, group: "People & property" },
-  { href: "/v2/admin/workforce", label: "Workforce", icon: UsersRound, group: "People & property" },
+  // People holds Clients (clients pack), Cleaners (accounts or workforce pack,
+  // with links to compliance, coaching, recognition, roster and home
+  // addresses) and the staff tabs; /clients, /cleaners and /workforce redirect
+  // to its tabs (ops-catalog PEOPLE_TAB_FEATURES, opsNavigationHref).
+  { href: "/v2/admin/accounts", label: "People", icon: Users, group: "People & property" },
   { href: "/v2/admin/workforce/coaching", label: "Coaching", icon: GraduationCap, group: "People & property" },
   { href: "/v2/admin/onboarding", label: "Property onboarding", icon: ClipboardList, group: "People & property" },
   { href: "/v2/admin/hiring", label: "Hiring", icon: Briefcase, group: "People & property" },

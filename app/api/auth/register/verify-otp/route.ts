@@ -14,6 +14,7 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getAuthUserState, upsertAuthUserState } from "@/lib/auth/account-state";
 import { resolveAppUrl } from "@/lib/app-url";
 import { notifyAdminsOfNewProfile } from "@/lib/notifications/profile-created";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const verifyOtpSchema = z.object({
   email: z.string().trim().email(),
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest) {
         userName: user.name ?? user.email,
         email: user.email,
         role: user.role,
-        createdVia: "self registration",
+        createdVia: (await loadNotificationWording("office.new_profile")).line("via-registration", "INBOX", {}),
         createdAt: new Date(),
       });
       await upsertAuthUserState(user.id, { profileCreationNotified: true });

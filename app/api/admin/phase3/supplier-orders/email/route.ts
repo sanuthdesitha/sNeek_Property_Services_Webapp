@@ -7,6 +7,7 @@ import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { listSupplierCatalog } from "@/lib/inventory/suppliers";
 import { getStockForecast } from "@/lib/phase3/stock-forecast";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   supplier: z.string().trim().min(1),
@@ -58,9 +59,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const subject =
-      body.subject?.trim() ||
-      `${settings.companyName} - Suggested Order (${group.supplier})`;
+    const orderWording = await loadNotificationWording("stock.shopping_and_orders");
+    const orderSubjectDefault = orderWording.render("supplier-order", "EMAIL", { companyName: settings.companyName, supplier: group.supplier }).subject;
+    const subject = body.subject?.trim() || orderSubjectDefault;
     const linesHtml = group.items
       .map((item) => {
         const est = item.estimatedCost != null ? `$${item.estimatedCost.toFixed(2)}` : "-";
@@ -75,27 +76,13 @@ export async function POST(req: NextRequest) {
       })
       .join("");
 
-    const html = `
-      <div style="font-family:Arial,sans-serif;color:#111;">
-        <h2>${escapeHtml(settings.companyName)} Suggested Order</h2>
-        <p><strong>Supplier:</strong> ${escapeHtml(group.supplier)}</p>
-        <p><strong>Forecast lookback:</strong> ${forecast.lookbackDays} day(s)</p>
-        <p><strong>Estimated total:</strong> $${group.estimatedTotalCost.toFixed(2)}</p>
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:10px;">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:6px;border-bottom:2px solid #d1d5db;">Property</th>
-              <th style="text-align:left;padding:6px;border-bottom:2px solid #d1d5db;">Item</th>
-              <th style="text-align:right;padding:6px;border-bottom:2px solid #d1d5db;">Qty</th>
-              <th style="text-align:left;padding:6px;border-bottom:2px solid #d1d5db;">Unit</th>
-              <th style="text-align:right;padding:6px;border-bottom:2px solid #d1d5db;">Est. Cost</th>
-              <th style="text-align:left;padding:6px;border-bottom:2px solid #d1d5db;">Risk</th>
-            </tr>
-          </thead>
-          <tbody>${linesHtml}</tbody>
-        </table>
-      </div>
-    `;
+    const html = orderWording.render("supplier-order", "EMAIL", {
+      companyName: settings.companyName,
+      supplier: group.supplier,
+      lookbackDays: forecast.lookbackDays,
+      estimatedTotal: `$${group.estimatedTotalCost.toFixed(2)}`,
+      orderRows: linesHtml,
+    }).html;
 
     const sent = await sendEmailDetailed({
       to: recipient,

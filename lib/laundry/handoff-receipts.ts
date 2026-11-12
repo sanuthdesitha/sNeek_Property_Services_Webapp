@@ -7,6 +7,8 @@ const labels: Record<string, string> = {
   PICKED_UP: "Pickup recorded", DROPPED: "Return recorded", EDIT_COMPLETED: "Completion details corrected",
   REVERT_TO_CONFIRMED: "Pickup confirmation reverted", REVERT_TO_PICKED_UP: "Return confirmation reverted",
   FAILED_PICKUP_RESCHEDULE: "Failed pickup rescheduled", FAILED_PICKUP_REQUEST: "Failed pickup approval requested",
+  READY_TO_RETURN: "Marked ready to return", PARTNER_WEIGHT_PRICE: "Weight / price entered by the laundry team",
+  DROPOFF_PHOTO_ADDED: "Drop-off photo added",
 };
 const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;
 const positiveCount = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;

@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import Layout from "@/app/v2/client/layout";
 
 const mocks = vi.hoisted(() => ({ session: null as any, state: {} as any, identity: "" }));
@@ -9,7 +9,7 @@ vi.mock("@/components/v2/portal/use-attention-counts", () => ({
   useClientPortalCounts: (_endpoint: string, identity: string) => { mocks.identity = identity; return mocks.state; },
   withAttentionBadges: (nav: unknown) => nav,
 }));
-vi.mock("@/components/v2/portal/portal-shell", () => ({ PortalShell: ({ nav, children }: any) => <><nav>{nav.map((item: any) => <a key={item.href} href={item.href}>{item.label}</a>)}</nav>{children}</> }));
+vi.mock("@/components/v2/portal/portal-shell", () => ({ PortalShell: ({ nav, children, headerActions }: any) => <><header>{headerActions}</header><nav>{nav.map((item: any) => <a key={item.href} href={item.href}>{item.label}</a>)}</nav>{children}</> }));
 beforeEach(() => {
   mocks.session = { user: { id: "va", role: "VA", name: "Assistant" } };
   mocks.state = { counts: {}, gate: null, status: "loading", refresh: vi.fn() };
@@ -52,12 +52,15 @@ describe("client layout grants", () => {
     expect(screen.queryByRole("link", { name: "Book a clean" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Approvals" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Assistants" })).toBeNull();
-    expect(screen.getByRole("link", { name: "Jobs" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Cleans" })).toBeVisible();
+    // The request sheet is not offered to an assistant before access is confirmed.
+    expect(screen.queryByRole("button", { name: "Request" })).toBeNull();
   });
   it("ignores a mismatched client grant payload for a VA", () => {
     mocks.state = { ...mocks.state, status: "ready", gate: { actor: "CLIENT", permissions: { bookings: true } } };
     render(<Layout>Content</Layout>);
     expect(screen.queryByRole("link", { name: "Book a clean" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Request" })).toBeNull();
   });
   it("clears navigation on denied access and offers retry", () => {
     mocks.state.status = "denied";
@@ -69,8 +72,15 @@ describe("client layout grants", () => {
   it("allows only granted destinations, preserving client-only restrictions", () => {
     mocks.state = { ...mocks.state, status: "ready", gate: { actor: "VA", permissions: { bookings: true } } };
     render(<Layout>Content</Layout>);
-    expect(screen.getByRole("link", { name: "Book a clean" })).toBeVisible();
+    // Booking moved from the rail into the Request sheet (header "+").
+    fireEvent.click(screen.getByRole("button", { name: "Request" }));
+    const sheet = screen.getByRole("dialog", { name: "What do you need?" });
+    expect(within(sheet).getByRole("link", { name: /Book a clean/ })).toHaveAttribute("href", "/v2/client/booking");
+    expect(within(sheet).queryByRole("link", { name: /Request a quote/ })).toBeNull();
+    expect(within(sheet).queryByRole("link", { name: /shopping run/ })).toBeNull();
+    expect(within(sheet).queryByRole("link", { name: /needs fixing/ })).toBeNull();
     expect(screen.queryByRole("link", { name: "Reports" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Approvals" })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^Messages/ })).toBeNull();
   });
 });

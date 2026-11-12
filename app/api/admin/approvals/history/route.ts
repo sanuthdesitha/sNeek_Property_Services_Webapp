@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isAdministrator } from "@/lib/rbac/access-evaluator";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -28,7 +29,9 @@ import {
  */
 export async function GET(req: NextRequest) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    // Deleting a decision record is administrator-only; the screen hides it for others.
+    const canDeleteRecords = isAdministrator({ id: session.user.id, role: String(session.user.role), heldRoles: (session.user.heldRoles ?? []).map(String) });
     const { searchParams } = new URL(req.url);
 
     const queue = searchParams.get("queue");
@@ -164,6 +167,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({
+      canDeleteRecords,
       items,
       nextCursor: hasMore && page.length > 0 ? page[page.length - 1].row.id : null,
     });

@@ -1,3 +1,4 @@
+import type { CapabilityKey } from "./capabilities";
 /** Operations access is an additional restriction, never a replacement for role/record guards. */
 export const OPS_FEATURES = [
   {
@@ -221,17 +222,38 @@ export const OPS_FEATURES = [
 export type OpsFeature = (typeof OPS_FEATURES)[number]["key"];
 export type OpsLevel = "off" | "read" | "manage";
 export type OpsLevels = Record<OpsFeature, OpsLevel>;
+/**
+ * The stored level of an area. "full" is Manage plus the area's sensitive
+ * capabilities (still verified with the person's PIN); it routes exactly like
+ * Manage, so middleware, navigation and path guards keep using `OpsLevels`.
+ */
+export type AccessLevel = OpsLevel | "full";
+export type AccessLevels = Record<OpsFeature, AccessLevel>;
 export const OPS_FEATURE_KEYS = OPS_FEATURES.map((feature) => feature.key);
 export const OPS_LEVEL_LABELS: Record<OpsLevel, string> = {
   off: "Off",
-  read: "View only",
-  manage: "Manage available actions",
+  read: "View",
+  manage: "Manage",
 };
+export const ACCESS_LEVEL_LABELS: Record<AccessLevel, string> = {
+  ...OPS_LEVEL_LABELS,
+  full: "Full",
+};
+export const ACCESS_LEVEL_ORDER: readonly AccessLevel[] = ["off", "read", "manage", "full"];
 export function allOpsLevels(level: OpsLevel): OpsLevels {
   return Object.fromEntries(
     OPS_FEATURE_KEYS.map((key) => [key, level]),
   ) as OpsLevels;
 }
+function levelsWith(base: OpsLevel, changes: Partial<OpsLevels>): OpsLevels {
+  return { ...allOpsLevels(base), ...changes };
+}
+/**
+ * Built-in starting points. IDs are stored in assignments and never change;
+ * names are display only. `audience` decides the list a person appears in:
+ * an "assistant" preset makes an OPS_MANAGER login an office assistant (no
+ * new role).
+ */
 export const OPS_BUILTIN_PRESETS = [
   {
     id: "existing",
@@ -239,36 +261,75 @@ export const OPS_BUILTIN_PRESETS = [
     description:
       "Keep the current role's access. Admin-only actions stay protected.",
     levels: allOpsLevels("manage"),
+    audience: "manager",
   },
   {
     id: "observer",
-    name: "Observer",
+    name: "Read only",
     description: "View existing operational information without changing it.",
     levels: allOpsLevels("read"),
+    audience: "manager",
   },
   {
     id: "coordinator",
     name: "Coordinator",
     description:
       "Manage daily jobs, calendar, laundry, cases and messages; view other available areas.",
-    levels: {
-      ...allOpsLevels("read"),
+    levels: levelsWith("read", {
       jobs: "manage",
       calendar: "manage",
       laundry: "manage",
       cases: "manage",
       maintenance: "manage",
       communications: "manage",
-    } as OpsLevels,
+    }),
+    audience: "manager",
+  },
+  {
+    id: "assistant-bookings",
+    name: "Assistant: bookings",
+    description:
+      "Office assistant for bookings: manage jobs, calendar, lost property and messages; view approvals, cases, laundry, properties and clients.",
+    levels: levelsWith("off", {
+      dashboard: "read",
+      files: "read",
+      jobs: "manage",
+      calendar: "manage",
+      approvals: "read",
+      cases: "read",
+      laundry: "read",
+      "lost-found": "manage",
+      properties: "read",
+      clients: "read",
+      communications: "manage",
+    }),
+    audience: "assistant",
+  },
+  {
+    id: "assistant-finance",
+    name: "Assistant: finance",
+    description:
+      "Office assistant for invoicing: manage client invoices; view jobs, clients, payroll and reports.",
+    levels: levelsWith("off", {
+      dashboard: "read",
+      files: "read",
+      jobs: "read",
+      clients: "read",
+      finance: "manage",
+      payroll: "read",
+      reports: "read",
+    }),
+    audience: "assistant",
   },
   {
     id: "restricted",
-    name: "No feature access",
+    name: "No access",
     description:
       "Start with every feature off and enable only what this person needs.",
     levels: allOpsLevels("off"),
+    audience: "manager",
   },
-] as const;
+] as const satisfies ReadonlyArray<{ id: string; name: string; description: string; levels: OpsLevels; audience: "manager" | "assistant" }>;
 
 const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   "": "dashboard",
@@ -313,6 +374,8 @@ const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   "va-invites": "clients",
   accounts: "accounts",
   users: "accounts",
+  // People routes; /api/admin/people/cleaners is the workforce exception below.
+  people: "accounts",
   cleaners: "workforce",
   workforce: "workforce",
   hiring: "hiring",
@@ -397,6 +460,8 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
   "ical-sync": "integrations",
   ollama: "ai",
   roles: "owner",
+  // Settings > Access and permissions (its own page, 2026-11 redesign).
+  access: "owner",
   "profile-permissions": "owner",
   portals: "owner",
   audit: "owner",
@@ -425,6 +490,39 @@ export const FINANCE_PAYROLL_TABS: ReadonlySet<string> = new Set(["cleaner-invoi
  * APIs are. Every other tab (job forms, checklist blocks, results) is forms.
  */
 export const FORMS_TAB_FEATURES: Readonly<Record<string, OpsFeature>> = { qa: "quality", messages: "communications" };
+/**
+ * The People page (/admin/accounts): its Clients tab belongs to the clients
+ * pack and its Cleaners tab to the workforce pack, as the old Clients and
+ * Workforce pages did. Every other tab stays with Staff accounts. Only the
+ * page reads the tab; its data routes keep their own packs
+ * (/api/admin/clients/* = clients, /api/admin/users = accounts).
+ */
+export const PEOPLE_TAB_FEATURES: Readonly<Record<string, OpsFeature>> = { clients: "clients", cleaners: "workforce" };
+
+/**
+ * Owner-only routes that an ADMIN can open to one person with an
+ * administrator capability (owner decision 2026-11-12). The route itself
+ * re-checks the grant and its guardrails (`lib/rbac/delegated-admin.ts`).
+ */
+const GRANTABLE_OWNER_ROUTES: ReadonlyArray<[RegExp, CapabilityKey]> = [
+  [/^\/api\/admin\/users\/[^/]+\/reset-password\/?$/, "accounts.reset_password"],
+  [/^\/api\/admin\/users\/[^/]+\/disable-2fa\/?$/, "accounts.reset_two_step"],
+  [/^\/(?:api\/)?admin\/(?:impersonate|test-as(?:\/unlock)?|system\/test-as)\/?$/, "access.test_as"],
+  [/^\/(?:api\/)?admin\/ops-permissions(?:\/[a-z-]+)?\/?$/, "access.edit_permissions"],
+  [/^\/admin\/settings\/access\/?$/, "access.edit_permissions"],
+];
+
+function normalisedAdminPath(input: string): string {
+  return new URL(input, "http://internal").pathname
+    .replace(/^\/_accounts\/[a-f0-9]{32}(?=\/)/, "")
+    .replace(/^\/v2(?=\/)/, "");
+}
+
+/** The administrator capability that opens this owner-only route, if any. */
+export function ownerRouteCapability(input: string): CapabilityKey | null {
+  const path = normalisedAdminPath(input);
+  return GRANTABLE_OWNER_ROUTES.find(([pattern]) => pattern.test(path))?.[1] ?? null;
+}
 
 export function opsRequestFeature(input: string): OpsRequestFeature {
   const url = new URL(input, "http://internal");
@@ -432,7 +530,7 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
     .replace(/^\/_accounts\/[a-f0-9]{32}(?=\/)/, "")
     .replace(/^\/v2(?=\/)/, "");
   if (
-    /^\/(?:api\/)?admin\/users\/[^/]+\/(?:roles|password|reset-password|sessions|two-factor)(?:\/|$)/.test(
+    /^\/(?:api\/)?admin\/users\/[^/]+\/(?:roles|password|reset-password|sessions|two-factor|disable-2fa)(?:\/|$)/.test(
       path,
     )
   )
@@ -449,6 +547,7 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
     )
   )
     return "inventory";
+  if (/^\/admin\/system\/test-as(?:\/|$)/.test(path)) return "owner";
   if (/^\/(?:api\/)?admin\/phase4\/payruns/.test(path)) return "payroll";
   if (/^\/(?:api\/)?admin\/phase4\/disputes/.test(path)) return "cases";
   if (/^\/(?:api\/)?admin\/phase4\/reschedule/.test(path)) return "calendar";
@@ -470,6 +569,11 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
   if (/^\/admin\/finance\/cleaner-invoices(?:\/|$)/.test(path)) return "payroll";
   if (/^\/admin\/finance\/?$/.test(path)) {
     return FINANCE_PAYROLL_TABS.has(url.searchParams.get("tab") ?? "") ? "payroll" : "finance";
+  }
+  // The People › Cleaners list for workforce-pack viewers (forced to cleaners on the server).
+  if (/^\/api\/admin\/people\/cleaners(?:\/export)?\/?$/.test(path)) return "workforce";
+  if (/^\/admin\/accounts\/?$/.test(path)) {
+    return PEOPLE_TAB_FEATURES[url.searchParams.get("tab") ?? ""] ?? "accounts";
   }
   if (/^\/admin\/forms\/?$/.test(path)) {
     return FORMS_TAB_FEATURES[url.searchParams.get("tab") ?? ""] ?? "forms";
@@ -552,8 +656,14 @@ export function canUseOpsPath(
   levels: OpsLevels,
   path: string,
   method = "GET",
+  /** Administrator capabilities this person was granted (owner-only routes they may open). */
+  grants: readonly CapabilityKey[] = [],
 ): boolean {
   const feature = opsRequestFeature(path);
+  if (feature === "owner") {
+    const capability = ownerRouteCapability(path);
+    return capability !== null && grants.includes(capability);
+  }
   const pathname = new URL(path, "http://internal").pathname.replace(
     /^\/_accounts\/[a-f0-9]{32}(?=\/)/,
     "",
@@ -565,9 +675,7 @@ export function canUseOpsPath(
     return false;
   return (
     feature === null ||
-    (feature !== "owner" &&
-      feature !== "unmapped" &&
-      opsLevelAllows(levels[feature], method))
+    (feature !== "unmapped" && opsLevelAllows(levels[feature], method))
   );
 }
 
@@ -585,6 +693,11 @@ export function opsNavigationHref(
   // reaches those tabs of the merged Forms page.
   if (/^\/(?:v2\/)?admin\/forms$/.test(href)) {
     const tab = Object.keys(FORMS_TAB_FEATURES).find((key) => canUseOpsPath(levels, `${href}?tab=${key}`));
+    if (tab) return `${href}?tab=${tab}`;
+  }
+  // People: a manager with clients or workforce but not accounts reaches their tab.
+  if (/^\/(?:v2\/)?admin\/accounts$/.test(href)) {
+    const tab = Object.keys(PEOPLE_TAB_FEATURES).find((key) => canUseOpsPath(levels, `${href}?tab=${key}`));
     if (tab) return `${href}?tab=${tab}`;
   }
   if (/^\/(?:v2\/)?admin\/settings$/.test(href)) {

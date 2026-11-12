@@ -12,6 +12,7 @@ import {
   signImpersonationTicket,
 } from "@/lib/auth/impersonation";
 import { TEST_AS_UNLOCK_COOKIE, isTestAsUnlocked } from "@/lib/auth/test-as-unlock";
+import { delegatedTestAsAllowed, realActorHolds } from "@/lib/rbac/delegated-admin";
 
 /**
  * Start / stop an admin "test as" session.
@@ -46,7 +47,11 @@ export async function POST(request: NextRequest) {
   // ADMIN only — not OPS_MANAGER. Impersonation grants whatever the target can
   // do; handing it to a second, broader role widens the blast radius for no
   // testing benefit.
-  if (session.user.role !== Role.ADMIN) {
+  // Owner decision 2026-11-12: an administrator may grant "Test as" to a
+  // person; they may only test as someone with no more access than them
+  // (re-checked below and on every request in impersonation-server.ts).
+  const isAdmin = session.user.role === Role.ADMIN;
+  if (!isAdmin && !(await realActorHolds(session.user.id, "access.test_as"))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -96,6 +101,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (!isAdmin && !(await delegatedTestAsAllowed(session.user.id, target.id))) {
+    return NextResponse.json(
+      { error: "You can only test as someone with no more access than you." },
+      { status: 403 },
+    );
+  }
+
   const ticket = {
     actorId: session.user.id,
     actorEmail: session.user.email ?? "",
@@ -118,6 +130,7 @@ export async function POST(request: NextRequest) {
       after: {
         targetEmail: target.email,
         targetRole: target.role,
+        actorRole: isAdmin ? "ADMIN" : "DELEGATED",
         mode,
         expiresInSeconds: IMPERSONATION_MAX_AGE_SECONDS,
       },

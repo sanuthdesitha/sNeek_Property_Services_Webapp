@@ -2,71 +2,46 @@
 
 import * as React from "react";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
-import {
-  useAttentionCounts,
-  withAttentionBadges,
-} from "@/components/v2/portal/use-attention-counts";
+import { useAttentionCounts } from "@/components/v2/portal/use-attention-counts";
 import { useMaintenanceSection } from "@/components/v2/portal/use-maintenance-section";
-import {
-  AlertTriangle,
-  CalendarCheck,
-  ClipboardCheck,
-  Receipt,
-  TrendingUp,
-  User,
-  Wallet,
-  Wrench,
-} from "lucide-react";
+import { buildTabbedNav } from "@/lib/navigation/tabbed-nav";
+import { QA_MAINTENANCE_RAIL_ITEM, QA_RAIL, QA_TABS } from "@/components/v2/qa/portal/qa-nav";
 
-// Phase 4 Stage 1 nav: Today · Reviews · Rework · More.
-// (Stage 2 adds a Map tab between Rework and More — its route placeholder lives
-// on the More page until then.)
-const NAV: NavItem[] = [
-  { href: "/v2/qa", label: "Today", icon: CalendarCheck },
-  { href: "/v2/qa/reviews", label: "Reviews", icon: ClipboardCheck },
-  { href: "/v2/qa/rework", label: "Rework", icon: AlertTriangle },
-  // Inspections are paid work — the inspector gets the same first-class
-  // earnings tab the cleaner portal has, not a link buried under "More".
-  { href: "/v2/qa/pay", label: "Pay", icon: Wallet },
-  { href: "/v2/qa/stats", label: "Stats", icon: TrendingUp },
-
-  { href: "/v2/qa/invoices", label: "Invoices", icon: Receipt, group: "Money" },
-
-  { href: "/v2/qa/profile", label: "Profile", icon: User, group: "You" },
-];
-
+/**
+ * QA portal shell (approved board "QA portal", 2026-11).
+ *
+ * Phone: five tabs — Today, Reviews, Rework, Pay, More. The More tab is the
+ * labelled, role-filtered menu (Stats, Invoices, Maintenance while assigned,
+ * Profile, account), so the phone header carries only search and
+ * notifications. The inspection screen keeps the tab bar, as drawn.
+ *
+ * Desktop: the rail lists every destination, unchanged in reach.
+ */
 export default function V2QaLayout({ children }: { children: React.ReactNode }) {
-  // CP-6. QA has no maintenance screen by default — the entry appears only
-  // while this inspector is assigned to a maintenance item, and goes away again
-  // when they are taken off it. Appended after the base five so the mobile
-  // bottom bar (nav.slice(0, 5)) keeps its daily tabs.
+  // CP-6: the maintenance entry exists only while this inspector is assigned.
   const maintenance = useMaintenanceSection();
-
-  // Queue badges, so an inspector sees waiting work without opening each
-  // screen. The maintenance entry keeps its own CP-6 count below.
+  // Queue badges from real counts; a failed poll keeps the last counts.
   const counts = useAttentionCounts("/api/qa/attention-counts");
 
   const nav = React.useMemo<NavItem[]>(
     () =>
-      maintenance.assigned
-        ? [
-            ...NAV,
-            {
-              href: "/v2/qa/maintenance",
-              label: "Maintenance",
-              icon: Wrench,
-              badge: maintenance.count || undefined,
-            },
-          ]
-        : NAV,
-    [maintenance.assigned, maintenance.count]
+      buildTabbedNav({
+        rail: QA_RAIL,
+        tabs: QA_TABS,
+        extra: maintenance.assigned ? [QA_MAINTENANCE_RAIL_ITEM] : [],
+        // On a phone the maintenance entry lives in More, so More carries its count.
+        badges: {
+          ...counts,
+          [QA_MAINTENANCE_RAIL_ITEM.href]: maintenance.count,
+          "/v2/qa/more": maintenance.assigned ? maintenance.count : 0,
+        },
+      }),
+    [counts, maintenance.assigned, maintenance.count],
   );
-
-  const navWithCounts = React.useMemo(() => withAttentionBadges(nav, counts), [nav, counts]);
 
   return (
     <div data-skin="estate" data-portal-accent="qa">
-      <PortalShell accent="qa" wordmark="sNeek" nav={navWithCounts} roleLabel="QA">
+      <PortalShell accent="qa" wordmark="sNeek" nav={nav} roleLabel="QA" hideMobileMenuButton>
         {children}
       </PortalShell>
     </div>

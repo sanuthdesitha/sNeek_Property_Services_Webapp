@@ -9,6 +9,7 @@ import { DisplayPreferencesSection } from "@/components/profile/display-preferen
 import { BillingPreferencesSection } from "@/components/profile/billing-preferences-section";
 import { BiometricDevicesSection } from "@/components/profile/biometric-section";
 import { TwoFactorSettings } from "@/components/account/two-factor-settings";
+import { OwnPinSection } from "@/components/v2/admin/profile/own-pin-section";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,7 @@ export default async function AdminProfilePage() {
       <BiometricDevicesSection />
 
       <TwoFactorSettings />
+      <OwnPinSection />
 
       <BillingPreferencesSection
         initialCadence={(user as any).invoicingCadence ?? undefined}

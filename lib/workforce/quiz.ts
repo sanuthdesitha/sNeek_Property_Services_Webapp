@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/notifications/email";
 import { resolveAppUrl } from "@/lib/app-url";
 import { logHiringEvent } from "@/lib/workforce/service";
+import { loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
 import {
   buildScreeningSchemaForStorage,
   scoreAssessment,
@@ -509,22 +510,18 @@ function mergeQuizSchemas(parts: Array<{ name: string; schema: AssessmentSchema 
 }
 
 /** Build the assignment email — names the topic(s) so the candidate knows what it is. */
-function buildQuizEmail(input: { fullName: string | null; positionTitle: string | null; topics: string[]; link: string }) {
-  const topicLine =
-    input.topics.length === 1
-      ? input.topics[0]
-      : `${input.topics.length} short parts: ${input.topics.join(", ")}`;
-  const subject =
-    input.topics.length === 1
-      ? `Knowledge check: ${input.topics[0]} — ${input.positionTitle || "your application"}`
-      : `Knowledge check (${input.topics.length} parts) — ${input.positionTitle || "your application"}`;
-  const html = `<p>Hi ${input.fullName || "there"},</p>
-<p>Thanks for applying! As the next step, please complete this short knowledge check.</p>
-<p><strong>Topic${input.topics.length === 1 ? "" : "s"}:</strong> ${topicLine}</p>
-<p>It only takes a few minutes and is completed in one sitting.</p>
-<p><a href="${input.link}" style="display:inline-block;background:#0f5a44;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700">Start the assessment</a></p>
-<p>Or paste this link into your browser: ${input.link}</p>`;
-  return { subject, html };
+function buildQuizEmail(input: { fullName: string | null; positionTitle: string | null; topics: string[]; link: string }, wording: WordingRenderer) {
+  const one = input.topics.length === 1;
+  const count = input.topics.length;
+  const email = wording.render("quiz", "EMAIL", {
+    candidateName: input.fullName || "there",
+    positionTitle: input.positionTitle || wording.line("your-application", "EMAIL", {}),
+    quizSuffix: one ? wording.line("quiz-one", "EMAIL", { topic: input.topics[0] }) : wording.line("quiz-many", "EMAIL", { count }),
+    topicLabel: one ? "Topic" : "Topics",
+    topicLine: one ? input.topics[0] : wording.line("quiz-topics", "EMAIL", { count, topics: input.topics.join(", ") }),
+    link: input.link,
+  });
+  return { subject: email.subject, html: email.html };
 }
 
 /**
@@ -576,7 +573,7 @@ export async function assignQuizzesToApplication(input: {
     positionTitle: application.position?.title ?? null,
     topics,
     link,
-  });
+  }, await loadNotificationWording("workforce.updates"));
   const emailed = await sendEmail({ to: application.email, subject: email.subject, html: email.html, transactional: true });
 
   // Record honestly whether the email actually went out — the admin has a

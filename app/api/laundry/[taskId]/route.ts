@@ -7,6 +7,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getApiErrorStatus } from "@/lib/api/http";
 import { parseRouteStops } from "@/lib/laundry/route-plan";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import {
   LAUNDRY_DELETE_SKIP_REASON,
   evaluateLaundryDelete,
@@ -34,7 +35,7 @@ import {
 const deleteSchema = z.object({
   mode: z.enum(["SUPPRESS", "PERMANENT"]).default("SUPPRESS"),
   force: z.boolean().optional(),
-  security: z.object({ pin: z.string().optional(), password: z.string().optional() }).optional(),
+  security: z.object({ pin: z.string().optional(), password: z.string().optional(), newPin: z.string().max(32).optional() }).optional(),
   reason: z.string().trim().max(2000).optional(),
 });
 
@@ -186,11 +187,15 @@ export async function DELETE(req: NextRequest, { params }: { params: { taskId: s
       .filter(Boolean)
       .join(", ") || "a property";
 
+    const removal = (await loadNotificationWording("laundry.updates")).render(mode === "PERMANENT" ? "task-deleted" : "task-removed", "INBOX", {
+      propertyName: propertyLabel,
+      actor: session.user.email ?? "an operator",
+      pickupDate: existing.pickupDate.toLocaleDateString("en-AU"),
+      note,
+    });
     await notifyAdmins(
-      mode === "PERMANENT" ? "Laundry task deleted" : "Laundry task removed from the boards",
-      `${propertyLabel}: ${session.user.email ?? "an operator"} ${
-        mode === "PERMANENT" ? "permanently deleted" : "removed"
-      } the laundry set (pickup ${existing.pickupDate.toLocaleDateString("en-AU")}). ${note}`,
+      removal.title,
+      removal.body,
       existing.jobId,
       session.user.id,
     ).catch(() => {

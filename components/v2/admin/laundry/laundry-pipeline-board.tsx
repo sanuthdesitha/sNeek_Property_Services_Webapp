@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Pipeline board: search, Driver and Supplier filters, "Exceptions first",
+ * Pipeline board: search, Laundry team (route) and Laundry partner filters, "Exceptions first",
  * multi-select with a bulk "Move to…" and the four lanes. At desktop the lanes
  * sit side by side; on a phone each lane is a collapsible section with its count.
  */
@@ -12,6 +12,7 @@ import { EFilterPopover } from "@/components/v2/ui/filter-popover";
 import { EBulkBar, EBulkButton } from "@/components/v2/ui/bulk-bar";
 import { EField, ESelect } from "@/components/v2/admin/estate-kit";
 import { PIPELINE_LANES, PIPELINE_LANE_LABELS, type PipelineLane } from "@/lib/laundry/pipeline";
+import { READY_TO_RETURN_LABEL, isReadyToReturnStatus } from "@/lib/laundry/status-groups";
 import { LaundryLaneCard, shortDay } from "./laundry-lane-card";
 import type { PipelineCardDTO, PipelineData, PipelineQuery } from "./use-laundry-pipeline";
 
@@ -32,6 +33,14 @@ type Props = {
   onMoveNextDay: (card: PipelineCardDTO) => void;
   onRetry: () => void;
 };
+
+/** At the laundry: runs still being washed, then the ones marked "Ready to return". Order kept within each. */
+export function splitReadyToReturn(cards: PipelineCardDTO[]): { washing: PipelineCardDTO[]; ready: PipelineCardDTO[] } {
+  return {
+    washing: cards.filter((card) => !isReadyToReturnStatus(card.status)),
+    ready: cards.filter((card) => isReadyToReturnStatus(card.status)),
+  };
+}
 
 export function orderLane(cards: PipelineCardDTO[], exceptionsFirst: boolean): PipelineCardDTO[] {
   if (!exceptionsFirst) return cards;
@@ -65,12 +74,8 @@ export function LaundryPipelineBoard(props: Props) {
     });
   }
 
-  function lane(laneKey: PipelineLane) {
-    const cards = orderLane(data?.lanes[laneKey] ?? [], exceptionsFirst);
-    const count = data?.counts[laneKey];
-    const body = cards.length === 0 ? (
-      <p className="px-1 py-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{status === "loading" && !data ? "Loading…" : "Nothing here."}</p>
-    ) : (
+  function cardList(laneKey: PipelineLane, cards: PipelineCardDTO[]) {
+    return (
       <ul className="flex flex-col gap-2">
         {cards.map((card) => (
           <LaundryLaneCard
@@ -88,6 +93,25 @@ export function LaundryPipelineBoard(props: Props) {
           />
         ))}
       </ul>
+    );
+  }
+
+  function lane(laneKey: PipelineLane) {
+    const cards = orderLane(data?.lanes[laneKey] ?? [], exceptionsFirst);
+    const count = data?.counts[laneKey];
+    // "Ready to return" (2026-11-13): inside At the laundry, the sets the laundry
+    // team marked ready are their own group under the ones still being washed.
+    const groups = laneKey === "laundry" ? splitReadyToReturn(cards) : null;
+    const body = cards.length === 0 ? (
+      <p className="px-1 py-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{status === "loading" && !data ? "Loading…" : "Nothing here."}</p>
+    ) : groups && groups.ready.length > 0 ? (
+      <div className="flex flex-col gap-2">
+        {groups.washing.length > 0 ? cardList(laneKey, groups.washing) : null}
+        <p className="px-1 pt-1 text-[0.75rem] font-[600] text-[hsl(var(--e-muted-foreground))]">{READY_TO_RETURN_LABEL} <span className="e-tnum">{groups.ready.length}</span></p>
+        {cardList(laneKey, groups.ready)}
+      </div>
+    ) : (
+      cardList(laneKey, cards)
     );
     return (
       <section key={laneKey} aria-label={laneTitle(laneKey, data)} className="min-w-0 flex-1 rounded-[12px] bg-[hsl(var(--e-surface-raised))] p-2.5">
@@ -114,19 +138,19 @@ export function LaundryPipelineBoard(props: Props) {
           placeholder="Search property or supplier"
           className="h-9 w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-3 text-[16px] sm:w-[220px] sm:text-[0.8125rem]"
         />
-        <EFilterPopover label="Driver" value={driverName}>
-          <EField label="Driver on the day's route">
+        <EFilterPopover label="Laundry team" value={driverName}>
+          <EField label="Laundry team member on the day's route">
             <ESelect value={query.driverId} onChange={(event) => onQuery({ driverId: event.target.value })}>
-              <option value="">All drivers</option>
+              <option value="">Everyone</option>
               <option value="__none">No route yet</option>
               {data?.drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
             </ESelect>
           </EField>
         </EFilterPopover>
-        <EFilterPopover label="Supplier" value={supplierName}>
-          <EField label="Supplier">
+        <EFilterPopover label="Laundry partner" value={supplierName}>
+          <EField label="Laundry partner">
             <ESelect value={query.supplierId} onChange={(event) => onQuery({ supplierId: event.target.value })}>
-              <option value="">All suppliers</option>
+              <option value="">All partners</option>
               {data?.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
             </ESelect>
           </EField>

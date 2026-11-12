@@ -38,6 +38,7 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { AccessInstructionsPanel } from "@/components/shared/access-instructions-panel";
 import { googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { toast } from "@/hooks/use-toast";
+import { DEFAULT_VISIT_OUTCOME, VISIT_OUTCOMES, outcomeWithOriginal } from "@/lib/maintenance/visit-outcomes";
 
 // ── Types (mirror the GET /api/maintenance/[id] contract) ──────────────────
 
@@ -78,6 +79,8 @@ interface VisitItem {
   photos: Photo[];
   finishPhotos: Photo[];
   outcome: string | null;
+  /** The earlier value when the outcome was merged (2026-11-13). */
+  originalOutcome?: string | null;
   workerNote: string | null;
   issuesNote: string | null;
   scheduledFor: string | null;
@@ -94,15 +97,8 @@ interface VisitItem {
 
 type VisitEvent = "EN_ROUTE" | "ARRIVED" | "CLOCK_IN" | "COMPLETE";
 
-const OUTCOMES = [
-  { value: "FIXED", label: "Fixed" },
-  { value: "REPLACED", label: "Replaced" },
-  { value: "NEEDS_PARTS", label: "Needs parts" },
-  { value: "NEEDS_FOLLOWUP", label: "Needs follow-up" },
-  { value: "NO_ACCESS", label: "No access" },
-  { value: "NO_ISSUE_FOUND", label: "No issue found" },
-  { value: "OTHER", label: "Other" },
-];
+// The five outcomes (lib/maintenance/visit-outcomes.ts, merged 2026-11-13).
+const OUTCOMES = VISIT_OUTCOMES;
 
 const PING_INTERVAL_MS = 45_000;
 
@@ -188,7 +184,7 @@ export function WorkerVisitClient({ itemId }: { itemId: string }) {
 
   // Outcome form.
   const [showComplete, setShowComplete] = React.useState(false);
-  const [outcome, setOutcome] = React.useState<string>("FIXED");
+  const [outcome, setOutcome] = React.useState<string>(DEFAULT_VISIT_OUTCOME);
   const [workerNote, setWorkerNote] = React.useState("");
   const [issuesNote, setIssuesNote] = React.useState("");
 
@@ -405,7 +401,7 @@ export function WorkerVisitClient({ itemId }: { itemId: string }) {
             <div>
               <p className="text-sm font-semibold text-foreground">Job complete</p>
               <p className="text-xs text-muted-foreground">
-                {item.outcome ? `Outcome: ${prettyEnum(item.outcome)}` : "This job has been resolved."}
+                {item.outcome ? `Outcome: ${outcomeWithOriginal(item.outcome, item.originalOutcome)}` : "This job has been resolved."}
                 {item.resolvedAt ? ` · ${fmtTime(item.resolvedAt)}` : ""}
               </p>
             </div>

@@ -605,10 +605,11 @@ function buildLaundryVm(job: any, submission: any): ReportLaundryVM {
   const status = String(task?.status ?? "");
 
   if (task && (status !== "PENDING" || confirmation)) {
-    const ready = status === "CONFIRMED" || status === "PICKED_UP" || status === "DROPPED";
+    const ready = status === "CONFIRMED" || status === "PICKED_UP" || status === "READY_TO_RETURN" || status === "DROPPED";
     const outcomeByStatus: Record<string, string> = {
       CONFIRMED: "READY FOR PICKUP",
       PICKED_UP: "PICKED UP",
+      READY_TO_RETURN: "PICKED UP",
       DROPPED: "DROPPED OFF",
       SKIPPED_PICKUP: "NO PICKUP REQUIRED",
       FLAGGED: "NOT READY",

@@ -22,6 +22,8 @@ import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { canDeliverNotification } from "@/lib/notifications/preferences";
 import { getAppSettings } from "@/lib/settings";
 import { isChannelAllowed } from "@/lib/notifications/audience-controls";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { isAtLaundryStatus } from "./status-groups";
 
 const TZ = "Australia/Sydney";
 const PICKED_UP_STALE_MS = 24 * 60 * 60 * 1000;
@@ -60,7 +62,8 @@ export function selectStaleDriverTasks<T extends ReminderTask>(tasks: T[], now: 
       const dropDueToday = isSameSydneyDay(task.dropoffDate, now);
       return pickupDueToday || dropDueToday;
     }
-    if (task.status === "PICKED_UP" && task.pickedUpAt) {
+    // "Ready to return" sets are still out of the property, like PICKED_UP.
+    if (isAtLaundryStatus(task.status) && task.pickedUpAt) {
       return now.getTime() - new Date(task.pickedUpAt).getTime() > PICKED_UP_STALE_MS;
     }
     return false;
@@ -108,7 +111,7 @@ export async function dispatchLaundryDriverNudges(now = new Date()) {
       OR: [
         { pickupDate: { gte: todayKey, lt: dayEnd }, status: { in: ["PENDING", "CONFIRMED"] } },
         { dropoffDate: { gte: todayKey, lt: dayEnd }, status: { in: ["PENDING", "CONFIRMED"] } },
-        { status: "PICKED_UP" },
+        { status: { in: ["PICKED_UP", "READY_TO_RETURN"] } },
       ],
     },
     select: {
@@ -139,9 +142,13 @@ export async function dispatchLaundryDriverNudges(now = new Date()) {
     if (!isChannelAllowed(settings.notificationAudienceControls, "LAUNDRY", "push") ||
       !await canDeliverNotification({ userId: driver.id, category: "laundry", channel: "WEB" })) continue;
 
-    const body = `${stale.length} laundry task${stale.length === 1 ? "" : "s"} need${
-      stale.length === 1 ? "s" : ""
-    } action: ${summarizeTasks(stale)}. Open Today to catch up before end of day.`;
+    const catchUp = (await loadNotificationWording("laundry.updates")).render("catch-up", "INBOX", {
+      count: stale.length,
+      taskWord: stale.length === 1 ? "task" : "tasks",
+      needWord: stale.length === 1 ? "needs" : "need",
+      tasks: summarizeTasks(stale),
+    });
+    const body = catchUp.body;
     try {
       await db.notification.create({
         data: {
@@ -150,14 +157,14 @@ export async function dispatchLaundryDriverNudges(now = new Date()) {
           externalId: mobilePendingMarker("laundry"),
           userId: driver.id,
           channel: NotificationChannel.PUSH,
-          subject: "Laundry catch-up",
+          subject: catchUp.title,
           body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },
       });
       await sendWebPushToUser(driver.id, {
-        title: "Laundry catch-up",
+        title: catchUp.title,
         body,
         url: "/v2/laundry",
         tag: "laundry-driver-nudge",

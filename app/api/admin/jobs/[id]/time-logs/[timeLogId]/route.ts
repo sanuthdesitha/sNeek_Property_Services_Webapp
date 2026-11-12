@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const MAX_SEGMENT_MINUTES = 24 * 60;
 
@@ -120,16 +121,19 @@ export async function PATCH(
         },
       });
 
+      const clockWording = await loadNotificationWording("job.clock_changes");
+      const timesNotice = clockWording.render("times-edited", "INBOX", {
+        jobNumber: log.job.jobNumber,
+        segmentTotal: clockWording.line("segment-total", "INBOX", { minutes: durationM }, durationM != null),
+      });
       await tx.notification.create({
         data: {
           userId: log.userId,
           jobId: log.jobId,
           externalId: mobilePendingMarker("jobs"),
           channel: NotificationChannel.PUSH,
-          subject: "Clock times updated by admin",
-          body: `${log.job.jobNumber}: An admin amended your recorded clock times${
-            durationM != null ? ` (new segment total: ${durationM} minutes)` : ""
-          }.`,
+          subject: timesNotice.title,
+          body: timesNotice.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },

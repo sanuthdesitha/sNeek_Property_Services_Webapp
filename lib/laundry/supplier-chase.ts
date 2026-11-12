@@ -22,7 +22,9 @@ import {
   type ExternalMessageResult,
   type TransportAvailability,
 } from "@/lib/notifications/external-recipient";
-import { dayKeyOf, daysBetweenKeys, detectExceptions, latestBagCount } from "./pipeline";
+import { dayKeyOf, daysBetweenKeys, detectExceptions, latestBagCount, latestReadiness } from "./pipeline";
+import { laundryTeamRequestKinds, type LaundryTeamRequestKind } from "./nudge-rules";
+import { loadSupplierTeams, teamForRun } from "./partners";
 import type { OfficeActorRole } from "@/lib/notifications/office-send-rules";
 import {
   SUPPLIER_CHASE_COOL_DOWN_MINUTES,
@@ -52,7 +54,8 @@ async function loadRun(taskId: string) {
     select: {
       id: true, jobId: true, status: true, pickupDate: true, dropoffDate: true, pickedUpAt: true, droppedAt: true, flagReason: true,
       supplier: { select: { id: true, name: true, email: true, phone: true, avgTurnaround: true } },
-      property: { select: { name: true, suburb: true } },
+      property: { select: { name: true, suburb: true, accessInfo: true, laundryEnabled: true } },
+      job: { select: { status: true } },
       confirmations: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { laundryReady: true, photoUrl: true, notes: true, createdAt: true } },
     },
   });
@@ -71,12 +74,32 @@ async function pipelineSettings() {
   };
 }
 
-function blockedReasonFor(run: ChaseRun, pipeline: { maxOutdoorDays: number; requireDropoffPhoto: boolean }, now: Date): string | null {
-  const exceptions = detectExceptions(run, { todayKey: sydneyTodayKey(now), now, settings: pipeline });
-  return supplierChaseBlockedReason({ status: run.status, hasSupplier: Boolean(run.supplier), exceptions });
+/**
+ * The team request the run calls for when its partner has no laundry portal
+ * users who can see the property (then the chase stands in for it), else null.
+ */
+async function unansweredTeamRequest(run: ChaseRun, exceptions: ReturnType<typeof detectExceptions>, now: Date): Promise<LaundryTeamRequestKind | null> {
+  if (!run.supplier) return null;
+  const kinds = laundryTeamRequestKinds({
+    status: run.status, pickupDate: run.pickupDate, dropoffDate: run.dropoffDate, exceptions,
+    readiness: latestReadiness(run.confirmations), jobStatus: run.job?.status ?? null, hasJob: Boolean(run.jobId), hasSupplier: true,
+  }, sydneyTodayKey(now));
+  if (!kinds.length) return null;
+  const team = teamForRun(await loadSupplierTeams([run.supplier.id]), run.supplier.id, run.property);
+  return team.length ? null : kinds[0];
 }
 
-function draftFor(run: ChaseRun, settings: { companyName: string; companyPhone?: string | null }, now: Date): SupplierChaseDraft | null {
+async function chaseContext(run: ChaseRun, pipeline: { maxOutdoorDays: number; requireDropoffPhoto: boolean }, now: Date) {
+  const exceptions = detectExceptions(run, { todayKey: sydneyTodayKey(now), now, settings: pipeline });
+  const unanswered = await unansweredTeamRequest(run, exceptions, now);
+  const overTurnaround = exceptions.some((item) => item.code === "OVER_TURNAROUND");
+  return {
+    blockedReason: supplierChaseBlockedReason({ status: run.status, hasSupplier: Boolean(run.supplier), exceptions, unansweredTeamRequest: unanswered }),
+    purpose: overTurnaround ? null : unanswered,
+  };
+}
+
+function draftFor(run: ChaseRun, settings: { companyName: string; companyPhone?: string | null }, now: Date, purpose: LaundryTeamRequestKind | null): SupplierChaseDraft | null {
   if (!run.supplier) return null;
   const pickedKey = dayKeyOf(run.pickedUpAt ?? run.pickupDate);
   const days = pickedKey ? Math.max(0, daysBetweenKeys(pickedKey, sydneyTodayKey(now))) : 0;
@@ -91,6 +114,7 @@ function draftFor(run: ChaseRun, settings: { companyName: string; companyPhone?:
     turnaroundHours: run.supplier.avgTurnaround ?? null,
     officeName: settings.companyName,
     officePhone: settings.companyPhone || null,
+    purpose,
   });
 }
 
@@ -133,11 +157,12 @@ export async function loadSupplierChasePreview(taskId: string, now = new Date())
   const run = await loadRun(taskId);
   if (!run) return null;
   const [{ settings, pipeline }, providers, last] = await Promise.all([pipelineSettings(), externalTransportAvailability(), lastTakenChase(taskId, now)]);
+  const context = await chaseContext(run, pipeline, now);
   return {
     taskId: run.id,
-    blockedReason: blockedReasonFor(run, pipeline, now),
+    blockedReason: context.blockedReason,
     supplier: run.supplier ? { id: run.supplier.id, name: run.supplier.name, email: run.supplier.email?.trim() || null, phone: run.supplier.phone?.trim() || null } : null,
-    draft: draftFor(run, settings, now),
+    draft: draftFor(run, settings, now, context.purpose),
     transports: transportsFor(run.supplier, providers),
     lastChasedAt: last ? last.createdAt.toISOString() : null,
     nextAllowedAt: last ? new Date(last.createdAt.getTime() + SUPPLIER_CHASE_COOL_DOWN_MINUTES * 60_000).toISOString() : null,
@@ -174,7 +199,7 @@ export async function sendSupplierChase(actorId: string, input: unknown, now = n
   const run = await loadRun(request.laundryTaskId);
   if (!run) throw new ExternalMessageError(404, "Laundry run not found.");
   const [{ pipeline }, providers] = await Promise.all([pipelineSettings(), externalTransportAvailability()]);
-  const blocked = blockedReasonFor(run, pipeline, now);
+  const { blockedReason: blocked } = await chaseContext(run, pipeline, now);
   if (blocked) throw new ExternalMessageError(409, blocked);
   const transports = transportsFor(run.supplier, providers);
   const chosen = Array.from(new Set(request.transports));

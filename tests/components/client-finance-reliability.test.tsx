@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import FinancePage from "@/app/v2/client/finance/page";
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), portal: vi.fn(), finance: vi.fn() }));
 vi.mock("@/lib/auth/client-portal", () => ({ requireClientPortalPage: mocks.auth }));
@@ -16,7 +16,7 @@ beforeEach(() => {
 describe("client financial information", () => {
   it.each(["portal", "finance"] as const)("reports %s failure without fabricating hidden access or zero balance", async source => {
     mocks[source].mockRejectedValue(new Error("private internal error"));
-    render(await FinancePage());
+    render(await FinancePage({}));
     expect(screen.getByRole("alert")).toBeVisible();
     expect(screen.getByRole("link", { name: "Retry" })).toHaveAttribute("href", "/v2/client/finance");
     expect(screen.queryByText("Financial details are hidden")).toBeNull();
@@ -24,12 +24,12 @@ describe("client financial information", () => {
   });
   it("keeps deliberately hidden financial data hidden", async () => {
     mocks.portal.mockResolvedValue({ visibility: { showFinanceDetails: false } });
-    render(await FinancePage());
+    render(await FinancePage({}));
     expect(screen.getByText("Financial details are hidden")).toBeVisible();
     expect(mocks.finance).not.toHaveBeenCalled();
   });
   it("labels capped history and distinguishes estimates from amounts owed", async () => {
-    render(await FinancePage());
+    render(await FinancePage({}));
     expect(screen.getByText(/latest 50 completed jobs/)).toHaveTextContent("not an invoice or a payment request");
     expect(screen.getByText("latest 20 invoices, including paid")).toBeVisible();
     expect(screen.queryByText("all time")).toBeNull();
@@ -42,10 +42,34 @@ describe("client financial information", () => {
       { id: "paid", invoiceNumber: "INV-2", status: "PAID", totalAmount: 100, createdAt: new Date("2026-09-01T00:00:00Z") },
       { id: "part", invoiceNumber: "INV-3", status: "PART_PAID", totalAmount: 100, createdAt: new Date("2026-09-01T00:00:00Z") },
     ] });
-    render(await FinancePage());
-    expect(screen.getByRole("link", { name: "INV-1" })).toHaveAttribute("href", "/v2/client/finance/invoices/invoice");
-    expect(screen.getByText("Payment recorded")).toBeVisible();
+    render(await FinancePage({}));
+    // Each invoice row opens the invoice page (the whole row is the link).
+    const list = within(screen.getByRole("region", { name: "Invoices" }));
+    expect(list.getByRole("link", { name: /^INV-1\b/ })).toHaveAttribute("href", "/v2/client/finance/invoices/invoice");
+    // The amount owing points at the invoice to pay first.
+    expect(within(screen.getByText("To pay").parentElement!).getByRole("link", { name: /INV-1/ })).toHaveAttribute("href", "/v2/client/finance/invoices/invoice");
+    // "Paid" only for the invoice whose payment is recorded; never for the sent one.
+    expect(screen.getAllByText("Paid")).toHaveLength(1);
+    expect(within(list.getByRole("link", { name: /^INV-2\b/ })).getByText("Paid")).toBeVisible();
+    expect(within(list.getByRole("link", { name: /^INV-1\b/ })).queryByText("Paid")).toBeNull();
     expect(screen.getByText("Part paid")).toBeVisible();
     expect(screen.queryAllByRole("button", { name: "Pay invoice" })).toHaveLength(actor === "CLIENT" ? 1 : 0);
+  });
+});
+
+describe("payment return states on the new finance page (owner decision 2026-11-13)", () => {
+  it("says the payment was handed to the provider after checkout, without showing Paid", async () => {
+    mocks.finance.mockResolvedValue({
+      summary: { activeRates: 0, pendingChargeCount: 0, pendingChargeTotal: 0, invoiceCount: 1, totalBilled: 100 }, rates: [], recentCharges: [],
+      invoices: [{ id: "open", invoiceNumber: "INV-9", status: "SENT", totalAmount: 100, paidAmount: 0, createdAt: new Date("2026-11-01T00:00:00Z") }],
+    });
+    render(await FinancePage({ searchParams: { paid: "1" } }));
+    expect(screen.getByRole("status")).toHaveTextContent(/handed to the payment provider\. The invoice shows Paid once the provider confirms it/);
+    expect(screen.queryByText("Paid")).toBeNull();
+  });
+
+  it("says checkout was left without paying", async () => {
+    render(await FinancePage({ searchParams: { payment: "cancelled" } }));
+    expect(screen.getByRole("status")).toHaveTextContent(/left the payment page before finishing\. Nothing was recorded as paid/);
   });
 });

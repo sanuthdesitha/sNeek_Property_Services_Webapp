@@ -17,6 +17,7 @@ import { getAppSettings } from "@/lib/settings";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import { sendClientJobNotification } from "@/lib/notifications/client-job-notifications";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import {
   buildStartBriefingAck,
   resolveStartBriefingItems,
@@ -476,14 +477,22 @@ export async function POST(
         select: { id: true },
       });
       if (adminUsers.length > 0) {
+        const startedEarly = (await loadNotificationWording("office.cleaner_requests")).render("started-early", "INBOX", {
+          actorName,
+          jobType: job.jobType.replace(/_/g, " "),
+          propertyName,
+          today: todayLocalDate,
+          scheduledDate: scheduledLocalDate,
+          timezone,
+        });
         await db.notification.createMany({
           data: adminUsers.map((admin) => ({
             userId: admin.id,
             jobId: job.id,
             externalId: mobilePendingMarker("jobs"),
             channel: NotificationChannel.PUSH,
-            subject: "Future job started early",
-            body: `${actorName} started ${job.jobType.replace(/_/g, " ")} at ${propertyName} on ${todayLocalDate} (scheduled ${scheduledLocalDate}, ${timezone}).`,
+            subject: startedEarly.title,
+            body: startedEarly.body,
             status: NotificationStatus.SENT,
             sentAt: new Date(),
           })),

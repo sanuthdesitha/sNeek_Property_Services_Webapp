@@ -11,6 +11,7 @@ import {
 } from "@/lib/inventory/shopping-runs";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   to: z.union([z.string().trim().email(), z.array(z.string().trim().email()).min(1)]),
@@ -68,18 +69,17 @@ export async function POST(
     }
 
     const to = Array.isArray(body.to) ? body.to : [body.to];
-    const subject =
-      body.subject?.trim() ||
-      `Shopping reimbursement - ${allocation.clientName} - ${run.name}`;
+    const reimbursementEmail = (await loadNotificationWording("stock.shopping_and_orders")).render("reimbursement", "EMAIL", {
+      clientName: allocation.clientName,
+      runName: run.name,
+      amount: `$${allocation.actualAmount.toFixed(2)}`,
+      receiptCount: run.payment.receipts.length,
+    });
+    const subject = body.subject?.trim() || reimbursementEmail.subject;
     const emailResult = await sendEmailDetailed({
       to,
       subject,
-      html: `
-        <p>Please find the attached shopping reimbursement summary for <strong>${allocation.clientName}</strong>.</p>
-        <p><strong>Run:</strong> ${run.name}</p>
-        <p><strong>Amount due:</strong> $${allocation.actualAmount.toFixed(2)}</p>
-        <p><strong>Receipts attached:</strong> ${run.payment.receipts.length}</p>
-      `,
+      html: reimbursementEmail.html,
       attachments: [
         {
           filename: `shopping-reimbursement-${run.id}.pdf`,

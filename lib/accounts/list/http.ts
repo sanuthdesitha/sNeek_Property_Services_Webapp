@@ -44,3 +44,48 @@ export async function accountExportResponse(user: SessionUser, params: URLSearch
     },
   });
 }
+
+/**
+ * The People › Cleaners list for a viewer admitted through the WORKFORCE pack
+ * (GET /api/admin/people/cleaners and its export). The tab is forced to
+ * "cleaners" whatever the query says, the role filter can only narrow within
+ * it, and counts and summary are computed from cleaner rows only, so nothing
+ * about other roles leaves the server. Pay and quality columns follow the
+ * viewer's visibility exactly as on the main list.
+ */
+function cleanerParams(params: URLSearchParams): URLSearchParams {
+  const forced = new URLSearchParams(params);
+  forced.set("tab", "cleaners");
+  return forced;
+}
+
+async function cleanerRows(user: SessionUser) {
+  const viewer = await resolveAccountsViewer(user);
+  const all = await loadAccountRows(viewer.visibility);
+  const onlyCleaners = filterRows(all, { tab: "cleaners", q: "", status: "all", documents: false, role: "", noRate: false });
+  return { viewer, rows: onlyCleaners };
+}
+
+export async function cleanerListResponse(user: SessionUser, params: URLSearchParams): Promise<NextResponse> {
+  const forced = cleanerParams(params);
+  const { viewer, rows } = await cleanerRows(user);
+  const filters = parseAccountFilters(forced);
+  const query = parseAccountListQuery(forced, viewer.visibility);
+  return NextResponse.json(buildListResponse(rows, filters, query, viewer.visibility));
+}
+
+export async function cleanerExportResponse(user: SessionUser, params: URLSearchParams): Promise<NextResponse> {
+  const forced = cleanerParams(params);
+  const { viewer, rows } = await cleanerRows(user);
+  const filters = parseAccountFilters(forced);
+  const query = parseAccountListQuery(forced, viewer.visibility);
+  const sorted = sortRows(filterRows(rows, filters), query.sort, query.dir);
+  const stamp = new Date().toISOString().slice(0, 10);
+  return new NextResponse(accountsCsv(sorted, viewer.visibility), {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="cleaners-${stamp}.csv"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}

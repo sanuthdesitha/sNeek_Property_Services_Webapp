@@ -493,12 +493,12 @@ export function ProfileSettings() {
     const body = await res.json().catch(() => ({}));
     setSavingPin(false);
     if (!res.ok) {
-      toast({ title: "PIN update failed", description: body.error ?? "Could not save admin PIN.", variant: "destructive" });
+      toast({ title: "PIN update failed", description: body.error ?? "Could not save your PIN.", variant: "destructive" });
       return;
     }
     setPinForm({ currentPassword: "", pin: "", confirmPin: "" });
     setAdminPinState({ hasPin: true, updatedAt: new Date().toISOString() });
-    toast({ title: adminPinState?.hasPin ? "Admin PIN updated" : "Admin PIN created" });
+    toast({ title: adminPinState?.hasPin ? "Your PIN was changed" : "Your PIN is set" });
   }
 
   async function clearAdminPin() {
@@ -515,12 +515,12 @@ export function ProfileSettings() {
     const body = await res.json().catch(() => ({}));
     setClearingPin(false);
     if (!res.ok) {
-      toast({ title: "Could not clear admin PIN", description: body.error ?? "Try again.", variant: "destructive" });
+      toast({ title: "Could not remove your PIN", description: body.error ?? "Try again.", variant: "destructive" });
       return;
     }
     setPinForm({ currentPassword: "", pin: "", confirmPin: "" });
     setAdminPinState({ hasPin: false, updatedAt: null });
-    toast({ title: "Admin PIN removed" });
+    toast({ title: "Your PIN was removed" });
   }
 
   if (loading || !data) {
@@ -1084,13 +1084,13 @@ export function ProfileSettings() {
       {["ADMIN", "OPS_MANAGER"].includes(data.user.role) ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Admin verification PIN</CardTitle>
+            <CardTitle className="text-base">Your PIN</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-lg border bg-muted/20 p-3 text-sm">
               <p className="font-medium">{loadingPin ? "Loading PIN status..." : adminPinState?.hasPin ? "PIN is active" : "No PIN set"}</p>
               <p className="text-xs text-muted-foreground">
-                Use a PIN or your password to approve sensitive admin actions.
+                You confirm sensitive actions with your own PIN. Nobody else can see or use it.
                 {adminPinState?.updatedAt ? ` Last updated ${new Date(adminPinState.updatedAt).toLocaleString("en-AU")}.` : ""}
               </p>
             </div>

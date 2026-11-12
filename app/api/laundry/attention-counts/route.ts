@@ -3,6 +3,8 @@ import { LaundryStatus, Role } from "@prisma/client";
 import { laundryTaskScope } from "@/lib/laundry/teams";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { listOfficeRequestsForLaundryUser, openRequestCount } from "@/lib/laundry/office-requests";
+import { LAUNDRY_REQUESTS_HREF } from "@/lib/laundry/office-request-types";
 
 /**
  * GET /api/laundry/attention-counts — nav badges for the laundry portal.
@@ -26,16 +28,20 @@ export async function GET() {
     const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
     const scope = await laundryTaskScope(session.user);
 
-    const [awaitingCollection, outForCleaning, flagged] = await Promise.all([
+    const [awaitingCollection, outForCleaning, flagged, officeRequests] = await Promise.all([
       // Work still to collect: scheduled or confirmed, not yet picked up.
       db.laundryTask
         .count({ where: { ...scope, status: { in: [LaundryStatus.PENDING, LaundryStatus.CONFIRMED] } } })
         .catch(() => 0),
       // Already collected and not yet returned — the tracking board's contents.
-      db.laundryTask.count({ where: { ...scope, status: LaundryStatus.PICKED_UP } }).catch(() => 0),
+      // "Ready to return" sets are still out (2026-11-13).
+      db.laundryTask.count({ where: { ...scope, status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN] } } }).catch(() => 0),
       // A cleaner said the linen was not ready. Someone has to decide what
       // happens next, which is why admin badges the same status.
       db.laundryTask.count({ where: { ...scope, status: LaundryStatus.FLAGGED } }).catch(() => 0),
+      // "From the office": requests to this laundry login still to answer
+      // (the inbox's own "open" rule). Office accounts are never addressed.
+      listOfficeRequestsForLaundryUser(session.user).then(openRequestCount).catch(() => 0),
     ]);
 
     return NextResponse.json({
@@ -44,6 +50,7 @@ export async function GET() {
         "/v2/laundry": flagged,
         "/v2/laundry/queue": awaitingCollection,
         "/v2/laundry/tracking": outForCleaning,
+        [LAUNDRY_REQUESTS_HREF]: officeRequests,
       },
     });
   } catch (err: any) {

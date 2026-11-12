@@ -13,7 +13,8 @@ import { EField, EInput, EModal, ESelect, ETextarea } from "@/components/v2/admi
 
 type PropertyOption = { id: string; name: string; suburb: string | null };
 type JobOption = { id: string; jobNumber: string; scheduledDate: string; hasBooking: boolean; bookingGuest: string | null; bookingCode: string | null };
-type Photo = { key: string; url: string };
+/** `preview` is a local object URL of the picked file (a private bucket link would not show). */
+type Photo = { key: string; url: string; preview: string | null };
 type Draft = { propertyId: string; jobId: string; itemName: string; location: string; notes: string; photos: Photo[] };
 
 const EMPTY: Draft = { propertyId: "", jobId: "", itemName: "", location: "", notes: "", photos: [] };
@@ -26,7 +27,7 @@ async function uploadPhoto(file: File): Promise<Photo> {
   const response = await fetch("/api/uploads/direct", { method: "POST", body: form });
   const body = (await response.json().catch(() => null)) as { key?: string; url?: string; error?: string } | null;
   if (!response.ok || !body?.key || !body.url) throw new Error(body?.error ?? `Could not upload ${file.name}.`);
-  return { key: body.key, url: body.url };
+  return { key: body.key, url: body.url, preview: typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : null };
 }
 
 function jobLabel(job: JobOption, timeZone: string): string {
@@ -95,7 +96,7 @@ export function LogItemDialog({ open, timeZone, onClose, onCreated }: { open: bo
       const response = await fetch("/api/admin/lost-found", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ propertyId: draft.propertyId, jobId: draft.jobId || null, itemName: draft.itemName.trim(), location: draft.location.trim() || null, notes: draft.notes.trim() || null, photos: draft.photos }),
+        body: JSON.stringify({ propertyId: draft.propertyId, jobId: draft.jobId || null, itemName: draft.itemName.trim(), location: draft.location.trim() || null, notes: draft.notes.trim() || null, photos: draft.photos.map(({ key, url }) => ({ key, url })) }),
       });
       const body = (await response.json().catch(() => null)) as { itemId?: string; error?: string } | null;
       if (!response.ok || !body?.itemId) throw new Error(body?.error ?? `The item was not saved (${response.status}).`);
@@ -140,7 +141,7 @@ export function LogItemDialog({ open, timeZone, onClose, onCreated }: { open: bo
               {draft.photos.map((photo) => (
                 <li key={photo.key} className="flex items-center gap-1 text-[0.75rem]">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={photo.url} alt="" className="h-12 w-12 rounded-[6px] object-cover" />
+                  {photo.preview ? <img src={photo.preview} alt="" className="h-12 w-12 rounded-[6px] object-cover" /> : <span className="flex h-12 w-12 items-center justify-center rounded-[6px] border border-[hsl(var(--e-border))] text-[0.625rem]">Uploaded</span>}
                   <EButton type="button" size="sm" variant="ghost" onClick={() => setDraft((current) => ({ ...current, photos: current.photos.filter((candidate) => candidate.key !== photo.key) }))}>Remove</EButton>
                 </li>
               ))}

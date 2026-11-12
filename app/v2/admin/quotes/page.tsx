@@ -1,32 +1,33 @@
-import Link from "next/link";
-import { Plus } from "lucide-react";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
-// Estate-native pipeline (leads + quotes) — same /api/admin endpoints as v1,
-// brand-new Estate UI. The quote builder & detail are now native Estate too.
-import { QuotesPipeline } from "@/components/v2/admin/quotes/quotes-pipeline";
+import { db } from "@/lib/db";
+import { getAppSettings } from "@/lib/settings";
+// Quotes and pricing (2026-11 redesign, board "Quotes and pricing"): leads and
+// quotes as one server-paged list with stage chips, a side panel, and the rate
+// card, price book, holiday rates, pricing variables and client rates as tabs.
+// /v2/admin/pricing redirects to the Rate card tab.
+import { QuotesWorkspace } from "@/components/v2/admin/quotes/pipeline/quotes-workspace";
+import { parseQuotesTab } from "@/lib/quotes/quotes-tabs";
+import { SERVICE_CATALOG } from "@/lib/pricing/service-catalog";
 
-export const metadata = { title: "Quotes · Estate admin" };
+export const metadata = { title: "Quotes and pricing · Estate admin" };
 export const dynamic = "force-dynamic";
 
-export default async function V2AdminQuotesPage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+export default async function V2AdminQuotesPage({ searchParams }: { searchParams?: { tab?: string } }) {
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const isAdmin = session.user.role === Role.ADMIN;
+  const [settings, newLeads] = await Promise.all([
+    getAppSettings(),
+    db.quoteLead.count({ where: { status: "NEW", quotes: { none: {} } } }).catch(() => null),
+  ]);
   return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Growth"
-        title="Quotes"
-        description="Every enquiry from first contact to signed quote."
-        actions={
-          <EButton asChild variant="gold" size="sm">
-            <Link href="/v2/admin/quotes/new">
-              <Plus className="h-3.5 w-3.5" /> New quote
-            </Link>
-          </EButton>
-        }
-      />
-      <QuotesPipeline />
-    </div>
+    <QuotesWorkspace
+      initialTab={parseQuotesTab(searchParams?.tab)}
+      isAdmin={isAdmin}
+      newLeads={newLeads}
+      pricingVariables={settings.pricingVariables}
+      timezone={settings.timezone ?? "Australia/Sydney"}
+      services={SERVICE_CATALOG.map((service) => ({ value: String(service.jobType), label: service.label }))}
+    />
   );
 }

@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { mobilePendingMarker } from "@/lib/notifications/mobile-outbox-marker";
 import { generateJobReport } from "@/lib/reports/generator";
 import { getAppSettings } from "@/lib/settings";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export type ReportVisibilityPatch = {
   clientVisible?: boolean;
@@ -72,12 +73,13 @@ export async function regenerateReport(jobId: string, themeId: string | null) {
   });
 
   if (requiresAdminInitiation && report) {
+    const notice = (await loadNotificationWording("office.reports_generated")).render("generated", "INBOX", { jobId });
     await db.notification.create({
       data: {
         externalId: mobilePendingMarker("reports"),
         channel: NotificationChannel.PUSH,
-        subject: "Report generated (manual client share required)",
-        body: `Report ${jobId} generated. Use Share action to send to client.`,
+        subject: notice.title,
+        body: notice.body,
         status: NotificationStatus.SENT,
         sentAt: new Date(),
       },

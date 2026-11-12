@@ -1,3 +1,4 @@
+import { qaIssueVerdictLabel } from "@/lib/qa/verdict-scale";
 import { NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -105,6 +106,8 @@ export async function GET() {
             id: true,
             jobId: true,
             severity: true,
+            failVerdict: true,
+            serious: true,
             category: true,
             description: true,
             createdAt: true,
@@ -143,6 +146,8 @@ export async function GET() {
         id: i.id,
         jobId: i.jobId,
         severity: String(i.severity),
+        // "Fail" for the current scale; history keeps its Major / Critical.
+        verdictLabel: qaIssueVerdictLabel({ severity: String(i.severity), failVerdict: i.failVerdict, serious: i.serious }),
         category: i.category,
         // The admin-configured label, not a prettified raw key — a cleaner
         // should read "Reset to reference images", not "Reset_to_reference".

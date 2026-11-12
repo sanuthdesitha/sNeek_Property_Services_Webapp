@@ -13,7 +13,8 @@ import { sydneyDateKey, sydneyDayEndInclusive } from "@/lib/time/sydney-range";
  * counted at team level only (`teamTotals.stuckUnattributed`).
  */
 
-export const STUCK_STATUSES = ["PENDING", "CONFIRMED", "PICKED_UP"] as const;
+// READY_TO_RETURN (2026-11-13) is still out of the property: stuck like PICKED_UP.
+export const STUCK_STATUSES = ["PENDING", "CONFIRMED", "PICKED_UP", "READY_TO_RETURN"] as const;
 export const STUCK_THRESHOLD_MS = 48 * 60 * 60 * 1000;
 
 export type LaundryTaskLite = {
@@ -176,10 +177,11 @@ export function computeLaundryTeamStats({
 
     // Stuck detection (at `now`, independent of the period window).
     if ((STUCK_STATUSES as readonly string[]).includes(task.status)) {
-      const anchor = task.status === "PICKED_UP" ? task.pickedUpAt ?? task.pickupDate : task.pickupDate;
+      const atLaundry = task.status === "PICKED_UP" || task.status === "READY_TO_RETURN";
+      const anchor = atLaundry ? task.pickedUpAt ?? task.pickupDate : task.pickupDate;
       if (now.getTime() - anchor.getTime() > STUCK_THRESHOLD_MS) {
         team.stuckCount += 1;
-        if (task.status === "PICKED_UP" && pickupActor) accFor(pickupActor).stuckCount += 1;
+        if (atLaundry && pickupActor) accFor(pickupActor).stuckCount += 1;
         else stuckUnattributed += 1;
       }
     }

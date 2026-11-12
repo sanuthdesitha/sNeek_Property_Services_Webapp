@@ -1,8 +1,9 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { applyPartnerLinks, PartnerLinkError } from "@/lib/laundry/partners";
 
 const supplierSchema = z.object({
   name: z.string().trim().min(1).max(160),
@@ -14,13 +15,18 @@ const supplierSchema = z.object({
   reliabilityScore: z.number().min(0).max(5).optional().nullable(),
   notes: z.string().trim().max(6000).optional().nullable(),
   isActive: z.boolean().optional(),
+  /** The inventory Suppliers record for the same business; null unlinks, absent leaves it. */
+  stockSupplierId: z.string().trim().min(1).max(64).nullable().optional(),
+  /** The partner's LAUNDRY portal accounts (the complete team); absent leaves it. */
+  teamUserIds: z.array(z.string().trim().min(1).max(64)).max(200).optional(),
 });
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = supplierSchema.parse(await req.json());
-    const supplier = await db.laundrySupplier.update({
+    const supplier = await db.$transaction(async (tx) => {
+      const updated = await tx.laundrySupplier.update({
       where: { id: params.id },
       data: {
         name: body.name,
@@ -33,9 +39,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         notes: body.notes || null,
         isActive: body.isActive !== false,
       },
+      });
+      await applyPartnerLinks(session.user.id, updated.id, { stockSupplierId: body.stockSupplierId, teamUserIds: body.teamUserIds }, tx);
+      return tx.laundrySupplier.findUniqueOrThrow({ where: { id: updated.id } });
     });
     return NextResponse.json({ supplier });
   } catch (error: any) {
+    if (error instanceof PartnerLinkError) return NextResponse.json({ error: error.message }, { status: error.status });
     const status = error?.code === "P2025" ? 404 : error?.message === "UNAUTHORIZED" ? 401 : error?.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: error?.message ?? "Could not update supplier." }, { status });
   }

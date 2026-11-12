@@ -19,8 +19,11 @@ export type AccountsListState = {
   reload: () => void;
 };
 
-async function readList(query: string, signal: AbortSignal): Promise<AccountListResponse> {
-  const response = await fetch(`/api/admin/users?${query}`, { cache: "no-store", signal });
+/** The default list route; the People Cleaners tab passes the workforce route for a workforce-only viewer. */
+export const ACCOUNTS_LIST_ENDPOINT = "/api/admin/users";
+
+async function readList(endpoint: string, query: string, signal: AbortSignal): Promise<AccountListResponse> {
+  const response = await fetch(`${endpoint}?${query}`, { cache: "no-store", signal });
   const body = (await response.json().catch(() => null)) as (AccountListResponse & { error?: string }) | null;
   if (!response.ok || !body || !Array.isArray(body.rows)) {
     throw new Error(body?.error ?? `Could not load accounts (${response.status}).`);
@@ -28,7 +31,7 @@ async function readList(query: string, signal: AbortSignal): Promise<AccountList
   return body;
 }
 
-export function useAccountsList(view: AccountsView): AccountsListState {
+export function useAccountsList(view: AccountsView, endpoint: string = ACCOUNTS_LIST_ENDPOINT): AccountsListState {
   const [data, setData] = useState<AccountListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,10 +41,10 @@ export function useAccountsList(view: AccountsView): AccountsListState {
 
   useEffect(() => {
     const controller = new AbortController();
-    const requestKey = `${query}#${revision}`;
+    const requestKey = `${endpoint}?${query}#${revision}`;
     current.current = requestKey;
     setLoading(true);
-    readList(query, controller.signal)
+    readList(endpoint, query, controller.signal)
       .then((body) => {
         if (controller.signal.aborted || current.current !== requestKey) return;
         setData(body);
@@ -55,7 +58,7 @@ export function useAccountsList(view: AccountsView): AccountsListState {
         if (!controller.signal.aborted && current.current === requestKey) setLoading(false);
       });
     return () => controller.abort();
-  }, [query, revision]);
+  }, [endpoint, query, revision]);
 
   const reload = useCallback(() => setRevision((value) => value + 1), []);
   return { data, loading, error, reload };

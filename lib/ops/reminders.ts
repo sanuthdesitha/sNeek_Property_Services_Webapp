@@ -9,6 +9,23 @@ import { sendEmail, sendEmailDetailed } from "@/lib/notifications/email";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { getAppSettings } from "@/lib/settings";
+import { loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
+
+export const SCHEDULED_REMINDER_TYPE_KEY = "job.reminder.scheduled";
+
+/** The 2-hour reminder SMS (catalog type job.reminder.scheduled, part "cleaner"). */
+export function scheduledReminderSms(
+  wording: WordingRenderer,
+  job: { startTime?: string | null; property: { name: string; address: string } },
+  timingText: string
+): string {
+  return wording.render("cleaner", "SMS", {
+    propertyName: job.property.name,
+    when: job.startTime ?? "today",
+    propertyAddress: job.property.address,
+    timingSuffix: wording.line("timing-line", "SMS", { timingFlags: timingText }, Boolean(timingText)),
+  }).body;
+}
 
 export interface DispatchJobRemindersOptions {
   now?: Date;
@@ -280,10 +297,10 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
       }
 
       summary.shortCandidates = effectiveJobsShort.length;
+      const smsWording = await loadNotificationWording(SCHEDULED_REMINDER_TYPE_KEY);
 
       for (const job of effectiveJobsShort) {
         const timingText = getJobTimingHighlights(parseJobInternalNotes(job.internalNotes)).join(" | ");
-        const timingSuffix = timingText ? ` ${timingText}.` : "";
         let delivered = false;
         const jobRefShort = getJobReference(job);
         for (const assignment of job.assignments) {
@@ -302,12 +319,7 @@ export async function dispatchJobReminders(options: DispatchJobRemindersOptions 
             });
             continue;
           }
-          const result = await sendSmsDetailed(
-            assignment.user.phone,
-            `sNeek Ops: Your cleaning job at ${job.property.name} starts soon (${job.startTime ?? "today"}). ${
-              job.property.address
-            }.${timingSuffix}`
-          );
+          const result = await sendSmsDetailed(assignment.user.phone, scheduledReminderSms(smsWording, job, timingText));
           delivered = delivered || result.ok;
           if (!result.ok) {
             summary.shortFailed += 1;
@@ -410,11 +422,7 @@ export async function resendJobReminder(
         });
         continue;
       }
-      const timingSuffix = timingText ? ` ${timingText}.` : "";
-      const res = await sendSmsDetailed(
-        assignment.user.phone,
-        `sNeek Ops: Your cleaning job at ${job.property.name} starts soon (${job.startTime ?? "today"}). ${job.property.address}.${timingSuffix}`
-      );
+      const res = await sendSmsDetailed(assignment.user.phone, scheduledReminderSms(await loadNotificationWording(SCHEDULED_REMINDER_TYPE_KEY), job, timingText));
       recipients.push({
         jobId: job.id, jobNumber: jobRef, propertyName: job.property.name,
         recipient: displayName, contact: assignment.user.phone, channel: "sms",

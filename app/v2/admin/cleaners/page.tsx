@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { resolveAccountsViewer } from "@/lib/accounts/viewer";
+import { peopleRedirectTarget } from "@/lib/people/tabs";
 import { canActAs } from "@/lib/auth/roles";
 import { JobStatus, PayAdjustmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -41,8 +44,17 @@ async function safeMetrics(userId: string): Promise<PerformanceMetrics> {
   }
 }
 
-export default async function EstateCleanersPage() {
+/**
+ * The roster moved to People › Cleaners (figures, columns, bulk actions and
+ * the cleaner page). This URL redirects there with its query string; an
+ * operations manager with the workforce pack but not the accounts pack keeps
+ * this roster until the People route admits them.
+ */
+export default async function EstateCleanersPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const viewer = await resolveAccountsViewer(session.user);
+  // People now admits this pack to its cleaners tab (ops-catalog PEOPLE_TAB_FEATURES), so everyone who can open this page lands there.
+  if (viewer.canOpenPeople !== false || viewer.canSeeWorkforce !== false) redirect(peopleRedirectTarget("cleaners", searchParams));
   const canViewAddresses = canActAs(session.user.heldRoles ?? [session.user.role], [Role.ADMIN]);
 
   const cleaners = await db.user.findMany({

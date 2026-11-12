@@ -69,8 +69,8 @@ export function JobSkipAction({
           {busy ? "Cancelling…" : "Cancel skip request"}
         </EConfirmButton>
       ) : (
-        <EButton variant="outline" size="sm" onClick={request} disabled={busy}>
-          {busy ? "Sending…" : "Request to skip this clean"}
+        <EButton variant="outline" size="sm" className="min-h-11" onClick={request} disabled={busy}>
+          {busy ? "Sending…" : "Skip this clean"}
         </EButton>
       )}
       {error ? (

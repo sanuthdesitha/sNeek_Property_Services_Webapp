@@ -3,7 +3,7 @@
  * single-account service the per-person controls use, with its own guards,
  * and gets their own outcome; one refusal never stops the others.
  *
- *   resend-invite → lib/accounts/resend-invite   (ADMIN, OPS_MANAGER)
+ *   resend-invite → lib/accounts/resend-invite   (ADMIN, OPS_MANAGER with Staff accounts at manage; never a higher role)
  *   disable       → lib/accounts/account-status  (ADMIN; not yourself, not the last active admin)
  *   change-rate   → lib/accounts/pay-rate        (ADMIN; same bounds and audit)
  *
@@ -14,14 +14,16 @@ import { AccountGuardError, setAccountActive } from "./account-status";
 import { PayRateError, updateHourlyRate } from "./pay-rate";
 import { resendInvite } from "./resend-invite";
 import type { AccountBulkRequest, AccountBulkResponse, AccountBulkResult } from "./bulk-types";
+import type { AccountEmailActor } from "./account-emails";
 
 export * from "./bulk-types";
 
-async function runOne(actorId: string, request: AccountBulkRequest, id: string): Promise<AccountBulkResult> {
+async function runOne(actorId: string, request: AccountBulkRequest, id: string, emailActor: AccountEmailActor | null): Promise<AccountBulkResult> {
   try {
     if (request.action === "resend-invite") {
-      const result = await resendInvite(id);
-      return result.ok ? { id, outcome: "done", message: "Invite sent." } : { id, outcome: "refused", message: result.error };
+      if (!emailActor) return { id, outcome: "refused", message: "You cannot send account emails." };
+      const result = await resendInvite(emailActor, id, "BULK");
+      return result.ok ? { id, outcome: "done", message: result.message } : { id, outcome: "refused", message: result.error };
     }
     if (request.action === "disable") {
       const result = await setAccountActive(actorId, id, false);
@@ -38,9 +40,9 @@ async function runOne(actorId: string, request: AccountBulkRequest, id: string):
 }
 
 /** Sequential, so the admin-set lock and rate audit rows apply one at a time. */
-export async function runAccountBulk(actorId: string, request: AccountBulkRequest): Promise<AccountBulkResponse> {
+export async function runAccountBulk(actorId: string, request: AccountBulkRequest, emailActor: AccountEmailActor | null = null): Promise<AccountBulkResponse> {
   const ids = Array.from(new Set(request.ids));
   const results: AccountBulkResult[] = [];
-  for (const id of ids) results.push(await runOne(actorId, request, id));
+  for (const id of ids) results.push(await runOne(actorId, request, id, emailActor));
   return { action: request.action, results };
 }

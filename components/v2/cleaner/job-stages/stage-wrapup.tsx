@@ -1,167 +1,45 @@
 "use client";
 
 /**
- * Stage 5 — Wrap up (and the submitted/locked review state). Re-homes the
- * existing wrap-up cards in order: Laundry (turnover-only, incl. early-send),
- * a restock/inventory summary, Pass to next clean, then SUBMIT. Below submit,
- * the live validation errors render as tappable rows that switch to the right
- * stage and scroll to the offending field.
+ * Stage 5 — Wrap up (board state C "Submit review"; state D after submit).
+ *
+ * Order: "Before you submit" first (only the blockers, each a jump link, with
+ * what is still on this phone kept apart), then Laundry handoff (turnover
+ * only, incl. early-send), the restock tally, Pass to next clean and extra pay.
+ * Submit sits in the sticky bottom bar with "Clock out (finish form later)"
+ * as the secondary choice when the office allows it.
  *
  * All state + handlers come from the workspace unchanged. The final
  * self-inspection form section remains the last section of the Clean accordion
  * (a single controlled FormRenderer instance) so its field ids, state and
- * validation are untouched — see the report note.
+ * validation are untouched.
  */
 import * as React from "react";
-import {
-  WashingMachine,
-  Forward,
-  HandCoins,
-  Plus,
-  Trash2,
-  Camera,
-  CheckCircle2,
-  AlertTriangle,
-  Check,
-  Loader2,
-  Package,
-  Square,
-} from "lucide-react";
+import { Forward, HandCoins, Plus, Trash2, Camera, CheckCircle2, AlertTriangle, Loader2, Package, Square } from "lucide-react";
 import Link from "next/link";
-import { EBadge, EButton, ECard, ECardBody, EAlert } from "@/components/v2/ui/primitives";
+import { EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { EConfirmButton } from "@/components/v2/admin/estate-kit";
-import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
+import { ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture } from "@/components/v2/cleaner/media-capture";
 import { useSubmissionPreflight } from "@/components/v2/cleaner/use-submission-preflight";
 import { DraftSaveStatus } from "@/components/v2/cleaner/draft-save-status";
 import { collectFormErrors } from "@/lib/forms/validate-submission";
-import { stripHtmlToText } from "@/lib/forms/sanitize";
-import { formatDuration } from "@/lib/time/format-duration";
-import { LAUNDRY_SKIP_REASONS, type WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
-import {
-  PayAdjustmentList,
-  type PayAdjustmentListItem,
-} from "@/components/v2/shared/pay-adjustment-list";
-
-const LAUNDRY_CARD_ID = "wrapup-laundry";
-
-/** Human labels for the locked "sent" summary. */
-const LAUNDRY_OUTCOME_LABELS: Record<string, string> = {
-  READY_FOR_PICKUP: "Ready for pickup",
-  NOT_READY: "Not ready",
-  NO_PICKUP_REQUIRED: "No pickup required",
-};
+import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
+import { LaundryHandoff, LAUNDRY_CARD_ID } from "@/components/v2/cleaner/job-stages/laundry-handoff";
+import { SubmittedSummary } from "@/components/v2/cleaner/job-stages/submitted-summary";
+import { SubmitBlockers } from "@/components/v2/cleaner/job-stages/submit-blockers";
+import { StickyActionBar } from "@/components/v2/cleaner/job-stages/stage-footer";
 
 export function StageWrapup({ api }: { api: WorkspaceApi }) {
-  const {
-    locked,
-    status,
-    laundryEnabled,
-    schema,
-    answers,
-    uploads,
-    property,
-    jobTasks,
-    taskDrafts,
-    allTasksDecided,
-    busy,
-    addressLine,
-  } = api;
+  const { locked, laundryEnabled, schema, answers, uploads, property, jobTasks, allTasksDecided, busy, addressLine } = api;
   const syncBlockers = useSubmissionPreflight(!locked);
   if (api.bulkPool.length) syncBlockers.push("Assign or explicitly remove unfiled bulk photos before submitting.");
   if (api.laundryPhoto.length && (!laundryEnabled || api.laundryOutcome !== "READY_FOR_PICKUP")) syncBlockers.push("Laundry photos are unused by this outcome. Remove the attachment in device recovery; the original stays saved.");
   if (api.carryPhotos.length && (!api.carryHasNew || !api.carryNotes.some(note => note.trim()))) syncBlockers.push("Next-clean photos need a flag note or explicit attachment removal in device recovery.");
   if (api.payload?.formContractError) syncBlockers.push(api.payload.formContractError);
 
-  // Locked → the submitted review state is the whole stage (design "Job
-  // submitted" screen: confirmation, quality-pending, time on site, back home).
-  if (locked) {
-    const onSiteSeconds = Number(api.timeState?.completedSeconds ?? 0);
-    const basePayForJob: number | null =
-      api.payload?.payForJob != null && Number.isFinite(Number(api.payload.payForJob))
-        ? Number(api.payload.payForJob)
-        : null;
-    // Canonical total (base + approved adjustments) when the API provides it;
-    // fall back to the base figure for older payloads.
-    const payForJob: number | null =
-      api.payload?.payTotalForJob != null && Number.isFinite(Number(api.payload.payTotalForJob))
-        ? Number(api.payload.payTotalForJob)
-        : basePayForJob;
-    const payAdjustments: PayAdjustmentListItem[] = Array.isArray(
-      api.payload?.payAdjustmentsForJob
-    )
-      ? (api.payload.payAdjustmentsForJob as PayAdjustmentListItem[])
-      : [];
-    const fmtAud = (n: number) =>
-      `$${n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    return (
-      <div className="space-y-5">
-        <ECard>
-          <ECardBody className="space-y-4 pt-6 text-center">
-            <CheckCircle2 className="mx-auto h-10 w-10 text-[hsl(var(--e-success))]" />
-            <div>
-              <p className="e-serif text-[1.375rem] font-[650] leading-tight">Job submitted</p>
-              <p className="mt-1 text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
-                {api.propertyCode ? `${api.propertyCode} — ` : ""}
-                {addressLine || "This job"} is done
-                {status === "COMPLETED" ? " and completed" : ""}.
-              </p>
-            </div>
-            <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2.5 text-left">
-              <p className="text-[0.8125rem]">
-                Your quality score is{" "}
-                <span className="font-[600]">pending review</span> — you&apos;ll see it in
-                My performance.
-              </p>
-            </div>
-            {onSiteSeconds > 0 || payForJob != null ? (
-              <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                {onSiteSeconds > 0 ? (
-                  <span className="inline-flex items-center gap-2">
-                    <span className="e-eyebrow">Time on site</span>
-                    <span className="font-[600] tabular-nums text-[hsl(var(--e-text))]">
-                      {formatDuration(onSiteSeconds)}
-                    </span>
-                  </span>
-                ) : null}
-                {payForJob != null ? (
-                  <span className="inline-flex items-center gap-2">
-                    <span className="e-eyebrow">Pay for this job</span>
-                    <span className="font-[600] tabular-nums text-[hsl(var(--e-text))]">
-                      {fmtAud(payForJob)}
-                    </span>
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-            {/* Your pay for this job — every adjustment that changed it, read
-                through the SAME canonical summary as the admin card/invoice.
-                Read-only here; "View details" goes to the pay-requests page. */}
-            {payAdjustments.length > 0 ? (
-              <div className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2.5 text-left">
-                <p className="e-eyebrow mb-1.5">Pay adjustments on this job</p>
-                <PayAdjustmentList
-                  items={payAdjustments}
-                  variant="self"
-                  detailsHref={`/v2/cleaner/pay-requests?jobId=${api.jobId}`}
-                />
-              </div>
-            ) : null}
-            <Link href="/v2/cleaner" className="block">
-              <EButton variant="gold" className="w-full">
-                Back to Today
-              </EButton>
-            </Link>
-            <EButton asChild variant="outline" size="sm" className="w-full">
-              <Link href={`/v2/cleaner/pay-requests?jobId=${api.jobId}`}>
-                <HandCoins className="h-3.5 w-3.5" /> Request extra pay for this job
-              </Link>
-            </EButton>
-          </ECardBody>
-        </ECard>
-      </div>
-    );
-  }
+  // Locked → the submitted review state is the whole stage (board state D).
+  if (locked) return <SubmittedSummary api={api} />;
 
   // ── Outstanding form errors (for the tappable list below submit) ──────────
   const uploadCounts: Record<string, number> = {};
@@ -218,180 +96,41 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
   const inventoryUsage = (answers.inventoryUsage as Record<string, unknown> | undefined) ?? {};
   const usedCount = Object.values(inventoryUsage).filter((v) => Number(v) > 0).length;
 
+  const blockerCount = formErrors.length + laundryErrors.length + Number(tasksPending) + syncBlockers.length;
+  const submitDisabled = Boolean(busy) || tasksPending || syncBlockers.length > 0;
+
   return (
     <div className="space-y-5">
-      {/* Laundry — turnover only */}
-      {laundryEnabled ? (
-        <ECard id={LAUNDRY_CARD_ID}>
-          <ECardBody className="space-y-3 pt-6">
-            <p className="e-eyebrow flex items-center gap-1.5">
-              <WashingMachine className="h-3.5 w-3.5" /> Used linen — ready for pickup?
-            </p>
-            {api.laundryLocked ? (
-              /* SENT: the update already went to the laundry team. Lock it to a
-                 read-only summary (v1 parity) so it can't be silently changed —
-                 and so submit doesn't transmit a second, different update.
-                 "Edit update" is the deliberate way back into the form. */
-              <div className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-success)/0.4)] bg-[hsl(var(--e-success)/0.06)] p-3">
-                <p className="flex items-center gap-1.5 text-[0.875rem] font-[600] text-[hsl(var(--e-success))]">
-                  <Check className="h-4 w-4" /> Laundry update saved
-                </p>
-                <dl className="space-y-0.5 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-                  <div className="flex gap-1.5">
-                    <dt className="text-[hsl(var(--e-muted-foreground))]">Outcome:</dt>
-                    <dd className="font-[550]">{LAUNDRY_OUTCOME_LABELS[api.laundryOutcome] ?? api.laundryOutcome}</dd>
-                  </div>
-                  {api.laundryOutcome === "READY_FOR_PICKUP" && api.laundryBagLocation ? (
-                    <div className="flex gap-1.5">
-                      <dt className="text-[hsl(var(--e-muted-foreground))]">Bag left at:</dt>
-                      <dd className="font-[550]">{api.laundryBagLocation}</dd>
-                    </div>
-                  ) : null}
-                  {api.laundryEarlySentAt ? (
-                    <div className="flex gap-1.5">
-                      <dt className="text-[hsl(var(--e-muted-foreground))]">Recorded:</dt>
-                      <dd className="font-[550]">{api.laundryEarlySentAt}</dd>
-                    </div>
-                  ) : null}
-                  {api.laundryOutcome === "READY_FOR_PICKUP" ? <div className="flex gap-1.5"><dt>Bags ready:</dt><dd>{api.laundryBagCount || "Not recorded"}</dd></div> : null}
-                  {api.laundryOutcome !== "READY_FOR_PICKUP" ? <div className="flex gap-1.5"><dt>Reason:</dt><dd>{api.laundrySkipNote || api.laundrySkipCode.replaceAll("_", " ").toLowerCase()}</dd></div> : null}
-                </dl>
-                {api.laundryPhoto[0]?.url ? <a href={api.laundryPhoto[0].url} target="_blank" rel="noopener noreferrer" className="text-sm underline">View saved laundry photo</a> : null}
-                <p className="text-xs text-[hsl(var(--e-muted-foreground))]">This is the saved update receipt. Notification delivery is tracked separately.</p>
-                <EButton variant="outline" size="sm" disabled={locked} onClick={api.beginLaundryEdit}>
-                  Edit update
-                </EButton>
-              </div>
-            ) : (
-            <>
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Tell the laundry service the used-linen bag is ready. They collect it — you don&apos;t take it.
-              Saved when you submit and sent to the laundry team.
-            </p>
-            <EField label="Outcome (required)">
-              <ESelect
-                value={api.laundryOutcome}
-                disabled={locked}
-                onChange={(e) => api.setLaundryOutcome(e.target.value as any)}
-              >
-                <option value="">Select an outcome…</option>
-                <option value="READY_FOR_PICKUP">Ready for pickup</option>
-                <option value="NOT_READY">Not ready</option>
-                <option value="NO_PICKUP_REQUIRED">No pickup required</option>
-              </ESelect>
-            </EField>
-            {api.laundryOutcome === "READY_FOR_PICKUP" ? (
-              <>
-                <EField label="Bags ready (optional)">
-                  <EInput aria-label="Bags ready (optional)" type="number" min={1} max={50} step={1} value={api.laundryBagCount}
-                    disabled={locked || api.laundryBagCountRecorded} onChange={e => api.setLaundryBagCount(e.target.value)} />
-                  <p className="text-xs text-[hsl(var(--e-muted-foreground))]">{api.laundryBagCountRecorded ? "The original ready count is retained for pickup comparison. An unrecorded count stays unknown." : "Count the bags left for pickup. Leave blank if you cannot confirm the count."}</p>
-                </EField>
-                <EField label="Bag location (required)">
-                  {api.laundryBagLocationOptions.length > 0 ? (
-                    <ESelect
-                      value={api.laundryBagLocation}
-                      disabled={locked}
-                      onChange={(e) => api.setLaundryBagLocation(e.target.value)}
-                    >
-                      <option value="">Select where you left the bag…</option>
-                      {api.laundryBagLocationOptions.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                      {api.laundryBagLocation &&
-                      !api.laundryBagLocationOptions.includes(api.laundryBagLocation) ? (
-                        <option value={api.laundryBagLocation}>{api.laundryBagLocation}</option>
-                      ) : null}
-                    </ESelect>
-                  ) : (
-                    <EInput
-                      placeholder="e.g. Laundry room shelf, labeled bags"
-                      value={api.laundryBagLocation}
-                      disabled={locked}
-                      onChange={(e) => api.setLaundryBagLocation(e.target.value)}
-                    />
-                  )}
-                </EField>
-                <EField label="Laundry photo (required)">
-                  <MediaCapture
-                    evidenceDestination={{ type: "laundry" }}
-                    multiple={false}
-                    value={api.laundryPhoto}
-                    onChange={api.setLaundryPhoto}
-                    mode="photo"
-                    folder="laundry"
-                    disabled={locked}
-                    stamp={{
-                      address: addressLine || undefined,
-                      reference: (property?.name as string) || undefined,
-                      tag: "laundry",
-                      contextLabel: "Laundry bags ready for pickup",
-                    }}
-                  />
-                </EField>
-              </>
-            ) : api.laundryOutcome ? (
-              <>
-                <EField label="Reason (required)">
-                  <ESelect value={api.laundrySkipCode} disabled={locked} onChange={(e) => api.setLaundrySkipCode(e.target.value)}>
-                    {LAUNDRY_SKIP_REASONS.map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </ESelect>
-                </EField>
-                <EField label="Note (optional)">
-                  <ETextarea value={api.laundrySkipNote} disabled={locked} onChange={(e) => api.setLaundrySkipNote(e.target.value)} />
-                </EField>
-              </>
-            ) : null}
+      {/* Before you submit — first, so the blockers are seen before the forms below. */}
+      <SubmitBlockers
+        syncBlockers={syncBlockers}
+        tasksPending={tasksPending}
+        formErrors={formErrors}
+        laundryErrors={laundryErrors}
+        onJumpToTasks={() => api.setActiveStage(4)}
+        onJumpToField={jumpToFormField}
+        onJumpToLaundry={jumpToLaundry}
+      >
+        {api.draftSaveState && api.retryDraftSave ? <DraftSaveStatus state={api.draftSaveState} onRetry={api.retryDraftSave} /> : null}
+        {busy ? <p role="status" className="text-sm">{busy === "submit" ? "Submitting; wait for confirmation before leaving." : "Another job action is in progress. Wait before submitting."}</p> : null}
+        {api.timingRules?.earlyCheckin?.time ? (
+          <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550] text-[hsl(var(--e-warning))]">
+            <AlertTriangle className="h-4 w-4" /> Early check-in — the property must be guest-ready
+            before {api.timingRules.earlyCheckin.time}.
+          </p>
+        ) : null}
+        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+          {api.timeState?.isRunning ? "Submitting sends the form + checklist for QA and records your clock-out." : "Your clock is already stopped. Submitting sends the form + checklist for QA and keeps your recorded clock-out unchanged."}
+          {api.finalCheckupItems.length > 0
+            ? ` A quick final check-up (${api.finalCheckupItems.length} item${
+                api.finalCheckupItems.length === 1 ? "" : "s"
+              }) comes first.`
+            : ""}
+        </p>
+      </SubmitBlockers>
 
-            {api.laundryOutcome && !locked ? (
-              <div className="space-y-1.5 border-t border-[hsl(var(--e-border))] pt-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    Linen ready before the form is done? Send this status to the laundry team now.
-                    {api.laundryEarlySentAt ? ` Last recorded ${api.laundryEarlySentAt}.` : ""}
-                  </p>
-                  <EButton
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      api.laundryEarlySending ||
-                      (api.laundryOutcome === "READY_FOR_PICKUP" &&
-                        (!api.laundryBagLocation.trim() || api.laundryPhoto.length === 0))
-                    }
-                    onClick={() => api.sendLaundryEarlyUpdate()}
-                  >
-                    {api.laundryEarlySending ? "Sending…" : "Send to laundry team now"}
-                  </EButton>
-                </div>
-                {api.laundryAmendedSinceSend ? (
-                  <p className="text-[0.75rem] text-[hsl(var(--e-gold-ink))]">
-                    You&apos;ve changed this since sending — the amendment goes with your submission.
-                  </p>
-                ) : null}
-                {api.laundryEarlyNotice ? (
-                  <p
-                    className={`text-[0.75rem] ${
-                      api.laundryEarlyNotice.tone === "success"
-                        ? "text-[hsl(var(--e-success))]"
-                        : "text-[hsl(var(--e-danger))]"
-                    }`}
-                  >
-                    {api.laundryEarlyNotice.text}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-            </>
-            )}
-          </ECardBody>
-        </ECard>
-      ) : null}
+      {/* Laundry — turnover only */}
+      {laundryEnabled ? <LaundryHandoff api={api} /> : null}
 
       {/* Restock summary — the usage itself is recorded in the Clean form. */}
       {property?.inventoryEnabled === true ? (
@@ -499,104 +238,41 @@ export function StageWrapup({ api }: { api: WorkspaceApi }) {
         </ECardBody>
       </ECard>
 
-      {/* Submit */}
-      <ECard variant="ceremony">
-        <ECardBody className="space-y-3 pt-6">
-          <h2 className="font-semibold">Before you submit</h2>
-          {api.draftSaveState && api.retryDraftSave ? <DraftSaveStatus state={api.draftSaveState} onRetry={api.retryDraftSave} /> : null}
-          {busy ? <p role="status" className="text-sm">{busy === "submit" ? "Submitting; wait for confirmation before leaving." : "Another job action is in progress. Wait before submitting."}</p> : null}
-          {api.timingRules?.earlyCheckin?.time ? (
-            <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550] text-[hsl(var(--e-warning))]">
-              <AlertTriangle className="h-4 w-4" /> Early check-in — the property must be guest-ready
-              before {api.timingRules.earlyCheckin.time}.
-            </p>
-          ) : null}
-          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-            {api.timeState?.isRunning ? "Submitting sends the form + checklist for QA and records your clock-out." : "Your clock is already stopped. Submitting sends the form + checklist for QA and keeps your recorded clock-out unchanged."}
-            {api.finalCheckupItems.length > 0
-              ? ` A quick final check-up (${api.finalCheckupItems.length} item${
-                  api.finalCheckupItems.length === 1 ? "" : "s"
-                }) comes first.`
-              : ""}
+      {/* One primary action, in thumb reach: Submit. Clock out & finish later
+          (admin-allowlisted only) is the secondary choice beside it. */}
+      <StickyActionBar>
+        <EButton
+          variant="gold"
+          className="min-h-11 w-full"
+          disabled={submitDisabled}
+          aria-describedby={blockerCount > 0 ? "wrapup-submit-hint" : undefined}
+          onClick={() => api.requestSubmit()}
+        >
+          {busy === "submit" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          {api.timeState?.isRunning ? "Submit & clock out" : "Submit form"}
+        </EButton>
+        {blockerCount > 0 ? (
+          <p id="wrapup-submit-hint" className="text-center text-[0.75rem] text-[hsl(var(--e-danger))]">
+            Fix {blockerCount} item{blockerCount === 1 ? "" : "s"} first — listed under Before you submit.
           </p>
-          <EButton
-            variant="gold"
-            className="w-full"
-            disabled={Boolean(busy) || tasksPending || syncBlockers.length > 0}
-            onClick={() => api.requestSubmit()}
-          >
-            {busy === "submit" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            {api.timeState?.isRunning ? "Submit & clock out" : "Submit form"}
-          </EButton>
-
-          {/* Tappable validation rows */}
-          {formErrors.length > 0 || laundryErrors.length > 0 || tasksPending || syncBlockers.length > 0 ? (
-            <div aria-label="Submission checks" className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] p-3">
-              <p className="flex items-center gap-1.5 text-[0.8125rem] font-[600]">
-                <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-danger))]" />
-                {formErrors.length + laundryErrors.length + Number(tasksPending) + syncBlockers.length} check
-                {formErrors.length + laundryErrors.length + Number(tasksPending) + syncBlockers.length === 1 ? "" : "s"} to finish
-              </p>
-              <ul className="mt-2 space-y-1">
-                {syncBlockers.map(message => <li key={message} className="text-sm" role="status">{message}</li>)}
-                {tasksPending ? <li><button type="button" className="text-sm underline" onClick={() => api.setActiveStage(4)}>Mark every checklist item done or not done in Clean.</button></li> : null}
-                {formErrors.map((err) => (
-                  <li key={err.fieldId}>
-                    <button
-                      type="button"
-                      onClick={() => jumpToFormField(err.fieldId)}
-                      className="flex items-center gap-1.5 text-left text-[0.8125rem] text-[hsl(var(--e-danger))] underline-offset-2 hover:underline"
-                    >
-                      <EBadge tone="neutral" soft>
-                        Clean
-                      </EBadge>
-                      {err.sectionLabel && err.sectionLabel !== err.label
-                        ? `${stripHtmlToText(err.sectionLabel)}: ${stripHtmlToText(err.label)}`
-                        : stripHtmlToText(err.label)}
-                    </button>
-                  </li>
-                ))}
-                {laundryErrors.map((msg, i) => (
-                  <li key={`laundry-${i}`}>
-                    <button
-                      type="button"
-                      onClick={jumpToLaundry}
-                      className="flex items-center gap-1.5 text-left text-[0.8125rem] text-[hsl(var(--e-danger))] underline-offset-2 hover:underline"
-                    >
-                      <EBadge tone="neutral" soft>
-                        Wrap up
-                      </EBadge>
-                      {msg}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </ECardBody>
-      </ECard>
-
-      {/* Clock out & finish later — admin-allowlisted only */}
-      {api.payload?.canClockOutWithoutForm && api.hasStarted && !locked ? (
-        <ECard className="border-[hsl(var(--e-warning))]">
-          <ECardBody className="space-y-2 pt-6">
-            <p className="text-[0.875rem] font-[550]">Clock out &amp; finish the form later</p>
-            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-              Stops your clock now. This job stays open and is <strong>not counted as completed</strong> until you come
-              back and submit the form.
-            </p>
+        ) : null}
+        {api.payload?.canClockOutWithoutForm && api.hasStarted ? (
+          <div className="space-y-1">
             <EButton
               variant="outline"
-              className="w-full"
+              className="min-h-11 w-full"
               disabled={busy === "clockout-early"}
               onClick={() => api.clockOutEarly()}
             >
               {busy === "clockout-early" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
               Clock out (finish form later)
             </EButton>
-          </ECardBody>
-        </ECard>
-      ) : null}
+            <p className="text-center text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
+              Stops your clock now. This job stays open and is <strong>not counted as completed</strong> until you come back and submit the form.
+            </p>
+          </div>
+        ) : null}
+      </StickyActionBar>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { propertyScopeWhere, requireClientPortal, auditClientPortalAction } from
 import { db } from "@/lib/db";
 import { checkClientJobRequest } from "@/lib/jobs/client-request-rules";
 import { notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const requestSchema = z.object({
   reason: z.string().trim().max(500).optional(),
@@ -54,11 +55,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // Best-effort admin notification.
     try {
+      const wording = await loadNotificationWording("office.client_requests");
+      const skipReason = body.reason?.trim();
+      const skip = wording.render("skip", "INBOX", {
+        propertyName: job.property?.name ?? "A client",
+        reasonEnding: skipReason ? wording.line("skip-reason", "INBOX", { reason: skipReason }) : wording.line("skip-no-reason", "INBOX", {}),
+      });
       await notifyAdminsByPush({
-        subject: "Skip-clean request",
-        body: `${job.property?.name ?? "A client"} requested to skip a scheduled clean${
-          body.reason?.trim() ? `: ${body.reason.trim()}` : "."
-        }`,
+        subject: skip.title,
+        body: skip.body,
         jobId: job.id,
       });
     } catch {

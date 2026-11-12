@@ -1,6 +1,5 @@
 "use client";
 import { Tags } from "lucide-react";
-import { JobStatusProgress } from "@/components/shared/job-status-progress";
 import { LinenBags } from "@/components/operations/linen-bags";
 import { reconcileEvidenceState } from "@/lib/cleaner/evidence-destination";
 import { OperationsDisclosure } from "@/components/operations/ui";
@@ -1655,13 +1654,14 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
   return (
     <EvidenceContext.Provider value={evidenceScope}>
     <div className="space-y-5">
-      <BackLink />
-
+      {/* The header carries Back (to Today), the title and Property info (board "One job, four moments"). */}
       <JobHeader api={api} />
-      <JobStatusProgress status={status} compact />
+      {/* The five-stage rail sits right under the header; the written job
+          status stays in the header badge (the workflow strip duplicated it). */}
+      <StageNav api={api} />
       {!locked ? <DraftSaveStatus state={draftSave} onRetry={() => flushDraft()} /> : null}
-      {!onlineAction.online ? <EAlert tone="info" title="Working offline">
-        You can continue your draft and retain photos on this device. Clock changes, job offers, laundry updates and submission need a connection and are never queued automatically.
+      {!onlineAction.online ? <EAlert tone="warning" title="Saved on this phone, not sent yet">
+        No signal. You can continue your draft and retain photos on this device. Nothing counts as sent until the save status says the draft save is confirmed. Clock changes, job offers, laundry updates and submission need a connection and are never queued automatically.
       </EAlert> : null}
       {onlineAction.uncertain ? <EAlert tone="danger" title="Action outcome needs checking">
         {onlineAction.uncertain} may have reached the server. Your draft and retained photos are unchanged.
@@ -1711,8 +1711,6 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
           . Your checklist and form answers keep saving automatically.
         </EAlert>
       ) : null}
-
-      <StageNav api={api} />
 
       <div>
         {activeStage === 1 ? <StageAccept api={api} /> : null}

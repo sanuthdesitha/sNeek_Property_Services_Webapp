@@ -46,6 +46,7 @@ import { MediaGallery } from "@/components/shared/media-gallery";
 import { ClockLocationsMap } from "@/components/shared/clock-locations-map";
 import { googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { toast } from "@/hooks/use-toast";
+import { outcomeWithOriginal } from "@/lib/maintenance/visit-outcomes";
 import {
   ACTION_LABELS,
   CATEGORY_LABELS,
@@ -135,6 +136,8 @@ interface MaintenanceDetailItem {
   photos: Photo[];
   finishPhotos: Photo[];
   outcome: string | null;
+  /** The earlier value when the outcome was merged (2026-11-13). */
+  originalOutcome?: string | null;
   workerNote: string | null;
   issuesNote: string | null;
   scheduledFor: string | null;
@@ -570,7 +573,7 @@ export function AdminMaintenanceDetail({ itemId }: { itemId: string }) {
               {item.outcome ? (
                 <div>
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Outcome</p>
-                  <p className="text-sm text-foreground">{item.outcome}</p>
+                  <p className="text-sm text-foreground">{outcomeWithOriginal(item.outcome, item.originalOutcome)}</p>
                 </div>
               ) : null}
               {item.workerNote ? (

@@ -25,6 +25,7 @@ export default async function LaundryTrackingPage() {
       <TrackingBoard
         canDelete={canDelete}
         bagTrackingRole={session.user.role === Role.ADMIN || session.user.role === Role.LAUNDRY ? session.user.role : undefined}
+        partnerEntries={session.user.role === Role.LAUNDRY && !session.impersonation}
       />
       <QuantityExceptions />
     </div>

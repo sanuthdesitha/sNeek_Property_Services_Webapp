@@ -7,6 +7,8 @@ import { buildQuoteHtml } from "@/lib/pricing/quote-report";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { calculateGstBreakdown } from "@/lib/pricing/gst";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { issueQuoteNumber } from "@/lib/quotes/quote-number";
 
 const lineItemSchema = z.object({
   label: z.string().trim().min(1).max(240),
@@ -42,8 +44,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     );
 
     const quote = await db.$transaction(async (tx) => {
+      const quoteNumber = await issueQuoteNumber(tx);
       const created = await tx.quote.create({
         data: {
+          quoteNumber,
           leadId: lead.id,
           clientId: lead.clientId ?? undefined,
           serviceType: lead.serviceType,
@@ -78,10 +82,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           logoUrl: settings.logoUrl || settings.reportLogoUrl,
         }
       );
+      const counterEmail = (await loadNotificationWording("leads.alerts")).render("counter-offer", "EMAIL", { leadName: lead.name, quoteHtml: html });
       const emailResult = await sendEmailDetailed({
         to: lead.email,
-        subject: `Counter offer for ${lead.name}`,
-        html,
+        subject: counterEmail.subject,
+        html: counterEmail.html,
       });
       if (!emailResult.ok) {
         return NextResponse.json(

@@ -16,6 +16,7 @@ const LAUNDRY_COLORS: Record<string, { border: string; bg: string; label: string
   PENDING: { border: tokenColor("warning"), bg: tokenColor("warning", 0.18), label: "PENDING" },
   CONFIRMED: { border: tokenColor("primary"), bg: tokenColor("primary", 0.18), label: "CONFIRMED" },
   PICKED_UP: { border: tokenColor("info"), bg: tokenColor("info", 0.18), label: "PICKED UP" },
+  READY_TO_RETURN: { border: tokenColor("info"), bg: tokenColor("info", 0.18), label: "READY TO RETURN" },
   DROPPED: { border: tokenColor("success"), bg: tokenColor("success", 0.18), label: "DROPPED" },
   FLAGGED: { border: tokenColor("danger"), bg: tokenColor("danger", 0.18), label: "FLAGGED" },
 };

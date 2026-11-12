@@ -1,6 +1,7 @@
 import { format } from "date-fns";
 import { publicUrl } from "@/lib/s3";
 import { renderBrandLogo } from "@/lib/branding/logo-html";
+import { formatQuoteReference } from "@/lib/quotes/quote-reference";
 
 /** Make a logo value loadable by the server-side PDF renderer: pass absolute
  *  URLs / data URIs straight through; turn an S3 key or bare path into an
@@ -92,7 +93,9 @@ export function buildQuoteHtml(
   const sans = "Arial, Helvetica, sans-serif";
 
   const gstAmount = Number(quote.gstAmount ?? 0);
-  const shortRef = String(quote.quoteNumber ?? quote.id).slice(-7).padStart(7, "0").toUpperCase();
+  // The client-visible reference ("Q-204"). An unsaved preview has no number
+  // yet and keeps the short id form; a missing number is never padded to zeros.
+  const shortRef = formatQuoteReference(quote.quoteNumber) ?? String(quote.id ?? "Draft").slice(-7).toUpperCase();
   const serviceLabel = String(quote.serviceType ?? "")
     .replace(/_/g, " ")
     .toLowerCase()

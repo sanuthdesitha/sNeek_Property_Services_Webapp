@@ -10,11 +10,13 @@ const mocks = vi.hoisted(() => ({
   policy: vi.fn(),
   compare: vi.fn(),
 }));
-vi.mock("@/lib/db", () => ({ db: { user: { findUnique: mocks.user } } }));
-vi.mock("@/lib/accounts/user-details", () => ({
-  getUserExtendedProfile: mocks.profile,
-  upsertUserExtendedProfile: vi.fn(),
-}));
+// Own PINs live on UserSecurityPin (2026-11-13); `profile` now stands for that row.
+vi.mock("@/lib/db", () => ({ db: {
+  user: { findUnique: mocks.user },
+  userSecurityPin: { findUnique: mocks.profile, upsert: async () => ({ failedAttempts: 1 }), update: async () => ({}), updateMany: async () => ({ count: 0 }) },
+  auditLog: { create: async () => ({}) },
+} }));
+vi.mock("@/lib/security/actual-actor", () => ({ actualActorRefusal: async () => null }));
 vi.mock("@/lib/rbac/ops-access", () => ({ getOpsPolicy: mocks.policy }));
 vi.mock("bcryptjs", () => ({ default: { compare: mocks.compare } }));
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
@@ -27,7 +29,7 @@ beforeEach(() => {
     passwordHash: "password-hash",
     extraRoles: [],
   });
-  mocks.profile.mockResolvedValue({ adminPinHash: "personal-pin-hash" });
+  mocks.profile.mockResolvedValue({ userId: "manager", pinHash: "personal-pin-hash", pinSetAt: null, failedAttempts: 0, lockedUntil: null, resetAt: null });
   mocks.policy.mockResolvedValue(EMPTY_OPS_POLICY);
   mocks.compare.mockResolvedValue(true);
 });

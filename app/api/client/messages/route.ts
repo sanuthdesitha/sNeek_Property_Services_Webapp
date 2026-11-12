@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { notifyAdminsByEmail, notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
 import { clientMessageContext, saveClientMessage, ClientMessageError } from "@/lib/client/message-receipt";
 import { escapeHtml } from "@/lib/utils/escape-html";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   body: z.string().trim().min(1).max(4000),
@@ -89,10 +90,13 @@ export async function POST(req: NextRequest) {
     const { message, client, job, duplicated } = await saveClientMessage({ portal, body: body.body, jobId: body.jobId ?? null, requestId: body.requestId, context: req.headers.get("X-Client-Message-Context") });
     let deliveryWarning: string | undefined = duplicated ? "Message already saved. Earlier office notification delivery status is unavailable; notifications were not sent again." : undefined;
     if (!duplicated) {
-      const jobLabel = job ? ` about job${job.jobNumber ? ` #${job.jobNumber}` : ""}${job.property?.name ? ` (${job.property.name})` : ""}` : "";
+      const wording = await loadNotificationWording("office.client_requests");
+      const jobLabel = job ? wording.line("job-label", "INBOX", { jobNumberLabel: job.jobNumber ? ` #${job.jobNumber}` : "", propertyLabel: job.property?.name ? ` (${job.property.name})` : "" }) : "";
+      const messageInbox = wording.render("message", "INBOX", { clientName: client.name, jobLabel });
+      const messageEmail = wording.render("message", "EMAIL", { clientName: client.name, jobLabel, message: body.body });
       const delivery = await Promise.allSettled([
-        Promise.resolve().then(() => notifyAdminsByPush({ jobId: job?.id, subject: "New client message", body: `${client.name} sent a new message${jobLabel} in the client portal.` })),
-        Promise.resolve().then(() => notifyAdminsByEmail({ subject: `New client message from ${client.name}`, html: `<p><strong>${escapeHtml(client.name)}</strong> sent a new portal message${escapeHtml(jobLabel)}.</p><p>${escapeHtml(body.body)}</p>` })),
+        Promise.resolve().then(() => notifyAdminsByPush({ jobId: job?.id, subject: messageInbox.title, body: messageInbox.body })),
+        Promise.resolve().then(() => notifyAdminsByEmail({ subject: messageEmail.subject, html: messageEmail.html })),
       ]);
       const emailResult = delivery[1];
       if (delivery.some(result => result.status === "rejected") || (emailResult.status === "fulfilled" && typeof emailResult.value === "object" && emailResult.value !== null && "ok" in emailResult.value && emailResult.value.ok === false)) deliveryWarning = "Message saved. Office notification delivery could not be fully confirmed.";

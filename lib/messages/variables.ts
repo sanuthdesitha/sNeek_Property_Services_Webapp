@@ -77,9 +77,14 @@ export async function resolveTemplate(
     quote: async () => {
       if (!ctx.quote?.id) return null;
       try {
-        return await (db as any).quote.findUnique({
+        const quote = await (db as any).quote.findUnique({
           where: { id: ctx.quote.id },
         });
+        if (!quote) return null;
+        // Office notes never reach a client message: {{quote.internalNotes}}
+        // resolves to nothing.
+        const { internalNotes: _officeOnly, ...clientSafe } = quote;
+        return clientSafe;
       } catch {
         return null;
       }

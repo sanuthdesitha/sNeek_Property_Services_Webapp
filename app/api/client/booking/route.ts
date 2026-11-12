@@ -9,6 +9,7 @@ import { requireClientPortal, auditClientPortalAction } from "@/lib/auth/client-
 import { isClientModuleEnabled } from "@/lib/portal-access";
 import { calculateQuote } from "@/lib/pricing/calculator";
 import { notifyAdminsByEmail, notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 
 const schema = z.object({
@@ -136,25 +137,26 @@ export async function POST(req: NextRequest) {
 
     if (result.replayed) return NextResponse.json({ ok: true, requestId: result.lead.id, pendingApproval: true });
 
-    const subject = `Booking request awaiting approval: ${property.name}`;
-    const bookingLabel = `${String(body.jobType).replace(/_/g, " ")} on ${body.scheduledDate}`;
+    const wording = await loadNotificationWording("office.client_requests");
+    const service = String(body.jobType).replace(/_/g, " ");
+    const bookingValues = {
+      clientName: client.name || "Client",
+      propertyName: property.name,
+      service,
+      date: body.scheduledDate,
+      booking: wording.line("booking-label", "INBOX", { service, date: body.scheduledDate }),
+      notesItem: wording.line("notes-item", "EMAIL", { note: body.notes }, Boolean(body.notes)),
+    };
+    const bookingInbox = wording.render("booking", "INBOX", bookingValues);
+    const bookingEmail = wording.render("booking", "EMAIL", bookingValues);
     const delivery = await Promise.allSettled([
       notifyAdminsByPush({
-        subject,
-        body: `${client.name || "Client"} requested ${bookingLabel} for ${property.name}. Approve it to create the job.`,
+        subject: bookingInbox.title,
+        body: bookingInbox.body,
       }),
       notifyAdminsByEmail({
-        subject,
-        html: `
-          <p>A client requested a booking. It is <strong>not scheduled yet</strong> — approve it in Approvals to create the job.</p>
-          <ul>
-            <li><strong>Client:</strong> ${client.name || "Client"}</li>
-            <li><strong>Property:</strong> ${property.name}</li>
-            <li><strong>Service:</strong> ${String(body.jobType).replace(/_/g, " ")}</li>
-            <li><strong>Date:</strong> ${body.scheduledDate}</li>
-            ${body.notes ? `<li><strong>Notes:</strong> ${body.notes}</li>` : ""}
-          </ul>
-        `,
+        subject: bookingEmail.subject,
+        html: bookingEmail.html,
       }),
     ]);
     // Preferred-cleaner assignment waits for approval: there is no job to

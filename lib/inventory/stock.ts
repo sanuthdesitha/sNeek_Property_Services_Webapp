@@ -10,6 +10,7 @@ import {
   StockTxType,
 } from "@prisma/client";
 import { notifyRestockRunCreated } from "@/lib/notifications/accountability";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 /** A stock row that has fallen to/below its reorder threshold in a submission. */
 export type LowStockRow = {
@@ -133,14 +134,16 @@ async function fireLowStockSideEffects(
       select: { id: true },
     });
     if (admins.length > 0) {
+      const stockWording = await loadNotificationWording("stock.alerts");
       for (const row of lowStockRows) {
+        const alert = stockWording.render("low-stock", "INBOX", { itemName: row.itemName, onHand: row.onHand });
         await db.notification.createMany({
           data: admins.map((admin) => ({
             userId: admin.id,
             externalId: mobilePendingMarker("shopping"),
             channel: NotificationChannel.PUSH,
-            subject: "Low stock alert",
-            body: `${row.itemName} is low at this property (${row.onHand} remaining).`,
+            subject: alert.title,
+            body: alert.body,
             status: NotificationStatus.SENT,
             sentAt: new Date(),
           })),

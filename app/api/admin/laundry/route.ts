@@ -3,6 +3,7 @@ import { LaundryStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { partnerTimesForNewRun } from "@/lib/laundry/partner-schedule-server";
 
 const createSchema = z.object({
   propertyId: z.string().cuid(),
@@ -26,6 +27,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Property not found." }, { status: 404 });
     }
 
+    // Partner schedule defaults (2026-11-13): planned times only, from the
+    // property's laundry partner's usual windows; the dates are as entered.
+    const times = await partnerTimesForNewRun(db, {
+      propertyId: body.propertyId,
+      pickupDate: new Date(body.pickupDate),
+      dropoffDate: new Date(body.dropoffDate),
+      flagNotes: body.flagNotes ?? null,
+    }).catch(() => ({ pickupTime: null, dropoffTime: null }));
     const task = await db.laundryTask.create({
       data: {
         propertyId: body.propertyId,
@@ -34,6 +43,8 @@ export async function POST(req: NextRequest) {
         dropoffDate: new Date(body.dropoffDate),
         status: body.status,
         flagNotes: body.flagNotes || undefined,
+        pickupTime: times.pickupTime,
+        dropoffTime: times.dropoffTime,
       },
       include: {
         property: { select: { id: true, name: true, suburb: true } },

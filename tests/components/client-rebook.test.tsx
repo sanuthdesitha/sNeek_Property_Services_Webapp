@@ -51,3 +51,31 @@ describe("authorized rebook page", () => {
     expect(mocks.flow).not.toHaveBeenCalled();
   });
 });
+
+describe("Book a clean here: property prefill (owner decision 2026-11-13)", () => {
+  const second = { ...property, id: "p2", name: "Bondi" };
+  it("preselects a property in the client's or assistant's scope, under its own draft key", async () => {
+    mocks.auth.mockResolvedValue({ actor: "VA", userId: "va-1", clientId: "c1", propertyIds: ["p1", "p2"], actorLabel: "VA" });
+    mocks.properties.mockResolvedValue([property, second]);
+    const view = render(await ClientBookingPage({ searchParams: { propertyId: "p2" } }));
+    expect(mocks.flow.mock.calls[0][0].initialPropertyId).toBe("p2");
+    expect(screen.queryByText("That property is not available here")).toBeNull();
+    const prefillScope = mocks.flow.mock.calls[0][0].draftScope;
+    view.rerender(await ClientBookingPage({}));
+    expect(mocks.flow.mock.calls.at(-1)![0].draftScope).not.toBe(prefillScope);
+    expect(mocks.flow.mock.calls.at(-1)![0].initialPropertyId).toBeUndefined();
+  });
+
+  it("ignores an out-of-scope or unknown property with a notice", async () => {
+    render(await ClientBookingPage({ searchParams: { propertyId: "someone-elses" } }));
+    expect(screen.getByText("That property is not available here")).toBeVisible();
+    expect(mocks.flow.mock.calls[0][0].initialPropertyId).toBeUndefined();
+  });
+
+  it("lets a rebook win over a property in the link", async () => {
+    mocks.properties.mockResolvedValue([property, second]);
+    render(await ClientBookingPage({ searchParams: { rebook: "old-job", propertyId: "p2" } }));
+    expect(mocks.flow.mock.calls[0][0].rebook).toEqual({ propertyId: "p1", jobType: "DEEP_CLEAN" });
+    expect(mocks.flow.mock.calls[0][0].initialPropertyId).toBeUndefined();
+  });
+});

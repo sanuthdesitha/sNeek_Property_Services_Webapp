@@ -9,6 +9,7 @@ import {
   type LaundrySyncDraftItem,
 } from "@/lib/laundry/sync-draft";
 import { computeKeyLostDraftItem } from "@/lib/laundry/key-lost";
+import { partnerTimesForNewRun, partnerTimesForNewRuns } from "@/lib/laundry/partner-schedule-server";
 
 type PlannerJob = Prisma.JobGetPayload<{
   include: {
@@ -83,6 +84,7 @@ async function getNextTurnoverCleanDate(job: PlannerJob, database: Prisma.Transa
 function isLaundryTaskCompleted(task: { status: LaundryStatus; pickedUpAt?: Date | null; droppedAt?: Date | null }) {
   return (
     task.status === LaundryStatus.PICKED_UP ||
+    task.status === LaundryStatus.READY_TO_RETURN ||
     task.status === LaundryStatus.DROPPED ||
     Boolean(task.pickedUpAt) ||
     Boolean(task.droppedAt)
@@ -358,10 +360,21 @@ export async function refreshLaundrySyncDraftForProperty(options: {
 
 export async function applyLaundryPlanDraft(items: LaundryPlanDraftItem[]) {
   if (items.length === 0) return [];
+  // Partner schedule defaults (2026-11-13): planned TIMES for runs this apply
+  // CREATES, from the property's laundry partner's usual windows. Dates and
+  // statuses below are exactly as the rules above computed them; existing runs
+  // are never given a time here (the update branch does not touch times).
+  const newRunTimes = await partnerTimesForNewRuns(db, items.map((item) => ({
+    propertyId: item.propertyId,
+    pickupDate: new Date(item.pickupDate),
+    dropoffDate: new Date(item.dropoffDate),
+    flagNotes: item.flagNotes ?? null,
+  }))).catch(() => items.map(() => ({ pickupTime: null, dropoffTime: null })));
 
   const applied = await db.$transaction(async (tx) => {
     const rows = [];
-    for (const item of items) {
+    for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+      const item = items[itemIndex];
       // Serialize plan approval with task creation and every human state change.
       await tx.$queryRaw`SELECT "id" FROM "Job" WHERE "id" = ${item.jobId} FOR UPDATE`;
       await tx.$queryRaw`SELECT "id" FROM "LaundryTask" WHERE "jobId" = ${item.jobId} FOR UPDATE`;
@@ -399,6 +412,8 @@ export async function applyLaundryPlanDraft(items: LaundryPlanDraftItem[]) {
           flagReason: item.flagReason,
           flagNotes: item.flagNotes,
           notifyLaundry: false,
+          pickupTime: newRunTimes[itemIndex]?.pickupTime ?? null,
+          dropoffTime: newRunTimes[itemIndex]?.dropoffTime ?? null,
         },
       });
       rows.push(row);
@@ -442,10 +457,19 @@ export async function ensureLaundryTaskForJob(jobId: string, transaction?: Prism
 
   const settings = transaction ? await getTransactionAppSettings(transaction) : await getAppSettings();
   const draftItem = await computeDraftItem(job, settings.laundryOperations, database);
-  if (transaction) return database.laundryTask.create({ data: {
-    jobId, propertyId: draftItem.propertyId, pickupDate: new Date(draftItem.pickupDate), dropoffDate: new Date(draftItem.dropoffDate),
-    status: draftItem.status, flagReason: draftItem.flagReason, flagNotes: draftItem.flagNotes, notifyLaundry: false,
-  } });
+  if (transaction) {
+    // Partner schedule defaults: planned times only, never the dates above.
+    // Read outside the caller's transaction and best-effort: a failed lookup
+    // must never block or abort creating the run (it then has no time).
+    const times = await partnerTimesForNewRun(db, {
+      propertyId: draftItem.propertyId, pickupDate: new Date(draftItem.pickupDate), dropoffDate: new Date(draftItem.dropoffDate), flagNotes: draftItem.flagNotes ?? null,
+    }).catch(() => ({ pickupTime: null, dropoffTime: null }));
+    return database.laundryTask.create({ data: {
+      jobId, propertyId: draftItem.propertyId, pickupDate: new Date(draftItem.pickupDate), dropoffDate: new Date(draftItem.dropoffDate),
+      status: draftItem.status, flagReason: draftItem.flagReason, flagNotes: draftItem.flagNotes, notifyLaundry: false,
+      pickupTime: times.pickupTime, dropoffTime: times.dropoffTime,
+    } });
+  }
   await applyLaundryPlanDraft([draftItem]);
   return db.laundryTask.findUnique({ where: { jobId } });
 }

@@ -36,6 +36,8 @@ export function getLaundryConfirmationLabel(confirmation: LaundryConfirmationLik
       return "Pickup proof";
     case "DROPPED":
       return "Drop-off proof";
+    case "DROPOFF_PHOTO_ADDED":
+      return "Drop-off photo (added later)";
     case "FAILED_PICKUP_REQUEST":
       return "Failed pickup request";
     case "FAILED_PICKUP_RESCHEDULE":
@@ -97,6 +99,18 @@ export function describeLaundryConfirmation(confirmation: LaundryConfirmationLik
     case "FAILED_PICKUP_REQUEST":
       parts.push("Pickup could not be completed");
       break;
+    case "READY_TO_RETURN":
+      parts.push("Marked ready to return");
+      break;
+    case "DROPOFF_PHOTO_ADDED":
+      parts.push("Drop-off photo added");
+      break;
+    case "PARTNER_WEIGHT_PRICE": {
+      const weight = typeof meta.loadWeightKg === "number" ? `${meta.loadWeightKg} kg` : null;
+      const price = typeof meta.totalPrice === "number" ? `$${meta.totalPrice.toFixed(2)}` : null;
+      parts.push(`Laundry team entered ${[weight, price].filter(Boolean).join(" · ") || "weight / price"}`);
+      break;
+    }
     case "FAILED_PICKUP_RESCHEDULE":
       parts.push("Pickup rescheduled");
       break;

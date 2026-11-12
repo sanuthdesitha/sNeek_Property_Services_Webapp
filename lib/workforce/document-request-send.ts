@@ -15,7 +15,7 @@ import "server-only";
  */
 import type { Role } from "@prisma/client";
 import { db } from "@/lib/db";
-import { escapeHtml } from "@/lib/utils/escape-html";
+import { defaultNotificationWording, loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { sendOfficeNotification, type RecipientOutcome } from "@/lib/notifications/office-sends";
 import { getNotificationTypeControls, typeRespectsPreferences } from "@/lib/notifications/type-controls";
@@ -41,18 +41,27 @@ export type DocumentRequestMessage = {
   actorId: string;
 };
 
-export function documentRequestBody(message: Pick<DocumentRequestMessage, "title" | "requestedByName">): string {
-  return `${message.requestedByName ?? "The office"} requested ${message.title}. Upload it in your team hub.`;
+export const DOCUMENT_REQUEST_SMS_TYPE = "workforce.document_request_sms";
+
+function documentRequestInbox(message: Pick<DocumentRequestMessage, "title" | "requestedByName">, wording: WordingRenderer) {
+  return wording.render("staff", "INBOX", { requestedByName: message.requestedByName ?? "The office", documentTitle: message.title });
+}
+
+/** The request's inbox wording (pass the loaded wording; the default is used otherwise). */
+export function documentRequestBody(message: Pick<DocumentRequestMessage, "title" | "requestedByName">, wording: WordingRenderer = defaultNotificationWording("workforce.document_request")): string {
+  return documentRequestInbox(message, wording).body;
 }
 
 async function sendSms(recipient: DocumentRequestRecipient, message: DocumentRequestMessage): Promise<SmsOutcome> {
   if (!recipient.phone) return { transport: "SMS", state: "failed", errorCode: "missing_phone" };
   let outcome: SmsOutcome = { transport: "SMS", state: "already_requested", errorCode: null };
   await dispatchNotificationOnce({ event: `${message.eventId}:SMS`, day: "office", recipientId: recipient.id }, async () => {
-    const sent = await sendSmsDetailed(recipient.phone!, `Document requested: ${message.title}. Upload it in your sNeek team hub.`);
+    const smsWording = await loadNotificationWording(DOCUMENT_REQUEST_SMS_TYPE);
+    const inboxWording = await loadNotificationWording("workforce.document_request");
+    const sent = await sendSmsDetailed(recipient.phone!, smsWording.render("staff", "SMS", { documentTitle: message.title }).body);
     outcome = { transport: "SMS", state: sent.status === "disabled" ? "skipped" : sent.ok ? "provider_accepted" : "failed", errorCode: sent.ok ? null : `sms_${sent.status}` };
     await db.notification.create({ data: {
-      userId: recipient.id, channel: "SMS", subject: "Document requested", body: documentRequestBody(message),
+      userId: recipient.id, channel: "SMS", subject: "Document requested", body: documentRequestBody(message, inboxWording),
       status: sent.ok ? "SENT" : "FAILED", sentAt: sent.ok ? new Date() : undefined, errorMsg: sent.ok ? undefined : sent.error ?? "SMS delivery failed.",
     } });
   });
@@ -67,17 +76,23 @@ export async function deliverDocumentRequest(
   const typeKey = DOCUMENT_REQUEST_TYPE;
   const office = transports.filter((transport): transport is "PUSH" | "EMAIL" => transport !== "SMS");
   const controls = office.length ? await getNotificationTypeControls() : null;
-  const body = documentRequestBody(message);
+  const wording = await loadNotificationWording(typeKey);
+  const inbox = documentRequestInbox(message, wording);
+  const body = inbox.body;
   const outcomes = office.length && controls ? await sendOfficeNotification({
     typeKey, eventKey: "workforce.document_request", eventId: message.eventId,
     entity: { type: "StaffDocumentRequest", id: message.requestId }, actorId: message.actorId,
     scopeType: "STAFF_MEMBER", scopeId: (person) => person.id,
     category: "account", severity: "ACTION", jobId: null,
-    subject: "Document requested", body,
-    email: (person) => ({
-      subject: `Document requested - ${message.title}`,
-      html: `<p>Hi ${escapeHtml(person.name ?? "there")},</p><p>Please upload the following document in your team hub: <strong>${escapeHtml(message.title)}</strong>.</p>${message.notes ? `<p>${escapeHtml(message.notes)}</p>` : ""}`,
-    }),
+    subject: inbox.title, body,
+    email: (person) => {
+      const email = wording.render("staff", "EMAIL", {
+        recipientName: person.name ?? "there",
+        documentTitle: message.title,
+        notesParagraph: wording.line("notes-paragraph", "EMAIL", { note: message.notes }, Boolean(message.notes)),
+      });
+      return { subject: email.subject, html: email.html };
+    },
     emailKind: "workforce_update",
     transports: office,
     recipients: [{ id: recipient.id, role: recipient.role, name: recipient.name, email: recipient.email }],

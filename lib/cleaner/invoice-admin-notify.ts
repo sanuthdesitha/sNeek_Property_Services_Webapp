@@ -48,23 +48,27 @@ export async function notifyPayeeOfChangeRequest(submissionId: string, note: str
   // THEIR portal rather than always the cleaner one.
   const href = payee.role === Role.QA_INSPECTOR ? "/v2/qa/invoices" : "/v2/cleaner/invoices";
 
+  const { loadNotificationWording } = await import("@/lib/notifications/wording/render");
+  const wording = await loadNotificationWording("job.cleaner_invoice");
+  const hasNumber = Boolean(submission.invoiceNumber);
+  const email = wording.render("change-request", "EMAIL", {
+    recipientName: payee.name ?? "there",
+    periodStart: fmt(submission.periodStart),
+    periodEnd: fmt(submission.periodEnd),
+    invoiceSuffix: wording.line("invoice-suffix", "INBOX", { invoiceNumber: submission.invoiceNumber }, hasNumber),
+    invoiceNumberPart: wording.line("invoice-number", "EMAIL", { invoiceNumber: submission.invoiceNumber }, hasNumber),
+    fixHtml: escape(note).replace(/\n/g, "<br/>"),
+    invoicesUrl: resolveAppUrl(href),
+    companyName: settings.companyName,
+  });
   await sendEmailDetailed({
     kind: "job_assignment",
     to: payee.email,
-    subject: `Your invoice needs a change${submission.invoiceNumber ? ` — ${submission.invoiceNumber}` : ""}`,
+    subject: email.subject,
     // A finance document the office explicitly sent back — a stale suppression
     // must not silently eat it.
     transactional: true,
-    html: [
-      `<p>Hi ${escape(payee.name ?? "there")},</p>`,
-      `<p>Your invoice for ${escape(fmt(submission.periodStart))} – ${escape(fmt(submission.periodEnd))}`,
-      submission.invoiceNumber ? ` (<strong>${escape(submission.invoiceNumber)}</strong>)` : "",
-      ` has been sent back for a change.</p>`,
-      `<p><strong>What needs fixing:</strong><br/>${escape(note).replace(/\n/g, "<br/>")}</p>`,
-      `<p>Everything on it is available to invoice again, so you can correct it and resend.</p>`,
-      `<p><a href="${resolveAppUrl(href)}">Open your invoices</a></p>`,
-      `<p>— ${escape(settings.companyName)}</p>`,
-    ].join(""),
+    html: email.html,
   });
 }
 

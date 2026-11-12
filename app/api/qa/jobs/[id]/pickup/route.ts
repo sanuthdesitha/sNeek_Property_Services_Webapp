@@ -8,6 +8,7 @@ import { sendWebPushToUser } from "@/lib/notifications/web-push";
 import { logger } from "@/lib/logger";
 import { pickUpQaAssignment } from "@/lib/qa/pickup";
 import { assertNotSelfInspection } from "@/lib/qa/self-review";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -72,7 +73,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (decision.shouldPushCleaner) {
       const cleanerIds = Array.from(new Set(job.assignments.map((row) => row.userId)));
       const where = job.property?.name ?? `job ${job.jobNumber ?? ""}`.trim();
-      const message = `QA has started inspecting ${where}. Please complete and submit your job form now.`;
+      const formNotice = (await loadNotificationWording("job.qa_and_accountability")).render("complete-form", "INBOX", { place: where });
+      const message = formNotice.body;
       try {
         if (cleanerIds.length > 0) {
           await db.notification.createMany({
@@ -81,7 +83,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
               jobId: job.id,
               externalId: mobilePendingMarker("jobs"),
               channel: NotificationChannel.PUSH,
-              subject: "Complete your job form",
+              subject: formNotice.title,
               body: message,
               status: NotificationStatus.SENT,
               sentAt: new Date(),
@@ -90,7 +92,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
           await Promise.all(
             cleanerIds.map((userId) =>
               sendWebPushToUser(userId, {
-                title: "Complete your job form",
+                title: formNotice.title,
                 body: message,
                 url: `/v2/cleaner/jobs/${job.id}`,
               })

@@ -8,6 +8,7 @@ import {
   listEarlyCheckoutRequests,
 } from "@/lib/jobs/early-checkout-requests";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const createSchema = z.object({
   jobId: z.string().trim().min(1),
@@ -76,39 +77,42 @@ export async function POST(req: NextRequest) {
       .filter((user): user is NonNullable<typeof user> => Boolean(user && user.id && user.isActive));
 
     if (cleanerRecipients.length > 0) {
+      const wording = await loadNotificationWording("office.cleaner_requests");
+      const late = body.requestType === "LATE_CHECKOUT";
+      const tbd = wording.line("time-tbd", "INBOX", {});
       const detail = [
         job.jobNumber ? `${job.jobNumber}` : null,
         job.property.name,
-        body.requestType === "LATE_CHECKOUT"
-          ? `Late checkout until ${body.requestedTime || job.startTime || "time TBD"}`
-          : `Early check-in due by ${body.requestedTime || job.dueTime || "time TBD"}`,
+        late
+          ? wording.line("late-checkout", "INBOX", { time: body.requestedTime || job.startTime || tbd })
+          : wording.line("early-checkin", "INBOX", { time: body.requestedTime || job.dueTime || tbd }),
         body.note?.trim() || null,
       ]
         .filter(Boolean)
         .join(" | ");
       const reviewUrl = `${req.nextUrl.origin}/cleaner/jobs/${job.id}?timingRequest=${created.id}`;
+      const adminNote = body.note?.trim();
+      const timingInbox = wording.render("timing-request", "INBOX", { detail });
+      const timingEmail = wording.render("timing-request", "EMAIL", {
+        jobRef: job.jobNumber || job.property.name,
+        propertyName: job.property.name,
+        updateType: wording.line(late ? "type-late" : "type-early", "EMAIL", {}),
+        requestedTimeParagraph: wording.line("requested-time", "EMAIL", { time: body.requestedTime }, Boolean(body.requestedTime)),
+        adminNoteParagraph: wording.line("admin-note", "EMAIL", { note: adminNote }, Boolean(adminNote)),
+        reviewUrl,
+      });
 
       await deliverNotificationToRecipients({
         recipients: cleanerRecipients,
         category: "jobs",
         jobId: job.id,
-        web: {
-          subject: "Timing update approval requested",
-          body: detail,
-        },
+        web: { subject: timingInbox.title, body: timingInbox.body },
         email: {
-          subject: `Timing update approval requested - ${job.jobNumber || job.property.name}`,
-          html: `
-            <p>Hello,</p>
-            <p>An admin timing update needs your approval for <strong>${job.property.name}</strong>.</p>
-            <p><strong>Update type:</strong> ${body.requestType === "LATE_CHECKOUT" ? "Late checkout" : "Early check-in"}</p>
-            ${body.requestedTime ? `<p><strong>Requested time:</strong> ${body.requestedTime}</p>` : ""}
-            ${body.note?.trim() ? `<p><strong>Admin note:</strong> ${body.note.trim().replace(/</g, "&lt;")}</p>` : ""}
-            <p><a href="${reviewUrl}">Review and respond</a></p>
-          `,
+          subject: timingEmail.subject,
+          html: timingEmail.html,
           logBody: detail,
         },
-        sms: `${detail} Review: ${reviewUrl}`,
+        sms: wording.render("timing-request", "SMS", { detail, reviewUrl }).body,
       });
     }
 

@@ -10,14 +10,24 @@ import { normalizePayAdjustmentAmounts } from "@/lib/pay-adjustments/display";
 import { listQaReworkTransfers } from "@/lib/qa/rework-transfers";
 import { listQaOutcomeApprovals } from "@/lib/qa/outcome-approvals";
 import { listPendingBookingRequests, getTeamAvailability } from "@/lib/booking/requests";
+import {
+  ACCOUNTABILITY_SOURCES as ACCOUNTABILITY_SOURCE_LIST,
+  BONUS_SOURCES as BONUS_SOURCE_LIST,
+  RECTIFICATION_SOURCES as RECTIFICATION_SOURCE_LIST,
+} from "@/lib/admin/approvals/sources";
 
 // Accountability-sourced pay adjustments are surfaced in their own dedicated
 // queues (rectificationAdjustments / bonusProposals) — NOT in the generic
 // "Pay requests" queue — so a row never double-shows and per-queue counts stay
 // consistent. These mirror CleanerPayAdjustment.source values.
-const RECTIFICATION_SOURCES = ["QA_RECTIFICATION_PAY", "RECTIFICATION_DEDUCTION", "REWORK_DEDUCTION"];
-const BONUS_SOURCES = ["STREAK_5", "STREAK_10", "MONTHLY_RANK_1", "MONTHLY_RANK_2"];
-const ACCOUNTABILITY_SOURCES = [...RECTIFICATION_SOURCES, ...BONUS_SOURCES];
+const RECTIFICATION_SOURCES = [...RECTIFICATION_SOURCE_LIST];
+const BONUS_SOURCES = [...BONUS_SOURCE_LIST];
+const ACCOUNTABILITY_SOURCES = [...ACCOUNTABILITY_SOURCE_LIST];
+
+// Rows read per capped queue. Each capped queue is read OLDEST FIRST so the
+// requests waiting longest are never the ones left out, and its count below is
+// a real COUNT, not the length of the page (2026-11 Approvals redesign).
+const QUEUE_PAGE = 100;
 
 const ACCOUNTABILITY_PAY_INCLUDE = {
   cleaner: { select: { id: true, name: true, email: true, image: true, role: true } },
@@ -77,8 +87,8 @@ export async function GET() {
             },
             property: { select: { id: true, name: true, suburb: true } },
           },
-          orderBy: { requestedAt: "desc" },
-          take: 50,
+          orderBy: { requestedAt: "asc" },
+          take: QUEUE_PAGE,
         }),
         db.timeLogAdjustmentRequest.findMany({
           where: { status: "PENDING" },
@@ -102,8 +112,8 @@ export async function GET() {
               },
             },
           },
-          orderBy: { createdAt: "desc" },
-          take: 50,
+          orderBy: { createdAt: "asc" },
+          take: QUEUE_PAGE,
         }),
         // PENDING *and* COUNTERED: a counter-offer is unfinished business for
         // admin, so it must stay in the queue. Filtering to PENDING alone would
@@ -123,8 +133,8 @@ export async function GET() {
               },
             },
           },
-          orderBy: { updatedAt: "desc" },
-          take: 50,
+          orderBy: { updatedAt: "asc" },
+          take: QUEUE_PAGE,
         }),
         db.jobTask.findMany({
           where: { source: "CLIENT", approvalStatus: "PENDING_APPROVAL" },
@@ -143,8 +153,8 @@ export async function GET() {
             },
             requestedBy: { select: { id: true, name: true, email: true } },
           },
-          orderBy: { createdAt: "desc" },
-          take: 50,
+          orderBy: { createdAt: "asc" },
+          take: QUEUE_PAGE,
         }),
         listQaReworkTransfers(QaReworkTransferStatus.PENDING),
         db.job.findMany({
@@ -160,22 +170,22 @@ export async function GET() {
             cleanSkipRequestedById: true,
             property: { select: { name: true, suburb: true } },
           },
-          orderBy: { cleanSkipAt: "desc" },
-          take: 50,
+          orderBy: { cleanSkipAt: "asc" },
+          take: QUEUE_PAGE,
         }),
         // Accountability rectification pay/deduction adjustments awaiting sign-off.
         db.cleanerPayAdjustment.findMany({
           where: { status: PayAdjustmentStatus.PENDING, source: { in: RECTIFICATION_SOURCES } },
           include: ACCOUNTABILITY_PAY_INCLUDE,
-          orderBy: { requestedAt: "desc" },
-          take: 50,
+          orderBy: { requestedAt: "asc" },
+          take: QUEUE_PAGE,
         }),
         // Streak / monthly-rank bonus proposals awaiting sign-off.
         db.cleanerPayAdjustment.findMany({
           where: { status: PayAdjustmentStatus.PENDING, source: { in: BONUS_SOURCES } },
           include: ACCOUNTABILITY_PAY_INCLUDE,
-          orderBy: { requestedAt: "desc" },
-          take: 50,
+          orderBy: { requestedAt: "asc" },
+          take: QUEUE_PAGE,
         }),
         // QA issues flagged as a suspected false completion confirmation.
         db.qaIssue.findMany({
@@ -192,8 +202,8 @@ export async function GET() {
             },
             property: { select: { name: true, suburb: true } },
           },
-          orderBy: { createdAt: "desc" },
-          take: 50,
+          orderBy: { createdAt: "asc" },
+          take: QUEUE_PAGE,
         }),
         // QA reviews routed to management and not yet resolved. A review is
         // "resolved" once an admin adjusts it (editedById set), so unresolved =
@@ -215,8 +225,8 @@ export async function GET() {
               },
             },
           },
-          orderBy: { createdAt: "desc" },
-          take: 50,
+          orderBy: { createdAt: "asc" },
+          take: QUEUE_PAGE,
         }),
         // Failed-inspection jobs parked in QA_REVIEW awaiting the admin
         // "approve outcome → COMPLETED" decision (blocks invoicing until done).
@@ -238,9 +248,43 @@ export async function GET() {
             paidClaimedProofKeys: true,
           },
           orderBy: { paidClaimedAt: "asc" },
-          take: 50,
+          take: QUEUE_PAGE,
         }),
       ]);
+
+    // Real totals for the capped queues (the rows above are the oldest
+    // QUEUE_PAGE of each). Same WHERE clauses as the reads.
+    const [
+      payAdjustmentTotal,
+      timeAdjustmentTotal,
+      flaggedLaundryTotal,
+      rescheduleTotal,
+      clientRequestTotal,
+      skipTotal,
+      rectificationTotal,
+      bonusTotal,
+      falseConfirmationTotal,
+      managementReviewTotal,
+      payClaimTotal,
+    ] = await Promise.all([
+      db.cleanerPayAdjustment.count({
+        where: { status: PayAdjustmentStatus.PENDING, OR: [{ source: null }, { source: { notIn: ACCOUNTABILITY_SOURCES } }] },
+      }),
+      db.timeLogAdjustmentRequest.count({ where: { status: "PENDING" } }),
+      db.laundryTask.count({ where: { status: "FLAGGED" } }),
+      db.jobTask.count({
+        where: { source: "CLIENT", approvalStatus: "PENDING_APPROVAL", metadata: { path: ["type"], equals: "RESCHEDULE_REQUEST" } },
+      }),
+      db.jobTask.count({
+        where: { source: "CLIENT", approvalStatus: "PENDING_APPROVAL", metadata: { path: ["kind"], equals: "CLIENT_REQUEST" } },
+      }),
+      db.job.count({ where: { cleanSkipStatus: "REQUESTED" } }),
+      db.cleanerPayAdjustment.count({ where: { status: PayAdjustmentStatus.PENDING, source: { in: RECTIFICATION_SOURCES } } }),
+      db.cleanerPayAdjustment.count({ where: { status: PayAdjustmentStatus.PENDING, source: { in: BONUS_SOURCES } } }),
+      db.qaIssue.count({ where: { falseConfirmation: FalseConfirmationStatus.SUSPECTED } }),
+      db.qAReview.count({ where: { managementReview: true, editedById: null } }),
+      db.cleanerInvoiceSubmission.count({ where: { status: "PAID_CLAIMED" } }),
+    ]);
 
     // Attach the payee to each pay claim. CleanerInvoiceSubmission has no FK
     // relation to User, so the join is done here rather than in the query — an
@@ -357,6 +401,13 @@ export async function GET() {
         ...pa,
         ...normalizePayAdjustmentAmounts(pa, clientApproval),
         clientApproval,
+        // The receipt or photo the payee attached, resolved like pay claims so
+        // the decision panel can show the evidence with the request.
+        attachmentUrls: Array.isArray(pa.attachmentKeys)
+          ? pa.attachmentKeys
+              .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+              .map((key) => ({ key, url: publicUrl(key) }))
+          : [],
       };
     });
 
@@ -418,43 +469,28 @@ export async function GET() {
       cleanerInvoicePayClaims: payClaimRows,
       bookingRequests,
       bookingAvailability,
-      counts: {
-        continuations: continuations.length,
-        timingRequests: timingRequests.length,
-        payAdjustments: payAdjustments.length,
-        timeAdjustments: timeAdjustments.length,
-        clientApprovals: clientApprovalsForAdmin.length,
-        flaggedLaundry: flaggedLaundry.length,
-        rescheduleRequests: rescheduleRequests.length,
-        clientRequests: clientRequests.length,
-        qaReworkTransfers: qaReworkTransfers.length,
-        skipRequests: enrichedSkipRequests.length,
-        rectificationAdjustments: rectificationAdjustments.length,
-        bonusProposals: bonusProposals.length,
-        falseConfirmations: falseConfirmations.length,
-        managementReviews: managementReviewRows.length,
-        qaOutcomes: qaOutcomes.length,
-        cleanerInvoicePayClaims: payClaimRows.length,
-        bookingRequests: bookingRequests.length,
-        total:
-          continuations.length +
-          timingRequests.length +
-          payAdjustments.length +
-          timeAdjustments.length +
-          clientApprovalsForAdmin.length +
-          flaggedLaundry.length +
-          rescheduleRequests.length +
-          clientRequests.length +
-          qaReworkTransfers.length +
-          enrichedSkipRequests.length +
-          rectificationAdjustments.length +
-          bonusProposals.length +
-          falseConfirmations.length +
-          managementReviewRows.length +
-          qaOutcomes.length +
-          payClaimRows.length +
-          bookingRequests.length,
-      },
+      counts: (() => {
+        const counts = {
+          continuations: continuations.length,
+          timingRequests: timingRequests.length,
+          payAdjustments: payAdjustmentTotal,
+          timeAdjustments: timeAdjustmentTotal,
+          clientApprovals: clientApprovalsForAdmin.length,
+          flaggedLaundry: flaggedLaundryTotal,
+          rescheduleRequests: rescheduleTotal,
+          clientRequests: clientRequestTotal,
+          qaReworkTransfers: qaReworkTransfers.length,
+          skipRequests: skipTotal,
+          rectificationAdjustments: rectificationTotal,
+          bonusProposals: bonusTotal,
+          falseConfirmations: falseConfirmationTotal,
+          managementReviews: managementReviewTotal,
+          qaOutcomes: qaOutcomes.length,
+          cleanerInvoicePayClaims: payClaimTotal,
+          bookingRequests: bookingRequests.length,
+        };
+        return { ...counts, total: Object.values(counts).reduce((sum, value) => sum + value, 0) };
+      })(),
     });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 500;

@@ -16,6 +16,7 @@ import { isPastLocalDispatchTime, localDateKey } from "@/lib/ops/scheduled-dispa
 import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
 
 /**
  * These builders assemble MARKUP that renderEmailTemplate inserts raw (see
@@ -228,10 +229,11 @@ function buildInventorySummaryParts(rows: CriticalStockRow[]) {
   };
 }
 
-function buildNoJobsSummaryParts() {
+/** The "no jobs tomorrow" wording (catalog type office.sla_and_summaries). */
+function buildNoJobsSummaryParts(wording: WordingRenderer) {
   return {
-    html: "<p>No jobs are scheduled for tomorrow.</p><p>Please still check your schedule in case anything changes.</p>",
-    text: "No jobs scheduled for tomorrow. Please still check your schedule in case anything changes.",
+    html: wording.line("tomorrow-none-html", "EMAIL", {}),
+    text: wording.line("tomorrow-none-text", "INBOX", {}),
   };
 }
 
@@ -269,10 +271,10 @@ function buildLaundrySummaryParts(tasks: LaundryTaskRow[], targetDate: Date, tim
   };
 }
 
-function buildNoLaundrySummaryParts() {
+function buildNoLaundrySummaryParts(wording: WordingRenderer) {
   return {
-    html: "<p>No laundry pickups or drop-offs are scheduled for tomorrow.</p><p>Please still check your laundry schedule in case anything changes.</p>",
-    text: "No laundry pickups or drop-offs scheduled for tomorrow. Please still check your schedule in case anything changes.",
+    html: wording.line("laundry-none-html", "EMAIL", {}),
+    text: wording.line("laundry-none-text", "INBOX", {}),
   };
 }
 
@@ -354,6 +356,7 @@ export async function dispatchTomorrowPrepSummaries(
   options: { ignoreWindow?: boolean; ignoreEnabled?: boolean; useNextAvailableDate?: boolean } = {}
 ) {
   const settings = await getAppSettings();
+  const summaryWording = await loadNotificationWording("office.sla_and_summaries");
   const timezone = settings.timezone || "Australia/Sydney";
   const localNow = toZonedTime(now, timezone);
   const todayKey = localDateKey(now, timezone);
@@ -529,7 +532,7 @@ export async function dispatchTomorrowPrepSummaries(
   for (const bucket of Array.from(cleanerBuckets.values())) {
     const jobsForRecipient = [...bucket.jobs].sort(compareJobsByPriority);
     const summary =
-      jobsForRecipient.length > 0 ? buildJobSummaryParts(jobsForRecipient) : buildNoJobsSummaryParts();
+      jobsForRecipient.length > 0 ? buildJobSummaryParts(jobsForRecipient) : buildNoJobsSummaryParts(summaryWording);
     const emailTemplate = renderEmailTemplate(summaryTemplateSettings, "tomorrowJobsSummary", {
       recipientName: bucket.recipient.name ?? "Cleaner",
       roleLabel: "Cleaner",
@@ -601,7 +604,7 @@ export async function dispatchTomorrowPrepSummaries(
     const summary =
       tasksForRecipient.length > 0
         ? buildLaundrySummaryParts(tasksForRecipient, targetLocal, timezone)
-        : buildNoLaundrySummaryParts();
+        : buildNoLaundrySummaryParts(summaryWording);
     const emailTemplate = renderEmailTemplate(summaryTemplateSettings, "tomorrowLaundrySummary", {
       recipientName: bucket.recipient.name ?? "Laundry team",
       dateLabel,

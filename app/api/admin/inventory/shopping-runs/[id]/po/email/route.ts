@@ -10,6 +10,7 @@ import {
 } from "@/lib/inventory/shopping-runs";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   to: z.union([z.string().trim().email(), z.array(z.string().trim().email()).min(1)]),
@@ -49,17 +50,18 @@ export async function POST(
     }
 
     const to = Array.isArray(body.to) ? body.to : [body.to];
-    const subject =
-      body.subject?.trim() ||
-      `Purchase Order - ${run.name}${body.supplier?.trim() ? ` (${body.supplier.trim()})` : ""}`;
+    const wording = await loadNotificationWording("stock.shopping_and_orders");
+    const supplier = body.supplier?.trim();
+    const poEmail = wording.render("purchase-order", "EMAIL", {
+      runName: run.name,
+      supplierSuffix: wording.line("supplier-suffix", "INBOX", { supplier }, Boolean(supplier)),
+      supplierParagraph: wording.line("supplier-paragraph", "EMAIL", { supplier }, Boolean(supplier)),
+    });
+    const subject = body.subject?.trim() || poEmail.subject;
     const sentResult = await sendEmailDetailed({
       to,
       subject,
-      html: `
-        <p>Please find the attached purchase order.</p>
-        <p><strong>Run:</strong> ${run.name}</p>
-        ${body.supplier?.trim() ? `<p><strong>Supplier:</strong> ${body.supplier.trim()}</p>` : ""}
-      `,
+      html: poEmail.html,
       attachments: [
         {
           filename: `purchase-order-${run.id}.pdf`,

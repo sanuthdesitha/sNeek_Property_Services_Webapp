@@ -15,8 +15,25 @@ import { EField, EInput, EModal, ESelect } from "@/components/v2/admin/estate-ki
 
 type ReminderMethod = "PUSH" | "EMAIL";
 
-export function JobReminderButton({ jobId, statusLabel }: { jobId: string; statusLabel: string }) {
-  const [open, setOpen] = useState(false);
+/**
+ * Uncontrolled (renders its own "Send reminder" button), or controlled by a
+ * host menu through `open` / `onOpenChange` (no button of its own).
+ */
+export function JobReminderButton({
+  jobId,
+  statusLabel,
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  jobId: string;
+  statusLabel: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [ownOpen, setOwnOpen] = useState(false);
+  const controlled = controlledOpen !== undefined;
+  const open = controlled ? controlledOpen : ownOpen;
+  const setOpen = (next: boolean) => (controlled ? onOpenChange?.(next) : setOwnOpen(next));
   const [method, setMethod] = useState<ReminderMethod>("PUSH");
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
@@ -62,12 +79,14 @@ export function JobReminderButton({ jobId, statusLabel }: { jobId: string; statu
 
   return (
     <>
-      <EButton variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <BellRing className="h-3.5 w-3.5" />
-        Send reminder
-      </EButton>
+      {controlled ? null : (
+        <EButton variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <BellRing className="h-3.5 w-3.5" />
+          Send reminder
+        </EButton>
+      )}
 
-      <EModal open={open} onClose={() => setOpen(false)} title="Send job reminder" eyebrow="Please confirm">
+      <EModal open={open} onClose={() => (sending ? undefined : setOpen(false))} title="Send job reminder" eyebrow="Please confirm">
         <div className="space-y-4">
           <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
             This job is {statusLabel.toLowerCase()}. Remind every assigned cleaner to open it and

@@ -6,6 +6,7 @@ import { suggestAutoAssignment } from "@/lib/ops/dispatch";
 import { parseJobInternalNotes, serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { computeCleanerPay } from "@/lib/finance/job-money";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
@@ -433,11 +434,14 @@ export async function applyReschedule(input: {
     const assigned = await db.jobAssignment.findMany({ where: { jobId: job.id, removedAt: null },
       include: { user: { select: { id: true, role: true, name: true, email: true, phone: true, isActive: true } } } });
     const recipients = assigned.map((row) => row.user).filter((user) => user.isActive);
-    const schedule = `${input.date}${updated.startTime ? ` at ${updated.startTime}` : ""}${updated.dueTime ? `, finish by ${updated.dueTime}` : ""}`;
+    const wording = await loadNotificationWording("job.changed");
+    const schedule = `${input.date}${wording.line("schedule-start", "INBOX", { startTime: updated.startTime }, Boolean(updated.startTime))}${wording.line("schedule-finish", "INBOX", { dueTime: updated.dueTime }, Boolean(updated.dueTime))}`;
+    const inbox = wording.render("rescheduled", "INBOX", { schedule });
+    const email = wording.render("rescheduled", "EMAIL", { schedule });
     if (recipients.length) await deliverNotificationToRecipients({ recipients, category: "jobs", jobId: job.id,
-      web: { subject: "Job rescheduled", body: `The job is now scheduled for ${schedule}. Open the job to review.` },
-      email: { subject: "Job rescheduled", html: `<p>The job is now scheduled for ${schedule}. Open the job to review.</p>` },
-      sms: `Job rescheduled: ${schedule}. Open the job to review.` }).catch(() => {});
+      web: { subject: inbox.title, body: inbox.body },
+      email: { subject: email.subject, html: email.html },
+      sms: wording.render("rescheduled", "SMS", { schedule }).body }).catch(() => {});
     await sendLifecycleEmail({
       jobId: updated.id,
       stage: "SCHEDULE_UPDATED",

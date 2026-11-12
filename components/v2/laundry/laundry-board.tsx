@@ -14,7 +14,9 @@ import { OperationsDisclosure } from "@/components/operations/ui";
  *   POST /api/laundry/[taskId]/status  { confirm:true, status, … }
  *
  * The real status model (prisma LaundryStatus):
- *   PENDING → CONFIRMED → PICKED_UP → DROPPED   (+ FLAGGED, SKIPPED_PICKUP)
+ *   PENDING → CONFIRMED → PICKED_UP → (READY_TO_RETURN) → DROPPED   (+ FLAGGED, SKIPPED_PICKUP)
+ *   READY_TO_RETURN (2026-11-13) is optional and set by the laundry team
+ *   (POST /api/laundry/[taskId]/ready-to-return); a drop is accepted from it.
  * The status endpoint accepts the action verbs:
  *   PICKED_UP  (needs bagCount)      — from PENDING/CONFIRMED
  *   RETURNED   (needs dropoffLocation) — maps server-side to DROPPED, from PICKED_UP
@@ -66,12 +68,16 @@ import { SYDNEY_TZ, sydneyDateKey, sydneyTodayKey } from "@/lib/time/sydney-rang
 import { fullAddressText, googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { buildGoogleMapsMultiStopUrl } from "@/lib/jobs/schedule-order";
 import { toast } from "@/hooks/use-toast";
+import { TrackingIssues, TrackingStageChips, type StageFilter } from "@/components/v2/laundry/portal/tracking-extras";
+import { stageCounts, trackingDayOf, trackingStage } from "@/lib/laundry/tracking-stages";
+import { PartnerRunEntries } from "@/components/v2/laundry/portal/partner-run-entries";
 
 /* ── Types (mirror the /api/laundry/week payload) ──────────────────────── */
 export type LaundryStatus =
   | "PENDING"
   | "CONFIRMED"
   | "PICKED_UP"
+  | "READY_TO_RETURN"
   | "DROPPED"
   | "FLAGGED"
   | "SKIPPED_PICKUP";
@@ -97,6 +103,7 @@ export type BoardTask = {
   pickedUpAt?: string | null;
   droppedAt?: string | null;
   bagWeightKg?: number | null;
+  dropoffCostAud?: number | null;
   flagReason?: string | null;
   flagNotes?: string | null;
   noPickupRequired?: boolean;
@@ -128,6 +135,7 @@ export const STATUS_TONE: Record<LaundryStatus, Tone> = {
   PENDING: "neutral",
   CONFIRMED: "primary",
   PICKED_UP: "info",
+  READY_TO_RETURN: "info",
   DROPPED: "success",
   FLAGGED: "danger",
   SKIPPED_PICKUP: "warning",
@@ -137,6 +145,7 @@ export const STATUS_LABEL: Record<LaundryStatus, string> = {
   PENDING: "Pending",
   CONFIRMED: "Confirmed",
   PICKED_UP: "Picked up",
+  READY_TO_RETURN: "Ready to return",
   // Deliberately "Returned" (not the client-facing "Delivered"): the laundry
   // team's action verb is returning the sets to the property, and every board
   // action/timeline here says "Return"/"Returned". Client + admin surfaces
@@ -214,7 +223,7 @@ function NavButton({ task }: { task: BoardTask }) {
    across columns (multiple sets), so every card names its day. The date shown
    is the one that matters for the card's stage:
      PENDING / CONFIRMED / FLAGGED / SKIPPED → pickup date
-     PICKED_UP                              → drop-off due date
+     PICKED_UP / READY_TO_RETURN            → drop-off due date
      DROPPED                                → actual dropped date (falls back
                                               to the planned drop-off date)   */
 type StageDateInfo = { prefix: string; label: string; overdue: boolean };
@@ -224,6 +233,7 @@ function stageDateInfo(t: BoardTask, now: Date = new Date()): StageDateInfo | nu
   let prefix: string;
   switch (t.status) {
     case "PICKED_UP":
+    case "READY_TO_RETURN":
       raw = t.dropoffDate;
       prefix = "Return";
       break;
@@ -609,6 +619,7 @@ const QUEUE_STAGES: { status: LaundryStatus; tone: Tone }[] = [
   { status: "PENDING", tone: "neutral" },
   { status: "CONFIRMED", tone: "primary" },
   { status: "PICKED_UP", tone: "info" },
+  { status: "READY_TO_RETURN", tone: "info" },
   { status: "DROPPED", tone: "success" },
 ];
 
@@ -775,13 +786,13 @@ function classifyRuns(tasks: BoardTask[], range: LaundryDateRange) {
     const dropoff = new Date(t.dropoffDate);
 
     // Pickup loop: still-to-collect (or collected) sets scheduled in the range.
-    if (["PENDING", "CONFIRMED", "FLAGGED", "PICKED_UP"].includes(t.status) && inRange(pickup)) {
+    if (["PENDING", "CONFIRMED", "FLAGGED", "PICKED_UP", "READY_TO_RETURN"].includes(t.status) && inRange(pickup)) {
       pickups.push(t);
     }
 
     // Drop-off loop: picked-up sets due back in range (or overdue), plus
     // returns completed within the range.
-    if (t.status === "PICKED_UP") {
+    if (t.status === "PICKED_UP" || t.status === "READY_TO_RETURN") {
       if (dropoff < range.endExclusive) dropoffs.push(t);
     } else if (t.status === "DROPPED" && t.droppedAt && inRange(new Date(t.droppedAt))) {
       dropoffs.push(t);
@@ -799,7 +810,7 @@ export function RunsBoard({ canDelete = false }: BoardRoleProps) {
   const { requestDelete, modal: deleteModal } = useLaundryDeleteDialog(remove);
   const { pickups, dropoffs } = classifyRuns(tasks, range);
 
-  const pickupsDone = pickups.filter((t) => Boolean(t.pickedUpAt) || t.status === "PICKED_UP" || t.status === "DROPPED").length;
+  const pickupsDone = pickups.filter((t) => Boolean(t.pickedUpAt) || t.status === "PICKED_UP" || t.status === "READY_TO_RETURN" || t.status === "DROPPED").length;
   const dropsDone = dropoffs.filter((t) => Boolean(t.droppedAt) || t.status === "DROPPED").length;
 
   return (
@@ -900,10 +911,11 @@ function RunColumn({
             <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">None scheduled</p>
           ) : (
             tasks.map((t) => {
-              const complete = kind === "pickup" ? Boolean(t.pickedUpAt) || ["PICKED_UP", "DROPPED"].includes(t.status) : Boolean(t.droppedAt) || t.status === "DROPPED";
+              const atLaundry = t.status === "PICKED_UP" || t.status === "READY_TO_RETURN";
+              const complete = kind === "pickup" ? Boolean(t.pickedUpAt) || ["PICKED_UP", "READY_TO_RETURN", "DROPPED"].includes(t.status) : Boolean(t.droppedAt) || t.status === "DROPPED";
               const canPickup = kind === "pickup" && ["PENDING", "CONFIRMED"].includes(t.status);
-              const canDrop = kind === "dropoff" && t.status === "PICKED_UP";
-              const overdue = kind === "dropoff" && t.status === "PICKED_UP" && new Date(t.dropoffDate) < startOfDay(new Date());
+              const canDrop = kind === "dropoff" && atLaundry;
+              const overdue = kind === "dropoff" && atLaundry && new Date(t.dropoffDate) < startOfDay(new Date());
               return (
                 <div
                   key={t.id}
@@ -991,6 +1003,7 @@ function stageIndex(status: LaundryStatus): number {
     case "FLAGGED":
       return 0;
     case "PICKED_UP":
+    case "READY_TO_RETURN":
       return 1;
     case "DROPPED":
       return 2;
@@ -999,7 +1012,7 @@ function stageIndex(status: LaundryStatus): number {
   }
 }
 
-async function decodeQrFromFile(file: File): Promise<string | null> {
+export async function decodeQrFromFile(file: File): Promise<string | null> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result ?? ""));
@@ -1146,13 +1159,15 @@ function InlinePriceWeightEdit({ task, onSaved }: { task: BoardTask; onSaved: ()
   );
 }
 
-export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleProps & { bagTrackingRole?: "ADMIN" | "LAUNDRY" }) {
+export function TrackingBoard({ canDelete = false, bagTrackingRole, partnerEntries = false }: BoardRoleProps & { bagTrackingRole?: "ADMIN" | "LAUNDRY"; /** A LAUNDRY login acting as themselves (2026-11-13 entries). */ partnerEntries?: boolean }) {
   const { range, control } = useLaundryDateScope("week");
   const { tasks, loading, submittingId, load, act, remove } = useLaundryFeed(range);
   const { openAction, modal, config } = useLaundryActionModal(() => void load({ silent: true }));
   const { requestDelete, modal: deleteModal } = useLaundryDeleteDialog(remove);
   const [scanningQr, setScanningQr] = React.useState(false);
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
+  const [stage, setStage] = React.useState<StageFilter>("all");
+  const todayKey = sydneyTodayKey();
 
   // Live tracking = everything currently moving through the pipeline (exclude
   // no-pickup + already-returned-and-old so the list stays actionable).
@@ -1160,6 +1175,9 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
     .filter((t) => !t.noPickupRequired)
     .filter((t) => t.status !== "SKIPPED_PICKUP")
     .sort((a, b) => stageIndex(a.status) - stageIndex(b.status) || +new Date(a.pickupDate) - +new Date(b.pickupDate));
+  // Stage chips (board "Laundry partner portal", 3 Tracking): counts over the loaded sets.
+  const counts = stageCounts(tracked, todayKey);
+  const shown = stage === "all" ? tracked : tracked.filter((t) => trackingStage(t, todayKey) === stage);
 
   // Deep-link support: the calendar (and any `…/tracking#task-<id>` link) jumps
   // to a specific set. Because the feed loads async, native hash-scroll fires
@@ -1204,7 +1222,7 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
         return;
       }
       if (target.status === "CONFIRMED" || target.status === "PENDING") openAction(target, "PICKED_UP");
-      else if (target.status === "PICKED_UP") openAction(target, "RETURNED");
+      else if (target.status === "PICKED_UP" || target.status === "READY_TO_RETURN") openAction(target, "RETURNED");
       else if (target.status === "DROPPED" && canDelete) openAction(target, "EDIT_COMPLETED");
       else {
         toast({
@@ -1269,16 +1287,19 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
         </div>
       </div>
 
-      {tracked.length === 0 ? (
-        <EEmptyState eyebrow="Quiet" title="Nothing to track" description="No laundry sets are moving through the pipeline right now." />
+      <TrackingStageChips value={stage} counts={counts} total={tracked.length} onChange={setStage} />
+      {shown.length === 0 ? (
+        <EEmptyState eyebrow="Quiet" title="Nothing to track" description={stage === "all" ? "No laundry sets are moving through the pipeline right now." : "No sets at this stage in the chosen dates."} />
       ) : (
         <div className="space-y-3">
-          {tracked.map((t) => {
+          {shown.map((t) => {
             const idx = stageIndex(t.status);
+            const dayOf = trackingDayOf(t, todayKey);
             const bags = bagCountFor(t);
             const canPickup = ["PENDING", "CONFIRMED"].includes(t.status);
-            const canDrop = t.status === "PICKED_UP";
-            const canRevert = canDelete && ["PICKED_UP", "DROPPED"].includes(t.status);
+            const atLaundry = t.status === "PICKED_UP" || t.status === "READY_TO_RETURN";
+            const canDrop = atLaundry;
+            const canRevert = canDelete && ["PICKED_UP", "READY_TO_RETURN", "DROPPED"].includes(t.status);
             const pendingRequest = pendingFailedPickupRequest(t);
             const droppedEarly = returnedEarly(t);
             const droppedMeta = parseNotes(eventConfirmation(t, "DROPPED")?.notes);
@@ -1286,7 +1307,7 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
               typeof droppedMeta?.earlyDropoffReason === "string" ? droppedMeta.earlyDropoffReason : "";
             const photos = taskPhotos(t);
             const overdue =
-              t.status === "PICKED_UP" &&
+              atLaundry &&
               startOfDay(new Date(t.dropoffDate)).getTime() < startOfDay(new Date()).getTime();
             const timeline = buildTimeline(t);
             const clientName = t.property?.client?.name ?? null;
@@ -1341,6 +1362,11 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
                         </EBadge>
                       ) : null}
                       <KeyLostBadge task={t} />
+                      {dayOf ? (
+                        <EBadge tone={dayOf.day > dayOf.planned ? "danger" : "neutral"} soft>
+                          Day {dayOf.day} of {dayOf.planned}
+                        </EBadge>
+                      ) : null}
                       <EBadge tone={STATUS_TONE[t.status]} soft>
                         {STATUS_LABEL[t.status]}
                       </EBadge>
@@ -1408,6 +1434,20 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
                     </p>
                   ) : null}
 
+                  {/* Weight / price the laundry team entered before drop-off (2026-11-13) */}
+                  {atLaundry && (t.bagWeightKg != null || t.dropoffCostAud != null) ? (
+                    <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-primary))]">
+                      {[t.bagWeightKg != null ? `${Number(t.bagWeightKg).toFixed(1)} kg` : null, t.dropoffCostAud != null ? `$${Number(t.dropoffCostAud).toFixed(2)}` : null].filter(Boolean).join(" · ")}
+                    </p>
+                  ) : null}
+                  {partnerEntries ? (
+                    <PartnerRunEntries
+                      key={t.id}
+                      task={{ id: t.id, status: t.status, updatedAt: t.updatedAt, bagWeightKg: t.bagWeightKg, dropoffCostAud: t.dropoffCostAud, propertyName: propertyLabel(t) }}
+                      onSaved={() => void load({ silent: true })}
+                    />
+                  ) : null}
+
                   {/* Evidence photos + costs */}
                   <PhotoStrip photos={photos} />
                   {config.showCostTracking && (droppedMeta?.totalPrice != null || t.status === "DROPPED") ? (
@@ -1468,7 +1508,8 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
                         size="sm"
                         disabled={submittingId === t.id}
                         onClick={() =>
-                          openAction(t, t.status === "DROPPED" ? "REVERT_TO_PICKED_UP" : "REVERT_TO_CONFIRMED")
+                          // "Ready to return" undoes to picked up (the office corrects the team's mark).
+                          openAction(t, t.status === "DROPPED" || t.status === "READY_TO_RETURN" ? "REVERT_TO_PICKED_UP" : "REVERT_TO_CONFIRMED")
                         }
                       >
                         <RotateCcw className="h-3.5 w-3.5" />
@@ -1488,6 +1529,7 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
           })}
         </div>
       )}
+      <TrackingIssues tasks={tracked} />
       {bagTrackingRole ? (
         <OperationsDisclosure
           title="Track individual bags (optional)"

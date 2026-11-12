@@ -69,6 +69,7 @@ export function ClockCard({
   isResume,
   onClockIn,
   onPause,
+  showClockIn = true,
 }: {
   status: string;
   locked: boolean;
@@ -91,6 +92,11 @@ export function ClockCard({
   isResume?: boolean;
   onClockIn: () => void;
   onPause: () => void;
+  /**
+   * False when the screen's bottom action bar carries the clock-in button
+   * (Set up), so the same command is not offered twice.
+   */
+  showClockIn?: boolean;
 }) {
   const [, setTick] = React.useState(0);
   React.useEffect(() => {
@@ -162,7 +168,7 @@ export function ClockCard({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {!isRunning && !locked ? (
+          {showClockIn && !isRunning && !locked ? (
             <EButton variant="primary" disabled={busy === "clockin" || clockInDisabled} onClick={onClockIn}>
               {busy === "clockin" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               {/* Resuming only restarts the timer — it never re-captures the

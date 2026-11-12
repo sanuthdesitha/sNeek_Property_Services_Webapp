@@ -29,6 +29,8 @@ type IssuePhoto = {
 type Issue = {
   id: string;
   severity: string;
+  /** "Fail", "Fail · serious", or the recorded Minor / Major / Critical. */
+  verdictLabel?: string;
   category: string;
   /** Admin-configured label for `category`; null if the key was removed. */
   categoryLabel: string | null;
@@ -202,7 +204,7 @@ export function CleanerQaFeedbackCard() {
                     <div key={issue.id} className="space-y-1.5 border-b border-[hsl(var(--e-border))] pb-2.5 last:border-b-0 last:pb-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <EBadge tone={severityTone(issue.severity)} soft>
-                          {humanize(issue.severity)}
+                          {issue.verdictLabel ?? humanize(issue.severity)}
                         </EBadge>
                         {/* The admin's own wording where it exists — prettifying
                             the raw key produced labels no one configured. */}

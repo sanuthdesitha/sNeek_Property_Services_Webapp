@@ -2,27 +2,57 @@
 
 /**
  * The Accounts table's columns, as drawn: Name, Role, Status, Rate, Jobs 30 d,
- * QA 30 d, Documents, Last seen. A column the viewer may not see (the server
- * did not send it) is never offered; the rest can be hidden from Columns.
+ * QA 30 d, Documents, Last seen, plus the old Cleaners roster's per-cleaner
+ * figures (Customer rating, Reliability, Attendance, Hours 30 d), which start
+ * hidden except where a tab turns them on. A column the viewer may not see
+ * (the server did not send it) is never offered; the rest can be hidden or
+ * shown from Columns.
  */
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { Check } from "lucide-react";
 import type { EDataColumn } from "@/components/v2/ui/data-table";
 import { E_CHIP_CLASS } from "@/components/v2/ui/filter-chips";
 import type { AccountListVisibility, AccountRow, AccountSort } from "@/lib/accounts/list/types";
-import { Avatar, DASH, DocumentsPill, RoleCell, StatusPill, formatLastSeen, formatRate } from "./account-display";
+import { Avatar, DASH, DocumentsPill, RoleCell, StatusPill, formatLastSeen, formatMoney, formatRate } from "./account-display";
 
-export const OPTIONAL_COLUMNS = ["role", "status", "rate", "jobs30", "qa30", "documents", "lastSeen"] as const;
+export const OPTIONAL_COLUMNS = [
+  "role",
+  "status",
+  "jobsWeek",
+  "rate",
+  "owed",
+  "jobs30",
+  "qa30",
+  "rating",
+  "reliability",
+  "attendance",
+  "hours30",
+  "documents",
+  "lastSeen",
+] as const;
 export type OptionalColumn = (typeof OPTIONAL_COLUMNS)[number];
 export type ColumnPrefs = Record<OptionalColumn, boolean>;
-export const DEFAULT_COLUMN_PREFS: ColumnPrefs = { role: true, status: true, rate: true, jobs30: true, qa30: true, documents: true, lastSeen: true };
+
+const PERFORMANCE_COLUMNS: ReadonlySet<OptionalColumn> = new Set<OptionalColumn>(["rating", "reliability", "attendance", "hours30"]);
+
+/** Every column on ("Show all columns"). */
+export const ALL_COLUMN_PREFS: ColumnPrefs = Object.fromEntries(OPTIONAL_COLUMNS.map((key) => [key, true])) as ColumnPrefs;
+
+/** The performance figures start hidden; People › Cleaners turns some on. */
+export const DEFAULT_COLUMN_PREFS: ColumnPrefs = { ...ALL_COLUMN_PREFS, rating: false, reliability: false, attendance: false, hours30: false };
 
 const COLUMN_LABEL: Record<OptionalColumn, string> = {
   role: "Role",
   status: "Status",
+  jobsWeek: "Jobs this week",
   rate: "Rate",
+  owed: "Owed",
   jobs30: "Jobs, 30 d",
   qa30: "QA, 30 d",
+  rating: "Customer rating",
+  reliability: "Reliability",
+  attendance: "Attendance",
+  hours30: "Hours, 30 d",
   documents: "Documents",
   lastSeen: "Last seen",
 };
@@ -30,8 +60,9 @@ const COLUMN_LABEL: Record<OptionalColumn, string> = {
 /** Columns this viewer may have at all. */
 export function allowedColumns(visibility: AccountListVisibility): OptionalColumn[] {
   return OPTIONAL_COLUMNS.filter((key) => {
-    if (key === "rate") return visibility.pay;
+    if (key === "rate" || key === "owed") return visibility.pay;
     if (key === "jobs30" || key === "qa30") return visibility.quality;
+    if (PERFORMANCE_COLUMNS.has(key)) return visibility.performance === true;
     return true;
   });
 }
@@ -39,6 +70,21 @@ export function allowedColumns(visibility: AccountListVisibility): OptionalColum
 function figure(value: number | null | undefined, digits = 0) {
   return typeof value === "number" ? value.toFixed(digits) : <span className="text-[hsl(var(--e-muted-foreground))]">{DASH}</span>;
 }
+
+/** A performance figure; no figure reads "Not enough data" to assistive tech and "–" on screen. */
+function performanceFigure(value: number | null | undefined, format: (value: number) => string) {
+  if (typeof value === "number") return format(value);
+  return (
+    <span className="text-[hsl(var(--e-muted-foreground))]" title="Not enough data">
+      <span aria-hidden>{DASH}</span>
+      <span className="sr-only">Not enough data</span>
+    </span>
+  );
+}
+
+export const formatPercentFigure = (value: number) => `${Math.round(value)}%`;
+export const formatRatingFigure = (value: number) => `★ ${value.toFixed(2)}`;
+export const formatHoursFigure = (value: number) => `${value}h`;
 
 export function accountColumns(
   visibility: AccountListVisibility,
@@ -70,6 +116,7 @@ export function accountColumns(
     },
     { key: "role", optional: "role", header: "Role", sortKey: "role", cell: (row) => <RoleCell role={row.role} extraRoles={row.extraRoles} /> },
     { key: "status", optional: "status", header: "Status", sortKey: "status", cell: (row) => <StatusPill status={row.status} inviteAgeDays={row.inviteAgeDays} /> },
+    { key: "jobsWeek", optional: "jobsWeek", header: "Jobs this week", sortKey: "jobsWeek", firstDir: "desc", align: "right", className: "e-tnum", cell: (row) => row.jobsWeek },
     {
       key: "rate",
       optional: "rate",
@@ -79,8 +126,58 @@ export function accountColumns(
       className: "e-tnum",
       cell: (row) => formatRate(row.rate) ?? <span className="text-[hsl(var(--e-muted-foreground))]">Not set</span>,
     },
+    {
+      key: "owed",
+      optional: "owed",
+      header: "Owed",
+      sortKey: "owed",
+      firstDir: "desc",
+      align: "right",
+      className: "e-tnum",
+      cell: (row) => (typeof row.owed === "number" ? formatMoney(row.owed) : <span className="text-[hsl(var(--e-muted-foreground))]">{DASH}</span>),
+    },
     { key: "jobs30", optional: "jobs30", header: "Jobs, 30 d", sortKey: "jobs30", firstDir: "desc", align: "right", className: "e-tnum", cell: (row) => figure(row.jobs30) },
     { key: "qa30", optional: "qa30", header: "QA, 30 d", sortKey: "qa30", firstDir: "desc", align: "right", className: "e-tnum", cell: (row) => figure(row.qa30) },
+    {
+      key: "rating",
+      optional: "rating",
+      header: "Customer rating",
+      sortKey: "rating",
+      firstDir: "desc",
+      align: "right",
+      className: "e-tnum",
+      cell: (row) => performanceFigure(row.rating, formatRatingFigure),
+    },
+    {
+      key: "reliability",
+      optional: "reliability",
+      header: "Reliability",
+      sortKey: "reliability",
+      firstDir: "desc",
+      align: "right",
+      className: "e-tnum",
+      cell: (row) => performanceFigure(row.reliability, formatPercentFigure),
+    },
+    {
+      key: "attendance",
+      optional: "attendance",
+      header: "Attendance",
+      sortKey: "attendance",
+      firstDir: "desc",
+      align: "right",
+      className: "e-tnum",
+      cell: (row) => performanceFigure(row.attendance, formatPercentFigure),
+    },
+    {
+      key: "hours30",
+      optional: "hours30",
+      header: "Hours, 30 d",
+      sortKey: "hours30",
+      firstDir: "desc",
+      align: "right",
+      className: "e-tnum",
+      cell: (row) => performanceFigure(row.hours30, formatHoursFigure),
+    },
     { key: "documents", optional: "documents", header: "Documents", sortKey: "documents", cell: (row) => <DocumentsPill state={row.documents} /> },
     {
       key: "lastSeen",
@@ -121,7 +218,7 @@ export function ColumnsMenu({ visibility, prefs, onChange }: { visibility: Accou
             </Menu.CheckboxItem>
           ))}
           <Menu.Separator className="my-1 h-px bg-[hsl(var(--e-border))]" />
-          <Menu.Item onSelect={() => onChange({ ...DEFAULT_COLUMN_PREFS })} className="min-h-10 cursor-default rounded px-3 py-2 text-sm outline-none focus:bg-[hsl(var(--e-muted))]">
+          <Menu.Item onSelect={() => onChange({ ...ALL_COLUMN_PREFS })} className="min-h-10 cursor-default rounded px-3 py-2 text-sm outline-none focus:bg-[hsl(var(--e-muted))]">
             Show all columns
           </Menu.Item>
         </Menu.Content>

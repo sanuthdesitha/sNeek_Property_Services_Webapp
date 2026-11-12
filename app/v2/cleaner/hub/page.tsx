@@ -12,7 +12,14 @@ export const dynamic = "force-dynamic";
  * `GET /api/me/workforce` overview endpoint and renders the feed, recognition
  * wall, and leaderboards natively in Estate — no v1 workforce / UI imports.
  */
-export default async function V2CleanerHubPage() {
+const HUB_TABS = ["feed", "chat", "learning", "documents", "recognition", "leaderboard"] as const;
+type HubTabKey = (typeof HUB_TABS)[number];
+
+function hubTab(value: string | string[] | undefined): HubTabKey | undefined {
+  return typeof value === "string" && (HUB_TABS as readonly string[]).includes(value) ? (value as HubTabKey) : undefined;
+}
+
+export default async function V2CleanerHubPage({ searchParams }: { searchParams?: { tab?: string | string[] } }) {
   await requireRole([Role.CLEANER, Role.ADMIN, Role.OPS_MANAGER]);
   return (
     <div className="space-y-6">
@@ -21,7 +28,7 @@ export default async function V2CleanerHubPage() {
         title="Team hub"
         description="Team feed, recognition, and leaderboards."
       />
-      <TeamHub />
+      <TeamHub initialTab={hubTab(searchParams?.tab)} />
     </div>
   );
 }

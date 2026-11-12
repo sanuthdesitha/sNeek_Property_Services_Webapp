@@ -4,7 +4,8 @@ import type { NotificationTransport } from "@/lib/notifications/catalog-types";
 export type RecipientOutcomeView = {
   userId: string;
   name: string;
-  transport: Exclude<NotificationTransport, "SMS">;
+  /** SMS appears only for a "Send test to me" by SMS (direct to your own phone). */
+  transport: NotificationTransport;
   path: "pipeline" | "direct";
   state: string;
   errorCode?: string | null;

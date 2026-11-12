@@ -10,6 +10,7 @@ import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export type CleanerLaundryOutcome = "READY_FOR_PICKUP" | "NOT_READY" | "NO_PICKUP_REQUIRED";
 export type CleanerLaundryUpdateSource = "EARLY_UPDATE" | "FINAL_SUBMISSION";
@@ -117,6 +118,7 @@ async function alertAdminsLaundryNotReady(jobId: string, propertyName: string, j
     where: { role: Role.ADMIN, isActive: true },
     select: { id: true },
   });
+  const notReady = (await loadNotificationWording("laundry.updates")).render("not-ready", "INBOX", { jobNumber, propertyName });
 
   for (const admin of adminUsers) {
     await db.notification.create({
@@ -124,8 +126,8 @@ async function alertAdminsLaundryNotReady(jobId: string, propertyName: string, j
         userId: admin.id,
         jobId,
         channel: NotificationChannel.EMAIL,
-        subject: `Laundry not ready - ${jobNumber}`,
-        body: `${jobNumber}: Cleaner submitted job for ${propertyName} with laundry_ready=NO. Laundry partner was not notified.`,
+        subject: notReady.title,
+        body: notReady.body,
         status: NotificationStatus.PENDING,
       },
     });
@@ -142,6 +144,11 @@ async function alertAdminsLaundryContradiction(params: {
     where: { role: Role.ADMIN, isActive: true },
     select: { id: true },
   });
+  const contradiction = (await loadNotificationWording("laundry.updates")).render("contradiction", "INBOX", {
+    jobNumber: params.jobNumber,
+    propertyName: params.propertyName,
+    outcome: params.submittedOutcome.replace(/_/g, " ").toLowerCase(),
+  });
 
   for (const admin of adminUsers) {
     await db.notification.create({
@@ -149,8 +156,8 @@ async function alertAdminsLaundryContradiction(params: {
         userId: admin.id,
         jobId: params.jobId,
         channel: NotificationChannel.EMAIL,
-        subject: `Laundry contradiction - ${params.jobNumber}`,
-        body: `${params.jobNumber}: Final submission for ${params.propertyName} said laundry ${params.submittedOutcome.replace(/_/g, " ").toLowerCase()}, but an earlier update already confirmed the pickup and laundry partners were notified. The confirmed pickup was KEPT - review and adjust the laundry task manually if the pickup really should be cancelled.`,
+        subject: contradiction.title,
+        body: contradiction.body,
         status: NotificationStatus.PENDING,
       },
     });
@@ -295,6 +302,7 @@ export async function applyCleanerLaundryStatusUpdate(params: {
 
     if (
       laundryTask.status === LaundryStatus.PICKED_UP ||
+      laundryTask.status === LaundryStatus.READY_TO_RETURN ||
       laundryTask.status === LaundryStatus.DROPPED
     ) {
       return { ok: true, duplicated: true, laundryTask };
@@ -381,6 +389,7 @@ export async function applyCleanerLaundryStatusUpdate(params: {
 
   if (
     laundryTask.status === LaundryStatus.PICKED_UP ||
+    laundryTask.status === LaundryStatus.READY_TO_RETURN ||
     laundryTask.status === LaundryStatus.DROPPED ||
     laundryTask.status === LaundryStatus.SKIPPED_PICKUP
   ) {

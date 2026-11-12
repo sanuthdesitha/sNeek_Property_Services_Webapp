@@ -9,8 +9,12 @@ import { STAFF_MESSAGE_ROLES } from "./recipient-scopes";
 import { getNotificationTypeControls, typeRespectsPreferences } from "./type-controls";
 import { formatInTimeZone } from "date-fns-tz";
 import { getAppSettings } from "@/lib/settings";
-import { NUDGE_COOL_DOWN_MINUTES, NUDGE_LABELS } from "@/lib/laundry/nudge-rules";
+import { LAUNDRY_TEAM_REQUEST_KINDS, NUDGE_COOL_DOWN_MINUTES, NUDGE_LABELS, TEAM_REQUEST_LABELS, laundryTeamRequestKinds, type LaundryTeamRequestKind } from "@/lib/laundry/nudge-rules";
+import { detectExceptions, latestReadiness } from "@/lib/laundry/pipeline";
+import { loadSupplierTeams, teamForRun } from "@/lib/laundry/partners";
+import { sydneyTodayKey } from "@/lib/time/sydney-range";
 import type { OfficeActorRole } from "@/lib/notifications/office-send-rules";
+import { defaultNotificationWording, loadNotificationWording, type WordingRenderer } from "./wording/render";
 
 /**
  * Office-initiated messages the other redesign steps had to leave out because
@@ -115,10 +119,10 @@ async function organisationTimeZone(): Promise<string> {
  * retry carrying the first request's idempotency key is the same request and
  * passes (the pipeline then answers with the states it already has).
  */
-async function refuseWithinNudgeCoolDown(taskId: string, kind: string, idempotencyKey: string | undefined) {
+async function refuseWithinNudgeCoolDown(taskId: string, kind: string, idempotencyKey: string | undefined, action = "LAUNDRY_CLEANER_NUDGE_SENT") {
   const since = new Date(Date.now() - LAUNDRY_NUDGE_COOL_DOWN_MINUTES * 60_000);
   const recent = await db.auditLog.findFirst({
-    where: { action: "LAUNDRY_CLEANER_NUDGE_SENT", entity: "LaundryTask", entityId: taskId, createdAt: { gte: since }, after: { path: ["kind"], equals: kind } },
+    where: { action, entity: "LaundryTask", entityId: taskId, createdAt: { gte: since }, after: { path: ["kind"], equals: kind } },
     orderBy: { createdAt: "desc" },
     select: { createdAt: true, after: true },
   });
@@ -146,15 +150,24 @@ export async function sendLaundryCleanerNudge(actorId: string, input: unknown): 
   const controls = await getNotificationTypeControls();
   const requestId = request.idempotencyKey ?? randomUUID();
   const place = task.job.property?.name ?? "the property";
-  const body = `${NUDGE_LABELS[request.kind].text} (${place}, ${task.job.jobNumber ?? task.jobId})${request.note ? ` Note: ${request.note}` : ""}`;
+  const wording = await loadNotificationWording(typeKey);
+  const values = {
+    laundryAsk: NUDGE_LABELS[request.kind].text,
+    propertyName: place,
+    jobNumber: task.job.jobNumber ?? task.jobId,
+    noteSuffix: wording.line("note-line", "INBOX", { note: request.note }, Boolean(request.note)),
+  };
+  const inbox = wording.render(request.kind === "REQUEST_PHOTO" ? "photo" : "ask", "INBOX", values);
+  const body = inbox.body;
+  const email = wording.render("cleaner", "EMAIL", { ...values, messageText: body });
   const outcomes = await sendOfficeNotification({
     typeKey, eventKey: typeKey, eventId: `laundry-nudge:${task.id}:${request.kind}:${requestId}`,
     entity: { type: "LaundryTask", id: task.id }, actorId,
     scopeType: "LAUNDRY_TASK_CLEANER", scopeId: () => task.id,
     category: "laundry", severity: "ACTION", jobId: task.jobId,
-    subject: request.kind === "REQUEST_PHOTO" ? "Laundry photo requested" : "Laundry update needed",
+    subject: inbox.title,
     body, url: "/cleaner/jobs",
-    email: () => ({ subject: `Laundry: ${place}`, html: `<p>${escapeHtml(body)}</p>` }),
+    email: () => ({ subject: email.subject, html: email.html }),
     emailKind: "admin_alert",
     transports: request.transports, recipients,
     respectsPreferences: typeRespectsPreferences(controls, typeKey),
@@ -162,6 +175,132 @@ export async function sendLaundryCleanerNudge(actorId: string, input: unknown): 
   });
   const result = { outcomes, refused: [] };
   await audit(actorId, "LAUNDRY_CLEANER_NUDGE_SENT", "LaundryTask", task.id, task.jobId, result, { kind: request.kind, transports: request.transports, note: request.note ?? null, idempotencyKey: request.idempotencyKey ?? null });
+  return result;
+}
+
+export const laundryTeamRequestSchema = z.object({
+  laundryTaskId: z.string().trim().min(1).max(200),
+  kind: z.enum(LAUNDRY_TEAM_REQUEST_KINDS as [LaundryTeamRequestKind, ...LaundryTeamRequestKind[]]),
+  note: z.string().trim().max(1000).optional(),
+  /** Move pickup only: the later pickup time the office proposes (HH:mm). Never written to the run. */
+  proposedTime: z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  /**
+   * Laundry portal inbox alone (INBOX), inbox with phone and browser push
+   * (PUSH), and/or email to the team logins' addresses (EMAIL), as drawn.
+   */
+  transports: z.array(z.enum(["INBOX", "PUSH", "EMAIL"])).min(1).max(3),
+  idempotencyKey: keySchema,
+}).strict();
+
+/** INBOX is contained in PUSH (the inbox row plus push), so asking for both sends PUSH once. */
+export function normalizeTeamTransports(transports: ReadonlyArray<"INBOX" | "PUSH" | "EMAIL">): Array<"INBOX" | "PUSH" | "EMAIL"> {
+  const set = new Set(transports);
+  if (set.has("PUSH")) set.delete("INBOX");
+  return (["INBOX", "PUSH", "EMAIL"] as const).filter((transport) => set.has(transport));
+}
+
+export const LAUNDRY_TEAM_REQUEST_ACTION = "LAUNDRY_TEAM_REQUEST_SENT";
+
+/** The wording part of each request kind (its title is the part's inbox title). */
+const TEAM_REQUEST_PARTS: Record<LaundryTeamRequestKind, string> = {
+  TEAM_CONFIRM_PICKUP: "confirm-pickup",
+  TEAM_MOVE_PICKUP: "move-pickup",
+  TEAM_CONFIRM_DROP: "confirm-drop",
+  TEAM_RETURN_ETA: "return-eta",
+  TEAM_PHOTO: "photo",
+};
+
+/**
+ * (b2) Ask the laundry partner's team about a run (owner decision 2026-11-12:
+ * pickup and drop-off are the partner's work). Recipients: the active LAUNDRY
+ * users linked to the run's supplier who may see the property (scope
+ * LAUNDRY_TASK_SUPPLIER_TEAM, re-checked when queued and at dispatch). The
+ * request must still apply to the run as it is now (the Pipeline's rules);
+ * a supplier with no linked portal users is refused with the reason, so the
+ * office uses Chase supplier. Same cool-down per run and kind as the nudges.
+ */
+/** Who recorded the latest drop-off (the DROPPED event), if anyone. */
+function lastDropActorId(confirmations: ReadonlyArray<{ notes: string | null; confirmedById: string }>): string | null {
+  for (let index = confirmations.length - 1; index >= 0; index -= 1) {
+    try {
+      const meta = JSON.parse(confirmations[index].notes ?? "") as { event?: unknown };
+      if (meta?.event === "DROPPED") return confirmations[index].confirmedById;
+    } catch {
+      /* not an event row */
+    }
+  }
+  return null;
+}
+
+export async function sendLaundryTeamRequest(actorId: string, input: unknown, actorRole: OfficeActorRole | null = null): Promise<OfficeActionResult> {
+  const request = laundryTeamRequestSchema.parse(input);
+  const task = await db.laundryTask.findUnique({
+    where: { id: request.laundryTaskId },
+    select: {
+      id: true, jobId: true, status: true, pickupDate: true, dropoffDate: true, pickedUpAt: true, flagReason: true, supplierId: true,
+      supplier: { select: { id: true, name: true, avgTurnaround: true } },
+      property: { select: { name: true, suburb: true, accessInfo: true, laundryEnabled: true } },
+      job: { select: { status: true } },
+      confirmations: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { laundryReady: true, photoUrl: true, notes: true, createdAt: true, confirmedById: true } },
+    },
+  });
+  if (!task) throw new OfficeActionError(404, "Laundry run not found.");
+  if (!task.supplier) throw new OfficeActionError(409, "No laundry partner is recorded for this run.");
+  const settings = await getAppSettings().catch(() => null);
+  const now = new Date();
+  const exceptions = detectExceptions(task, {
+    todayKey: sydneyTodayKey(now),
+    now,
+    settings: { maxOutdoorDays: settings?.laundryOperations?.maxOutdoorDays ?? 3, requireDropoffPhoto: settings?.laundryPortalVisibility?.requireDropoffPhoto === true },
+  });
+  const applicable = laundryTeamRequestKinds({
+    status: task.status, pickupDate: task.pickupDate, dropoffDate: task.dropoffDate, exceptions,
+    readiness: latestReadiness(task.confirmations), jobStatus: task.job?.status ?? null, hasJob: Boolean(task.jobId), hasSupplier: true,
+  }, sydneyTodayKey(now));
+  if (!applicable.includes(request.kind)) throw new OfficeActionError(409, "This request no longer applies to the run. Reload the Pipeline.");
+  const teams = await loadSupplierTeams([task.supplier.id]);
+  const fullTeam = teamForRun(teams, task.supplier.id, task.property);
+  if (!fullTeam.length) throw new OfficeActionError(409, `${task.supplier.name} has no laundry portal users who can see this property. Use Chase supplier instead.`);
+  // A missing drop-off photo is asked of the team member who delivered, when
+  // they are on the run's team; otherwise the whole team (as before).
+  const delivererId = request.kind === "TEAM_PHOTO" ? lastDropActorId(task.confirmations) : null;
+  const deliverer = delivererId ? fullTeam.find((member) => member.id === delivererId) : undefined;
+  const team = deliverer ? [deliverer] : fullTeam;
+  if (request.proposedTime && request.kind !== "TEAM_MOVE_PICKUP") throw new OfficeActionError(400, "A proposed time only goes with Move pickup.");
+  const transports = normalizeTeamTransports(request.transports);
+  await refuseWithinNudgeCoolDown(task.id, request.kind, request.idempotencyKey, LAUNDRY_TEAM_REQUEST_ACTION);
+
+  const typeKey = "laundry.team_request";
+  const controls = await getNotificationTypeControls();
+  const requestId = request.idempotencyKey ?? randomUUID();
+  const place = task.property?.suburb ? `${task.property.name} (${task.property.suburb})` : task.property?.name ?? "the property";
+  const label = TEAM_REQUEST_LABELS[request.kind];
+  const wording = await loadNotificationWording(typeKey);
+  const askText = request.proposedTime ? `${label.text} Proposed pickup time: ${request.proposedTime}.` : label.text;
+  const values = { laundryAsk: askText, place, noteSuffix: wording.line("note-line", "INBOX", { note: request.note }, Boolean(request.note)) };
+  const inbox = wording.render(TEAM_REQUEST_PARTS[request.kind], "INBOX", values);
+  const body = inbox.body;
+  const email = wording.render("team", "EMAIL", { place, messageText: body });
+  const recipients: OfficeRecipient[] = team.map((member) => ({ id: member.id, role: member.role, name: member.name, email: member.email }));
+  const outcomes = await sendOfficeNotification({
+    typeKey, eventKey: typeKey, eventId: `laundry-team:${task.id}:${request.kind}:${requestId}`,
+    entity: { type: "LaundryTask", id: task.id }, actorId,
+    scopeType: "LAUNDRY_TASK_SUPPLIER_TEAM", scopeId: () => task.id,
+    category: "laundry", severity: "ACTION", jobId: task.jobId,
+    subject: inbox.title,
+    body, url: `/v2/laundry/requests?task=${encodeURIComponent(task.id)}`,
+    email: () => ({ subject: email.subject, html: email.html }),
+    emailKind: "admin_alert",
+    transports, recipients,
+    respectsPreferences: typeRespectsPreferences(controls, typeKey),
+    disabledTransports: controls.disabledTransports[typeKey] ?? [],
+  });
+  const result = { outcomes, refused: [] };
+  await audit(actorId, LAUNDRY_TEAM_REQUEST_ACTION, "LaundryTask", task.id, task.jobId, result, {
+    kind: request.kind, transports, note: request.note ?? null, idempotencyKey: request.idempotencyKey ?? null,
+    proposedTime: request.proposedTime ?? null, toDeliverer: Boolean(deliverer),
+    supplierId: task.supplier.id, actorRole, recipientIds: recipients.map((recipient) => recipient.id),
+  });
   return result;
 }
 
@@ -173,10 +312,19 @@ export const clientDelaySchema = z.object({
   idempotencyKey: keySchema,
 }).strict();
 
-/** The client delay wording, shared by the send and the confirm preview. */
-export function clientDelayBody(propertyName: string | null, etaMinutes?: number | null, note?: string | null): string {
-  const place = propertyName ?? "your property";
-  return `Your clean at ${place} is running late.${etaMinutes ? ` The new estimate is about ${etaMinutes} minutes.` : ""}${note ? ` ${note}` : ""}`;
+export const CLIENT_DELAY_TYPE_KEY = "client.delay_notice";
+
+/** The client delay wording, shared by the send and the confirm preview (pass the loaded wording). */
+export function clientDelayBody(propertyName: string | null, etaMinutes?: number | null, note?: string | null, wording: WordingRenderer = defaultNotificationWording(CLIENT_DELAY_TYPE_KEY)): string {
+  return clientDelayInbox(wording, propertyName, etaMinutes, note).body;
+}
+
+function clientDelayInbox(wording: WordingRenderer, propertyName: string | null, etaMinutes?: number | null, note?: string | null) {
+  return wording.render("client", "INBOX", {
+    propertyName: propertyName ?? "your property",
+    etaSentence: wording.line("eta-line", "INBOX", { etaMinutes }, Boolean(etaMinutes)),
+    noteSuffix: wording.line("note-line", "INBOX", { note }, Boolean(note)),
+  });
 }
 
 /**
@@ -207,17 +355,22 @@ export async function resolveClientDelayTarget(jobId: string) {
 export async function sendClientDelayNotice(actorId: string, input: unknown, actorRole: OfficeActorRole | null = null): Promise<OfficeActionResult> {
   const request = clientDelaySchema.parse(input);
   const { job, recipients } = await resolveClientDelayTarget(request.jobId);
-  const typeKey = "client.delay_notice";
+  const typeKey = CLIENT_DELAY_TYPE_KEY;
   const controls = await getNotificationTypeControls();
   const requestId = request.idempotencyKey ?? randomUUID();
-  const body = clientDelayBody(job.property?.name ?? null, request.etaMinutes, request.note);
+  const wording = await loadNotificationWording(typeKey);
+  const inbox = clientDelayInbox(wording, job.property?.name ?? null, request.etaMinutes, request.note);
+  const body = inbox.body;
   const outcomes = await sendOfficeNotification({
     typeKey, eventKey: typeKey, eventId: `client-delay:${job.id}:${requestId}`,
     entity: { type: "Job", id: job.id }, actorId,
     scopeType: "JOB_CLIENT_CONTACT", scopeId: () => job.id,
     category: "jobs", severity: "INFO", jobId: job.id,
-    subject: "Your clean is running late", body, url: "/client",
-    email: (recipient) => ({ subject: "Your clean is running late", html: `<p>Hi ${escapeHtml(recipient.name ?? "there")},</p><p>${escapeHtml(body)}</p>` }),
+    subject: inbox.title, body, url: "/client",
+    email: (recipient) => {
+      const email = wording.render("client", "EMAIL", { recipientName: recipient.name ?? "there", propertyName: job.property?.name ?? "your property", messageText: body });
+      return { subject: email.subject, html: email.html };
+    },
     emailKind: "client_job_update",
     transports: request.transports, recipients,
     respectsPreferences: typeRespectsPreferences(controls, typeKey),
@@ -249,14 +402,18 @@ export async function sendClockPausedNotice(input: ClockPausedNoticeInput): Prom
   const typeKey = "jobs.clock_paused_by_office";
   const controls = await getNotificationTypeControls();
   const at = formatInTimeZone(input.stoppedAt, await organisationTimeZone(), "HH:mm");
-  const body = `The office paused your clock on ${input.jobLabel} at ${at}. Reason given: "${input.reason}". Your time up to then is kept. If you are still working, open the job and tap Resume clock.`;
+  const wording = await loadNotificationWording(typeKey);
+  const values = { jobLabel: input.jobLabel, time: at, reason: input.reason };
+  const inbox = wording.render("cleaner", "INBOX", values);
+  const body = inbox.body;
+  const email = wording.render("cleaner", "EMAIL", { ...values, messageText: body });
   return sendOfficeNotification({
     typeKey, eventKey: typeKey, eventId: `clock-pause:${input.timeLogId}`,
     entity: { type: "TimeLog", id: input.timeLogId }, actorId: input.actorId,
     scopeType: "JOB_ASSIGNED_CLEANER", scopeId: () => input.jobId,
     category: "jobs", severity: "ACTION", jobId: input.jobId,
-    subject: "Your clock was paused by the office", body, url: `/cleaner/jobs/${input.jobId}`,
-    email: () => ({ subject: "Your clock was paused by the office", html: `<p>${escapeHtml(body)}</p>` }),
+    subject: inbox.title, body, url: `/cleaner/jobs/${input.jobId}`,
+    email: () => ({ subject: email.subject, html: email.html }),
     emailKind: "workforce_update",
     transports: input.transports, recipients: [input.cleaner],
     respectsPreferences: typeRespectsPreferences(controls, typeKey),

@@ -7,6 +7,7 @@ import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
 import { resolveAppUrl } from "@/lib/app-url";
 import { readSettingStore, writeSettingStore } from "@/lib/phase4/store";
 import type { LaundryPlanDraftItem } from "@/lib/laundry/planner";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const LAUNDRY_SYNC_DRAFT_KEY = "laundry_sync_reschedule_draft_v1";
 
@@ -222,19 +223,21 @@ export async function notifyLaundryTeamsForApprovedSyncDraft(items: LaundrySyncD
     const orderedItems = [...group.items].sort(
       (a, b) => new Date(a.pickupDate).getTime() - new Date(b.pickupDate).getTime()
     );
-    const webSubject = `Laundry schedule updated - ${group.propertyName}`;
-    const webBody = `${orderedItems.length} laundry booking${
-      orderedItems.length === 1 ? "" : "s"
-    } updated after reservation sync. Review the laundry portal.`;
+    const scheduleWording = await loadNotificationWording("laundry.updates");
+    const scheduleValues = { propertyName: group.propertyName, count: orderedItems.length, bookingWord: orderedItems.length === 1 ? "booking" : "bookings" };
+    const scheduleInbox = scheduleWording.render("schedule-updated", "INBOX", scheduleValues);
+    const webSubject = scheduleInbox.title;
+    const webBody = scheduleInbox.body;
     const htmlRows = orderedItems
       .map((item) => {
         const pickupLabel = format(toZonedTime(new Date(item.pickupDate), timezone), "EEE dd MMM");
         const dropoffLabel = format(toZonedTime(new Date(item.dropoffDate), timezone), "EEE dd MMM");
         const cleanLabel = format(toZonedTime(new Date(item.cleanDate), timezone), "EEE dd MMM");
-        return `<li><strong>${item.operation === "CREATE" ? "New" : "Updated"}</strong> booking for clean ${cleanLabel}: pickup ${pickupLabel}, drop-off ${dropoffLabel}.</li>`;
+        return `<li><strong>${scheduleWording.line(item.operation === "CREATE" ? "booking-new" : "booking-updated", "EMAIL", {})}</strong> booking for clean ${cleanLabel}: pickup ${pickupLabel}, drop-off ${dropoffLabel}.</li>`;
       })
       .join("");
 
+    const scheduleEmail = scheduleWording.render("schedule-updated", "EMAIL", { ...scheduleValues, title: webSubject, bookingItems: htmlRows, portalUrl: laundryPortalUrl });
     await deliverNotificationToRecipients({
       recipients,
       category: "laundry",
@@ -243,19 +246,11 @@ export async function notifyLaundryTeamsForApprovedSyncDraft(items: LaundrySyncD
         body: webBody,
       },
       email: {
-        subject: webSubject,
-        html: `
-          <h2 style="margin:0 0 12px;">Laundry schedule updated</h2>
-          <p style="margin:0 0 12px;">Admin approved reservation-driven schedule changes for <strong>${group.propertyName}</strong>.</p>
-          <ul style="margin:0 0 16px 18px; padding:0;">${htmlRows}</ul>
-          <p style="margin:0 0 16px;">Open the laundry portal to review the latest pickup and drop-off dates.</p>
-          <p style="margin:0;"><a href="${laundryPortalUrl}">Open laundry portal</a></p>
-        `,
+        subject: scheduleEmail.subject,
+        html: scheduleEmail.html,
         logBody: webBody,
       },
-      sms: `${group.propertyName}: ${orderedItems.length} laundry booking${
-        orderedItems.length === 1 ? "" : "s"
-      } updated after sync. Check the laundry portal.`,
+      sms: scheduleWording.render("schedule-updated", "SMS", scheduleValues).body,
     });
   }
 }

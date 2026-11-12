@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import type { PersonCapabilities, PersonProfile } from "@/lib/accounts/person-types";
 import { AccessSection, ContactSection } from "./contact-access-sections";
 import { ActivitySection } from "./activity-section";
+import { AccountEmailsSection } from "./account-emails-section";
 import { DocumentsSection } from "./documents-section";
 import { NotesSection, PayrollIdentitySection } from "./pay-notes-sections";
 import { PayHistorySection, PaySection } from "./pay-section";
@@ -60,7 +61,12 @@ function TabBody({ tab, profile, caps, onChanged }: ViewProps & { tab: PersonTab
     case "documents":
       return <DocumentsSection {...props} />;
     case "activity":
-      return <ActivitySection userId={profile.id} />;
+      return (
+        <>
+          <AccountEmailsSection userId={profile.id} />
+          <ActivitySection userId={profile.id} />
+        </>
+      );
   }
 }
 
@@ -118,6 +124,7 @@ export function PersonPageView({ profile, caps, onChanged }: ViewProps) {
         <RecentJobs profile={profile} />
         <PayAndTime profile={profile} />
         <DocumentsSection {...props} />
+        <AccountEmailsSection userId={profile.id} />
         <ActivitySection userId={profile.id} />
       </div>
       <div className="flex min-w-0 flex-col gap-3">

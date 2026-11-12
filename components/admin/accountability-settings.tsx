@@ -120,8 +120,10 @@ export function AccountabilitySettingsEditor({
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
             <NumField label="Minor deduction" value={s.minorDeduction} disabled={readOnly} onChange={(v) => patchScoring({ minorDeduction: v })} />
-            <NumField label="Major deduction" value={s.majorDeduction} disabled={readOnly} onChange={(v) => patchScoring({ majorDeduction: v })} />
-            <NumField label="Critical deduction" value={s.criticalDeduction} disabled={readOnly} onChange={(v) => patchScoring({ criticalDeduction: v })} />
+            <NumField label="Fail deduction" value={s.failDeduction} disabled={readOnly} onChange={(v) => patchScoring({ failDeduction: v })} />
+            <NumField label="Serious fail deduction" value={s.seriousFailDeduction} disabled={readOnly} onChange={(v) => patchScoring({ seriousFailDeduction: v })} />
+            <NumField label="Major deduction (earlier inspections)" value={s.majorDeduction} disabled={readOnly} onChange={(v) => patchScoring({ majorDeduction: v })} />
+            <NumField label="Critical deduction (earlier inspections)" value={s.criticalDeduction} disabled={readOnly} onChange={(v) => patchScoring({ criticalDeduction: v })} />
             <NumField label="Missing mandatory evidence" value={s.missingMandatoryEvidenceDeduction} disabled={readOnly} onChange={(v) => patchScoring({ missingMandatoryEvidenceDeduction: v })} />
             <NumField label="False-confirmation extra" value={s.falseConfirmationExtraDeduction} disabled={readOnly} onChange={(v) => patchScoring({ falseConfirmationExtraDeduction: v })} />
             <NumField label="Score floor" value={s.floor} disabled={readOnly} onChange={(v) => patchScoring({ floor: v })} />
@@ -133,8 +135,8 @@ export function AccountabilitySettingsEditor({
           </div>
           <div className="flex items-center justify-between rounded-lg border p-3">
             <div>
-              <p className="text-sm font-medium">Critical issues trigger management review</p>
-              <p className="text-xs text-muted-foreground">A CRITICAL verdict routes the review to management regardless of the score.</p>
+              <p className="text-sm font-medium">Serious fails trigger management review</p>
+              <p className="text-xs text-muted-foreground">A Fail marked Serious (or a Critical on an earlier inspection) routes the review to management regardless of the score.</p>
             </div>
             <Switch checked={s.criticalTriggersManagementReview} disabled={readOnly} onCheckedChange={(v) => patchScoring({ criticalTriggersManagementReview: v })} />
           </div>

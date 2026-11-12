@@ -9,6 +9,7 @@ import { publicUrl } from "@/lib/s3";
 import { startOfDay } from "date-fns";
 import { getAppSettings } from "@/lib/settings";
 import { isLaundryOfficeRole, propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
+import { isAtLaundryStatus } from "@/lib/laundry/status-groups";
 
 import { recordFailedPickup, FailedPickupError } from "@/lib/laundry/failed-pickup";
 import { recordQuantityPickup, QuantityPickupError } from "@/lib/laundry/quantity-pickup";
@@ -196,7 +197,9 @@ export async function POST(
         { status: 400 }
       );
     }
-    if (nextStatus === "DROPPED" && existing.status !== "PICKED_UP") {
+    // A drop is recorded from picked up, or from "Ready to return" (2026-11-13);
+    // marking ready is optional, so PICKED_UP → DROPPED stays as it was.
+    if (nextStatus === "DROPPED" && !isAtLaundryStatus(existing.status)) {
       return NextResponse.json({ error: "Task must be PICKED_UP before RETURNED." }, { status: 400 });
     }
     if (nextStatus === "FAILED_PICKUP_RESCHEDULE" && !["CONFIRMED", "PENDING"].includes(existing.status)) {
@@ -220,7 +223,7 @@ export async function POST(
     }
 
     if (nextStatus === "REVERT_TO_CONFIRMED") {
-      if (!["PICKED_UP", "DROPPED"].includes(existing.status)) {
+      if (!["PICKED_UP", "READY_TO_RETURN", "DROPPED"].includes(existing.status)) {
         return NextResponse.json({ error: "Can only revert from PICKED_UP/DROPPED." }, { status: 400 });
       }
       const task = await mutateLaundrySnapshot(existing, session.user, async (tx) => {
@@ -247,7 +250,8 @@ export async function POST(
     }
 
     if (nextStatus === "REVERT_TO_PICKED_UP") {
-      if (existing.status !== "DROPPED") {
+      // From DROPPED (as before) or from "Ready to return" (undo the ready mark).
+      if (existing.status !== "DROPPED" && existing.status !== "READY_TO_RETURN") {
         return NextResponse.json({ error: "Can only revert to PICKED_UP from DROPPED." }, { status: 400 });
       }
       const task = await mutateLaundrySnapshot(existing, session.user, async (tx) => {
@@ -306,8 +310,10 @@ export async function POST(
         );
       }
       data.droppedAt = actualDroppedAt;
-      data.bagWeightKg = loadWeightKg ?? null;
-      data.dropoffCostAud = totalPrice ?? null;
+      // A weight / price the laundry team already entered before drop-off is
+      // kept when the drop leaves the field blank (never turned into "none").
+      data.bagWeightKg = loadWeightKg ?? existing.bagWeightKg ?? null;
+      data.dropoffCostAud = totalPrice ?? existing.dropoffCostAud ?? null;
       data.receiptImageUrl = receiptImageKey?.trim() ? publicUrl(receiptImageKey.trim()) : existing.receiptImageUrl ?? null;
       data.dropoffKeyPhotoUrl = dropoffKeyPhotoKey?.trim() ? publicUrl(dropoffKeyPhotoKey.trim()) : null;
       data.supplierId = supplierId?.trim() || null;

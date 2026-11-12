@@ -29,6 +29,7 @@
 import { Prisma, Role } from "@prisma/client";
 import type { StockCountObservation as FormStockCount } from "@/lib/forms/form-effects";
 import { queueDelivery } from "@/lib/notifications/queue-delivery";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 type Tx = Prisma.TransactionClient;
 
@@ -85,9 +86,10 @@ export async function recordStockCountObservations(tx: Tx, input: RecordCountsIn
 async function queueCountReview(tx: Tx, jobId: string, submissionId: string, count: number) {
   const recipients = await tx.user.findMany({ where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true }, select: { id: true, role: true } });
   if (!recipients.length) return;
+  const text = (await loadNotificationWording("stock.urgent_need")).render("count-review", "INBOX", { count, answersWord: count === 1 ? "answer" : "answers" });
   await queueDelivery({ recipients, category: "shopping", jobId, web: {
-    subject: "Stock count from a form needs review",
-    body: `${count} stock count ${count === 1 ? "answer" : "answers"} on a job form could not be matched to this property's stock, so on-hand was not changed. Review them in Stock → Stock counts → Counts from job forms.`,
+    subject: text.title,
+    body: text.body,
   } }, {
     tx, eventId: `stock-count-review:${submissionId}`, eventKey: "submission.stock_count_review", entity: { type: "FormSubmission", id: submissionId },
     actorId: null, severity: "ACTION", scope: { kind: "ADMIN_OPERATIONS" }, transports: ["INBOX"],

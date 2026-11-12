@@ -4,8 +4,13 @@
  * A deduction-based QA score: every clean starts at 100 and loses points per
  * flagged item (per-verdict severity), per missing mandatory evidence field, and
  * per suspected false confirmation. The result maps to a rating band and a
- * pass/fail decision. Any CRITICAL verdict force-routes the review to management
- * (regardless of the numeric score) when the setting is enabled.
+ * pass/fail decision. Any CRITICAL verdict, or a FAIL the inspector marked
+ * Serious, force-routes the review to management (regardless of the numeric
+ * score) when the setting is enabled.
+ *
+ * Verdict scales (lib/qa/verdict-scale.ts): new inspections grade Pass / Minor /
+ * Fail / N/A (FAIL −failDeduction, FAIL + serious −seriousFailDeduction); older
+ * inspections keep Major / Critical and are scored exactly as before.
  *
  * This module is the CONTRACT shared between the QA submit API
  * (`app/api/qa/jobs/[id]/route.ts`) and the QA review UI — the exported types are
@@ -20,7 +25,7 @@ import type { AccountabilityScoringSettings } from "@/lib/settings";
 
 export type { AccountabilityScoringSettings };
 
-export type AccountabilityVerdict = "PASS" | "MINOR" | "MAJOR" | "CRITICAL" | "NA";
+export type AccountabilityVerdict = "PASS" | "MINOR" | "FAIL" | "MAJOR" | "CRITICAL" | "NA";
 
 export type AccountabilityRating =
   | "EXCELLENT"
@@ -34,6 +39,12 @@ export interface AccountabilityVerdictEntry {
   itemKey?: string | null;
   label?: string | null;
   verdict: AccountabilityVerdict;
+  /**
+   * FAIL only: the inspector's "Serious" tick. Carries what only CRITICAL used
+   * to trigger (larger deduction, management review, streak break). Ignored on
+   * every other verdict.
+   */
+  serious?: boolean;
   /** settings issueCategories key (required for MINOR+) */
   category?: string | null;
   /** required for MINOR+ */
@@ -61,6 +72,8 @@ export interface AccountabilityAssessmentInput {
 
 export type AccountabilityDeductionKind =
   | "MINOR"
+  | "FAIL"
+  | "SERIOUS_FAIL"
   | "MAJOR"
   | "CRITICAL"
   | "MISSING_EVIDENCE"
@@ -77,23 +90,30 @@ export interface AccountabilityScoreResult {
   rawScore: number;
   deductions: AccountabilityDeduction[];
   rating: AccountabilityRating;
-  /** any CRITICAL (when criticalTriggersManagementReview) — rating becomes MANAGEMENT_REVIEW */
+  /** any CRITICAL or serious FAIL (when criticalTriggersManagementReview) — rating becomes MANAGEMENT_REVIEW */
   managementReview: boolean;
   /** rating EXCELLENT|PASS */
   passed: boolean;
   counts: {
     minor: number;
+    /** FAIL without the Serious tick (current scale). */
+    fail: number;
+    /** FAIL with the Serious tick (current scale). */
+    seriousFail: number;
+    /** MAJOR (earlier scale). */
     major: number;
+    /** CRITICAL (earlier scale). */
     critical: number;
     missingEvidence: number;
     falseConfirmations: number;
   };
 }
 
-const SEVERITY_DEDUCTION_KIND: Record<
-  "MINOR" | "MAJOR" | "CRITICAL",
-  AccountabilityDeductionKind
-> = { MINOR: "MINOR", MAJOR: "MAJOR", CRITICAL: "CRITICAL" };
+type FlaggingVerdict = "MINOR" | "FAIL" | "MAJOR" | "CRITICAL";
+
+function isFlaggingVerdict(verdict: AccountabilityVerdict): verdict is FlaggingVerdict {
+  return verdict === "MINOR" || verdict === "FAIL" || verdict === "MAJOR" || verdict === "CRITICAL";
+}
 
 /**
  * Pure rating-band resolver shared by the submit engine and the accountability
@@ -120,7 +140,8 @@ export function ratingForScore(
  *
  * Rules:
  *  - start at 100
- *  - MINOR −minorDeduction, MAJOR −majorDeduction, CRITICAL −criticalDeduction per verdict
+ *  - MINOR −minorDeduction, FAIL −failDeduction (−seriousFailDeduction when
+ *    marked serious), MAJOR −majorDeduction, CRITICAL −criticalDeduction per verdict
  *  - each missing mandatory-evidence id −missingMandatoryEvidenceDeduction
  *  - each suspected false confirmation an EXTRA −falseConfirmationExtraDeduction
  *    (on top of the flagged item's own verdict deduction)
@@ -128,7 +149,7 @@ export function ratingForScore(
  *  - floor the result at `floor`
  *  - rating: ≥excellentMin EXCELLENT, ≥passMin PASS, ≥needsImprovementMin
  *    NEEDS_IMPROVEMENT, else FAILED
- *  - any CRITICAL verdict + criticalTriggersManagementReview → rating
+ *  - any CRITICAL or serious FAIL verdict + criticalTriggersManagementReview → rating
  *    MANAGEMENT_REVIEW + managementReview true, regardless of the numeric score
  */
 export function computeAccountabilityScore(
@@ -136,29 +157,46 @@ export function computeAccountabilityScore(
   scoring: AccountabilityScoringSettings
 ): AccountabilityScoreResult {
   const deductions: AccountabilityDeduction[] = [];
-  const counts = { minor: 0, major: 0, critical: 0, missingEvidence: 0, falseConfirmations: 0 };
-  let hasCritical = false;
-
-  const severityAmount: Record<"MINOR" | "MAJOR" | "CRITICAL", number> = {
-    MINOR: scoring.minorDeduction,
-    MAJOR: scoring.majorDeduction,
-    CRITICAL: scoring.criticalDeduction,
+  const counts = {
+    minor: 0,
+    fail: 0,
+    seriousFail: 0,
+    major: 0,
+    critical: 0,
+    missingEvidence: 0,
+    falseConfirmations: 0,
   };
+  let hasCritical = false;
 
   for (const entry of input.verdicts ?? []) {
     const v = entry.verdict;
-    if (v !== "MINOR" && v !== "MAJOR" && v !== "CRITICAL") continue; // PASS / NA deduct nothing
-    if (v === "MINOR") counts.minor += 1;
-    else if (v === "MAJOR") counts.major += 1;
-    else {
+    if (!isFlaggingVerdict(v)) continue; // PASS / NA deduct nothing
+    let kind: AccountabilityDeductionKind;
+    let amount: number;
+    if (v === "MINOR") {
+      counts.minor += 1;
+      kind = "MINOR";
+      amount = scoring.minorDeduction;
+    } else if (v === "FAIL" && entry.serious === true) {
+      counts.seriousFail += 1;
+      hasCritical = true;
+      kind = "SERIOUS_FAIL";
+      amount = scoring.seriousFailDeduction;
+    } else if (v === "FAIL") {
+      counts.fail += 1;
+      kind = "FAIL";
+      amount = scoring.failDeduction;
+    } else if (v === "MAJOR") {
+      counts.major += 1;
+      kind = "MAJOR";
+      amount = scoring.majorDeduction;
+    } else {
       counts.critical += 1;
       hasCritical = true;
+      kind = "CRITICAL";
+      amount = scoring.criticalDeduction;
     }
-    deductions.push({
-      kind: SEVERITY_DEDUCTION_KIND[v],
-      fieldId: entry.fieldId,
-      amount: severityAmount[v],
-    });
+    deductions.push({ kind, fieldId: entry.fieldId, amount });
   }
 
   for (const fieldId of input.missingMandatoryEvidenceFieldIds ?? []) {
@@ -190,7 +228,7 @@ export function computeAccountabilityScore(
   return { rawScore, deductions, rating, managementReview, passed, counts };
 }
 
-const VALID_VERDICTS: AccountabilityVerdict[] = ["PASS", "MINOR", "MAJOR", "CRITICAL", "NA"];
+const VALID_VERDICTS: AccountabilityVerdict[] = ["PASS", "MINOR", "FAIL", "MAJOR", "CRITICAL", "NA"];
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -242,7 +280,7 @@ export function sanitizeAccountabilityAssessment(
         ? rawVerdict
         : "NA") as AccountabilityVerdict;
 
-      const isFlagged = verdict === "MINOR" || verdict === "MAJOR" || verdict === "CRITICAL";
+      const isFlagged = isFlaggingVerdict(verdict);
       let category = asString(e.category);
       if (isFlagged) {
         // MINOR+ verdicts must carry a valid category; fall back to "other".
@@ -256,6 +294,7 @@ export function sanitizeAccountabilityAssessment(
         itemKey: asString(e.itemKey),
         label: asString(e.label),
         verdict,
+        serious: verdict === "FAIL" && e.serious === true,
         category,
         description: asString(e.description),
         guestReadyImpact: e.guestReadyImpact === true,

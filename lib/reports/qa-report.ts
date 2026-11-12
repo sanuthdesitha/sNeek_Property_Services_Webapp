@@ -1,3 +1,4 @@
+import { countIssuesByVerdict } from "@/lib/qa/verdict-scale";
 import { isDeviceException, formatDeviceException } from "@/lib/forms/device-status";
 import { db } from "@/lib/db";
 import { getPresignedDownloadUrl, publicUrl, s3 } from "@/lib/s3";
@@ -283,21 +284,20 @@ export async function buildQaReportHtml(
   const score = qa?.score ?? submission?.score ?? null;
   const passed = qa?.passed ?? submission?.passed ?? null;
   const rating = qa?.rating ?? null;
-  const counts = issues.reduce(
-    (acc, i) => {
-      const key = String(i.severity) as "MINOR" | "MAJOR" | "CRITICAL";
-      if (key in acc) acc[key] += 1;
-      return acc;
-    },
-    { MINOR: 0, MAJOR: 0, CRITICAL: 0 }
+  // Fail (current scale) and Major / Critical (history) are counted apart so a
+  // stored inspection reads exactly as it was graded (lib/qa/verdict-scale.ts).
+  const counts = countIssuesByVerdict(
+    issues.map((i) => ({ severity: String(i.severity), failVerdict: i.failVerdict, serious: i.serious }))
   );
   const deductions = settings.accountability?.scoring ?? null;
   // Deduction values are SETTINGS-driven; quoting hardcoded 3/10/25 would be a
-  // lie the moment an admin retunes them.
+  // lie the moment an admin retunes them. A value not configured reads "—".
   const breakdownRows = [
-    { label: "Minor issues", count: counts.MINOR, each: deductions?.minorDeduction ?? null },
-    { label: "Major issues", count: counts.MAJOR, each: deductions?.majorDeduction ?? null },
-    { label: "Critical issues", count: counts.CRITICAL, each: deductions?.criticalDeduction ?? null },
+    { label: "Minor issues", count: counts.minor, each: deductions?.minorDeduction ?? null },
+    { label: "Fail", count: counts.fail, each: deductions?.failDeduction ?? null },
+    { label: "Fail · serious", count: counts.seriousFail, each: deductions?.seriousFailDeduction ?? null },
+    { label: "Major issues", count: counts.major, each: deductions?.majorDeduction ?? null },
+    { label: "Critical issues", count: counts.critical, each: deductions?.criticalDeduction ?? null },
   ].filter((r) => r.count > 0);
 
   const breakdownHtml = breakdownRows.length
@@ -332,7 +332,9 @@ export async function buildQaReportHtml(
       const categoryLabel = categoryLabels.get(issue.category) ?? titleCase(issue.category);
       return `<div class="qa-card qa-issue">
         <div class="qa-issue-head">
-          <span class="qa-chip" style="background:${tint.bg};color:${tint.ink};">${escapeHtml(issue.severity)}</span>
+          <span class="qa-chip" style="background:${tint.bg};color:${tint.ink};">${escapeHtml(
+            issue.failVerdict ? (issue.serious ? "FAIL · SERIOUS" : "FAIL") : issue.severity
+          )}</span>
           <strong>${escapeHtml(categoryLabel)}</strong>
           ${issue.guestReadyImpact ? `<span class="qa-chip qa-chip-warn">Guest-ready impact</span>` : ""}
           ${

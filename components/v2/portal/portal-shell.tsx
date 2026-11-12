@@ -35,6 +35,13 @@ export interface NavItem {
    * everyone else so the menu never offers a page that will refuse them.
    */
   adminOnly?: boolean;
+  /**
+   * A phone tab with no rail entry (the cleaner "More" tab): kept out of the
+   * desktop rail, the drawer and navigation search.
+   */
+  mobileOnly?: boolean;
+  /** Further paths that keep this entry's phone tab lit (a tab's sub-pages). */
+  tabActivePrefixes?: string[];
 }
 
 export function PortalShell({
@@ -43,6 +50,9 @@ export function PortalShell({
   nav: suppliedNav,
   user,
   roleLabel,
+  immersive,
+  hideMobileMenuButton = false,
+  headerActions,
   children,
 }: {
   accent: "admin" | "client" | "cleaner" | "laundry" | "qa" | "maintenance";
@@ -52,6 +62,19 @@ export function PortalShell({
   user?: { name: string; role: string };
   /** Second line under the user's name, e.g. "Admin", "Client". */
   roleLabel?: string;
+  /**
+   * Phone-only focus mode for one path (the cleaner job screen): the top bar
+   * and the tab bar are hidden below the desktop breakpoint so the page's own
+   * header and bottom action own the screen. Desktop is unchanged.
+   */
+  immersive?: (pathname: string) => boolean;
+  /** Hide the phone menu button when a tab (such as "More") replaces the drawer. */
+  hideMobileMenuButton?: boolean;
+  /**
+   * Extra header controls before search and notifications (the client
+   * portal's Messages envelope and Request button). Omitted by other portals.
+   */
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const { canAccess, levels } = useOpsAccess();
@@ -60,10 +83,11 @@ export function PortalShell({
   // Until the session is known nothing is hidden; the server guard still applies.
   const viewerRole = session?.user?.role;
   const hideAdminOnly = Boolean(viewerRole) && viewerRole !== "ADMIN";
-  const nav = suppliedNav
+  const permittedNav = suppliedNav
     .filter((item) => !(item.adminOnly && hideAdminOnly))
     .map((item) => ({ ...item, href: opsNavigationHref(levels, item.href) ?? item.href }))
     .filter((item) => canAccess(item.href));
+  const nav = permittedNav.filter((item) => !item.mobileOnly);
   const displayName = user?.name ?? session?.user?.name ?? "";
   const displayRole = user?.role ?? roleLabel ?? "";
   const initials = displayName.trim().slice(0, 2).toUpperCase();
@@ -117,7 +141,8 @@ export function PortalShell({
     if (previous && previous.group === item.group) previous.items.push(item);
     else sections.push({ group: item.group, items: [item] });
   }
-  const tabs = mobileTabs(accent, nav);
+  const tabs = mobileTabs(accent, permittedNav);
+  const focusMode = Boolean(pathname && immersive?.(pathname));
 
   React.useEffect(() => {
     const desktop = window.matchMedia("(min-width: 1024px)");
@@ -140,6 +165,13 @@ export function PortalShell({
     return best;
   }, [nav, pathname, accent]);
   const isActive = (href: string) => href === bestMatchHref;
+  const underPath = (path: string) => pathname === path || Boolean(pathname?.startsWith(path + "/"));
+  // A tab is lit by the rail's deepest match, by its own path when it has no
+  // rail entry, or by one of the sub-pages it declares.
+  const isTabActive = (item: NavItem) =>
+    isActive(item.href) ||
+    (item.mobileOnly === true && underPath(item.href)) ||
+    (item.tabActivePrefixes ?? []).some(underPath);
   const activeGroup = orderedNav.find((item) => isActive(item.href))?.group;
   const activeGroupToken = JSON.stringify([groupPreferenceKey, pathname, activeGroup]);
   const searching = query.trim().length > 0;
@@ -298,8 +330,11 @@ export function PortalShell({
 
       {/* Main column — offset by the fixed rail width on desktop */}
       <div className="flex min-w-0 flex-1 flex-col lg:pl-60">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.85)] px-4 backdrop-blur lg:px-8">
-          <button ref={menuRef} className="flex h-11 w-11 shrink-0 items-center justify-center lg:hidden" onClick={() => setOpen(true)} aria-label="Menu" aria-expanded={open} aria-haspopup="dialog">
+        <header className={cn(
+          "sticky top-0 z-30 h-16 items-center gap-3 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.85)] px-4 backdrop-blur lg:px-8",
+          focusMode ? "hidden lg:flex" : "flex",
+        )}>
+          <button ref={menuRef} className={cn("h-11 w-11 shrink-0 items-center justify-center lg:hidden", hideMobileMenuButton ? "hidden" : "flex")} onClick={() => setOpen(true)} aria-label="Menu" aria-expanded={open} aria-haspopup="dialog">
             <Menu className="h-5 w-5 text-[hsl(var(--e-foreground))]" />
           </button>
           <span className="e-serif min-w-0 truncate text-[1.05rem] font-[520] lg:hidden">{wordmark}</span>
@@ -307,19 +342,20 @@ export function PortalShell({
             {roleLabel || accent} / <span className="font-medium text-[hsl(var(--e-foreground))]">{nav.find((item) => item.href === bestMatchHref)?.label || "Details"}</span>
           </p>
           <div className="ml-auto flex items-center gap-1">
+            {headerActions}
             <PortalSearch accent={accent} nav={nav} />
             <NotificationInbox accent={accent} />
           </div>
         </header>
 
-        <main className="flex-1 px-4 pb-24 pt-6 lg:px-8 lg:pb-10">
+        <main className={cn("flex-1 px-4 lg:px-8 lg:pb-10 lg:pt-6", focusMode ? "pb-6 pt-0" : "pb-24 pt-6")}>
           <div className="mx-auto max-w-7xl">{children}</div>
         </main>
 
         {/* Stable daily destinations, independent of sidebar order and favorites. */}
-        <nav className="fixed bottom-0 left-0 right-0 z-30 flex border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.95)] backdrop-blur lg:hidden">
+        <nav className={cn("fixed bottom-0 left-0 right-0 z-30 border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.95)] backdrop-blur lg:hidden", focusMode ? "hidden" : "flex")}>
           {tabs.map((item) => {
-            const active = isActive(item.href);
+            const active = isTabActive(item);
             const Icon = item.icon;
             return (
               <Link
@@ -327,7 +363,7 @@ export function PortalShell({
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex flex-1 flex-col items-center gap-0.5 py-2 text-[0.625rem] font-medium",
+                  "flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[0.625rem] font-medium",
                   active ? "text-[hsl(var(--e-accent-portal))]" : "text-[hsl(var(--e-muted-foreground))]"
                 )}
               >

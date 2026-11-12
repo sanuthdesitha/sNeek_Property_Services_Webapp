@@ -37,6 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { clientLaundryStatusLabel } from "@/lib/client/laundry-status";
 
 const TZ = "Australia/Sydney";
 
@@ -363,7 +364,7 @@ export function ClientJobsWorkspace({
                     Laundry update
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Status {String(job.laundryTask.status).replace(/_/g, " ")} - Pickup{" "}
+                    Status {clientLaundryStatusLabel(job.laundryTask.status)} - Pickup{" "}
                     {format(toLocalDate(job.laundryTask.pickupDate), "dd MMM yyyy")} - Drop off{" "}
                     {format(toLocalDate(job.laundryTask.dropoffDate), "dd MMM yyyy")}
                   </p>

@@ -39,6 +39,7 @@ import {
 } from "@prisma/client";
 import { db } from "@/lib/db";
 import { notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import {
   notifyPayAdjustmentOutcome,
   notifyReworkMinutesChanged,
@@ -126,13 +127,17 @@ export async function createQaReworkTransfer(input: {
   });
 
   // Notify admins/ops there is a rework transfer awaiting approval.
-  const notify = async () => { await notifyAdminsByPush({
-    jobId: input.jobId,
-    subject: "QA rework transfer awaiting approval",
-    body: `${transfer.job.property?.name ?? "A job"}: ${severityLabel(transfer.severity)} rework flagged by ${
-      transfer.qaUser.name ?? "QA"
-    } — ${minutes} min / $${amount.toFixed(2)} proposed to move from ${transfer.cleaner.name ?? "the cleaner"}.`,
-  }).catch(() => undefined); };
+  const notify = async () => {
+    const alert = (await loadNotificationWording("job.qa_and_accountability")).render("rework-transfer", "INBOX", {
+      propertyName: transfer.job.property?.name ?? "A job",
+      severity: severityLabel(transfer.severity),
+      qaName: transfer.qaUser.name ?? "QA",
+      minutes,
+      amount: `$${amount.toFixed(2)}`,
+      cleanerName: transfer.cleaner.name ?? "the cleaner",
+    });
+    await notifyAdminsByPush({ jobId: input.jobId, subject: alert.title, body: alert.body }).catch(() => undefined);
+  };
   if (options.transaction) options.afterCommit!.push(notify);
   else await notify();
 
@@ -273,24 +278,23 @@ export async function reviewQaReworkTransfer(params: {
     });
 
     // Tell the cleaner — including the shared rework note so they can self-correct.
+    const reworkWording = await loadNotificationWording("job.qa_and_accountability");
+    const approvedTransfer = params.status === QaReworkTransferStatus.APPROVED;
+    const moved = `${minutes > 0 ? `${minutes} min` : ""}${minutes > 0 && amount > 0 ? reworkWording.line("moved-joiner", "INBOX", {}) : ""}${amount > 0 ? `$${amount.toFixed(2)}` : ""}`;
+    const reworkNotice = reworkWording.render(approvedTransfer ? "rework-recorded" : "rework-declined", "INBOX", {
+      propertyName,
+      severity: severityLabel(existing.severity),
+      moved,
+      reason: existing.reason,
+    });
     await tx.notification.create({
       data: {
         userId: existing.cleanerUserId,
         jobId: existing.jobId,
         externalId: mobilePendingMarker("jobs"),
         channel: NotificationChannel.PUSH,
-        subject:
-          params.status === QaReworkTransferStatus.APPROVED
-            ? "QA rework recorded on your job"
-            : "QA rework transfer declined",
-        body:
-          params.status === QaReworkTransferStatus.APPROVED
-            ? `${propertyName}: QA flagged ${severityLabel(existing.severity)} rework. ${
-                minutes > 0 ? `${minutes} min` : ""
-              }${minutes > 0 && amount > 0 ? " and " : ""}${
-                amount > 0 ? `$${amount.toFixed(2)}` : ""
-              } moved to the QA inspector. Note: ${existing.reason}`.slice(0, 480)
-            : `${propertyName}: A QA rework transfer against your job was declined by admin.`,
+        subject: reworkNotice.title,
+        body: approvedTransfer ? reworkNotice.body.slice(0, 480) : reworkNotice.body,
         status: NotificationStatus.SENT,
         sentAt: new Date(),
       },

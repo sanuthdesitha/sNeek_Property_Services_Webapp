@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { capabilityRefusal } from "@/lib/rbac/capability-http";
+import { invoicePatchCapabilities } from "@/lib/rbac/invoice-capabilities";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getClientInvoice, releaseInvoiceConsumables } from "@/lib/billing/client-invoices";
@@ -45,6 +47,8 @@ export async function PATCH(req: NextRequest, context: { params: { id: string } 
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = await req.json().catch(() => ({}));
+    const refusal = await capabilityRefusal(session, invoicePatchCapabilities(body));
+    if (refusal) return refusal;
     // The action (row lock, guards, audit) lives in lib so the bulk route runs
     // exactly the same checks.
     const actor = { ...session.user, impersonatedBy: session.impersonation?.actorId ?? null };

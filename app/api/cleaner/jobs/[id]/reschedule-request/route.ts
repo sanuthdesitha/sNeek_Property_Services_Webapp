@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { createContinuationRequest, listContinuationRequests } from "@/lib/jobs/continuation-requests";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   reason: z.string().trim().min(5).max(2000),
@@ -121,14 +122,15 @@ export async function POST(
       select: { id: true },
     });
     if (admins.length > 0) {
+      const continuation = (await loadNotificationWording("office.cleaner_requests")).render("continuation", "INBOX", { jobId: params.id });
       await db.notification.createMany({
         data: admins.map((admin) => ({
           userId: admin.id,
           jobId: params.id,
           externalId: mobilePendingMarker("approvals"),
           channel: NotificationChannel.PUSH,
-          subject: "Continuation request pending",
-          body: `Job ${params.id} requires continuation approval.`,
+          subject: continuation.title,
+          body: continuation.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         })),

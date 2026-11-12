@@ -7,6 +7,8 @@ import { toZonedTime } from "date-fns-tz";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
+import { getAppSettings } from "@/lib/settings";
+import { isCleanerModuleEnabled } from "@/lib/portal-access";
 import {
   EBadge,
   EButton,
@@ -20,6 +22,7 @@ import { ChevronRight, Search } from "lucide-react";
 import { JobOfferActions } from "@/components/v2/cleaner/job-offer-actions";
 import { resolveTimingBadges } from "@/lib/jobs/timing-badges";
 import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
+import { JobsViewSwitch } from "@/components/v2/cleaner/portal/segment-tabs";
 import {
   sydneyTodayKey,
   sydneyDayStart,
@@ -147,6 +150,10 @@ export default async function CleanerJobsPage({
   searchParams?: { scope?: string; q?: string; from?: string; to?: string; preset?: string };
 }) {
   const session = await requireRole([Role.CLEANER]);
+  // The Month view is the calendar page; hide the switch only when its module
+  // is known to be off (unknown settings leave the calendar's own guard to decide).
+  const settings = await getAppSettings().catch(() => null);
+  const monthAvailable = settings ? isCleanerModuleEnabled(settings, "calendar") : true;
 
   const scope: "open" | "history" =
     (searchParams?.scope ?? "open").toLowerCase() === "history" ? "history" : "open";
@@ -231,6 +238,9 @@ export default async function CleanerJobsPage({
               : `${jobs.length} upcoming assignment${jobs.length === 1 ? "" : "s"}.`
         }
       />
+
+      {/* Board: the Jobs tab is List / Month; Month is the calendar page. */}
+      <JobsViewSwitch active="list" monthAvailable={monthAvailable} />
 
       {/* Scope tabs + search / date filters — server-driven (URL params) */}
       <div className="space-y-3">

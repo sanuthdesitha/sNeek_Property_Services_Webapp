@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ShieldAlert } from "lucide-react";
+import { Info, ShieldAlert } from "lucide-react";
 import { EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitives";
 import { BiometricSignInButton } from "@/components/auth/biometric-sign-in-button";
 import { signInWithCredentials } from "@/lib/auth/credentials-sign-in";
@@ -220,24 +220,13 @@ export default function LoginPageV2() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-[hsl(var(--e-background))] p-4">
+    <main className="relative flex min-h-screen items-center justify-center bg-[hsl(var(--e-background))] p-4">
       {/* Champagne glow, kept faint per the Estate language. */}
       <div
         className="pointer-events-none absolute -top-24 right-[12%] hidden h-80 w-80 rounded-full opacity-[0.07] blur-3xl md:block"
         style={{ background: "hsl(var(--e-gold))" }}
       />
       <div className="w-full max-w-sm space-y-5 e-rise">
-        {!isNativeApp ? (
-          <div className="text-center">
-            <Link
-              href="/"
-              className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))] underline-offset-4 hover:text-[hsl(var(--e-foreground))] hover:underline"
-            >
-              &larr; Back to home
-            </Link>
-          </div>
-        ) : null}
-
         <ECard variant="ceremony" className="w-full">
           <ECardBody className="p-8">
             {/* Brand mark */}
@@ -253,11 +242,16 @@ export default function LoginPageV2() {
                   <span className="e-serif text-[1.05rem] font-[520] text-[hsl(var(--e-gold-ink))]">S</span>
                 </div>
               )}
-              <EEyebrow className="justify-center">PRIVATE PORTAL</EEyebrow>
-              <h1 className="e-display-sm mt-1.5">{branding.companyName}</h1>
-              <p className="mt-1 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-                {adminRecoveryMode ? "Admin recovery sign in" : "Sign in to your portal"}
-              </p>
+              <p className="text-[0.8125rem] font-[550] text-[hsl(var(--e-text-secondary))]">{branding.companyName}</p>
+              <EEyebrow className="mt-1 justify-center">PRIVATE PORTAL</EEyebrow>
+              <h1 className="e-display-sm mt-1.5">
+                {twoFa ? "Verify it\u2019s you" : adminRecoveryMode ? "Admin recovery sign in" : "Sign in to your portal"}
+              </h1>
+              {!twoFa && !adminRecoveryMode ? (
+                <p className="mt-1 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
+                  Cleaners, clients, laundry, QA and maintenance all sign in here.
+                </p>
+              ) : null}
               <div className="e-thread mx-auto mt-5 w-16" />
             </div>
 
@@ -338,7 +332,7 @@ export default function LoginPageV2() {
                   Trust this device for 30 days
                 </label>
                 <EButton type="submit" variant="gold" size="lg" className="w-full" disabled={loading}>
-                  {loading ? "Verifying..." : "Verify & sign in"}
+                  {loading ? "Verifying..." : "Verify and sign in"}
                 </EButton>
                 <button
                   type="button"
@@ -358,13 +352,36 @@ export default function LoginPageV2() {
                       className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"
                       onClick={requestTwoFaRecovery}
                     >
-                      Lost your authenticator and backup codes? Recover via email
+                      Lost your device and backup codes? Recover access by email
                     </button>
                   )}
                 </div>
               </form>
             ) : (
               <>
+                {/* Passkey first (board). The button renders nothing on a device
+                    without a passkey authenticator; the divider then hides as the
+                    first child, leaving the email form on its own. */}
+                <div className="mb-4 space-y-4">
+                  {!signInBlocked ? (
+                    <BiometricSignInButton
+                      layout="first"
+                      email={form.email}
+                      callbackUrl={
+                        adminRecoveryMode
+                          ? `${typeof window !== "undefined" ? window.location.origin : ""}/v2/admin`
+                          : v2CallbackPath
+                      }
+                      disabled={!mounted || loading}
+                      onError={(message) => setError(message || null)}
+                    />
+                  ) : null}
+                  <p aria-hidden className="flex items-center gap-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))] first:hidden">
+                    <span className="h-px flex-1 bg-[hsl(var(--e-border))]" />
+                    or use email
+                    <span className="h-px flex-1 bg-[hsl(var(--e-border))]" />
+                  </p>
+                </div>
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="space-y-1.5">
                     <label htmlFor="email" className={E_LABEL_CLASS}>Email</label>
@@ -404,21 +421,11 @@ export default function LoginPageV2() {
                     {loading ? "Signing in..." : adminRecoveryMode ? "Admin sign in" : "Sign in"}
                   </EButton>
                 </form>
+                <p className="mt-4 flex gap-2 rounded-[var(--e-radius)] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>Invited but never set a password? Open the invite email, or ask the office for a reset.</span>
+                </p>
 
-                {!signInBlocked ? (
-                  <div className="mt-4">
-                    <BiometricSignInButton
-                      email={form.email}
-                      callbackUrl={
-                        adminRecoveryMode
-                          ? `${typeof window !== "undefined" ? window.location.origin : ""}/v2/admin`
-                          : v2CallbackPath
-                      }
-                      disabled={!mounted || loading}
-                      onError={(message) => setError(message || null)}
-                    />
-                  </div>
-                ) : null}
               </>
             )}
 
@@ -431,6 +438,17 @@ export default function LoginPageV2() {
           </ECardBody>
         </ECard>
 
+        {!isNativeApp ? (
+          <div className="text-center">
+            <Link
+              href="/"
+              className="inline-flex min-h-11 items-center text-[0.8125rem] text-[hsl(var(--e-text-secondary))] underline-offset-4 hover:text-[hsl(var(--e-foreground))] hover:underline"
+            >
+              Back to home
+            </Link>
+          </div>
+        ) : null}
+
         <p className="text-center text-[0.75rem] text-[hsl(var(--e-text-faint))]">
           Prefer the classic look?{" "}
           <Link href="/login" className="underline-offset-4 hover:text-[hsl(var(--e-text-secondary))] hover:underline">
@@ -438,6 +456,6 @@ export default function LoginPageV2() {
           </Link>
         </p>
       </div>
-    </div>
+    </main>
   );
 }

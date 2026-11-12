@@ -69,7 +69,8 @@ import {
   DEFAULT_ACCOUNTABILITY_SCORING,
   DEFAULT_ISSUE_CATEGORIES,
   VERDICT_LABELS,
-  VERDICT_OPTIONS,
+  verdictOptionsFor,
+  type QaVerdictScaleKey,
   buildAccountabilityBlob,
   cleanerAnsweredAffirmatively,
   computeAccountabilityPreview,
@@ -81,6 +82,7 @@ import {
   type ItemMeta,
   type VerdictState,
 } from "@/components/v2/qa/accountability";
+import { normalizeVerdictScale } from "@/lib/qa/verdict-scale";
 
 /** Convert a `data:image/...;base64,...` URL to a Blob without using fetch()
  *  (fetch on data: URLs is CSP-blocked in some mobile webviews). */
@@ -130,6 +132,7 @@ function isPassChoiceField(field: any): boolean {
 const VERDICT_TO_LEGACY_ANSWER: Record<AccountabilityVerdict, string | null> = {
   PASS: "Pass",
   MINOR: "Minor issues",
+  FAIL: "Fail",
   MAJOR: "Fail",
   CRITICAL: "Fail",
   NA: null,
@@ -142,6 +145,7 @@ const VERDICT_TO_LEGACY_ANSWER: Record<AccountabilityVerdict, string | null> = {
 const V1_VERDICT_CLASS: Record<AccountabilityVerdict, string> = {
   PASS: "bg-success text-success-foreground border-success",
   MINOR: "bg-warning text-warning-foreground border-warning",
+  FAIL: "bg-destructive text-destructive-foreground border-destructive",
   MAJOR: "bg-orange-500 text-white border-orange-500",
   CRITICAL: "bg-destructive text-destructive-foreground border-destructive",
   NA: "bg-muted text-foreground border-border",
@@ -158,6 +162,7 @@ function AccountabilityItemV1({
   issueCategories,
   jobId,
   urlByKey,
+  verdictScale,
   onAddPhoto,
   onRemovePhoto,
   children,
@@ -172,6 +177,8 @@ function AccountabilityItemV1({
   issueCategories: { key: string; label: string }[];
   jobId: string;
   urlByKey: Record<string, string>;
+  /** The inspection's stored verdict scale (lib/qa/verdict-scale.ts). */
+  verdictScale: QaVerdictScaleKey;
   onAddPhoto: (key: string) => void;
   onRemovePhoto: (key: string) => void;
   children?: ReactNode;
@@ -190,7 +197,7 @@ function AccountabilityItemV1({
             <Badge variant="secondary" className="text-[10px]">Cleaner marked complete</Badge>
           ) : null}
           <div className="ml-auto flex flex-wrap gap-1">
-            {VERDICT_OPTIONS.map((v) => {
+            {verdictOptionsFor(verdictScale).map((v) => {
               const active = state.verdict === v;
               return (
                 <button
@@ -208,6 +215,13 @@ function AccountabilityItemV1({
             })}
           </div>
         </div>
+
+        {state.verdict === "FAIL" ? (
+          <label className="mt-2 flex items-center gap-2 text-xs font-medium text-foreground">
+            <Checkbox checked={Boolean(state.serious)} onCheckedChange={(v) => onPatch({ serious: v === true })} />
+            Serious: not fit for a guest, or a safety or damage problem
+          </label>
+        ) : null}
 
         {requiredPhoto ? (
           <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -606,6 +620,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
   const issueCategories: { key: string; label: string }[] =
     (payload?.settings?.accountability?.issueCategories as { key: string; label: string }[] | undefined) ??
     DEFAULT_ISSUE_CATEGORIES;
+  const verdictScale: QaVerdictScaleKey = normalizeVerdictScale(payload?.verdictScale);
 
   const cleanerMediaByField = useMemo(() => {
     const map: Record<string, string[]> = {};
@@ -1885,8 +1900,17 @@ export function QaJobClient({ jobId }: { jobId: string }) {
               {acctPreview.active ? (
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span>Minor ×{acctPreview.minor} (−{acctPreview.minor * acctScoring.minorDeduction})</span>
-                  <span>Major ×{acctPreview.major} (−{acctPreview.major * acctScoring.majorDeduction})</span>
-                  <span>Critical ×{acctPreview.critical} (−{acctPreview.critical * acctScoring.criticalDeduction})</span>
+                  {verdictScale === "MAJOR_CRITICAL" ? (
+                    <>
+                      <span>Major ×{acctPreview.major} (−{acctPreview.major * acctScoring.majorDeduction})</span>
+                      <span>Critical ×{acctPreview.critical} (−{acctPreview.critical * acctScoring.criticalDeduction})</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Fail ×{acctPreview.fail} (−{acctPreview.fail * acctScoring.failDeduction})</span>
+                      <span>Serious fail ×{acctPreview.seriousFail} (−{acctPreview.seriousFail * acctScoring.seriousFailDeduction})</span>
+                    </>
+                  )}
                   <span>Missing evidence ×{acctPreview.missingEvidence} (−{acctPreview.missingEvidence * acctScoring.missingMandatoryEvidenceDeduction})</span>
                   <span>False confirmations ×{acctPreview.falseConfirmations} (−{acctPreview.falseConfirmations * acctScoring.falseConfirmationExtraDeduction})</span>
                   {acctPreview.na > 0 ? <span>N/A ×{acctPreview.na}</span> : null}
@@ -2092,6 +2116,7 @@ export function QaJobClient({ jobId }: { jobId: string }) {
                             missing={Boolean(missingEvidence[field.id])}
                             onToggleMissing={(v) => toggleMissing(field.id, v)}
                             issueCategories={issueCategories}
+                            verdictScale={verdictScale}
                             jobId={jobId}
                             urlByKey={sectionPhotoUrls}
                             onAddPhoto={(key) => addVerdictPhoto(field.id, key)}

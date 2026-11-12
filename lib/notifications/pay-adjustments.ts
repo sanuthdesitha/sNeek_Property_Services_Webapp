@@ -26,6 +26,7 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
 import { logger } from "@/lib/logger";
 import { shouldNotifyPayee } from "@/lib/finance/pay-adjustment-notify";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 type Recipient = {
   id: string;
@@ -48,13 +49,6 @@ function money(amount: number): string {
   return `$${Math.abs(Number(amount) || 0).toFixed(2)}`;
 }
 
-function shell(title: string, bodyHtml: string, url: string, actionLabel: string) {
-  return `<div style="font-family:Arial,sans-serif;color:#111;">
-    <h2 style="margin:0 0 8px;">${title}</h2>
-    <div style="color:#555;margin:0 0 12px;">${bodyHtml}</div>
-    <p style="margin:16px 0;"><a href="${url}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;">${actionLabel}</a></p>
-  </div>`;
-}
 
 export type PayAdjustmentOutcomeKind =
   | "APPROVED"
@@ -112,51 +106,29 @@ export async function notifyPayAdjustmentOutcome(
     const direction = isDeduction ? "deduction" : "addition";
     const url = resolveAppUrl("/cleaner/pay-requests");
 
-    let subject: string;
-    let body: string;
-
-    switch (input.kind) {
-      case "APPROVED":
-        subject = isDeduction
-          ? `Pay deduction approved — ${money(input.amount)}`
-          : `Extra payment approved — ${money(input.amount)}`;
-        body = isDeduction
-          ? `A ${money(input.amount)} deduction has been approved against your pay for ${input.reason}. It will be applied to your next invoice/payroll run.`
-          : `An extra payment of ${money(input.amount)} has been approved for ${input.reason}. It will be included in your next invoice/payroll run.`;
-        break;
-      case "REJECTED":
-        subject = `Pay ${direction} declined`;
-        body = `The proposed ${direction} of ${money(input.amount)} for ${input.reason} was not approved. Your pay is unchanged.`;
-        break;
-      case "AMOUNT_CHANGED":
-        subject = `Approved pay updated — ${money(input.amount)}`;
-        body = `The approved ${direction} for ${input.reason} changed from ${money(
-          input.previousAmount ?? 0
-        )} to ${money(input.amount)}.`;
-        break;
-      case "REVERSED_TO_PENDING":
-      default:
-        subject = `Pay ${direction} reopened`;
-        body = `The ${direction} of ${money(input.amount)} for ${input.reason} has been set back to pending review, so it no longer affects your pay until it is decided again.`;
-        break;
-    }
+    const partId = input.kind === "APPROVED"
+      ? (isDeduction ? "pay-deduction-approved" : "pay-addition-approved")
+      : input.kind === "REJECTED" ? "pay-declined" : input.kind === "AMOUNT_CHANGED" ? "pay-amount-changed" : "pay-reopened";
+    const wording = await loadNotificationWording("job.cleaner_requests_decided");
+    const values = { amount: money(input.amount), previousAmount: money(input.previousAmount ?? 0), reason: input.reason, direction };
+    const { title: subject, body } = wording.render(partId, "INBOX", values);
 
     const note = input.adminNote?.trim();
+    const email = wording.render(partId, "EMAIL", {
+      ...values,
+      companyName: settings.companyName,
+      title: subject,
+      messageText: body,
+      actionUrl: url,
+      adminNoteParagraph: wording.line("admin-note", "EMAIL", { note }, Boolean(note)),
+    });
     await deliverNotificationToRecipients({
       recipients: [recipient],
       category: "jobs",
       jobId: input.jobId ?? null,
       url,
       web: { subject, body },
-      email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: shell(
-          subject,
-          `<p>${body}</p>${note ? `<p><strong>Admin note:</strong> ${note.replace(/</g, "&lt;")}</p>` : ""}`,
-          url,
-          "View my pay"
-        ),
-      },
+      email: { subject: email.subject, html: email.html },
     });
   } catch (err) {
     logger.error(
@@ -186,13 +158,12 @@ export async function notifyReworkMinutesChanged(input: {
     if (!recipient) return;
     const settings = await getAppSettings();
 
-    const subject = input.removed
-      ? `${input.minutes} min removed from your logged time`
-      : `${input.minutes} min added to your logged time`;
-    const body = input.removed
-      ? `${input.minutes} minutes were removed from your recorded time on ${input.propertyName} following an approved QA rework. Reason: ${input.reason}`
-      : `${input.minutes} minutes were added to your recorded time on ${input.propertyName} for the QA rework you carried out.`;
     const url = resolveAppUrl("/cleaner/pay-requests");
+    const wording = await loadNotificationWording("job.cleaner_requests_decided");
+    const minutesPart = input.removed ? "minutes-removed" : "minutes-added";
+    const values = { minutes: input.minutes, propertyName: input.propertyName, reason: input.reason };
+    const { title: subject, body } = wording.render(minutesPart, "INBOX", values);
+    const email = wording.render(minutesPart, "EMAIL", { ...values, companyName: settings.companyName, title: subject, messageText: body, actionUrl: url, adminNoteParagraph: "" });
 
     await deliverNotificationToRecipients({
       recipients: [recipient],
@@ -200,10 +171,7 @@ export async function notifyReworkMinutesChanged(input: {
       jobId: input.jobId,
       url,
       web: { subject, body },
-      email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: shell(subject, `<p>${body}</p>`, url, "View my pay"),
-      },
+      email: { subject: email.subject, html: email.html },
     });
   } catch (err) {
     logger.error({ err, userId: input.userId }, "[pay-adjustments] notifyReworkMinutesChanged failed");

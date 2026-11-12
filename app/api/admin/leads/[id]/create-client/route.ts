@@ -9,6 +9,7 @@ import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { resolveAppUrl } from "@/lib/app-url";
 import { sendEmailDetailed } from "@/lib/notifications/email";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 function buildPropertyName(address: string | null | undefined, suburb: string | null | undefined, clientName: string) {
   const primary = String(address ?? "")
@@ -123,7 +124,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       tempPassword,
       welcomeNote: "",
       actionUrl: resolveAppUrl("/login", req),
-      actionLabel: "Sign in and set your password",
+      actionLabel: (await loadNotificationWording("account.invitations")).line("button-set-password", "INBOX", {}),
     });
     const emailResult = await sendEmailDetailed({
       to: result.user.email,

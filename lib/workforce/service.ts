@@ -13,6 +13,7 @@ import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { deliverDocumentRequest, type DocumentRequestTransport } from "@/lib/workforce/document-request-send";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
 import { getAppSettings } from "@/lib/settings";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import {
   buildCleanerAssessmentSchema,
   buildCleanerOnboardingSchema,
@@ -800,13 +801,17 @@ async function dispatchWorkforcePostNotifications(postId: string) {
 
   const recipientIds = await resolveAudienceUserIds(parseAudience(post.audience));
   if (recipientIds.length > 0) {
+    const postNotice = (await loadNotificationWording("workforce.updates")).render(post.type === "RECOGNITION" ? "team-recognition" : "team-update", "INBOX", {
+      postTitle: post.title,
+      postSummary: summarizeText(post.body, 120),
+    });
     await db.notification.createMany({
       data: recipientIds.map((userId) => ({
         userId,
         externalId: mobilePendingMarker("account"),
         channel: "PUSH",
-        subject: post.type === "RECOGNITION" ? "Team recognition" : "Team update",
-        body: `${post.title} - ${summarizeText(post.body, 120)}`,
+        subject: postNotice.title,
+        body: postNotice.body,
         status: "SENT",
         sentAt: new Date(),
       })),
@@ -1065,13 +1070,17 @@ export async function createChatMessage(input: {
     : safeArray(channel.memberUserIds);
   const notifyIds = recipients.filter((userId) => userId !== input.senderId);
   if (notifyIds.length > 0) {
+    const chatNotice = (await loadNotificationWording("workforce.updates")).render("chat", "INBOX", {
+      channelName: channel.name,
+      messageSummary: summarizeText(message.body, 120),
+    });
     await db.notification.createMany({
       data: notifyIds.map((userId) => ({
         userId,
         externalId: mobilePendingMarker("account"),
         channel: "PUSH",
-        subject: `Chat: ${channel.name}`,
-        body: summarizeText(message.body, 120),
+        subject: chatNotice.title,
+        body: chatNotice.body,
         status: "SENT",
         sentAt: new Date(),
       })),
@@ -1386,7 +1395,7 @@ async function createOrUpdateHiredStaffAccount(input: {
     role: user.role,
     email: user.email,
     tempPassword,
-    welcomeNote: "Complete your onboarding, upload your required documents, and start your assigned learning in the workforce hub.",
+    welcomeNote: (await loadNotificationWording("workforce.updates")).line("welcome-note", "EMAIL", {}),
     actionUrl: resolveAppUrl("/login"),
     actionLabel: "Sign in and set your password",
   });
@@ -1852,6 +1861,7 @@ export async function runDocumentExpiryCheck(now = new Date()) {
 
   let warned = 0;
   let expired = 0;
+  const documentWording = await loadNotificationWording("workforce.updates");
   for (const row of rows) {
     const isExpired = !!row.expiresAt && row.expiresAt < now;
     if (isExpired) {
@@ -1861,17 +1871,16 @@ export async function runDocumentExpiryCheck(now = new Date()) {
       warned += 1;
     }
 
-    const subject = isExpired ? `Expired document - ${row.title}` : `Document expiring soon - ${row.title}`;
-    const body = isExpired
-      ? `${row.title} for ${row.user.name ?? "staff"} has expired and needs replacement.`
-      : `${row.title} for ${row.user.name ?? "staff"} expires within 14 days.`;
+    const documentPart = isExpired ? "document-expired" : "document-expiring";
+    const { title: subject, body } = documentWording.render(documentPart, "INBOX", { documentTitle: row.title, personName: row.user.name ?? "staff" });
 
     if (row.user.email) {
+      const documentEmail = documentWording.render(documentPart, "EMAIL", { title: subject, messageText: body });
       await sendEmailDetailed({
         kind: "workforce_update",
         to: row.user.email,
-        subject,
-        html: `<p>${body}</p>`,
+        subject: documentEmail.subject,
+        html: documentEmail.html,
       });
     }
     if (admins.length > 0) {
@@ -1949,11 +1958,19 @@ export async function runCredentialExpiryCheck(now = new Date()) {
   const expired = findings.filter((f) => f.expired).length;
   // ONE digest, not one notification per person. A sweep that fires eleven
   // separate pushes on a Monday morning is a sweep people mute.
-  const subject =
-    expired > 0
-      ? `${expired} expired credential${expired === 1 ? "" : "s"} in the team`
-      : `${findings.length} credential${findings.length === 1 ? "" : "s"} expiring soon`;
-  const body = findings.map((f) => f.line).join(String.fromCharCode(10));
+  const credentialWording = await loadNotificationWording("workforce.updates");
+  const lines = findings.map((f) => f.line).join(String.fromCharCode(10));
+  const credentialCount = expired > 0 ? expired : findings.length;
+  const { title: subject, body } = credentialWording.render(expired > 0 ? "credentials-expired" : "credentials-expiring", "INBOX", {
+    expiredCount: expired,
+    count: findings.length,
+    credentialWord: credentialCount === 1 ? "credential" : "credentials",
+    lines,
+  });
+  const credentialEmail = credentialWording.render("credentials", "EMAIL", {
+    title: subject,
+    lineItems: findings.map((f) => `<li>${f.line.replace(/</g, "&lt;")}</li>`).join(""),
+  });
   if (admins.length > 0) {
     await db.notification.createMany({
       data: admins.map((admin) => ({
@@ -1971,10 +1988,8 @@ export async function runCredentialExpiryCheck(now = new Date()) {
       await sendEmailDetailed({
         kind: "workforce_update",
         to: admin.email,
-        subject,
-        html: `<ul>${findings
-          .map((f) => `<li>${f.line.replace(/</g, "&lt;")}</li>`)
-          .join("")}</ul>`,
+        subject: credentialEmail.subject,
+        html: credentialEmail.html,
       });
     }
   }
@@ -2268,13 +2283,17 @@ export async function sendRecognition(input: {
     },
   });
 
+  const recognitionNotice = (await loadNotificationWording("workforce.updates")).render("recognition", "INBOX", {
+    senderName: recognition.sentBy.name ?? "Admin",
+    recognitionTitle: recognition.title,
+  });
   await db.notification.create({
     data: {
       userId: input.userId,
       externalId: mobilePendingMarker("account"),
       channel: "PUSH",
-      subject: "Recognition received",
-      body: `${recognition.sentBy.name ?? "Admin"} sent you recognition: ${recognition.title}`,
+      subject: recognitionNotice.title,
+      body: recognitionNotice.body,
       status: "SENT",
       sentAt: new Date(),
     },
@@ -2923,13 +2942,17 @@ export async function submitHiringApplication(input: {
     select: { id: true },
   });
   if (admins.length > 0) {
+    const applicationNotice = (await loadNotificationWording("workforce.updates")).render("hiring-application", "INBOX", {
+      candidateName: input.fullName.trim(),
+      positionTitle: position.title,
+    });
     await db.notification.createMany({
       data: admins.map((admin) => ({
         userId: admin.id,
         externalId: mobilePendingMarker("account"),
         channel: "PUSH",
-        subject: "New hiring application",
-        body: `${input.fullName.trim()} applied for ${position.title}`,
+        subject: applicationNotice.title,
+        body: applicationNotice.body,
         status: "SENT",
         sentAt: new Date(),
       })),

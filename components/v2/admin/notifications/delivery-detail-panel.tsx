@@ -26,7 +26,7 @@ function renderValue(value: unknown): string {
 const RETRY_LABEL = { RETRY_KNOWN_REJECTION: "Retry this delivery", RECONCILE_INBOX: "Reconcile inbox receipt" } as const;
 
 /** Drill-in: safe metadata only (no bodies or secrets), plus the existing safe retry where it applies. */
-export function DeliveryDetailPanel({ row, readOnly, onClose, onChanged }: { row: DeliveryLogRow; readOnly: boolean; onClose: () => void; onChanged: () => void }) {
+export function DeliveryDetailPanel({ row, readOnly, onClose, onChanged, timeZone }: { row: DeliveryLogRow; readOnly: boolean; onClose: () => void; onChanged: () => void; timeZone?: string }) {
   const read = useNotificationRead(`/api/admin/notifications/deliveries?detail=${encodeURIComponent(row.id)}`, parseDetail, "Could not load this delivery.");
   const [note, setNote] = React.useState("");
   const [saving, setSaving] = React.useState(false);
@@ -47,7 +47,7 @@ export function DeliveryDetailPanel({ row, readOnly, onClose, onChanged }: { row
   }
 
   return (
-    <ESidePanel open title={row.typeName} label="Delivery details" subtitle={`${TRANSPORT_LABEL[row.transport]} · ${formatDeliveryTime(row.time)}`} onClose={onClose}
+    <ESidePanel open title={row.typeName} label="Delivery details" subtitle={`${TRANSPORT_LABEL[row.transport]} · ${formatDeliveryTime(row.time, timeZone)}`} onClose={onClose}
       toolbar={<EPill tone={stateTone(row.state)}>{row.stateLabel}</EPill>}>
       <div className="space-y-4 text-sm">
         <p><span className="font-medium">Recipient: </span>{row.recipientLabel}</p>

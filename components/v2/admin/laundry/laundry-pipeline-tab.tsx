@@ -15,6 +15,7 @@ import { usePeekParam } from "@/components/v2/admin/jobs/use-peek-param";
 import { addDaysToKey } from "@/lib/time/sydney-range";
 import { PIPELINE_LANES, type PipelineView } from "@/lib/laundry/pipeline";
 import { LaundryPipelineBoard } from "./laundry-pipeline-board";
+import { LaundryRequestRouting } from "./laundry-request-routing";
 import { LaundryHistory, type HistoryFilters } from "./laundry-history";
 import { LaundryRunPanel, type RunPanelTask } from "./laundry-run-panel";
 import { LaundryEditDialog } from "./laundry-edit-dialog";
@@ -168,6 +169,7 @@ export function LaundryPipelineTab(props: Props) {
           todayKey={pipeline.data?.today}
         />
       </div>
+      <LaundryRequestRouting />
       <LaundryMoveDialog targets={moveTargets} defaultDate={nextDay} onClose={() => setMoveTargets(null)} onMoved={finishMove} />
       <LaundryEditDialog task={editTask} onClose={() => setEditTask(null)} onSaved={refreshAll} />
       {deleteModal}

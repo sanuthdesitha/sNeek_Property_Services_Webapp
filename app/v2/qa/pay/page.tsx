@@ -2,21 +2,25 @@ import Link from "next/link";
 import { Role, PayAdjustmentStatus } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getQaPaySummary } from "@/lib/qa/pay";
+import { buildQaPayHeadline, lineNeedsOffice, OFFICE_TO_FIX, qaPayLineAmount, qaPayMoney } from "@/lib/qa/pay-view";
+import { SegmentTabs } from "@/components/v2/cleaner/portal/segment-tabs";
 import {
   EBadge,
+  EButton,
   ECard,
   ECardBody,
   ECardHeader,
   ECardTitle,
   EEmptyState,
   EPageHeader,
-  EStatCard,
 } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Pay · Estate QA" };
 export const dynamic = "force-dynamic";
 
 const TZ = "Australia/Sydney";
+
+type PayTab = "reviews" | "credits" | "invoices";
 
 function money(n: number): string {
   const sign = n < 0 ? "-" : "";
@@ -52,7 +56,7 @@ function basisLabel(line: { mode: string; basis: string; hours: number; rate: nu
 export default async function QaPayPage({
   searchParams,
 }: {
-  searchParams?: { from?: string; to?: string };
+  searchParams?: { from?: string; to?: string; tab?: string };
 }) {
   const session = await requireRole([Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN]);
 
@@ -86,71 +90,67 @@ export default async function QaPayPage({
     );
   }
 
-  const { totals } = summary;
+  const headline = buildQaPayHeadline(summary);
   const periodLine = `${shortDate(summary.start)} – ${shortDate(summary.end)}`;
+  const tab: PayTab = searchParams?.tab === "credits" || searchParams?.tab === "invoices" ? searchParams.tab : "reviews";
+  const keep = new URLSearchParams();
+  if (searchParams?.from) keep.set("from", searchParams.from);
+  if (searchParams?.to) keep.set("to", searchParams.to);
+  const tabHref = (key: PayTab) => {
+    const qs = new URLSearchParams(keep);
+    if (key !== "reviews") qs.set("tab", key);
+    const text = qs.toString();
+    return `/v2/qa/pay${text ? `?${text}` : ""}`;
+  };
 
   return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Earnings"
-        title="Pay"
-        description={`Current period · ${periodLine}`}
-      />
+    <div className="mx-auto max-w-3xl space-y-6">
+      <EPageHeader eyebrow="Earnings" title="Pay" description={periodLine} />
 
-      {/* Anything still "Pending" below is money the inspector has to bill —
-          this rail (not an admin pay run) is how most of it gets paid. */}
+      {/* Board: one headline for the period, then what it is made of. A job
+          with no rate says "Office to fix" and the total says it is not final. */}
       <ECard>
-        <ECardBody className="flex flex-wrap items-center justify-between gap-3 py-4">
-          <div className="min-w-0">
-            <p className="text-[0.875rem] font-medium">Invoice this work</p>
-            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-              Raise your own invoice for completed inspections and approved adjustments, and email
-              it to accounts.
-            </p>
+        <ECardBody className="space-y-3 pt-5">
+          <div className="flex items-end justify-between gap-3">
+            <p className="e-numeral text-[2rem] leading-none">{headline.total}</p>
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{headline.inspectionsLabel}</p>
           </div>
-          <Link
-            href="/v2/qa/invoices"
-            className="shrink-0 rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] px-3 py-2 text-[0.8125rem] font-[550] text-[hsl(var(--e-accent-portal))] hover:opacity-80"
-          >
-            Go to invoices
-          </Link>
+          {headline.incompleteNote ? (
+            <p className="text-[0.8125rem] font-[550] text-[hsl(var(--e-warning))]">{headline.incompleteNote}</p>
+          ) : null}
+          <dl className="divide-y divide-[hsl(var(--e-border))] text-[0.8125rem]">
+            {headline.breakdown.map((row) => (
+              <div key={row.key} className="flex items-center justify-between gap-3 py-2">
+                <dt className="min-w-0 text-[hsl(var(--e-text-secondary))]">{row.label}</dt>
+                <dd className={row.tone === "warning" ? "shrink-0 font-[600] text-[hsl(var(--e-warning))]" : "e-tnum shrink-0 font-[550]"}>
+                  {row.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            {qaPayMoney(summary.totals.settled)} settled · {qaPayMoney(summary.totals.unsettled)} awaiting payment
+          </p>
         </ECardBody>
       </ECard>
 
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <EStatCard
-          label="Total earned"
-          value={money(totals.total)}
-          delta="inspections + credits"
-          deltaTone="neutral"
-        />
-        <EStatCard
-          label="Inspections"
-          value={money(totals.inspectionPay)}
-          delta={`${totals.inspectionCount} completed`}
-          deltaTone="neutral"
-        />
-        <EStatCard
-          label="Adjustments"
-          value={money(totals.approvedAdjustments)}
-          delta={
-            totals.pendingAdjustments > 0
-              ? `${money(totals.pendingAdjustments)} pending`
-              : "approved"
-          }
-          deltaTone="neutral"
-        />
-        <EStatCard
-          label="Awaiting payment"
-          value={money(totals.unsettled)}
-          delta={`${money(totals.settled)} settled`}
-          deltaTone="neutral"
-        />
-      </section>
+      <SegmentTabs
+        label="Pay sections"
+        activeKey={tab}
+        tabs={[
+          { key: "reviews", label: "Reviews", href: tabHref("reviews"), count: summary.inspections.length },
+          { key: "credits", label: "Credits", href: tabHref("credits"), count: summary.adjustments.length },
+          { key: "invoices", label: "Invoices", href: tabHref("invoices") },
+        ]}
+      />
 
+      {tab === "reviews" ? (
       <ECard>
-        <ECardHeader>
+        <ECardHeader className="flex flex-row items-center justify-between gap-2">
           <ECardTitle>Inspections this period</ECardTitle>
+          <Link href="/v2/qa/reviews" className="text-[0.8125rem] font-[550] text-[hsl(var(--e-accent-portal))] underline-offset-2 hover:underline">
+            All reviews
+          </Link>
         </ECardHeader>
         <ECardBody className="pt-0">
           {summary.inspections.length === 0 ? (
@@ -182,10 +182,13 @@ export default async function QaPayPage({
                     ) : null}
                   </div>
                   <div className="shrink-0 text-right">
-                    <span className="e-numeral text-[0.9375rem]">{money(line.amount)}</span>
+                    {/* Never $0.00 for a missing rate: the office has to set it. */}
+                    <span className={lineNeedsOffice(line) ? "text-[0.8125rem] font-[600] text-[hsl(var(--e-warning))]" : "e-numeral text-[0.9375rem]"}>
+                      {qaPayLineAmount(line)}
+                    </span>
                     <div className="mt-1">
-                      {line.rateMissing ? (
-                        <EBadge tone="danger">Rate not set</EBadge>
+                      {lineNeedsOffice(line) ? (
+                        <EBadge tone="warning">Rate not set</EBadge>
                       ) : (
                         // Both rails can settle an inspection, so say WHICH one:
                         // "Paid" alone left an inspector unable to tell whether
@@ -207,7 +210,16 @@ export default async function QaPayPage({
         </ECardBody>
       </ECard>
 
-      {summary.adjustments.length > 0 ? (
+      ) : null}
+
+      {tab === "credits" ? (
+        summary.adjustments.length === 0 ? (
+          <EEmptyState
+            eyebrow="Nothing yet"
+            title="No credits or adjustments"
+            description="Self-rework claims and approved adjustments for this period appear here."
+          />
+        ) : (
         <ECard>
           <ECardHeader>
             <ECardTitle>Credits &amp; adjustments</ECardTitle>
@@ -269,7 +281,29 @@ export default async function QaPayPage({
             </div>
           </ECardBody>
         </ECard>
+        )
       ) : null}
+
+      {tab === "invoices" ? (
+        // Anything still "Pending" is money the inspector bills themselves —
+        // this rail (not an admin pay run) is how most of it gets paid.
+        <ECard>
+          <ECardBody className="space-y-3 pt-5">
+            <p className="text-[0.875rem] font-[600]">Invoice this work</p>
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+              Raise your own invoice for completed inspections and approved adjustments, then download it or email it to accounts.
+              Inspections marked &ldquo;{OFFICE_TO_FIX}&rdquo; are left out until the office sets their rate.
+            </p>
+            <EButton asChild variant="gold" size="lg" className="w-full sm:w-auto">
+              <Link href="/v2/qa/invoices">Invoice this work</Link>
+            </EButton>
+          </ECardBody>
+        </ECard>
+      ) : (
+        <EButton asChild variant="outline" size="lg" className="w-full">
+          <Link href="/v2/qa/invoices">Invoice this work</Link>
+        </EButton>
+      )}
     </div>
   );
 }

@@ -65,7 +65,8 @@ describe("account tabs", () => {
 
   it("offers a role filter only where a tab spans roles", () => {
     expect(roleFilterOptions("cleaners")).toEqual([]);
-    expect(roleFilterOptions("office")).toEqual(["ADMIN", "OPS_MANAGER", "QA_INSPECTOR"]);
+    expect(roleFilterOptions("office")).toEqual(["ADMIN", "OPS_MANAGER", "QA_INSPECTOR", "MAINTENANCE"]);
+    expect(roleFilterOptions("partners")).toEqual([]);
     expect(() => parseAccountFilters(new URLSearchParams("tab=cleaners&role=ADMIN"))).toThrow(/cannot be filtered/);
   });
 });

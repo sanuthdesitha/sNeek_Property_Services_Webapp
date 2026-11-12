@@ -11,6 +11,10 @@ import { encryptSecret } from "@/lib/security/encryption";
 import { getPropertyFormConfig } from "@/lib/property-form/config-store";
 import { collectMissingRequired, pruneCustomValues } from "@/lib/property-form/config";
 import { buildPropertyAccessInfo, resolvePropertyAccessCode } from "@/lib/properties/access-info";
+import { isListQueryError, parseListQuery } from "@/lib/admin/list-query";
+import { PORTFOLIO_SORTS } from "@/lib/properties/portfolio-options";
+import { parsePortfolioFilters } from "@/lib/properties/portfolio-rules";
+import { listPortfolio } from "@/lib/properties/portfolio-list";
 
 /**
  * Assemble the flat field-value map the property-form config evaluates its
@@ -57,6 +61,13 @@ export async function GET(req: NextRequest) {
   try {
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const { searchParams } = new URL(req.url);
+    // `shape=list`: the Properties list (server paging, sorting, filters,
+    // chip counts and stats). Without it, the original array shape that the
+    // pickers across the app read is unchanged.
+    if (searchParams.get("shape") === "list") {
+      const query = parseListQuery(searchParams, { sortable: PORTFOLIO_SORTS, defaultSort: "name", defaultDir: "asc", defaultPageSize: 25, maxPageSize: 100 });
+      return NextResponse.json(await listPortfolio(parsePortfolioFilters(searchParams), query));
+    }
     const clientId = searchParams.get("clientId");
     // One-off / service-site properties are hidden from the portfolio list by
     // default (they exist only to carry an ad-hoc address). Pass ?includeOneOff=1
@@ -89,6 +100,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(visible);
   } catch (err: any) {
+    if (isListQueryError(err)) return NextResponse.json({ error: err.message }, { status: 400 });
     return NextResponse.json({ error: err.message }, { status: getApiErrorStatus(err) });
   }
 }

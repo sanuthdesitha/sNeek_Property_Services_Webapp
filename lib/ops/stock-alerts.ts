@@ -5,6 +5,7 @@ import { logger } from "@/lib/logger";
 import { sendEmail } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
 import { isPastLocalDispatchTime, localDateKey } from "@/lib/ops/scheduled-dispatch";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const STOCK_ALERTS_STATE_KEY = "stock_alerts_dispatch_v1";
 
@@ -93,23 +94,24 @@ export async function sendStockAlerts(options: SendStockAlertsOptions = {}) {
     .join("\n");
 
   let sent = 0;
+  const stockWording = await loadNotificationWording("stock.alerts");
+  const lowLog = stockWording.render("daily-low-log", "INBOX", { count: lowStocks.length });
   for (const admin of adminUsers) {
     if (!admin.email) continue;
     const inventoryUrl = resolveAppUrl("/admin/inventory");
-    const inventoryLink = /^https?:\/\//i.test(inventoryUrl)
-      ? `<p><a href="${inventoryUrl}">View shopping list</a></p>`
-      : "";
+    const inventoryLink = stockWording.line("view-shopping-list", "EMAIL", { inventoryUrl }, /^https?:\/\//i.test(inventoryUrl));
+    const lowEmail = stockWording.render("daily-low", "EMAIL", { count: lowStocks.length, lines, inventoryLink });
     const ok = await sendEmail({ kind: "stock_alert",
       to: admin.email,
-      subject: `sNeek Ops: ${lowStocks.length} items low on stock`,
-      html: `<p>${lowStocks.length} items are below reorder threshold:</p><pre>${lines}</pre>${inventoryLink}`,
+      subject: lowEmail.subject,
+      html: lowEmail.html,
     });
     await db.notification.create({
       data: {
         userId: admin.id,
         channel: NotificationChannel.EMAIL,
-        subject: `Low stock alert (${lowStocks.length})`,
-        body: `${lowStocks.length} items are below reorder threshold.`,
+        subject: lowLog.title,
+        body: lowLog.body,
         status: ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
         sentAt: ok ? new Date() : undefined,
         errorMsg: ok ? undefined : "Low stock email failed.",

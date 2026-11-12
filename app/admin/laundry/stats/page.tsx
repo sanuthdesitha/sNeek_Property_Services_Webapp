@@ -48,7 +48,7 @@ export default async function LaundryStatsPage() {
       OR: [
         { pickupDate: { gte: windowStart } },
         { droppedAt: { gte: windowStart } },
-        { status: "PICKED_UP" },
+        { status: { in: ["PICKED_UP", "READY_TO_RETURN"] } },
       ],
     },
     select: {
@@ -112,7 +112,7 @@ export default async function LaundryStatsPage() {
       ? turnaroundHours.reduce((a, b) => a + b, 0) / turnaroundHours.length
       : null;
 
-  const outstanding = tasks.filter((t) => t.status === "PICKED_UP");
+  const outstanding = tasks.filter((t) => t.status === "PICKED_UP" || t.status === "READY_TO_RETURN");
   const overdueAtLaundry = outstanding.filter(
     (t) => t.pickedUpAt && differenceInCalendarDays(now, new Date(t.pickedUpAt)) > maxOutdoorDays,
   );

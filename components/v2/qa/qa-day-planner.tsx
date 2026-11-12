@@ -11,6 +11,10 @@
  *
  * The list is read from GET /api/qa/queue?inspectorId=…&date=… which already
  * returns rows ordered by sequence → scheduledFor → dueAt.
+ *
+ * Ordering another inspector's day locks it against their own reorder
+ * (lib/qa/day-order.ts). Each column shows who set the order and, while it is
+ * locked, "Let inspector reorder" (DELETE /api/admin/qa/day-order).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -19,6 +23,24 @@ import { EBadge, EButton, ECard, ECardBody, ECardHeader, ECardTitle } from "@/co
 import { EInput } from "@/components/v2/admin/estate-kit";
 
 type Inspector = { id: string; name: string | null; email: string; role: string };
+
+/** GET /api/admin/qa/day-order — who set this inspector's order for the day. */
+type DayOrderState = {
+  locked: boolean;
+  setByOffice: boolean;
+  setByName: string | null;
+  setAt: string | null;
+};
+
+function dayOrderLine(order: DayOrderState): string {
+  const who = order.setByName ?? "Unknown";
+  const when = order.setAt ? new Date(order.setAt) : null;
+  const at =
+    when && Number.isFinite(when.getTime())
+      ? ` · ${when.toLocaleString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}`
+      : "";
+  return `${order.locked ? "Locked by" : order.setByOffice ? "Set by" : "Planned by"} ${who}${at}`;
+}
 
 function todayIso(): string {
   const d = new Date();
@@ -51,23 +73,52 @@ function InspectorColumn({
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [dayOrder, setDayOrder] = useState<DayOrderState | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     const qs = new URLSearchParams({ inspectorId: inspector.id, date, assignedOnly: "0" });
-    const res = await fetch(`/api/qa/queue?${qs.toString()}`, { cache: "no-store" });
-    const body = await res.json().catch(() => ({}));
-    setLoading(false);
-    if (!res.ok) {
-      onError(body.error ?? "Could not load this inspector's day.");
-      return;
+    const orderQs = new URLSearchParams({ inspectorId: inspector.id, date });
+    try {
+      const [res, orderRes] = await Promise.all([
+        fetch(`/api/qa/queue?${qs.toString()}`, { cache: "no-store", signal }),
+        fetch(`/api/admin/qa/day-order?${orderQs.toString()}`, { cache: "no-store", signal }),
+      ]);
+      const body = await res.json().catch(() => ({}));
+      const orderBody: { dayOrder?: DayOrderState } = await orderRes.json().catch(() => ({}));
+      if (signal?.aborted) return;
+      setLoading(false);
+      setDayOrder(orderRes.ok && orderBody.dayOrder ? orderBody.dayOrder : null);
+      if (!res.ok) {
+        onError(body.error ?? "Could not load this inspector's day.");
+        return;
+      }
+      setRows(body.assignments ?? []);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setLoading(false);
+      onError("Could not load this inspector's day.");
     }
-    setRows(body.assignments ?? []);
   }, [inspector.id, date, onError]);
 
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
   }, [load]);
+
+  async function letInspectorReorder() {
+    setBusy(true);
+    const qs = new URLSearchParams({ inspectorId: inspector.id, date });
+    const res = await fetch(`/api/admin/qa/day-order?${qs.toString()}`, { method: "DELETE" });
+    const body: { dayOrder?: DayOrderState; error?: string } = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      onError(body.error ?? "Could not let the inspector reorder. The lock stays.");
+      return;
+    }
+    if (body.dayOrder) setDayOrder(body.dayOrder);
+  }
 
   async function persistOrder(ordered: any[]) {
     setBusy(true);
@@ -81,13 +132,14 @@ function InspectorColumn({
       }),
     });
     setBusy(false);
+    const body: { dayOrder?: DayOrderState; error?: string } = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
       onError(body.error ?? "Could not save the visit order.");
       await load();
       return;
     }
     setRows(ordered.map((r, i) => ({ ...r, sequence: i + 1 })));
+    if (body.dayOrder) setDayOrder(body.dayOrder);
   }
 
   function move(index: number, delta: number) {
@@ -127,6 +179,16 @@ function InspectorColumn({
         </div>
       </ECardHeader>
       <ECardBody className="space-y-2">
+        {dayOrder?.setAt ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            <span>{dayOrderLine(dayOrder)}</span>
+            {dayOrder.locked ? (
+              <EButton variant="outline" size="sm" disabled={busy} onClick={() => void letInspectorReorder()}>
+                Let inspector reorder
+              </EButton>
+            ) : null}
+          </div>
+        ) : null}
         {loading ? (
           <div className="flex items-center gap-2 py-4 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading…

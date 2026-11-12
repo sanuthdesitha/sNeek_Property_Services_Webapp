@@ -7,6 +7,7 @@ import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSms } from "@/lib/notifications/sms";
 import { resolveAppUrl } from "@/lib/app-url";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import {
   buildMaintenanceDraftFromCase,
   caseStatusForMaintenanceStatus,
@@ -48,6 +49,16 @@ async function notifyDamageMaintenance(input: {
     const caseUrl = resolveAppUrl(`/v2/admin/cases/${input.caseId}`);
     const maintenanceUrl = resolveAppUrl(`/v2/admin/maintenance/${input.itemId}`);
 
+    const wording = await loadNotificationWording("office.field_alerts");
+    const damageValues = {
+      companyName: settings.companyName,
+      propertyName: input.propertyName,
+      title: input.title,
+      descriptionParagraph: wording.line("description-paragraph", "EMAIL", { description: input.description }, Boolean(input.description)),
+      severitySuffix: wording.line("severity-suffix", "EMAIL", { severity: input.severity }, Boolean(input.severity)),
+      caseUrl,
+      maintenanceUrl,
+    };
     // ── Client side ────────────────────────────────────────────────────────
     if (input.clientId) {
       const client = await db.client
@@ -55,22 +66,18 @@ async function notifyDamageMaintenance(input: {
         .catch(() => null);
       const clientEmail = client?.email?.trim();
       if (clientEmail) {
+        const clientEmailText = wording.render("damage-client", "EMAIL", damageValues);
         await sendEmailDetailed({
           to: [clientEmail],
-          subject: `${settings.companyName} - Damage reported at ${input.propertyName}`,
-          html: `
-            <p>We reported damage at <strong>${escapeHtml(input.propertyName)}</strong> and have raised a repair for it.</p>
-            <p><strong>${escapeHtml(input.title)}</strong></p>
-            ${input.description ? `<p>${escapeHtml(input.description)}</p>` : ""}
-            <p>We will keep you updated as the repair progresses.</p>
-          `,
+          subject: clientEmailText.subject,
+          html: clientEmailText.html,
         }).catch((err) => logger.error({ err, caseId: input.caseId }, "CP-7: client damage email failed"));
       }
       const clientPhone = client?.phone?.trim();
       if (clientPhone) {
         await sendSms(
           clientPhone,
-          `${settings.companyName}: damage reported at ${input.propertyName} - ${input.title}. A repair has been raised.`,
+          wording.render("damage-client", "SMS", damageValues).body,
           "CLIENT"
         ).catch((err) => logger.error({ err, caseId: input.caseId }, "CP-7: client damage SMS failed"));
       }
@@ -88,16 +95,12 @@ async function notifyDamageMaintenance(input: {
       .map((a) => a.email?.trim())
       .filter((value): value is string => Boolean(value));
     if (adminEmails.length > 0) {
+      const officeEmail = wording.render("damage-office", "EMAIL", damageValues);
       await sendEmailDetailed({
         kind: "admin_alert",
         to: adminEmails,
-        subject: `${settings.companyName} - Damage case + repair raised (${input.propertyName})`,
-        html: `
-          <p>A DAMAGE case was opened at <strong>${escapeHtml(input.propertyName)}</strong> and a maintenance item was created automatically.</p>
-          <p><strong>${escapeHtml(input.title)}</strong>${input.severity ? ` (${escapeHtml(input.severity)})` : ""}</p>
-          ${input.description ? `<p>${escapeHtml(input.description)}</p>` : ""}
-          <p><a href="${caseUrl}">Open the case</a> · <a href="${maintenanceUrl}">Open the repair</a></p>
-        `,
+        subject: officeEmail.subject,
+        html: officeEmail.html,
       }).catch((err) => logger.error({ err, caseId: input.caseId }, "CP-7: admin damage email failed"));
     }
     // Admin SMS is reserved for the urgent end — a text per damage report would
@@ -108,7 +111,7 @@ async function notifyDamageMaintenance(input: {
         if (!phone) continue;
         await sendSms(
           phone,
-          `${settings.companyName}: CRITICAL damage at ${input.propertyName} - ${input.title}. Repair raised.`,
+          wording.render("damage-critical", "SMS", damageValues).body,
           "STAFF_ADMIN"
         ).catch((err) => logger.error({ err, caseId: input.caseId }, "CP-7: admin damage SMS failed"));
       }

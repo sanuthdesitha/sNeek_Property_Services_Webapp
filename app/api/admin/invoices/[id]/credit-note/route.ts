@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { capabilityRefusal } from "@/lib/rbac/capability-http";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { createCreditNote } from "@/lib/billing/client-invoice-create";
@@ -12,6 +13,8 @@ import { createCreditNote } from "@/lib/billing/client-invoice-create";
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const refusal = await capabilityRefusal(session, ["invoices.void_credit"]);
+    if (refusal) return refusal;
     const result = await createCreditNote(params.id, session.user);
     return NextResponse.json(result.body, { status: result.status });
   } catch (err: unknown) {

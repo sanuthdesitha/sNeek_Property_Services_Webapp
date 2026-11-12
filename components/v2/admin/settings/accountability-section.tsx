@@ -20,6 +20,7 @@ import {
   useSaveStatus,
 } from "./estate-form";
 import type { AccountabilitySettings } from "@/lib/settings";
+import { FAIL_SCALE_FROM_LABEL } from "@/lib/qa/verdict-scale";
 
 function num(value: string, fallback: number): number {
   const n = Number(value);
@@ -162,15 +163,15 @@ export function AccountabilitySection({
               disabled={readOnly}
               onChange={(e) => patchScoring({ minorDeduction: num(e.target.value, s.minorDeduction) })} />
           </EField>
-          <EField label="Major deduction">
-            <EInput type="number" min={0} step="1" value={String(s.majorDeduction)}
+          <EField label="Fail deduction">
+            <EInput type="number" min={0} step="1" value={String(s.failDeduction)}
               disabled={readOnly}
-              onChange={(e) => patchScoring({ majorDeduction: num(e.target.value, s.majorDeduction) })} />
+              onChange={(e) => patchScoring({ failDeduction: num(e.target.value, s.failDeduction) })} />
           </EField>
-          <EField label="Critical deduction">
-            <EInput type="number" min={0} step="1" value={String(s.criticalDeduction)}
+          <EField label="Serious fail deduction">
+            <EInput type="number" min={0} step="1" value={String(s.seriousFailDeduction)}
               disabled={readOnly}
-              onChange={(e) => patchScoring({ criticalDeduction: num(e.target.value, s.criticalDeduction) })} />
+              onChange={(e) => patchScoring({ seriousFailDeduction: num(e.target.value, s.seriousFailDeduction) })} />
           </EField>
           <EField label="Missing mandatory evidence">
             <EInput type="number" min={0} step="1" value={String(s.missingMandatoryEvidenceDeduction)}
@@ -186,6 +187,25 @@ export function AccountabilitySection({
             <EInput type="number" min={0} step="1" value={String(s.floor)}
               disabled={readOnly}
               onChange={(e) => patchScoring({ floor: num(e.target.value, s.floor) })} />
+          </EField>
+        </div>
+
+        <div>
+          <h3 className="text-[0.9375rem] font-semibold">{`Inspections begun before ${FAIL_SCALE_FROM_LABEL}`}</h3>
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            {`New inspections grade Pass, Minor, Fail or N/A. An inspection started or completed before ${FAIL_SCALE_FROM_LABEL} keeps Major and Critical until it is completed, and when it is reopened; these deductions apply to it. Stored scores never change.`}
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <EField label="Major deduction">
+            <EInput type="number" min={0} step="1" value={String(s.majorDeduction)}
+              disabled={readOnly}
+              onChange={(e) => patchScoring({ majorDeduction: num(e.target.value, s.majorDeduction) })} />
+          </EField>
+          <EField label="Critical deduction">
+            <EInput type="number" min={0} step="1" value={String(s.criticalDeduction)}
+              disabled={readOnly}
+              onChange={(e) => patchScoring({ criticalDeduction: num(e.target.value, s.criticalDeduction) })} />
           </EField>
         </div>
 
@@ -216,8 +236,8 @@ export function AccountabilitySection({
           checked={s.criticalTriggersManagementReview}
           disabled={readOnly}
           onChange={(v) => patchScoring({ criticalTriggersManagementReview: v })}
-          label="Critical issues trigger management review"
-          description="A CRITICAL verdict routes the review to management regardless of the numeric score."
+          label="Serious fails trigger management review"
+          description="A Fail marked Serious (or a Critical on an earlier inspection) routes the review to management regardless of the numeric score."
         />
       </ECard>
 

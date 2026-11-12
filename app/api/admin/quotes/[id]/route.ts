@@ -5,10 +5,14 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { QuoteReferenceError, assertQuoteReferenceKeys, caseForQuoteDetail } from "@/lib/cases/repair-quote";
+import { writeQuotePatch } from "@/lib/quotes/quote-patch-write";
 
 const updateQuoteSchema = z.object({
   status: z.nativeEnum(QuoteStatus).optional(),
   notes: z.string().trim().optional().nullable(),
+  // Office notes the client never sees (not on the public page, PDF, emails
+  // or the client portal). Audited on change.
+  internalNotes: z.string().trim().max(10_000).optional().nullable(),
   validUntil: z.string().datetime().optional().nullable(),
   // Full-edit structural fields (from the quote builder in edit mode). When
   // present the quote's service, pricing lines and totals are rewritten.
@@ -51,6 +55,10 @@ const updateQuoteSchema = z.object({
   // When true, mint the shareable /q/<token> public token if one doesn't exist
   // yet (idempotent — an existing token is never rotated).
   generatePublicToken: z.boolean().optional(),
+  // Stale-write guard: the version (updatedAt) the caller last read. When it
+  // no longer matches, nothing is written and the answer is 409 STALE_QUOTE
+  // with the current token. Callers that send none keep the old behaviour.
+  expectedUpdatedAt: z.string().trim().min(1).max(64).optional(),
 });
 
 /** 32-char URL-safe token for the public /q/<token> quote page. (Not exported —
@@ -137,6 +145,7 @@ export async function PATCH(
     if (body.serviceAddress !== undefined) data.serviceAddress = body.serviceAddress || null;
     if (body.serviceSuburb !== undefined) data.serviceSuburb = body.serviceSuburb || null;
     if (body.notes !== undefined) data.notes = body.notes || null;
+    if (body.internalNotes !== undefined) data.internalNotes = body.internalNotes || null;
     if (body.validUntil !== undefined) data.validUntil = body.validUntil ? new Date(body.validUntil) : null;
     if (body.serviceContext !== undefined) {
       data.serviceContext = body.serviceContext === null ? Prisma.JsonNull : body.serviceContext;
@@ -181,11 +190,15 @@ export async function PATCH(
       }
     }
 
-    const quote = await db.quote.update({
-      where: { id: params.id },
-      data,
+    const result = await writeQuotePatch({
+      quoteId: params.id,
+      actorId: session.user.id,
+      data: data as Prisma.QuoteUncheckedUpdateManyInput,
+      expectedUpdatedAt: body.expectedUpdatedAt,
     });
-    return NextResponse.json(quote);
+    if (result.kind === "missing") return NextResponse.json({ error: "Quote not found." }, { status: 404 });
+    if (result.kind === "stale") return NextResponse.json(result.body, { status: 409 });
+    return NextResponse.json(result.quote);
   } catch (err: any) {
     if (err instanceof QuoteReferenceError) return NextResponse.json({ error: err.message }, { status: err.status });
     const status =

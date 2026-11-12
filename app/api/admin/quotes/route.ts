@@ -6,6 +6,8 @@ import { getAppSettings } from "@/lib/settings";
 import { Role } from "@prisma/client";
 import { ZodError } from "zod";
 import { QuoteReferenceError, assertQuoteReferenceKeys, caseForQuote, linkQuoteToCase } from "@/lib/cases/repair-quote";
+import { QuoteNumberUnavailableError, issueQuoteNumber } from "@/lib/quotes/quote-number";
+import { QUOTE_INTERNAL_NOTES_AUDIT } from "@/lib/quotes/quote-patch-write";
 
 /**
  * Warn (never block) when a quote's net price falls below the configured margin
@@ -83,13 +85,21 @@ export async function POST(req: NextRequest) {
       leadId = lead.id;
     }
 
-    const quote = linkedCase
-      ? await db.$transaction(async (tx) => {
-          const created = await tx.quote.create({ data: { ...quoteData, leadId } });
-          await linkQuoteToCase(tx, { quoteId: created.id, caseId: linkedCase.id, caseTitle: linkedCase.title, actorId: session.user.id });
-          return created;
-        })
-      : await db.quote.create({ data: { ...quoteData, leadId } });
+    // The reference number is taken in the same transaction as the quote, so a
+    // failed save never consumes or duplicates a number.
+    const quote = await db.$transaction(async (tx) => {
+      const quoteNumber = await issueQuoteNumber(tx);
+      const created = await tx.quote.create({ data: { ...quoteData, internalNotes: quoteData.internalNotes || null, leadId, quoteNumber } });
+      if (created.internalNotes) {
+        await tx.auditLog.create({
+          data: { userId: session.user.id, action: QUOTE_INTERNAL_NOTES_AUDIT, entity: "Quote", entityId: created.id, before: { internalNotes: null }, after: { internalNotes: created.internalNotes } },
+        });
+      }
+      if (linkedCase) {
+        await linkQuoteToCase(tx, { quoteId: created.id, quoteNumber: created.quoteNumber, caseId: linkedCase.id, caseTitle: linkedCase.title, actorId: session.user.id });
+      }
+      return created;
+    });
     const marginWarning = await computeMarginFloorWarning(
       quoteData.lineItems as Array<{ total?: number | null }> | undefined,
       Number(quoteData.subtotal ?? 0)
@@ -100,6 +110,7 @@ export async function POST(req: NextRequest) {
     );
   } catch (err: any) {
     if (err instanceof QuoteReferenceError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof QuoteNumberUnavailableError) return NextResponse.json({ error: err.message }, { status: 503 });
     if (err instanceof ZodError) return NextResponse.json({ error: err.issues[0]?.message ?? "Check the quote." }, { status: 400 });
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

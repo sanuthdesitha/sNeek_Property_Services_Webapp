@@ -1,142 +1,132 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
+import { db } from "@/lib/db";
 import { getCleanerInvoiceData, type CleanerInvoiceData } from "@/lib/cleaner/invoice";
-import {
-  EBadge,
-  ECard,
-  ECardBody,
-  ECardHeader,
-  ECardTitle,
-  EPageHeader,
-  EStatCard,
-  EEmptyState,
-} from "@/components/v2/ui/primitives";
+import { EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
 import { CleanerInvoiceActions } from "@/components/v2/cleaner/invoice-actions";
+import { InvoicesPanel } from "@/components/v2/cleaner/invoices-panel";
+import { PayRequestsPanel } from "@/components/v2/cleaner/pay-requests-panel";
+import { SegmentTabs } from "@/components/v2/cleaner/portal/segment-tabs";
+import { PayPeriod, type PayRateView } from "@/components/v2/cleaner/pay/pay-period";
+import { loadPayRequestOptions } from "@/components/v2/cleaner/pay/load-pay-request-options";
+import { payJobStatusLabel, payPeriodLines, resolvePayTab, type PayTabKey } from "@/lib/cleaner/pay-view";
+import { sydneyTodayKey } from "@/lib/time/sydney-range";
 
 export const metadata = { title: "Pay · Estate cleaner" };
 export const dynamic = "force-dynamic";
 
 const TZ = "Australia/Sydney";
+const INVOICE_PRESETS = ["thisMonth", "lastMonth", "last2Weeks"] as const;
+type InvoicePreset = (typeof INVOICE_PRESETS)[number];
 
-function money(n: number): string {
-  return "$" + (Number.isFinite(n) ? n : 0).toLocaleString("en-AU", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+const DESCRIPTIONS: Record<PayTabKey, string> = {
+  period: "Money already worked out for the current period.",
+  invoices: "Choose a period, adjust hours or comments, then download or email your invoice.",
+  requests: "Submit job-linked, property, or standalone extra payment requests with evidence.",
+};
+
+function shortDate(date: Date): string {
+  return new Date(date).toLocaleDateString("en-AU", { timeZone: TZ, day: "numeric", month: "short" });
 }
 
-function shortDate(d: Date): string {
-  return new Date(d).toLocaleDateString("en-AU", {
-    timeZone: TZ,
-    day: "numeric",
-    month: "short",
-  });
-}
-
-export default async function CleanerPayPage() {
-  const session = await requireRole([Role.CLEANER]);
-
-  // Current-period cleaner invoice summary — the same source the live cleaner
-  // invoice page uses, scoped to the session user. Defaults to month-to-date.
-  const data: CleanerInvoiceData | null = await getCleanerInvoiceData({
-    userId: session.user.id,
-  }).catch(() => null);
-
-  if (!data) {
-    return (
-      <div className="space-y-6">
-        <EPageHeader eyebrow="Earnings" title="Pay" description="Your current period at a glance." />
-        <EEmptyState
-          eyebrow="Unavailable"
-          title="Pay summary not available"
-          description="We couldn't load your invoice data right now. Try again shortly."
-        />
-      </div>
-    );
+/** The default rate in force today and when it started (read-only, own record). */
+async function loadRate(userId: string): Promise<PayRateView | null> {
+  try {
+    const today = new Date(`${sydneyTodayKey()}T00:00:00.000Z`);
+    const [entry, user] = await Promise.all([
+      db.userPayRate.findFirst({
+        where: { userId, removedAt: null, effectiveFrom: { lte: today } },
+        orderBy: [{ effectiveFrom: "desc" }, { createdAt: "desc" }],
+        select: { hourlyRate: true, effectiveFrom: true },
+      }),
+      db.user.findUnique({ where: { id: userId }, select: { hourlyRate: true } }),
+    ]);
+    if (entry) {
+      const baseline = entry.effectiveFrom.getUTCFullYear() <= 1970;
+      return { rate: entry.hourlyRate, fromLabel: baseline ? null : entry.effectiveFrom.toLocaleDateString("en-AU", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" }) };
+    }
+    return user?.hourlyRate != null ? { rate: user.hourlyRate, fromLabel: null } : null;
+  } catch {
+    return null;
   }
+}
 
-  const periodLine = `${shortDate(data.start)} – ${shortDate(data.end)}`;
-  const jobRows = data.rows.slice(0, 8);
+async function loadJobStatuses(userId: string, jobIds: string[]): Promise<Map<string, string>> {
+  if (jobIds.length === 0) return new Map();
+  const jobs = await db.job
+    .findMany({ where: { id: { in: jobIds }, assignments: { some: { userId, removedAt: null } } }, select: { id: true, status: true } })
+    .catch(() => []);
+  return new Map(jobs.map((job) => [job.id, job.status]));
+}
+
+async function PeriodTab({ userId }: { userId: string }) {
+  const data: CleanerInvoiceData | null = await getCleanerInvoiceData({ userId }).catch(() => null);
+  if (!data) {
+    return <EEmptyState eyebrow="Unavailable" title="Pay summary not available" description="We couldn't load your invoice data right now. Try again shortly." />;
+  }
+  const [rate, statuses] = await Promise.all([loadRate(userId), loadJobStatuses(userId, data.rows.map((row) => row.jobId))]);
+  return (
+    <PayPeriod
+      periodLabel={`${shortDate(data.start)} – ${shortDate(data.end)}`}
+      total={data.estimatedPay}
+      jobCount={data.rows.length}
+      lines={payPeriodLines(data)}
+      rate={rate}
+      rows={data.rows.map((row) => ({
+        jobId: row.jobId,
+        property: row.property,
+        date: row.date,
+        hours: row.hours,
+        amount: row.amount,
+        statusLabel: payJobStatusLabel(statuses.get(row.jobId)),
+        rateMissing: row.rateMissing,
+      }))}
+      pendingCount={data.pendingAdjustmentCount}
+      pendingAmount={data.pendingAdjustmentAmount}
+      gapJobCount={data.gapJobs?.length ?? 0}
+    />
+  );
+}
+
+async function RequestsTab({ userId, jobId }: { userId: string; jobId: string | null }) {
+  const options = await loadPayRequestOptions(userId);
+  return <PayRequestsPanel jobs={options.jobs} properties={options.properties} initialJobId={jobId} />;
+}
+
+/**
+ * Cleaner Pay (approved board, 2026-11): This period · Invoices · Requests.
+ * /v2/cleaner/invoices and /v2/cleaner/pay-requests redirect to the matching
+ * tab with their query (preset, jobId) intact.
+ */
+export default async function CleanerPayPage({
+  searchParams,
+}: {
+  searchParams?: { tab?: string; preset?: string; jobId?: string };
+}) {
+  const session = await requireRole([Role.CLEANER]);
+  const active = resolvePayTab(searchParams?.tab);
+  const preset = INVOICE_PRESETS.includes(searchParams?.preset as InvoicePreset) ? (searchParams?.preset as InvoicePreset) : undefined;
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-3xl space-y-5">
       <EPageHeader
         eyebrow="Earnings"
         title="Pay"
-        description={`Current period · ${periodLine}`}
-        actions={<CleanerInvoiceActions />}
+        description={DESCRIPTIONS[active]}
+        actions={active === "period" ? <CleanerInvoiceActions /> : undefined}
       />
-
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <EStatCard label="Estimated pay" value={money(data.estimatedPay)} delta={`${data.rows.length} job${data.rows.length === 1 ? "" : "s"}`} deltaTone="neutral" />
-        <EStatCard label="Paid hours" value={data.hours.toFixed(1)} delta="this period" deltaTone="neutral" />
-        <EStatCard
-          label="Pending"
-          value={money(data.pendingAdjustmentAmount)}
-          delta={
-            data.pendingAdjustmentCount > 0
-              ? `${data.pendingAdjustmentCount} request${data.pendingAdjustmentCount === 1 ? "" : "s"}`
-              : "none"
-          }
-          deltaTone="neutral"
-        />
-      </section>
-
-      <ECard>
-        <ECardHeader>
-          <ECardTitle>Jobs this period</ECardTitle>
-        </ECardHeader>
-        <ECardBody className="pt-0">
-          {jobRows.length === 0 ? (
-            <EEmptyState
-              eyebrow="Nothing yet"
-              title="No payable jobs"
-              description="Completed and submitted jobs in this period will show here with their pay."
-            />
-          ) : (
-            <div className="divide-y divide-[hsl(var(--e-border))]">
-              {jobRows.map((r) => (
-                <div key={r.jobId} className="flex items-center justify-between gap-3 py-3 first:pt-0">
-                  <div className="min-w-0">
-                    <p className="truncate text-[0.875rem] font-medium">{r.property}</p>
-                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      {r.date} · {r.jobType} · {r.hours.toFixed(1)}h
-                    </p>
-                  </div>
-                  <span className="e-numeral shrink-0 text-[0.9375rem]">{money(r.amount)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </ECardBody>
-      </ECard>
-
-      {data.expenseTotal > 0 || data.shoppingTimeTotal > 0 ? (
-        <ECard>
-          <ECardHeader>
-            <ECardTitle>Reimbursements</ECardTitle>
-          </ECardHeader>
-          <ECardBody className="pt-0">
-            <div className="divide-y divide-[hsl(var(--e-border))]">
-              {data.expenseTotal > 0 ? (
-                <div className="flex items-center justify-between gap-3 py-3 first:pt-0">
-                  <p className="text-[0.875rem] font-medium">Shopping reimbursements</p>
-                  <div className="flex items-center gap-3">
-                    <span className="e-numeral text-[0.9375rem]">{money(data.expenseTotal)}</span>
-                    <EBadge tone="info" soft>{data.expenseRows.length}</EBadge>
-                  </div>
-                </div>
-              ) : null}
-              {data.shoppingTimeTotal > 0 ? (
-                <div className="flex items-center justify-between gap-3 py-3 first:pt-0">
-                  <p className="text-[0.875rem] font-medium">Shopping time</p>
-                  <span className="e-numeral text-[0.9375rem]">{money(data.shoppingTimeTotal)}</span>
-                </div>
-              ) : null}
-            </div>
-          </ECardBody>
-        </ECard>
-      ) : null}
+      <SegmentTabs
+        label="Pay sections"
+        activeKey={active}
+        tabs={[
+          { key: "period", label: "This period", href: "/v2/cleaner/pay" },
+          { key: "invoices", label: "Invoices", href: "/v2/cleaner/pay?tab=invoices" },
+          { key: "requests", label: "Requests", href: "/v2/cleaner/pay?tab=requests" },
+        ]}
+      />
+      {active === "period" ? <PeriodTab userId={session.user.id} /> : null}
+      {active === "invoices" ? <InvoicesPanel initialPreset={preset} /> : null}
+      {active === "requests" ? <RequestsTab userId={session.user.id} jobId={searchParams?.jobId ?? null} /> : null}
     </div>
   );
 }

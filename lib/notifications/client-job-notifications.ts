@@ -5,6 +5,7 @@ import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
+import { loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
 
 export type ClientJobNotificationType =
   | "EN_ROUTE"
@@ -13,77 +14,36 @@ export type ClientJobNotificationType =
   | "JOB_STARTED"
   | "JOB_COMPLETE";
 
-type NotificationMessage = { subject: string; webBody: string; smsBody: string; emailHtml?: string };
+type NotificationMessage = { subject: string; webBody: string; smsBody: string; emailSubject?: string; emailHtml?: string };
 
-function formatEta(etaMinutes: number | null | undefined): string | null {
+export const CLIENT_JOB_UPDATES_TYPE_KEY = "client.job_updates";
+
+/** The wording part of each event (ETA update without an estimate has its own sentences). */
+function eventPart(type: ClientJobNotificationType, eta: string | null): string {
+  switch (type) {
+    case "EN_ROUTE": return "en-route";
+    case "EN_ROUTE_UPDATE": return eta ? "eta-update" : "eta-update-no-eta";
+    case "EN_ROUTE_ARRIVED": return "arrived";
+    case "JOB_STARTED": return "started";
+    case "JOB_COMPLETE": return "complete";
+  }
+}
+
+function formatEta(wording: WordingRenderer, etaMinutes: number | null | undefined): string | null {
   if (etaMinutes == null) return null;
-  if (etaMinutes <= 1) return "less than a minute away";
+  if (etaMinutes <= 1) return wording.render("eta-soon", "SMS", {}).body;
   const arrival = new Date(Date.now() + etaMinutes * 60 * 1000);
   const time = arrival.toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit", hour12: true });
-  return `about ${etaMinutes} minute${etaMinutes === 1 ? "" : "s"} away (arriving ~${time})`;
+  return wording.render("eta-minutes", "SMS", { etaMinutes, minutesWord: etaMinutes === 1 ? "minute" : "minutes", arrivalTime: time }).body;
 }
 
-function buildLiveTripActionHtml(label: string, liveTripUrl?: string | null) {
-  if (!liveTripUrl) return "";
-  return `<p><a href="${liveTripUrl}">${label}</a></p>`;
-}
-
-function buildEnRouteSmsBody(companyName: string, propertyName: string, eta: string | null, liveTripLine: string) {
-  if (eta) {
-    return `Hi! Your ${companyName} cleaner is on the way to ${propertyName}. ETA: ${eta}.${liveTripLine}`;
-  }
-  return `Hi! Your ${companyName} cleaner is on the way to ${propertyName}.${liveTripLine}`;
-}
-
-function buildEtaUpdateSmsBody(companyName: string, propertyName: string, eta: string | null, liveTripLine: string) {
-  if (eta) {
-    return `ETA update: Your ${companyName} cleaner is now ${eta} from ${propertyName}.${liveTripLine}`;
-  }
-  return `Your ${companyName} cleaner is on the way to ${propertyName}.${liveTripLine}`;
-}
-
-/** HTML builders only — property, cleaner and note text are free-typed fields. */
-function esc(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function buildEnRouteEmailHtml(
-  companyName: string,
-  cleanerName: string,
-  propertyName: string,
-  eta: string | null,
-  liveTripUrl?: string | null,
-  scheduleNote?: string | null
-) {
-  const etaHtml = eta ? `<p><strong>ETA:</strong> ${esc(eta)}</p>` : "";
-  const scheduleHtml = scheduleNote ? `<p style="color:#b45309">${esc(scheduleNote)}</p>` : "";
-  return `<p>Hi! Your ${companyName} cleaner <strong>${esc(cleanerName)}</strong> is on the way to <strong>${esc(propertyName)}</strong>.</p>${etaHtml}${scheduleHtml}${buildLiveTripActionHtml("Track live", liveTripUrl)}`;
-}
-
-function buildEtaUpdateEmailHtml(
-  companyName: string,
-  cleanerName: string,
-  propertyName: string,
-  eta: string | null,
-  liveTripUrl?: string | null,
-  scheduleNote?: string | null
-) {
-  const etaHtml = eta
-    ? `<p><strong>${esc(cleanerName)}</strong> is now ${esc(eta)} from <strong>${esc(propertyName)}</strong>.</p>`
-    : `<p>Your ${companyName} cleaner is on the way to <strong>${esc(propertyName)}</strong>.</p>`;
-  const scheduleHtml = scheduleNote ? `<p style="color:#b45309">${esc(scheduleNote)}</p>` : "";
-  return `${etaHtml}${scheduleHtml}${buildLiveTripActionHtml("Track live", liveTripUrl)}`;
-}
-
-function buildArrivedEmailHtml(companyName: string, cleanerName: string, propertyName: string, liveTripUrl?: string | null) {
-  return `<p>Your ${companyName} cleaner <strong>${esc(cleanerName)}</strong> has arrived at <strong>${esc(propertyName)}</strong> and will begin shortly.</p>${buildLiveTripActionHtml("View job details", liveTripUrl)}`;
-}
-
-function buildMessage(
+/**
+ * The message for one event, from the type's wording (catalog type
+ * client.job_updates). Without an override it is byte-identical to the text
+ * this function composed before the wording layer (parity test).
+ */
+export function buildClientJobMessage(
+  wording: WordingRenderer,
   type: ClientJobNotificationType,
   companyName: string,
   propertyName: string,
@@ -92,48 +52,41 @@ function buildMessage(
   liveTripUrl?: string | null,
   scheduleNote?: string | null
 ): NotificationMessage {
-  const eta = formatEta(etaMinutes);
-  const liveTripLine = liveTripUrl ? ` Track live: ${liveTripUrl}` : "";
-  const scheduleLineSms = scheduleNote ? ` ${scheduleNote}` : "";
-
-  const messages: Record<ClientJobNotificationType, NotificationMessage> = {
-    EN_ROUTE: {
-      subject: `${companyName}: Your cleaner is on the way`,
-      webBody: eta
-        ? `${cleanerName} is on the way to ${propertyName} — ETA ${eta}.`
-        : `${cleanerName} is on the way to ${propertyName}.`,
-      smsBody: buildEnRouteSmsBody(companyName, propertyName, eta, liveTripLine) + scheduleLineSms,
-      emailHtml: buildEnRouteEmailHtml(companyName, cleanerName, propertyName, eta, liveTripUrl, scheduleNote),
-    },
-    EN_ROUTE_UPDATE: {
-      subject: `${companyName}: Updated ETA for your clean`,
-      webBody: eta
-        ? `Updated ETA: ${cleanerName} is now ${eta} from ${propertyName}.`
-        : `Your cleaner is on the way to ${propertyName}.`,
-      smsBody: buildEtaUpdateSmsBody(companyName, propertyName, eta, liveTripLine) + scheduleLineSms,
-      emailHtml: buildEtaUpdateEmailHtml(companyName, cleanerName, propertyName, eta, liveTripUrl, scheduleNote),
-    },
-    EN_ROUTE_ARRIVED: {
-      subject: `${companyName}: Your cleaner has arrived`,
-      webBody: `${cleanerName} has arrived at ${propertyName}.`,
-      smsBody: `Hi! Your ${companyName} cleaner has arrived at ${propertyName}.${liveTripLine}`,
-      emailHtml: buildArrivedEmailHtml(companyName, cleanerName, propertyName, liveTripUrl),
-    },
-    JOB_STARTED: {
-      subject: `${companyName}: Cleaning has started`,
-      webBody: `${cleanerName} has started cleaning at ${propertyName}.`,
-      smsBody: `Hi! Your ${companyName} cleaner has started cleaning at ${propertyName}.`,
-      emailHtml: `<p>Your ${companyName} cleaner <strong>${cleanerName}</strong> has started cleaning at <strong>${propertyName}</strong>.</p>`,
-    },
-    JOB_COMPLETE: {
-      subject: `${companyName}: Cleaning is complete`,
-      webBody: `The cleaning at ${propertyName} is complete.`,
-      smsBody: `Hi! The cleaning at ${propertyName} is complete. Thank you for choosing ${companyName}!`,
-      emailHtml: `<p>The cleaning at <strong>${propertyName}</strong> is complete.</p><p>Thank you for choosing <strong>${companyName}</strong>.</p>`,
-    },
+  const eta = formatEta(wording, etaMinutes);
+  const hasEta = Boolean(eta);
+  const trip = { tripUrl: liveTripUrl };
+  const schedule = { scheduleNote };
+  const values = {
+    companyName, propertyName, cleanerName, eta,
+    etaDash: wording.line("eta-dash", "INBOX", { eta }, hasEta),
+    etaLine: wording.line("eta-line", "SMS", { eta }, hasEta),
+    trackLine: wording.line("track-line", "SMS", trip, Boolean(liveTripUrl)),
+    scheduleLine: wording.line("schedule-line", "SMS", schedule, Boolean(scheduleNote)),
+    etaParagraph: wording.line("eta-paragraph", "EMAIL", { eta }, hasEta),
+    scheduleParagraph: wording.line("schedule-paragraph", "EMAIL", schedule, Boolean(scheduleNote)),
+    trackLink: wording.line("track-link", "EMAIL", trip, Boolean(liveTripUrl)),
+    detailsLink: wording.line("details-link", "EMAIL", trip, Boolean(liveTripUrl)),
   };
+  const part = eventPart(type, eta);
+  const inbox = wording.render(part, "INBOX", values);
+  const email = wording.render(part, "EMAIL", values);
+  return { subject: inbox.title, webBody: inbox.body, smsBody: wording.render(part, "SMS", values).body, emailSubject: email.subject, emailHtml: email.html };
+}
 
-  return messages[type];
+/** The schedule note for an ETA (null within 10 minutes of the start time). */
+function scheduleNoteFor(wording: WordingRenderer, diff: number, startTime: string): string | null {
+  if (diff > 10) return wording.render("running-late", "SMS", { minutes: Math.round(diff), startTime }).body;
+  if (diff < -10) return wording.render("running-early", "SMS", { minutes: Math.abs(Math.round(diff)), startTime }).body;
+  return null;
+}
+
+/** HTML escaping for the plain-text fallback below. */
+function esc(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function isEventEnabled(
@@ -153,7 +106,7 @@ function buildEmailPayload(
 ): { subject: string; html: string; logBody: string } {
   // The SMS body is plain text being promoted into HTML — escape it.
   const html = msg.emailHtml ?? `<p>${esc(msg.smsBody)}</p>`;
-  return { subject: msg.subject, html, logBody: `Client notification sent to ${recipientEmail}` };
+  return { subject: msg.emailSubject ?? msg.subject, html, logBody: `Client notification sent to ${recipientEmail}` };
 }
 
 async function logPushNotification(input: { recipientUserId: string; jobId: string; subject: string; body: string }) {
@@ -287,6 +240,7 @@ async function dispatchClientJobNotification(input: {
   const channel = pref?.preferredChannel ?? "EMAIL";
   const liveTripUrl = resolveAppUrl(`/client/jobs/${job.id}`);
 
+  const wording = await loadNotificationWording(CLIENT_JOB_UPDATES_TYPE_KEY);
   // Schedule comparison for EN_ROUTE notifications
   let scheduleNote: string | null = null;
   if ((input.type === "EN_ROUTE" || input.type === "EN_ROUTE_UPDATE") && input.etaMinutes != null && job.startTime) {
@@ -296,11 +250,10 @@ async function dispatchClientJobNotification(input: {
     const nowMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
     const arrivalMinutes = nowMinutes + input.etaMinutes;
     const diff = arrivalMinutes - scheduledMinutes;
-    if (diff > 10) scheduleNote = `Note: Your cleaner is running approximately ${Math.round(diff)} minutes behind the scheduled start time of ${job.startTime}.`;
-    else if (diff < -10) scheduleNote = `Your cleaner is expected to arrive about ${Math.abs(Math.round(diff))} minutes before the scheduled time of ${job.startTime}.`;
+    scheduleNote = scheduleNoteFor(wording, diff, job.startTime);
   }
 
-  const msg = buildMessage(input.type, companyName, propertyName, cleanerName, input.etaMinutes, liveTripUrl, scheduleNote);
+  const msg = buildClientJobMessage(wording, input.type, companyName, propertyName, cleanerName, input.etaMinutes, liveTripUrl, scheduleNote);
 
   const sendEmail = channel === "EMAIL" || channel === "BOTH";
   const sendSms = channel === "SMS" || channel === "BOTH";

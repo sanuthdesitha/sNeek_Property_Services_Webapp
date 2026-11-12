@@ -9,6 +9,7 @@ import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getClientApprovalById, respondClientApproval } from "@/lib/commercial/client-approvals";
 import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const respondSchema = z.object({
   expectedVersion: z.string().regex(/^[a-f0-9]{64}$/i),
@@ -89,14 +90,21 @@ export async function POST(
       select: { id: true, email: true, name: true },
       take: 20,
     });
+    const decisionWording = await loadNotificationWording("office.client_requests");
+    const decisionValues = {
+      approvalTitle: updated.title,
+      decision: updated.status.toLowerCase(),
+      amount: `${updated.currency} ${updated.amount.toFixed(2)}`,
+    };
+    const decisionInbox = decisionWording.render("decision", "INBOX", decisionValues);
     if (admins.length > 0) {
       await db.notification.createMany({
         data: admins.map((admin) => ({
           userId: admin.id,
           externalId: mobilePendingMarker("approvals"),
           channel: NotificationChannel.PUSH,
-          subject: `Client approval ${updated.status.toLowerCase()}`,
-          body: `${updated.title} (${updated.currency} ${updated.amount.toFixed(2)})`,
+          subject: decisionInbox.title,
+          body: decisionInbox.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         })),
@@ -105,20 +113,17 @@ export async function POST(
       const settings = await getAppSettings();
       const to = admins.map((admin) => admin.email).filter((email): email is string => Boolean(email));
       if (to.length > 0) {
+        const decisionEmail = decisionWording.render("decision", "EMAIL", {
+          ...decisionValues,
+          companyName: settings.companyName,
+          status: updated.status,
+          clientNoteParagraph: decisionWording.line("client-note", "EMAIL", { note: updated.responseNote }, Boolean(updated.responseNote)),
+        });
         await sendEmailDetailed({
           kind: "admin_alert",
           to,
-          subject: `${settings.companyName} - Client approval ${updated.status.toLowerCase()}`,
-          html: `
-            <p>Client decision received for: <strong>${updated.title}</strong></p>
-            <p>Status: <strong>${updated.status}</strong></p>
-            <p>Amount: ${updated.currency} ${updated.amount.toFixed(2)}</p>
-            ${
-              updated.responseNote
-                ? `<p>Client note: ${updated.responseNote.replace(/</g, "&lt;")}</p>`
-                : ""
-            }
-          `,
+          subject: decisionEmail.subject,
+          html: decisionEmail.html,
         });
       }
     }

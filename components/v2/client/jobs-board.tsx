@@ -57,6 +57,7 @@ import { ECheckTile, EInlineNotice, EInput, ELabel, ESelect, ETextarea } from "@
 import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import { cn } from "@/lib/utils";
 import { canRebookJob } from "@/lib/booking/rebook";
+import { clientLaundryStatusLabel } from "@/lib/client/laundry-status";
 
 const TZ = "Australia/Sydney";
 
@@ -523,7 +524,7 @@ function JobCard({
         {showLaundryUpdates && job.laundryTask ? (
           <p className="mt-3 flex items-center gap-1.5 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
             <Shirt className="h-3.5 w-3.5 text-[hsl(var(--e-accent-portal))]" />
-            Linked laundry — {titleCase(job.laundryTask.status)}
+            Linked laundry — {clientLaundryStatusLabel(job.laundryTask.status)}
             <Link
               href={`/v2/client/laundry?task=${job.laundryTask.id}&job=${job.id}`}
               className="font-medium text-[hsl(var(--e-gold-ink))] hover:underline"

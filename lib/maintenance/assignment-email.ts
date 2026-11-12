@@ -7,6 +7,7 @@
  * Australia/Sydney — keeping the clock out of here is what makes it testable.
  */
 import { wrapEmailHtml } from "@/lib/email-templates";
+import { defaultNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
 
 function escapeHtml(value: string): string {
   return value
@@ -44,7 +45,8 @@ function row(label: string, value: string): string {
 
 export function buildMaintenanceAssignedEmail(
   settings: { companyName: string; logoUrl: string },
-  params: MaintenanceAssignedEmailParams
+  params: MaintenanceAssignedEmailParams,
+  wording: WordingRenderer = defaultNotificationWording("maintenance.assignment")
 ): { subject: string; html: string } {
   const companyName = settings.companyName || "sNeek Property Services";
 
@@ -52,34 +54,26 @@ export function buildMaintenanceAssignedEmail(
     row("Property", params.propertyName),
     row("Your role", params.roleLabel),
     row("Priority", params.priorityLabel),
-    row("Scheduled", params.scheduledFor ?? "Not scheduled yet"),
+    row("Scheduled", params.scheduledFor ?? wording.line("not-scheduled", "EMAIL", {})),
   ].join("");
 
-  const innerHtml = `<h2 style="margin:0 0 14px;font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:600;color:#2f2b28;line-height:1.25;">You've been assigned to a maintenance item</h2>
-<p style="margin:0 0 14px;font-family:Helvetica,Arial,sans-serif;font-size:14.5px;color:#2f2b28;">Hello ${escapeHtml(
-    params.userName
-  )}, you have been added to the following maintenance item as <strong>${escapeHtml(
-    params.roleLabel
-  )}</strong>. It now appears in your portal.</p>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:12px 0;background:#faf8f5;border:1px solid #e6e1da;border-radius:14px;">
-  <tr>
-    <td style="padding:16px 20px;">
-      <div style="font-family:Georgia,'Times New Roman',serif;font-size:18px;font-weight:600;color:#2f2b28;line-height:1.3;">${escapeHtml(
-        params.itemTitle
-      )}</div>
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:10px;">${rows}</table>
-    </td>
-  </tr>
-</table>
-<p style="margin:18px 0 0;font-family:Helvetica,Arial,sans-serif;font-size:13px;color:#8a8580;">Other people may be assigned to this item in other roles. Please coordinate before attending.</p>`;
+  const email = wording.render("assigned", "EMAIL", {
+    userName: params.userName,
+    roleLabel: params.roleLabel,
+    itemTitle: params.itemTitle,
+    propertyName: params.propertyName,
+    companyName,
+    detailRows: rows,
+  });
+  const innerHtml = email.html;
 
   const actionLink =
     params.actionUrl && /^https?:\/\//i.test(params.actionUrl.trim())
-      ? { url: params.actionUrl.trim(), label: "Open maintenance item" }
+      ? { url: params.actionUrl.trim(), label: wording.line("open-button", "EMAIL", {}) }
       : null;
 
   return {
-    subject: `Maintenance assigned — ${params.itemTitle} (${params.propertyName}) · ${companyName}`,
+    subject: email.subject,
     html: wrapEmailHtml(settings, innerHtml, actionLink),
   };
 }

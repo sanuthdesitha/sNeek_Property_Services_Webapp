@@ -30,6 +30,7 @@ import {
   setItemAssignees,
 } from "@/lib/maintenance/assignments";
 import { PRIORITY_LABELS } from "@/lib/maintenance/labels";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const TZ = "Australia/Sydney";
 
@@ -129,6 +130,7 @@ async function notifyNewAssignees(input: {
   const actionUrl = resolveAppUrl(MAINTENANCE_SECTION_HREF[input.role], input.req);
   const roleLabel = MAINTENANCE_ASSIGNEE_ROLE_LABELS[input.role];
 
+  const wording = await loadNotificationWording("maintenance.assignment");
   const notified: string[] = [];
   for (const user of users) {
     if (!user.email) continue;
@@ -143,7 +145,8 @@ async function notifyNewAssignees(input: {
           priorityLabel: PRIORITY_LABELS[item.priority] ?? item.priority,
           scheduledFor,
           actionUrl,
-        }
+        },
+        wording
       );
       const result = await sendEmailDetailed({
         kind: "job_assignment",

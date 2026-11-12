@@ -1,6 +1,7 @@
 import { NotificationChannel, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { notifyAdminsByEmail, notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const ALERT_SUBJECT = "Safety check-in overdue";
 const ACTIVE_STATUSES = ["IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL"] as const;
@@ -55,6 +56,7 @@ export async function runSafetyCheckinAlerts(now = new Date()) {
   const alertedJobIds = new Set(existingAlerts.map((row) => row.jobId).filter(Boolean));
 
   let alerted = 0;
+  const wording = await loadNotificationWording("office.field_alerts");
   for (const job of overdueJobs) {
     if (alertedJobIds.has(job.id)) continue;
 
@@ -67,17 +69,23 @@ export async function runSafetyCheckinAlerts(now = new Date()) {
       Math.round((now.getTime() - new Date(job.gpsCheckInAt ?? cutoff).getTime()) / 60_000)
     );
     const propertyLabel = [job.property?.name, job.property?.suburb].filter(Boolean).join(" · ");
-    const body = `${propertyLabel || `Job ${job.jobNumber}`}: no safety check-in has been recorded ${minutesLate} minutes after arrival${cleanerNames ? ` for ${cleanerNames}` : ""}.`;
+    const alert = wording.render("safety-overdue", "INBOX", {
+      place: propertyLabel || `Job ${job.jobNumber}`,
+      minutes: minutesLate,
+      forCleaners: wording.line("for-cleaners", "INBOX", { cleanerNames }, Boolean(cleanerNames)),
+    });
+    const body = alert.body;
+    const email = wording.render("safety-overdue", "EMAIL", { messageText: body, jobNumber: job.jobNumber });
 
     await notifyAdminsByPush({
-      subject: ALERT_SUBJECT,
+      subject: alert.title,
       body,
       jobId: job.id,
     });
 
     await notifyAdminsByEmail({
-      subject: ALERT_SUBJECT,
-      html: `<p>${body}</p><p><strong>Job:</strong> #${job.jobNumber}</p>`,
+      subject: email.subject,
+      html: email.html,
     });
 
     alerted += 1;

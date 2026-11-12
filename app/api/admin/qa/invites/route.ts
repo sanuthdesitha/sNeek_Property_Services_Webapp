@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { z } from "zod";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   jobId: z.string().min(1),
@@ -83,11 +84,17 @@ export async function POST(req: NextRequest) {
   let emailed = false;
   let emailError: string | null = null;
   if (client.email) {
+    const invite = (await loadNotificationWording("client.post_job")).render("qa-invite", "EMAIL", {
+      clientName: client.name ?? "there",
+      propertyName: job.property?.name ?? "your property",
+      link,
+      hours: parsed.data.expiresInHours,
+    });
     const result = await sendEmailDetailed({
       kind: "client_automation",
       to: client.email,
-      subject: "Please review your recent clean",
-      html: `<p>Hi ${client.name ?? "there"},</p><p>We'd love your feedback on your recent clean at <strong>${job.property?.name ?? "your property"}</strong>. Please take a moment to rate the job:</p><p><a href="${link}">${link}</a></p><p>This link expires in ${parsed.data.expiresInHours} hours.</p><p>— sNeek</p>`,
+      subject: invite.subject,
+      html: invite.html,
       transactional: true,
     });
     emailed = !!result.ok;

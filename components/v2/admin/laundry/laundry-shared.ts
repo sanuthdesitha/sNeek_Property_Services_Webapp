@@ -6,6 +6,7 @@
 import { LaundryStatus } from "@prisma/client";
 import type { MediaGalleryItem } from "@/components/shared/media-gallery";
 import { buildLaundryConfirmationMediaItems } from "@/lib/laundry/media";
+import type { PartnerSchedule } from "@/lib/laundry/partner-schedule";
 
 export type Tone = "neutral" | "primary" | "info" | "success" | "warning" | "danger";
 
@@ -17,6 +18,8 @@ export function statusTone(status: string): Tone {
     case LaundryStatus.CONFIRMED:
       return "primary";
     case LaundryStatus.PICKED_UP:
+      return "info";
+    case LaundryStatus.READY_TO_RETURN:
       return "info";
     case LaundryStatus.DROPPED:
       return "success";
@@ -37,6 +40,8 @@ export function statusLabel(status: string): string {
       return "Confirmed";
     case LaundryStatus.PICKED_UP:
       return "Picked up";
+    case LaundryStatus.READY_TO_RETURN:
+      return "Ready to return";
     case LaundryStatus.DROPPED:
       return "Delivered";
     case LaundryStatus.FLAGGED:
@@ -53,6 +58,8 @@ export const LAUNDRY_STATUS_OPTIONS: LaundryStatus[] = [
   LaundryStatus.PENDING,
   LaundryStatus.CONFIRMED,
   LaundryStatus.PICKED_UP,
+  // 2026-11-13: the office may set or correct the laundry team's "Ready to return".
+  LaundryStatus.READY_TO_RETURN,
   LaundryStatus.DROPPED,
   LaundryStatus.FLAGGED,
   LaundryStatus.SKIPPED_PICKUP,
@@ -95,7 +102,7 @@ export type LaundryTaskDTO = {
     keyLostMode?: boolean;
     client?: { id?: string; name?: string | null; email?: string | null } | null;
   } | null;
-  supplier?: { id?: string; name?: string | null; pricePerKg?: number | null; avgTurnaround?: number | null } | null;
+  supplier?: ({ id?: string; name?: string | null; pricePerKg?: number | null; avgTurnaround?: number | null } & Partial<PartnerSchedule>) | null;
   job?: { id?: string; jobNumber?: string | null; scheduledDate?: string | null; status?: string | null } | null;
   confirmations?: Array<{
     id: string;

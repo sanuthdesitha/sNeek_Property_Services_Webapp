@@ -8,6 +8,7 @@ import { escapeHtml } from "@/lib/utils/escape-html";
 import { leadSchema } from "@/lib/validations/quote";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { rateLimit, getClientIp } from "@/lib/security/rate-limit";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export const runtime = "nodejs";
 
@@ -54,23 +55,24 @@ export async function POST(req: NextRequest) {
     });
 
     try {
+      const wording = await loadNotificationWording("leads.alerts");
+      const notProvided = wording.line("not-provided", "INBOX", {});
+      const leadEmail = wording.render("website-quote", "EMAIL", {
+        name: body.name,
+        email: body.email,
+        phone: body.phone || notProvided,
+        suburb: body.suburb || notProvided,
+        address: body.address || notProvided,
+        service: requestedServiceLabel,
+        estimate: `${typeof body.estimateMin === "number" ? `$${body.estimateMin.toFixed(2)}` : wording.line("pending-review", "INBOX", {})}${wording.line("estimate-to", "INBOX", { amount: typeof body.estimateMax === "number" ? `$${body.estimateMax.toFixed(2)}` : "" }, typeof body.estimateMax === "number")}`,
+        notesHtml: escapeHtml(body.notes || wording.line("no-notes", "INBOX", {})).replace(/\n/g, "<br />"),
+        leadId: lead.id,
+      });
       await sendWebsiteLeadNotification({
         settings,
-        subject: `New quote request: ${body.name} (${requestedServiceLabel})`,
+        subject: leadEmail.subject,
         replyTo: body.email,
-        html: `
-          <h2>New quote request received</h2>
-          <p><strong>Name:</strong> ${escapeHtml(body.name)}</p>
-          <p><strong>Email:</strong> ${escapeHtml(body.email)}</p>
-          <p><strong>Phone:</strong> ${escapeHtml(body.phone || "Not provided")}</p>
-          <p><strong>Suburb:</strong> ${escapeHtml(body.suburb || "Not provided")}</p>
-          <p><strong>Address:</strong> ${escapeHtml(body.address || "Not provided")}</p>
-          <p><strong>Requested service:</strong> ${escapeHtml(requestedServiceLabel)}</p>
-          <p><strong>Estimate range:</strong> ${typeof body.estimateMin === "number" ? `$${body.estimateMin.toFixed(2)}` : "Pending manual review"}${typeof body.estimateMax === "number" ? ` to $${body.estimateMax.toFixed(2)}` : ""}</p>
-          <p><strong>Notes:</strong></p>
-          <p>${escapeHtml(body.notes || "No extra notes provided.").replace(/\n/g, "<br />")}</p>
-          <p><strong>Lead ID:</strong> ${escapeHtml(lead.id)}</p>
-        `,
+        html: leadEmail.html,
       });
     } catch (error) {
       console.error("Website quote lead notification email failed", error);

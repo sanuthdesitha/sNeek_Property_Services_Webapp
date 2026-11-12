@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { Role, JobType } from "@prisma/client";
 import { z, ZodError } from "zod";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { verifySensitiveAction, isSensitiveRefusal } from "@/lib/security/admin-verification";
 import { formTemplateSchemaZ } from "@/lib/forms/template-schema";
 import { isStaleTemplateWrite } from "@/lib/forms/template-concurrency";
 import { readTemplateDraft, saveTemplateDraft } from "@/lib/forms/template-drafts";
@@ -146,7 +146,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         ? 401
         : err.message === "FORBIDDEN"
           ? 403
-          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+          : isSensitiveRefusal(err)
             ? 423
             : 400;
     return NextResponse.json({ error: err.message }, { status });

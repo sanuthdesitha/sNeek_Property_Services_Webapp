@@ -44,7 +44,7 @@ export function investigateLaundry(task: InvestigationTask) {
   }
   if (driverReadiness === "NOT_READY") issues.push("Driver recorded linen not ready at the latest recorded pickup");
   let holder = "Current holder not confirmed by the records";
-  if (task.status === "PICKED_UP" && pickup) holder = `Pickup recorded by ${text(pickup.confirmedByName) ?? "name unavailable"}; onward custody not confirmed`;
+  if ((task.status === "PICKED_UP" || task.status === "READY_TO_RETURN") && pickup) holder = `Pickup recorded by ${text(pickup.confirmedByName) ?? "name unavailable"}; onward custody not confirmed`;
   if (task.status === "DROPPED" && dropped) {
     // A later correction is evidence too; never silently show the original location as current.
     const dropIndex = rows.indexOf(dropped);
@@ -58,6 +58,7 @@ export function investigateLaundry(task: InvestigationTask) {
     : task.status === "DROPPED" ? "Receiving team — check the recorded return; recipient not identified"
     : task.status === "SKIPPED_PICKUP" || task.noPickupRequired ? "Office — review the next linen requirement"
     : task.status === "PICKED_UP" ? `${text(task.supplier?.name) ?? "Laundry team"} — return pending; individual assignee not recorded`
+    : task.status === "READY_TO_RETURN" ? `${text(task.supplier?.name) ?? "Laundry team"} — marked ready to return; drop-off pending`
     : task.status === "CONFIRMED" ? "Laundry team — pickup pending; individual assignee not recorded"
     : "Cleaner — confirm readiness; individual assignee not recorded";
   const milestones = [

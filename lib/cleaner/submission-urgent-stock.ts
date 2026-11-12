@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
 import { reportUrgentStockFromSubmission } from "@/lib/inventory/urgent-stock";
 import { queueDelivery } from "@/lib/notifications/queue-delivery";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import type { UrgentStockRequest } from "@/lib/forms/form-effects";
 
 export type FormUrgentStock = {
@@ -72,11 +73,12 @@ async function propertyOfSubmission(submissionId: string): Promise<string> {
 
 /** Tell the office once that a form's urgent need could not be raised yet; enqueues an inbox notice only. */
 export async function queueUrgentStockReview(input: { jobId: string; submissionId: string }) {
+  const text = (await loadNotificationWording("stock.urgent_need")).render("form-review", "INBOX", {});
   await db.$transaction(async (tx) => {
     const recipients = await tx.user.findMany({ where: { role: { in: ["ADMIN", "OPS_MANAGER"] }, isActive: true }, select: { id: true, role: true } });
     await queueDelivery({ recipients, category: "shopping", jobId: input.jobId, web: {
-      subject: "Urgent stock from a form needs review",
-      body: "A job form counted stock below its urgent level, but the urgent need could not be raised yet. The submission is saved and this will be retried; check the property's stock.",
+      subject: text.title,
+      body: text.body,
     } }, {
       tx, eventId: input.submissionId, eventKey: "submission.urgent_stock_review", entity: { type: "FormSubmission", id: input.submissionId }, actorId: null, severity: "ACTION", scope: { kind: "ADMIN_OPERATIONS" }, transports: ["INBOX"],
     });

@@ -8,6 +8,7 @@ import { createClientApproval, deleteClientApprovalById, listClientApprovals } f
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { resolveAppUrl } from "@/lib/app-url";
 import { getAppSettings } from "@/lib/settings";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   amount: z.number().nonnegative(),
@@ -141,15 +142,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     });
 
+    const approvalWording = await loadNotificationWording("client.approvals");
     if (recipients.length > 0) {
+      const approvalNotice = approvalWording.render("approval-required", "INBOX", { placeName: sourceProperty.name, approvalTitle: created.title });
       await db.notification.createMany({
         data: recipients.map((recipient) => ({
           userId: recipient.id,
           jobId: payAdjustment.job?.id ?? undefined,
           externalId: mobilePendingMarker("billing"),
           channel: NotificationChannel.PUSH,
-          subject: "Approval required",
-          body: `${sourceProperty.name}: ${created.title}`,
+          subject: approvalNotice.title,
+          body: approvalNotice.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         })),
@@ -159,16 +162,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (recipientEmails.size > 0) {
       const settings = await getAppSettings();
       const approvalUrl = resolveAppUrl("/client/approvals", req);
+      const approvalEmail = approvalWording.render("pay-approval", "EMAIL", {
+        companyName: settings.companyName,
+        propertyName: sourceProperty.name,
+        approvalTitle: created.title,
+        amount: `${created.currency} ${created.amount.toFixed(2)}`,
+        descriptionParagraph: approvalWording.line("description-paragraph", "EMAIL", { description: created.description }, Boolean(created.description)),
+        approvalUrl,
+      });
       await sendEmailDetailed({
         to: Array.from(recipientEmails),
-        subject: `${settings.companyName} - Approval required`,
-        html: `
-          <p>An approval is required for <strong>${sourceProperty.name}</strong>.</p>
-          <p><strong>${created.title}</strong></p>
-          <p>Amount: ${created.currency} ${created.amount.toFixed(2)}</p>
-          ${created.description ? `<p>${created.description.replace(/</g, "&lt;")}</p>` : ""}
-          <p>Review here: <a href="${approvalUrl}">${approvalUrl}</a></p>
-        `,
+        subject: approvalEmail.subject,
+        html: approvalEmail.html,
       });
     }
 

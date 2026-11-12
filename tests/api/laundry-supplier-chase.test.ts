@@ -10,15 +10,18 @@ import { Role } from "@prisma/client";
 
 const m = vi.hoisted(() => ({
   session: vi.fn(), task: vi.fn(), auditFind: vi.fn(), auditCount: vi.fn(), auditCreate: vi.fn(), notify: vi.fn(), receipt: vi.fn(),
-  email: vi.fn(), sms: vi.fn(), smsState: vi.fn(), settings: vi.fn(), ops: vi.fn(),
+  email: vi.fn(), sms: vi.fn(), smsState: vi.fn(), settings: vi.fn(), ops: vi.fn(), users: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.session }));
-vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
+// The live policy behind the shared capability evaluator (lib/rbac/can.ts): no per-person switches.
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops, getOpsPolicy: async () => ({ revision: 0, presets: [], assignments: {} }) }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
 vi.mock("@/lib/notifications/email", () => ({ sendEmailDetailed: m.email }));
 vi.mock("@/lib/notifications/sms", () => ({ sendSmsDetailed: m.sms, getSmsProviderState: m.smsState }));
 vi.mock("@/lib/db", () => ({ db: {
   laundryTask: { findUnique: m.task },
+  // The partner's laundry portal team (2026-11-12): none here, so a chase is the only way to reach them.
+  user: { findMany: m.users },
   auditLog: { findMany: m.auditFind, count: m.auditCount, create: m.auditCreate },
   notification: { create: m.notify },
   appSetting: { create: m.receipt, update: vi.fn().mockResolvedValue({}) },
@@ -49,6 +52,7 @@ beforeEach(() => {
   m.session.mockResolvedValue(admin);
   m.task.mockResolvedValue(run());
   m.auditFind.mockResolvedValue([]);
+  m.users.mockResolvedValue([]);
   m.auditCount.mockResolvedValue(0);
   m.receipt.mockResolvedValue({});
   m.settings.mockResolvedValue({ companyName: "sNeek", companyPhone: "02 9000 0000", timezone: "Australia/Sydney", laundryOperations: { maxOutdoorDays: 3 }, laundryPortalVisibility: {} });

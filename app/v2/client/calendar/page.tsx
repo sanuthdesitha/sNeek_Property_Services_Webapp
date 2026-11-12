@@ -82,9 +82,11 @@ export default async function ClientCalendarPage() {
   const todayKey = format(toZonedTime(new Date(), TZ), "yyyy-MM-dd");
   const rows = (jobs ?? []).map((job) => {
     const local = toZonedTime(job.scheduledDate, TZ);
-    const cleaners = (job.assignments ?? [])
-      .map((a) => a.user?.name)
-      .filter((n): n is string => Boolean(n));
+    // Cleaner names follow the per-client "show cleaner names" switch, as on
+    // the jobs board and job page (they were shown here unconditionally).
+    const cleaners = portalCtx.visibility.showCleanerNames
+      ? (job.assignments ?? []).map((a) => a.user?.name).filter((n): n is string => Boolean(n))
+      : [];
     return {
       id: job.id,
       dayKey: format(local, "yyyy-MM-dd"),

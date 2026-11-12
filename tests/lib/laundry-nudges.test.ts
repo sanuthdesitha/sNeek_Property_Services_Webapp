@@ -12,7 +12,7 @@ vi.mock("@/lib/notifications/office-sends", () => ({ sendOfficeNotification: m.o
 vi.mock("@/lib/notifications/type-controls", () => ({ getNotificationTypeControls: async () => ({ respectsPreferences: {}, disabledTransports: {} }), typeRespectsPreferences: () => false }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Australia/Sydney" }) }));
 
-import { laundryNudgeKinds, nudgeIdempotencyKey, NUDGE_COOL_DOWN_MINUTES } from "@/lib/laundry/nudge-rules";
+import { laundryNudgeKinds, laundryTeamRequestKinds, nudgeIdempotencyKey, teamRequestBlockedReason, NUDGE_COOL_DOWN_MINUTES } from "@/lib/laundry/nudge-rules";
 import { sendLaundryCleanerNudge } from "@/lib/notifications/office-actions";
 import type { PipelineException } from "@/lib/laundry/pipeline";
 
@@ -22,27 +22,57 @@ const run = (overrides: Partial<Parameters<typeof laundryNudgeKinds>[0]> = {}) =
   status: "PENDING", pickupDate: "2026-11-11T00:00:00.000Z", exceptions: [] as PipelineException[], readiness: true as boolean | null, jobStatus: "SUBMITTED", hasJob: true, ...overrides,
 });
 
-describe("which nudges a run offers", () => {
-  it("offers Ask cleaner only when the pickup is in doubt", () => {
-    expect(laundryNudgeKinds(run({ exceptions: [exc("NOT_READY")] }), TODAY)).toEqual(["ASK_CLEANER"]);
-    expect(laundryNudgeKinds(run({ exceptions: [exc("PICKUP_OVERDUE")] }), TODAY)).toEqual(["ASK_CLEANER"]);
+describe("which nudges a run offers (owner decision 2026-11-12: cleaners only for the bags)", () => {
+  it("offers Ask cleaner only when the bags at the property are in doubt", () => {
+    expect(laundryNudgeKinds(run({ readiness: false, exceptions: [exc("NOT_READY")] }), TODAY)).toEqual(["ASK_CLEANER"]);
     // Bags not confirmed on the pickup day, clean finished.
     expect(laundryNudgeKinds(run({ readiness: null }), TODAY)).toEqual(["ASK_CLEANER"]);
+    // An overdue pickup the cleaner already marked ready is the laundry team's, not the cleaner's.
+    expect(laundryNudgeKinds(run({ exceptions: [exc("PICKUP_OVERDUE")] }), TODAY)).toEqual([]);
     // Nothing in doubt: ready, or the clean is still in progress, or pickup is in the future.
     expect(laundryNudgeKinds(run(), TODAY)).toEqual([]);
     expect(laundryNudgeKinds(run({ readiness: null, jobStatus: "IN_PROGRESS" }), TODAY)).toEqual([]);
     expect(laundryNudgeKinds(run({ readiness: null, pickupDate: "2026-11-13T00:00:00.000Z" }), TODAY)).toEqual([]);
-    // Already picked up: the cleaner has nothing to confirm.
+    // Already picked up or delivered: the cleaner has nothing to confirm (no more cleaner photo requests).
     expect(laundryNudgeKinds(run({ status: "PICKED_UP", exceptions: [exc("DROP_OVERDUE")] }), TODAY)).toEqual([]);
+    expect(laundryNudgeKinds(run({ status: "DROPPED", exceptions: [exc("NO_DROP_PHOTO")] }), TODAY)).toEqual([]);
   });
 
-  it("offers Request photo only for a delivery without the required drop photo", () => {
-    expect(laundryNudgeKinds(run({ status: "DROPPED", exceptions: [exc("NO_DROP_PHOTO")] }), TODAY)).toEqual(["REQUEST_PHOTO"]);
-    expect(laundryNudgeKinds(run({ status: "DROPPED" }), TODAY)).toEqual([]);
+  it("offers nothing to a cleaner for a run without a linked job", () => {
+    expect(laundryNudgeKinds(run({ hasJob: false, readiness: false, exceptions: [exc("NOT_READY")] }), TODAY)).toEqual([]);
+  });
+});
+
+describe("which laundry team requests a run offers", () => {
+  const teamRun = (overrides: Partial<Parameters<typeof laundryTeamRequestKinds>[0]> = {}) => ({ ...run(), dropoffDate: "2026-11-12T00:00:00.000Z", hasSupplier: true, ...overrides });
+
+  it("asks the team to confirm a due or overdue pickup unless the bags are not ready", () => {
+    expect(laundryTeamRequestKinds(teamRun(), TODAY)).toEqual(["TEAM_CONFIRM_PICKUP"]);
+    // Changed on purpose (Suppliers board, 2026-11-12): bags not out yet on the pickup day also offer "move pickup".
+    expect(laundryTeamRequestKinds(teamRun({ readiness: null, exceptions: [exc("PICKUP_OVERDUE")] }), TODAY)).toEqual(["TEAM_CONFIRM_PICKUP", "TEAM_MOVE_PICKUP"]);
+    expect(laundryTeamRequestKinds(teamRun({ readiness: false, exceptions: [exc("NOT_READY"), exc("PICKUP_OVERDUE")] }), TODAY)).toEqual(["TEAM_MOVE_PICKUP"]);
+    expect(laundryTeamRequestKinds(teamRun({ pickupDate: "2026-11-13T00:00:00.000Z" }), TODAY)).toEqual([]);
   });
 
-  it("offers nothing for a run without a linked job (no cleaner to ask)", () => {
-    expect(laundryNudgeKinds(run({ hasJob: false, exceptions: [exc("NOT_READY")] }), TODAY)).toEqual([]);
+  it("asks the team to move the pickup only when the bags are not out on the pickup day", () => {
+    expect(laundryTeamRequestKinds(teamRun({ readiness: null }), TODAY)).toEqual(["TEAM_MOVE_PICKUP"]);
+    expect(laundryTeamRequestKinds(teamRun({ readiness: true }), TODAY)).toEqual(["TEAM_CONFIRM_PICKUP"]);
+    expect(laundryTeamRequestKinds(teamRun({ readiness: null, pickupDate: "2026-11-13T00:00:00.000Z" }), TODAY)).toEqual([]);
+    expect(laundryTeamRequestKinds(teamRun({ status: "PICKED_UP", readiness: null, dropoffDate: "2026-11-14T00:00:00.000Z" }), TODAY)).toEqual([]);
+  });
+
+  it("asks when it will be back, confirms a due drop-off, and asks for the missing drop photo", () => {
+    expect(laundryTeamRequestKinds(teamRun({ status: "PICKED_UP", dropoffDate: "2026-11-13T00:00:00.000Z", exceptions: [exc("OVER_TURNAROUND")] }), TODAY)).toEqual(["TEAM_RETURN_ETA"]);
+    expect(laundryTeamRequestKinds(teamRun({ status: "PICKED_UP", dropoffDate: TODAY }), TODAY)).toEqual(["TEAM_CONFIRM_DROP"]);
+    expect(laundryTeamRequestKinds(teamRun({ status: "PICKED_UP", dropoffDate: "2026-11-09T00:00:00.000Z", exceptions: [exc("DROP_OVERDUE")] }), TODAY)).toEqual(["TEAM_RETURN_ETA", "TEAM_CONFIRM_DROP"]);
+    expect(laundryTeamRequestKinds(teamRun({ status: "DROPPED", exceptions: [exc("NO_DROP_PHOTO")] }), TODAY)).toEqual(["TEAM_PHOTO"]);
+  });
+
+  it("offers nothing without a supplier, and says why a team cannot be asked", () => {
+    expect(laundryTeamRequestKinds(teamRun({ hasSupplier: false }), TODAY)).toEqual([]);
+    expect(teamRequestBlockedReason(null)).toBe("No laundry partner is recorded for this run.");
+    expect(teamRequestBlockedReason({ supplierName: "Fresh Linen", count: 0, names: [] })).toMatch(/^Fresh Linen has no laundry portal users linked.*Chase supplier/);
+    expect(teamRequestBlockedReason({ supplierName: "Fresh Linen", count: 1, names: ["Tom"] })).toBeNull();
   });
 
   it("uses one key per run, kind and cool-down window", () => {

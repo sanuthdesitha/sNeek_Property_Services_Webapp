@@ -22,16 +22,29 @@ export function QuickQaReview({
   jobStatus,
   hasReview,
   defaultScore = 90,
+  intent = "review",
+  triggerLabel,
+  disabledReason = null,
 }: {
   jobId: string;
   jobStatus: string;
   hasReview?: boolean;
   defaultScore?: number;
+  /**
+   * "approve" and "rework" are the job page's "Approve and complete" and
+   * "Send back for rework": the same score review (a pass completes the job;
+   * below the threshold the job goes to QA review and a rework job is
+   * offered, never created without confirmation). Only the wording differs.
+   */
+  intent?: "review" | "approve" | "rework";
+  triggerLabel?: string;
+  /** Shown instead of opening when the viewer may not record a review. */
+  disabledReason?: string | null;
 }) {
   const router = useRouter();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  const [score, setScore] = useState(String(defaultScore));
+  const [score, setScore] = useState(intent === "rework" ? "" : String(defaultScore));
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -86,7 +99,7 @@ export function QuickQaReview({
   }
 
   async function submit() {
-    const n = Number(score);
+    const n = score.trim() === "" ? Number.NaN : Number(score);
     if (!Number.isFinite(n) || n < 0 || n > 100) {
       toast({ title: "Enter a score from 0 to 100", variant: "destructive" });
       return;
@@ -129,18 +142,23 @@ export function QuickQaReview({
     );
   }
 
+  const label = triggerLabel ?? (hasReview ? "Re-review" : "Quick QA review");
+  const variant = intent === "rework" ? "outline" : intent === "approve" ? "primary" : hasReview ? "outline" : "gold";
+  const intro =
+    intent === "rework"
+      ? "Record a score below the QA threshold to send this job back. You will then be asked whether to create a rework job; nothing is scheduled or emailed until you confirm."
+      : "Score this job. A pass marks it complete; below the QA threshold it goes to rework.";
   return (
     <>
-      <EButton variant={hasReview ? "outline" : "gold"} size="sm" onClick={() => setOpen(true)}>
-        <ShieldCheck className="h-3.5 w-3.5" /> {hasReview ? "Re-review" : "Quick QA review"}
+      <EButton variant={variant} size="sm" onClick={() => setOpen(true)} disabled={Boolean(disabledReason)} title={disabledReason ?? undefined}>
+        {intent === "review" ? <ShieldCheck className="h-3.5 w-3.5" /> : null} {label}
       </EButton>
 
       {open ? (
-        <EModal open onClose={() => setOpen(false)} size="md" eyebrow="Quality" title="Quick QA review">
+        <EModal open onClose={() => setOpen(false)} size="md" eyebrow="Quality" title={intent === "rework" ? "Send back for rework" : intent === "approve" ? "Approve and complete" : "Quick QA review"}>
           <div className="space-y-4">
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Score this job. A pass marks it complete; below the QA threshold it goes to rework.
-              Recorded as an admin review — a real on-site QA inspection outranks it.
+              {intro} Recorded as an admin review — a real on-site QA inspection outranks it.
             </p>
             <EField label="Score (0–100)">
               <EInput

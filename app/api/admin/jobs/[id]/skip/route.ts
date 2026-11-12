@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 // Best-effort: push an in-app notification to the client's portal users.
 async function notifyClientOfSkipDecision(jobId: string, approved: boolean) {
@@ -31,16 +32,15 @@ async function notifyClientOfSkipDecision(jobId: string, approved: boolean) {
   const recipients = job?.property?.client?.users ?? [];
   if (recipients.length === 0) return;
   const propertyName = job?.property?.name ?? "your property";
+  const skipNotice = (await loadNotificationWording("job.skipped_or_cancelled")).render(approved ? "skip-approved" : "skip-declined", "INBOX", { propertyName });
   await db.notification.createMany({
     data: recipients.map((user) => ({
       userId: user.id,
       jobId,
       externalId: mobilePendingMarker("jobs"),
       channel: NotificationChannel.PUSH,
-      subject: approved ? "Clean skipped" : "Skip request declined",
-      body: approved
-        ? `Your request to skip the clean at ${propertyName} was approved — this turnover will not be cleaned.`
-        : `Your request to skip the clean at ${propertyName} was declined — the clean will go ahead as scheduled.`,
+      subject: skipNotice.title,
+      body: skipNotice.body,
       status: NotificationStatus.SENT,
       sentAt: new Date(),
     })),

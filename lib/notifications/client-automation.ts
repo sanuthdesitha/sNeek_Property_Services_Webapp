@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const REVIEW_THROTTLE_MS = 3 * 24 * 60 * 60 * 1000;
 const DATABASE_URL = process.env.DATABASE_URL?.trim() || "";
@@ -163,8 +164,9 @@ async function buildAutomationPayload(input: {
     job_number: input.context.jobNumber || "",
   };
 
+  const defaultSubject = (await loadNotificationWording("client.post_job")).line("rule-default-subject", "INBOX", { propertyName: input.context.property.name });
   return {
-    subject: renderTemplate(input.rule.template?.subject || `${input.context.property.name} update`, variables),
+    subject: renderTemplate(input.rule.template?.subject || defaultSubject, variables),
     body: renderTemplate(input.rule.template?.body || "", variables),
   };
 }
@@ -202,10 +204,14 @@ async function dispatchRuleChannels(input: {
 
   if (input.rule.channel === "EMAIL" || input.rule.channel === "BOTH") {
     if (input.recipient.email) {
+      const email = (await loadNotificationWording("client.post_job")).render("rule-email", "EMAIL", {
+        subject: input.subject,
+        messageHtml: input.body.replaceAll("\n", "<br />"),
+      });
       const result = await sendEmailDetailed({ kind: "client_automation",
         to: input.recipient.email,
-        subject: input.subject,
-        html: `<p>${input.body.replaceAll("\n", "<br />")}</p>`,
+        subject: email.subject,
+        html: email.html,
       });
       await logEmailNotification({
         recipientUserId: input.recipient.id,

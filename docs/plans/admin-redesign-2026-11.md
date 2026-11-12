@@ -139,6 +139,13 @@ Today the page only manages the per-job client PDF and shows no figures.
 
 > **List built 2026-11-11, awaiting the final build and browser pass.** Delivered: header with the real match count, built-in view tabs with totals from one grouped query plus personal saved views, visible filter chips (Status over all eleven statuses), server-sorted table grouped by Sydney day with one row action and a menu, Guest in and Charge columns, the reusable `ESidePanel` peek (`?open=`) with Summary / People / Money / Activity on demand and ranked cleaner suggestions, bulk bar with `POST /api/admin/jobs/bulk-remind` (per-row outcomes) and selection export, server board lanes with drag through the reviewed status change; `jobs-workspace.tsx` split (largest file 260 lines); the job detail's duplicated Quality block merged. Deviations: no bulk Reschedule (no bulk-safe service); suggestions omit distance and QA score; Cleaner / Guest in / Charge not sortable; saved-view tabs carry no count; "Not invoiced" = Completed + the existing Invoice "no" rule. Not done in this step: lazy-loading the detail page's tabs. Details: `docs/SYSTEM.md`, "Jobs list: view tabs, visible filters, peek panel and server board".
 
+> **Job full view built 2026-11-12 (uncommitted; build, full suite and browser pass pending).** Boards "Job full view" and "Job page in four states". No schema change, no new route or permission. Details: `docs/SYSTEM.md`, "Admin job page: "Job full view" redesign (2026-11-12)".
+> - [x] Header with breadcrumb, h1 + badge, one status-driven primary (pure table, every status), secondary buttons, More menu (Job / Danger zone, disabled reasons, footnote); eight-step `EStageBar`; key facts; lead block per state; blockers linked into stages.
+> - [x] Timeline of nine stages from the existing components; Form answers, Photos, Clock and GPS, Messages, History tabs; right rail (People, Property access, Money, Linked, Messages).
+> - [x] Old `?tab=` and `#chat` links mapped; every old function kept (parity table in the step report and review record).
+> - Differences from the boards: no lockbox code reveal on the job (codes are encrypted and kept on the property's access guide); clock-in location is the job's single GPS record, not one per cleaner; pay shows "Estimate" and never "Paid run …" (the payroll run is in the pay ledger, not read here); "Message team" opens the office compose workspace without preset recipients (the job chat is client↔office only); "Send back for rework" is the existing quick QA score review with a below-threshold score (no separate send-back route exists); no "E" keyboard shortcut; no "Hide removed references" toggle on the photo strip; no "Synced …" time on Booking (not stored per reservation); Open case and Log lost item open the existing dialogs without a preset job (those dialogs belong to other work streams); the AI suggestion is not counted in the blockers line (its read runs in the browser; it shows in the Submitted stage); finished jobs collapse done stages rather than reorder the timeline.
+> - Waiting for the owner: should "Message team" get a job-scoped team message (a new transport decision)? Should the job page show the lockbox code with an audited reveal? Should "Send back for rework" become its own action without a score?
+
 ### 3. Calendar
 
 - Day, Week, Month and Agenda. Week is laid out by cleaner (or by property) with an Unassigned lane.
@@ -590,3 +597,93 @@ The three questions left open by Wave F, answered by the owner, plus one confirm
 - [x] 2: recipient scope `URGENT_STOCK_OFFICE`; catalog entry `stock.urgent_need` audience updated. Reminders for unresolved needs still go to administrators only (not part of the decision).
 - [x] 3: `lib/inventory/stock-count-reset.ts`; Reset job dialog and QA reset dialog ask; Reset job, QA reset and the job status edit answer 409 without a choice; bulk status blocks those jobs; QA verdicts keep and record no choice.
 - Reported, not changed: the job edit form has no choice control (its 409 names the counts and points to Reset job); with "Clear form data" the observation rows still go with the deleted submission (their final state is in the audit rows; the ledger rows are kept); a REVERSED count is not re-applied if the same submission is approved again. Details: `docs/SYSTEM.md`, "Owner decisions: urgent stock rights, need-opened notice, applied stock counts on reset".
+
+## Properties list and property page (2026-11-12)
+
+> **Status (2026-11-12, uncommitted step, no schema change; build, full suite and browser pass pending).** Built from the approved boards "Properties" and "Property full page".
+> - [x] List: stat cards with real counts, server paging / sort / filters (`shape=list`, unknown sort or chip → 400), columns as drawn with honest unknowns, flags from existing data, chips incl. "Show one-off sites", List / Cards / Map, bulk Set laundry partner / Assign checklist / Sync calendars / Export through one endpoint with per-property outcomes, preview panel on `?open=` with Open property.
+> - [x] Property page: header (New job here pre-fills the New job form; More: Copy, Edit form fields, Deactivate with PIN), key facts, seven tabs with old `?tab=` ids mapped, Coming up read model, Overview cards with their own Edit, rail (Client, Access, Calendar sync with Sync now / runs / Undo, Laundry, Stock, Billing rates), Documents and additional details when data exists.
+> - Deviations: Map stays a count with the ops map link; Documents card hidden without captured files (so no first upload from it); Laundry card gains an Edit (partners and bag had no other home); Client card shows terms and owing only with finance access. Details: `docs/SYSTEM.md`, "Properties list and property page redesign (2026-11-12)".
+
+## Cleaner portal redesign (2026-11-12)
+
+Owner: "build all designs as drawn" for `CleanerPortal.dc.html` and `CleanerJobFlow.dc.html`. Presentation and composition only; no schema, no API change. Details: `docs/SYSTEM.md`, "Cleaner portal redesign: five tabs, Today, Supplies, Pay, More and the job screen (2026-11-12)".
+
+**Status (uncommitted; TypeScript clean in these paths, focused and existing cleaner tests passing; build and browser pass pending).**
+- [x] Five tabs and the role-filtered More menu; old URLs kept or redirected (`/more` is the menu again; `/invoices`, `/pay-requests` → Pay tabs; `/restock`, `/stock-runs`, `/shopping`, `?tab=quick-scan` → Supplies Counts).
+- [x] Today, Supplies (To do, Shopping, Counts, Urgent, My stock), Pay (This period, Invoices, Requests), Jobs List / Month.
+- [x] Job screen: header, five-stage rail, sticky bottom action, Before you submit jump links, after-submit summary, + sheet with urgent stock.
+- Reported, not built (needs a new rule or data): QA correction unlocking one item as revision 2; submission receipt number and counts; rate snapshot breakdown on the job; sent/answer sync counts; invoice opening date; early-start block while guests are inside.
+
+## Access and permissions redesign (2026-11-12)
+
+> **Status (2026-11-12, uncommitted step, no schema change; build, full suite and browser pass pending).** Built from the approved board "Access and permissions" plus the owner's decisions of the same day (client assistants on this screen through the existing VA team routes; PIN still asked at Full; password/two-step reset, Test as and editing access grantable per person with server guardrails). Details in `docs/SYSTEM.md` A3b and the review record.
+
+- [x] Screen at `/v2/admin/settings/access` (old Roles tab URL redirects); people groups, matrix over all 34 areas with Off folded per group, capabilities per area, Start from, custom presets, Copy access from, plain-language summary, sensitive marks, unsaved bar, PIN review, conflict view, history, Test as, By person / By area / Presets / Client assistants / History.
+- [x] One capability catalog and one `can()` evaluator, enforced at the existing server points; parity test over every capability.
+- [x] Administrator capabilities with guardrails (a) to (e); "Only administrators" box lists what remains.
+- Waiting for the owner: see the review record ("Owner questions").
+
+## People directory (boards People, Client, Cleaner, Client assistants, Account emails), 2026-11-12
+
+Owner: "build all designs as drawn"; answers: nav label "People"; suppliers edited only in Inventory › Suppliers; client assistants keep their own People tab; "Paid this month" accepted; Copy invite link wherever a valid link exists. Status (uncommitted step, no schema change; build, full suite and browser pass pending). Details: `docs/SYSTEM.md`, "People: clients and cleaners in one directory".
+- [x] People on `/v2/admin/accounts`: Clients, Cleaners, Office and other staff, Laundry partners and suppliers, Assistants, Invitations; Everyone / Needs attention chips; per-tab columns, figures, Columns, Export, bulk bars, side panels.
+- [x] Client page and person page redrawn from existing components (status-dependent primary action, More, key facts, tabs, rail).
+- [x] Client assistants grouped by team with the team panel; account emails list with recorded delivery, Resend and Copy link.
+- [x] `/clients`, `/cleaners`, `/workforce`, `/users` redirect into People keeping query strings (viewers who may open People; others keep the old page).
+- Lead to do: nav label "Accounts" → "People" in `app/v2/admin/layout.tsx` (People and quality group, href `/v2/admin/accounts`); remove the separate Clients / Cleaners / Workforce nav items if present (they redirect).
+- Needs the Permissions engineer: admit `/v2/admin/accounts?tab=clients` for the clients pack and `?tab=cleaners` for the workforce pack in the middleware, so the old pages can redirect for everyone.
+- Not built (needs a rule, data or path that does not exist): Revoke invitation, Send by SMS instead, stored copy of the sent email, Move assistant to another team, bulk Add payment, invitation Export, partner on-time pickups / properties served, device tracking.
+
+## Status: Notifications types and wording (2026-11-12)
+
+Built as drawn (`NotificationTemplates.dc.html`): "Types and wording" tab with the grouped list, details, wording editor per transport, versions, Regenerate (proposal only), preview and Send test to me; Delivery log, Health and Preferences kept (timezone and stale-read fixes). Wording layer with one render function; after the third pass 43 of 55 types fully editable, 2 with parts by design (two-step security wording, generated laundry report table), 6 written by the sender, 2 edited elsewhere, 2 in code by design (generated Insights report, provider diagnostics). Access per the owner decision: ADMIN or operations manager with notifications at Manage, never while impersonating. Waiting: browser pass at 390/1280 light/dark; moving the remaining in-code types (listed in SYSTEM.md, "Notification types and wording").
+
+## QA portal, maintenance portal, sign in and public pages (2026-11-12)
+
+Owner: "build all designs as drawn" for `QaPortal.dc.html`, `MaintenancePortal.dc.html`, `PublicAndAuth.dc.html`. Presentation and composition only; no schema, no API, no authentication change. Details: `docs/SYSTEM.md`, "QA portal, maintenance portal, sign in and public pages redesign (2026-11-12)".
+
+**Status (uncommitted; TypeScript clean in these paths, focused and existing area tests passing; build and browser pass pending).**
+- [x] QA and maintenance five-tab bars with role-filtered More menus; `/v2/qa/more` and `/v2/maintenance/more` are menus again; every old destination keeps a home.
+- [x] QA Today (figures, visit order, readiness, Monitor clean, Start anyway, Know before you go link, other dates), inspection stage labels and "deductions are proposals", Pay headline with "Office to fix", Reviews / Credits / Invoices, Rework counts and failure state, self-rework labels.
+- [x] Maintenance Today (New for you, Due today, Replacements, Open next), visit stage strip, cost card, outcome choices, offline line, Tickets By day / By stage.
+- [x] Sign in passkey first, two-step wording, invitation and its four problem states, password reset, onboarding steps with the passkey offer, grouped public menu.
+- Reported, not built: maintenance invoices (proposed; no maintenance pay today); inspector reordering (permission decision); single "Fail" verdict; passkey on the invitation screen (no session there — offered in onboarding); onboarding "Do this later"; two-step method switch; quote wizard; suburb menu entry. Full list in SYSTEM.md.
+
+## Client portal redesign (2026-11-12)
+
+Owner: "build all designs as drawn" for `ClientPortal.dc.html` and `ClientPortalDesktop.dc.html`. Presentation and composition; no schema change. Details: `docs/SYSTEM.md`, "Client portal redesign (2026-11-12)".
+
+**Status (uncommitted; TypeScript clean, focused and existing client tests passing; build and browser pass pending).**
+- [x] Phone tabs Home, Cleans, Approvals, Money, More; Messages and Request sheet in the header; server-filtered More; desktop rail grouped as drawn; old URLs kept or redirected with query.
+- [x] Home (phone) and desktop dashboard; property tabs; Approvals with quotes waiting; Money; one clean; Messages with saved/retry; Settings rows.
+- Reported, not built (needs data or a rule that does not exist): report photo thumbnails and QA score on Home and the table; booking pre-selected for a property ("Book a clean here"); a quote reference number; "Usually replies within 1 hour"; "guest in" time on Happening now; calendar property filter chip and dashboard search box (the shell search stays); the board's "11 cleans, 2 add-ons" reads "11 cleans, 2 other items".
+
+## Suppliers directory, laundry pipeline actions and laundry partner portal (2026-11-12)
+
+Owner: "build all designs as drawn" for `Suppliers.dc.html` and `LaundryPortal.dc.html`. Details: `docs/SYSTEM.md`, "Suppliers directory, laundry partner pipeline actions and the laundry partner portal (2026-11-12)".
+
+**Status (uncommitted; migration `20261112230000_laundry_team_request_replies` verified; TypeScript clean in these paths; focused, existing and database tests passing; build and browser pass pending).**
+- [x] Suppliers directory: laundry partners, stock suppliers, trades (read model over maintenance workers); tabs, filters, columns, Export, Add supplier menu; panel per type; create/edit through existing routes; link/unlink logins with the one-partner move confirmation; Laundry › Suppliers kept with a link.
+- [x] Pipeline actions: drawn labels and order, move pickup, drop time, photo to the deliverer, per-card "To" lines, dialog with inbox/push/email and receipt lines, routing disclosure, team answers in the run panel.
+- [x] Laundry portal: tabs Today / Runs / Tracking / History / More, From the office in the header, Today route list, stop screen, Tracking chips / Day n of m / Issues, From the office with typed answers, More menu restored.
+- Reported, not built: "Ready to return" (no stored state); "Add weight / price" while at the laundry and adding a drop photo after delivery (no laundry-side write path); partner pickup/drop schedule (no fields); call-out price for trades (no field); email/SMS to the partner's own contact from the team dialog (stays Chase supplier, administrators); a separate Suppliers sidebar entry (admin layout belongs to another engineer).
+
+## Approvals, Quotes and pricing, Quote page, Settings home, Messages, Activity, Growth (2026-11-12)
+
+Owner: "build all designs as drawn" for these seven boards. **Status (uncommitted; no schema change; TypeScript clean; focused tests passing; build and browser pass pending).** Details: `docs/SYSTEM.md`, "Approvals, Quotes and pricing, Settings home, Activity log and Growth redesign (2026-11-12)".
+- [x] Approvals: queue list with real counts and folded empty queues, table with one primary action, side panel per queue (all 17 keep their actions), Decided tab with filters and Change amount / Reverse / Delete (PIN now server-checked), bulk approve / decline through each queue's own route with per-row outcomes where allowed.
+- [x] Quotes and pricing: one page, server-paged pipeline with stage chips, row actions, side panel and timeline, bulk Send / Mark lost, Rate card (PIN), Price book, Holiday rates, Pricing variables, Client rates tabs; `/v2/admin/pricing` redirects.
+- [~] Quote page: `?clientId=` and `?leadId=` prefills built (server-validated); `?fromCase=` unchanged. Not built: the combined detail-and-edit page (stage bar, status primary action, sections, right rail). Today's detail and edit pages remain.
+- [x] Settings home: every category and destination, search incl. settings on other pages, real state badges (Xero, SMS), settings audit link.
+- [ ] Messages: not built in this step; today's page and compose page unchanged.
+- [x] Activity log: sentences, chips with counts, actual person vs testing as, field diff, job link, list-query paging, capped server CSV (ADMIN).
+- [x] Growth: hub blocks with real counts per workspace the viewer may open.
+- Reported, not changed: delete of decided approvals stays open to operations managers (board says administrators; owner to decide); bulk approve of pay requests not offered (each needs its amount); "Source" filter on quotes not built (no stored source); iCal feed badge not built (run statuses not reliably classified).
+
+## Status: Quote full page and Messages (2026-11-12)
+
+**Status (uncommitted; no schema change; TypeScript clean in these paths; focused tests passing; build and browser pass pending).** Details: `docs/SYSTEM.md`, "Quote full page and Messages redesign (2026-11-12)".
+- [x] Quote full page: detail and edit on one page (stage strip, status primary action, sections edited in place with explicit save, rail with add-on requests first, status and details, convert once won, send and share, activity, More menu); `/quotes/[id]/edit` redirects; New quote is the same page with its prefills.
+- [x] Messages: conversations, thread and composer on one page; three columns from `lg`, stacked views with back navigation below; `/messages/compose` redirects with its query.
+- Reported, not changed: autosave (needs a stale-write guard on the quote PATCH: owner / next step); an internal "office notes" field (needs a schema field); Declined → "Reopen as draft" chosen as the primary action (board names none; owner to confirm); "Reschedule to 09:00" from a message and attachments on client messages (no existing action).

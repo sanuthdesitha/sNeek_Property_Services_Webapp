@@ -30,7 +30,8 @@ export function planReschedule(task: ReschedulePlanInput, toKey: string): Resche
   if (task.status === "DROPPED" || task.status === "SKIPPED_PICKUP") {
     return { ok: false, reason: "Already delivered or skipped; there is nothing to move." };
   }
-  if (task.status === "PICKED_UP") {
+  // Picked up or "Ready to return": only the drop-off moves.
+  if (task.status === "PICKED_UP" || task.status === "READY_TO_RETURN") {
     const pickedKey = dayKeyOf(task.pickedUpAt) ?? pickupKey;
     if (toKey < pickedKey) return { ok: false, reason: "The drop-off cannot be before the pickup." };
     return { ok: true, pickupKey, dropoffKey: toKey, movesPickup: false };

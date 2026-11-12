@@ -10,7 +10,8 @@ import "server-only";
 import { db } from "@/lib/db";
 import { sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import type { NotificationTransport } from "./catalog-types";
-import { OfficeActionError, clientDelayBody, resolveClientDelayTarget } from "./office-actions";
+import { CLIENT_DELAY_TYPE_KEY, OfficeActionError, clientDelayBody, resolveClientDelayTarget } from "./office-actions";
+import { loadNotificationWording } from "./wording/render";
 import { getNotificationTypeControls } from "./type-controls";
 
 export type ClientDelayRequestRecord = { at: string; byName: string };
@@ -48,16 +49,17 @@ export async function latestClientDelayRequests(jobIds: string[], now: Date = ne
 }
 
 export async function previewClientDelayNotice(jobId: string, etaMinutes: number | null): Promise<ClientDelayPreview> {
-  const subject = "Your clean is running late";
-  const [controls, last] = await Promise.all([getNotificationTypeControls(), latestClientDelayRequests([jobId])]);
-  const base = { jobId, subject, etaMinutes, switchedOff: controls.disabledTransports["client.delay_notice"] ?? [], lastRequest: last.get(jobId) ?? null };
+  const [controls, last, wording] = await Promise.all([getNotificationTypeControls(), latestClientDelayRequests([jobId]), loadNotificationWording(CLIENT_DELAY_TYPE_KEY)]);
+  const subjectFor = (propertyName: string | null) => wording.render("client", "INBOX", { propertyName: propertyName ?? "your property" }).title;
+  const base = { jobId, etaMinutes, switchedOff: controls.disabledTransports["client.delay_notice"] ?? [], lastRequest: last.get(jobId) ?? null };
   try {
     const { job, recipients } = await resolveClientDelayTarget(jobId);
     const propertyName = job.property?.name ?? null;
     return {
       ...base,
       propertyName,
-      body: clientDelayBody(propertyName, etaMinutes),
+      subject: subjectFor(propertyName),
+      body: clientDelayBody(propertyName, etaMinutes, null, wording),
       recipients: recipients.map((recipient) => ({ id: recipient.id, name: recipient.name ?? recipient.email ?? "Client login", email: recipient.email })),
       blocked: null,
     };
@@ -65,6 +67,6 @@ export async function previewClientDelayNotice(jobId: string, etaMinutes: number
     if (!(error instanceof OfficeActionError) || error.status === 404) throw error;
     const job = await db.job.findUnique({ where: { id: jobId }, select: { property: { select: { name: true } } } });
     const propertyName = job?.property?.name ?? null;
-    return { ...base, propertyName, body: clientDelayBody(propertyName, etaMinutes), recipients: [], blocked: error.message };
+    return { ...base, propertyName, subject: subjectFor(propertyName), body: clientDelayBody(propertyName, etaMinutes, null, wording), recipients: [], blocked: error.message };
   }
 }

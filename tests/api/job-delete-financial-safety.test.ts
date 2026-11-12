@@ -14,7 +14,11 @@ vi.mock("@/lib/db", () => ({ db: { $transaction: (fn: any) => fn(new Proxy({
 }, { get: (target: any, key) => target[key] ?? { deleteMany: m.remove } })) } }));
 vi.mock("@/lib/job-tasks/service", () => ({ syncAdminJobTasks: vi.fn(), notifyJobTasksAdded: vi.fn() }));
 vi.mock("@/lib/accountability/rotation", () => ({ applyJobRotationCompletion: vi.fn() }));
-vi.mock("@/lib/security/admin-verification", () => ({ verifySensitiveAction: m.verify }));
+vi.mock("@/lib/security/admin-verification", () => ({
+  verifySensitiveAction: m.verify,
+  // Credential refusals answer 423 (own PIN codes included since 2026-11-13).
+  isSensitiveRefusal: (error: unknown) => error instanceof Error && ["INVALID_SECURITY_VERIFICATION", "PIN_OR_PASSWORD_REQUIRED"].includes(error.message),
+}));
 vi.mock("@/lib/settings", () => ({ getAppSettings: vi.fn() }));
 vi.mock("@/lib/notifications/delivery", () => ({ deliverNotificationToRecipients: vi.fn() }));
 vi.mock("@/lib/notifications/lifecycle", () => ({ sendLifecycleEmail: vi.fn() }));

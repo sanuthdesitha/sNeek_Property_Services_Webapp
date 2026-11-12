@@ -1,29 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { sendEmail } from "@/lib/notifications/email";
-import { appBaseUrl, issueRecoveryToken, RECOVERY_TTL_MINUTES } from "@/lib/auth/recovery";
+import { issueRecoveryToken } from "@/lib/auth/recovery";
+import { passwordResetEmail, passwordResetLink } from "@/lib/auth/password-reset-email";
+import { recordAccountEmail } from "@/lib/accounts/account-email-record";
+import { rateLimit } from "@/lib/security/rate-limit";
+
+/** Per address: at most this many reset emails per window (the answer is the same either way). */
+const RESET_LIMIT = { limit: 3, windowMs: 15 * 60_000 };
 
 /**
  * Start a password reset. Always returns ok (no account enumeration) — a link
- * is only emailed when the account actually exists and is active.
+ * is only emailed when the account actually exists and is active, and at most
+ * three times per address every 15 minutes (2026-11-12: the route had no limit,
+ * so anyone could flood a person's inbox). Each email sent is recorded for the
+ * person's Accounts › Account emails history with the provider's real answer.
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const email = typeof body.email === "string" ? body.email.toLowerCase().trim() : "";
     if (!email) return NextResponse.json({ ok: true });
+    if (!rateLimit(`forgot-password:${email}`, RESET_LIMIT).ok) return NextResponse.json({ ok: true });
 
     const user = await db.user.findUnique({ where: { email }, select: { id: true, isActive: true, name: true } });
     if (user && user.isActive) {
       const raw = await issueRecoveryToken("pwreset", email);
-      const link = `${appBaseUrl()}/reset-password?email=${encodeURIComponent(email)}&token=${raw}`;
-      await sendEmail({
+      const content = passwordResetEmail({ name: user.name, link: passwordResetLink(email, raw) });
+      await recordAccountEmail({
+        targetUserId: user.id,
+        actorId: null,
+        actorRole: null,
+        type: "PASSWORD_RESET",
+        origin: "SELF_SERVICE",
         to: email,
-        subject: "Reset your sNeek password",
-        html: `<p>Hi ${user.name || "there"},</p><p>We received a request to reset your password. Click below to set a new one — this link expires in ${RECOVERY_TTL_MINUTES} minutes.</p><p><a href="${link}" style="display:inline-block;background:#0f5a44;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700">Reset password</a></p><p>If you didn't request this, you can safely ignore this email — your password won't change.</p>`,
-        transactional: true,
         // Password recovery — must never be silenced by audience controls.
-        critical: true,
+        send: { to: email, subject: content.subject, html: content.html, transactional: true, critical: true },
       });
     }
 

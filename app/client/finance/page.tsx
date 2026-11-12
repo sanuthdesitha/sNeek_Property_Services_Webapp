@@ -17,7 +17,7 @@ function money(value: number | null | undefined) {
   return `$${Number(value ?? 0).toFixed(2)}`;
 }
 
-export default async function ClientFinancePage() {
+export default async function ClientFinancePage({ searchParams }: { searchParams?: { paid?: string } }) {
   await ensureClientModuleAccess("finance");
   const session = await requireRole([Role.CLIENT]);
   const user = await db.user.findUnique({
@@ -34,6 +34,13 @@ export default async function ClientFinancePage() {
         title="Finance"
         description={`Service pricing, recent billable work, and invoice history for ${user?.client?.name ?? "your account"}.`}
       />
+
+      {/* Return links sent before 2026-11-13 still land here. */}
+      {searchParams?.paid === "1" ? (
+        <p role="status" className="rounded-md border-l-4 border-primary bg-muted/30 px-3 py-2 text-sm">
+          Your payment was handed to the payment provider. The invoice shows Paid once the provider confirms it.
+        </p>
+      ) : null}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card>

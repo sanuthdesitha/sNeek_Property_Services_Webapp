@@ -1,20 +1,22 @@
-import { redirect } from "next/navigation";
+import { Role } from "@prisma/client";
+import { requireRole } from "@/lib/auth/session";
+import { EPageHeader } from "@/components/v2/ui/primitives";
+import { MaintenanceMoreMenu } from "@/components/v2/maintenance/portal/maintenance-more-menu";
+
+export const metadata = { title: "More · Estate maintenance" };
+export const dynamic = "force-dynamic";
 
 /**
- * The "More" page is gone.
- *
- * Two of its three links were already in the nav. The third, Settings, was
- * reachable ONLY here — so it moved into the nav before this page went, or the
- * only route to it would have vanished with the menu.
- *
- * Two lists of the same portal is how a page ends up with two names, and how
- * somebody learns which is which by opening both. The portal shell has
- * supported grouped section headings all along; nothing had used them.
- *
- * A redirect rather than a deletion: the URL is in browser history and, for
- * some of these portals, on printed induction material. Landing somewhere
- * useful costs nothing; a 404 costs a support message.
+ * The More tab (approved maintenance board, 2026-11). This URL redirected to
+ * Today while the portal had no More menu; it is the menu again.
  */
-export default function V2MaintenanceMoreRedirect() {
-  redirect("/v2/maintenance");
+export default async function V2MaintenanceMorePage() {
+  const session = await requireRole([Role.MAINTENANCE, Role.ADMIN, Role.OPS_MANAGER]);
+  const office = session.user.role === Role.ADMIN || session.user.role === Role.OPS_MANAGER;
+  return (
+    <div className="mx-auto max-w-2xl space-y-6">
+      <EPageHeader title="More" description="Your completed log, settings and account." />
+      <MaintenanceMoreMenu office={office} />
+    </div>
+  );
 }

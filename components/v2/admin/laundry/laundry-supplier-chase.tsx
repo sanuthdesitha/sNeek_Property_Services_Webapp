@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * "Chase supplier" in the run side panel, offered only where the Pipeline
- * flags the run "Over turnaround" and a supplier is recorded
- * (lib/laundry/supplier-chase-rules.ts). The dialog loads a server preview:
+ * "Chase supplier" in the run side panel, offered where a supplier is
+ * recorded and the Pipeline flags the run "Over turnaround", or where a
+ * laundry team request applies but the partner has no linked portal users
+ * (lib/laundry/supplier-chase-rules.ts; the server decides again). The dialog loads a server preview:
  * the drafted message (property, bags, days), the supplier's stored contact,
  * and per transport whether it can be used and why not.
  *
@@ -29,6 +30,7 @@ import {
 import type { SupplierChasePreview } from "@/lib/laundry/supplier-chase";
 import { officeRequest } from "../office-actions/office-outcomes";
 import type { RunPanelTask } from "./laundry-run-panel";
+import { unansweredTeamRequestFor } from "./laundry-nudge";
 
 export const SUPPLIER_CHASE_ENDPOINT = "/api/admin/notifications/actions/supplier-chase";
 
@@ -45,8 +47,8 @@ const STATE_LABEL: Record<string, string> = {
   failed: "Failed",
 };
 
-export function chaseAppliesToTask(task: RunPanelTask): boolean {
-  return supplierChaseApplies({ status: task.status, hasSupplier: Boolean(task.supplier), exceptions: task.exceptions ?? [] });
+export function chaseAppliesToTask(task: RunPanelTask, todayKey?: string): boolean {
+  return supplierChaseApplies({ status: task.status, hasSupplier: Boolean(task.supplier), exceptions: task.exceptions ?? [], unansweredTeamRequest: unansweredTeamRequestFor(task, todayKey) });
 }
 
 function ChaseDialog({ task, onClose }: { task: RunPanelTask; onClose: () => void }) {
@@ -175,14 +177,15 @@ function ChaseDialog({ task, onClose }: { task: RunPanelTask; onClose: () => voi
 }
 
 /** The "Chase supplier" button for a run (nothing when it does not apply) and its dialog. */
-export function LaundrySupplierChase({ task }: { task: RunPanelTask }) {
+export function LaundrySupplierChase({ task, todayKey }: { task: RunPanelTask; todayKey?: string }) {
   const [open, setOpen] = React.useState(false);
   // A different run closes the dialog.
   React.useEffect(() => setOpen(false), [task.id]);
-  if (!chaseAppliesToTask(task)) return null;
+  if (!chaseAppliesToTask(task, todayKey)) return null;
   return (
     <>
       <EButton size="sm" variant="outline" onClick={() => setOpen(true)}>Chase supplier</EButton>
+      <span className="basis-full text-[0.6875rem] text-[hsl(var(--e-info,var(--e-primary)))]">To {task.supplier?.name ?? "the supplier"}&apos;s stored email or phone</span>
       {open ? <ChaseDialog key={task.id} task={task} onClose={() => setOpen(false)} /> : null}
     </>
   );

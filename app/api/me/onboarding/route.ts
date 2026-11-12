@@ -11,6 +11,7 @@ import {
 import { notifyAdminsOfNewProfile } from "@/lib/notifications/profile-created";
 import { onboardingProfileSchema } from "@/lib/validations/user";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export async function GET() {
   try {
@@ -109,7 +110,7 @@ export async function PATCH(req: NextRequest) {
           userName: fullUser.name ?? fullUser.email,
           email: fullUser.email,
           role: fullUser.role,
-          createdVia: "invited account onboarding",
+          createdVia: (await loadNotificationWording("office.new_profile")).line("via-onboarding", "INBOX", {}),
           createdAt: fullUser.createdAt,
         });
         await upsertAuthUserState(user.id, { profileCreationNotified: true });

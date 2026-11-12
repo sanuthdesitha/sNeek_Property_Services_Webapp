@@ -44,7 +44,6 @@ import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import {
   EConfirmButton,
-  EConfirmModal,
   EField,
   EInput,
   ESelect,
@@ -59,7 +58,6 @@ import {
 } from "@/lib/jobs/meta";
 import type { JobNotice } from "@/lib/jobs/notices";
 import { statusLabel } from "./job-row";
-import { JobResetDialog } from "./job-reset-dialog";
 import { NoticeImagesInput } from "./notice-images-input";
 import { JobPayCard } from "@/components/v2/shared/job-pay-card";
 
@@ -72,7 +70,7 @@ export type JobManageSection =
   | "billing"
   | "laundry"
   | "skip"
-  | "danger";
+  | "template";
 
 // v1's edit dropdown offers exactly this set (keys of STATUS_COLORS).
 const JOB_STATUS_OPTIONS = [
@@ -184,11 +182,6 @@ export function JobManagePanel({
   // Skip
   const [skipReason, setSkipReason] = useState("");
   const [skipBusy, setSkipBusy] = useState(false);
-
-  // Danger
-  const [resetOpen, setResetOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [dangerBusy, setDangerBusy] = useState(false);
 
   // Assigned cleaners for the per-cleaner pay controls (present on both the
   // board list payload and the detail-page manage object).
@@ -523,26 +516,6 @@ export function JobManagePanel({
       toast({ title: "Update failed", description: err?.message ?? "Could not update skip state.", variant: "destructive" });
     } finally {
       setSkipBusy(false);
-    }
-  }
-
-  async function deleteJob(credentials?: { pin?: string; password?: string }) {
-    setDangerBusy(true);
-    try {
-      const res = await fetch(`/api/admin/jobs/${job.id}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ security: credentials }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error ?? "Could not delete job.");
-      toast({ title: "Job deleted" });
-      setDeleteOpen(false);
-      await onChanged();
-    } catch (err: any) {
-      toast({ title: "Delete failed", description: err?.message ?? "Could not delete job.", variant: "destructive" });
-    } finally {
-      setDangerBusy(false);
     }
   }
 
@@ -922,7 +895,12 @@ export function JobManagePanel({
                   {savingScope ? "Saving…" : "Save scope"}
                 </EButton>
               </div>
+            </div>
+          ) : null}
 
+          {/* ── Template ─────────────────────────────────────────────────── */}
+          {section === "template" ? (
+            <div className="space-y-4">
               <div className="space-y-3 rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border))] p-3">
                 <p className="text-[0.8125rem] font-[550]">Save job as template</p>
                 <div className="flex flex-wrap items-end gap-2">
@@ -1056,54 +1034,7 @@ export function JobManagePanel({
               </div>
             </div>
           ) : null}
-
-          {/* ── Danger ───────────────────────────────────────────────────── */}
-          {section === "danger" ? (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-4 py-3">
-                <div>
-                  <p className="text-[0.875rem] font-[550]">Reset job</p>
-                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    Choose what to reset. By default only the status and start/progress markers are cleared —
-                    time logs, assignees, forms, photos and pay are kept.
-                  </p>
-                </div>
-                <EButton variant="outline" onClick={() => setResetOpen(true)} disabled={dangerBusy}>Reset…</EButton>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-danger)/0.4)] px-4 py-3">
-                <div>
-                  <p className="text-[0.875rem] font-[550] text-[hsl(var(--e-danger))]">Delete job</p>
-                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    Permanently removes the job, its submissions, time logs and QA history.
-                  </p>
-                </div>
-                <EButton variant="danger" onClick={() => setDeleteOpen(true)} disabled={dangerBusy}>Delete…</EButton>
-              </div>
-            </div>
-          ) : null}
       </div>
-
-      <JobResetDialog
-        open={resetOpen}
-        jobId={job.id}
-        onClose={() => setResetOpen(false)}
-        onDone={async () => {
-          toast({ title: "Job reset" });
-          await onChanged();
-        }}
-      />
-
-      <EConfirmModal
-        open={deleteOpen}
-        onClose={() => setDeleteOpen(false)}
-        title="Delete this job?"
-        description="This permanently removes the job and its history. Enter your PIN or password to continue."
-        confirmLabel="Delete job"
-        confirmPhrase="DELETE"
-        requireSecurity
-        loading={dangerBusy}
-        onConfirm={deleteJob}
-      />
     </>
   );
 }

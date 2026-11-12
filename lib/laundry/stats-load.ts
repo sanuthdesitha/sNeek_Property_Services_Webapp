@@ -28,7 +28,7 @@ export async function loadLaundryStats(): Promise<LaundryStatsPayload> {
   // The PICKED_UP arm is deliberately unbounded: a bag that went out three
   // months ago and never came back is exactly what "at laundry now" must show.
   const tasks = (await db.laundryTask.findMany({
-    where: { OR: [{ pickupDate: { gte: windowStart } }, { droppedAt: { gte: windowStart } }, { status: "PICKED_UP" }] },
+    where: { OR: [{ pickupDate: { gte: windowStart } }, { droppedAt: { gte: windowStart } }, { status: { in: ["PICKED_UP", "READY_TO_RETURN"] } }] },
     select: {
       id: true,
       status: true,

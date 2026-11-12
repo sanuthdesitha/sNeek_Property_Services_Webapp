@@ -13,22 +13,39 @@ export function NextStopExecution({ task, kind, config, onAction }: {
   onAction: (taskId: string, action: LaundryAction) => void;
 }) {
   if (!task) return <p role="status">Stop details unavailable. Refresh before continuing.</p>;
-  const info = task.property?.accessInfo;
-  const access = info && typeof info === "object" && !Array.isArray(info) ? info as Record<string, unknown> : {};
-  // The server has already applied the audience rule; this keeps the shape tidy.
-  const guide = entriesForAudience(sanitizeAccessGuide(task.property?.accessGuide), "LAUNDRY");
-  const hasLegacyAccess = ["instructions", "lockbox", "codes", "parking", "other"].some((key) => Boolean(access[key]))
-    || (Array.isArray(access.sections) && access.sections.length > 0);
   const confirmations = [...(task.confirmations ?? [])].reverse();
   const pickup = confirmations.map(row => { try { return JSON.parse(row.notes ?? "null"); } catch { return null; } }).find(row => row?.event === "PICKED_UP");
   const bags = Number.isInteger(pickup?.bagCount) && pickup.bagCount > 0 ? pickup.bagCount : null;
   const location = confirmations.find(row => row.bagLocation?.trim())?.bagLocation;
-  const action = kind === "pickup" && ["PENDING", "CONFIRMED"].includes(task.status) ? "PICKED_UP" : kind === "dropoff" && task.status === "PICKED_UP" ? "RETURNED" : null;
+  const action = kind === "pickup" && ["PENDING", "CONFIRMED"].includes(task.status) ? "PICKED_UP" : kind === "dropoff" && (task.status === "PICKED_UP" || task.status === "READY_TO_RETURN") ? "RETURNED" : null;
   return <div className="min-w-0 space-y-3 break-words [overflow-wrap:anywhere] border-t border-[hsl(var(--e-border))] pt-3 text-sm">
     {task.property?.address ? <p>{task.property.address}</p> : null}
     <p>{bags == null ? (kind === "pickup" ? "Bag count not recorded; count bags at pickup." : "Bag count not recorded; check the task history before returning bags.") : `${bags} bags recorded at pickup.`}</p>
     {location ? <p>Recorded bag location: {location}</p> : null}
-    <details className="overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
+    <PropertyAccessDetails property={task.property} />
+    <p>{!config ? "Proof settings unavailable. Reload the page to reload settings." : kind === "pickup" ? `Count bags and confirm pickup.${config.showPickupPhoto ? " Pickup photo is optional." : ""}` : `Record drop-off location and confirm return.${config.requireDropoffPhoto ? " Drop-off photo required." : ""}${config.requireEarlyDropoffReason ? " Early returns require a reason." : ""}`}</p>
+    <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+    {action ? <EButton onClick={() => onAction(task.id, action)}>{action === "PICKED_UP" ? "Confirm pickup" : "Confirm drop-off"}</EButton> : <p role="status">{task.status === "FLAGGED" ? "This task is flagged. Review it on the task board before continuing." : kind === "dropoff" ? "Pickup must be recorded before confirming drop-off." : "Review this task's current status on the task board."}</p>}
+    {action === "PICKED_UP" ? <EButton variant="outline" onClick={() => onAction(task.id, "FAILED_PICKUP")}>Report access problem</EButton> : null}
+    <a className="inline-flex min-h-11 items-center underline" href={`/v2/laundry/tracking#task-${encodeURIComponent(task.id)}`}>Open task board</a>
+    </div>
+  </div>;
+}
+
+/**
+ * The property's access steps for the laundry audience (the server has
+ * already applied the audience rule) and the legacy access notes. Shared by
+ * the next-stop card and the laundry stop screen.
+ */
+export function PropertyAccessDetails({ property, defaultOpen = false }: { property?: { accessInfo?: unknown; accessGuide?: unknown } | null; defaultOpen?: boolean }) {
+  const info = property?.accessInfo;
+  const access = info && typeof info === "object" && !Array.isArray(info) ? info as Record<string, unknown> : {};
+  const guide = entriesForAudience(sanitizeAccessGuide(property?.accessGuide), "LAUNDRY");
+  const hasLegacyAccess = ["instructions", "lockbox", "codes", "parking", "other"].some((key) => Boolean(access[key]))
+    || (Array.isArray(access.sections) && access.sections.length > 0);
+  const task = { property };
+  return (
+    <details open={defaultOpen} className="overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 py-2 text-[0.875rem] font-[600] [&::-webkit-details-marker]:hidden">
         <KeyRound className="h-4 w-4 shrink-0 text-[hsl(var(--e-accent-portal))]" aria-hidden />
         <span className="flex-1">Property access</span>
@@ -73,11 +90,5 @@ export function NextStopExecution({ task, kind, config, onAction }: {
         ) : null}
       </div>
     </details>
-    <p>{!config ? "Proof settings unavailable. Reload the page to reload settings." : kind === "pickup" ? `Count bags and confirm pickup.${config.showPickupPhoto ? " Pickup photo is optional." : ""}` : `Record drop-off location and confirm return.${config.requireDropoffPhoto ? " Drop-off photo required." : ""}${config.requireEarlyDropoffReason ? " Early returns require a reason." : ""}`}</p>
-    <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-    {action ? <EButton onClick={() => onAction(task.id, action)}>{action === "PICKED_UP" ? "Confirm pickup" : "Confirm drop-off"}</EButton> : <p role="status">{task.status === "FLAGGED" ? "This task is flagged. Review it on the task board before continuing." : kind === "dropoff" ? "Pickup must be recorded before confirming drop-off." : "Review this task's current status on the task board."}</p>}
-    {action === "PICKED_UP" ? <EButton variant="outline" onClick={() => onAction(task.id, "FAILED_PICKUP")}>Report access problem</EButton> : null}
-    <a className="inline-flex min-h-11 items-center underline" href={`/v2/laundry/tracking#task-${encodeURIComponent(task.id)}`}>Open task board</a>
-    </div>
-  </div>;
+  );
 }

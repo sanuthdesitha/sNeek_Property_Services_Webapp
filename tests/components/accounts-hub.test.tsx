@@ -34,7 +34,7 @@ describe("Accounts hub", () => {
     respond({ pay: true, quality: true });
     render(<AccountsHub initialView={readAccountsView("?tab=team")} capabilities={{ isAdmin: true, canWriteNotes: true }} birthdays={[]} vaClients={[]} />);
     expect(await screen.findByText("31 people · 2 invites not accepted · 1 document expiring")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Office 5" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Office and other staff 5" })).toHaveAttribute("aria-current", "page");
     expect(String(fetchMock.mock.calls[0][0])).toContain("tab=office");
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByText("$36.50")).toBeInTheDocument();
@@ -50,7 +50,7 @@ describe("Accounts hub", () => {
     expect(screen.queryByRole("columnheader", { name: /QA, 30 d/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Jane Cleaner" }));
     const bar = screen.getByRole("region", { name: "Bulk actions" });
-    expect(within(bar).getByRole("button", { name: "Resend invite" })).toBeInTheDocument();
+    expect(within(bar).getByRole("button", { name: "Resend invitation" })).toBeInTheDocument();
     expect(within(bar).queryByRole("button", { name: "Change rate" })).not.toBeInTheDocument();
     expect(within(bar).queryByRole("button", { name: "Disable" })).not.toBeInTheDocument();
   });

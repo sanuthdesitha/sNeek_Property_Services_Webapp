@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { buildLaundryConfirmationMediaItems, getLaundryConfirmationLabel } from "@/lib/laundry/media";
 import { cn } from "@/lib/utils";
+import { clientLaundryStatusLabel } from "@/lib/client/laundry-status";
 
 const TZ = "Australia/Sydney";
 // Real LaundryStatus terminal states. Old values "DROPPED_OFF"/"COMPLETED" don't
@@ -134,7 +135,7 @@ function getFilterRange(mode: FilterMode, anchorDate: string) {
 }
 
 function formatLaundryStatus(task: any) {
-  return String(task.status ?? "").replace(/_/g, " ");
+  return clientLaundryStatusLabel(task.status);
 }
 
 function buildLatestLaundrySummary(task: any) {

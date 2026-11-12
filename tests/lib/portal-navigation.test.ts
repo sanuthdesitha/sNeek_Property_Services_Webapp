@@ -28,9 +28,11 @@ describe("role-aware notification links", () => {
 
 describe("stable mobile destinations", () => {
   it("ignores sidebar order and unrelated additions", () => {
-    const nav = ["settings", "reports", "approvals", "laundry", "jobs", ""].map((p) => ({ href: `/v2/client${p ? `/${p}` : ""}` }));
+    // Client board (2026-11): Home, Cleans, Approvals, Money, More. Laundry and
+    // Reports are authorized destinations but no longer tabs.
+    const nav = ["settings", "more", "reports", "finance", "approvals", "laundry", "jobs", ""].map((p) => ({ href: `/v2/client${p ? `/${p}` : ""}` }));
     expect(mobileTabs("client", nav).map((x) => x.href)).toEqual([
-      "/v2/client", "/v2/client/jobs", "/v2/client/laundry", "/v2/client/approvals", "/v2/client/reports",
+      "/v2/client", "/v2/client/jobs", "/v2/client/approvals", "/v2/client/finance", "/v2/client/more",
     ]);
   });
   it("never introduces a destination absent from authorized navigation", () => {

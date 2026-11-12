@@ -10,6 +10,8 @@ const m = vi.hoisted(() => ({
   xero: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.role }));
+// The live policy behind the invoice capabilities (lib/rbac/can.ts): no per-person switches.
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsPolicy: async () => ({ revision: 0, presets: [], assignments: {} }) }));
 vi.mock("@/lib/db", () => ({ db: { clientInvoice: { findMany: m.findMany }, auditLog: { create: m.audit, createMany: m.audit } } }));
 // The bulk route must call the SAME action functions the single routes call.
 vi.mock("@/lib/billing/client-invoice-patch", () => ({ patchClientInvoice: m.patch }));

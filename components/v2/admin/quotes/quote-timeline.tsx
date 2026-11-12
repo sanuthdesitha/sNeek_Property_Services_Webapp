@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatDistanceToNow, format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { Clock, Loader2, RefreshCw } from "lucide-react";
 import {
   ECard,
@@ -89,15 +90,17 @@ function relTime(iso: string): string {
     return "";
   }
 }
-function absTime(iso: string): string {
+/** History instants use the organisation timezone when the page supplies it. */
+function absTime(iso: string, timezone?: string): string {
   try {
+    if (timezone) return formatInTimeZone(new Date(iso), timezone, "d MMM yyyy, h:mm a");
     return format(new Date(iso), "d MMM yyyy, h:mm a");
   } catch {
     return "";
   }
 }
 
-export default function QuoteTimeline({ quoteId }: { quoteId: string }) {
+export default function QuoteTimeline({ quoteId, timezone }: { quoteId: string; timezone?: string }) {
   const [events, setEvents] = useState<QuoteEvent[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,10 +202,11 @@ export default function QuoteTimeline({ quoteId }: { quoteId: string }) {
                     </p>
                     <p
                       className="mt-1 flex items-center gap-1 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]"
-                      title={absTime(event.createdAt)}
+                      title={absTime(event.createdAt, timezone)}
                     >
                       <Clock className="h-3 w-3" />
                       {relTime(event.createdAt)}
+                      {timezone ? <span className="sr-only">, {absTime(event.createdAt, timezone)}</span> : null}
                     </p>
                   </div>
                 </li>

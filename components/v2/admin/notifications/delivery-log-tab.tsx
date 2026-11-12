@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { fromZonedTime } from "date-fns-tz";
 import { Trash2 } from "lucide-react";
 import { EDataTable, type EDataColumn, type TableSort } from "@/components/v2/ui/data-table";
 import { EPagination } from "@/components/v2/ui/pagination";
@@ -28,19 +29,20 @@ function parsePage(body: unknown): Page {
   return { rows: value.rows, total: value.total, page: value.page ?? 1, pageSize: value.pageSize ?? 25 };
 }
 
-function buildUrl(filters: Filters, page: number, sort: TableSort<"time">): string {
+/** Calendar days in the filter are organisation days (not the viewer's browser timezone). */
+function buildUrl(filters: Filters, page: number, sort: TableSort<"time">, timeZone: string): string {
   const params = new URLSearchParams({ page: String(page), pageSize: "25", sort: sort.key, dir: sort.dir });
   for (const [key, value] of Object.entries(filters)) {
     if (!value) continue;
     // Date inputs are calendar days; send the whole day as instants.
-    if (key === "from") params.set(key, new Date(`${value}T00:00:00`).toISOString());
-    else if (key === "to") params.set(key, new Date(`${value}T23:59:59.999`).toISOString());
+    if (key === "from") params.set(key, fromZonedTime(`${value}T00:00:00`, timeZone).toISOString());
+    else if (key === "to") params.set(key, fromZonedTime(`${value}T23:59:59.999`, timeZone).toISOString());
     else params.set(key, value);
   }
   return `/api/admin/notifications/deliveries?${params.toString()}`;
 }
 
-export function DeliveryLogTab({ readOnly, onToast }: { readOnly: boolean; onToast: (toast: EstateToast) => void }) {
+export function DeliveryLogTab({ readOnly, onToast, timeZone }: { readOnly: boolean; onToast: (toast: EstateToast) => void; timeZone?: string }) {
   const [draft, setDraft] = React.useState<Filters>(EMPTY);
   const [filters, setFilters] = React.useState<Filters>(EMPTY);
   const [page, setPage] = React.useState(1);
@@ -48,7 +50,7 @@ export function DeliveryLogTab({ readOnly, onToast }: { readOnly: boolean; onToa
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [clearOpen, setClearOpen] = React.useState(false);
   const [clearing, setClearing] = React.useState(false);
-  const read = useNotificationRead(buildUrl(filters, page, sort), parsePage, "Could not load the delivery log.");
+  const read = useNotificationRead(buildUrl(filters, page, sort, timeZone ?? "Australia/Sydney"), parsePage, "Could not load the delivery log.");
   const open = read.data?.rows.find((row) => row.id === openId) ?? null;
 
   function apply(event: React.FormEvent) {
@@ -72,7 +74,7 @@ export function DeliveryLogTab({ readOnly, onToast }: { readOnly: boolean; onToa
   }
 
   const columns: Array<EDataColumn<DeliveryLogRow, "time">> = [
-    { key: "time", header: "Time", sortKey: "time", firstDir: "desc", cell: (row) => <span className="whitespace-nowrap text-xs">{formatDeliveryTime(row.time)}</span> },
+    { key: "time", header: "Time", sortKey: "time", firstDir: "desc", cell: (row) => <span className="whitespace-nowrap text-xs">{formatDeliveryTime(row.time, timeZone)}</span> },
     { key: "type", header: "Type", className: "max-w-[14rem]", cell: (row) => (
       <button type="button" className="text-left text-xs font-medium underline-offset-2 hover:underline" onClick={() => setOpenId(row.id)}>
         {row.typeName}<span className="block font-normal text-[hsl(var(--e-muted-foreground))]">{row.subject}</span>
@@ -151,7 +153,7 @@ export function DeliveryLogTab({ readOnly, onToast }: { readOnly: boolean; onToa
       />
       <EPagination page={page} pageSize={25} total={read.data?.total ?? 0} onPageChange={setPage} disabled={read.loading} noun="deliveries" />
 
-      {open ? <DeliveryDetailPanel key={open.id} row={open} readOnly={readOnly} onClose={() => setOpenId(null)} onChanged={read.reload} /> : null}
+      {open ? <DeliveryDetailPanel key={open.id} row={open} readOnly={readOnly} timeZone={timeZone} onClose={() => setOpenId(null)} onChanged={read.reload} /> : null}
 
       <LazyDisclosure summary="Review queue: failed or uncertain pipeline deliveries">
         <NotificationIntentQueue />

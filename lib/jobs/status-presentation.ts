@@ -27,6 +27,7 @@ export const LAUNDRY_STATUS_TONES: Record<string, StatusTone> = {
   PENDING: "neutral",
   CONFIRMED: "primary",
   PICKED_UP: "info",
+  READY_TO_RETURN: "info",
   DROPPED: "success",
   FLAGGED: "danger",
   SKIPPED_PICKUP: "warning",

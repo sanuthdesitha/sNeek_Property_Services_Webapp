@@ -18,6 +18,12 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
+// Board (2026-11): the approve button carries the amount ("Approve $50.00") and
+// the counter amount opens from "Offer other price".
+const actionName = (action: string) => (action === "Approve" ? /^Approve\b/ : action);
+function openOffers() {
+  for (const button of screen.getAllByRole("button", { name: "Offer other price" })) fireEvent.click(button);
+}
 function identity(id = "client-1", role = "CLIENT", impersonation?: object) {
   mocks.session.mockReturnValue({ status: "authenticated", data: { user: { id, role }, impersonation } });
 }
@@ -40,28 +46,30 @@ describe("client approvals reliability", () => {
     render(<ClientApprovalsBoard />);
     await screen.findByText("Approval one");
     fireEvent.change(screen.getByLabelText("Optional note"), { target: { value: "Keep my note" } });
+    openOffers();
     fireEvent.change(screen.getByLabelText(/Or propose a different amount/), { target: { value: "25" } });
-    fireEvent.click(screen.getByRole("button", { name: action }));
+    fireEvent.click(screen.getByRole("button", { name: actionName(action) }));
     await screen.findByText(/Approval terms have changed/);
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
     expect(JSON.parse(mocks.fetch.mock.calls[1][1].body).expectedVersion).toBe("a".repeat(64));
-    for (const name of ["Approve", "Decline", "Send counter-offer"]) {
+    for (const name of ["Approve", "Decline", "Send counter-offer", "Offer other price"].map(actionName)) {
       expect(screen.getByRole("button", { name })).toBeDisabled();
       fireEvent.click(screen.getByRole("button", { name }));
     }
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await screen.findByText(/Approvals unavailable/);
-    expect(screen.getByRole("button", { name: action })).toBeDisabled();
+    expect(screen.getByRole("button", { name: actionName(action) })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-    expect(screen.getByRole("button", { name: action })).toBeDisabled();
+    expect(screen.getByRole("button", { name: actionName(action) })).toBeDisabled();
     await act(async () => { refresh.resolve(response([row("one", { version: "b".repeat(64), amount: 70 })])); });
     expect(screen.queryByText(/Approval terms have changed/)).not.toBeInTheDocument();
-    expect(screen.getByText("AUD 70.00")).toBeVisible();
+    expect(screen.getByText("$70.00")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Approve $70.00" })).toBeEnabled();
     expect(screen.getByLabelText("Optional note")).toHaveValue("Keep my note");
     expect(screen.getByLabelText(/Or propose a different amount/)).toHaveValue(25);
     expect(mocks.fetch).toHaveBeenCalledTimes(4);
-    fireEvent.click(screen.getByRole("button", { name: action }));
+    fireEvent.click(screen.getByRole("button", { name: actionName(action) }));
     await screen.findByText("All clear");
     expect(JSON.parse(mocks.fetch.mock.calls[4][1].body)).toEqual(action === "Send counter-offer"
       ? { amount: 25, note: "Keep my note", expectedVersion: "b".repeat(64) }
@@ -74,13 +82,17 @@ describe("client approvals reliability", () => {
     render(<ClientApprovalsBoard />);
     await screen.findByText("Approval one");
     fireEvent.change(screen.getByLabelText("Optional note"), { target: { value: "Private draft" } });
+    openOffers();
     fireEvent.change(screen.getByLabelText(/Or propose a different amount/), { target: { value: "23" } });
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Approve\b/ }));
     await screen.findByText("Approvals unavailable. Please retry.");
     expect(screen.queryByText("Approval one")).not.toBeInTheDocument();
     expect(screen.queryByText("All clear")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByLabelText("Optional note")).toHaveValue("");
+    // The cleared draft does not come back: the counter form reopens empty.
+    expect(screen.queryByLabelText(/Or propose a different amount/)).toBeNull();
+    openOffers();
     expect(screen.getByLabelText(/Or propose a different amount/)).toHaveValue(null);
   });
 
@@ -90,13 +102,15 @@ describe("client approvals reliability", () => {
     render(<ClientApprovalsBoard />);
     await screen.findByText("Approval one/two?#");
     fireEvent.change(screen.getByLabelText("Optional note"), { target: { value: "Private draft" } });
+    openOffers();
     fireEvent.change(screen.getByLabelText(/Or propose a different amount/), { target: { value: "23" } });
-    fireEvent.click(screen.getByRole("button", { name: action }));
+    fireEvent.click(screen.getByRole("button", { name: actionName(action) }));
     await screen.findByText("Approvals unavailable. Please retry.");
     expect(mocks.fetch.mock.calls[1][0]).toBe(`/api/client/approvals/one%2Ftwo%3F%23/${action === "Approve" ? "respond" : "counter"}`);
     expect(screen.queryByText("Approval one/two?#")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByLabelText("Optional note")).toHaveValue("");
+    openOffers();
     expect(screen.getByLabelText(/Or propose a different amount/)).toHaveValue(null);
   });
 
@@ -137,20 +151,25 @@ describe("client approvals reliability", () => {
     mocks.fetch.mockResolvedValueOnce(response(rows)).mockResolvedValueOnce(response({}))
       .mockReturnValueOnce(refreshing.promise).mockResolvedValueOnce(response([row(), { id: "broken" }]))
       .mockResolvedValueOnce(response(rows));
-    render(<ClientApprovalsBoard />);
+    const view = render(<ClientApprovalsBoard />);
     await screen.findByText("Approval one");
     fireEvent.change(screen.getByLabelText("Optional note"), { target: { value: "Keep this note" } });
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Approve\b/ }));
     await screen.findByRole("status");
     expect(screen.getByLabelText("Optional note")).toHaveValue("Keep this note");
+    // History is its own segment; switching views keeps the waiting draft.
+    view.rerender(<ClientApprovalsBoard view="history" />);
     expect(screen.getByText(/Agreed on scope/)).toBeVisible();
+    view.rerender(<ClientApprovalsBoard />);
     await act(async () => { refreshing.resolve({ ...response({}, false), status: 503 } as ReturnType<typeof response>); });
     expect(await screen.findByText(/this view may be incomplete or out of date/)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Approve\b/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled());
     expect(screen.getByText("Approval one")).toBeVisible();
+    view.rerender(<ClientApprovalsBoard view="history" />);
     expect(screen.getByText(/Agreed on scope/)).toBeVisible();
+    view.rerender(<ClientApprovalsBoard />);
     expect(screen.queryByText("All clear")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.queryByText(/Approvals unavailable/)).not.toBeInTheDocument());
@@ -164,10 +183,11 @@ describe("client approvals reliability", () => {
       .mockResolvedValueOnce(response([]));
     render(<ClientApprovalsBoard />);
     await screen.findByText("Approval one");
+    openOffers();
     for (const input of screen.getAllByLabelText(/Or propose a different amount/)) {
       fireEvent.change(input, { target: { value: "25" } });
     }
-    const buttons = screen.getAllByRole("button", { name: action });
+    const buttons = screen.getAllByRole("button", { name: actionName(action) });
     // Native events in one batch exercise the ref lock before React commits disabled state.
     act(() => {
       buttons[0].click();
@@ -192,8 +212,9 @@ describe("client approvals reliability", () => {
     const view = render(<ClientApprovalsBoard />);
     await screen.findByText("Approval one");
     fireEvent.change(screen.getByLabelText("Optional note"), { target: { value: "Private draft" } });
+    openOffers();
     fireEvent.change(screen.getByLabelText(/Or propose a different amount/), { target: { value: "23" } });
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Approve\b/ }));
     await waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(3));
     const signal = mocks.fetch.mock.calls[2][1].signal as AbortSignal;
     if (change === "user") identity("client-2");
@@ -219,12 +240,12 @@ describe("client approvals reliability", () => {
       .mockResolvedValueOnce(response([row("new")]));
     const view = render(<ClientApprovalsBoard />);
     await screen.findByText("Approval one");
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Approve\b/ }));
     identity("client-2");
     view.rerender(<ClientApprovalsBoard />);
     await screen.findByText("Approval new");
     await act(async () => { post.resolve(response({})); });
     expect(mocks.fetch).toHaveBeenCalledTimes(3);
-    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Approve\b/ })).toBeEnabled();
   });
 });

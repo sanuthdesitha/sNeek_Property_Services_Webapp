@@ -14,8 +14,8 @@ function parsePage(body: unknown): Page {
   return { rows: value.rows, total: value.total };
 }
 
-/** The last 20 deliveries recorded for one type, across pipeline and direct rows. */
-export function RecentDeliveries({ typeKey }: { typeKey: string }) {
+/** The last 20 deliveries recorded for one type, across pipeline and direct rows (times in the organisation timezone). */
+export function RecentDeliveries({ typeKey, timeZone }: { typeKey: string; timeZone?: string }) {
   const read = useNotificationRead(`/api/admin/notifications/deliveries?type=${encodeURIComponent(typeKey)}&pageSize=20`, parsePage, "Could not load recent deliveries.");
   return (
     <section aria-labelledby="type-recent" className="space-y-2">
@@ -38,7 +38,7 @@ export function RecentDeliveries({ typeKey }: { typeKey: string }) {
               <span>{TRANSPORT_LABEL[row.transport]}</span>
               <span className="text-[hsl(var(--e-muted-foreground))]">· {row.path}</span>
             </div>
-            <p className="mt-1">{row.recipientLabel} · {formatDeliveryTime(row.time)}</p>
+            <p className="mt-1">{row.recipientLabel} · {formatDeliveryTime(row.time, timeZone)}</p>
             {row.error ? <p className="text-[hsl(var(--e-danger))]">{row.error}</p> : null}
           </li>
         ))}

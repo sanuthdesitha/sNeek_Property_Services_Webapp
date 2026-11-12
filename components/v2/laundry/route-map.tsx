@@ -129,7 +129,7 @@ function isSydneyToday(value: Date, nowSyd: Date): boolean {
 
 function taskStopDone(status: string, kind: RouteStopKind): boolean {
   return kind === "PICKUP"
-    ? ["PICKED_UP", "DROPPED", "SKIPPED_PICKUP"].includes(status)
+    ? ["PICKED_UP", "READY_TO_RETURN", "DROPPED", "SKIPPED_PICKUP"].includes(status)
     : status === "DROPPED";
 }
 
@@ -600,7 +600,7 @@ function RunnerStopList({
           {stops.map((stop, index) => {
             const kind: RouteStopKind = stop.kind === "pickup" ? "PICKUP" : "DROP";
             const canPickup = kind === "PICKUP" && ["PENDING", "CONFIRMED"].includes(stop.status);
-            const canDrop = kind === "DROP" && stop.status === "PICKED_UP";
+            const canDrop = kind === "DROP" && (stop.status === "PICKED_UP" || stop.status === "READY_TO_RETURN");
             return (
               <li
                 key={`${stop.taskId}-${stop.kind}`}
@@ -744,7 +744,7 @@ export function LaundryRouteMap() {
       if (!task) return;
       if (arrived.kind === "PICKUP" && ["PENDING", "CONFIRMED"].includes(task.status)) {
         openAction(task, "PICKED_UP");
-      } else if (arrived.kind === "DROP" && task.status === "PICKED_UP") {
+      } else if (arrived.kind === "DROP" && (task.status === "PICKED_UP" || task.status === "READY_TO_RETURN")) {
         openAction(task, "RETURNED");
       }
       void load({ silent: true });

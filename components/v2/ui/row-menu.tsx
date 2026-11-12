@@ -31,6 +31,10 @@ export type ERowMenuItem = {
   hint?: string;
   /** Draws a separator above this item. */
   separated?: boolean;
+  /** Group label drawn above this item (e.g. "Danger zone"); not focusable. */
+  heading?: string;
+  /** Short condition shown beside the label (e.g. "Paused or 24 h+"). */
+  badge?: string;
 };
 
 export type ERowMenuProps = {
@@ -44,6 +48,12 @@ export type ERowMenuProps = {
    * Omit for the row's "⋯" button.
    */
   trigger?: React.ReactNode;
+  /** "outline" draws a labelled trigger as a secondary button. Default "primary". */
+  triggerVariant?: "primary" | "outline";
+  /** Plain note at the foot of the menu (e.g. which actions ask for a PIN). */
+  footnote?: string;
+  /** Opens the menu when this changes to true (e.g. an old deep link's meaning). */
+  openSignal?: boolean;
 };
 
 type MenuPosition = { top: number; left: number; maxHeight: number };
@@ -64,7 +74,7 @@ function positionFor(trigger: HTMLElement): MenuPosition {
   return { top: Math.max(8, rect.top - GAP - maxHeight), left, maxHeight };
 }
 
-export function ERowMenu({ label, items, disabled = false, className, trigger }: ERowMenuProps) {
+export function ERowMenu({ label, items, disabled = false, className, trigger, triggerVariant = "primary", footnote, openSignal }: ERowMenuProps) {
   const [open, setOpen] = React.useState(false);
   const [position, setPosition] = React.useState<MenuPosition | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
@@ -88,6 +98,12 @@ export function ERowMenu({ label, items, disabled = false, className, trigger }:
     setPosition(positionFor(triggerRef.current));
     setOpen(true);
   }
+
+  React.useEffect(() => {
+    if (openSignal) openMenu("first");
+    // Only a change of the signal opens the menu.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal]);
 
   // Focus the first (or last) item once the menu is in the DOM.
   React.useEffect(() => {
@@ -200,7 +216,9 @@ export function ERowMenu({ label, items, disabled = false, className, trigger }:
         className={cn(
           trigger
             ? "inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-[var(--e-radius)] px-4 text-[0.875rem] font-[550] " +
-                "bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))] hover:bg-[hsl(var(--e-primary-hover))]"
+                (triggerVariant === "outline"
+                  ? "border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] hover:bg-[hsl(var(--e-muted))]"
+                  : "bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))] hover:bg-[hsl(var(--e-primary-hover))]")
             : // The concept's `.btn.q.s`: a quiet, borderless "⋯".
               "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--e-radius)] bg-transparent " +
                 "text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))]",
@@ -224,6 +242,11 @@ export function ERowMenu({ label, items, disabled = false, className, trigger }:
             {items.map((item) => (
               <React.Fragment key={item.key}>
                 {item.separated ? <div role="separator" className="my-1 h-px bg-[hsl(var(--e-border))]" /> : null}
+                {item.heading ? (
+                  <div role="presentation" className="px-3 pb-0.5 pt-2 text-[0.625rem] font-[600] uppercase tracking-[0.1em] text-[hsl(var(--e-muted-foreground))]">
+                    {item.heading}
+                  </div>
+                ) : null}
                 {item.href && !item.disabled ? (
                   <a
                     role="menuitem"
@@ -248,16 +271,22 @@ export function ERowMenu({ label, items, disabled = false, className, trigger }:
                     onClick={() => choose(item)}
                   >
                     {item.icon}
-                    <span className="min-w-0">
+                    <span className="min-w-0 flex-1">
                       {item.label}
                       {item.disabled && item.hint ? (
                         <span className="block text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">{item.hint}</span>
                       ) : null}
                     </span>
+                    {item.badge ? (
+                      <span className="shrink-0 rounded-[var(--e-radius-pill)] border border-[hsl(var(--e-border-strong))] px-2 py-0.5 text-[0.625rem] font-[550] text-[hsl(var(--e-text-secondary))]">
+                        {item.badge}
+                      </span>
+                    ) : null}
                   </button>
                 )}
               </React.Fragment>
             ))}
+            {footnote ? <p className="px-3 pb-1.5 pt-2 text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">{footnote}</p> : null}
           </div>
         </EstatePortal>
       ) : null}

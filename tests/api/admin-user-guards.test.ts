@@ -9,11 +9,19 @@ const m = vi.hoisted(() => {
     session: { deleteMany: vi.fn() },
     trustedDevice: { deleteMany: vi.fn() },
     auditLog: { create: vi.fn() },
+    // Own PINs (2026-11-13): the acting administrator has a PIN, so a password alone is refused.
+    userSecurityPin: {
+      findUnique: vi.fn(async () => ({ userId: "a1", pinHash: "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234", pinSetAt: null, failedAttempts: 0, lockedUntil: null, resetAt: null })),
+      upsert: vi.fn(async () => ({ failedAttempts: 1 })),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+    },
   };
   return { tx, requireRole: vi.fn() };
 });
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.requireRole }));
 vi.mock("@/lib/db", () => ({ db: { ...m.tx, $transaction: async (fn: unknown) => (typeof fn === "function" ? fn(m.tx) : Promise.all(fn as Promise<unknown>[])) } }));
+vi.mock("@/lib/security/actual-actor", () => ({ actualActorRefusal: vi.fn(async () => null) }));
 vi.mock("@/lib/accounts/user-details", () => ({ getUserExtendedProfile: vi.fn(async () => null), upsertUserExtendedProfile: vi.fn() }));
 vi.mock("@/lib/rbac/ops-access", () => ({ getOpsPolicy: vi.fn(async () => ({})), getOpsAccess: vi.fn(async () => null) }));
 vi.mock("@/lib/clients/contact-sync", () => ({ normalizeClientEmail: (v: string) => v.toLowerCase(), syncClientContactFromPrimaryUser: vi.fn() }));
@@ -32,7 +40,8 @@ const ctx = { params: { id: "a2" } };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  m.requireRole.mockResolvedValue({ user: { id: "me" } });
+  // The routes now admit OPS_MANAGER to their guard (delegated administrator capabilities), so the administrator is explicit.
+  m.requireRole.mockResolvedValue({ user: { id: "me", role: "ADMIN", heldRoles: ["ADMIN"] } });
   m.tx.user.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
     where.id === "me"
       ? { id: "me", role: "ADMIN", isActive: true, passwordHash: null, extraRoles: [] }

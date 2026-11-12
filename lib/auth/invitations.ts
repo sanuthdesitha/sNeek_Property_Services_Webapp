@@ -3,7 +3,7 @@ import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { resolveAppUrl } from "@/lib/app-url";
-import { sendEmail } from "@/lib/notifications/email";
+import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
 
 export const INVITATION_LIFETIME_DAYS = 7;
@@ -58,13 +58,22 @@ export async function createUserInvitation(params: {
   return { token, expiresAt };
 }
 
+/** The provider's answer, kept truthful: accepted is not delivered, unknown is not success. */
+export type InvitationEmailResult = {
+  ok: boolean;
+  error?: string;
+  acceptance: "ACCEPTED" | "NOT_ACCEPTED" | "UNKNOWN";
+  skipped: boolean;
+  externalId: string | null;
+};
+
 export async function sendInvitationEmail(params: {
   to: string;
   name: string | null;
   role: Role;
   url: string;
   expiresAt: Date;
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<InvitationEmailResult> {
   try {
     const settings = await getAppSettings();
     const greeting = params.name ? `Hi ${escapeHtml(params.name)},` : "Hi,";
@@ -98,10 +107,10 @@ export async function sendInvitationEmail(params: {
       </p>
     `;
 
-    const ok = await sendEmail({ to: params.to, subject, html, transactional: true, critical: true });
-    return { ok };
+    const sent = await sendEmailDetailed({ to: params.to, subject, html, transactional: true, critical: true });
+    return { ok: sent.ok, error: sent.ok ? undefined : sent.error, acceptance: sent.acceptance ?? (sent.ok ? "ACCEPTED" : "NOT_ACCEPTED"), skipped: sent.skipped === true, externalId: sent.externalId ?? null };
   } catch (err: any) {
     logger.error({ err, to: params.to }, "Failed to send invitation email");
-    return { ok: false, error: err?.message ?? "send_failed" };
+    return { ok: false, error: err?.message ?? "send_failed", acceptance: "UNKNOWN", skipped: false, externalId: null };
   }
 }

@@ -9,6 +9,7 @@ import { CalendarClock, ChevronRight, Columns3, List } from "lucide-react";
 import { EAlert, EBadge, ECard, ECardBody, EEmptyState } from "@/components/v2/ui/primitives";
 import { EInput, ESelect } from "@/components/v2/admin/estate-kit";
 import { MAINTENANCE_STAGES, maintenanceScheduleLabel, maintenanceVisitStage, type MaintenanceTicketSummary } from "@/lib/maintenance/ticket-stage";
+import { groupTicketsByDay } from "@/lib/maintenance/tickets-by-day";
 
 const PRIORITY_LABEL: Record<string, string> = { URGENT: "Urgent", HIGH: "High", MEDIUM: "Medium", LOW: "Low" };
 const PRIORITY_TONE: Record<string, "danger" | "warning" | "info" | "neutral"> = {
@@ -89,8 +90,8 @@ function ViewToggle({ view, onChange }: { view: "list" | "board"; onChange: (vie
       aria-label="Ticket view"
       className="inline-flex gap-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-1"
     >
-      {option("list", "List view", <List className="h-4 w-4" aria-hidden />)}
-      {option("board", "Board view", <Columns3 className="h-4 w-4" aria-hidden />)}
+      {option("list", "By day", <List className="h-4 w-4" aria-hidden />)}
+      {option("board", "By stage", <Columns3 className="h-4 w-4" aria-hidden />)}
     </div>
   );
 }
@@ -131,7 +132,13 @@ export function MaintenanceTicketsWorkspace({ tickets, page = 1, totalCount = ti
     </nav>
     {tickets.length === 0 ? <EEmptyState title={page === 1 ? "No tickets" : "No tickets on this page"} description={page === 1 ? "Maintenance requests will appear here." : "Return to a previous page to view tickets."} />
       : filtered.length === 0 ? <EEmptyState title="No matching tickets" description="Change the search or status filter." />
-      : view === "list" ? <div className="space-y-3">{filtered.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />)}</div>
+      : view === "list" ? <div className="space-y-5">
+        {/* Board "By day": today first, then each later day, then past and unscheduled work. */}
+        {groupTicketsByDay(filtered).map((group) => <div key={group.key} className="space-y-2">
+          <h2 className="e-eyebrow">{group.label} <span className="e-tnum">({group.tickets.length})</span></h2>
+          <div className="space-y-3">{group.tickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />)}</div>
+        </div>)}
+      </div>
       : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {statuses.filter((key) => status === "all" || key === status).map((key) => {
           const items = filtered.filter((ticket) => ticket.status === key);

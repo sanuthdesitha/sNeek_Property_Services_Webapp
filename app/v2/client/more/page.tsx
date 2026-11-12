@@ -1,20 +1,35 @@
-import { redirect } from "next/navigation";
+import { requireClientPortalPage } from "@/lib/auth/client-portal";
+import { clientNavModules } from "@/lib/client/portal-modules";
+import { EPageHeader } from "@/components/v2/ui/primitives";
+import { moreSectionsFor } from "@/components/v2/client/portal/portal-nav";
+import { ClientMoreMenu } from "@/components/v2/client/portal/more-menu";
+import { ClientMoreAccount } from "@/components/v2/client/portal/more-account";
+
+export const metadata = { title: "More · Estate client" };
+export const dynamic = "force-dynamic";
 
 /**
- * The "More" page is gone.
+ * The More tab (approved client board, 2026-11). This URL redirected to Home
+ * while the portal had no More menu; it is the menu again, so old bookmarks land
+ * on the grouped list of every destination that is not a tab.
  *
- * Seventeen links, and all but three already sat in the nav under the same or a
- * near-identical name. The three that did not — Finance, Approvals and the quote
- * request — are now in the nav proper, so nothing is stranded.
- *
- * Two lists of the same portal is how a page ends up with two names, and how
- * somebody learns which is which by opening both. The portal shell has
- * supported grouped section headings all along; nothing had used them.
- *
- * A redirect rather than a deletion: the URL is in browser history and, for
- * some of these portals, on printed induction material. Landing somewhere
- * useful costs nothing; a 404 costs a support message.
+ * Filtering happens here on the server, from the same actor, grants and merged
+ * per-client visibility the destination pages check. Each page keeps its own
+ * guard whatever the menu shows.
  */
-export default function V2ClientMoreRedirect() {
-  redirect("/v2/client");
+export default async function V2ClientMorePage() {
+  const portal = await requireClientPortalPage();
+  const sections = moreSectionsFor({
+    actor: portal.actor,
+    permissions: portal.permissions,
+    modules: clientNavModules(portal.visibility),
+  });
+
+  return (
+    <div className="space-y-6">
+      <EPageHeader title="More" description="Everything else in your portal: cleans, homes, support, billing and your account." />
+      <ClientMoreMenu sections={sections} />
+      <ClientMoreAccount />
+    </div>
+  );
 }

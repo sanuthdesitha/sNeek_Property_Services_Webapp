@@ -242,11 +242,14 @@ export const SETTINGS_DESTINATIONS = [
     adminOnly: true,
   },
   {
+    // Kept as "roles" so old links and searches keep working; it opens the
+    // Access and permissions page (2026-11 redesign).
     key: "roles",
-    label: "Roles & permissions",
-    description: "Manage operations-manager permission packs and feature access.",
+    label: "Access and permissions",
+    description: "Who can do what in the office: levels per area, capabilities, presets, client assistants and history.",
     group: "access",
     adminOnly: true,
+    href: "/v2/admin/settings/access",
   },
   {
     key: "ollama",
@@ -264,9 +267,13 @@ export const SETTINGS_DESTINATIONS = [
   },
 ] as const satisfies readonly SettingsDestination[];
 
-export function availableSettings(isAdmin: boolean) {
+/**
+ * `grantedKeys`: admin-only destinations opened to this person by an
+ * administrator capability (the server re-checks on the destination).
+ */
+export function availableSettings(isAdmin: boolean, grantedKeys: readonly string[] = []) {
   return SETTINGS_DESTINATIONS.filter(
-    (section) => isAdmin || !section.adminOnly,
+    (section) => isAdmin || !section.adminOnly || grantedKeys.includes(section.key),
   );
 }
 

@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
 import { resolveAppUrl } from "@/lib/app-url";
+import { clientPaymentReturnUrls } from "@/lib/billing/invoice-payment-link";
 import { invoiceAmountOwing, readCreditedAmount } from "@/lib/finance/receivables";
 
 function getStripeSecretKey() {
@@ -76,8 +77,7 @@ export async function POST(
       return NextResponse.json({ error: "Stripe payments are disabled." }, { status: 400 });
     }
 
-    const successUrl = settings.stripe.successUrl || resolveAppUrl("/client/finance?paid=1", req);
-    const cancelUrl = settings.stripe.cancelUrl || resolveAppUrl("/client/finance", req);
+    const { successUrl, cancelUrl } = clientPaymentReturnUrls((path) => resolveAppUrl(path, req), settings.stripe);
     const form = new URLSearchParams();
     form.set("mode", "payment");
     form.set("success_url", successUrl);

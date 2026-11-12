@@ -242,6 +242,7 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
         isResume={api.ownStarted || (api.hasCheckin && !api.startGateBlocks)}
         onClockIn={api.clockIn}
         onPause={api.pauseClock}
+        showClockIn={api.hasStarted}
       />
     </div>
   );

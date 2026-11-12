@@ -3,7 +3,8 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/notifications/email";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { verifySensitiveAction, isSensitiveRefusal } from "@/lib/security/admin-verification";
+import { DelegatedActionDenied, requireDelegatedAction } from "@/lib/rbac/delegated-admin";
 
 /**
  * Admin-side 2FA reset: turn off a user's two-step verification and forget their
@@ -13,7 +14,11 @@ import { verifySensitiveAction } from "@/lib/security/admin-verification";
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const session = await requireRole([Role.ADMIN]);
+    // ADMIN, or a person an administrator granted "accounts.reset_two_step" (owner decision
+    // 2026-11-12): never on an administrator, on someone with more access,
+    // on themselves, or while testing as someone (lib/rbac/delegated-admin.ts).
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const actor = await requireDelegatedAction(session, "accounts.reset_two_step", params.id);
     const rawBody = await req.json().catch(() => ({}));
     await verifySensitiveAction(session.user.id, rawBody?.security);
 
@@ -39,7 +44,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         action: "RESET_USER_2FA",
         entity: "User",
         entityId: user.id,
-        after: { wasEnabled: user.twoFactorEnabled } as any,
+        after: {
+          actorRole: actor.role,
+          wasEnabled: user.twoFactorEnabled,
+        } as any,
       },
     });
 
@@ -57,12 +65,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     return NextResponse.json({ ok: true, wasEnabled: user.twoFactorEnabled });
   } catch (err: any) {
+    if (err instanceof DelegatedActionDenied) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const status =
       err.message === "UNAUTHORIZED"
         ? 401
         : err.message === "FORBIDDEN"
           ? 403
-          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+          : isSensitiveRefusal(err)
             ? 423
             : 400;
     return NextResponse.json({ error: err.message ?? "Could not reset 2FA." }, { status });

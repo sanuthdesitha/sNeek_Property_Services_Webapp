@@ -9,7 +9,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({ auth: vi.fn(), job: vi.fn(), audits: vi.fn(), audit: vi.fn(), office: vi.fn(), controls: vi.fn(), ops: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.auth }));
-vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
+// The live policy behind the shared capability evaluator (lib/rbac/can.ts): no per-person switches.
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops, getOpsPolicy: async () => ({ revision: 0, presets: [], assignments: {} }) }));
 vi.mock("@/lib/db", () => ({ db: { job: { findUnique: m.job }, auditLog: { findMany: m.audits, create: m.audit } } }));
 vi.mock("@/lib/notifications/office-sends", () => ({ sendOfficeNotification: m.office }));
 vi.mock("@/lib/notifications/type-controls", () => ({ getNotificationTypeControls: m.controls, typeRespectsPreferences: () => false }));

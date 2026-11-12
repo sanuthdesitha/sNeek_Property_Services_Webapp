@@ -4,7 +4,7 @@ import { format } from "date-fns";
 import { JobStatus, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { escapeHtml } from "@/lib/utils/escape-html";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import { outcomeTaken, sendOfficeNotification, type RecipientOutcome } from "@/lib/notifications/office-sends";
 import { getNotificationTypeControls, typeRespectsPreferences } from "@/lib/notifications/type-controls";
 
@@ -103,12 +103,13 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
 
   const propertyName = job.property?.name ?? "the property";
   const whenLabel = `${format(new Date(job.scheduledDate), "EEE d MMM yyyy")}${job.startTime ? ` ${job.startTime}` : ""}`;
-  const message = `You have an unfinished job at ${propertyName} scheduled ${whenLabel} — please open it and submit your checklist.${
-    input.note ? ` Note from admin: ${input.note}` : ""
-  }`;
-  const safeProperty = escapeHtml(propertyName);
-  const safeWhen = escapeHtml(whenLabel);
-  const safeNote = input.note ? escapeHtml(input.note) : null;
+  const wording = await loadNotificationWording(JOB_REMINDER_TYPE_KEY);
+  const inbox = wording.render("cleaner", "INBOX", {
+    propertyName,
+    when: whenLabel,
+    noteSentence: wording.line("note-line", "INBOX", { note: input.note }, Boolean(input.note)),
+  });
+  const noteParagraph = wording.line("note-paragraph", "EMAIL", { note: input.note }, Boolean(input.note));
   const controls = await getNotificationTypeControls();
 
   // The pipeline enqueue is one transaction: if it fails, nothing was queued
@@ -126,20 +127,21 @@ export async function sendJobReminder(jobId: string, input: ReminderInput, conte
     category: "jobs",
     severity: "ACTION",
     jobId: job.id,
-    subject: "Unfinished job reminder",
-    body: message,
+    subject: inbox.title,
+    body: inbox.body,
     url: "/cleaner/jobs",
     emailKind: "job_reminder",
-    email: (recipient) => ({
-      subject: `Reminder: unfinished job at ${propertyName} (${job.jobNumber || job.id})`,
-      html: `
-              <p>Hi ${escapeHtml(recipient.name ?? recipient.email ?? "Cleaner")},</p>
-              <p>You have an unfinished job at <strong>${safeProperty}</strong> scheduled <strong>${safeWhen}</strong> — please open it and submit your checklist.</p>
-              ${safeNote ? `<p><em>Note from admin:</em> ${safeNote}</p>` : ""}
-              <p><a href="${escapeHtml(context.cleanerJobsUrl)}">Open your jobs</a></p>
-              <p>— sNeek Ops</p>
-            `,
-    }),
+    email: (recipient) => {
+      const email = wording.render("cleaner", "EMAIL", {
+        recipientName: recipient.name ?? recipient.email ?? "Cleaner",
+        propertyName,
+        when: whenLabel,
+        jobNumber: job.jobNumber || job.id,
+        noteParagraph,
+        jobsUrl: context.cleanerJobsUrl,
+      });
+      return { subject: email.subject, html: email.html };
+    },
     transports: [input.method],
     recipients: job.assignments.map((assignment) => ({
       id: assignment.user.id,

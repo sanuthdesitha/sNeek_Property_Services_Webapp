@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { unlinkStockSupplier } from "@/lib/laundry/partners";
 import {
   deleteSupplierById,
   getSupplierById,
@@ -70,6 +71,8 @@ export async function DELETE(
     if (!ok) {
       return NextResponse.json({ error: "Supplier not found." }, { status: 404 });
     }
+    // A linked laundry partner stays (its runs, team and contact are its own); only the link goes.
+    await unlinkStockSupplier(session.user.id, params.id);
 
     await db.auditLog.create({
       data: {

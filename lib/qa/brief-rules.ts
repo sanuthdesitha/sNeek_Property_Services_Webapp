@@ -206,12 +206,19 @@ const repeatPropertyIssues: BriefRule = (ctx) => {
   };
 };
 
-/** The cleaner's recent MAJOR/CRITICAL verdicts. */
+/**
+ * The cleaner's recent MAJOR/CRITICAL-severity issues. Since 2026-11-13 a Fail
+ * is stored as MAJOR and a serious Fail as CRITICAL (lib/qa/verdict-scale.ts),
+ * so the words name both scales.
+ */
 const cleanerSevereHistory: BriefRule = (ctx) => {
   const { major, critical, windowDays } = ctx.cleanerRecentSevereIssues;
   if (major + critical === 0) return null;
   const who = ctx.cleaners[0]?.name ?? "This cleaner";
-  const parts = [critical ? `${critical} critical` : null, major ? `${major} major` : null].filter(Boolean);
+  const parts = [
+    critical ? `${critical} serious fail or critical` : null,
+    major ? `${major} fail or major` : null,
+  ].filter(Boolean);
   return {
     id: "cleaner-severe-history",
     tone: critical > 0 ? "danger" : "warning",

@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { listClientPropertiesForUser } from "@/lib/client/portal-data";
+import { loadPropertyHomeRows } from "@/lib/client/property-home";
+import { requirePropertyFavoritesContext } from "@/lib/client/property-favorites-store";
+import { PropertyPortfolio } from "@/components/v2/client/property-portfolio";
 import {
   EBadge,
   ECard,
@@ -19,6 +22,13 @@ export default async function ClientPropertiesPage() {
   // and the VA-aware resolvers scope it to their team's client and properties.
   const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
   const properties = await listClientPropertiesForUser(session.user.id).catch(() => []);
+  // The pinned portfolio (next clean, last service, approvals per home) moved
+  // here from Home when Home became the drawn phone screen and dashboard; pins
+  // and the cards/compact choice are unchanged.
+  const portfolio = await loadPropertyHomeRows(portalCtx).catch(() => null);
+  const favoritesContext = portfolio && portfolio.length > 0
+    ? await requirePropertyFavoritesContext().then((value) => value.context).catch(() => null)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -28,6 +38,20 @@ export default async function ClientPropertiesPage() {
         description="Inventory, supplies, and service history live inside each property."
       />
 
+      <section aria-labelledby="portfolio-heading" className="space-y-3">
+        <h2 id="portfolio-heading" className="e-display-sm">Your portfolio</h2>
+        {portfolio === null ? (
+          <p className="text-sm text-[hsl(var(--e-muted-foreground))]">Property summaries unavailable. <a className="underline" href="/v2/client/properties">Retry</a></p>
+        ) : portfolio.length === 0 ? null : (
+          <PropertyPortfolio
+            rows={portfolio}
+            expectedContext={favoritesContext}
+            scope={JSON.stringify([portalCtx.userId, portalCtx.clientId, portalCtx.actor, portalCtx.team?.id, portalCtx.propertyIds, portalCtx.visibility])}
+          />
+        )}
+      </section>
+
+      <h2 className="e-display-sm">Addresses and details</h2>
       {properties.length === 0 ? (
         <EEmptyState
           eyebrow="Nothing yet"

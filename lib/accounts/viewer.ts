@@ -26,6 +26,12 @@ export type AccountsViewer = {
   canUploadDocuments: boolean;
   /** Bulk "Message" through the staff message route (communications pack for OPS_MANAGER). */
   canMessageStaff?: boolean;
+  /** People › Clients (list, panel, client page): ADMIN, or OPS_MANAGER with the clients pack. */
+  canSeeClients?: boolean;
+  /** People › Cleaners links to the workforce pages (compliance, coaching, recognition, roster). */
+  canSeeWorkforce?: boolean;
+  /** May open the People route (/v2/admin/accounts): ADMIN, or OPS_MANAGER with the accounts pack. */
+  canOpenPeople?: boolean;
   visibility: AccountListVisibility;
 };
 
@@ -36,6 +42,7 @@ export function personCapabilities(viewer: AccountsViewer): PersonCapabilities {
     canUploadDocuments: viewer.canUploadDocuments,
     canResendInvite: viewer.canWriteNotes,
     canManageLeave: viewer.canWriteNotes,
+    canMessageStaff: viewer.canMessageStaff === true,
   };
 }
 
@@ -45,7 +52,7 @@ export async function resolveAccountsViewer(user: SessionUser): Promise<Accounts
   const held = (user.heldRoles ?? [user.role]) as Role[];
   const isAdmin = canActAs(held, [Role.ADMIN]);
   const levels = isAdmin ? null : await getOpsAccess({ id: user.id, role: String(user.role), heldRoles: held });
-  const allows = (feature: "accounts" | "quality" | "workforce" | "communications", method: string) =>
+  const allows = (feature: "accounts" | "quality" | "workforce" | "communications" | "clients", method: string) =>
     isAdmin || !levels || opsLevelAllows(levels[feature], method);
   return {
     id: user.id,
@@ -53,11 +60,17 @@ export async function resolveAccountsViewer(user: SessionUser): Promise<Accounts
     canWriteNotes: allows("accounts", "PUT"),
     canUploadDocuments: allows("workforce", "POST"),
     canMessageStaff: allows("communications", "POST"),
+    canSeeClients: allows("clients", "GET"),
+    canSeeWorkforce: allows("workforce", "GET"),
+    canOpenPeople: allows("accounts", "GET"),
     visibility: {
       // Unchanged rule: everyone admitted to the hub (ADMIN, OPS_MANAGER) saw
       // the rate on the account page.
       pay: true,
       quality: allows("quality", "GET"),
+      // The old Cleaners roster's figures (rating, reliability, attendance,
+      // hours) followed that roster's access: the workforce pack.
+      performance: allows("workforce", "GET"),
     },
   };
 }

@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-type UserRow = { id: string; email: string; role: string; isActive: boolean; clientId: string | null; emailVerified: Date | null; hourlyRate: number | null };
+type UserRow = { id: string; email: string; role: string; isActive: boolean; clientId: string | null; emailVerified: Date | null; hourlyRate: number | null; extraRoles: Array<{ role: string }>; invitation: null };
 
 const m = vi.hoisted(() => {
   const users = new Map<string, UserRow>();
@@ -20,7 +20,7 @@ const m = vi.hoisted(() => {
       ),
     },
     session: { deleteMany: vi.fn() },
-    auditLog: { create: vi.fn() },
+    auditLog: { create: vi.fn(), findMany: vi.fn(async () => []) },
     // Effective-dated rate history (Wave E): the change writes a history row.
     $queryRaw: vi.fn(async () => []),
     userPayRate: {
@@ -29,24 +29,28 @@ const m = vi.hoisted(() => {
       update: vi.fn(),
     },
   };
-  return { users, tx, requireRole: vi.fn(), issueSignupOtp: vi.fn() };
+  return { users, tx, requireRole: vi.fn(), issueSignupOtp: vi.fn(), ops: vi.fn(), auditFind: vi.fn(async () => []) };
 });
+vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.requireRole }));
 vi.mock("@/lib/auth/registration-otp", () => ({ issueSignupOtp: m.issueSignupOtp }));
+// The live policy behind the shared capability evaluator (lib/rbac/can.ts): no per-person switches.
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops, getOpsPolicy: async () => ({ revision: 0, presets: [], assignments: {} }) }));
 vi.mock("@/lib/db", () => ({ db: { ...m.tx, $transaction: async (fn: (tx: typeof m.tx) => unknown) => fn(m.tx) } }));
 
 import { POST } from "@/app/api/admin/users/bulk/route";
 import { LAST_ADMIN_MESSAGE } from "@/lib/accounts/account-status";
 
 const post = (body: unknown) => POST(new NextRequest("http://localhost/api/admin/users/bulk", { method: "POST", body: JSON.stringify(body) }));
-const user = (id: string, overrides: Partial<UserRow> = {}): UserRow => ({ id, email: `${id}@x`, role: "CLEANER", isActive: true, clientId: null, emailVerified: new Date(), hourlyRate: 30, ...overrides });
+const user = (id: string, overrides: Partial<UserRow> = {}): UserRow => ({ id, email: `${id}@x`, role: "CLEANER", isActive: true, clientId: null, emailVerified: new Date(), hourlyRate: 30, extraRoles: [], invitation: null, ...overrides });
 
 beforeEach(() => {
   vi.clearAllMocks();
   m.users.clear();
   for (const row of [user("me", { role: "ADMIN" }), user("c1"), user("c2", { isActive: false }), user("inv", { emailVerified: null })]) m.users.set(row.id, row);
   m.requireRole.mockResolvedValue({ user: { id: "me", role: "ADMIN", heldRoles: ["ADMIN"] } });
-  m.issueSignupOtp.mockResolvedValue({ ok: true });
+  m.issueSignupOtp.mockResolvedValue({ ok: true, acceptance: "ACCEPTED", externalId: "re_1" });
+  m.ops.mockResolvedValue({ accounts: "manage" });
 });
 
 describe("POST /api/admin/users/bulk", () => {
@@ -81,17 +85,27 @@ describe("POST /api/admin/users/bulk", () => {
     expect((await post({ action: "change-rate", ids: ["c1"] })).status).toBe(400);
   });
 
-  it("refuses disable and change-rate for an operations manager, but lets them resend invites", async () => {
+  it("refuses disable and change-rate for an operations manager, but lets them resend invites (never to an admin)", async () => {
     m.requireRole.mockResolvedValue({ user: { id: "ops", role: "OPS_MANAGER", heldRoles: ["OPS_MANAGER"] } });
     expect((await post({ action: "disable", ids: ["c1"] })).status).toBe(403);
     expect((await post({ action: "change-rate", ids: ["c1"], hourlyRate: 35 })).status).toBe(403);
-    const res = await post({ action: "resend-invite", ids: ["inv", "c1"] });
+    m.users.set("adm", user("adm", { role: "ADMIN", emailVerified: null }));
+    const res = await post({ action: "resend-invite", ids: ["inv", "c1", "adm"] });
     const { results } = await res.json();
     expect(results).toEqual([
-      { id: "inv", outcome: "done", message: "Invite sent." },
-      { id: "c1", outcome: "refused", message: "User is already verified." },
+      { id: "inv", outcome: "done", message: "Sign-up code sent." },
+      { id: "c1", outcome: "refused", message: "The email address is already verified." },
+      { id: "adm", outcome: "refused", message: "You cannot send account emails to someone whose role is above yours." },
     ]);
+    expect(m.issueSignupOtp).toHaveBeenCalledTimes(1);
     expect(m.users.get("c1")?.isActive).toBe(true);
+  });
+
+  it("refuses bulk resend for an operations manager whose Staff accounts pack is read only", async () => {
+    m.requireRole.mockResolvedValue({ user: { id: "ops", role: "OPS_MANAGER", heldRoles: ["OPS_MANAGER"] } });
+    m.ops.mockResolvedValue({ accounts: "read" });
+    expect((await post({ action: "resend-invite", ids: ["inv"] })).status).toBe(403);
+    expect(m.issueSignupOtp).not.toHaveBeenCalled();
   });
 
   it("caps the selection size", async () => {

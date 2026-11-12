@@ -27,6 +27,7 @@ import {
 import { airbnbPropertyIdsForClient, filterAirbnbPropertyIds } from "@/lib/maintenance/airbnb";
 import { notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
 import { db } from "@/lib/db";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 function errStatus(message: string) {
   return message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
@@ -104,9 +105,17 @@ export async function POST(req: NextRequest) {
     // Best-effort: ping admins for high-urgency items. Never blocks the response.
     if (item.priority === MaintenancePriority.HIGH || item.priority === MaintenancePriority.URGENT) {
       try {
+        const wording = await loadNotificationWording("office.field_alerts");
+        const alert = wording.render("maintenance-flagged", "INBOX", {
+          priority: item.priority,
+          propertyName: item.property.name,
+          itemTitle: item.title,
+          areaSuffix: wording.line("area-suffix", "INBOX", { area: item.area }, Boolean(item.area)),
+          action: item.recommendedAction.toLowerCase(),
+        });
         await notifyAdminsByPush({
-          subject: `Maintenance flagged (${item.priority}) — ${item.property.name}`,
-          body: `${item.title}${item.area ? ` · ${item.area}` : ""} (${item.recommendedAction.toLowerCase()})`,
+          subject: alert.title,
+          body: alert.body,
           jobId: item.jobId ?? null,
         });
       } catch {

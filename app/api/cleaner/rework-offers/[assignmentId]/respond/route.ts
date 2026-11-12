@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { effectiveOfferStatus } from "@/lib/qa/rework-offers";
 import { notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
 import { assertReworkInvoiceablePayee, guardInvariant } from "@/lib/qa/rework-invariants";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const bodySchema = z.object({ accept: z.boolean() });
 
@@ -99,11 +100,10 @@ export async function POST(req: NextRequest, { params }: { params: { assignmentI
           },
         })
         .catch(() => undefined);
-      afterCommit.push(() => notifyAdminsByPush({
-        jobId: offerJobId,
-        subject: "Rework offer declined",
-        body: "The original cleaner declined the rework offer — QA needs to reassign it.",
-      }));
+      afterCommit.push(async () => {
+        const declined = (await loadNotificationWording("job.qa_and_accountability")).render("offer-declined", "INBOX", {});
+        return notifyAdminsByPush({ jobId: offerJobId, subject: declined.title, body: declined.body });
+      });
       return NextResponse.json({ ok: true, status: "DECLINED" });
     }
 
@@ -170,11 +170,10 @@ export async function POST(req: NextRequest, { params }: { params: { assignmentI
       });
     }
 
-    afterCommit.push(() => notifyAdminsByPush({
-      jobId: offerJobId,
-      subject: "Rework offer accepted",
-      body: "The original cleaner accepted the rework — no pay and no deduction apply.",
-    }));
+    afterCommit.push(async () => {
+      const accepted = (await loadNotificationWording("job.qa_and_accountability")).render("offer-accepted", "INBOX", {});
+      return notifyAdminsByPush({ jobId: offerJobId, subject: accepted.title, body: accepted.body });
+    });
 
     return NextResponse.json({ ok: true, status: "ACCEPTED", reworkJobId: reworkJob.id });
     });

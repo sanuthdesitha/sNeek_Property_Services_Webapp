@@ -23,6 +23,7 @@ import {
   PRE_START_JOB_STATUSES,
 } from "@/lib/jobs/assignment-workflow";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   action: z.enum(["ACCEPT", "DECLINE", "TRANSFER"]),
@@ -308,44 +309,33 @@ export async function POST(
       });
     }
 
-    const adminSubject =
-      body.action === "ACCEPT"
-        ? `${companyName}: Job accepted (${jobReference})`
-        : body.action === "DECLINE"
-          ? `${companyName}: Job declined (${jobReference})`
-          : `${companyName}: Job transferred (${jobReference})`;
-    const adminNoteText = note ? `<p><strong>Cleaner note:</strong> ${note}</p>` : "";
+    const offerWording = await loadNotificationWording("job.offer");
+    const responsePart = body.action === "ACCEPT" ? "accepted" : body.action === "DECLINE" ? "declined" : "transferred";
+    const responseValues = { companyName, actorName, jobNumber: jobReference, propertyName: propertyLabel, transferredTo: transferredCleanerLabel };
+    const responseInbox = offerWording.render(responsePart, "INBOX", responseValues);
+    const adminSubject = responseInbox.title;
+    const responseEmail = offerWording.render("response", "EMAIL", {
+      ...responseValues,
+      title: adminSubject,
+      when,
+      outcome: offerWording.line(`outcome-${responsePart}`, "EMAIL", responseValues),
+      nextStatus: formatJobStatusLabel(nextStatus),
+      cleanerNoteParagraph: offerWording.line("cleaner-note", "EMAIL", { note }, Boolean(note)),
+    });
     afterCommit.push(() => deliverNotificationToRecipients({
       recipients: adminRecipients,
       category: "jobs",
       jobId: job.id,
       web: {
         subject: adminSubject,
-        body:
-          body.action === "ACCEPT"
-            ? `${actorName} accepted ${jobReference} for ${propertyLabel}.`
-            : body.action === "DECLINE"
-              ? `${actorName} declined ${jobReference} for ${propertyLabel}.`
-              : `${actorName} transferred ${jobReference} for ${propertyLabel} to ${transferredCleanerLabel}.`,
+        body: responseInbox.body,
       },
       email: {
-        subject: adminSubject,
-        html: `
-          <h2 style="margin:0 0 12px;">${adminSubject}</h2>
-          <p><strong>${jobReference}</strong> for <strong>${propertyLabel}</strong> (${when}) was updated.</p>
-          <p><strong>Cleaner:</strong> ${actorName}</p>
-          <p><strong>Outcome:</strong> ${body.action === "ACCEPT" ? "Accepted" : body.action === "DECLINE" ? "Declined" : `Transferred to ${transferredCleanerLabel}`}</p>
-          <p><strong>Next job status:</strong> ${formatJobStatusLabel(nextStatus)}</p>
-          ${adminNoteText}
-        `,
+        subject: responseEmail.subject,
+        html: responseEmail.html,
         logBody: adminSubject,
       },
-      sms:
-        body.action === "ACCEPT"
-          ? `${actorName} accepted ${jobReference} at ${propertyLabel}.`
-          : body.action === "DECLINE"
-            ? `${actorName} declined ${jobReference} at ${propertyLabel}.`
-            : `${actorName} transferred ${jobReference} to ${transferredCleanerLabel}.`,
+      sms: offerWording.render(responsePart, "SMS", responseValues).body,
     }));
 
     if (body.action === "TRANSFER" && transferredCleaner) {
@@ -356,7 +346,7 @@ export async function POST(
         jobType: job.jobType.replace(/_/g, " "),
         propertyName: propertyLabel,
         when,
-        timingFlags: "Awaiting confirmation",
+        timingFlags: offerWording.line("awaiting-confirmation", "INBOX", {}),
       });
       const emailTemplate = renderEmailTemplate(
         {
@@ -372,7 +362,7 @@ export async function POST(
           jobNumber: jobReference,
           when,
           jobUrl,
-          timingFlags: `Transferred by ${actorName}. Awaiting confirmation.`,
+          timingFlags: offerWording.line("transferred-by", "INBOX", { actorName }),
         }
       );
       afterCommit.push(() => deliverNotificationToRecipients({
@@ -380,7 +370,7 @@ export async function POST(
         category: "jobs",
         jobId: job.id,
         web: {
-          subject: `${companyName}: New transferred job offer (${jobReference})`,
+          subject: offerWording.line("title-transfer", "INBOX", { companyName, jobNumber: jobReference }),
           body: cleanerTemplate.webBody,
         },
         email: {

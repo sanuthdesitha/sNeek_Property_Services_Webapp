@@ -50,9 +50,15 @@ import {
   EPageHeader,
   EThread,
 } from "@/components/v2/ui/primitives";
-import { EField, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
+import { EField, ETextarea } from "@/components/v2/cleaner/fields";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import { EAccessInfo } from "@/components/v2/shared/access-info";
+import { EStageBar } from "@/components/v2/ui/stage-bar";
+import { visitStages } from "@/lib/maintenance/visit-stages";
+import { VisitCostCard } from "@/components/v2/maintenance/visit/visit-cost-card";
+import { OutcomeChoice } from "@/components/v2/maintenance/visit/outcome-choice";
+import { DEFAULT_VISIT_OUTCOME, outcomeWithOriginal } from "@/lib/maintenance/visit-outcomes";
+import { OfflineNotice } from "@/components/v2/maintenance/visit/offline-notice";
 
 /* ── Types (mirror the GET /api/maintenance/[id] contract) ─────────────────── */
 
@@ -93,6 +99,8 @@ interface VisitItem {
   photos: Photo[];
   finishPhotos: Photo[];
   outcome: string | null;
+  /** The earlier value when the outcome was merged (2026-11-13). */
+  originalOutcome?: string | null;
   workerNote: string | null;
   issuesNote: string | null;
   scheduledFor: string | null;
@@ -102,6 +110,9 @@ interface VisitItem {
   clockInAt: string | null;
   clockOutAt: string | null;
   resolvedAt: string | null;
+  quotedCost: number | null;
+  costApprovalStatus: string | null;
+  costDecidedAt: string | null;
   contactPerson: Contact | null;
   assignedWorker: ({ id: string; name: string | null } & Record<string, unknown>) | null;
   property: PropertyInfo | null;
@@ -109,15 +120,6 @@ interface VisitItem {
 
 type VisitEvent = "EN_ROUTE" | "ARRIVED" | "CLOCK_IN" | "COMPLETE";
 
-const OUTCOMES = [
-  { value: "FIXED", label: "Fixed" },
-  { value: "REPLACED", label: "Replaced" },
-  { value: "NEEDS_PARTS", label: "Needs parts" },
-  { value: "NEEDS_FOLLOWUP", label: "Needs follow-up" },
-  { value: "NO_ACCESS", label: "No access" },
-  { value: "NO_ISSUE_FOUND", label: "No issue found" },
-  { value: "OTHER", label: "Other" },
-];
 
 const PING_INTERVAL_MS = 45_000;
 
@@ -227,7 +229,7 @@ export function VisitWorkspace({
 
   // Outcome form.
   const [showComplete, setShowComplete] = React.useState(false);
-  const [outcome, setOutcome] = React.useState<string>("FIXED");
+  const [outcome, setOutcome] = React.useState<string>(DEFAULT_VISIT_OUTCOME);
   const [workerNote, setWorkerNote] = React.useState("");
   const [issuesNote, setIssuesNote] = React.useState("");
 
@@ -434,6 +436,11 @@ export function VisitWorkspace({
         </EAlert>
       ) : null}
 
+      {/* Board: the stage strip follows the visit in order. Read-only. */}
+      <EStageBar label="Visit stages" stages={visitStages(item)} />
+
+      <OfflineNotice />
+
       {/* Location sharing indicator */}
       {isActiveVisit ? (
         <div className="flex items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-success)/0.4)] bg-[hsl(var(--e-success)/0.1)] px-3 py-2 text-[0.8125rem] font-[550] text-[hsl(var(--e-foreground))]">
@@ -444,7 +451,9 @@ export function VisitWorkspace({
                 : "h-4 w-4 text-[hsl(var(--e-muted-foreground))]"
             }
           />
-          {tracking ? "Location sharing: active" : "Starting location sharing…"}
+          {tracking
+            ? "Location sharing on while you travel. It stops when you finish."
+            : "Starting location sharing…"}
         </div>
       ) : null}
 
@@ -456,7 +465,7 @@ export function VisitWorkspace({
             <div>
               <p className="text-[0.875rem] font-[600] text-[hsl(var(--e-foreground))]">Job complete</p>
               <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                {item.outcome ? `Outcome: ${prettyEnum(item.outcome)}` : "This job has been resolved."}
+                {item.outcome ? `Outcome: ${outcomeWithOriginal(item.outcome, item.originalOutcome)}` : "This job has been resolved."}
                 {item.resolvedAt ? ` · ${fmtTime(item.resolvedAt)}` : ""}
               </p>
             </div>
@@ -470,7 +479,7 @@ export function VisitWorkspace({
       <ECard>
         <ECardHeader>
           <ECardTitle className="flex items-center gap-2 text-[1rem]">
-            <ShieldAlert className="h-4 w-4" /> What to fix
+            <ShieldAlert className="h-4 w-4" /> Reported issue
           </ECardTitle>
         </ECardHeader>
         <ECardBody className="space-y-3">
@@ -486,6 +495,14 @@ export function VisitWorkspace({
           <PhotoGrid photos={item.photos} emptyText="No photos provided." />
         </ECardBody>
       </ECard>
+
+      <VisitCostCard
+        cost={{
+          quotedCost: item.quotedCost ?? null,
+          costApprovalStatus: item.costApprovalStatus ?? null,
+          costDecidedAt: item.costDecidedAt ?? null,
+        }}
+      />
 
       {/* Access panel */}
       <ECard>
@@ -591,7 +608,7 @@ export function VisitWorkspace({
 
             <LifecycleStep done={false} timestamp={null} title="Finish & complete" hideConnector>
               <div className="space-y-4">
-                <EField label="Finish photos / video">
+                <EField label="Finish photos or video">
                   <MediaCapture value={finishMedia} onChange={setFinishMedia} mode="both" folder="maintenance" multiple stamp={{ tag: "maintenance", address: fullAddress || undefined, reference: prop?.name ?? undefined, contextLabel: "Completion evidence" }} />
                 </EField>
 
@@ -601,16 +618,8 @@ export function VisitWorkspace({
                   </EButton>
                 ) : (
                   <div className="space-y-4 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-sunken))] p-3">
-                    <EField label="Outcome">
-                      <ESelect value={outcome} onChange={(e) => setOutcome(e.target.value)}>
-                        {OUTCOMES.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </ESelect>
-                    </EField>
-                    <EField label="What you did (optional)">
+                    <OutcomeChoice value={outcome} onChange={setOutcome} disabled={busy != null} />
+                    <EField label="What was done (optional)">
                       <ETextarea
                         placeholder="Describe the work done"
                         value={workerNote}
@@ -641,7 +650,7 @@ export function VisitWorkspace({
                         ) : (
                           <CheckCircle2 className="h-4 w-4" />
                         )}
-                        Submit &amp; complete
+                        Finish and complete
                       </EButton>
                     </div>
                   </div>

@@ -34,6 +34,7 @@ type LaundryStatus =
   | "PENDING"
   | "CONFIRMED"
   | "PICKED_UP"
+  | "READY_TO_RETURN"
   | "DROPPED"
   | "FLAGGED"
   | "SKIPPED_PICKUP";
@@ -44,6 +45,7 @@ const STATUS_TONE: Record<LaundryStatus, Tone> = {
   PENDING: "neutral",
   CONFIRMED: "primary",
   PICKED_UP: "info",
+  READY_TO_RETURN: "info",
   DROPPED: "success",
   FLAGGED: "danger",
   SKIPPED_PICKUP: "warning",
@@ -53,6 +55,7 @@ const STATUS_LABEL: Record<LaundryStatus, string> = {
   PENDING: "Pending",
   CONFIRMED: "Confirmed",
   PICKED_UP: "Picked up",
+  READY_TO_RETURN: "Ready to return",
   DROPPED: "Delivered",
   FLAGGED: "Flagged",
   SKIPPED_PICKUP: "Skipped",
@@ -62,6 +65,7 @@ const STATUS_ORDER: LaundryStatus[] = [
   "PENDING",
   "CONFIRMED",
   "PICKED_UP",
+  "READY_TO_RETURN",
   "DROPPED",
   "FLAGGED",
   "SKIPPED_PICKUP",

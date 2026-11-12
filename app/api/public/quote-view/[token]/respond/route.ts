@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { formatQuoteReference } from "@/lib/quotes/quote-reference";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { recordQuoteEvent } from "@/lib/quotes/events";
 import { findQuoteByToken, isQuoteExpired } from "../../_lib";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export const dynamic = "force-dynamic";
 
@@ -94,18 +96,23 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     try {
       const settings = await getAppSettings();
       if (settings.accountsEmail) {
-        const shortRef = String(quote.id).slice(-7).toUpperCase();
+        const shortRef = formatQuoteReference(quote.quoteNumber) ?? String(quote.id).slice(-7).toUpperCase();
         const verdict = accepted ? "ACCEPTED" : "DECLINED";
+        const wording = await loadNotificationWording("leads.alerts");
+        const email = wording.render("response", "EMAIL", {
+          quoteRef: shortRef,
+          verdict: verdict.toLowerCase(),
+          clientName: recipient,
+          serviceType: String(quote.serviceType).replace(/_/g, " ").toLowerCase(),
+          total: `$${Number(quote.totalAmount).toFixed(2)}`,
+          clientNoteParagraph: wording.line("client-note", "EMAIL", { note }, Boolean(note)),
+          quoteId: quote.id,
+        });
         await sendEmailDetailed({
           kind: "lead_alert",
           to: settings.accountsEmail,
-          subject: `Quote ${shortRef} ${verdict.toLowerCase()} by ${recipient}`,
-          html: `
-            <h2 style="margin:0 0 12px 0;">Quote ${escapeHtml(shortRef)} ${verdict.toLowerCase()}</h2>
-            <p style="margin:0 0 8px 0;"><strong>${escapeHtml(recipient)}</strong> has ${accepted ? "accepted" : "declined"} their ${escapeHtml(String(quote.serviceType).replace(/_/g, " ").toLowerCase())} quote (total $${Number(quote.totalAmount).toFixed(2)}).</p>
-            ${note ? `<p style="margin:0 0 8px 0;"><strong>Client note:</strong> ${escapeHtml(note)}</p>` : ""}
-            <p style="margin:0;color:#6b7280;font-size:13px;">Quote ID: ${escapeHtml(quote.id)}</p>
-          `,
+          subject: email.subject,
+          html: email.html,
         });
       }
     } catch (err) {

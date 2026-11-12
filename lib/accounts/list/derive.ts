@@ -12,6 +12,7 @@ import type { Role } from "@prisma/client";
 import { listResponse, type ListQuery } from "@/lib/admin/list-query";
 import { accountStatus, attentionReasons, documentState, documentsNeedAttention, inviteAgeDays, type AccountFacts, type DocumentState } from "./attention";
 import { ACCOUNT_TABS, tabIncludesRole, type AccountTab } from "./tabs";
+import type { CleanerPerformanceMap } from "./performance";
 import type { AccountFilters, AccountListResponse, AccountListVisibility, AccountRow, AccountSort } from "./types";
 
 export type AccountRecord = AccountFacts & {
@@ -23,6 +24,10 @@ export type AccountRecord = AccountFacts & {
   clientName: string | null;
   hourlyRate: number | null;
   lastSeenAt: Date | null;
+  /** Assigned jobs this Sydney week (absent in older callers = 0). */
+  jobsWeek?: number;
+  /** Approved, unpaid pay adjustments (absent = 0). */
+  owed?: number;
 };
 
 /** Quality hub figures per person; absent = no figure. */
@@ -31,7 +36,13 @@ export type AccountFigures = Map<string, { jobs30: number | null; qa30: number |
 /** Roles whose work the Quality hub counts (an assigned clean). */
 const FIELD_ROLES: ReadonlySet<Role> = new Set<Role>(["CLEANER"]);
 
-export function buildRow(record: AccountRecord, figures: AccountFigures, visibility: AccountListVisibility, now: Date): AccountRow {
+export function buildRow(
+  record: AccountRecord,
+  figures: AccountFigures,
+  visibility: AccountListVisibility,
+  now: Date,
+  performance: CleanerPerformanceMap = new Map(),
+): AccountRow {
   const docs: DocumentState = documentState(record, now);
   const row: AccountRow = {
     id: record.id,
@@ -46,16 +57,29 @@ export function buildRow(record: AccountRecord, figures: AccountFigures, visibil
     twoFactorEnabled: record.twoFactorEnabled,
     clientName: record.clientName,
     documents: { kind: docs.kind, label: docs.label },
+    jobsWeek: record.jobsWeek ?? 0,
     lastSeenAt: record.lastSeenAt ? record.lastSeenAt.toISOString() : null,
     attention: attentionReasons(record, now),
   };
-  if (visibility.pay) row.rate = record.hourlyRate;
+  if (visibility.pay) {
+    row.rate = record.hourlyRate;
+    row.owed = record.owed ?? 0;
+  }
   if (visibility.quality) {
     const counted = FIELD_ROLES.has(record.role) || record.extraRoles.some((role) => FIELD_ROLES.has(role));
     const figure = figures.get(record.id);
     // A cleaner with no clean in the window has a real 0; anyone else has no figure.
     row.jobs30 = figure ? figure.jobs30 : counted ? 0 : null;
     row.qa30 = figure ? figure.qa30 : null;
+  }
+  if (visibility.performance) {
+    // Only cleaners have these figures (the old roster's basis); anyone else, or a
+    // cleaner whose figures were not read, has none, never 0.
+    const own = performance.get(record.id);
+    row.rating = own?.rating ?? null;
+    row.reliability = own?.reliability ?? null;
+    row.attendance = own?.attendance ?? null;
+    row.hours30 = own?.hours30 ?? null;
   }
   return row;
 }
@@ -114,6 +138,18 @@ function sortValue(row: AccountRow, sort: AccountSort): string | number | null {
       return DOCUMENT_ORDER[row.documents.kind];
     case "lastSeen":
       return row.lastSeenAt;
+    case "jobsWeek":
+      return row.jobsWeek;
+    case "owed":
+      return row.owed ?? null;
+    case "rating":
+      return row.rating ?? null;
+    case "reliability":
+      return row.reliability ?? null;
+    case "attendance":
+      return row.attendance ?? null;
+    case "hours30":
+      return row.hours30 ?? null;
   }
 }
 

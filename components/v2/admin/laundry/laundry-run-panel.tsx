@@ -22,11 +22,13 @@ import { LaundryEvidenceReplacement } from "./laundry-evidence-replacement";
 import { LaundryNudgeActions } from "./laundry-nudge";
 import { LaundrySupplierChase } from "./laundry-supplier-chase";
 import { buildTaskMedia, statusLabel, type LaundryTaskDTO } from "./laundry-shared";
-import { cardPill, dayWithTime, shortDay } from "./laundry-lane-card";
+import { cardPill, dayWithTime, laundryRouteLabel, shortDay } from "./laundry-lane-card";
 import { LaundryPlannedTimes } from "./laundry-planned-times";
+import { LaundryTeamReplies } from "./laundry-team-replies";
+import { partnerCostEntry } from "@/lib/laundry/partner-entry-rules";
 import type { PipelineCardDTO } from "./use-laundry-pipeline";
 
-export type RunPanelTask = LaundryTaskDTO & Partial<Pick<PipelineCardDTO, "exceptions" | "cleaners" | "nextGuest" | "bagCount" | "lane" | "readiness" | "dayOf" | "carriedIn" | "driver">>;
+export type RunPanelTask = LaundryTaskDTO & Partial<Pick<PipelineCardDTO, "exceptions" | "cleaners" | "nextGuest" | "bagCount" | "lane" | "readiness" | "dayOf" | "carriedIn" | "driver" | "supplierTeam" | "teamReplies">>;
 
 function stamp(value: string | null | undefined): string {
   if (!value) return "—";
@@ -59,13 +61,19 @@ export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onD
     ["Pickup", dayWithTime(task.pickupDate, task.pickupTime)],
     ["Drop", dayWithTime(task.dropoffDate, task.dropoffTime)],
     ["Next guest", task.nextGuest ? `${task.nextGuest.checkinAt ? shortDay(task.nextGuest.checkinAt) : "Date not given"}${task.nextGuest.name ? ` · ${task.nextGuest.name}` : ""}` : "Not recorded"],
-    ["Supplier", task.supplier?.name ?? "Not recorded"],
+    ["Laundry partner", task.supplier?.name ?? "Not recorded"],
     ["Client", task.property?.client?.name ?? task.property?.client?.email ?? "Unassigned client"],
   ];
-  if (task.driver) facts.push(["Driver", `${task.driver.driverName}, stop ${task.driver.stop}`]);
+  if (task.supplierTeam) facts.push(["Laundry team", task.supplierTeam.count ? task.supplierTeam.names.join(", ") : "No portal users linked"]);
+  if (task.driver) facts.push(["On the laundry route", laundryRouteLabel(task.driver, task.supplier?.name ?? null)]);
   if (task.bagCount) facts.push(["Bags", String(task.bagCount)]);
-  if (task.bagWeightKg) facts.push(["Weight", `${task.bagWeightKg} kg`]);
-  if (task.dropoffCostAud != null) facts.push(["Cost", `$${Number(task.dropoffCostAud).toFixed(2)}`]);
+  // The laundry team may enter weight / price before drop-off (2026-11-13):
+  // named as theirs while the stored value is still what they entered. The
+  // office corrects it with Edit as before; no invoice changes from it.
+  const entered = partnerCostEntry(task.confirmations, task);
+  const enteredBy = entered ? ` · Entered by ${entered.byName}` : "";
+  if (task.bagWeightKg) facts.push(["Weight", `${task.bagWeightKg} kg${entered?.weight ? enteredBy : ""}`]);
+  if (task.dropoffCostAud != null) facts.push(["Cost", `$${Number(task.dropoffCostAud).toFixed(2)}${entered?.price ? enteredBy : ""}`]);
 
   return (
     <ESidePanel
@@ -88,6 +96,7 @@ export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onD
           </React.Fragment>
         ))}
       </dl>
+      <LaundryTeamReplies replies={task.teamReplies} />
       {!done ? <LaundryPlannedTimes key={task.id} task={task} onSaved={onSaved} /> : null}
       {task.flagNotes ? <p className="rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-surface-raised))] px-2.5 py-1.5 text-[0.75rem]">{task.flagNotes}</p> : null}
       <div className="space-y-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
@@ -132,7 +141,7 @@ export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onD
       <div className="h-px bg-[hsl(var(--e-border))]" />
       <div className="flex flex-wrap gap-1.5">
         <LaundryNudgeActions task={task} todayKey={todayKey} />
-        <LaundrySupplierChase task={task} />
+        <LaundrySupplierChase task={task} todayKey={todayKey} />
         <EButton size="sm" variant="outline" onClick={() => onEdit(task)}>Edit</EButton>
         <EButton size="sm" variant="outline" disabled={done || busy} title={done ? "Delivered or skipped runs have nothing to move" : undefined} onClick={() => onReschedule(task)}>Reschedule</EButton>
         <EButton size="sm" variant="outline" onClick={() => onReport(task)}>Task report / PDF</EButton>
