@@ -112,14 +112,14 @@ export function GrowthHub({ summary, timezone }: { summary: GrowthSummary; timez
           </Block>
         ) : null}
         {hiring ? (
-          <Block title="Hiring" links={[{ href: "/v2/admin/hiring/positions", label: "Positions" }, { href: "/v2/admin/hiring/applications", label: "Review applicants" }]}>
+          <Block title="Hiring" links={[{ href: "/v2/admin/hiring", label: "Positions and applicants" }]}>
             <StageRow stages={[["Applied", hiring.applied], ["Screening", hiring.screening], ["Interview", hiring.interview], ["Offer", hiring.offer]]} />
             {hiring.positions.length === 0 ? <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No positions yet.</p> : (
               <ul className="divide-y divide-[hsl(var(--e-border))]">
                 {hiring.positions.map((position) => (
                   <li key={position.id} className="flex items-center justify-between gap-3 py-2 text-[0.8125rem]">
                     <span className="min-w-0"><span className="block font-[600]">{position.title}</span><span className="text-[hsl(var(--e-muted-foreground))]">{position.published ? "Published" : "Draft · not published"} · {position.applications} applicant{position.applications === 1 ? "" : "s"}</span></span>
-                    <Link href="/v2/admin/hiring/positions" className="shrink-0 text-[hsl(var(--e-primary))] hover:underline">Open</Link>
+                    <Link href={`/v2/admin/hiring/positions/${encodeURIComponent(position.id)}`} className="shrink-0 text-[hsl(var(--e-primary))] hover:underline">Open</Link>
                   </li>
                 ))}
               </ul>

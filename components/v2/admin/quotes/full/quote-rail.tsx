@@ -2,7 +2,7 @@
 
 /**
  * The quote page's right rail below the add-on requests: Status and details
- * (status, valid until, notes), Convert to job (date and button, offered
+ * (status, valid until, client-visible notes, office notes), Convert to job (date and button, offered
  * once won), Send and share, and the activity timeline.
  */
 import * as React from "react";
@@ -37,9 +37,13 @@ export type StatusCardProps = {
   onValidUntil: (value: string) => void;
   notes: string;
   onNotes: (value: string) => void;
+  /** Office notes the client never sees (Quote.internalNotes). */
+  internalNotes: string;
+  onInternalNotes: (value: string) => void;
   onRegenerateNotes: (() => void) | null;
   saving: boolean;
   saveLabel: string;
+  statusHint: string;
   onSave: (() => void) | null;
   savedLine: string;
 };
@@ -51,7 +55,7 @@ export function StatusCard(props: StatusCardProps) {
       aside={props.onSave ? <EButton size="sm" variant="ghost" onClick={props.onSave} disabled={props.saving}>{props.saving ? "Saving…" : props.saveLabel}</EButton> : null}
     >
       <fieldset disabled={props.saving} className="min-w-0 space-y-3">
-        <EField label="Status" hint={props.isNew ? "A new quote is saved as a draft." : "Changes save with Save."}>
+        <EField label="Status" hint={props.statusHint}>
           <ESelect value={props.status} disabled={props.isNew} onChange={(e) => props.onStatusChange(e.target.value as QuotePageStatus)}>
             {QUOTE_PAGE_STATUSES.map((s) => <option key={s} value={s}>{QUOTE_STATUS_LABEL[s]}</option>)}
           </ESelect>
@@ -72,6 +76,9 @@ export function StatusCard(props: StatusCardProps) {
           }
         >
           <ETextarea value={props.notes} onChange={(e) => props.onNotes(e.target.value)} placeholder="Scope, inclusions, exclusions…" />
+        </EField>
+        <EField label="Office notes (not shown to the client)" hint="Only the office sees these: never on the online quote, the PDF, emails or the client portal.">
+          <ETextarea value={props.internalNotes} maxLength={10000} onChange={(e) => props.onInternalNotes(e.target.value)} placeholder="Access, pricing reasoning, follow-up reminders…" />
         </EField>
       </fieldset>
       <p role="status" className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{props.savedLine}</p>

@@ -3,8 +3,11 @@
 /**
  * Quote full page (board "Quote full page: detail and edit combined"). Holds
  * the saved quote, the dialogs and the server actions; the workspace below is
- * keyed by a revision that changes after every write, so it re-seeds from
- * what the server saved. A reload that is overtaken by a newer one is ignored.
+ * keyed by a revision that changes after every explicit reload, so it re-seeds
+ * from what the server saved. A reload that is overtaken by a newer one is
+ * ignored. Autosave does not re-key the workspace (the person may be typing):
+ * it only keeps the saved record and the version token (`tokenRef`), which
+ * every PATCH on this page sends as `expectedUpdatedAt`.
  */
 import * as React from "react";
 import { useRouter } from "next/navigation";
@@ -39,6 +42,7 @@ export function QuoteFullPage({ initial, builderOptions, marginModel, timezone, 
   const reloadSeq = React.useRef(0);
   const snapshotRef = React.useRef(snapshot);
   snapshotRef.current = snapshot;
+  const tokenRef = React.useRef<string | null>(initial?.updatedAt ?? null);
 
   const reload = React.useCallback(async () => {
     const current = snapshotRef.current;
@@ -55,14 +59,24 @@ export function QuoteFullPage({ initial, builderOptions, marginModel, timezone, 
         toast({ title: "Saved, but the page could not refresh", description: body?.error ?? "Reload the page to see the latest version.", variant: "destructive" });
         return;
       }
-      setSnapshot(snapshotFromRecord(body, { client: current.client, lead: current.lead }));
+      const next = snapshotFromRecord(body, { client: current.client, lead: current.lead });
+      tokenRef.current = next.updatedAt;
+      setSnapshot(next);
       setRevision((value) => value + 1);
     } catch {
       if (seq === reloadSeq.current) toast({ title: "Saved, but the page could not refresh", description: "Reload the page to see the latest version.", variant: "destructive" });
     }
   }, [router]);
 
-  const actions = useQuoteActions(reload);
+  const actions = useQuoteActions(reload, tokenRef);
+
+  /** An autosave landed: keep the stored record (same parties) without re-seeding the builder. */
+  const onAutosaved = React.useCallback((record: Record<string, unknown>) => {
+    setSnapshot((current) => {
+      if (!current || record.id !== current.id) return current;
+      return { ...snapshotFromRecord({ ...current, ...(record as Partial<QuoteRecordInput>), id: current.id, client: current.client, lead: current.lead }), updatedAt: tokenRef.current ?? current.updatedAt };
+    });
+  }, []);
 
   async function onCreated(quoteId: string, send: boolean, recipient: string | null) {
     createdId.current = quoteId;
@@ -107,6 +121,8 @@ export function QuoteFullPage({ initial, builderOptions, marginModel, timezone, 
         actions={actions}
         notices={notices}
         onReload={reload}
+        tokenRef={tokenRef}
+        onAutosaved={onAutosaved}
         onCreated={onCreated}
         onConvert={(date) => setConvertDate(date)}
         onDelete={() => {

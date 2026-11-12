@@ -58,7 +58,7 @@ export function AccessPersonHeader({
       {isAdminTarget ? (
         <p className="text-[0.8125rem]">
           <b>Full access (administrator).</b> Administrators have every right by rule and are never limited by presets or levels. To limit this person, change their role in{" "}
-          <a className="underline" href={`/v2/admin/accounts/${encodeURIComponent(person.id)}`}>Accounts</a>.
+          <a className="underline" href={`/v2/admin/accounts/users/${encodeURIComponent(person.id)}`}>Accounts</a>.
         </p>
       ) : (
         <>

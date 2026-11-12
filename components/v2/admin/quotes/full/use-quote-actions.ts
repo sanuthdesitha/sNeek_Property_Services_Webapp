@@ -4,15 +4,18 @@
  * Writes on a saved quote, each through the route the old detail page used:
  *   GET    /api/admin/quotes/[id]/pdf                 preview / download
  *   PATCH  /api/admin/quotes/[id]                     status, details, public link
+ *                                                     (always with expectedUpdatedAt;
+ *                                                     409 STALE_QUOTE writes nothing)
  *   POST   /api/admin/quotes/[id]/send?preview=1      render the email, send nothing
  *   POST   /api/admin/quotes/[id]/send                send (recipient optional)
  *   POST   /api/admin/quotes/[id]/requested-addons    accept / dismiss
  *   DELETE /api/admin/quotes/[id]
  * Nothing reports success before the route answers OK.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MutableRefObject } from "react";
 import { toast } from "@/hooks/use-toast";
 import type { QuoteRequestedAddOn } from "@/lib/quotes/quote-record";
+import { STALE_QUOTE_CODE } from "@/lib/quotes/quote-stale-guard";
 
 export type EmailPreview = {
   quoteId: string;
@@ -28,21 +31,34 @@ export type EmailPreview = {
 
 type Json = Record<string, unknown>;
 
-async function call(url: string, method: string, body?: unknown): Promise<{ ok: boolean; data: Json }> {
+async function call(url: string, method: string, body?: unknown): Promise<{ ok: boolean; data: Json; stale: boolean }> {
   try {
     const res = await fetch(url, { method, headers: body === undefined ? undefined : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
     const data = (await res.json().catch(() => ({}))) as Json;
-    return { ok: res.ok, data };
+    return { ok: res.ok, data, stale: res.status === 409 && data.code === STALE_QUOTE_CODE };
   } catch {
-    return { ok: false, data: { error: "The request did not reach the server." } };
+    return { ok: false, data: { error: "The request did not reach the server." }, stale: false };
   }
 }
+
+const STALE_HELP = "Nothing was changed. Reload the page to see their version, then try again.";
 
 function errorOf(data: Json, fallback: string): string {
   return typeof data.error === "string" ? data.error : fallback;
 }
 
-export function useQuoteActions(onChanged: () => Promise<void>) {
+/**
+ * `tokenRef` holds the quote version this page last read; every PATCH sends it
+ * and a refused (stale) write changes nothing and says so.
+ */
+export function useQuoteActions(onChanged: () => Promise<void>, tokenRef: MutableRefObject<string | null>) {
+  /** A PATCH body with the version token. */
+  const guarded = (body: Json): Json => (tokenRef.current ? { ...body, expectedUpdatedAt: tokenRef.current } : body);
+  /** The version this page's own write produced (the reload that follows may fail). */
+  const adoptToken = (data: Json) => {
+    if (typeof data.updatedAt === "string") tokenRef.current = data.updatedAt;
+  };
+
   const [busy, setBusy] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [emailPreview, setEmailPreview] = useState<EmailPreview | null>(null);
@@ -118,8 +134,10 @@ export function useQuoteActions(onChanged: () => Promise<void>) {
     run("link", async () => {
       let current = token;
       if (!current) {
-        const result = await call(`/api/admin/quotes/${quoteId}`, "PATCH", { generatePublicToken: true });
+        const result = await call(`/api/admin/quotes/${quoteId}`, "PATCH", guarded({ generatePublicToken: true }));
+        if (result.stale) return toast({ title: "Not changed: this quote was changed somewhere else", description: STALE_HELP, variant: "destructive" });
         if (!result.ok) return toast({ title: "Could not create the public link", description: errorOf(result.data, "Please try again."), variant: "destructive" });
+        adoptToken(result.data);
         current = typeof result.data.publicToken === "string" ? result.data.publicToken : null;
         await onChanged();
       }
@@ -171,11 +189,16 @@ export function useQuoteActions(onChanged: () => Promise<void>) {
 
   const patch = (quoteId: string, body: Json, success: string) =>
     run("patch", async () => {
-      const result = await call(`/api/admin/quotes/${quoteId}`, "PATCH", body);
+      const result = await call(`/api/admin/quotes/${quoteId}`, "PATCH", guarded(body));
+      if (result.stale) {
+        toast({ title: "Not saved: this quote was changed somewhere else", description: STALE_HELP, variant: "destructive" });
+        return false;
+      }
       if (!result.ok) {
         toast({ title: "Update failed", description: errorOf(result.data, "Could not update the quote."), variant: "destructive" });
         return false;
       }
+      adoptToken(result.data);
       toast({ title: success });
       await onChanged();
       return true;

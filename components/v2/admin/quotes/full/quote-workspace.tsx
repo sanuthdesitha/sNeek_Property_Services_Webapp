@@ -2,10 +2,16 @@
 
 /**
  * One quote, viewed and edited on one page (board "Quote full page"). Keyed
- * by the outer page on each reload from the server, so the builder always
- * seeds from the saved quote. Saves are explicit (no stale-write guard on
- * the quote PATCH); fields freeze while saving and keep their values when a
- * save fails.
+ * by the outer page on each explicit reload from the server, so the builder
+ * seeds from the saved quote.
+ *
+ * Autosave (owner decision 2026-11-13, `use-quote-autosave.ts`): on a saved,
+ * editable quote the draft saves itself 1.5 s after the last change, one save
+ * at a time, with the stale-write token; never while a field is invalid, never
+ * on a new or converted quote, never sending it or changing its status (the
+ * status select still saves with Save). Typed text stays usable during a
+ * background save; an explicit save freezes the fields. Primary actions save
+ * first and wait. Create mode stays explicit (Create draft / Create and send).
  */
 import * as React from "react";
 import { toast } from "@/hooks/use-toast";
@@ -13,6 +19,7 @@ import type { ERowMenuItem } from "@/components/v2/ui/row-menu";
 import { asQuoteStatus, convertAvailability, quoteEditLock, quotePrimaryAction, quoteSecondaryActions, quoteStages, repairQuoteHref, QUOTE_STATUS_LABEL, type QuotePageStatus } from "@/lib/quotes/quote-page-actions";
 import { shortQuoteRef } from "@/lib/quotes/pipeline-types";
 import { notesMetaBlock, type QuoteSnapshot } from "@/lib/quotes/quote-record";
+import { quoteIsLiveForClient, quoteSaveStateLabel } from "@/lib/quotes/quote-autosave";
 import { useQuoteBuilder, type QuoteBuilderOptions } from "../builder/use-quote-builder";
 import { liveMarginCheck, type MarginModel } from "../builder/margin";
 import { buildCreatePayload } from "../builder/payload";
@@ -25,6 +32,10 @@ import { quoteFacts } from "./facts";
 import { RequestedAddOnsCard } from "./rail-addons";
 import { ActivityCard, ConvertCard, ShareCard, StatusCard } from "./quote-rail";
 import type { QuoteActions } from "./use-quote-actions";
+import { useQuoteAutosave } from "./use-quote-autosave";
+import { LiveForClientNote, QuoteSaveBanner, useQuoteNow } from "./quote-save-banner";
+
+const LEAVE_WARNING = "This quote has changes that are not saved yet. Leave anyway?";
 
 export type WorkspaceProps = {
   snapshot: QuoteSnapshot | null;
@@ -35,12 +46,16 @@ export type WorkspaceProps = {
   actions: QuoteActions;
   notices?: React.ReactNode;
   onReload: () => Promise<void>;
+  /** The version token every PATCH on this page sends (owned by the page). */
+  tokenRef: React.MutableRefObject<string | null>;
+  /** An autosave landed (the page keeps the record; the builder is not re-seeded). */
+  onAutosaved: (record: Record<string, unknown>) => void;
   onCreated: (quoteId: string, send: boolean, recipient: string | null) => Promise<void>;
   onConvert: (date: string) => void;
   onDelete: () => void;
 };
 
-export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone, fromCase, actions, notices, onReload, onCreated, onConvert, onDelete }: WorkspaceProps) {
+export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone, fromCase, actions, notices, onReload, tokenRef, onAutosaved, onCreated, onConvert, onDelete }: WorkspaceProps) {
   const isNew = !snapshot;
   const builder = useQuoteBuilder({ ...builderOptions, defaultRecipient: snapshot?.client?.email || snapshot?.lead?.email || "" });
   const [statusDraft, setStatusDraft] = React.useState<QuotePageStatus>(asQuoteStatus(snapshot?.status ?? "DRAFT"));
@@ -53,34 +68,62 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
   const margin = liveMarginCheck(marginModel, builder.pricing.allLines, shownTotals.subtotal);
   const statusDirty = Boolean(snapshot) && statusDraft !== status;
   const dirty = builder.dirty || statusDirty;
-  const saving = builder.saving || detailsSaving;
-  const busy = saving || Boolean(actions.busy);
+  const autosave = useQuoteAutosave({
+    quoteId: snapshot?.id ?? null,
+    isNew,
+    locked,
+    dirty: builder.dirty,
+    draftKey: builder.saveRequest().key,
+    problem: builder.draftProblem,
+    busy: Boolean(actions.busy) || detailsSaving || builder.pricing.pricing || builder.checklist.loading || !builder.baselineReady,
+    tokenRef,
+    saveRequest: builder.saveRequest,
+    onSaved: (request, record) => {
+      builder.markSaved(request);
+      onAutosaved(record);
+    },
+  });
+  // An explicit save freezes the page; a background autosave leaves typing usable.
+  const saving = builder.saving || detailsSaving || autosave.structuralSaving;
+  const busy = saving || autosave.saving || Boolean(actions.busy);
+  const unsaved = !isNew && (dirty || autosave.saving || autosave.status.kind === "conflict");
+  const now = useQuoteNow(autosave.lastSavedAt !== null);
 
-  /** Save everything; returns false (and keeps the draft) when anything fails. */
+  React.useEffect(() => {
+    if (!unsaved) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = LEAVE_WARNING;
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsaved]);
+
+  /**
+   * Save everything now (Save changes, and before every primary action).
+   * Waits for a background save in flight; returns false (and keeps the
+   * draft) when anything did not land.
+   */
   async function saveAll(): Promise<boolean> {
     if (!snapshot) return false;
     if (locked) {
+      if (!dirty) return true;
       setDetailsSaving(true);
       try {
         const notes = [builder.notes.trim(), notesMetaBlock(snapshot.notes)].filter(Boolean).join("\n");
         const validUntil = builder.validUntilDate ? new Date(`${builder.validUntilDate}T23:59:59`).toISOString() : null;
-        return await actions.patch(snapshot.id, { status: statusDraft, notes: notes || null, validUntil, showAddOnPrices: builder.showAddOnPrices }, "Quote updated");
+        return await actions.patch(
+          snapshot.id,
+          { status: statusDraft, notes: notes || null, internalNotes: builder.internalNotes.trim() || null, validUntil, showAddOnPrices: builder.showAddOnPrices },
+          "Quote updated",
+        );
       } finally {
         setDetailsSaving(false);
       }
     }
-    if (builder.dirty) {
-      const result = await builder.save();
-      if (!result.ok) {
-        toast({ title: "Could not save changes", description: result.error, variant: "destructive" });
-        return false;
-      }
-      if (result.marginWarning) toast({ title: "Margin warning", description: result.marginWarning });
-      if (result.discountError) toast({ title: "Discount not applied", description: result.discountError, variant: "destructive" });
-    }
+    const saved = await autosave.flush("Save changes");
+    if (!saved) return false;
     if (statusDirty) return actions.patch(snapshot.id, { status: statusDraft }, "Quote saved");
-    toast({ title: "Quote saved" });
-    await onReload();
     return true;
   }
 
@@ -95,8 +138,8 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
   async function runPrimary() {
     if (!snapshot) return;
     const action = quotePrimaryAction({ status, convertedJobId: snapshot.convertedJobId, clientId: snapshot.clientId });
+    if (!(await saveAll())) return;
     if (action.kind === "convert") return onConvert("");
-    if (dirty && !(await saveAll())) return;
     if (action.kind === "review-send") {
       await actions.openEmailPreview(snapshot.id, builder.recipientEmail.trim() || null);
       return;
@@ -108,14 +151,16 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
     if (snapshot && !builder.dirty) return void actions.previewPdf(snapshot.id);
     const problem = builder.pricingProblem();
     if (problem) return toast({ title: "Add pricing first", description: problem, variant: "destructive" });
-    const { clientId: _c, leadId: _l, newLead: _n, fromCaseId: _f, ...payload } = buildCreatePayload(builder.payloadInput);
+    const { clientId: _c, leadId: _l, newLead: _n, fromCaseId: _f, internalNotes: _i, ...payload } = buildCreatePayload(builder.payloadInput);
     void actions.previewDraftPdf(payload);
   }
 
   const reference = snapshot ? shortQuoteRef(snapshot) : null;
   const partyName = snapshot?.client?.name ?? snapshot?.lead?.name ?? null;
   const address = [builder.serviceAddress, builder.serviceSuburb].filter((part) => part.trim()).join(", ");
-  const saveState = saving ? "Saving…" : isNew ? "Not saved yet" : dirty ? "Unsaved changes" : "All changes saved";
+  const baseSaveState = quoteSaveStateLabel({ isNew, creating: builder.saving, status: autosave.status, unsaved: dirty, lastSavedAt: autosave.lastSavedAt, now });
+  const saveState = !isNew && detailsSaving ? "Saving…" : !isNew && builder.dirty && builder.draftProblem && autosave.status.kind !== "failed" ? `Not saved yet: ${builder.draftProblem}` : baseSaveState;
+  const liveForClient = Boolean(snapshot) && !locked && quoteIsLiveForClient(status, snapshot?.publicToken ?? null);
   const subLine = [partyName ?? (isNew ? null : "Direct quote"), address || null, saveState].filter(Boolean).join(" · ");
   const secondaryFlags = quoteSecondaryActions(status);
   const sharedReason = isNew ? "Available once the quote is created." : null;
@@ -134,7 +179,7 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
   ];
   const save: HeaderButton | null = isNew
     ? { key: "draft", label: "Create draft", onClick: () => void create(false), disabled: busy }
-    : dirty
+    : dirty || autosave.status.kind === "failed"
       ? { key: "save", label: saving ? "Saving…" : "Save changes", onClick: () => void saveAll(), disabled: busy }
       : null;
 
@@ -151,7 +196,7 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
     : [];
 
   const convert = snapshot ? convertAvailability(status) : { enabled: false, reason: "Available once the quote is created and won." };
-  const addOnBlocked = locked ? "This quote is converted; add-ons can no longer be priced in." : dirty ? "Save or discard your changes first: adding updates the saved quote." : null;
+  const addOnBlocked = locked ? "This quote is converted; add-ons can no longer be priced in." : dirty || autosave.saving ? "Save or discard your changes first: adding updates the saved quote." : null;
   const emailPreviewReason = isNew ? "Available once the quote is created." : builder.dirty ? "Save first to preview your changes." : null;
 
   return (
@@ -168,6 +213,8 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
         moreItems={moreItems}
       />
       {notices}
+      {!isNew ? <QuoteSaveBanner status={autosave.status} onReloadTheirs={() => void onReload()} onKeepMine={autosave.keepMine} onDismiss={autosave.dismiss} /> : null}
+      {liveForClient ? <LiveForClientNote /> : null}
       {fromCase && snapshot ? (
         <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">From case <a className="font-[600] text-[hsl(var(--e-primary))] hover:underline" href={fromCase.href}>{fromCase.caseTitle}</a></p>
       ) : null}
@@ -215,9 +262,12 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
             onValidUntil={builder.setValidUntilDate}
             notes={builder.notes}
             onNotes={builder.setNotes}
+            internalNotes={builder.internalNotes}
+            onInternalNotes={builder.setInternalNotes}
             onRegenerateNotes={locked ? null : builder.regenerateNotes}
             saving={saving}
             saveLabel="Save"
+            statusHint={isNew ? "A new quote is saved as a draft." : locked ? "Changes save with Save." : "Status changes save with Save; the other fields save on their own."}
             onSave={isNew ? null : () => void saveAll()}
             savedLine={saveState}
           />

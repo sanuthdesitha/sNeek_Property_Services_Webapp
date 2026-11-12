@@ -3,7 +3,8 @@
 /**
  * The pipeline's side panel (?open=quote:<id> | lead:<id>).
  * Quote: lines, GST and total (read from GET /api/admin/quotes/[id]), the
- * margin check, the existing activity timeline, Send / Edit / PDF.
+ * office notes (never shown to the client), the margin check, the existing
+ * activity timeline, Send / Edit / PDF.
  * Lead: contact, estimate, status, and the lead actions.
  */
 import * as React from "react";
@@ -17,7 +18,16 @@ import type { PipelineRow } from "@/lib/quotes/pipeline-types";
 import { MarginPill, StatusPill, prettify } from "./pipeline-format";
 
 type QuoteLine = { label?: string; qty?: number; total?: number };
-type QuoteDetail = { lineItems?: QuoteLine[]; subtotal?: number; gstAmount?: number; totalAmount?: number; frequency?: string | null; validUntil?: string | null };
+type QuoteDetail = {
+  lineItems?: QuoteLine[];
+  subtotal?: number;
+  gstAmount?: number;
+  totalAmount?: number;
+  frequency?: string | null;
+  validUntil?: string | null;
+  /** Office notes the client never sees. */
+  internalNotes?: string | null;
+};
 
 type PanelProps = {
   row: PipelineRow;
@@ -67,6 +77,16 @@ function QuoteBody({ row, onSend }: Pick<PanelProps, "row" | "onSend">) {
             <tr><td className="py-1.5 font-[600]">Total{detail.frequency && detail.frequency !== "one_off" ? ` per ${detail.frequency.replace(/ly$/, "")}` : ""}</td><td className="e-tnum py-1.5 text-right font-[600]">{formatCurrency(Number(detail.totalAmount ?? 0))}</td></tr>
           </tbody>
         </table>
+      ) : null}
+      {detail ? (
+        <section aria-label="Office notes" className="space-y-1 rounded-[10px] border border-[hsl(var(--e-border))] p-3">
+          <p className="e-eyebrow">Office notes (not shown to the client)</p>
+          {detail.internalNotes?.trim() ? (
+            <p className="whitespace-pre-wrap text-[0.8125rem] [overflow-wrap:anywhere]">{detail.internalNotes}</p>
+          ) : (
+            <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">None. Add them on the quote page.</p>
+          )}
+        </section>
       ) : null}
       <section aria-label="Margin check" className="space-y-1.5 rounded-[10px] border border-[hsl(var(--e-border))] p-3">
         <div className="flex items-center justify-between gap-2">
