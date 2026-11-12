@@ -10,7 +10,7 @@ import { getAppSettings } from "@/lib/settings";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { resolveAppUrl } from "@/lib/app-url";
 import { sendEmailDetailed } from "@/lib/notifications/email";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { verifySensitiveAction, isSensitiveRefusal } from "@/lib/security/admin-verification";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const inviteSchema = z.object({
@@ -167,7 +167,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ? 401
         : err.message === "FORBIDDEN"
           ? 403
-          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+          : isSensitiveRefusal(err)
             ? 423
             : prismaCode === "P2002"
               ? 409

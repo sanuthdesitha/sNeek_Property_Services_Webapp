@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { JobStatus, LaundryStatus, QaAssignmentStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { verifySensitiveAction, type SensitiveActionCredentials } from "@/lib/security/admin-verification";
+import { verifySensitiveAction, type SensitiveActionCredentials, isSensitiveRefusal } from "@/lib/security/admin-verification";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import { getJobReference } from "@/lib/jobs/job-number";
@@ -332,7 +332,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ? 401
         : err.message === "FORBIDDEN"
           ? 403
-          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+          : isSensitiveRefusal(err)
             ? 423
             : 400;
     return NextResponse.json({ error: err.message ?? "Could not reset the job." }, { status });

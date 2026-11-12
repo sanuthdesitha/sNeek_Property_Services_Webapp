@@ -9,7 +9,7 @@ import { renderEmailTemplate } from "@/lib/email-templates";
 import { upsertAuthUserState } from "@/lib/auth/account-state";
 import { resolveAppUrl } from "@/lib/app-url";
 import { generateTempPassword } from "@/lib/auth/temp-password";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { verifySensitiveAction, isSensitiveRefusal } from "@/lib/security/admin-verification";
 import { DelegatedActionDenied, requireDelegatedAction } from "@/lib/rbac/delegated-admin";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ? 401
         : err.message === "FORBIDDEN"
           ? 403
-          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+          : isSensitiveRefusal(err)
             ? 423
             : 400;
     return NextResponse.json({ error: err.message ?? "Password reset failed." }, { status });

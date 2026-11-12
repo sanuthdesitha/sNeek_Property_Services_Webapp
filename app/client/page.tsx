@@ -16,6 +16,7 @@ import { ClientReportDownloadButton } from "@/components/client/report-download-
 import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { KpiTile } from "@/components/charts";
+import { clientLaundryStatusLabel } from "@/lib/client/laundry-status";
 
 const TZ = "Australia/Sydney";
 
@@ -418,7 +419,7 @@ export default async function ClientDashboard() {
                             <p className="text-xs text-muted-foreground">{task.property.suburb}</p>
                           </div>
                           <Badge variant={isComplete ? "secondary" : "outline"} className="shrink-0 text-[11px]">
-                            {task.status.replace(/_/g, " ")}
+                            {clientLaundryStatusLabel(task.status)}
                           </Badge>
                         </div>
                         <div className="mt-2 grid grid-cols-2 gap-1 text-xs text-muted-foreground">

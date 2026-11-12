@@ -3,7 +3,7 @@ import { Prisma, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { updateClientSchema } from "@/lib/validations/client";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { verifySensitiveAction, isSensitiveRefusal } from "@/lib/security/admin-verification";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import {
   normalizeClientEmail,
@@ -112,7 +112,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         ? 401
         : err.message === "FORBIDDEN"
           ? 403
-          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+          : isSensitiveRefusal(err)
             ? 423
             : 400;
     return NextResponse.json({ error: err.message }, { status });

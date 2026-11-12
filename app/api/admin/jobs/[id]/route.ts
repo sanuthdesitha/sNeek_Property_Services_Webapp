@@ -11,7 +11,7 @@ import {
   serializeJobInternalNotes,
 } from "@/lib/jobs/meta";
 import { classifyPriorityFromTimingRule } from "@/lib/jobs/priority";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { verifySensitiveAction, isSensitiveRefusal } from "@/lib/security/admin-verification";
 import { getAppSettings } from "@/lib/settings";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
@@ -629,7 +629,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         ? 401
         : err.message === "FORBIDDEN"
           ? 403
-          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+          : isSensitiveRefusal(err)
             ? 423
             : 400;
     return NextResponse.json({ error: err.message }, { status });
@@ -763,7 +763,7 @@ export async function POST(
         ? 401
         : err.message === "FORBIDDEN"
           ? 403
-          : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+          : isSensitiveRefusal(err)
             ? 423
             : 400;
     return NextResponse.json({ error: err.message }, { status });

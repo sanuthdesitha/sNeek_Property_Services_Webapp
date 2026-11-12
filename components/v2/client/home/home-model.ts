@@ -4,6 +4,7 @@
  * All days are Sydney days; a job's calendar date is never shifted.
  */
 import { formatInTimeZone } from "date-fns-tz";
+import { CLIENT_LAUNDRY_STATUS_LABELS } from "@/lib/client/laundry-status";
 
 export const HOME_TZ = "Australia/Sydney";
 
@@ -121,10 +122,7 @@ export interface LaundryRow {
   property: { id: string; name: string; suburb?: string | null };
 }
 
-export const LAUNDRY_LABEL: Record<string, string> = {
-  PENDING: "Pending", CONFIRMED: "Confirmed", PICKED_UP: "Picked up", DROPPED: "Delivered",
-  FLAGGED: "Flagged", SKIPPED_PICKUP: "Skipped",
-};
+export const LAUNDRY_LABEL: Record<string, string> = CLIENT_LAUNDRY_STATUS_LABELS;
 
 /** One line per property: the open laundry run if there is one, else the latest delivered. */
 export function laundryByProperty(rows: readonly LaundryRow[]): Map<string, string> {

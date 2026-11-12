@@ -5,7 +5,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { deleteCase, getCaseById } from "@/lib/cases/service";
 import { applyCaseUpdate } from "@/lib/cases/apply-update";
-import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { verifySensitiveAction, isSensitiveRefusal } from "@/lib/security/admin-verification";
 import { CASE_STATUSES } from "@/lib/cases/status";
 
 const patchSchema = z.object({
@@ -102,7 +102,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
             ? 401
             : err.message === "FORBIDDEN"
               ? 403
-              : err.message === "INVALID_SECURITY_VERIFICATION" || err.message === "PIN_OR_PASSWORD_REQUIRED"
+              : isSensitiveRefusal(err)
                 ? 423
                 : 400,
       }

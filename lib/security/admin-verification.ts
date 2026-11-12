@@ -172,3 +172,16 @@ export async function verifySensitiveAction(
   await storeOwnPin(userId, newPin, "sensitive-action");
   return true;
 }
+
+/**
+ * A refused credential (wrong, missing, not set up, locked): routes answer 423
+ * for these, as they always did for the historic two codes. UNAUTHORIZED,
+ * FORBIDDEN and the actual actor rule are not credential refusals.
+ */
+export function isSensitiveRefusal(error: unknown): boolean {
+  if (error instanceof SensitiveVerificationError) {
+    return !["UNAUTHORIZED", "FORBIDDEN", "ACTUAL_ACTOR_REQUIRED"].includes(error.code);
+  }
+  const message = error instanceof Error ? error.message : "";
+  return message === "INVALID_SECURITY_VERIFICATION" || message === "PIN_OR_PASSWORD_REQUIRED";
+}

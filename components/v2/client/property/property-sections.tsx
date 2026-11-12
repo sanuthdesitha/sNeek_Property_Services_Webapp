@@ -12,6 +12,7 @@ import { EBadge, ECard, ECardBody, ECardHeader, ECardTitle, EThread } from "@/co
 import { EMediaStrip } from "@/components/v2/client/properties/media-strip";
 import { EReportDownloadButton } from "@/components/v2/client/properties/property-actions";
 import { groupTimelineByJob, propertyStatusTone, propertyTitleCase, sydneyText, type TimelineMedia } from "@/components/v2/client/property/property-format";
+import { clientLaundryStatusLabel, clientLaundryStatusTone } from "@/lib/client/laundry-status";
 
 export type PropertyDetail = NonNullable<Awaited<ReturnType<typeof getClientPropertyDetailForUser>>>;
 
@@ -88,7 +89,7 @@ export function LaundrySection({ detail, showImages, limit }: { detail: Property
                   Pickup {sydneyText(task.pickupDate, "dd MMM yyyy")} · Drop off {sydneyText(task.dropoffDate, "dd MMM yyyy")}
                 </p>
               </div>
-              <EBadge tone={propertyStatusTone(task.status)} soft>{propertyTitleCase(task.status)}</EBadge>
+              <EBadge tone={clientLaundryStatusTone(task.status)} soft>{clientLaundryStatusLabel(task.status)}</EBadge>
             </div>
             <div className="mt-3 space-y-2">
               {task.confirmations.map((confirmation) => (

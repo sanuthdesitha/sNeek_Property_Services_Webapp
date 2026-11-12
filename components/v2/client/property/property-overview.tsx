@@ -8,6 +8,7 @@ import { EBadge, ECard, ECardBody, ECardHeader, ECardTitle } from "@/components/
 import { EPreferredCleanerCard } from "@/components/v2/client/properties/property-actions";
 import type { PropertyDetail } from "@/components/v2/client/property/property-sections";
 import { propertyTitleCase, sydneyText } from "@/components/v2/client/property/property-format";
+import { clientLaundryStatusLabel, clientLaundryStatusTone } from "@/lib/client/laundry-status";
 
 export interface OverviewFlags {
   showReports: boolean;
@@ -65,7 +66,7 @@ export function PropertyOverview({ detail, flags, tabHref }: { detail: PropertyD
           </SummaryCard>
         ) : null}
         {flags.showLaundry ? (
-          <SummaryCard title="Laundry" href={tabHref("laundry")} badge={laundry ? <EBadge tone="info" soft>{propertyTitleCase(laundry.status)}</EBadge> : undefined}>
+          <SummaryCard title="Laundry" href={tabHref("laundry")} badge={laundry ? <EBadge tone={clientLaundryStatusTone(laundry.status)} soft>{clientLaundryStatusLabel(laundry.status)}</EBadge> : undefined}>
             {laundry ? `Pickup ${sydneyText(laundry.pickupDate, "EEE d MMM")} · back ${sydneyText(laundry.dropoffDate, "EEE d MMM")}` : "No laundry updates"}
           </SummaryCard>
         ) : null}

@@ -19,10 +19,12 @@ async function confirmWithPin(menuItem: string, confirmLabel: string, phrase?: s
   fireEvent.click(screen.getByRole("button", { name: menuItem }));
   const dialog = await screen.findByRole("dialog");
   if (phrase) fireEvent.change(within(dialog).getByLabelText(`Type ${phrase} to continue`), { target: { value: phrase } });
-  fireEvent.change(within(dialog).getAllByLabelText(/PIN/i)[0], { target: { value: "2468" } });
+  fireEvent.change(within(dialog).getByLabelText("Your PIN"), { target: { value: "2468" } });
   fireEvent.click(within(dialog).getByRole("button", { name: confirmLabel }));
-  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-  return fetchMock.mock.calls[0] as [string, RequestInit];
+  // The prompt first reads the viewer's own PIN state (2026-11-13); the action is the next call.
+  const isAction = ([url]: [string, RequestInit?]) => url !== "/api/me/admin-pin";
+  await waitFor(() => expect(fetchMock.mock.calls.some(isAction)).toBe(true));
+  return fetchMock.mock.calls.find(isAction) as [string, RequestInit];
 }
 
 describe("VA account actions send the PIN to the server", () => {

@@ -30,6 +30,7 @@ import { describeLaundryConfirmation } from "@/lib/laundry/media";
 import { ReportAccessCard } from "@/components/v2/client/report-access-card";
 import { computeJobProgressPercent } from "@/lib/jobs/progress";
 import { clientRequestMeta } from "@/lib/job-tasks/client-requests";
+import { clientLaundryStatusLabel, clientLaundryStatusTone } from "@/lib/client/laundry-status";
 import {
   ArrowLeft,
   Briefcase,
@@ -525,7 +526,7 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
             <ECardTitle className="flex items-center gap-2 text-[1rem]">
               <Shirt className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Laundry
             </ECardTitle>
-            <EBadge tone="neutral" soft>{titleCase(job.laundryTask.status)}</EBadge>
+            <EBadge tone={clientLaundryStatusTone(job.laundryTask.status)} soft>{clientLaundryStatusLabel(job.laundryTask.status)}</EBadge>
           </ECardHeader>
           <ECardBody className="space-y-2 text-[0.875rem]">
             {job.laundryTask.noPickupRequired ? (
