@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
 import { EActionDialog } from "@/components/v2/ui/action-dialog";
 import { EButton } from "@/components/v2/ui/primitives";
 import { policyChanges, type AccessChange } from "@/lib/rbac/access-diff";
 import type { OpsPolicy } from "@/lib/rbac/ops-policy";
+import type { SensitiveCredentialsInput } from "@/lib/security/pin-rules";
+import { OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
 
 export type SaveConflict = { current: OpsPolicy };
 
@@ -43,7 +44,8 @@ export function AccessUnsavedBar({
 }
 
 /**
- * Review every change, then confirm with the editor's own PIN or password.
+ * Review every change, then confirm with the editor's own PIN (or, while they
+ * have none, their password once and a new PIN).
  * On a conflict both versions are listed and nothing is overwritten until the
  * editor chooses.
  */
@@ -68,14 +70,13 @@ export function AccessSaveDialog({
   error: string;
   conflict: SaveConflict | null;
   onClose: () => void;
-  onSave: (security: { pin?: string; password?: string }) => void;
+  onSave: (security: SensitiveCredentialsInput) => void;
   onKeepMine: () => void;
   onTakeTheirs: () => void;
 }) {
-  const [secret, setSecret] = useState("");
+  const ownPin = useOwnPinPrompt(open && !conflict);
   const mine = policyChanges(saved, draft);
   const theirs = conflict ? policyChanges(saved, conflict.current) : [];
-  const isPin = /^\d{4,12}$/.test(secret);
   return (
     <EActionDialog
       open={open}
@@ -92,7 +93,7 @@ export function AccessSaveDialog({
         ) : (
           <>
             <EButton variant="outline" disabled={busy} onClick={onClose}>Back</EButton>
-            <EButton disabled={busy || secret.length === 0} onClick={() => onSave(isPin ? { pin: secret } : { password: secret })}>{busy ? "Saving…" : "Save"}</EButton>
+            <EButton disabled={busy || !ownPin.credentials} onClick={() => ownPin.credentials && onSave(ownPin.credentials)}>{busy ? "Saving…" : "Save"}</EButton>
           </>
         )
       }
@@ -109,18 +110,7 @@ export function AccessSaveDialog({
         <>
           <ul className="list-disc space-y-1 pl-5">{mine.map((change, index) => <li key={index}>{changeLabel(change, names)}</li>)}</ul>
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Each person&apos;s next request uses the new access.</p>
-          <label className="block space-y-1">
-            <span className="text-[0.75rem] font-[550] text-[hsl(var(--e-text-secondary))]">Your PIN or password</span>
-            <input
-              type="password"
-              autoComplete="current-password"
-              data-autofocus
-              value={secret}
-              disabled={busy}
-              onChange={(event) => setSecret(event.target.value)}
-              className="min-h-10 w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] px-3 text-base"
-            />
-          </label>
+          <OwnPinFields {...ownPin.fieldProps} disabled={busy} />
         </>
       )}
       {error ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</p> : null}

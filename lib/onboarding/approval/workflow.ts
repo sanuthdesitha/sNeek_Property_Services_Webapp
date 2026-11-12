@@ -15,6 +15,7 @@ import {
 import { featuresFromAppliances, sanitizeFeatures } from "@/lib/checklists/features";
 import { ensurePropertyDefaultStock } from "@/lib/inventory/default-items";
 import { logger } from "@/lib/logger";
+import { partnerTimesForNewRun } from "@/lib/laundry/partner-schedule-server";
 
 interface ApproveInput {
   surveyId: string;
@@ -758,6 +759,8 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
       const dropoffDate = new Date(pickupDate);
       dropoffDate.setDate(dropoffDate.getDate() + 2);
 
+      // Partner schedule defaults (2026-11-13): planned times only, never the dates.
+      const plannedTimes = await partnerTimesForNewRun(tx, { propertyId: property.id, supplierId: survey.laundrySupplierId || null, pickupDate, dropoffDate });
       const laundryTask = await tx.laundryTask.create({
         data: {
           propertyId: property.id,
@@ -766,6 +769,8 @@ export async function approveSurvey(input: ApproveInput): Promise<ApproveResult>
           dropoffDate,
           status: "PENDING",
           supplierId: survey.laundrySupplierId || null,
+          pickupTime: plannedTimes.pickupTime,
+          dropoffTime: plannedTimes.dropoffTime,
         },
       });
       laundryTaskId = laundryTask.id;

@@ -133,6 +133,8 @@ export async function notifyQaResultToCleaner(input: {
         orderBy: { createdAt: "asc" },
         select: {
           severity: true,
+          failVerdict: true,
+          serious: true,
           category: true,
           description: true,
           guestReadyImpact: true,
@@ -158,6 +160,8 @@ export async function notifyQaResultToCleaner(input: {
         }
         return {
           severity: String(issue.severity),
+          failVerdict: issue.failVerdict,
+          serious: issue.serious,
           categoryLabel: categoryLabels.get(issue.category) ?? humanizeKey(issue.category),
           description: issue.description,
           guestReadyImpact: issue.guestReadyImpact ?? false,
@@ -182,6 +186,8 @@ export async function notifyQaResultToCleaner(input: {
         minor: settings.accountability?.scoring?.minorDeduction,
         major: settings.accountability?.scoring?.majorDeduction,
         critical: settings.accountability?.scoring?.criticalDeduction,
+        fail: settings.accountability?.scoring?.failDeduction,
+        seriousFail: settings.accountability?.scoring?.seriousFailDeduction,
       },
       coachingNote: input.rectificationSummary ?? null,
       qualityUrl,

@@ -15,6 +15,10 @@
 
 export interface QaResultEmailIssue {
   severity: "MINOR" | "MAJOR" | "CRITICAL" | string;
+  /** Graded "Fail" (current scale; stored severity MAJOR, or CRITICAL when serious). */
+  failVerdict?: boolean;
+  /** A Fail the inspector marked Serious. */
+  serious?: boolean;
   /** Admin-configured label, e.g. "Bed setup & linen" — never a raw key. */
   categoryLabel: string;
   description: string;
@@ -39,7 +43,13 @@ export interface QaResultEmailInput {
    * lie the moment an admin retunes them, and this email is the one place a
    * cleaner sees the arithmetic behind a number that affects their standing.
    */
-  deductions?: { minor?: number; major?: number; critical?: number } | null;
+  deductions?: {
+    minor?: number;
+    major?: number;
+    critical?: number;
+    fail?: number;
+    seriousFail?: number;
+  } | null;
   /** The inspector's cleaner-facing coaching note, if they wrote one. */
   coachingNote?: string | null;
   /** Where to read the full feedback. */
@@ -72,14 +82,27 @@ function esc(value: unknown): string {
     .replace(/'/g, "&#39;");
 }
 
+/** Fail and serious Fail read as graded; Major / Critical only for history. */
+function issueStyle(issue: QaResultEmailIssue): { bg: string; ink: string; label: string } {
+  if (issue.failVerdict) {
+    return issue.serious
+      ? { ...SEVERITY_STYLE.CRITICAL, label: "Fail · serious" }
+      : { ...SEVERITY_STYLE.CRITICAL, label: "Fail" };
+  }
+  return SEVERITY_STYLE[String(issue.severity).toUpperCase()] ?? SEVERITY_STYLE.MINOR;
+}
+
 function countBySeverity(issues: QaResultEmailIssue[]) {
   return issues.reduce(
     (acc, i) => {
       const key = String(i.severity).toUpperCase();
-      if (key === "MINOR" || key === "MAJOR" || key === "CRITICAL") acc[key] += 1;
+      if (i.failVerdict) {
+        if (i.serious) acc.SERIOUS_FAIL += 1;
+        else acc.FAIL += 1;
+      } else if (key === "MINOR" || key === "MAJOR" || key === "CRITICAL") acc[key] += 1;
       return acc;
     },
-    { MINOR: 0, MAJOR: 0, CRITICAL: 0 }
+    { MINOR: 0, FAIL: 0, SERIOUS_FAIL: 0, MAJOR: 0, CRITICAL: 0 }
   );
 }
 
@@ -120,6 +143,8 @@ export function buildQaResultEmail(input: QaResultEmailInput): BuiltEmail {
   // ── Score arithmetic, shown rather than asserted ──────────────────────────
   const rows = [
     { label: "Minor", count: counts.MINOR, each: input.deductions?.minor },
+    { label: "Fail", count: counts.FAIL, each: input.deductions?.fail },
+    { label: "Fail · serious", count: counts.SERIOUS_FAIL, each: input.deductions?.seriousFail },
     { label: "Major", count: counts.MAJOR, each: input.deductions?.major },
     { label: "Critical", count: counts.CRITICAL, each: input.deductions?.critical },
   ].filter((r) => r.count > 0);
@@ -148,7 +173,7 @@ export function buildQaResultEmail(input: QaResultEmailInput): BuiltEmail {
   // ── The findings themselves, with QA's markup ─────────────────────────────
   const issuesHtml = input.issues
     .map((issue) => {
-      const style = SEVERITY_STYLE[String(issue.severity).toUpperCase()] ?? SEVERITY_STYLE.MINOR;
+      const style = issueStyle(issue);
       return `<tr><td style="padding:0 0 14px;">
         <table style="width:100%;border:1px solid #e5e7eb;border-radius:10px;border-collapse:separate;">
           <tr><td style="padding:12px 14px;">
@@ -241,7 +266,8 @@ export function buildQaResultEmail(input: QaResultEmailInput): BuiltEmail {
       ? [
           "What was found:",
           ...input.issues.map(
-            (i) => `- [${String(i.severity).toUpperCase()}] ${i.categoryLabel}: ${i.description}`
+            (i) =>
+              `- [${i.failVerdict ? issueStyle(i).label.toUpperCase() : String(i.severity).toUpperCase()}] ${i.categoryLabel}: ${i.description}`
           ),
         ]
       : ["No specific issues were recorded against this clean."]),

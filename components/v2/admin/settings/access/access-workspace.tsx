@@ -1,5 +1,6 @@
 "use client";
 
+import type { SensitiveCredentialsInput } from "@/lib/security/pin-rules";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EAlert, EButton } from "@/components/v2/ui/primitives";
 import { accessWithin, isAdministrator, type AccessSubject } from "@/lib/rbac/access-evaluator";
@@ -91,7 +92,7 @@ export function AccessWorkspace({ initialTab = "person" }: { initialTab?: Access
   const selectedTeam = selection?.kind === "team" ? data.assistantTeams.find((team) => team.id === selection.id) ?? null : null;
   const dirty = unsaved.size > 0 || JSON.stringify(draft.presets) !== JSON.stringify(saved.presets);
 
-  async function save(security: { pin?: string; password?: string }) {
+  async function save(security: SensitiveCredentialsInput) {
     if (!draft) return;
     setSaving(true);
     setSaveError("");

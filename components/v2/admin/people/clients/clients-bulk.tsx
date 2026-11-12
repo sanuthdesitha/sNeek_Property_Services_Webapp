@@ -15,6 +15,7 @@ import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ETextarea } from "@/components/v2/admin/estate-kit";
 import { CLIENT_BULK_MAX_IDS, type ClientBulkAction, type ClientBulkResponse } from "@/lib/people/clients/bulk-types";
 import type { ClientDirectoryRow } from "@/lib/people/clients/types";
+import { OwnPinFields, useOwnPinPrompt } from "@/components/v2/shared/own-pin-fields";
 
 const OUTCOME_LABEL = { done: "Done", refused: "Refused", unchanged: "No change" } as const;
 
@@ -36,8 +37,7 @@ export function ClientsBulk({
   const [pending, setPending] = useState<ClientBulkAction | null>(null);
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
-  const [pin, setPin] = useState("");
-  const [password, setPassword] = useState("");
+  const ownPin = useOwnPinPrompt(pending === "mark-inactive");
   const [run, setRun] = useState<RunState>({ status: "idle" });
   const tooMany = selectedRows.length > CLIENT_BULK_MAX_IDS;
   const names = new Map(selectedRows.map((row) => [row.id, row.name]));
@@ -46,8 +46,7 @@ export function ClientsBulk({
 
   function open(action: ClientBulkAction) {
     setPending(action);
-    setPin("");
-    setPassword("");
+    ownPin.reset();
     setRun({ status: "idle" });
   }
 
@@ -59,7 +58,7 @@ export function ClientsBulk({
       const payload =
         pending === "send-update"
           ? { action: pending, ids: selectedRows.map((row) => row.id), subject: subject.trim(), message: message.trim() }
-          : { action: pending, ids: selectedRows.map((row) => row.id), security: pin.trim() ? { pin: pin.trim() } : { password } };
+          : { action: pending, ids: selectedRows.map((row) => row.id), security: ownPin.credentials ?? undefined };
       const res = await fetch("/api/admin/clients/bulk", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const body = (await res.json().catch(() => null)) as (ClientBulkResponse & { error?: string }) | null;
       if (!res.ok || !body || !Array.isArray(body.results)) throw new Error(body?.error ?? `The bulk action failed (${res.status}).`);
@@ -77,7 +76,7 @@ export function ClientsBulk({
     }
   }
 
-  const canConfirm = pending === "send-update" ? subject.trim() !== "" && message.trim() !== "" : pin.trim() !== "" || password !== "";
+  const canConfirm = pending === "send-update" ? subject.trim() !== "" && message.trim() !== "" : ownPin.credentials !== null;
 
   return (
     <>
@@ -98,7 +97,7 @@ export function ClientsBulk({
             <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">
               {pending === "send-update"
                 ? "Each selected client gets this message by email, through the same client update path as on the client page. Clients with no email on file are reported back."
-                : "Each selected client is marked inactive, exactly as Delete client does (their records, invoices and history stay). Enter your PIN or password."}
+                : "Each selected client is marked inactive, exactly as Delete client does (their records, invoices and history stay). Enter your PIN."}
             </p>
             <p className="text-[0.8125rem]">{selectedRows.length} selected.</p>
             {pending === "send-update" && run.status !== "finished" ? (
@@ -108,10 +107,7 @@ export function ClientsBulk({
               </>
             ) : null}
             {pending === "mark-inactive" && run.status !== "finished" ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <EField label="PIN"><EInput type="password" autoComplete="off" value={pin} disabled={running} onChange={(event) => setPin(event.target.value)} /></EField>
-                <EField label="Or password"><EInput type="password" autoComplete="current-password" value={password} disabled={running} onChange={(event) => setPassword(event.target.value)} /></EField>
-              </div>
+              <OwnPinFields {...ownPin.fieldProps} disabled={running} />
             ) : null}
             {run.status === "failed" ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{run.message}</p> : null}
             {run.status === "finished" ? (
