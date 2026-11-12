@@ -12,6 +12,10 @@
  *   nothing outside the admin Quality surfaces imports this.
  * - There is no fourth level. An unknown value (a future enum member) is shown
  *   as its own title-cased text, never folded into Low / Medium / High.
+ * - Since 2026-11-13 inspectors grade "Fail" instead of Major / Critical. A Fail
+ *   is stored as MAJOR (Medium) and a Fail marked Serious as CRITICAL (High),
+ *   flagged by QaIssue.failVerdict / serious, so these bands and every count
+ *   keep working across both scales (lib/qa/verdict-scale.ts).
  *
  * Pure: safe in the browser and on the server.
  */

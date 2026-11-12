@@ -19,6 +19,7 @@ import {
 } from "@/lib/admin/approval-history";
 import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { isAdministrator } from "@/lib/rbac/access-evaluator";
 
 /**
  * POST /api/admin/approvals/history/[id]
@@ -41,7 +42,7 @@ const bodySchema = z.object({
   /** New amount for `edit` (money queues). */
   amount: z.number().positive().optional(),
   note: z.string().trim().max(4000).optional(),
-  /** PIN or password for `delete`, checked here (not only in the browser). */
+  /** The administrator's own PIN for `delete`, checked here (not only in the browser). */
   security: z.object({ pin: z.string().optional(), password: z.string().optional(), newPin: z.string().max(32).optional() }).optional(),
 });
 
@@ -55,18 +56,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = bodySchema.parse(await req.json().catch(() => ({})));
-    // Deleting removes the record of who approved what and for how much, so the
-    // PIN or password is verified on the server before anything else happens.
+    // Deleting removes the record of who approved what and for how much: an
+    // ADMINISTRATOR only (owner decision 2026-11-13; an operations manager can
+    // change or reverse a decision but not delete its record), then the
+    // administrator's own PIN, verified on the server before anything else.
     if (body.action === "delete") {
+      if (!isAdministrator({ id: session.user.id, role: String(session.user.role), heldRoles: (session.user.heldRoles ?? []).map(String) })) {
+        return NextResponse.json({ error: "Only an administrator can delete a decision record." }, { status: 403 });
+      }
       try {
         await verifySensitiveAction(session.user.id, body.security);
       } catch (error) {
         const message = error instanceof Error ? error.message : "INVALID_SECURITY_VERIFICATION";
         const text =
           message === "PIN_OR_PASSWORD_REQUIRED"
-            ? "Enter your PIN or password to delete this record."
+            ? "Enter your PIN to delete this record."
             : message === "INVALID_SECURITY_VERIFICATION"
-              ? "That PIN or password was not accepted."
+              ? "That PIN was not accepted."
               : message;
         return NextResponse.json({ error: text }, { status: message === "FORBIDDEN" ? 403 : 400 });
       }
