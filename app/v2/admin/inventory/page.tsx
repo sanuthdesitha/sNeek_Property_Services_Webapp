@@ -26,6 +26,7 @@ import { EstateItems } from "@/components/v2/admin/inventory/estate-items";
 import { EstateSuppliers } from "@/components/v2/admin/inventory/estate-suppliers";
 import { EstateOnHand } from "@/components/v2/admin/inventory/estate-on-hand";
 import { EstateStockRuns } from "@/components/v2/admin/inventory/estate-stock-runs";
+import { FormCountObservations } from "@/components/v2/admin/inventory/form-count-observations";
 import { EstateScanTasks } from "@/components/v2/admin/inventory/estate-scan-tasks";
 import { EstateShoppingRuns } from "@/components/v2/admin/inventory/estate-shopping-runs";
 import { EstatePropertyMatrix } from "@/components/v2/admin/inventory/estate-property-matrix";
@@ -310,7 +311,12 @@ export default async function EstateInventoryPage({
           <EstatePropertyMatrix rows={propertyRows} totals={propertyTotals} filter={filter} />
         ) : null}
         {tab === "on-hand" ? <EstateOnHand catalog={onHandCatalog} /> : null}
-        {tab === "stock-counts" ? <EstateStockRuns /> : null}
+        {tab === "stock-counts" ? (
+          <div className="space-y-4">
+            <EstateStockRuns />
+            <FormCountObservations timeZone={(await getAppSettings()).timezone || "Australia/Sydney"} />
+          </div>
+        ) : null}
         {tab === "scan-tasks" ? <EstateScanTasks /> : null}
         {tab === "shopping-runs" ? <EstateShoppingRuns /> : null}
         {tab === "suppliers" ? <EstateSuppliers /> : null}

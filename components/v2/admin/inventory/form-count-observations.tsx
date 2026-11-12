@@ -10,6 +10,7 @@
  */
 import * as React from "react";
 import Link from "next/link";
+import { formatInTimeZone } from "date-fns-tz";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EFilterChips } from "@/components/v2/ui/filter-chips";
 import { EField, EModal, ETextarea } from "@/components/v2/admin/estate-kit";
@@ -27,11 +28,11 @@ const FILTER_LABEL: Record<FormCountFilter, string> = { review: "Needs review", 
 
 type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; value: FormCountList };
 
-function day(iso: string) {
-  return new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney" }).format(new Date(iso));
+function day(iso: string, timeZone: string) {
+  return formatInTimeZone(new Date(iso), timeZone, "d MMM HH:mm");
 }
 
-function CountsTable({ filter }: { filter: FormCountFilter }) {
+function CountsTable({ filter, timeZone }: { filter: FormCountFilter; timeZone: string }) {
   const [load, setLoad] = React.useState<Load>({ status: "loading" });
   const [revision, setRevision] = React.useState(0);
   const [reviewing, setReviewing] = React.useState<FormCountRow | null>(null);
@@ -88,7 +89,7 @@ function CountsTable({ filter }: { filter: FormCountFilter }) {
             <tbody className="divide-y divide-[hsl(var(--e-border))]">
               {rows.map((row) => (
                 <tr key={row.id} className="align-top">
-                  <td className="py-2 pr-3"><span className="font-[550]">{row.itemName}</span><p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{row.label} · {day(row.observedAt)}</p></td>
+                  <td className="py-2 pr-3"><span className="font-[550]">{row.itemName}</span><p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{row.label} · {day(row.observedAt, timeZone)}</p></td>
                   <td className="py-2 pr-3">{row.propertyName}</td>
                   <td className="e-tnum py-2 pr-3 text-right">{row.count}{row.unit ? ` ${row.unit}` : ""}{row.previousOnHand !== null ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">was {row.previousOnHand}</p> : null}</td>
                   <td className="py-2 pr-3">{row.job ? <Link className="text-[hsl(var(--e-primary))] hover:underline" href={`/v2/admin/jobs/${row.job.id}`}>{row.job.jobNumber ?? "Job"}</Link> : "–"}</td>
@@ -117,7 +118,7 @@ function CountsTable({ filter }: { filter: FormCountFilter }) {
   );
 }
 
-export function FormCountObservations() {
+export function FormCountObservations({ timeZone }: { timeZone: string }) {
   const [open, setOpen] = React.useState(false);
   const [filter, setFilter] = React.useState<FormCountFilter>("review");
   return (
@@ -130,7 +131,7 @@ export function FormCountObservations() {
       {open ? (
         <div className="mt-3 space-y-3">
           <EFilterChips label="Count states" chips={(Object.keys(FILTER_LABEL) as FormCountFilter[]).map((key) => ({ key, label: FILTER_LABEL[key], count: null }))} active={filter} onChange={(key) => setFilter(key as FormCountFilter)} />
-          <CountsTable key={filter} filter={filter} />
+          <CountsTable key={filter} filter={filter} timeZone={timeZone} />
         </div>
       ) : null}
     </section>
