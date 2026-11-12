@@ -1,6 +1,5 @@
 "use client";
 
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -8,6 +7,7 @@ import { Info, ShieldAlert } from "lucide-react";
 import { EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitives";
 import { BiometricSignInButton } from "@/components/auth/biometric-sign-in-button";
 import { signInWithCredentials } from "@/lib/auth/credentials-sign-in";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /** v2 counterpart of ADMIN_RECOVERY_LOGIN_URL — stays inside the Estate skin. */
 const V2_ADMIN_RECOVERY_LOGIN_URL = "/v2/login?admin=1";

@@ -1,6 +1,6 @@
 import { EBadge } from "@/components/v2/ui/primitives";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { summarizeTiming, type TimingInput } from "@/lib/jobs/timing-summary";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export function CleanerTimingSummary({ showPlanned = true, showConstraints = true, ...input }: TimingInput & { showPlanned?: boolean; showConstraints?: boolean }) {
   const timing = summarizeTiming(input);

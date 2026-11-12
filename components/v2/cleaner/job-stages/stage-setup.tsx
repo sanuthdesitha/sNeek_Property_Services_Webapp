@@ -8,7 +8,6 @@
  * unchanged. The job briefing (prior QA / linen drop / access vault) rides along
  * as pre-start context.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import PropertyAccessGuide from "@/components/v2/cleaner/property-access-guide";
 import { Clock, WashingMachine, BookOpen, Package, AlertTriangle, ClipboardCheck, MapPin, ChevronDown } from "lucide-react";
@@ -19,6 +18,7 @@ import { ReadFirstBlock } from "@/components/v2/cleaner/read-first-block";
 import { ClockCard, BriefingCard } from "@/components/v2/cleaner/job-stages/parts";
 import { BookingCard } from "@/components/v2/cleaner/booking-card";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export function StageSetup({ api }: { api: WorkspaceApi }) {
   const {

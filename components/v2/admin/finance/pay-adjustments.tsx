@@ -16,6 +16,7 @@ import { useRestorableState } from "@/hooks/use-restorable-state";
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { format } from "date-fns";
+import { cleanerPayFieldDefault, cleanerRequestedAmount, clientChargeView } from "@/lib/payroll/cleaner-pay-amount";
 import { BadgeDollarSign, Eye, FileText, Link2, Pencil, Plus, RefreshCw, Send, Undo2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
@@ -72,6 +73,7 @@ type PayAdjustmentRow = {
     id: string;
     status: "PENDING" | "APPROVED" | "DECLINED" | "CANCELLED" | "EXPIRED" | string;
     amount?: number;
+    counterAmount?: number | null;
     currency?: string;
     title?: string;
     requestedAt?: string;
@@ -95,10 +97,13 @@ const STATUS_TONE: Record<PayStatus, "warning" | "success" | "danger"> = {
 
 const money = (v: number | null | undefined) => `$${Number(v ?? 0).toFixed(2)}`;
 
+/**
+ * The cleaner's requested amount — the default for the cleaner pay field
+ * (owner rule 2026-11-13). The client charge is shown beside it, read only,
+ * and never used for the cleaner's pay.
+ */
 function primaryAmount(row: PayAdjustmentRow): number {
-  return Number(
-    row.primaryDisplayAmount ?? row.clientRequestedAmount ?? row.cleanerRequestedAmount ?? row.requestedAmount ?? 0
-  );
+  return Number(cleanerRequestedAmount(row) ?? 0);
 }
 
 function dateSafe(value: string | null | undefined): string {
@@ -222,7 +227,7 @@ export function EstatePayAdjustments() {
   function openReview(row: PayAdjustmentRow, action: "APPROVED" | "REJECTED") {
     setReviewing(row);
     setReviewAction(action);
-    setApprovedAmount(primaryAmount(row).toFixed(2));
+    setApprovedAmount(cleanerPayFieldDefault(row));
     setAdminNote("");
   }
 
@@ -711,9 +716,7 @@ export function EstatePayAdjustments() {
               <DetailTile label="Primary displayed amount">
                 <p className="e-numeral text-[0.9375rem]">{money(primaryAmount(detailFor))}</p>
                 <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                  {detailFor.primaryDisplayAmountSource === "CLIENT_REQUESTED"
-                    ? "Client-facing amount"
-                    : "Cleaner-requested amount"}
+                  Cleaner-requested amount
                 </p>
                 {detailFor.type === "HOURLY" ? (
                   <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
@@ -885,7 +888,12 @@ export function EstatePayAdjustments() {
             </div>
           ) : null}
           {reviewAction === "APPROVED" ? (
-            <EField label="Approved amount (AUD)" hint="Defaults to the requested amount — adjust if needed.">
+            <EField
+              label="Pay the cleaner (AUD)"
+              hint={`Starts at what the cleaner requested; lower it if needed. Only an administrator override can pay more.${
+                reviewing && clientChargeView(reviewing.clientApproval) ? ` ${clientChargeView(reviewing.clientApproval)!.label} — what the client is charged, not the cleaner's pay.` : ""
+              }`}
+            >
               <EInput type="number" min="0" step="0.01" value={approvedAmount} onChange={(e) => setApprovedAmount(e.target.value)} />
             </EField>
           ) : null}

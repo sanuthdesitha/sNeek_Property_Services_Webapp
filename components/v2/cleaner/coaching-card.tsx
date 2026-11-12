@@ -6,12 +6,12 @@
  * nothing when there are none. OPEN records carry an Acknowledge button that
  * POSTs to /[id]/acknowledge and refreshes. Estate v2 styling.
  */
-import { E_BAND_BADGE_CLASS, toneBandClass, toneMutedClass } from "@/components/v2/ui/tone-band";
 import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { GraduationCap } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, ECardBody, EEyebrow } from "@/components/v2/ui/primitives";
+import { E_BAND_BADGE_CLASS, toneBandClass, toneMutedClass } from "@/components/v2/ui/tone-band";
 
 type Record_ = {
   id: string;

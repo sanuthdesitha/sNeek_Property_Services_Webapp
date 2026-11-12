@@ -12,9 +12,9 @@
  *
  * Purely informational — it never blocks a save.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { AlertTriangle, CheckCircle2, Info, RefreshCw } from "lucide-react";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export interface TemplateImpact {
   status: "draft" | "published" | "archived";

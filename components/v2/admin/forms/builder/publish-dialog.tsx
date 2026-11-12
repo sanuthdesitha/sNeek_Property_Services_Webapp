@@ -6,12 +6,12 @@
  * shows where the form applies (TemplateImpactPanel) and what happens to jobs
  * in flight, and takes an optional version note.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EModal, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { TemplateCheckResult } from "@/lib/forms/template-checks";
 import { TemplateImpactPanel } from "./template-impact";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /** What really happens to jobs when a new version goes live (see resolve-effective-job-form + the submit route's revision check). */
 export const IN_FLIGHT_RULE =

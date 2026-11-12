@@ -11,7 +11,6 @@
  * session the registration endpoints require exists. Completion is decided by
  * the server; a missing field sends the person back to its step.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
@@ -21,6 +20,7 @@ import { EstateLoader } from "@/components/v2/ui/estate-loader";
 import { EPasskeySection } from "@/components/v2/shared/passkey-section";
 import { OnboardingFields, EMPTY_ONBOARDING_FORM, type OnboardingForm } from "@/components/v2/onboarding/onboarding-fields";
 import { firstStepWithMissing, onboardingSteps, roleNeedsBank, roleNeedsBusiness } from "@/lib/onboarding/steps";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 type OnboardingResponse = {
   user: { name: string | null; phone: string | null; role: string };

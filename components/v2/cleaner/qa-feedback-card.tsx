@@ -9,7 +9,6 @@
  * read this" button hitting POST /api/cleaner/qa-feedback/[id]/acknowledge.
  * Modelled on components/v2/cleaner/coaching-card.tsx; Estate v2 styling.
  */
-import { E_BAND_BADGE_CLASS, toneBandClass, toneMutedClass } from "@/components/v2/ui/tone-band";
 import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { ChevronDown, ChevronUp, Download, PenLine, ShieldCheck } from "lucide-react";
@@ -17,6 +16,7 @@ import { downloadFromApi } from "@/lib/client/download";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton, ECard, ECardBody } from "@/components/v2/ui/primitives";
 import { MediaGallery } from "@/components/shared/media-gallery";
+import { E_BAND_BADGE_CLASS, toneBandClass, toneMutedClass } from "@/components/v2/ui/tone-band";
 
 type IssuePhoto = {
   /** The image to show: QA's markup already flattened onto the photo. */

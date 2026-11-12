@@ -9,11 +9,11 @@
  *   - same-day check-in → a new guest arrives on the day of this clean
  * Renders nothing when no rule applies.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { AlarmClock, LogIn, CalendarClock } from "lucide-react";
 import { summarizeTiming } from "@/lib/jobs/timing-summary";
 import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export interface JobTimingRulesPayload {
   earlyCheckin?: { time: string } | null;

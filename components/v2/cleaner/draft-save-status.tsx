@@ -1,7 +1,7 @@
 import { RefreshCw } from "lucide-react";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { EButton } from "@/components/v2/ui/primitives";
 import type { DraftSaveState } from "@/lib/cleaner/use-draft-save";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export function DraftSaveStatus({ state, onRetry }: { state: DraftSaveState; onRetry: () => void }) {
   if (state.phase === "idle") return null;

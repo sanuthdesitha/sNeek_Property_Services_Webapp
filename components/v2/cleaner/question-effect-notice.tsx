@@ -12,7 +12,6 @@
  * The urgent stock effect has no phone step: the submit route raises the need
  * after the form is submitted. The cleaner is told so truthfully.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { AlertTriangle, Package } from "lucide-react";
 import { DamageReportForm } from "@/components/v2/cleaner/damage-report-form";
@@ -20,6 +19,7 @@ import { damageEffectOf, urgentStockEffectOf, yesNoMatches } from "@/lib/forms/f
 import { readStockCountAnswer } from "@/lib/forms/structured-answers";
 import type { FormField } from "@/lib/forms/types";
 import type { FormRenderMode } from "@/components/v2/cleaner/form-renderer";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /** The job the live form belongs to (damage report target); undefined in previews. */
 export const FormJobContext = React.createContext<string | undefined>(undefined);

@@ -260,3 +260,14 @@ These match the approved concept (`table.t`, `.chip`, `.bulk`, `.b`) using Estat
 - Autosave only with the stale-write token, serialised; a 409 stops autosave and offers explicit choices. Show saving / saved / failed / conflict truthfully in the header line.
 - Previews of cleaner forms use the real renderer (`FormRenderer mode="preview" | "sandbox"`), never a look-alike, and never upload or submit.
 - Badges on a row state behaviour the stored data really drives; a usage warning comes only from a real usage check.
+
+## Flagged cards, rows and notices: the tone band (2026-11, owner decision)
+
+No coloured line down the left edge of a card, row or notice, anywhere in v2. The owner chose design B, the tinted title band, in colour set 1 "Honey and wine". Use `components/v2/ui/tone-band.tsx` (a plain module, safe from server pages) and the `--e-band-<tone>-{bg,line,fg,muted,pill}` tokens in `app/v2/estate.css` (light and Obsidian dark); never hand-pick colours.
+
+- Tones: `attention` (honey) for something waiting on someone or about to go wrong (was warning/amber: late, needs acknowledgement, approval waiting, offer open); `problem` (wine) for something failed, blocked or refused (was danger/red: failed pickup, could not load, required items missing); `good` (sage) for a confirmed positive outcome (was success/green: delivered, valid, saved); `info` (sky) for neutral context worth noticing (was info/blue or primary used as information: guest in at 15:00, linen drop location). `toneFromLegacy` maps the old names.
+- Card: when flagged, the title row becomes the band (`EToneCard`, or `EToneBand` / `toneBandClass` first inside an `overflow-hidden` card): tint, hairline under it, rounded top following the card. The body stays on the plain surface. A card with nothing to flag keeps a plain top, so a band always means something.
+- Table or list row: tint behind the leading cell (`EToneRowCell` / `toneRowCellClass`), no left line. A selected or active `EDataTable` row is a soft primary tint, also without an inset line.
+- Notice / callout (`EAlert`, `EToneNotice`, `toneNoticeClass`): the whole box takes the tint with a hairline border.
+- The written reason stays: the pill or badge in the band sits on the surface colour (`tonePillClass`, or `E_BAND_BADGE_CLASS` on an existing `EBadge`/`EPill`). Colour is never the only signal. Secondary text in a band uses `toneMutedClass`.
+- Not status accents, and left alone: column dividers (`border-l` between panels), drawer edges, segmented-control separators, timeline connectors, nested-question guides, quote styling, focus rings and chart marks. `tests/lib/no-left-accent-lines.test.ts` fails if a left accent comes back outside its allowlist.

@@ -1,5 +1,4 @@
 "use client";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { Tags } from "lucide-react";
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
 
@@ -73,6 +72,7 @@ import { TrackingIssues, TrackingStageChips, type StageFilter } from "@/componen
 import { stageCounts, trackingDayOf, trackingStage } from "@/lib/laundry/tracking-stages";
 import { classifyRuns } from "@/lib/laundry/run-classification";
 import { PartnerRunEntries } from "@/components/v2/laundry/portal/partner-run-entries";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /* ── Types (mirror the /api/laundry/week payload) ──────────────────────── */
 export type LaundryStatus =

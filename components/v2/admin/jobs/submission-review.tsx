@@ -1,5 +1,4 @@
 "use client";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { readSubmissionWarnings } from "@/lib/forms/submission-warnings";
 import { isDeviceException } from "@/lib/forms/device-status";
 
@@ -17,6 +16,7 @@ import { formatFieldValue, isUploadFieldType } from "@/lib/forms/field-types";
 import { EBadge } from "@/components/v2/ui/primitives";
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
 import { TableAnswer, inlineAnswerText, isBlockAnswer } from "@/components/v2/admin/forms/submissions/structured-answer";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /* ── Serialized shapes (built server-side in the job detail page) ───────── */
 

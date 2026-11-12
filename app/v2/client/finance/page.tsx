@@ -1,5 +1,4 @@
 import { requireClientPortalPage } from "@/lib/auth/client-portal";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
 import { buildClientMoneyRow, summarizeToPay, type ClientMoneyRow, type ClientMoneyToPay } from "@/lib/billing/client-portal-money";
@@ -13,6 +12,7 @@ import { UnbilledList, UnbilledSummaryCard, type UnbilledCharge } from "@/compon
 import { RatesList, type ClientRate } from "@/components/v2/client/money/rates-list";
 import { MONEY_TZ, formatAud } from "@/components/v2/client/money/money-format";
 import { Info } from "lucide-react";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export const metadata = { title: "Money · Estate client" };
 export const dynamic = "force-dynamic";

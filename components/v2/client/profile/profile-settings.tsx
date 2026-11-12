@@ -11,7 +11,6 @@
  * Theme is applied live via the shared ThemeProvider hook (@/lib/theme/context).
  * Styled purely with `--e-*` tokens. No v1 UI imports.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -21,6 +20,7 @@ import { EInput, ESelect, EField, ESwitch } from "@/components/v2/admin/estate-k
 import { EInlineNotice } from "@/components/v2/client/fields";
 import { EAddressInput } from "@/components/v2/client/address-input";
 import { useTheme, type ThemePreference } from "@/lib/theme/context";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
 export interface ProfileUser {

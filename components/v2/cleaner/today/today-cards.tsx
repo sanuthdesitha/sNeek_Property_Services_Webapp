@@ -6,7 +6,6 @@
  * No "use client": JobOfferActions is the only interactive child and is itself
  * a client component.
  */
-import { EToneBand, toneMutedClass } from "@/components/v2/ui/tone-band";
 import Link from "next/link";
 import { ChevronRight, Clock, MapPin } from "lucide-react";
 import { EBadge, EButton, ECard } from "@/components/v2/ui/primitives";
@@ -16,6 +15,7 @@ import { CleanerTimingSummary } from "@/components/v2/cleaner/timing-summary";
 import type { ImmediateAttentionItem } from "@/components/shared/immediate-attention-panel";
 import type { JobTimingBadges } from "@/lib/jobs/timing-badges";
 import { formatAud, statusTone, titleCase, type TodayClockState } from "@/lib/cleaner/today-view";
+import { EToneBand, toneMutedClass } from "@/components/v2/ui/tone-band";
 
 /* ── Clock state ───────────────────────────────────────────────────────── */
 

@@ -1,5 +1,4 @@
 import { JobStatusProgress } from "@/components/shared/job-status-progress";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { clientMaySeeJobCosts } from "@/lib/client/job-response";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -49,6 +48,7 @@ import {
   CLIENT_TIMELINE_STEPS,
   resolveClientTimelinePosition,
 } from "@/lib/jobs/client-timeline";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export const metadata = { title: "Job · Estate client" };
 export const dynamic = "force-dynamic";

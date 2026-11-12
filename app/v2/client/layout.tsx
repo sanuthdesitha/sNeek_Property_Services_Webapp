@@ -1,6 +1,5 @@
 "use client";
 
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { useSession } from "next-auth/react";
 import { PortalShell, type NavItem } from "@/components/v2/portal/portal-shell";
@@ -17,6 +16,7 @@ import {
 } from "@/components/v2/client/portal/portal-nav";
 import { ClientRequestProvider } from "@/components/v2/client/portal/request-sheet";
 import { ClientHeaderActions } from "@/components/v2/client/portal/header-actions";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /**
  * Client portal shell (approved boards "Client portal" and "Client portal

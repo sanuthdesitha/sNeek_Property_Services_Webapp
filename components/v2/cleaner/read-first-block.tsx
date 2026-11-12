@@ -6,11 +6,11 @@
  * carry-forward items) into one amber-flagged card, source-chipped and
  * collapsible. Pure props — no data fetching. Styled on Estate tokens only.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
 import { resolveRuleTime } from "@/lib/jobs/meta";
 import { renderJobNotices } from "@/lib/jobs/notices";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /**
  * TIMING and NOTICE lead the list. A late-checkout rule and a one-off notice

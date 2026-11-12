@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { loadClientHome } from "@/lib/client/home-dashboard";
 import { PhoneHome } from "@/components/v2/client/home/phone-home";
@@ -7,6 +6,7 @@ import { DesktopDashboard } from "@/components/v2/client/home/desktop-dashboard"
 import { RequestButton } from "@/components/v2/client/portal/request-sheet";
 import { EEyebrow } from "@/components/v2/ui/primitives";
 import { greetingFor, happeningNow, sydneyFormat, sydneyKey, type HomeJob } from "@/components/v2/client/home/home-model";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export const metadata = { title: "Home · Estate client" };
 export const dynamic = "force-dynamic";

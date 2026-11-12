@@ -9,10 +9,10 @@
  * The checks themselves are computed by the stage from the workspace's own
  * validation; this component only lays them out.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { AlertTriangle, ChevronRight, CheckCircle2, CloudOff } from "lucide-react";
 import { stripHtmlToText } from "@/lib/forms/sanitize";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export interface FormBlocker {
   fieldId: string;

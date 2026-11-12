@@ -3,7 +3,6 @@
  * cleans, last report, what needs you, and Book a clean. Server-renderable;
  * every section shows loading failures as "unavailable", never as empty.
  */
-import { EToneBand, toneMutedClass, toneNoticeClass, type ETone } from "@/components/v2/ui/tone-band";
 import Link from "next/link";
 import { EBadge, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EstateReportDownloadButton } from "@/components/v2/client/report-download-button";
@@ -13,6 +12,7 @@ import {
   cleanerNames, happeningNow, liveLabel, sentence, sydneyFormat, upcomingBadge, upcomingJobs,
   type HomeJob,
 } from "@/components/v2/client/home/home-model";
+import { EToneBand, toneMutedClass, toneNoticeClass, type ETone } from "@/components/v2/ui/tone-band";
 
 function Unavailable({ section }: { section: string }) {
   return <p className="py-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{section} unavailable.</p>;

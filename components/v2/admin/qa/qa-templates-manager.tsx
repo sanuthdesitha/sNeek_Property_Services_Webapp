@@ -10,7 +10,6 @@
  * Writes are ADMIN only. `canWrite` (decided on the server from the viewer's
  * held roles) hides every write control for everyone else.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useEffect, useState } from "react";
 import { JobType } from "@prisma/client";
 import { ClipboardCheck, Plus, RefreshCw } from "lucide-react";
@@ -23,6 +22,7 @@ import { EConfirmModal, EField, EInput, EModal, ESelect, ESwitch, ETableShell } 
 import { QaTemplateEditor, type PropertyOption, type TemplateRow } from "./qa-template-editor";
 import { QaTemplatePreview } from "./qa-template-preview";
 import { filterAndSortQaTemplates, type QaSort } from "./qa-template-list";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 type Row = TemplateRow & { revisions?: number | null };
 

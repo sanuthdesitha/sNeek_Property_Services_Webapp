@@ -4,8 +4,8 @@
  * Minimal Estate-scoped toast used by the v2 admin marketing + comms
  * workspaces. No dependency on @/hooks/use-toast or components/ui/*.
  */
-import { toneMutedClass, toneNoticeClass, type ETone } from "@/components/v2/ui/tone-band";
 import * as React from "react";
+import { toneMutedClass, toneNoticeClass, type ETone } from "@/components/v2/ui/tone-band";
 
 export type EstateToast = { title: string; description?: string; tone: "success" | "danger" };
 

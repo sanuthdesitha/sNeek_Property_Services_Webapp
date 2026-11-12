@@ -1,5 +1,4 @@
 "use client";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { Tags } from "lucide-react";
 import { LinenBags } from "@/components/operations/linen-bags";
 import { reconcileEvidenceState } from "@/lib/cleaner/evidence-destination";
@@ -123,6 +122,7 @@ import { getAccuratePosition } from "@/lib/geo/get-position";
 
 import { ActionFab } from "@/components/v2/cleaner/job-stages/action-fab";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
 

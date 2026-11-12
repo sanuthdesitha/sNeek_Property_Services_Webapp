@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { Role } from "@prisma/client";
@@ -38,6 +37,7 @@ import {
   type MyDayRow,
   type TodayJobView,
 } from "@/components/v2/cleaner/today/today-cards";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export const metadata = { title: "Today · Estate cleaner" };
 export const dynamic = "force-dynamic";

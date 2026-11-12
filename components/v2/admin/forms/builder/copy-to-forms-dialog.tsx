@@ -8,7 +8,6 @@
  * outside the copied set is dropped, and that is shown before anything is
  * saved. Nothing reaches cleaners until each form is published.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
@@ -17,6 +16,7 @@ import { copyFieldsWithNewIds } from "@/lib/forms/builder-ops";
 import type { BulkFormOutcome, BulkResponse } from "@/lib/forms/template-bulk-types";
 import { BULK_MAX_FORMS } from "@/lib/forms/template-bulk-types";
 import type { FormField } from "@/lib/forms/types";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 type FormOption = { id: string; name: string; serviceType: string; version: number; isActive: boolean; archivedAt: string | null };
 type Step = { kind: "choose" } | { kind: "preview"; response: BulkResponse } | { kind: "done"; response: BulkResponse };

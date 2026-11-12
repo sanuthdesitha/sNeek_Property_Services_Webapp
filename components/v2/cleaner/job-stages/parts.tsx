@@ -5,7 +5,6 @@
  * out of `job-workspace.tsx` so multiple stages (Set up / Clean) and the header
  * can render them without duplicating logic. Behaviour is unchanged.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import {
   Clock,
@@ -23,6 +22,7 @@ import { EBadge, ECard, ECardBody, EButton } from "@/components/v2/ui/primitives
 import { MediaGallery } from "@/components/shared/media-gallery";
 import { cn } from "@/lib/utils";
 import { formatDuration, elapsedSecondsSince } from "@/lib/time/format-duration";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /* ── Live "time on site" chip (header) ───────────────────────────────────── */
 export function LiveTimerChip({ timeState }: { timeState: any }) {

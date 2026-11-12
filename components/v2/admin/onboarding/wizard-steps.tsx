@@ -10,13 +10,13 @@
  * emergencyContact / defaultCheckinTime / defaultCheckoutTime / geocode).
  * Estate token scope only; no components/ui/* dependency.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { CheckCircle2, Loader2, Plus, Trash2, Upload, XCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { EConfirmButton, EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import { EAddressInput } from "./address-input";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export interface StepProps {
   data: Record<string, unknown>;

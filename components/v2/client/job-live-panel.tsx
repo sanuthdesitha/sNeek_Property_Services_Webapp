@@ -6,12 +6,12 @@
  * used (GET /api/client/jobs/[id], every 15s) while the job is EN_ROUTE, and
  * renders the ETA, pause/delay state, schedule comparison, and live trip map.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MapPin } from "lucide-react";
 import { EBadge, ECard, ECardBody, ECardHeader, ECardTitle } from "@/components/v2/ui/primitives";
 import { ELiveTripMap } from "@/components/v2/client/live-trip-map";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 type LiveJob = {
   id: string;

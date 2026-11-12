@@ -15,9 +15,9 @@
  *  - no_signal — driver on route but no fresh location ping
  *  - scheduled — cycle exists, no active route yet
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { Shirt, Truck } from "lucide-react";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export type PreviousLaundryCyclePayload = {
   taskId: string;

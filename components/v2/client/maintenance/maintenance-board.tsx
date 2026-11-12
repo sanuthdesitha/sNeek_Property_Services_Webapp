@@ -12,7 +12,6 @@
  *   POST  /api/uploads/direct  (multipart)     → { key, url }  (photo upload)
  * Styled purely with `--e-*` tokens. No v1 UI imports.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { Wrench, Image as ImageIcon, Upload, X } from "lucide-react";
 import {
@@ -32,6 +31,7 @@ import {
   PRIORITY_LABELS,
   STATUS_LABELS,
 } from "@/lib/maintenance/labels";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 const CATEGORIES = Object.values(MaintenanceCategory);
 const ACTIONS = Object.values(MaintenanceAction);

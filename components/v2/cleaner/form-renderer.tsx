@@ -1,5 +1,4 @@
 "use client";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { isDeviceStatusField } from "@/lib/forms/device-status";
 import { DeviceStatusInput } from "@/components/shared/device-status-input";
 
@@ -63,6 +62,7 @@ import { BarcodeFieldInput, BARCODE_CAPTURE_KEY, type BarcodeCapture } from "@/c
 import { StockCountFieldInput, TableFieldInput } from "@/components/v2/cleaner/structured-field-inputs";
 import { FormJobContext, QuestionEffectNotice } from "@/components/v2/cleaner/question-effect-notice";
 import { SandboxMediaInput } from "@/components/v2/cleaner/sandbox-media-input";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export type AnswerMap = Record<string, unknown>;
 export type UploadMap = Record<string, CapturedMedia[]>;

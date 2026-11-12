@@ -5,7 +5,6 @@
 // (which drives cleaner pay), audit-logs every change, notifies the cleaner
 // and refreshes any already-generated report.
 
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -14,6 +13,7 @@ import { EBadge, EButton } from "@/components/v2/ui/primitives";
 import { EInput } from "@/components/v2/admin/estate-kit";
 import { offSiteReasonLabel, reasonClaimsOnSite } from "@/lib/gps/off-site-reasons";
 import { toast } from "@/hooks/use-toast";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export type ClockLogRow = {
   id: string;

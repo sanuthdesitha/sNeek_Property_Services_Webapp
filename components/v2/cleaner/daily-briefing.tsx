@@ -10,7 +10,6 @@
  * to a compact skeleton/empty state and never blocks the rest of the page.
  * Estate UI only.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useCallback, useEffect, useState, useRef } from "react";
 import {
   AlertTriangle,
@@ -40,6 +39,7 @@ import { ECard, ECardBody, EBadge } from "@/components/v2/ui/primitives";
 import { EChip } from "@/components/v2/cleaner/fields";
 import { BriefingVoiceover } from "@/components/v2/cleaner/briefing-voiceover";
 import type { BriefingDay, CleanerBriefing } from "@/lib/briefing/types";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 const COLLAPSE_KEY = "sneek.cleaner.briefing.collapsed";
 

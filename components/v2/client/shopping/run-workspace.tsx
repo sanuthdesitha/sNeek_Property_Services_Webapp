@@ -10,7 +10,6 @@
  * Client owner scope only (no admin on-hand deposit, no cleaner shopping-time).
  * Styled purely with `--e-*` tokens. No v1 UI imports.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Download, Play, Plus, Receipt, Save, ShoppingBag, Trash2, Upload } from "lucide-react";
@@ -26,6 +25,7 @@ import {
   type ShoppingGroupMode,
 } from "@/lib/inventory/shopping-grouping";
 import { toast } from "@/hooks/use-toast";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 type RunStatus = "DRAFT" | "IN_PROGRESS" | "COMPLETED";
 type PaymentMethod =

@@ -1,5 +1,4 @@
 import { formatInTimeZone } from "date-fns-tz";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { QaAssignmentStatus, QaReworkTransferStatus, Role } from "@prisma/client";
 import { ListFilter } from "lucide-react";
@@ -13,6 +12,7 @@ import { QaVisitOrder } from "@/components/v2/qa/today/qa-visit-order";
 import { getAppSettings } from "@/lib/settings";
 import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
 import { resolveReworkScope, reworkScopeWhere } from "@/lib/qa/rework-list";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export const metadata = { title: "Today · Estate QA" };
 export const dynamic = "force-dynamic";

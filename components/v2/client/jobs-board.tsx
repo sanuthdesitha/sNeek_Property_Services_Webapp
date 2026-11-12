@@ -1,5 +1,4 @@
 "use client";
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
 
 import { statusBlockStyle } from "@/lib/jobs/status-presentation";
@@ -59,6 +58,7 @@ import { EConfirmButton } from "@/components/v2/admin/estate-kit";
 import { cn } from "@/lib/utils";
 import { canRebookJob } from "@/lib/booking/rebook";
 import { clientLaundryStatusLabel } from "@/lib/client/laundry-status";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 const TZ = "Australia/Sydney";
 

@@ -1,6 +1,5 @@
 "use client";
 
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useRestorableState } from "@/hooks/use-restorable-state";
 import { DeviceStatusInput } from "@/components/shared/device-status-input";
 import { isDeviceException, isDeviceStatusField } from "@/lib/forms/device-status";
@@ -110,6 +109,7 @@ import {
   type VerdictState,
 } from "@/components/v2/qa/accountability";
 import { normalizeVerdictScale } from "@/lib/qa/verdict-scale";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
 function dataUrlToBlob(dataUrl: string): Blob {

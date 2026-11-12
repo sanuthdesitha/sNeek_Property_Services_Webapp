@@ -4,12 +4,12 @@
  * from, the period's jobs with their recorded status, and pending extra pay.
  * Presentational only; no money is computed here.
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import Link from "next/link";
 import { Info } from "lucide-react";
 import { EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
 import { formatAud } from "@/lib/cleaner/today-view";
 import type { PayLine } from "@/lib/cleaner/pay-view";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export interface PayJobRow {
   jobId: string;

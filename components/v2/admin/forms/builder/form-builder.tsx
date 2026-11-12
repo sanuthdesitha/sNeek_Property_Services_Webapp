@@ -14,7 +14,6 @@
  *   use-builder-editing  — selection and schema operations
  *   use-builder-lifecycle — publish, archive, duplicate, discard, conflict exits
  */
-import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
@@ -37,6 +36,7 @@ import { useBuilderEditing } from "./use-builder-editing";
 import { useBuilderLifecycle } from "./use-builder-lifecycle";
 import { useDraftAutosave } from "./use-draft-autosave";
 import { useInlineRename } from "./use-inline-rename";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 
 export interface EstateFormBuilderProps {
   templateId: string;
