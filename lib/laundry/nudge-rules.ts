@@ -14,9 +14,12 @@
  *   drop-off, photos and the return date:
  *     TEAM_CONFIRM_PICKUP  pickup due/overdue while the bags are not reported
  *                          not-ready;
+ *     TEAM_MOVE_PICKUP     pickup day reached and the bags are not out yet
+ *                          (ask whether the pickup can move later);
  *     TEAM_CONFIRM_DROP    picked up and the drop day has come;
  *     TEAM_RETURN_ETA      picked up and over turnaround or the drop is overdue;
- *     TEAM_PHOTO           delivered without the required drop-off photo.
+ *     TEAM_PHOTO           delivered without the required drop-off photo
+ *                          (to the team member who delivered, when known).
  *   A run without a supplier offers none (nobody to ask; record the supplier
  *   first). A supplier with no linked portal users disables the button with
  *   the reason and offers "Chase supplier" (stored contact) instead.
@@ -30,9 +33,9 @@ import { dayKeyOf, type PipelineException } from "./pipeline";
 /** Cleaner nudges. REQUEST_PHOTO is still accepted from older screens but no longer offered. */
 export type LaundryNudgeKind = "ASK_CLEANER" | "REQUEST_PHOTO";
 
-export type LaundryTeamRequestKind = "TEAM_CONFIRM_PICKUP" | "TEAM_CONFIRM_DROP" | "TEAM_RETURN_ETA" | "TEAM_PHOTO";
+export type LaundryTeamRequestKind = "TEAM_CONFIRM_PICKUP" | "TEAM_MOVE_PICKUP" | "TEAM_CONFIRM_DROP" | "TEAM_RETURN_ETA" | "TEAM_PHOTO";
 
-export const LAUNDRY_TEAM_REQUEST_KINDS: readonly LaundryTeamRequestKind[] = ["TEAM_CONFIRM_PICKUP", "TEAM_CONFIRM_DROP", "TEAM_RETURN_ETA", "TEAM_PHOTO"];
+export const LAUNDRY_TEAM_REQUEST_KINDS: readonly LaundryTeamRequestKind[] = ["TEAM_CONFIRM_PICKUP", "TEAM_MOVE_PICKUP", "TEAM_CONFIRM_DROP", "TEAM_RETURN_ETA", "TEAM_PHOTO"];
 
 export const NUDGE_COOL_DOWN_MINUTES = 30;
 
@@ -40,7 +43,7 @@ type RequestLabel = { button: string; title: string; text: string };
 
 export const NUDGE_LABELS: Record<LaundryNudgeKind, RequestLabel> = {
   ASK_CLEANER: {
-    button: "Ask cleaner",
+    button: "Ask cleaner: bags out?",
     title: "Ask the cleaner about the bags",
     text: "The office needs to know whether the laundry for this job is bagged and ready for pickup, and how many bags there are.",
   },
@@ -53,23 +56,28 @@ export const NUDGE_LABELS: Record<LaundryNudgeKind, RequestLabel> = {
 
 export const TEAM_REQUEST_LABELS: Record<LaundryTeamRequestKind, RequestLabel> = {
   TEAM_CONFIRM_PICKUP: {
-    button: "Ask laundry team to confirm pickup",
-    title: "Ask the laundry team to confirm the pickup",
+    button: "Ask laundry team: confirm pickup",
+    title: "Ask laundry team: confirm pickup",
     text: "The office asks you to confirm the laundry pickup for this property, or tell us when it will happen.",
   },
+  TEAM_MOVE_PICKUP: {
+    button: "Ask laundry team: move pickup",
+    title: "Ask laundry team: move pickup",
+    text: "The clean is running late, so the bags are not out yet. The office asks whether you can collect later today.",
+  },
   TEAM_CONFIRM_DROP: {
-    button: "Ask laundry team to confirm drop-off",
-    title: "Ask the laundry team to confirm the drop-off",
+    button: "Ask laundry team: drop time",
+    title: "Ask laundry team: drop time",
     text: "The office asks you to confirm the laundry drop-off for this property, or tell us when it will happen.",
   },
   TEAM_RETURN_ETA: {
     button: "Ask laundry team: when will it be back?",
-    title: "Ask the laundry team when the laundry will be back",
+    title: "Ask laundry team: when will it be back?",
     text: "The office asks when the laundry for this property will be ready and delivered.",
   },
   TEAM_PHOTO: {
-    button: "Ask laundry team for a photo",
-    title: "Ask the laundry team for a drop-off photo",
+    button: "Ask laundry team for photo",
+    title: "Ask laundry team for photo",
     text: "The office asks for the drop-off photo for this property's laundry.",
   },
 };
@@ -112,6 +120,11 @@ export function laundryTeamRequestKinds(run: TeamRequestRunFacts, todayKey: stri
   if (NOT_PICKED_UP.has(run.status) && run.readiness !== false && !codes.has("NOT_READY") && (codes.has("PICKUP_OVERDUE") || (pickupDue(run, todayKey) && run.readiness === true))) {
     kinds.push("TEAM_CONFIRM_PICKUP");
   }
+  // The bags are not out yet on the pickup day (the clean is late or the
+  // cleaner said not ready): ask whether the pickup can move later.
+  if (NOT_PICKED_UP.has(run.status) && pickupDue(run, todayKey) && run.readiness !== true) {
+    kinds.push("TEAM_MOVE_PICKUP");
+  }
   if (run.status === "PICKED_UP") {
     if (codes.has("OVER_TURNAROUND") || codes.has("DROP_OVERDUE")) kinds.push("TEAM_RETURN_ETA");
     const dropKey = dayKeyOf(run.dropoffDate ?? null);
@@ -121,8 +134,25 @@ export function laundryTeamRequestKinds(run: TeamRequestRunFacts, todayKey: stri
   return kinds;
 }
 
-/** The run's partner team as the screens see it. Null when the run has no supplier. */
-export type SupplierTeamSummary = { supplierName: string; count: number; names: string[] } | null;
+/**
+ * The run's partner team as the screens see it. Null when the run has no
+ * supplier. `deliverer` is the team member who recorded the drop-off when
+ * they are on that team (the photo request goes to them alone).
+ */
+export type SupplierTeamSummary = { supplierName: string; count: number; names: string[]; deliverer?: string | null } | null;
+
+/** Request kinds that go to the person who delivered rather than the whole team. */
+export function goesToDeliverer(kind: LaundryTeamRequestKind, team: SupplierTeamSummary): boolean {
+  return kind === "TEAM_PHOTO" && Boolean(team?.deliverer);
+}
+
+/** "To CleanCo: Tom, Mia, Dev" / "To Mia Wong, who delivered", as drawn. */
+export function teamRequestToLine(kind: LaundryTeamRequestKind, team: SupplierTeamSummary): string {
+  if (!team) return "No laundry partner recorded";
+  if (goesToDeliverer(kind, team)) return `To ${team.deliverer}, who delivered`;
+  if (team.count === 0) return `${team.supplierName} has no portal logins`;
+  return `To ${team.supplierName}: ${team.names.join(", ")}`;
+}
 
 /** Null when the team can be asked, otherwise why not (the button is disabled with this). */
 export function teamRequestBlockedReason(team: SupplierTeamSummary): string | null {

@@ -42,6 +42,15 @@ export type WordingRenderer = {
 
 type Overrides = ReadonlyMap<string, WordingFields>;
 
+/** Logging must never stop a notification from going out. */
+function warn(details: Record<string, unknown>, message: string): void {
+  try {
+    logger.warn(details, message);
+  } catch {
+    // ignore: the default wording is used either way
+  }
+}
+
 function findPart(typeKey: string, partId: string, transport: WordingTransport): WordingPartDefinition {
   const part = wordingDefinition(typeKey)?.parts.find((item) => item.id === partId && item.transport === transport);
   if (!part) throw new Error(`No wording part ${typeKey}/${partId}/${transport}`);
@@ -99,11 +108,11 @@ export async function loadNotificationWording(typeKey: string): Promise<WordingR
         if (part.source.kind !== "STORE") continue;
         const live = liveStoreOverride(row, part);
         if (live) overrides.set(`${part.id}:${part.transport}`, live);
-        else if ((row.entries[`${part.id}:${part.transport}`] ?? []).at(-1)?.fields) logger.warn({ typeKey, part: part.id, transport: part.transport }, "Invalid notification wording override; the default was used");
+        else if ((row.entries[`${part.id}:${part.transport}`] ?? []).at(-1)?.fields) warn({ typeKey, part: part.id, transport: part.transport }, "Invalid notification wording override; the default was used");
       }
     }
   } catch (error) {
-    logger.warn({ typeKey, error: error instanceof Error ? error.message : String(error) }, "Notification wording overrides unavailable; defaults used");
+    warn({ typeKey, error: error instanceof Error ? error.message : String(error) }, "Notification wording overrides unavailable; defaults used");
     overrides.clear();
   }
   if (parts.some((part) => part.source.kind === "EMAIL_TEMPLATE")) settings = await getAppSettings();

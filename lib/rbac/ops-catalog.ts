@@ -488,6 +488,14 @@ export const FINANCE_PAYROLL_TABS: ReadonlySet<string> = new Set(["cleaner-invoi
  * APIs are. Every other tab (job forms, checklist blocks, results) is forms.
  */
 export const FORMS_TAB_FEATURES: Readonly<Record<string, OpsFeature>> = { qa: "quality", messages: "communications" };
+/**
+ * The People page (/admin/accounts): its Clients tab belongs to the clients
+ * pack and its Cleaners tab to the workforce pack, as the old Clients and
+ * Workforce pages did. Every other tab stays with Staff accounts. Only the
+ * page reads the tab; its data routes keep their own packs
+ * (/api/admin/clients/* = clients, /api/admin/users = accounts).
+ */
+export const PEOPLE_TAB_FEATURES: Readonly<Record<string, OpsFeature>> = { clients: "clients", cleaners: "workforce" };
 
 /**
  * Owner-only routes that an ADMIN can open to one person with an
@@ -559,6 +567,9 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
   if (/^\/admin\/finance\/cleaner-invoices(?:\/|$)/.test(path)) return "payroll";
   if (/^\/admin\/finance\/?$/.test(path)) {
     return FINANCE_PAYROLL_TABS.has(url.searchParams.get("tab") ?? "") ? "payroll" : "finance";
+  }
+  if (/^\/admin\/accounts\/?$/.test(path)) {
+    return PEOPLE_TAB_FEATURES[url.searchParams.get("tab") ?? ""] ?? "accounts";
   }
   if (/^\/admin\/forms\/?$/.test(path)) {
     return FORMS_TAB_FEATURES[url.searchParams.get("tab") ?? ""] ?? "forms";
@@ -678,6 +689,11 @@ export function opsNavigationHref(
   // reaches those tabs of the merged Forms page.
   if (/^\/(?:v2\/)?admin\/forms$/.test(href)) {
     const tab = Object.keys(FORMS_TAB_FEATURES).find((key) => canUseOpsPath(levels, `${href}?tab=${key}`));
+    if (tab) return `${href}?tab=${tab}`;
+  }
+  // People: a manager with clients or workforce but not accounts reaches their tab.
+  if (/^\/(?:v2\/)?admin\/accounts$/.test(href)) {
+    const tab = Object.keys(PEOPLE_TAB_FEATURES).find((key) => canUseOpsPath(levels, `${href}?tab=${key}`));
     if (tab) return `${href}?tab=${tab}`;
   }
   if (/^\/(?:v2\/)?admin\/settings$/.test(href)) {

@@ -925,6 +925,7 @@ model User {
   /// "laundry team of this run's supplier" recipient scope skips them).
   laundrySupplierId  String?
   laundrySupplier    LaundrySupplier? @relation("LaundrySupplierTeam", fields: [laundrySupplierId], references: [id], onDelete: SetNull)
+  laundryTeamRequestReplies LaundryTeamRequestReply[] @relation("LaundryTeamRequestReplies")
 
   invoicingCadence       InvoicingCadence @default(ON_COMPLETION)
   invoiceDayOfWeek       Int?
@@ -2690,9 +2691,41 @@ model LaundryTask {
   supplier      LaundrySupplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   confirmations LaundryConfirmation[]
   quantityExceptions LaundryQuantityException[]
+  teamRequestReplies LaundryTeamRequestReply[]
 
   @@index([droppedAt])
   @@index([status])
+}
+
+/// A laundry partner team member's answer to an "Ask laundry team" request,
+/// given in the laundry portal ("From the office"). The request itself is the
+/// audit row LAUNDRY_TEAM_REQUEST_SENT (`requestAuditId`; no FK, the audit log
+/// is not a business table). Rows are never edited: a later answer is another
+/// row. An answer records what the team said; it never changes the run.
+model LaundryTeamRequestReply {
+  id             String    @id @default(cuid())
+  laundryTaskId  String
+  requestAuditId String
+  /// The request kind answered (TEAM_CONFIRM_PICKUP, TEAM_RETURN_ETA, ...).
+  requestKind    String    @db.VarChar(40)
+  /// CONFIRMED | CANNOT | RETURN_AT | MESSAGE (CHECK constraint).
+  answer         String    @db.VarChar(20)
+  /// A clock time the team gave, `HH:mm` (CHECK constraint).
+  answerTime     String?   @db.VarChar(5)
+  /// The calendar day the team gave (a day, never shifted by time zone).
+  answerDate     DateTime? @db.Date
+  note           String?   @db.Text
+  /// Null once the account is deleted; the name below is kept.
+  repliedById    String?
+  repliedByName  String?
+  idempotencyKey String    @unique @db.VarChar(80)
+  createdAt      DateTime  @default(now())
+
+  laundryTask LaundryTask @relation(fields: [laundryTaskId], references: [id], onDelete: Cascade)
+  repliedBy   User?       @relation("LaundryTeamRequestReplies", fields: [repliedById], references: [id], onDelete: SetNull)
+
+  @@index([laundryTaskId, createdAt])
+  @@index([requestAuditId])
 }
 
 model LaundryConfirmation {

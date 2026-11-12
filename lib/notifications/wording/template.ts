@@ -26,9 +26,14 @@ function valueText(value: TemplateValues[string]): string {
   return value === null || value === undefined ? "" : String(value);
 }
 
+/** Own values only: a template can never reach inherited properties such as {{constructor}}. */
+function ownValue(values: TemplateValues, name: string): TemplateValues[string] {
+  return Object.prototype.hasOwnProperty.call(values, name) ? values[name] : undefined;
+}
+
 /** Plain-text rendering (inbox, push, SMS, email subject). Values are inserted as they are. */
 export function renderPlain(text: string, values: TemplateValues): string {
-  return text.replace(VARIABLE_PATTERN, (_, name: string) => valueText(values[name]));
+  return text.replace(VARIABLE_PATTERN, (_, name: string) => valueText(ownValue(values, name)));
 }
 
 /**
@@ -38,8 +43,8 @@ export function renderPlain(text: string, values: TemplateValues): string {
  */
 export function renderHtml(text: string, values: TemplateValues, formats: Readonly<Record<string, VariableFormat | undefined>>): string {
   return text.replace(VARIABLE_PATTERN, (_, name: string) => {
-    const value = valueText(values[name]);
-    const format = formats[name] ?? "text";
+    const value = valueText(ownValue(values, name));
+    const format = Object.prototype.hasOwnProperty.call(formats, name) ? formats[name] ?? "text" : "text";
     if (format === "html") return value;
     if (format === "multiline") return escapeHtml(value).replace(/\n/g, "<br>");
     return escapeHtml(value);
