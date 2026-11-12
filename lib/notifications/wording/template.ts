@@ -47,6 +47,7 @@ export function renderHtml(text: string, values: TemplateValues, formats: Readon
     const format = Object.prototype.hasOwnProperty.call(formats, name) ? formats[name] ?? "text" : "text";
     if (format === "html") return value;
     if (format === "multiline") return escapeHtml(value).replace(/\n/g, "<br>");
+    if (format === "url") return value.replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return escapeHtml(value);
   });
 }

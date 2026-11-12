@@ -112,8 +112,8 @@ describe("send test to me", () => {
   });
 
   it("refuses types without a test and malformed requests", async () => {
-    // job.changed has no editable wording and no catalog test.
-    expect((await TEST_SEND(request({ typeKey: "job.changed", transports: ["EMAIL"] }))).status).toBe(400);
+    // insights.monthly_email has no editable wording (a generated report) and no catalog test.
+    expect((await TEST_SEND(request({ typeKey: "insights.monthly_email", transports: ["EMAIL"] }))).status).toBe(400);
     expect((await TEST_SEND(request({ typeKey: "job.reminder.manual", transports: [] }))).status).toBe(400);
     expect(m.office).not.toHaveBeenCalled();
   });

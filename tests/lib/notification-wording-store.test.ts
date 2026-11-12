@@ -90,13 +90,13 @@ describe("saving versions", () => {
 
   it("an email-template part writes the shared template (Forms sees it) in its own syntax and keeps the history here", async () => {
     const view = await readTypeWording("job.offer");
-    const part = view!.parts[0];
+    const part = view!.parts.find((item) => item.transport === "EMAIL")!;
     const saved = await saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "New job: {{propertyName}}", body: "<p>Hi {{userName}}</p>" }, expectedHash: part.liveHash, actor });
     expect(m.saveSettings.mock.calls[0][0].emailTemplates.jobAssigned).toEqual({ subject: "New job: {propertyName}", html: "<p>Hi {userName}</p>" });
-    const after = (await readTypeWording("job.offer"))!.parts[0];
+    const after = (await readTypeWording("job.offer"))!.parts.find((item) => item.transport === "EMAIL")!;
     expect([after.liveSource, after.live.subject, after.liveHash]).toEqual(["override", "New job: {{propertyName}}", saved.hash]);
     m.settings.emailTemplates = { ...m.settings.emailTemplates, jobAssigned: { subject: "Changed in Forms", html: "<p>x</p>" } };
-    expect((await readTypeWording("job.offer"))!.parts[0].liveSource).toBe("forms");
+    expect((await readTypeWording("job.offer"))!.parts.find((item) => item.transport === "EMAIL")!.liveSource).toBe("forms");
     await expect(saveWording({ typeKey: "job.offer", partId: "cleaner", transport: "EMAIL", kind: "EDIT", fields: { subject: "Mine", body: "<p>y</p>" }, expectedHash: saved.hash, actor })).rejects.toBeInstanceOf(WordingConflictError);
   });
 });

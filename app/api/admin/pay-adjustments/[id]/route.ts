@@ -19,6 +19,7 @@ import { notifyPayAdjustmentOutcome } from "@/lib/notifications/pay-adjustments"
 import { adjustmentSignedAmount } from "@/lib/finance/pay-adjustments";
 import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
 import type { ApprovalQueueKey } from "@/lib/admin/approval-history";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const updateSchema = z.object({
   // Status changes now include reversing back to PENDING (admins can undo a
@@ -291,35 +292,28 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const note = updated.decisionMessage ? ` ${updated.decisionMessage}` : "";
       const newAmount = Number(updated.approvedAmount ?? 0).toFixed(2);
 
-      let pushSubject: string;
-      let pushBody: string;
-      let emailSubject: string;
-      let emailIntro: string;
-
-      if (isReverseToPending) {
-        pushSubject = `Extra payment request reopened - ${propertyName}`;
-        pushBody = `Your extra payment request for ${propertyName} was set back to pending for review.${note}`;
-        emailSubject = "Extra Payment Request Reopened";
-        emailIntro = `<p>Your extra payment request for <strong>${propertyName}</strong> has been set back to <strong>pending</strong> and will be reviewed again.</p>`;
-      } else if (isAmountEdit) {
-        const oldAmount = Number(previousApprovedAmount ?? 0).toFixed(2);
-        pushSubject = `Approved payment updated - ${propertyName}`;
-        pushBody = `Your approved payment for ${propertyName} was updated from $${oldAmount} to $${newAmount}.${note}`;
-        emailSubject = "Approved Payment Updated";
-        emailIntro = `<p>Your approved extra payment for <strong>${propertyName}</strong> has been updated from <strong>$${oldAmount}</strong> to <strong>$${newAmount}</strong>.</p>`;
-      } else {
-        pushSubject = `Extra payment request ${updated.status.toLowerCase()} - ${propertyName}`;
-        pushBody =
-          updated.status === PayAdjustmentStatus.APPROVED
-            ? `Approved $${newAmount} for ${propertyName}.${note}`
-            : `Rejected extra payment request for ${propertyName}.${note}`;
-        emailSubject = `Extra Payment Request ${updated.status}`;
-        emailIntro = `<p>Your extra payment request for <strong>${propertyName}</strong> has been <strong>${updated.status.toLowerCase()}</strong>.</p>${
-          updated.status === PayAdjustmentStatus.APPROVED
-            ? `<p><strong>Approved amount:</strong> $${newAmount}</p>`
-            : ""
-        }`;
-      }
+      const wording = await loadNotificationWording("job.cleaner_requests_decided");
+      const approvedStatus = updated.status === PayAdjustmentStatus.APPROVED;
+      const values = {
+        propertyName,
+        decisionSuffix: note,
+        oldAmount: `$${Number(previousApprovedAmount ?? 0).toFixed(2)}`,
+        newAmount: `$${newAmount}`,
+        status: updated.status,
+        decision: updated.status.toLowerCase(),
+      };
+      const pushPart = isReverseToPending ? "extra-pay-reopened" : isAmountEdit ? "extra-pay-updated" : approvedStatus ? "extra-pay-approved" : "extra-pay-rejected";
+      const push = wording.render(pushPart, "INBOX", { ...values, status: updated.status.toLowerCase() });
+      const pushSubject = push.title;
+      const pushBody = push.body;
+      const emailSubject = isReverseToPending
+        ? wording.line("title-reopened", "EMAIL", {})
+        : isAmountEdit ? wording.line("title-updated", "EMAIL", {}) : wording.line("title-decided", "EMAIL", { status: updated.status });
+      const emailIntro = isReverseToPending
+        ? wording.line("intro-reopened", "EMAIL", values)
+        : isAmountEdit
+          ? wording.line("intro-updated", "EMAIL", values)
+          : wording.line("intro-decided", "EMAIL", { ...values, approvedAmountParagraph: wording.line("approved-amount", "EMAIL", values, approvedStatus) });
 
       await db.notification.create({
         data: {
@@ -335,22 +329,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       });
 
       const settings = await getAppSettings();
+      // Addressed to `updated.cleaner.email`, so this must be the cleaner-facing
+      // message. `adminNote` is private and was being emailed verbatim to the
+      // person it was written about.
+      const decisionEmail = wording.render("extra-pay-decision", "EMAIL", {
+        companyName: settings.companyName,
+        emailTitle: emailSubject,
+        recipientName: updated.cleaner.name ?? updated.cleaner.email,
+        intro: emailIntro,
+        decisionParagraph: wording.line("decision-paragraph", "EMAIL", { message: updated.decisionMessage }, Boolean(updated.decisionMessage)),
+      });
       await sendEmailDetailed({
         kind: "pay_adjustment",
         to: updated.cleaner.email,
-        subject: `${settings.companyName} - ${emailSubject}`,
-        html: `
-          <p>Hello ${updated.cleaner.name ?? updated.cleaner.email},</p>
-          ${emailIntro}
-          ${
-            // Addressed to `updated.cleaner.email`, so this must be the
-            // cleaner-facing message. `adminNote` is private and was being
-            // emailed verbatim to the person it was written about.
-            updated.decisionMessage
-              ? `<p>${updated.decisionMessage.replace(/</g, "&lt;")}</p>`
-              : ""
-          }
-        `,
+        subject: decisionEmail.subject,
+        html: decisionEmail.html,
       });
 
       // MONEY-CHANGE NOTICE (web push + preference-aware delivery). The block
@@ -415,16 +408,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // (amount/type/hours/rate) without a status change, so their view isn't stale.
     if (isFieldEdit && !isStatusChange && !isAmountEdit && !isReverseToPending) {
       const propertyName = updated.job?.property?.name ?? updated.property?.name ?? "Unlinked request";
+      const edited = (await loadNotificationWording("job.cleaner_requests_decided")).render("extra-pay-edited", "INBOX", {
+        propertyName,
+        requestedAmount: `$${Number(updated.requestedAmount ?? 0).toFixed(2)}`,
+      });
       await db.notification.create({
         data: {
           userId: updated.cleaner.id,
           jobId: updated.job?.id ?? undefined,
           externalId: mobilePendingMarker("billing"),
           channel: NotificationChannel.PUSH,
-          subject: `Extra payment request updated - ${propertyName}`,
-          body: `An admin updated the details of your extra payment request for ${propertyName}. New requested amount: $${Number(
-            updated.requestedAmount ?? 0
-          ).toFixed(2)}.`,
+          subject: edited.title,
+          body: edited.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },

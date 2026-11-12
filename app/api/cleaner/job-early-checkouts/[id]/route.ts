@@ -4,6 +4,7 @@ import { NotificationChannel, NotificationStatus, Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import {
   decideEarlyCheckoutRequest,
   listEarlyCheckoutRequests,
@@ -46,14 +47,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       select: { id: true },
     });
     if (admins.length > 0) {
+      const reviewed = (await loadNotificationWording("job.cleaner_requests_decided")).render("timing-reviewed", "INBOX", {
+        cleanerName: session.user.name ?? session.user.email ?? "Cleaner",
+        decision: body.decision === "APPROVE" ? "approved" : "declined",
+        jobId: request.jobId,
+      });
       await db.notification.createMany({
         data: admins.map((admin) => ({
           userId: admin.id,
           jobId: request.jobId,
           externalId: mobilePendingMarker("approvals"),
           channel: NotificationChannel.PUSH,
-          subject: "Timing update reviewed",
-          body: `${session.user.name ?? session.user.email ?? "Cleaner"} ${body.decision === "APPROVE" ? "approved" : "declined"} the timing update for job ${request.jobId}.`,
+          subject: reviewed.title,
+          body: reviewed.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         })),

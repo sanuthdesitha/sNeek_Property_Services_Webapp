@@ -4,10 +4,11 @@
  * `tests/lib/notification-wording-parity.test.ts` proves it.
  */
 import type { TypeWordingDefinition } from "../types";
-import { editable, emailTemplatePart, inCode, linePart, someParts, storePart } from "./build";
+import { editable, emailTemplatePart, inCode, linePart, notificationTemplateParts, someParts, storePart } from "./build";
 import { JOB_CHANGED_WORDING } from "./job-changes";
 import { CLOCK_CHANGES_WORDING } from "./clock";
 import { QA_ACCOUNTABILITY_WORDING } from "./accountability-more";
+import { DECISIONS_WORDING } from "./decisions";
 
 const MANUAL_REMINDER_EMAIL = `
               <p>Hi {{recipientName}},</p>
@@ -33,7 +34,7 @@ const DAY_REMINDER_EMAIL = `
         </p>
       </div>`;
 
-const INBOX_ASSIGNMENT_REASON = "Its email is the shared template below. The inbox and SMS wording is composed separately in four assignment routes (single, bulk digest, auto-assign, transfer offer) and has not been moved to the wording layer yet.";
+const INBOX_ASSIGNMENT_REASON = "The inbox text, SMS and email are the shared \"Job Assigned\" templates. Still in code: the inbox titles (\"New job offer\", \"Job assignment updated\", \"Job removed from your schedule\", \"New transferred job offer\"), the bulk digest SMS and the accept / decline / transfer notices to the office.";
 
 export const JOB_WORDING: readonly TypeWordingDefinition[] = [
   editable("job.cancelled", [
@@ -89,11 +90,11 @@ export const JOB_WORDING: readonly TypeWordingDefinition[] = [
     }, ["when", "propertyName", "jobNumber", "propertyAddress", "timingSuffix"], ["when", "propertyName"]),
     linePart("timing-line", "Timing notes line (SMS)", "SMS", " {{timingFlags}}.", ["timingFlags"], "Added only when the job has timing notes."),
   ]),
-  someParts("job.offer", [emailTemplatePart("cleaner", "Cleaner", "jobAssigned")], INBOX_ASSIGNMENT_REASON),
+  someParts("job.offer", [...notificationTemplateParts("cleaner", "Cleaner", "jobAssigned"), emailTemplatePart("cleaner", "Cleaner", "jobAssigned")], INBOX_ASSIGNMENT_REASON),
   JOB_CHANGED_WORDING,
   someParts("job.skipped_or_cancelled", [emailTemplatePart("cleaner", "Cleaner", "jobRemoved")], "The inbox and phone push (\"Shift cancelled\") are composed in the skip route and in iCal sync with different sentences for a skip, a moved booking and a removed booking; not yet moved to the wording layer."),
   CLOCK_CHANGES_WORDING,
-  someParts("job.cleaner_requests_decided", [emailTemplatePart("cleaner", "Cleaner", "extraPayRequest")], "Only the extra-pay email uses a template. The continuation, early check-out and clock-adjustment decisions are composed in five producers; not yet moved."),
+  DECISIONS_WORDING,
   QA_ACCOUNTABILITY_WORDING,
   someParts("job.cleaner_invoice", [emailTemplatePart("accounts", "Accounts", "cleanerInvoice")], "The \"change requested\" email to the cleaner is composed in lib/cleaner/invoice-admin-notify.ts; not yet moved."),
 ];

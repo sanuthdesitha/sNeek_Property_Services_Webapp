@@ -52,8 +52,11 @@ export type WordingFields = Partial<Record<WordingField, string>>;
  * - text (default): HTML-escaped.
  * - multiline: HTML-escaped, then line breaks become <br>.
  * - html: a fragment this codebase built and escaped itself (never free text).
+ * - url: a link this codebase built; only the characters that could leave a
+ *   quoted attribute or open a tag (" ' < >) are escaped, so query strings keep
+ *   their "&" exactly as before.
  */
-export type VariableFormat = "text" | "multiline" | "html";
+export type VariableFormat = "text" | "multiline" | "html" | "url";
 
 export type WordingVariable = {
   name: string;

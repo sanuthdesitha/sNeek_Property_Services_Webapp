@@ -1,6 +1,6 @@
 /** Wording definitions for the office, laundry and stock types (catalog-office.ts). */
 import type { TypeWordingDefinition } from "../types";
-import { editable, emailTemplatePart, inCode, someParts, storePart } from "./build";
+import { editable, emailTemplatePart, inCode, notificationTemplateParts, someParts, storePart } from "./build";
 import { SUBMISSION_LOW_STOCK_WORDING, URGENT_NEED_WORDING } from "./stock";
 import { ICAL_ALERTS_WORDING, REPORTS_GENERATED_WORDING } from "./office-alerts";
 import { MAINTENANCE_WORDING } from "./maintenance";
@@ -13,19 +13,26 @@ export const OFFICE_WORDING: readonly TypeWordingDefinition[] = [
   CLEANER_REQUESTS_WORDING,
   FIELD_ALERTS_WORDING,
   someParts("office.cases", [
+    ...notificationTemplateParts("created", "Case created", "caseCreated"),
     emailTemplatePart("created", "Case created", "caseCreated"),
+    ...notificationTemplateParts("updated", "Case updated", "caseUpdated"),
     emailTemplatePart("updated", "Case updated", "caseUpdated"),
-  ], "The inbox rows and the follow-up reminders are composed in lib/cases/notifications.ts and lib/cases/follow-up.ts; not yet moved."),
+  ], "The case follow-up reminders are composed in lib/cases/follow-up.ts; not yet moved."),
   CLIENT_REQUESTS_WORDING,
   someParts("office.sla_and_summaries", [
+    ...notificationTemplateParts("attention", "Attention summary", "adminAttentionSummary"),
     emailTemplatePart("attention", "Attention summary", "adminAttentionSummary"),
+    ...notificationTemplateParts("tomorrow-jobs", "Tomorrow's jobs", "tomorrowJobsSummary"),
     emailTemplatePart("tomorrow-jobs", "Tomorrow's jobs", "tomorrowJobsSummary"),
+    ...notificationTemplateParts("tomorrow-laundry", "Tomorrow's laundry", "tomorrowLaundrySummary"),
     emailTemplatePart("tomorrow-laundry", "Tomorrow's laundry", "tomorrowLaundrySummary"),
   ], "SLA breach alerts and the daily briefing are composed in lib/ops/sla.ts and lib/ops/daily-briefing.ts from lists of jobs; not yet moved."),
-  someParts("office.new_profile", [emailTemplatePart("office", "Office", "newProfileCreated")], "The inbox row is composed in lib/notifications/profile-created.ts; not yet moved."),
+  someParts("office.new_profile", [...notificationTemplateParts("office", "Office", "newProfileCreated"), emailTemplatePart("office", "Office", "newProfileCreated")], "The sign-up and onboarding routes add their own short inbox line; not yet moved."),
   REPORTS_GENERATED_WORDING,
   someParts("laundry.updates", [
+    ...notificationTemplateParts("ready", "Laundry ready", "laundryReady"),
     emailTemplatePart("ready", "Laundry ready", "laundryReady"),
+    ...notificationTemplateParts("skip-requested", "Skip requested", "laundrySkipRequested"),
     emailTemplatePart("skip-requested", "Skip requested", "laundrySkipRequested"),
     emailTemplatePart("skip-approved", "Skip approved", "laundrySkipApproved"),
   ], "Status, catch-up and sync inbox notices are composed in three laundry services; not yet moved."),
@@ -40,13 +47,16 @@ export const OFFICE_WORDING: readonly TypeWordingDefinition[] = [
     }, ["propertyName", "action"], ["propertyName", "action"], { note: "{{action}} is \"skip\" or \"delete\". Inbox only, to the office." }),
   ]),
   someParts("laundry.report_email", [emailTemplatePart("recipient", "Report recipient", "laundryReport")], "The report attachment and its table are generated, not wording."),
-  someParts("stock.alerts", [emailTemplatePart("office", "Office", "criticalInventoryTomorrow")], "Low-stock inbox rows are composed with the item list in lib/inventory/stock.ts, lib/ops/stock-alerts.ts and the scan-task route; not yet moved."),
+  someParts("stock.alerts", [...notificationTemplateParts("office", "Office", "criticalInventoryTomorrow"), emailTemplatePart("office", "Office", "criticalInventoryTomorrow")], "Low-stock inbox rows are composed with the item list in lib/inventory/stock.ts, lib/ops/stock-alerts.ts and the scan-task route; not yet moved."),
   SUBMISSION_LOW_STOCK_WORDING,
   URGENT_NEED_WORDING,
   someParts("stock.shopping_and_orders", [
+    ...notificationTemplateParts("run-submitted", "Shopping run submitted", "shoppingRunSubmitted"),
     emailTemplatePart("run-submitted", "Shopping run submitted", "shoppingRunSubmitted"),
     emailTemplatePart("reimbursement", "Reimbursement to client", "shoppingReimbursementToClient"),
+    ...notificationTemplateParts("stock-run-requested", "Stock run requested", "stockRunRequested"),
     emailTemplatePart("stock-run-requested", "Stock run requested", "stockRunRequested"),
+    ...notificationTemplateParts("stock-run-submitted", "Stock run submitted", "stockRunSubmitted"),
     emailTemplatePart("stock-run-submitted", "Stock run submitted", "stockRunSubmitted"),
   ], "Purchase-order and inbox notices are composed in lib/inventory/notifications.ts; not yet moved."),
   MAINTENANCE_WORDING,
