@@ -4,6 +4,8 @@ import { HolidayRatesWorkspace } from "@/components/finance/holiday-rates-worksp
 import { PropertyFormEditor } from "@/components/v2/admin/settings/property-form-editor";
 import { getPropertyFormConfig } from "@/lib/property-form/config-store";
 import { Role } from "@prisma/client";
+import { redirect } from "next/navigation";
+import { can } from "@/lib/rbac/can";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EAlert, EButton, EPageHeader } from "@/components/v2/ui/primitives";
@@ -29,7 +31,6 @@ import { XeroSection } from "@/components/v2/admin/settings/xero-section";
 import { FinanceNotificationsSection } from "@/components/v2/admin/settings/finance-notifications-section";
 import { OverviewSection } from "@/components/v2/admin/settings/overview-section";
 import { NotificationToolsSection } from "@/components/v2/admin/settings/notification-tools-section";
-import { RolesSection } from "@/components/v2/admin/settings/roles-section";
 import { AuditSection } from "@/components/v2/admin/settings/audit-section";
 import { AccountabilitySection } from "@/components/v2/admin/settings/accountability-section";
 import { FinalCheckupSettingsSection } from "@/components/v2/admin/settings/final-checkup-settings";
@@ -56,7 +57,12 @@ export default async function SettingsPage({
     orderBy: [{ name: "asc" }, { email: "asc" }],
   });
 
-  const availableTabs = availableSettings(isAdmin);
+  // Roles and permissions moved to its own page (Access and permissions);
+  // the old tab URL keeps working.
+  if (searchParams.tab === "roles") redirect("/v2/admin/settings/access");
+  // A person granted "Edit access and permissions" also sees that destination.
+  const canEditAccess = !isAdmin && (await can(session, "access.edit_permissions"));
+  const availableTabs = availableSettings(isAdmin, canEditAccess ? ["roles"] : []);
   const requested = availableTabs.find((t) => t.key === searchParams.tab)?.key;
   const activeTab = requested ?? "overview";
   const propertyFormConfig =
@@ -380,9 +386,6 @@ export default async function SettingsPage({
       ) : null}
       {activeTab === "notification-tools" ? (
         <NotificationToolsSection isAdmin={isAdmin} />
-      ) : null}
-      {activeTab === "roles" && isAdmin ? (
-        <RolesSection isAdmin={isAdmin} />
       ) : null}
       {activeTab === "audit" && isAdmin ? (
         <AuditSection isAdmin={isAdmin} />

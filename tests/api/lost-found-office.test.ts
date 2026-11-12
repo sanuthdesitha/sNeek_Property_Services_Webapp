@@ -19,7 +19,8 @@ const m = vi.hoisted(() => ({
   },
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.requireRole }));
-vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
+// The live policy behind the shared capability evaluator (lib/rbac/can.ts): no per-person switches.
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops, getOpsPolicy: async () => ({ revision: 0, presets: [], assignments: {} }) }));
 vi.mock("@/lib/db", () => ({ db: m.db }));
 vi.mock("@/lib/s3", () => ({ publicUrl: (key: string) => `https://files.invalid/${key}` }));
 vi.mock("@/lib/uploads/ownership-server", () => ({ findForeignUploadKeys: m.foreign }));

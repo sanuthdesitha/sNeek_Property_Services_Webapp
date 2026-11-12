@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRealSession } from "@/lib/auth/session";
 import { verifySensitiveAction } from "@/lib/security/admin-verification";
+import { realActorHolds } from "@/lib/rbac/delegated-admin";
 import { rateLimit, getClientIp } from "@/lib/security/rate-limit";
 import {
   TEST_AS_UNLOCK_COOKIE,
@@ -41,7 +42,7 @@ const schema = z.object({
 export async function GET() {
   try {
     const session = await requireRealSession();
-    if (session.user.role !== Role.ADMIN) {
+    if (session.user.role !== Role.ADMIN && !(await realActorHolds(session.user.id, "access.test_as"))) {
       return NextResponse.json({ unlocked: false }, { status: 403 });
     }
     const token = cookies().get(TEST_AS_UNLOCK_COOKIE)?.value;
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
   }
   // Only a full admin can ever unlock this — mirrors the impersonate route.
-  if (session.user.role !== Role.ADMIN) {
+  if (session.user.role !== Role.ADMIN && !(await realActorHolds(session.user.id, "access.test_as"))) {
     return NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
   }
 

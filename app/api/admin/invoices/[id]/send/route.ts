@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { capabilityRefusal } from "@/lib/rbac/capability-http";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { sendClientInvoice } from "@/lib/billing/client-invoice-send";
@@ -9,6 +10,8 @@ export async function POST(
 ) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const refusal = await capabilityRefusal(session, ["invoices.send"]);
+    if (refusal) return refusal;
     const body = await req.json().catch(() => ({}));
     // Shared with the bulk route so both apply the same guards.
     // Wave D options are explicit fields; anything but `true` keeps today's behaviour.

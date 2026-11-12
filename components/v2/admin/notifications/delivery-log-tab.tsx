@@ -40,7 +40,7 @@ function buildUrl(filters: Filters, page: number, sort: TableSort<"time">): stri
   return `/api/admin/notifications/deliveries?${params.toString()}`;
 }
 
-export function DeliveryLogTab({ readOnly, onToast }: { readOnly: boolean; onToast: (toast: EstateToast) => void }) {
+export function DeliveryLogTab({ readOnly, onToast, timeZone }: { readOnly: boolean; onToast: (toast: EstateToast) => void; timeZone?: string }) {
   const [draft, setDraft] = React.useState<Filters>(EMPTY);
   const [filters, setFilters] = React.useState<Filters>(EMPTY);
   const [page, setPage] = React.useState(1);
@@ -72,7 +72,7 @@ export function DeliveryLogTab({ readOnly, onToast }: { readOnly: boolean; onToa
   }
 
   const columns: Array<EDataColumn<DeliveryLogRow, "time">> = [
-    { key: "time", header: "Time", sortKey: "time", firstDir: "desc", cell: (row) => <span className="whitespace-nowrap text-xs">{formatDeliveryTime(row.time)}</span> },
+    { key: "time", header: "Time", sortKey: "time", firstDir: "desc", cell: (row) => <span className="whitespace-nowrap text-xs">{formatDeliveryTime(row.time, timeZone)}</span> },
     { key: "type", header: "Type", className: "max-w-[14rem]", cell: (row) => (
       <button type="button" className="text-left text-xs font-medium underline-offset-2 hover:underline" onClick={() => setOpenId(row.id)}>
         {row.typeName}<span className="block font-normal text-[hsl(var(--e-muted-foreground))]">{row.subject}</span>
@@ -151,7 +151,7 @@ export function DeliveryLogTab({ readOnly, onToast }: { readOnly: boolean; onToa
       />
       <EPagination page={page} pageSize={25} total={read.data?.total ?? 0} onPageChange={setPage} disabled={read.loading} noun="deliveries" />
 
-      {open ? <DeliveryDetailPanel key={open.id} row={open} readOnly={readOnly} onClose={() => setOpenId(null)} onChanged={read.reload} /> : null}
+      {open ? <DeliveryDetailPanel key={open.id} row={open} readOnly={readOnly} timeZone={timeZone} onClose={() => setOpenId(null)} onChanged={read.reload} /> : null}
 
       <LazyDisclosure summary="Review queue: failed or uncertain pipeline deliveries">
         <NotificationIntentQueue />

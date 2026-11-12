@@ -7,7 +7,7 @@ import { ListQueryError, parseListQuery, readQueryValue, type ListQuery, type Li
 import type { AccountStatus, AttentionReason, DocumentState } from "./attention";
 import { normalizeAccountTab, roleFilterOptions, type AccountTab } from "./tabs";
 
-export const ACCOUNT_SORTS = ["name", "role", "status", "rate", "jobs30", "qa30", "documents", "lastSeen"] as const;
+export const ACCOUNT_SORTS = ["name", "role", "status", "rate", "jobs30", "qa30", "documents", "lastSeen", "jobsWeek", "owed"] as const;
 export type AccountSort = (typeof ACCOUNT_SORTS)[number];
 
 export const ACCOUNT_STATUS_FILTERS = ["all", "active", "invited", "disabled"] as const;
@@ -57,6 +57,10 @@ export type AccountRow = {
   jobs30?: number | null;
   qa30?: number | null;
   documents: Pick<DocumentState, "kind" | "label">;
+  /** Assigned jobs scheduled this Sydney week (Mon–Sun), cancelled excluded. */
+  jobsWeek: number;
+  /** Approved pay adjustments not yet paid ("Owed"). Present only when the viewer may see pay. */
+  owed?: number;
   lastSeenAt: string | null;
   attention: AttentionReason[];
 };
@@ -103,7 +107,7 @@ export function parseAccountFilters(source: Source): AccountFilters {
 /** Sort columns the viewer can actually see; anything else is refused (400). */
 export function sortableFor(visibility: AccountListVisibility): AccountSort[] {
   return ACCOUNT_SORTS.filter((sort) => {
-    if (sort === "rate") return visibility.pay;
+    if (sort === "rate" || sort === "owed") return visibility.pay;
     if (sort === "jobs30" || sort === "qa30") return visibility.quality;
     return true;
   });

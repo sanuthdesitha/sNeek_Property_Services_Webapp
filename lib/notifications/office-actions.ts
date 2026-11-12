@@ -14,6 +14,7 @@ import { detectExceptions, latestReadiness } from "@/lib/laundry/pipeline";
 import { loadSupplierTeams, teamForRun } from "@/lib/laundry/partners";
 import { sydneyTodayKey } from "@/lib/time/sydney-range";
 import type { OfficeActorRole } from "@/lib/notifications/office-send-rules";
+import { defaultNotificationWording, loadNotificationWording, type WordingRenderer } from "./wording/render";
 
 /**
  * Office-initiated messages the other redesign steps had to leave out because
@@ -149,15 +150,24 @@ export async function sendLaundryCleanerNudge(actorId: string, input: unknown): 
   const controls = await getNotificationTypeControls();
   const requestId = request.idempotencyKey ?? randomUUID();
   const place = task.job.property?.name ?? "the property";
-  const body = `${NUDGE_LABELS[request.kind].text} (${place}, ${task.job.jobNumber ?? task.jobId})${request.note ? ` Note: ${request.note}` : ""}`;
+  const wording = await loadNotificationWording(typeKey);
+  const values = {
+    laundryAsk: NUDGE_LABELS[request.kind].text,
+    propertyName: place,
+    jobNumber: task.job.jobNumber ?? task.jobId,
+    noteSuffix: wording.line("note-line", "INBOX", { note: request.note }, Boolean(request.note)),
+  };
+  const inbox = wording.render(request.kind === "REQUEST_PHOTO" ? "photo" : "ask", "INBOX", values);
+  const body = inbox.body;
+  const email = wording.render("cleaner", "EMAIL", { ...values, messageText: body });
   const outcomes = await sendOfficeNotification({
     typeKey, eventKey: typeKey, eventId: `laundry-nudge:${task.id}:${request.kind}:${requestId}`,
     entity: { type: "LaundryTask", id: task.id }, actorId,
     scopeType: "LAUNDRY_TASK_CLEANER", scopeId: () => task.id,
     category: "laundry", severity: "ACTION", jobId: task.jobId,
-    subject: request.kind === "REQUEST_PHOTO" ? "Laundry photo requested" : "Laundry update needed",
+    subject: inbox.title,
     body, url: "/cleaner/jobs",
-    email: () => ({ subject: `Laundry: ${place}`, html: `<p>${escapeHtml(body)}</p>` }),
+    email: () => ({ subject: email.subject, html: email.html }),
     emailKind: "admin_alert",
     transports: request.transports, recipients,
     respectsPreferences: typeRespectsPreferences(controls, typeKey),
@@ -178,11 +188,12 @@ export const laundryTeamRequestSchema = z.object({
 
 export const LAUNDRY_TEAM_REQUEST_ACTION = "LAUNDRY_TEAM_REQUEST_SENT";
 
-const TEAM_REQUEST_SUBJECTS: Record<LaundryTeamRequestKind, string> = {
-  TEAM_CONFIRM_PICKUP: "Please confirm the laundry pickup",
-  TEAM_CONFIRM_DROP: "Please confirm the laundry drop-off",
-  TEAM_RETURN_ETA: "When will the laundry be back?",
-  TEAM_PHOTO: "Drop-off photo requested",
+/** The wording part of each request kind (its title is the part's inbox title). */
+const TEAM_REQUEST_PARTS: Record<LaundryTeamRequestKind, string> = {
+  TEAM_CONFIRM_PICKUP: "confirm-pickup",
+  TEAM_CONFIRM_DROP: "confirm-drop",
+  TEAM_RETURN_ETA: "return-eta",
+  TEAM_PHOTO: "photo",
 };
 
 /**
@@ -230,16 +241,20 @@ export async function sendLaundryTeamRequest(actorId: string, input: unknown, ac
   const requestId = request.idempotencyKey ?? randomUUID();
   const place = task.property?.suburb ? `${task.property.name} (${task.property.suburb})` : task.property?.name ?? "the property";
   const label = TEAM_REQUEST_LABELS[request.kind];
-  const body = `${label.text} (${place})${request.note ? ` Note: ${request.note}` : ""}`;
+  const wording = await loadNotificationWording(typeKey);
+  const values = { laundryAsk: label.text, place, noteSuffix: wording.line("note-line", "INBOX", { note: request.note }, Boolean(request.note)) };
+  const inbox = wording.render(TEAM_REQUEST_PARTS[request.kind], "INBOX", values);
+  const body = inbox.body;
+  const email = wording.render("team", "EMAIL", { place, messageText: body });
   const recipients: OfficeRecipient[] = team.map((member) => ({ id: member.id, role: member.role, name: member.name, email: member.email }));
   const outcomes = await sendOfficeNotification({
     typeKey, eventKey: typeKey, eventId: `laundry-team:${task.id}:${request.kind}:${requestId}`,
     entity: { type: "LaundryTask", id: task.id }, actorId,
     scopeType: "LAUNDRY_TASK_SUPPLIER_TEAM", scopeId: () => task.id,
     category: "laundry", severity: "ACTION", jobId: task.jobId,
-    subject: TEAM_REQUEST_SUBJECTS[request.kind],
+    subject: inbox.title,
     body, url: `/v2/laundry?request=${encodeURIComponent(task.id)}#office-requests`,
-    email: () => ({ subject: `Laundry: ${place}`, html: `<p>${escapeHtml(body)}</p>` }),
+    email: () => ({ subject: email.subject, html: email.html }),
     emailKind: "admin_alert",
     transports: request.transports, recipients,
     respectsPreferences: typeRespectsPreferences(controls, typeKey),
@@ -261,10 +276,19 @@ export const clientDelaySchema = z.object({
   idempotencyKey: keySchema,
 }).strict();
 
-/** The client delay wording, shared by the send and the confirm preview. */
-export function clientDelayBody(propertyName: string | null, etaMinutes?: number | null, note?: string | null): string {
-  const place = propertyName ?? "your property";
-  return `Your clean at ${place} is running late.${etaMinutes ? ` The new estimate is about ${etaMinutes} minutes.` : ""}${note ? ` ${note}` : ""}`;
+export const CLIENT_DELAY_TYPE_KEY = "client.delay_notice";
+
+/** The client delay wording, shared by the send and the confirm preview (pass the loaded wording). */
+export function clientDelayBody(propertyName: string | null, etaMinutes?: number | null, note?: string | null, wording: WordingRenderer = defaultNotificationWording(CLIENT_DELAY_TYPE_KEY)): string {
+  return clientDelayInbox(wording, propertyName, etaMinutes, note).body;
+}
+
+function clientDelayInbox(wording: WordingRenderer, propertyName: string | null, etaMinutes?: number | null, note?: string | null) {
+  return wording.render("client", "INBOX", {
+    propertyName: propertyName ?? "your property",
+    etaSentence: wording.line("eta-line", "INBOX", { etaMinutes }, Boolean(etaMinutes)),
+    noteSuffix: wording.line("note-line", "INBOX", { note }, Boolean(note)),
+  });
 }
 
 /**
@@ -295,17 +319,22 @@ export async function resolveClientDelayTarget(jobId: string) {
 export async function sendClientDelayNotice(actorId: string, input: unknown, actorRole: OfficeActorRole | null = null): Promise<OfficeActionResult> {
   const request = clientDelaySchema.parse(input);
   const { job, recipients } = await resolveClientDelayTarget(request.jobId);
-  const typeKey = "client.delay_notice";
+  const typeKey = CLIENT_DELAY_TYPE_KEY;
   const controls = await getNotificationTypeControls();
   const requestId = request.idempotencyKey ?? randomUUID();
-  const body = clientDelayBody(job.property?.name ?? null, request.etaMinutes, request.note);
+  const wording = await loadNotificationWording(typeKey);
+  const inbox = clientDelayInbox(wording, job.property?.name ?? null, request.etaMinutes, request.note);
+  const body = inbox.body;
   const outcomes = await sendOfficeNotification({
     typeKey, eventKey: typeKey, eventId: `client-delay:${job.id}:${requestId}`,
     entity: { type: "Job", id: job.id }, actorId,
     scopeType: "JOB_CLIENT_CONTACT", scopeId: () => job.id,
     category: "jobs", severity: "INFO", jobId: job.id,
-    subject: "Your clean is running late", body, url: "/client",
-    email: (recipient) => ({ subject: "Your clean is running late", html: `<p>Hi ${escapeHtml(recipient.name ?? "there")},</p><p>${escapeHtml(body)}</p>` }),
+    subject: inbox.title, body, url: "/client",
+    email: (recipient) => {
+      const email = wording.render("client", "EMAIL", { recipientName: recipient.name ?? "there", propertyName: job.property?.name ?? "your property", messageText: body });
+      return { subject: email.subject, html: email.html };
+    },
     emailKind: "client_job_update",
     transports: request.transports, recipients,
     respectsPreferences: typeRespectsPreferences(controls, typeKey),
@@ -337,14 +366,18 @@ export async function sendClockPausedNotice(input: ClockPausedNoticeInput): Prom
   const typeKey = "jobs.clock_paused_by_office";
   const controls = await getNotificationTypeControls();
   const at = formatInTimeZone(input.stoppedAt, await organisationTimeZone(), "HH:mm");
-  const body = `The office paused your clock on ${input.jobLabel} at ${at}. Reason given: "${input.reason}". Your time up to then is kept. If you are still working, open the job and tap Resume clock.`;
+  const wording = await loadNotificationWording(typeKey);
+  const values = { jobLabel: input.jobLabel, time: at, reason: input.reason };
+  const inbox = wording.render("cleaner", "INBOX", values);
+  const body = inbox.body;
+  const email = wording.render("cleaner", "EMAIL", { ...values, messageText: body });
   return sendOfficeNotification({
     typeKey, eventKey: typeKey, eventId: `clock-pause:${input.timeLogId}`,
     entity: { type: "TimeLog", id: input.timeLogId }, actorId: input.actorId,
     scopeType: "JOB_ASSIGNED_CLEANER", scopeId: () => input.jobId,
     category: "jobs", severity: "ACTION", jobId: input.jobId,
-    subject: "Your clock was paused by the office", body, url: `/cleaner/jobs/${input.jobId}`,
-    email: () => ({ subject: "Your clock was paused by the office", html: `<p>${escapeHtml(body)}</p>` }),
+    subject: inbox.title, body, url: `/cleaner/jobs/${input.jobId}`,
+    email: () => ({ subject: email.subject, html: email.html }),
     emailKind: "workforce_update",
     transports: input.transports, recipients: [input.cleaner],
     respectsPreferences: typeRespectsPreferences(controls, typeKey),

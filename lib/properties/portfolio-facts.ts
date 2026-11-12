@@ -25,7 +25,7 @@ export const UPCOMING_JOB_STATUSES: JobStatus[] = [
 ];
 
 const OPEN_LAUNDRY: LaundryStatus[] = [LaundryStatus.PENDING, LaundryStatus.CONFIRMED, LaundryStatus.FLAGGED, LaundryStatus.PICKED_UP];
-const LATE_CODES: ReadonlySet<PipelineExceptionCode> = new Set(["PICKUP_OVERDUE", "DROP_OVERDUE", "OVER_TURNAROUND"]);
+const LATE_CODES: ReadonlySet<PipelineExceptionCode> = new Set<PipelineExceptionCode>(["PICKUP_OVERDUE", "DROP_OVERDUE", "OVER_TURNAROUND"]);
 
 /** Latest failed sync run per property, for "Failed 6 h". */
 export async function loadLatestSyncErrors(propertyIds: string[]): Promise<Map<string, Date>> {

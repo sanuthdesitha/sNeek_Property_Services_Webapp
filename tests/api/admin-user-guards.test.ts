@@ -32,7 +32,8 @@ const ctx = { params: { id: "a2" } };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  m.requireRole.mockResolvedValue({ user: { id: "me" } });
+  // The routes now admit OPS_MANAGER to their guard (delegated administrator capabilities), so the administrator is explicit.
+  m.requireRole.mockResolvedValue({ user: { id: "me", role: "ADMIN", heldRoles: ["ADMIN"] } });
   m.tx.user.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
     where.id === "me"
       ? { id: "me", role: "ADMIN", isActive: true, passwordHash: null, extraRoles: [] }

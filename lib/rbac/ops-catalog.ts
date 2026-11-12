@@ -1,3 +1,4 @@
+import type { CapabilityKey } from "./capabilities";
 /** Operations access is an additional restriction, never a replacement for role/record guards. */
 export const OPS_FEATURES = [
   {
@@ -488,13 +489,38 @@ export const FINANCE_PAYROLL_TABS: ReadonlySet<string> = new Set(["cleaner-invoi
  */
 export const FORMS_TAB_FEATURES: Readonly<Record<string, OpsFeature>> = { qa: "quality", messages: "communications" };
 
+/**
+ * Owner-only routes that an ADMIN can open to one person with an
+ * administrator capability (owner decision 2026-11-12). The route itself
+ * re-checks the grant and its guardrails (`lib/rbac/delegated-admin.ts`).
+ */
+const GRANTABLE_OWNER_ROUTES: ReadonlyArray<[RegExp, CapabilityKey]> = [
+  [/^\/api\/admin\/users\/[^/]+\/reset-password\/?$/, "accounts.reset_password"],
+  [/^\/api\/admin\/users\/[^/]+\/disable-2fa\/?$/, "accounts.reset_two_step"],
+  [/^\/(?:api\/)?admin\/(?:impersonate|test-as(?:\/unlock)?|system\/test-as)\/?$/, "access.test_as"],
+  [/^\/(?:api\/)?admin\/ops-permissions(?:\/[a-z-]+)?\/?$/, "access.edit_permissions"],
+  [/^\/admin\/settings\/access\/?$/, "access.edit_permissions"],
+];
+
+function normalisedAdminPath(input: string): string {
+  return new URL(input, "http://internal").pathname
+    .replace(/^\/_accounts\/[a-f0-9]{32}(?=\/)/, "")
+    .replace(/^\/v2(?=\/)/, "");
+}
+
+/** The administrator capability that opens this owner-only route, if any. */
+export function ownerRouteCapability(input: string): CapabilityKey | null {
+  const path = normalisedAdminPath(input);
+  return GRANTABLE_OWNER_ROUTES.find(([pattern]) => pattern.test(path))?.[1] ?? null;
+}
+
 export function opsRequestFeature(input: string): OpsRequestFeature {
   const url = new URL(input, "http://internal");
   const path = url.pathname
     .replace(/^\/_accounts\/[a-f0-9]{32}(?=\/)/, "")
     .replace(/^\/v2(?=\/)/, "");
   if (
-    /^\/(?:api\/)?admin\/users\/[^/]+\/(?:roles|password|reset-password|sessions|two-factor)(?:\/|$)/.test(
+    /^\/(?:api\/)?admin\/users\/[^/]+\/(?:roles|password|reset-password|sessions|two-factor|disable-2fa)(?:\/|$)/.test(
       path,
     )
   )
@@ -511,6 +537,7 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
     )
   )
     return "inventory";
+  if (/^\/admin\/system\/test-as(?:\/|$)/.test(path)) return "owner";
   if (/^\/(?:api\/)?admin\/phase4\/payruns/.test(path)) return "payroll";
   if (/^\/(?:api\/)?admin\/phase4\/disputes/.test(path)) return "cases";
   if (/^\/(?:api\/)?admin\/phase4\/reschedule/.test(path)) return "calendar";
@@ -614,8 +641,14 @@ export function canUseOpsPath(
   levels: OpsLevels,
   path: string,
   method = "GET",
+  /** Administrator capabilities this person was granted (owner-only routes they may open). */
+  grants: readonly CapabilityKey[] = [],
 ): boolean {
   const feature = opsRequestFeature(path);
+  if (feature === "owner") {
+    const capability = ownerRouteCapability(path);
+    return capability !== null && grants.includes(capability);
+  }
   const pathname = new URL(path, "http://internal").pathname.replace(
     /^\/_accounts\/[a-f0-9]{32}(?=\/)/,
     "",
@@ -627,9 +660,7 @@ export function canUseOpsPath(
     return false;
   return (
     feature === null ||
-    (feature !== "owner" &&
-      feature !== "unmapped" &&
-      opsLevelAllows(levels[feature], method))
+    (feature !== "unmapped" && opsLevelAllows(levels[feature], method))
   );
 }
 

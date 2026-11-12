@@ -1391,3 +1391,59 @@ Not made real / risks
 - Existing people who should be on a partner's team must be linked once in Inventory › Suppliers › Edit partner; until then every team request is disabled with the reason and Chase supplier is offered.
 - Browser pass needed at 390px and 1280px, light and dark: Lost and found table thumbnails and item panel (failure tile with Retry, lightbox failure), cleaner item detail thumbnails; Inventory › Suppliers table overflow at 390px and the partner editor (team list scroll, disabled linked options); Laundry lane cards with a disabled team button plus reason and Chase supplier (wrapping), run panel facts; laundry portal Today "Requests from the office"; Accounts person Activity tab "Account emails" (confirm block, result, history wrapping of long addresses), bulk "Resend invitation".
 - Production build and the full suite not run (as instructed). No real message sent (providers mocked). Deployment not done.
+
+## Properties list and property page redesign (2026-11-12)
+
+Scope: the approved boards "Properties" and "Property full page" (`docs/SYSTEM.md`, "Properties list and property page redesign (2026-11-12)"). No schema change, no migration. Uncommitted at the time of writing (the lead checkpoint-commits).
+
+What changed
+- List: `app/v2/admin/properties/page.tsx` + `components/v2/admin/properties/list/*`; `GET /api/admin/properties?shape=list`, `GET /api/admin/properties/export`, `POST /api/admin/properties/bulk`, `GET /api/admin/properties/:id/preview`; services `lib/properties/portfolio-*.ts`, `bulk*.ts`, `laundry-team.ts`, `form-overrides.ts` (extracted from the form-overrides route, behaviour unchanged), `preview*.ts`, `links.ts`. `properties-portfolio.tsx` deleted (no other importer).
+- Property page: `property-detail.tsx` (orchestrator) + `detail/*`; `GET /api/admin/properties/:id/overview` with `lib/properties/coming-up.ts`, `documents.ts`, `overview.ts`, `detail-tabs.ts`.
+- Fixed on the way: notes could not be cleared (empty notes were sent as "absent"); the door code field only showed a legacy plaintext copy, never the encrypted one (now read from and written to the encrypted column); a save that touched accessInfo could drop a legacy plaintext code that existed nowhere else (the laundry, documents and bulk paths now carry it into the encrypted column).
+
+Tests run
+- New: `tests/lib/property-portfolio-rules.test.ts`, `tests/lib/property-coming-up.test.ts` (incl. documents), `tests/lib/property-deep-links.test.ts`, `tests/api/properties-portfolio.test.ts` (list totals/chips/stats/paging, unknown sort and chip → 400, 401, legacy array shape unchanged, owing omitted without finance), `tests/api/properties-bulk.test.ts` (per-row outcomes for all three actions, merge not rebuild, legacy code carried, invalid account / template refused, 20-property sync cap, 403 and malformed body).
+- Updated on purpose (labels as drawn, not weakened): `tests/components/property-pending-task-safety.test.tsx` — tabs are now `role="tab"` named "Checklist and forms" / "Jobs and history"; deep-clean planning is asserted on "Care and planning" where it moved; the heading is found by role because the name now also shows in the Details card.
+- Existing files covering touched code, plus `tests/lib/server-client-value-imports.test.ts`: property deep-clean planning, cadence ledger, checklist profile save, audit operating UI, navigation memory, checklist-profile safety, property task safety, iCal dispatch paths, live session gates, authorized operations, property jobs rollup, deep-clean planning API/page, property cadence ledger API, calendar workspace, audit route role, ops middleware — all pass.
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: clean (final run). ESLint on every file I changed: no errors. 21 test files, 160 tests pass.
+- Not run (as instructed): production build, full suite, browser pass.
+
+Not made real / risks
+- Documents and additional details is shown only when the property already has access files or intake answers; "Add file" therefore cannot add a first file to a property that has none (the board's card would otherwise be an empty promise). Uploaded files go to the access files list (last write wins if two people add at once).
+- Map view stays the count plus the ops map link: no embedded map exists in the admin.
+- Lifetime value and average rating come from the existing stats endpoint and are shown to operations managers as before (no finance gate there); only the new "owing" figure is finance-gated.
+- The list reads the whole active portfolio per request (as the old page did); fine at today's size, would need stored sort keys at several thousand properties.
+- Browser pass needed at 390px and 1280px, light and dark: list table overflow, chip row wrap, filter popovers, bulk bar and dialogs, preview panel as a sheet, property header actions, key facts wrap, tab bar scroll, Coming up table scroll, card edit forms and the rail stacking under the main column.
+
+## Admin job page "Job full view" (2026-11-12)
+
+Scope: the approved boards "Job full view" (`Main.dc.html`) and "Job page in four states" (`JobDetailStates.dc.html`); details in `docs/SYSTEM.md`, "Admin job page: "Job full view" redesign (2026-11-12)". No schema change, no migration, no new route or permission. Uncommitted at the time of writing.
+
+What changed
+- `app/v2/admin/jobs/[id]/page.tsx` rewritten to compose; rules in `lib/jobs/job-page/*`; components in `components/v2/admin/jobs/detail/*`.
+- Shared/touched: `ERowMenu` (optional `heading`, `badge`, `footnote`, `triggerVariant`, `openSignal`; existing callers unchanged), `JobManagePanel` (new `template` section; the `danger` section removed, its Reset/Delete now in the header menu), `RestoreJobControl` (logic moved into `useRestoreJob` + `RestoreJobConflicts`; peek panel unchanged), `JobReminderButton` (controllable), `QuickQaReview` (`intent`, `triggerLabel`, `disabledReason`; empty score refused). `job-cancel-section.tsx` deleted (only the old page used it).
+- Fixed: $0 pay for a cleaner without a rate or hours; Delete refreshed a deleted job (404); encrypted access/alarm codes and `accessInfo` were serialised to the browser; hard-coded timezone for history and briefing proof; guest check-in formatted in the server's timezone.
+
+Tests run
+- New: `tests/lib/job-page-actions.test.ts` (status → primary table over every status, secondary buttons, reminder rule, badge, More menu groups and disabled reasons incl. invoiced cancel, started-job cancel for an operations manager, view-only, cancelled menu), `tests/lib/job-page-deep-link.test.ts` (every old tab, `?view=` precedence, `#chat`), `tests/lib/job-page-timeline.test.ts` (timeline per state, stage bar, blockers), `tests/lib/job-page-money.test.ts` (unknown, estimate, locked, rate-card sources; key facts), `tests/components/job-header-actions.test.tsx` (header per state, menu headings/reasons/footnote, dialogs open, arrival opens Reschedule or the menu, restore conflicts and retry), `tests/components/job-disclosure.test.tsx` (lazy mount, draft kept, opens from hash).
+- Existing, passing: `tests/lib/job-detail-tabs.test.ts`, `tests/lib/server-client-value-imports.test.ts`, `tests/lib/jobs-invoiced-rule.test.ts`, `tests/components/job-manage-save-safety.test.tsx`, `job-peek-panel`, `estate-data-table`, `admin-job-row`, `draft-evidence-review`, `photo-review-panel`, `job-extras-save-messaging`, `stock-count-reset-dialog`, `assign-reassign-note`, `office-actions-ui`, `audit-operating-ui`, `audit-media-access`, `legacy-cleaner-draft-boundary`, `cleaner-job-workspace-page`, `live-ops-follow-up`.
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors.
+- Not run (as instructed): production build, full suite, browser pass.
+
+Differences from the boards and risks: listed in the plan's status block (`docs/plans/admin-redesign-2026-11.md`, "Job full view").
+
+## Cleaner portal redesign (2026-11-12)
+
+Scope: approved boards "Cleaner portal" (`CleanerPortal.dc.html`) and "One job, four moments" (`CleanerJobFlow.dc.html`); details in `docs/SYSTEM.md`, "Cleaner portal redesign: five tabs, Today, Supplies, Pay, More and the job screen (2026-11-12)". No schema change, no migration, no API route added or changed. Uncommitted at the time of writing.
+
+What changed
+- Navigation: `components/v2/cleaner/portal/*` (nav lists, tab badges, More menu, segment tabs, ask-count hook); `app/v2/cleaner/layout.tsx`; `app/v2/cleaner/more/page.tsx` (menu instead of redirect); `lib/navigation/mobile-tabs.ts` (cleaner row); `components/v2/portal/portal-shell.tsx` (optional `mobileOnly`, `tabActivePrefixes`, `immersive`, `hideMobileMenuButton`; other portals unchanged).
+- Screens: Today (`app/v2/cleaner/page.tsx`, `components/v2/cleaner/today/today-cards.tsx`, `lib/cleaner/today-view.ts`), Supplies (`app/v2/cleaner/supplies/page.tsx`, `components/v2/cleaner/supplies/*`, `lib/cleaner/supplies-view.ts`), Pay (`app/v2/cleaner/pay/page.tsx`, `components/v2/cleaner/pay/*`, `lib/cleaner/pay-view.ts`; `/invoices` and `/pay-requests` now redirect), Jobs/Calendar List / Month switch, Team hub `?tab=` deep link.
+- Job screen (presentation only): `job-header.tsx`, `stage-nav.tsx`, `stage-footer.tsx` (sticky bar, Set up clock-in placement), `stage-wrapup.tsx` split into `laundry-handoff.tsx`, `submit-blockers.tsx`, `submitted-summary.tsx`; `action-fab.tsx` (urgent stock row, board order and labels, 44px targets); `parts.tsx` (`ClockCard.showClockIn`); `job-workspace.tsx` composition only (rail under the header, back link moved into the header, offline banner wording, workflow strip removed).
+
+Tests run
+- New: `tests/components/cleaner-portal-redesign.test.tsx` (tab destinations and order, every former destination has a home, immersive path, tab badges, More menu completeness and role filtering, Today clock card states, summary wording, Before you submit jump links and on-phone separation, clock-in reasons, supplies legacy tabs and module refusal, pay lines adding up, guest countdown).
+- Changed: `tests/components/cleaner-shift-home.test.tsx` — two label assertions only: the summary line now reads "1 accepted job today · 2 offers waiting" (drawn wording), and the removed stat tiles' "Unavailable" ×3 is replaced by the honest "Your shift could not be loaded." summary.
+- Existing, passing unchanged: `job-workspace-draft-lifecycle` (52), `wrapup-preflight`, `portal-shell`, `portal-navigation`, `cleaner-calendar-page`, `server-client-value-imports` and every other non-database test file naming the cleaner portal, job workspace, drafts, offline, clock, laundry status or purchase asks (301 files run together; the only failures were `tests/api/admin-invoices-bulk.test.ts` and `tests/lib/ops-notification-producers.test.ts`, both in other engineers' in-progress admin invoice and notification work, not touched here).
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .`: no errors in cleaner/portal paths (3 errors remain in others' files: `clients-columns.tsx`, `wording/template.ts`, `portfolio-facts.ts`).
+- Not run (as instructed): production build, full suite, database suites, browser pass at 390/1280 light/dark.

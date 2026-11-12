@@ -3,7 +3,9 @@ import { Role } from "@prisma/client";
 import type { Session } from "next-auth";
 import { requireRole } from "@/lib/auth/session";
 import { getOpsAccess } from "@/lib/rbac/ops-access";
-import { decideOfficeSend, type OfficeActorRole, type OfficeSendAction, type OfficeSendDecision } from "./office-send-rules";
+import { can } from "@/lib/rbac/can";
+import { capabilityDefinition, type CapabilityKey } from "@/lib/rbac/capabilities";
+import { decideOfficeSend, OFFICE_SEND_POLICIES, type OfficeActorRole, type OfficeSendAction, type OfficeSendDecision } from "./office-send-rules";
 
 /** The person a gated office send is recorded against: the real signed-in user and the role that allowed it. */
 export type OfficeActor = { id: string; role: OfficeActorRole };
@@ -23,8 +25,25 @@ export async function officeSendDecision(session: Session, action: OfficeSendAct
   const levels = heldRoles.includes(Role.ADMIN) || session.impersonation
     ? null
     : await getOpsAccess({ id: session.user.id, role: String(session.user.role), heldRoles: heldRoles.map(String) });
-  return decideOfficeSend({ heldRoles: heldRoles.map(String), impersonating: Boolean(session.impersonation), levels }, action);
+  const decision = decideOfficeSend({ heldRoles: heldRoles.map(String), impersonating: Boolean(session.impersonation), levels }, action);
+  // The pack level allows it: an administrator may still have switched this
+  // capability off for the person (access screen). Same shared evaluator as
+  // every other capability; administrators are never narrowed.
+  if (decision.allowed && decision.actorRole === "OPS_MANAGER" && !(await can(session, OFFICE_SEND_CAPABILITY[action]))) {
+    return { allowed: false, actorRole: null, reason: `Your access does not include: ${capabilityDefinition(OFFICE_SEND_CAPABILITY[action]).label}. ${OFFICE_SEND_POLICIES[action].instead}` };
+  }
+  return decision;
 }
+
+/** The capability each office send is (lib/rbac/capabilities.ts). */
+export const OFFICE_SEND_CAPABILITY: Readonly<Record<OfficeSendAction, CapabilityKey>> = {
+  supplier_chase: "laundry.supplier_chase",
+  guest_message: "lostfound.guest_message",
+  lost_item_client_notice: "lostfound.client_notice",
+  client_delay_notice: "jobs.client_delay_notice",
+  clock_pause: "jobs.clock_pause",
+  account_email: "accounts.account_email",
+};
 
 /**
  * The server gate for every gated send route: the live session guard

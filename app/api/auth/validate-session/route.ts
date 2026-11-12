@@ -1,4 +1,4 @@
-import { getOpsAccess } from "@/lib/rbac/ops-access";
+import { getOpsAccess, getOpsGrants } from "@/lib/rbac/ops-access";
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { db } from "@/lib/db";
@@ -73,6 +73,8 @@ export async function GET(request: NextRequest) {
       // The target's roles only. An admin viewing as a cleaner must not keep
       // their own reach, and middleware gates portals on this list.
       heldRoles: [impersonation.target.role],
+      // Administrator capabilities are never usable while testing as someone.
+      opsGrants: [],
       requiresPasswordReset: false,
       requiresOnboarding: false,
       impersonating: true,
@@ -97,6 +99,7 @@ export async function GET(request: NextRequest) {
     valid: true,
     role: activeRole,
     opsAccess: await getOpsAccess({ id: user.id, role: activeRole, heldRoles: held }),
+    opsGrants: await getOpsGrants({ id: user.id, role: activeRole, heldRoles: held }),
     heldRoles: held,
     requiresPasswordReset: authState?.requiresPasswordReset === true,
     requiresOnboarding,

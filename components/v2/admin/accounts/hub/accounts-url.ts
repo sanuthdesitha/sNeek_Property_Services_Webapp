@@ -7,7 +7,7 @@ import { readAccountsView, viewSearch, type AccountsView } from "./accounts-view
 
 export { DEFAULT_VIEW, listQueryString, readAccountsView, viewSearch, type AccountsView } from "./accounts-view";
 
-export function useAccountsView(initial: AccountsView): [AccountsView, (patch: Partial<AccountsView>) => void] {
+export function useAccountsView(initial: AccountsView, urlTab?: string): [AccountsView, (patch: Partial<AccountsView>) => void] {
   const [view, setView] = useState<AccountsView>(initial);
 
   useEffect(() => {
@@ -22,11 +22,11 @@ export function useAccountsView(initial: AccountsView): [AccountsView, (patch: P
       const resetsPage = ["tab", "q", "status", "documents", "role", "sort", "dir"].some((key) => key in patch);
       const next: AccountsView = { ...current, ...patch, page: patch.page ?? (resetsPage ? 1 : current.page) };
       if (patch.tab && patch.tab !== current.tab) next.role = "";
-      window.history.replaceState(window.history.state, "", `${window.location.pathname}${viewSearch(next)}${window.location.hash}`);
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${viewSearch(next, urlTab)}${window.location.hash}`);
       rememberCurrentView();
       return next;
     });
-  }, []);
+  }, [urlTab]);
 
   return [view, update];
 }

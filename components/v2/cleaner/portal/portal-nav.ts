@@ -15,8 +15,6 @@ import {
   CalendarClock,
   CalendarDays,
   CalendarRange,
-  CircleDollarSign,
-  FileText,
   FolderOpen,
   Home,
   LineChart,
@@ -134,13 +132,13 @@ export interface CleanerRailItem {
   href: string;
   label: string;
   icon: LucideIcon;
-  group?: "Work" | "Money" | "You";
+  group?: "Work" | "You";
 }
 
 /**
  * The desktop rail (and search). Same destinations as the tabs plus the More
- * menu; Invoices and Pay requests stay listed for keyboard and desktop users
- * although on a phone they are tabs of Pay.
+ * menu. Invoices and Pay requests are tabs of Pay (their old URLs redirect
+ * there), so they are not separate rail entries any more.
  */
 export const CLEANER_RAIL: readonly CleanerRailItem[] = [
   { href: CLEANER_ROOT, label: "Today", icon: Home },
@@ -151,8 +149,6 @@ export const CLEANER_RAIL: readonly CleanerRailItem[] = [
   { href: `${CLEANER_ROOT}/calendar`, label: "Schedule", icon: CalendarRange, group: "Work" },
   { href: `${CLEANER_ROOT}/quality`, label: "QA feedback", icon: ShieldCheck, group: "Work" },
   { href: `${CLEANER_ROOT}/lost-found`, label: "Lost & found", icon: PackageSearch, group: "Work" },
-  { href: `${CLEANER_ROOT}/invoices`, label: "Invoices", icon: FileText, group: "Money" },
-  { href: `${CLEANER_ROOT}/pay-requests`, label: "Pay requests", icon: CircleDollarSign, group: "Money" },
   { href: `${CLEANER_ROOT}/availability`, label: "Availability", icon: CalendarClock, group: "You" },
   { href: `${CLEANER_ROOT}/hub`, label: "Team hub", icon: Users, group: "You" },
   { href: `${CLEANER_ROOT}/profile`, label: "Profile", icon: UserRound, group: "You" },

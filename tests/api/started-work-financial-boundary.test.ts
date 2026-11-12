@@ -2,7 +2,8 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 import {NextRequest} from 'next/server';
 const m=vi.hoisted(()=>({invoice:vi.fn(),pdf:vi.fn(),csv:vi.fn(),email:vi.fn(),update:vi.fn(),notify:vi.fn()}));
-vi.mock('@/lib/auth/session',()=>({requireRole:async()=>({user:{id:'admin'}})}));
+// An administrator, explicitly: the send route now also asks the shared capability evaluator.
+vi.mock('@/lib/auth/session',()=>({requireRole:async()=>({user:{id:'admin',role:'ADMIN',heldRoles:['ADMIN']}})}));
 vi.mock('@/lib/db',()=>{
   // recordSent stamps the first send under the row lock (and snapshots terms) in a transaction.
   const db:any={clientInvoice:{update:m.update,findUniqueOrThrow:async()=>({clientId:'client',status:'APPROVED',kind:'INVOICE',creditsInvoiceId:null,sentAt:null,paymentTermsDays:null,metadata:{}})},client:{findUnique:async()=>({paymentTermsDays:null})},notification:{create:m.notify},$queryRaw:async()=>[],$executeRaw:async()=>0};

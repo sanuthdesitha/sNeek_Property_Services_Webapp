@@ -38,11 +38,17 @@ export function PersonActions({
   fullPageHref,
   onChanged,
   onDeleted,
+  personItems = [],
+  hideTestAs = false,
 }: {
   profile: PersonProfile;
   caps: PersonCapabilities;
   /** Shown in the panel; omitted on the full page itself. */
   fullPageHref?: string;
+  /** The full page's "Person" items (edit, extra payment, rate, document, coaching, kudos), first in the menu. */
+  personItems?: ERowMenuItem[];
+  /** The full page draws Test as in its own header. */
+  hideTestAs?: boolean;
   onChanged: () => void;
   onDeleted: () => void;
 }) {
@@ -68,12 +74,12 @@ export function PersonActions({
 
   // A pending invitation gets a fresh link; an unverified self-registered login a fresh code (the server decides again).
   const canResend = caps.canResendInvite && profile.isActive && (profile.status === "INVITED" || !profile.emailVerified);
-  const items: ERowMenuItem[] = [];
+  const items: ERowMenuItem[] = [...personItems];
   if (fullPageHref) items.push({ key: "page", label: "Open full page", href: fullPageHref });
-  if (canResend) items.push({ key: "resend", label: "Resend invite", onSelect: () => void run("Invite sent", () => post(`${base}/resend-otp`, "POST"), (body) => toast({ title: typeof body.message === "string" ? body.message : "Invite sent" })) });
+  if (canResend) items.push({ key: "resend", label: "Resend invite", separated: items.length > 0, onSelect: () => void run("Invite sent", () => post(`${base}/resend-otp`, "POST"), (body) => toast({ title: typeof body.message === "string" ? body.message : "Invite sent" })) });
   if (caps.isAdmin) {
     items.push(
-      { key: "password", label: "Reset password", onSelect: () => setDialog("password"), separated: items.length > 0 },
+      { key: "password", label: "Reset password", onSelect: () => setDialog("password"), separated: items.length > 0 && !canResend },
       { key: "twofa", label: "Reset 2FA", onSelect: () => setDialog("twofa") },
       {
         key: "active",
@@ -86,7 +92,7 @@ export function PersonActions({
 
   return (
     <div className="flex items-center gap-1.5">
-      {caps.isAdmin && profile.testable ? (
+      {caps.isAdmin && profile.testable && !hideTestAs ? (
         <EButton asChild size="sm" variant="outline">
           <Link href={`/v2/admin/system/test-as?user=${encodeURIComponent(profile.id)}`}>Test as</Link>
         </EButton>

@@ -2,6 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
+import { delegatedTestAsAllowed } from "@/lib/rbac/delegated-admin";
 import {
   IMPERSONATION_COOKIE,
   readImpersonationTicket,
@@ -34,11 +35,13 @@ export type ActiveImpersonation = {
  *   1. the ticket is signed by us and unexpired,
  *   2. the ticket was issued TO this session (actorId matches) — so a leaked
  *      cookie is useless in anyone else's browser,
- *   3. the actor is still an active ADMIN — demotion revokes instantly,
+ *   3. the actor is still an active ADMIN — demotion revokes instantly — or a
+ *      person an administrator granted "Test as" whose access still covers
+ *      the target's (lib/rbac/delegated-admin.ts, re-read every request),
  *   4. the target still exists, is active, and is not an admin.
  *
- * Rule 4 is the one that stops privilege escalation: OPS_MANAGER never gets in
- * (rule 3), and no one can use this to become a *different* admin, so it can
+ * Rule 4 is the one that stops privilege escalation: an OPS_MANAGER gets in
+ * only with that grant and only sideways or down (rule 3), and no one can use this to become a *different* admin, so it can
  * only ever move sideways or down. Nothing here can gain permission the acting
  * admin didn't already have.
  */
@@ -67,9 +70,14 @@ export async function resolveImpersonation(
     }),
   ]);
 
-  if (!actor?.isActive || actor.role !== Role.ADMIN) return null;
+  if (!actor?.isActive) return null;
   if (!target?.isActive) return null;
   if (target.role === Role.ADMIN) return null;
+  // Rule 3 (owner decision 2026-11-12): an active ADMIN, or a person an
+  // administrator granted "Test as" whose access still covers the target's.
+  // Re-checked here on every request, so a revoked grant or a target given
+  // more access ends the session at once.
+  if (actor.role !== Role.ADMIN && !(await delegatedTestAsAllowed(actor.id, target.id))) return null;
 
   return {
     ticket,

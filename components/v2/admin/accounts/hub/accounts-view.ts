@@ -55,9 +55,14 @@ export function listQueryString(view: AccountsView, pageSize: number): string {
   return params.toString();
 }
 
-export function viewSearch(view: AccountsView): string {
+/**
+ * `urlTab`: the People route names some lists differently (Client logins is
+ * `tab=logins` there), so it writes its own tab value; the list is the same.
+ */
+export function viewSearch(view: AccountsView, urlTab?: string): string {
   const params = new URLSearchParams();
-  if (view.tab !== DEFAULT_VIEW.tab) params.set("tab", view.tab);
+  if (urlTab) params.set("tab", urlTab);
+  else if (view.tab !== DEFAULT_VIEW.tab) params.set("tab", view.tab);
   if (view.q) params.set("q", view.q);
   if (view.status !== "all") params.set("status", view.status);
   if (view.documents) params.set("documents", "1");

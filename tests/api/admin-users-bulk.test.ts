@@ -34,7 +34,8 @@ const m = vi.hoisted(() => {
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.requireRole }));
 vi.mock("@/lib/auth/registration-otp", () => ({ issueSignupOtp: m.issueSignupOtp }));
-vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
+// The live policy behind the shared capability evaluator (lib/rbac/can.ts): no per-person switches.
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops, getOpsPolicy: async () => ({ revision: 0, presets: [], assignments: {} }) }));
 vi.mock("@/lib/db", () => ({ db: { ...m.tx, $transaction: async (fn: (tx: typeof m.tx) => unknown) => fn(m.tx) } }));
 
 import { POST } from "@/app/api/admin/users/bulk/route";

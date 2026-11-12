@@ -4,6 +4,7 @@ import { publicUrl, resolveS3 } from "@/lib/s3";
 import { isAllowedUploadContentType } from "@/lib/uploads/validate";
 import { propertyIsVisibleToLaundry } from "./teams";
 import { enqueueNotificationIntent } from "@/lib/notifications/intent-store";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export class FailedPickupError extends Error { constructor(public status: number, message: string) { super(message); } }
 export function validFailurePhotoKey(key: string, taskId: string, actorId: string) {
@@ -21,6 +22,7 @@ export async function recordFailedPickup(input: { taskId: string; actorId: strin
     catch { throw new FailedPickupError(409, "The failure photo could not be verified. Keep the original and retry verification."); }
     if (!object.ContentLength || !object.ContentType?.startsWith("image/") || !isAllowedUploadContentType(object.ContentType, input.photoKey)) throw new FailedPickupError(400, "Failure proof must be a verified image.");
   }
+  const wording = await loadNotificationWording("laundry.failed_pickup");
   return db.$transaction(async tx => {
     await tx.$queryRaw`SELECT "id" FROM "LaundryTask" WHERE "id" = ${input.taskId} FOR UPDATE`;
     const task = await tx.laundryTask.findUnique({ where: { id: input.taskId }, include: { property: true } });
@@ -42,12 +44,13 @@ export async function recordFailedPickup(input: { taskId: string; actorId: strin
     await tx.auditLog.create({ data: { userId: input.actorId, jobId: task.jobId, action: reschedule ? "LAUNDRY_FAILED_PICKUP_RESCHEDULED" : "LAUNDRY_FAILED_PICKUP_APPROVAL_REQUESTED", entity: "LaundryTask", entityId: task.id,
       before: { status: task.status, pickupDate: task.pickupDate.toISOString() }, after: { status: after.status, reason, ...(reschedule ? { pickupDate: date!.toISOString() } : { requestedAction: input.requestedAction }), ...(input.photoKey ? { failurePhotoKey: input.photoKey } : {}) } } });
     const recipients = await tx.user.findMany({ where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true, id: { not: input.actorId } }, select: { id: true, role: true } });
+    const notice = wording.render(reschedule ? "rescheduled" : "approval", "INBOX", { propertyName: property?.name ?? task.property.name, action: input.requestedAction?.toLowerCase() });
     for (const recipient of recipients) await enqueueNotificationIntent(tx, {
       version: 1, eventId: confirmation.id, eventKey: "laundry.failed_pickup", entity: { type: "LaundryTask", id: task.id },
       actorId: input.actorId, recipient: { userId: recipient.id, role: recipient.role, scope: { kind: "ADMIN_OPERATIONS" } },
       severity: "ACTION", transport: "INBOX", jobId: task.jobId,
-      subject: reschedule ? "Laundry pickup rescheduled" : "Laundry pickup approval requested",
-      body: `${property?.name ?? task.property.name}: ${reschedule ? "pickup rescheduled after failed attempt" : `${input.requestedAction?.toLowerCase()} approval requested after failed pickup`}.`,
+      subject: notice.title,
+      body: notice.body,
     });
     return { ...updated, notificationStatus: recipients.length ? "QUEUED" as const : "NO_RECIPIENTS" as const };
   });

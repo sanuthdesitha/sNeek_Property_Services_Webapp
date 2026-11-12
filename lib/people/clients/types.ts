@@ -50,7 +50,7 @@ export type ClientDirectoryRow = {
   logins: number;
   /** Client logins invited and not yet accepted. */
   loginsInvited: number;
-  /** Active assistant (VA) logins on this client's teams. */
+  /** Assistant (VA) logins on this client's teams that are not switched off (invited ones included). */
   assistants: number;
   /** Money: present only when the viewer may see client money. */
   invoicesOpen?: number;

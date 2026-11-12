@@ -23,6 +23,10 @@ export type AccountRecord = AccountFacts & {
   clientName: string | null;
   hourlyRate: number | null;
   lastSeenAt: Date | null;
+  /** Assigned jobs this Sydney week (absent in older callers = 0). */
+  jobsWeek?: number;
+  /** Approved, unpaid pay adjustments (absent = 0). */
+  owed?: number;
 };
 
 /** Quality hub figures per person; absent = no figure. */
@@ -46,10 +50,14 @@ export function buildRow(record: AccountRecord, figures: AccountFigures, visibil
     twoFactorEnabled: record.twoFactorEnabled,
     clientName: record.clientName,
     documents: { kind: docs.kind, label: docs.label },
+    jobsWeek: record.jobsWeek ?? 0,
     lastSeenAt: record.lastSeenAt ? record.lastSeenAt.toISOString() : null,
     attention: attentionReasons(record, now),
   };
-  if (visibility.pay) row.rate = record.hourlyRate;
+  if (visibility.pay) {
+    row.rate = record.hourlyRate;
+    row.owed = record.owed ?? 0;
+  }
   if (visibility.quality) {
     const counted = FIELD_ROLES.has(record.role) || record.extraRoles.some((role) => FIELD_ROLES.has(role));
     const figure = figures.get(record.id);
@@ -114,6 +122,10 @@ function sortValue(row: AccountRow, sort: AccountSort): string | number | null {
       return DOCUMENT_ORDER[row.documents.kind];
     case "lastSeen":
       return row.lastSeenAt;
+    case "jobsWeek":
+      return row.jobsWeek;
+    case "owed":
+      return row.owed ?? null;
   }
 }
 

@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { capabilityRefusal } from "@/lib/rbac/capability-http";
+import { invoiceBulkCapabilities } from "@/lib/rbac/invoice-capabilities";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { bulkRequestSchema, runClientInvoiceBulk } from "@/lib/billing/client-invoice-bulk";
@@ -18,6 +20,8 @@ export async function POST(req: NextRequest) {
       const message = parsed.error.issues[0]?.message ?? "Invalid bulk request.";
       return NextResponse.json({ error: message }, { status: 400 });
     }
+    const refusal = await capabilityRefusal(session, invoiceBulkCapabilities(parsed.data.action));
+    if (refusal) return refusal;
     const response = await runClientInvoiceBulk({
       request: parsed.data,
       actor: session.user,

@@ -11,6 +11,8 @@
  *                  (person's switch beats the preset's)
  *   full tier    = area at Manage or Full, and the sensitive grant:
  *                  explicit grant (person, then custom preset) ?? (area is Full)
+ *   grant tier   = an explicit `true` on the person (administrator
+ *                  capabilities; presets cannot carry them)
  *
  * Anyone holding ADMIN is an administrator: every capability, never a pack.
  * Any other non-subject (cleaner, client, ...) has none; their own routes keep
@@ -48,6 +50,7 @@ export function capabilityFromParts(
   sensitive: Partial<Record<string, boolean>>,
 ): boolean {
   const capability = capabilityDefinition(key);
+  if (capability.tier === "grant" || capability.area === null) return overrides[key] === true;
   const level = levels[capability.area];
   if (capability.tier === "view") return atLeastView(level);
   if (!atLeastManage(level)) return false;
@@ -84,6 +87,9 @@ export type CapabilitySource = "level" | "needs-view" | "needs-manage" | "needs-
 
 export function capabilitySource(policy: OpsPolicy, userId: string, key: CapabilityKey): CapabilitySource {
   const capability = capabilityDefinition(key);
+  if (capability.tier === "grant" || capability.area === null) {
+    return resolveCapabilityOverrides(policy, userId)[key] === true ? "granted-individually" : "needs-full";
+  }
   const level = resolveAccessLevels(policy, userId)[capability.area];
   if (capability.tier === "view") return atLeastView(level) ? "level" : "needs-view";
   if (!atLeastManage(level)) return "needs-manage";
@@ -91,4 +97,32 @@ export function capabilitySource(policy: OpsPolicy, userId: string, key: Capabil
   const explicit = capability.sensitiveAction ? resolveSensitiveGrants(policy, userId)[capability.sensitiveAction] : undefined;
   if (level === "full") return explicit === false ? "full-switched-off" : "level";
   return explicit === true ? "granted-individually" : "needs-full";
+}
+
+const LEVEL_RANK: Record<AccessLevel, number> = { off: 0, read: 1, manage: 2, full: 3 };
+
+/**
+ * Guardrail for delegated administrator capabilities: is everything the
+ * target can do also something the actor can do?
+ * - an administrator target is within reach of administrators only;
+ * - an administrator actor reaches everyone;
+ * - a target with no office access (cleaner, client, ...) is within reach;
+ * - an office target is within reach when no area level and no capability
+ *   (administrator capabilities included) exceeds the actor's.
+ */
+export function accessWithin(policy: OpsPolicy, target: AccessSubject, actor: AccessSubject): boolean {
+  if (isAdministrator(target)) return isAdministrator(actor);
+  if (isAdministrator(actor)) return true;
+  const targetIsOffice = isOpsSubject({ role: target.role, heldRoles: target.heldRoles ? [...target.heldRoles] : undefined });
+  if (!targetIsOffice) return true;
+  const actorIsOffice = isOpsSubject({ role: actor.role, heldRoles: actor.heldRoles ? [...actor.heldRoles] : undefined });
+  if (!actorIsOffice) return false;
+  const targetLevels = resolveAccessLevels(policy, target.id);
+  const actorLevels = resolveAccessLevels(policy, actor.id);
+  for (const area of Object.keys(targetLevels) as Array<keyof AccessLevels>) {
+    if (LEVEL_RANK[targetLevels[area]] > LEVEL_RANK[actorLevels[area]]) return false;
+  }
+  const targetCapabilities = effectiveCapabilities(policy, target.id);
+  const actorCapabilities = effectiveCapabilities(policy, actor.id);
+  return CAPABILITIES.every((capability) => !targetCapabilities[capability.key] || actorCapabilities[capability.key]);
 }

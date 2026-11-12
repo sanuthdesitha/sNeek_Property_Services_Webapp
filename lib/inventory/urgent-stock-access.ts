@@ -18,6 +18,7 @@
  */
 import { Role } from "@prisma/client";
 import { getOpsAccess } from "@/lib/rbac/ops-access";
+import { canSubject } from "@/lib/rbac/can";
 import type { OpsLevel } from "@/lib/rbac/ops-catalog";
 
 export type UrgentOfficeLevel = "read" | "manage";
@@ -42,5 +43,11 @@ export async function urgentOfficeAllowed(
   if (actor.role === Role.ADMIN) return true;
   if (actor.role !== Role.OPS_MANAGER) return false;
   const levels = await getOpsAccess({ id: actor.id, role: actor.role, heldRoles });
-  return inventoryLevelAllows(levels ? levels.inventory : null, wanted);
+  if (!inventoryLevelAllows(levels ? levels.inventory : null, wanted)) return false;
+  // Office writes are the "Act on urgent stock" capability, which an
+  // administrator can switch off per person (shared evaluator, live policy).
+  if (wanted === "manage" && levels) {
+    return canSubject({ id: actor.id, role: actor.role, heldRoles }, "inventory.urgent_stock_act");
+  }
+  return true;
 }

@@ -124,6 +124,8 @@ export type PersonCapabilities = {
   canResendInvite: boolean;
   /** Record or remove leave: ADMIN, and OPS_MANAGER with accounts write (as office notes). */
   canManageLeave?: boolean;
+  /** Message this person through the staff message route (ADMIN, OPS_MANAGER with communications). */
+  canMessageStaff?: boolean;
 };
 
 export function toPersonProfile(raw: RawPersonProfile): PersonProfile {

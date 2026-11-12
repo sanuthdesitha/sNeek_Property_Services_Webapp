@@ -13,7 +13,7 @@ import { cleanTotalsByCleaner } from "@/lib/quality/cleans";
 import { loadCleanFacts } from "@/lib/quality/facts";
 import { resolveQualityPeriod } from "@/lib/quality/period";
 import { EMPTY_QUALITY_FILTERS } from "@/lib/quality/types";
-import { sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
+import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { missingRequiredLabels, requiredCategoriesFor, requiredDocumentStatuses, type StaffDocumentCategory } from "@/lib/accounts/required-documents";
 import { readRequiredDocuments } from "@/lib/accounts/required-documents-store";
 import { currentHourlyRates } from "@/lib/accounts/pay-rate-history";
@@ -48,7 +48,12 @@ export async function loadAccountRecords(now: Date): Promise<AccountRecord[]> {
   const ids = users.map((user) => user.id);
   const inactiveIds = users.filter((user) => !user.isActive).map((user) => user.id);
   const today = sydneyDayStart(sydneyTodayKey(now));
-  const [documents, requests, upcoming, requirements, rates] = await Promise.all([
+  const todayKey0 = sydneyTodayKey(now);
+  // Monday to Sunday of this Sydney week.
+  const weekday = (new Date(`${todayKey0}T00:00:00Z`).getUTCDay() + 6) % 7;
+  const weekStart = sydneyDayStart(addDaysToKey(todayKey0, -weekday));
+  const weekEnd = sydneyDayStart(addDaysToKey(todayKey0, 7 - weekday));
+  const [documents, requests, upcoming, requirements, rates, weekRows, owedRows] = await Promise.all([
     db.staffDocument.findMany({ where: { userId: { in: ids } }, select: { userId: true, title: true, category: true, status: true, expiresAt: true } }),
     db.staffDocumentRequest.findMany({ where: { userId: { in: ids }, status: "REQUESTED" }, select: { userId: true, title: true } }),
     inactiveIds.length === 0
@@ -63,7 +68,16 @@ export async function loadAccountRecords(now: Date): Promise<AccountRecord[]> {
         }),
     readRequiredDocuments(),
     currentHourlyRates(users, now),
+    db.jobAssignment.groupBy({
+      by: ["userId"],
+      where: { removedAt: null, job: { scheduledDate: { gte: weekStart, lt: weekEnd }, status: { not: "CANCELLED" } } },
+      _count: { _all: true },
+    }),
+    // "Owed (approved)" exactly as the Cleaners roster summed it.
+    db.cleanerPayAdjustment.groupBy({ by: ["cleanerId"], where: { status: "APPROVED" }, _sum: { approvedAmount: true } }),
   ]);
+  const weekByUser = new Map(weekRows.map((row) => [row.userId, row._count._all]));
+  const owedByUser = new Map(owedRows.map((row) => [row.cleanerId, Number(Number(row._sum.approvedAmount ?? 0).toFixed(2))]));
   const todayKey = sydneyTodayKey(now);
 
   const docsByUser = groupBy(documents, (doc) => doc.userId);
@@ -95,6 +109,8 @@ export async function loadAccountRecords(now: Date): Promise<AccountRecord[]> {
     missingRequired,
     requirementsSet: required.length > 0,
     upcomingAssignments: (upcomingByUser.get(user.id) ?? []).length,
+    jobsWeek: weekByUser.get(user.id) ?? 0,
+    owed: owedByUser.get(user.id) ?? 0,
     };
   });
 }

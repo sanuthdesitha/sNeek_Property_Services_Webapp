@@ -10,7 +10,7 @@ import "server-only";
  * (queued, inbox available, provider accepted ...), never "delivered".
  */
 import { db } from "@/lib/db";
-import { escapeHtml } from "@/lib/utils/escape-html";
+import { defaultNotificationWording, loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
 import { sendOfficeNotification, type RecipientOutcome } from "@/lib/notifications/office-sends";
 import { getNotificationTypeControls, typeRespectsPreferences } from "@/lib/notifications/type-controls";
 import type { CreatedAsk } from "./urgent-stock-ask";
@@ -18,16 +18,31 @@ import type { CreatedAsk } from "./urgent-stock-ask";
 export const PURCHASE_ASK_TYPE_KEY = "urgent_stock.purchase_ask";
 
 /** Pure: the wording the cleaner sees. */
-export function purchaseAskBody(ask: Pick<CreatedAsk, "itemName" | "quantity" | "unit" | "propertyName" | "jobNumber" | "note">): string {
-  const job = ask.jobNumber ? ` before job ${ask.jobNumber}` : "";
-  const note = ask.note ? ` Note from the office: "${ask.note}"` : "";
-  return `The office asks if you can buy ${ask.quantity} ${ask.unit} of ${ask.itemName} for ${ask.propertyName}${job}. Open the job to accept or decline. If you accept it goes on your shopping run; keep the receipt — the office approves the reimbursement.${note}`;
+type AskWordingInput = Pick<CreatedAsk, "itemName" | "quantity" | "unit" | "propertyName" | "jobNumber" | "note">;
+
+function purchaseAskInbox(ask: AskWordingInput, wording: WordingRenderer) {
+  return wording.render("cleaner", "INBOX", {
+    itemName: ask.itemName,
+    quantity: ask.quantity,
+    unit: ask.unit,
+    propertyName: ask.propertyName,
+    beforeJob: wording.line("job-line", "INBOX", { jobNumber: ask.jobNumber }, Boolean(ask.jobNumber)),
+    officeNote: wording.line("note-line", "INBOX", { note: ask.note }, Boolean(ask.note)),
+  });
+}
+
+/** The ask's inbox wording (pass the loaded wording; the default is used otherwise). */
+export function purchaseAskBody(ask: AskWordingInput, wording: WordingRenderer = defaultNotificationWording(PURCHASE_ASK_TYPE_KEY)): string {
+  return purchaseAskInbox(ask, wording).body;
 }
 
 export async function sendPurchaseAskNotice(actorId: string, ask: CreatedAsk): Promise<RecipientOutcome[]> {
   const controls = await getNotificationTypeControls();
   const cleaner = await db.user.findUnique({ where: { id: ask.cleanerId }, select: { email: true } });
-  const body = purchaseAskBody(ask);
+  const wording = await loadNotificationWording(PURCHASE_ASK_TYPE_KEY);
+  const inbox = purchaseAskInbox(ask, wording);
+  const body = inbox.body;
+  const email = wording.render("cleaner", "EMAIL", { itemName: ask.itemName, propertyName: ask.propertyName, messageText: body });
   const url = ask.jobId ? `/v2/cleaner/jobs/${ask.jobId}` : "/v2/cleaner/supplies?tab=shopping";
   return sendOfficeNotification({
     typeKey: PURCHASE_ASK_TYPE_KEY,
@@ -40,10 +55,10 @@ export async function sendPurchaseAskNotice(actorId: string, ask: CreatedAsk): P
     category: "shopping",
     severity: "ACTION",
     jobId: ask.jobId,
-    subject: `Can you buy ${ask.itemName}?`,
+    subject: inbox.title,
     body,
     url,
-    email: () => ({ subject: `Can you buy ${ask.itemName} for ${ask.propertyName}?`, html: `<p>${escapeHtml(body)}</p>` }),
+    email: () => ({ subject: email.subject, html: email.html }),
     emailKind: "workforce_update",
     transports: ask.transports,
     recipients: [{ id: ask.cleanerId, role: "CLEANER", name: ask.cleanerName, email: cleaner?.email ?? null }],

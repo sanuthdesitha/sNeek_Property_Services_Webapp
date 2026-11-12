@@ -4,6 +4,7 @@ import { toZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { sendWebPushToUser } from "@/lib/notifications/web-push";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 /**
  * Daily push-only nudge for genuinely stale unfinished jobs: PAUSED or
@@ -57,15 +58,18 @@ export async function dispatchUnfinishedJobPushReminders(now = new Date()) {
 
   let reminded = 0;
   let skipped = 0;
+  const wording = await loadNotificationWording("job.reminder.unfinished_daily");
   for (const job of jobs) {
     if (alreadyReminded.has(job.id) || job.assignments.length === 0) {
       skipped += 1;
       continue;
     }
     const propertyName = job.property?.name ?? "your job";
-    const body = `${job.jobNumber || job.id}: ${propertyName} is still unfinished (${
-      job.status === JobStatus.PAUSED ? "paused" : "in progress"
-    }). Please open it and submit your checklist.`;
+    const { title, body } = wording.render("cleaner", "INBOX", {
+      jobNumber: job.jobNumber || job.id,
+      propertyName,
+      status: job.status === JobStatus.PAUSED ? "paused" : "in progress",
+    });
 
     try {
       for (const assignment of job.assignments) {
@@ -75,14 +79,14 @@ export async function dispatchUnfinishedJobPushReminders(now = new Date()) {
             jobId: job.id,
             externalId: mobilePendingMarker("jobs"),
             channel: NotificationChannel.PUSH,
-            subject: "Unfinished job reminder",
+            subject: title,
             body,
             status: NotificationStatus.SENT,
             sentAt: new Date(),
           },
         });
         await sendWebPushToUser(assignment.userId, {
-          title: "Unfinished job reminder",
+          title,
           body,
           url: "/cleaner/jobs",
           tag: `job-unfinished-${job.id}`,

@@ -10,7 +10,7 @@
  * link never leads to a refusal and a blocked category is omitted.
  */
 import "server-only";
-import { JobTaskSource, QaAssignmentStatus, Role } from "@prisma/client";
+import { JobTaskSource, Prisma, QaAssignmentStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { listContinuationRequests } from "@/lib/jobs/continuation-requests";
 import type { OpsLevels } from "@/lib/rbac/ops-catalog";
@@ -117,7 +117,7 @@ const JOB_SELECT = {
       events: { orderBy: { createdAt: "desc" as const }, select: { action: true, note: true } },
     },
   },
-} as const;
+} satisfies Prisma.JobSelect;
 
 export async function loadJobPageJob(id: string) {
   return db.job.findUnique({ where: { id }, select: JOB_SELECT }).catch(() => null);

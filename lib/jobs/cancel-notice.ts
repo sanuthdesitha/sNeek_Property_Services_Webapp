@@ -9,6 +9,7 @@ import "server-only";
  */
 import { sendOfficeNotification, type OfficeRecipient, type RecipientOutcome } from "@/lib/notifications/office-sends";
 import { getNotificationTypeControls, typeRespectsPreferences } from "@/lib/notifications/type-controls";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export const JOB_CANCELLED_TYPE_KEY = "job.cancelled";
 export const JOB_CANCEL_RESTORED_TYPE_KEY = "job.cancel_restored";
@@ -56,7 +57,12 @@ async function send(input: {
   return inboxOnly(outcomes);
 }
 
+function noticeValues(job: NoticeJob) {
+  return { propertyName: job.propertyName, day: job.dayLabel, jobNumber: job.jobNumber };
+}
+
 export async function sendJobCancelledNotice(input: { job: NoticeJob; reason: string; actorId: string; recipients: OfficeRecipient[]; cancelledAtIso: string }): Promise<CancelNoticeOutcome[]> {
+  const wording = (await loadNotificationWording(JOB_CANCELLED_TYPE_KEY)).render("cleaner", "INBOX", { ...noticeValues(input.job), reason: input.reason });
   return send({
     typeKey: JOB_CANCELLED_TYPE_KEY,
     eventId: `job-cancelled:${input.job.id}:${input.cancelledAtIso}`,
@@ -64,12 +70,13 @@ export async function sendJobCancelledNotice(input: { job: NoticeJob; reason: st
     actorId: input.actorId,
     recipients: input.recipients,
     scope: "STAFF_MEMBER",
-    subject: "Job cancelled",
-    body: `The job at ${input.job.propertyName} on ${input.job.dayLabel} (${input.job.jobNumber}) has been cancelled. You no longer need to attend. Reason: ${input.reason}`,
+    subject: wording.title,
+    body: wording.body,
   });
 }
 
 export async function sendJobRestoredNotice(input: { job: NoticeJob; actorId: string; recipients: OfficeRecipient[]; restoredAtIso: string }): Promise<CancelNoticeOutcome[]> {
+  const wording = (await loadNotificationWording(JOB_CANCEL_RESTORED_TYPE_KEY)).render("cleaner", "INBOX", noticeValues(input.job));
   return send({
     typeKey: JOB_CANCEL_RESTORED_TYPE_KEY,
     eventId: `job-cancel-restored:${input.job.id}:${input.restoredAtIso}`,
@@ -77,7 +84,7 @@ export async function sendJobRestoredNotice(input: { job: NoticeJob; actorId: st
     actorId: input.actorId,
     recipients: input.recipients,
     scope: "JOB_ASSIGNED_CLEANER",
-    subject: "Cancelled job is back on",
-    body: `The job at ${input.job.propertyName} on ${input.job.dayLabel} (${input.job.jobNumber}) was cancelled and is now back on your list. Open it to confirm.`,
+    subject: wording.title,
+    body: wording.body,
   });
 }

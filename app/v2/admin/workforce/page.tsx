@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { resolveAccountsViewer } from "@/lib/accounts/viewer";
+import { peopleRedirectTarget } from "@/lib/people/tabs";
 import { Role } from "@prisma/client";
 import {
   Award,
@@ -38,8 +41,18 @@ import { docExpiryStatus, prettify } from "@/components/v2/admin/workforce/utils
 export const metadata = { title: "Workforce · Estate admin" };
 export const dynamic = "force-dynamic";
 
-export default async function WorkforceOverviewPage() {
-  await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+/**
+ * The overview moved to People › Cleaners: its figures (docs expired,
+ * expiring, pending review, onboarding done, kudos) are the tab's header
+ * figures, the attention feed is "Needs attention" plus Compliance, and the
+ * sub-pages (compliance, coaching, recognition, roster) stay linked there.
+ * Redirects with the query string; an operations manager with the workforce
+ * pack but not the accounts pack keeps this page.
+ */
+export default async function WorkforceOverviewPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const viewer = await resolveAccountsViewer(session.user);
+  if (viewer.canOpenPeople !== false) redirect(peopleRedirectTarget("cleaners", searchParams));
 
   const [directory, documents, requests, recognition, learnTotal, learnDone] = await Promise.all([
     listStaffDirectory().catch(() => []),

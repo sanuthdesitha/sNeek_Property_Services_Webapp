@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { capabilityRefusal } from "@/lib/rbac/capability-http";
 import { Role } from "@prisma/client";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
@@ -41,11 +42,14 @@ const schema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  let session;
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const refusal = await capabilityRefusal(session, ["messages.compose_send"]);
+  if (refusal) return refusal;
 
   let payload: unknown;
   try {

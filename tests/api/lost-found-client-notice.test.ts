@@ -12,7 +12,8 @@ const m = vi.hoisted(() => ({
   office: vi.fn(), controls: vi.fn(), settings: vi.fn(), user: vi.fn(), ops: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.session }));
-vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
+// The live policy behind the shared capability evaluator (lib/rbac/can.ts): no per-person switches.
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops, getOpsPolicy: async () => ({ revision: 0, presets: [], assignments: {} }) }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
 vi.mock("@/lib/notifications/office-sends", async () => {
   const actual = await vi.importActual<typeof import("@/lib/notifications/office-sends")>("@/lib/notifications/office-sends");

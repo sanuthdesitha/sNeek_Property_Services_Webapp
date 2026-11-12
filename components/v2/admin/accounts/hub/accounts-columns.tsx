@@ -10,17 +10,19 @@ import { Check } from "lucide-react";
 import type { EDataColumn } from "@/components/v2/ui/data-table";
 import { E_CHIP_CLASS } from "@/components/v2/ui/filter-chips";
 import type { AccountListVisibility, AccountRow, AccountSort } from "@/lib/accounts/list/types";
-import { Avatar, DASH, DocumentsPill, RoleCell, StatusPill, formatLastSeen, formatRate } from "./account-display";
+import { Avatar, DASH, DocumentsPill, RoleCell, StatusPill, formatLastSeen, formatMoney, formatRate } from "./account-display";
 
-export const OPTIONAL_COLUMNS = ["role", "status", "rate", "jobs30", "qa30", "documents", "lastSeen"] as const;
+export const OPTIONAL_COLUMNS = ["role", "status", "jobsWeek", "rate", "owed", "jobs30", "qa30", "documents", "lastSeen"] as const;
 export type OptionalColumn = (typeof OPTIONAL_COLUMNS)[number];
 export type ColumnPrefs = Record<OptionalColumn, boolean>;
-export const DEFAULT_COLUMN_PREFS: ColumnPrefs = { role: true, status: true, rate: true, jobs30: true, qa30: true, documents: true, lastSeen: true };
+export const DEFAULT_COLUMN_PREFS: ColumnPrefs = { role: true, status: true, jobsWeek: true, rate: true, owed: true, jobs30: true, qa30: true, documents: true, lastSeen: true };
 
 const COLUMN_LABEL: Record<OptionalColumn, string> = {
   role: "Role",
   status: "Status",
+  jobsWeek: "Jobs this week",
   rate: "Rate",
+  owed: "Owed",
   jobs30: "Jobs, 30 d",
   qa30: "QA, 30 d",
   documents: "Documents",
@@ -30,7 +32,7 @@ const COLUMN_LABEL: Record<OptionalColumn, string> = {
 /** Columns this viewer may have at all. */
 export function allowedColumns(visibility: AccountListVisibility): OptionalColumn[] {
   return OPTIONAL_COLUMNS.filter((key) => {
-    if (key === "rate") return visibility.pay;
+    if (key === "rate" || key === "owed") return visibility.pay;
     if (key === "jobs30" || key === "qa30") return visibility.quality;
     return true;
   });
@@ -70,6 +72,7 @@ export function accountColumns(
     },
     { key: "role", optional: "role", header: "Role", sortKey: "role", cell: (row) => <RoleCell role={row.role} extraRoles={row.extraRoles} /> },
     { key: "status", optional: "status", header: "Status", sortKey: "status", cell: (row) => <StatusPill status={row.status} inviteAgeDays={row.inviteAgeDays} /> },
+    { key: "jobsWeek", optional: "jobsWeek", header: "Jobs this week", sortKey: "jobsWeek", firstDir: "desc", align: "right", className: "e-tnum", cell: (row) => row.jobsWeek },
     {
       key: "rate",
       optional: "rate",
@@ -78,6 +81,16 @@ export function accountColumns(
       align: "right",
       className: "e-tnum",
       cell: (row) => formatRate(row.rate) ?? <span className="text-[hsl(var(--e-muted-foreground))]">Not set</span>,
+    },
+    {
+      key: "owed",
+      optional: "owed",
+      header: "Owed",
+      sortKey: "owed",
+      firstDir: "desc",
+      align: "right",
+      className: "e-tnum",
+      cell: (row) => (typeof row.owed === "number" ? formatMoney(row.owed) : <span className="text-[hsl(var(--e-muted-foreground))]">{DASH}</span>),
     },
     { key: "jobs30", optional: "jobs30", header: "Jobs, 30 d", sortKey: "jobs30", firstDir: "desc", align: "right", className: "e-tnum", cell: (row) => figure(row.jobs30) },
     { key: "qa30", optional: "qa30", header: "QA, 30 d", sortKey: "qa30", firstDir: "desc", align: "right", className: "e-tnum", cell: (row) => figure(row.qa30) },

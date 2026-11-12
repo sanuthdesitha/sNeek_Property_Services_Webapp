@@ -1,5 +1,6 @@
 import { getOpsPolicy } from "@/lib/rbac/ops-access";
-import { resolveSensitiveGrants } from "@/lib/rbac/ops-policy";
+import { evaluateCapability } from "@/lib/rbac/access-evaluator";
+import { SENSITIVE_ACTION_CAPABILITY } from "@/lib/rbac/capabilities";
 import type { SensitiveAction } from "./sensitive-actions";
 import bcrypt from "bcryptjs";
 import { Role } from "@prisma/client";
@@ -74,9 +75,11 @@ export async function verifySensitiveAction(
     throw new Error("FORBIDDEN");
   }
 
+  // The shared evaluator: an explicit grant, or the area at Full. The PIN or
+  // password below is still required at Full (owner decision 2026-11-12).
   if (!roles.includes(Role.ADMIN) && action) {
-    const grants = resolveSensitiveGrants(await getOpsPolicy(), userId);
-    if (grants[action] !== true) throw new Error("FORBIDDEN");
+    const subject = { id: userId, role: String(user.role), heldRoles: roles.map(String) };
+    if (!evaluateCapability(await getOpsPolicy(), subject, SENSITIVE_ACTION_CAPABILITY[action])) throw new Error("FORBIDDEN");
   }
 
   const pin = normalizePin(credentials?.pin);

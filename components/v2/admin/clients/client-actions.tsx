@@ -7,7 +7,7 @@
  *   invite  → POST   /api/admin/clients/:id/invite   { welcomeNote?, security }
  *   delete  → DELETE /api/admin/clients/:id          { security }
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, PencilLine, Trash2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -72,13 +72,19 @@ export type ClientActionsClient = {
   portalVisibilityOverrides?: PortalVisibilityOverrides | null;
 };
 
+/** Openers for the three dialogs, for a caller that draws its own triggers (the client page's More menu). */
+export type ClientActionControls = { edit: () => void; invite: (() => void) | null; remove: () => void };
+
 export function ClientActions({
   client,
   defaultPortalVisibility,
+  renderTrigger,
 }: {
   client: ClientActionsClient;
   /** Workspace-level defaults, so each row can say what "Default" resolves to. */
   defaultPortalVisibility: ClientPortalVisibility;
+  /** Draw custom triggers instead of the default Edit / Portal invite / Delete buttons. */
+  renderTrigger?: (controls: ClientActionControls) => ReactNode;
 }) {
   const router = useRouter();
 
@@ -210,6 +216,9 @@ export function ClientActions({
 
   return (
     <>
+      {renderTrigger ? (
+        renderTrigger({ edit: () => setEditOpen(true), invite: client.email ? () => setInviteOpen(true) : null, remove: () => setDeleteOpen(true) })
+      ) : (
       <div className="flex flex-wrap items-center gap-2">
         <EButton size="sm" variant="outline" onClick={() => setEditOpen(true)}>
           <PencilLine className="h-3.5 w-3.5" />
@@ -226,6 +235,7 @@ export function ClientActions({
           Delete
         </EButton>
       </div>
+      )}
 
       {/* Edit client */}
       <EModal open={editOpen} onClose={() => setEditOpen(false)} eyebrow="Clients" title="Edit client" wide>

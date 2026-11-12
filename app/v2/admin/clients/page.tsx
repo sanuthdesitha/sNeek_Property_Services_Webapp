@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { toZonedTime } from "date-fns-tz";
-import { ClientInvoiceStatus } from "@prisma/client";
+import { redirect } from "next/navigation";
+import { ClientInvoiceStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
+import { requireRole } from "@/lib/auth/session";
+import { resolveAccountsViewer } from "@/lib/accounts/viewer";
+import { peopleRedirectTarget } from "@/lib/people/tabs";
 import {
   EBadge,
   EButton,
@@ -74,7 +78,16 @@ async function getClients() {
   }));
 }
 
-export default async function AdminClientsPage() {
+/**
+ * The client list moved to People › Clients (owner request, 2026-11-12); this
+ * URL redirects there with its query string. An operations manager with the
+ * clients pack but not the accounts pack cannot open the People route yet
+ * (its middleware gate is the accounts pack), so they keep this list.
+ */
+export default async function AdminClientsPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
+  const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+  const viewer = await resolveAccountsViewer(session.user);
+  if (viewer.canOpenPeople !== false) redirect(peopleRedirectTarget("clients", searchParams));
   const clients = await getClients();
 
   return (

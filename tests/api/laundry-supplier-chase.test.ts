@@ -13,7 +13,8 @@ const m = vi.hoisted(() => ({
   email: vi.fn(), sms: vi.fn(), smsState: vi.fn(), settings: vi.fn(), ops: vi.fn(), users: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.session }));
-vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
+// The live policy behind the shared capability evaluator (lib/rbac/can.ts): no per-person switches.
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops, getOpsPolicy: async () => ({ revision: 0, presets: [], assignments: {} }) }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
 vi.mock("@/lib/notifications/email", () => ({ sendEmailDetailed: m.email }));
 vi.mock("@/lib/notifications/sms", () => ({ sendSmsDetailed: m.sms, getSmsProviderState: m.smsState }));

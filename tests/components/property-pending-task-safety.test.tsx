@@ -27,7 +27,7 @@ beforeEach(() => {
  });
 });
 afterEach(() => vi.unstubAllGlobals());
-async function openTask() { render(<PropertyDetail propertyId="p" />); await screen.findByText("Test home"); fireEvent.click(screen.getByRole("button", { name: /^Checklist/ })); fireEvent.click(screen.getByRole("button", { name: "Add task" })); }
+async function openTask() { render(<PropertyDetail propertyId="p" />); await screen.findByRole("heading", { level: 1, name: /Test home/ }); fireEvent.click(screen.getByRole("tab", { name: /^Checklist and forms/ })); fireEvent.click(screen.getByRole("button", { name: "Add task" })); }
 const title = () => screen.getByPlaceholderText("e.g. Replace batteries in smoke alarm");
 const submit = () => fireEvent.click(screen.getAllByRole("button", { name: "Add task" }).at(-1)!);
 it("new tasks default to mandatory photo proof and opt-in conditional status; successful creation resets defaults", async () => {
@@ -48,8 +48,11 @@ it("HTTP failure keeps typed work and request identity; retry does not create a 
  expect(title()).toHaveValue("Skirting detail"); expect(screen.getByDisplayValue("Include behind door")).toBeInTheDocument();
  submit(); await waitFor(() => expect(m.post).toHaveBeenCalledTimes(2)); expect(m.post.mock.calls[1][0]).toEqual(m.post.mock.calls[0][0]);
 });
-it("Jobs tab mounts the read-only evidence ledger; task controls cannot submit an empty title", async () => {
+it("Jobs and history mounts the read-only evidence ledger, Care and planning the deep-clean planning; task controls cannot submit an empty title", async () => {
  await openTask(); expect(screen.getAllByRole("button", { name: "Add task" }).at(-1)).toBeDisabled();
- fireEvent.click(screen.getByRole("button", { name: "Cancel" })); fireEvent.click(screen.getByRole("button", { name: /^Jobs & history/ }));
- expect(screen.getByText("Cadence ledger mounted")).toBeInTheDocument(); expect(screen.getByText("Deep-clean planning mounted")).toBeInTheDocument(); expect(m.post).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole("button", { name: "Cancel" })); fireEvent.click(screen.getByRole("tab", { name: /^Jobs and history/ }));
+ expect(screen.getByText("Cadence ledger mounted")).toBeInTheDocument();
+ // Deep-clean planning moved to the drawn "Care and planning" tab.
+ fireEvent.click(screen.getByRole("tab", { name: /^Care and planning/ }));
+ expect(screen.getByText("Deep-clean planning mounted")).toBeInTheDocument(); expect(m.post).not.toHaveBeenCalled();
 });

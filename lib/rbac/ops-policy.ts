@@ -12,7 +12,7 @@ import {
   type OpsFeature,
   type OpsLevels,
 } from "./ops-catalog";
-import { CAPABILITY_KEYS, type CapabilityKey } from "./capabilities";
+import { CAPABILITY_KEYS, GRANT_CAPABILITY_KEYS, type CapabilityKey } from "./capabilities";
 
 const sensitive = z
   .record(
@@ -77,6 +77,14 @@ export const opsPolicySchema = z
         code: "custom",
         message: "Permission presets must have unique IDs.",
       });
+    // Administrator capabilities are granted to a person, never through a preset.
+    for (const preset of policy.presets) {
+      if (GRANT_CAPABILITY_KEYS.some((key) => preset.capabilities?.[key] !== undefined))
+        context.addIssue({
+          code: "custom",
+          message: "Administrator capabilities are granted per person, not in a preset.",
+        });
+    }
     if (Object.keys(policy.assignments).length > 2000)
       context.addIssue({ code: "custom", message: "Too many assignments." });
     for (const assignment of Object.values(policy.assignments)) {

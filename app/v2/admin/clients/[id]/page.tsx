@@ -1,626 +1,161 @@
 import Link from "next/link";
 import { format } from "date-fns";
 import { notFound } from "next/navigation";
-import { CaseState, ClientInvoiceStatus, JobStatus, LeadStatus, QuoteStatus, Role } from "@prisma/client";
-import { db } from "@/lib/db";
+import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
-import {
-  EBadge,
-  EButton,
-  ECard,
-  ECardBody,
-  ECardHeader,
-  ECardTitle,
-  EPageHeader,
-  EStatCard,
-  EEmptyState,
-} from "@/components/v2/ui/primitives";
-import { ArrowLeft, Building2, FileText, Mail, Phone, TrendingUp, Wallet } from "lucide-react";
+import { EPill } from "@/components/v2/ui/pill";
 import { ClientAutomationRules } from "@/components/v2/admin/clients/client-automation-rules";
 import { ClientActions } from "@/components/v2/admin/clients/client-actions";
 import { ClientProfit } from "@/components/v2/admin/clients/client-profit";
 import { ClientPaymentTerms } from "@/components/v2/admin/clients/client-payment-terms";
-import { canEditClientPaymentTerms } from "@/lib/billing/client-payment-terms";
-import { paymentTermsDaysFrom } from "@/lib/billing/invoice-due";
 import { ClientTimeline } from "@/components/v2/admin/clients/client-timeline";
 import ClientCommunications from "@/components/v2/admin/clients/client-communications";
 import ClientDocuments from "@/components/v2/admin/clients/client-documents";
-import { getFinanceSummary } from "@/lib/finance/summary";
-import { sydneyTodayKey, addDaysToKey } from "@/lib/time/sydney-range";
+import { canEditClientPaymentTerms } from "@/lib/billing/client-payment-terms";
+import { paymentTermsDaysFrom } from "@/lib/billing/invoice-due";
 import { getAppSettings } from "@/lib/settings";
-import { sanitizeClientVisibilityOverride } from "@/lib/client/portal";
+import { mergeClientPortalVisibility, sanitizeClientVisibilityOverride } from "@/lib/client/portal";
+import { loadClientPageData } from "@/lib/people/clients/client-page-data";
+import { loadClientSummary } from "@/lib/people/clients/summary";
+import type { ClientSummary } from "@/lib/people/clients/summary-types";
+import { formatMoney } from "@/components/v2/admin/accounts/hub/account-display";
+import { FactStrip } from "@/components/v2/admin/people/fact-strip";
+import { termsLabel } from "@/components/v2/admin/people/format";
+import { ClientHeaderActions } from "@/components/v2/admin/people/client-page/client-header-actions";
+import { ClientRail, type VisibilityItem } from "@/components/v2/admin/people/client-page/client-rail";
+import { Card, CasesLeadsCard, NeedsAttention, OutstandingCard, PropertiesTable, QuotesCard, RecentJobsCard } from "@/components/v2/admin/people/client-page/client-sections";
 
 export const metadata = { title: "Client · Estate admin" };
 export const dynamic = "force-dynamic";
 
-type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
+const CLIENT_TABS = ["overview", "properties", "jobs", "invoices", "profit", "portal", "messages", "documents", "history"] as const;
+type ClientTab = (typeof CLIENT_TABS)[number];
+const TAB_LABEL: Record<ClientTab, string> = {
+  overview: "Overview", properties: "Properties", jobs: "Jobs", invoices: "Invoices", profit: "Profit and pricing",
+  portal: "Portal access", messages: "Messages", documents: "Documents", history: "History",
+};
 
-function jobStatusTone(status: JobStatus): Tone {
-  switch (status) {
-    case JobStatus.UNASSIGNED:
-    case JobStatus.OFFERED:
-      return "warning";
-    case JobStatus.ASSIGNED:
-    case JobStatus.EN_ROUTE:
-      return "primary";
-    case JobStatus.IN_PROGRESS:
-    case JobStatus.PAUSED:
-    case JobStatus.WAITING_CONTINUATION_APPROVAL:
-      return "info";
-    case JobStatus.QA_REVIEW:
-      return "aubergine";
-    case JobStatus.COMPLETED:
-    case JobStatus.INVOICED:
-      return "success";
-    default:
-      return "neutral";
-  }
+function humanize(key: string): string {
+  const words = key.replace(/^show/, "").replace(/([A-Z])/g, " $1").trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-function invoiceStatusTone(status: ClientInvoiceStatus): Tone {
-  switch (status) {
-    case ClientInvoiceStatus.APPROVED:
-      return "info";
-    case ClientInvoiceStatus.SENT:
-      return "warning";
-    case ClientInvoiceStatus.PAID:
-      return "success";
-    default:
-      return "neutral";
-  }
-}
-
-function quoteStatusTone(status: QuoteStatus): Tone {
-  switch (status) {
-    case QuoteStatus.SENT:
-      return "warning";
-    case QuoteStatus.ACCEPTED:
-      return "success";
-    case QuoteStatus.DECLINED:
-      return "danger";
-    case QuoteStatus.CONVERTED:
-      return "info";
-    default:
-      return "neutral"; // DRAFT
-  }
-}
-
-function caseStateTone(state: CaseState): Tone {
-  switch (state) {
-    case CaseState.OPEN:
-    case CaseState.TRIAGE:
-      return "warning";
-    case CaseState.ASSIGNED:
-    case CaseState.IN_PROGRESS:
-      return "info";
-    case CaseState.AWAITING_CLIENT:
-      return "aubergine";
-    case CaseState.RESOLVED:
-    case CaseState.CLOSED:
-      return "success";
-    default:
-      return "neutral"; // CANCELLED
-  }
-}
-
-function leadStatusTone(status: LeadStatus): Tone {
-  switch (status) {
-    case LeadStatus.NEW:
-      return "warning";
-    case LeadStatus.CONTACTED:
-      return "info";
-    case LeadStatus.QUOTED:
-      return "primary";
-    case LeadStatus.CONVERTED:
-      return "success";
-    default:
-      return "neutral"; // LOST
-  }
-}
-
-/** Lead estimates are optional on both ends — mirror v1's "$a – $b" / single-figure / em-dash fallbacks. */
-function formatEstimate(min: number | null, max: number | null): string {
-  if (min != null && max != null) return `${money(min)} – ${money(max)}`;
-  if (min != null) return `from ${money(min)}`;
-  if (max != null) return `up to ${money(max)}`;
-  return "—";
-}
-
-function titleCase(value: string): string {
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
-function money(n: number): string {
-  return "$" + Math.round(n).toLocaleString("en-AU");
-}
-
-function initials(name: string): string {
-  return (
-    name
-      .replace(/[^A-Za-z ]/g, "")
-      .split(" ")
-      .filter(Boolean)
-      .map((w) => w[0])
-      .slice(0, 2)
-      .join("")
-      .toUpperCase() || "?"
-  );
-}
-
-async function getClient(id: string) {
-  const client = await db.client
-    .findUnique({
-      where: { id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        address: true,
-        suburb: true,
-        state: true,
-        postcode: true,
-        notes: true,
-        isActive: true,
-        portalVisibilityOverrides: true,
-        paymentTermsDays: true,
-        createdAt: true,
-        properties: {
-          where: { isActive: true },
-          orderBy: { name: "asc" },
-          select: { id: true, name: true, suburb: true, bedrooms: true, bathrooms: true },
-        },
-      },
-    })
-    .catch(() => null);
-  if (!client) return null;
-
-  const propertyIds = client.properties.map((p) => p.id);
-
-  const [recentJobs, outstanding, quotes, cases, leads] = await Promise.all([
-    propertyIds.length
-      ? db.job
-          .findMany({
-            where: { propertyId: { in: propertyIds } },
-            orderBy: { scheduledDate: "desc" },
-            take: 8,
-            select: {
-              id: true,
-              jobNumber: true,
-              jobType: true,
-              status: true,
-              scheduledDate: true,
-              property: { select: { name: true, suburb: true } },
-            },
-          })
-          .catch(() => [])
-      : Promise.resolve([]),
-    db.clientInvoice
-      .findMany({
-        where: {
-          clientId: id,
-          status: { in: [ClientInvoiceStatus.APPROVED, ClientInvoiceStatus.SENT] },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-        select: {
-          id: true,
-          invoiceNumber: true,
-          status: true,
-          totalAmount: true,
-          createdAt: true,
-        },
-      })
-      .catch(() => []),
-    // Quotes are linked to the client directly (Quote.clientId), not through
-    // properties — pre-conversion quotes often predate any property record.
-    db.quote
-      .findMany({
-        where: { clientId: id },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-        select: {
-          id: true,
-          serviceType: true,
-          totalAmount: true,
-          status: true,
-          validUntil: true,
-          createdAt: true,
-        },
-      })
-      .catch(() => []),
-    // "Cases" is the IssueTicket model (legacy name) — filter on the typed
-    // `state`, but keep ALL states so resolved history stays visible here.
-    db.issueTicket
-      .findMany({
-        where: { clientId: id },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-        select: {
-          id: true,
-          title: true,
-          caseType: true,
-          state: true,
-          createdAt: true,
-        },
-      })
-      .catch(() => []),
-    db.quoteLead
-      .findMany({
-        where: { clientId: id },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-        select: {
-          id: true,
-          serviceType: true,
-          status: true,
-          estimateMin: true,
-          estimateMax: true,
-          createdAt: true,
-        },
-      })
-      .catch(() => []),
-  ]);
-
-  const outstandingAud = outstanding.reduce((sum, inv) => sum + (inv.totalAmount ?? 0), 0);
-
-  // Per-client profit over a trailing 12-month window. We reuse the canonical
-  // finance engine (getFinanceSummary) and filter its byClient rows to this
-  // client — never duplicate the margin math here.
-  const todayKey = sydneyTodayKey();
-  const startKey = addDaysToKey(todayKey, -365);
-  const [finance, rateRows] = await Promise.all([
-    getFinanceSummary({ startDate: startKey, endDate: todayKey }).catch(() => null),
-    propertyIds.length
-      ? db.propertyClientRate
-          .findMany({
-            where: { propertyId: { in: propertyIds }, isActive: true },
-            select: { propertyId: true },
-          })
-          .catch(() => [])
-      : Promise.resolve([]),
-  ]);
-
-  const profitRow = finance?.byClient.find((row) => row.clientId === id) ?? null;
-  const activeRateCount = rateRows.length;
-  const ratedPropertyCount = new Set(rateRows.map((r) => r.propertyId)).size;
-
-  return {
-    client,
-    recentJobs,
-    outstanding,
-    outstandingAud,
-    quotes,
-    cases,
-    leads,
-    profitRow,
-    activeRateCount,
-    ratedPropertyCount,
-  };
-}
-
-export default async function AdminClientDetailPage({ params }: { params: { id: string } }) {
+/**
+ * The client page as drawn (People board, 2026-11-12): header with the
+ * status-dependent primary action and More, key facts, tabs (in `?tab=`, so
+ * each is linkable and server-rendered), main cards and the right rail.
+ * Composed from the existing components and services; nothing here
+ * recomputes money (receivables, due days and margin come from Finance).
+ */
+export default async function AdminClientDetailPage({ params, searchParams }: { params: { id: string }; searchParams?: { tab?: string } }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-  // Settings are needed alongside client data: the edit modal's visibility
-  // overrides must show what each "Default" resolves to right now.
-  const [data, settings, canEditTerms] = await Promise.all([
-    getClient(params.id),
+  const [data, settings, canEditTerms, rawSummary] = await Promise.all([
+    loadClientPageData(params.id),
     getAppSettings(),
     canEditClientPaymentTerms(session.user),
+    loadClientSummary(params.id, { money: true, profit: false }),
   ]);
-  if (!data) notFound();
+  if (!data || !rawSummary) notFound();
+  const tab: ClientTab = (CLIENT_TABS as readonly string[]).includes(searchParams?.tab ?? "") ? (searchParams?.tab as ClientTab) : "overview";
+  const { client, recentJobs, outstanding, quotes, cases, leads, profitRow, activeRateCount, ratedPropertyCount } = data;
 
-  const { client, recentJobs, outstanding, outstandingAud, quotes, cases, leads, profitRow, activeRateCount, ratedPropertyCount } = data;
-
-  const marginPctLabel =
-    profitRow && profitRow.marginPct !== null ? `${profitRow.marginPct.toFixed(0)}% margin` : "12-mo";
-  const marginTone: "success" | "danger" | "neutral" = profitRow
-    ? profitRow.grossMargin >= 0
-      ? "success"
-      : "danger"
-    : "neutral";
+  // Margin comes from the finance engine row the page already loads (one read).
+  const summary: ClientSummary = rawSummary.money
+    ? { ...rawSummary, money: { ...rawSummary.money, revenue12: profitRow?.revenue ?? null, cleanerCost12: profitRow?.cleanerCost ?? null, margin12: profitRow?.grossMargin ?? null, marginPct12: profitRow?.marginPct ?? null } }
+    : rawSummary;
+  const overrides = sanitizeClientVisibilityOverride(client.portalVisibilityOverrides);
+  const merged = mergeClientPortalVisibility(settings.clientPortalVisibility, overrides);
+  const visibility: VisibilityItem[] = Object.entries(merged).map(([key, shown]) => ({ key, label: humanize(key), shown: shown === true, overridden: Boolean(overrides && key in overrides) }));
+  const firstOverdue = summary.money?.invoices.find((invoice) => invoice.overdue) ?? null;
+  const actionsClient = {
+    id: client.id, name: client.name, email: client.email, phone: client.phone, address: client.address, suburb: client.suburb,
+    state: client.state, postcode: client.postcode, notes: client.notes, isActive: client.isActive, portalVisibilityOverrides: overrides,
+  };
+  const base = `/v2/admin/clients/${client.id}`;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <EButton asChild variant="ghost" size="icon"><Link href="/v2/admin/clients" aria-label="Back to client register"><ArrowLeft className="h-4 w-4" /></Link></EButton>
-        <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">Clients</span>
-      </div>
+    <div className="flex min-w-0 flex-col gap-4">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Link href="/v2/admin/accounts?tab=clients" className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))] hover:underline">← People · Clients</Link>
+          <h1 className="e-display-md flex flex-wrap items-center gap-2">{client.name} <EPill tone={client.isActive ? "ok" : "neutral"}>{client.isActive ? "Active" : "Inactive"}</EPill></h1>
+          <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{[client.phone, client.email, [client.address, client.suburb, client.state, client.postcode].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "No contact details"}</p>
+        </div>
+        <ClientHeaderActions client={actionsClient} defaultPortalVisibility={settings.clientPortalVisibility} overdueInvoice={firstOverdue ? { id: firstOverdue.id, invoiceNumber: firstOverdue.invoiceNumber } : null} />
+      </header>
 
-      <EPageHeader
-        eyebrow="Client 360"
-        title={client.name}
-        description={client.suburb ? `Based in ${client.suburb}` : "Client record"}
-        actions={
-          <div className="flex flex-wrap items-center gap-3">
-            <EBadge tone={client.isActive ? "primary" : "neutral"} soft>{client.isActive ? "Active" : "Inactive"}</EBadge>
-            <ClientActions
-              client={{
-                id: client.id,
-                name: client.name,
-                email: client.email,
-                phone: client.phone,
-                address: client.address,
-                suburb: client.suburb,
-                state: client.state,
-                postcode: client.postcode,
-                notes: client.notes,
-                isActive: client.isActive,
-                // Sanitise the raw Json column into the typed tri-state shape
-                // the modal expects — same sanitiser the portal itself uses,
-                // so admin UI and portal can never disagree on what's stored.
-                portalVisibilityOverrides: sanitizeClientVisibilityOverride(client.portalVisibilityOverrides),
-              }}
-              defaultPortalVisibility={settings.clientPortalVisibility}
-            />
-          </div>
-        }
+      <FactStrip
+        label="Client facts"
+        facts={[
+          { key: "since", label: "Client since", value: format(new Date(client.createdAt), "MMM yyyy") },
+          { key: "properties", label: "Properties", value: client.properties.length, extra: <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">active</span> },
+          { key: "outstanding", label: "Outstanding", value: summary.money?.owing == null ? null : formatMoney(summary.money.owing), extra: (summary.money?.overdue ?? 0) > 0 ? <EPill tone="bad">{formatMoney(summary.money?.overdue ?? 0)} overdue</EPill> : undefined },
+          { key: "revenue", label: "Revenue, 12 mo", value: profitRow ? formatMoney(profitRow.revenue) : null },
+          { key: "margin", label: "Gross margin, 12 mo", value: profitRow?.marginPct == null ? null : `${profitRow.marginPct.toFixed(0)}%` },
+          { key: "terms", label: "Payment terms", value: `${summary.terms.days} days`, extra: <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{summary.terms.source === "CLIENT" ? "own terms" : "default"}</span> },
+        ]}
       />
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <EStatCard label="Properties" value={String(client.properties.length)} delta="active" deltaTone="neutral" icon={<Building2 className="h-4 w-4" />} />
-        <EStatCard label="Gross margin · 12mo" value={profitRow ? money(profitRow.grossMargin) : "—"} delta={marginPctLabel} deltaTone={marginTone} icon={<TrendingUp className="h-4 w-4" />} />
-        <EStatCard label="Outstanding" value={money(outstandingAud)} delta={`${outstanding.length} invoice${outstanding.length === 1 ? "" : "s"}`} deltaTone="neutral" icon={<Wallet className="h-4 w-4" />} />
-        <EStatCard label="Client since" value={format(new Date(client.createdAt), "MMM yyyy")} delta="onboarded" deltaTone="neutral" icon={<FileText className="h-4 w-4" />} />
-      </section>
+      <nav aria-label="Client sections" className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none]">
+        <div className="flex min-w-max items-center gap-1 border-b border-[hsl(var(--e-border))]">
+          {CLIENT_TABS.map((key) => {
+            const count = key === "properties" ? summary.properties.length : key === "invoices" ? summary.money?.invoices.length : undefined;
+            return (
+              <Link key={key} href={key === "overview" ? base : `${base}?tab=${key}`} aria-current={tab === key ? "page" : undefined} className={`-mb-px inline-flex min-h-[2.5rem] items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[0.8125rem] ${tab === key ? "border-[hsl(var(--e-primary))] font-[600] text-[hsl(var(--e-primary))]" : "border-transparent text-[hsl(var(--e-muted-foreground))] hover:text-[hsl(var(--e-foreground))]"}`}>
+                {TAB_LABEL[key]}{typeof count === "number" ? <span className="e-tnum">{count}</span> : null}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        {/* Contact */}
-        <ECard className="lg:col-span-1">
-          <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Contact</ECardTitle></ECardHeader>
-          <ECardBody className="space-y-2.5 pt-0 text-[0.8125rem]">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-9 w-9 items-center justify-center rounded-full text-[0.75rem] font-semibold text-[hsl(var(--e-accent-portal-foreground))]" style={{ backgroundColor: "hsl(var(--e-accent-portal))" }}>
-                {initials(client.name)}
-              </span>
-              <span className="font-[550]">{client.name}</span>
-            </div>
-            {client.email ? (
-              <p className="flex min-w-0 items-center gap-2 text-[hsl(var(--e-text-secondary))]"><Mail className="h-3.5 w-3.5 text-[hsl(var(--e-text-faint))]" /> {client.email}</p>
-            ) : null}
-            {client.phone ? (
-              <p className="flex min-w-0 items-center gap-2 text-[hsl(var(--e-text-secondary))]"><Phone className="h-3.5 w-3.5 text-[hsl(var(--e-text-faint))]" /> {client.phone}</p>
-            ) : null}
-            {client.address ? (
-              <p className="flex items-center gap-2 text-[hsl(var(--e-muted-foreground))]"><Building2 className="h-3.5 w-3.5 text-[hsl(var(--e-text-faint))]" /> {client.address}{client.suburb ? `, ${client.suburb}` : ""}</p>
-            ) : null}
-          </ECardBody>
-        </ECard>
-
-        {/* Properties */}
-        <ECard className="lg:col-span-2">
-          <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Properties</ECardTitle></ECardHeader>
-          <ECardBody className="pt-0">
-            {client.properties.length === 0 ? (
-              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No active properties.</p>
-            ) : (
-              <ul className="divide-y divide-[hsl(var(--e-border)/0.7)]">
-                {client.properties.map((p) => (
-                  <li key={p.id} className="flex items-center justify-between py-2.5 text-[0.8125rem]">
-                    <div className="min-w-0">
-                      <p className="font-[550] truncate">{p.name}</p>
-                      {p.suburb ? <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">{p.suburb}</p> : null}
-                    </div>
-                    <span className="text-[hsl(var(--e-muted-foreground))] tabular-nums whitespace-nowrap">{p.bedrooms} bd · {p.bathrooms} ba</span>
+      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
+        <section aria-label={TAB_LABEL[tab]} className="flex min-w-0 flex-1 flex-col gap-4">
+          {tab === "overview" ? (
+            <>
+              <NeedsAttention summary={summary} />
+              <PropertiesTable summary={summary} limit={5} />
+              <div className="grid gap-4 xl:grid-cols-2"><OutstandingCard summary={summary} approved={outstanding} /><QuotesCard quotes={quotes.slice(0, 4)} /></div>
+              <div className="grid gap-4 xl:grid-cols-2"><RecentJobsCard jobs={recentJobs.slice(0, 4)} /><CasesLeadsCard cases={cases.slice(0, 3)} leads={leads.slice(0, 2)} /></div>
+              <Card title="Activity" action={<Link className="text-[0.8125rem] underline" href={`${base}?tab=history`}>Full history</Link>}>
+                <ClientTimeline clientId={client.id} />
+              </Card>
+            </>
+          ) : null}
+          {tab === "properties" ? <PropertiesTable summary={summary} /> : null}
+          {tab === "jobs" ? <RecentJobsCard jobs={recentJobs} /> : null}
+          {tab === "invoices" ? <><OutstandingCard summary={summary} approved={outstanding} /><QuotesCard quotes={quotes} /></> : null}
+          {tab === "profit" ? (
+            <>
+              <ClientPaymentTerms clientId={client.id} paymentTermsDays={client.paymentTermsDays ?? null} organisationDefaultDays={paymentTermsDaysFrom(settings.invoicing?.defaultPaymentTermsDays)} canEdit={canEditTerms} />
+              <ClientProfit row={profitRow} rangeLabel="Trailing 12 months" activeRateCount={activeRateCount} ratedPropertyCount={ratedPropertyCount} />
+            </>
+          ) : null}
+          {tab === "portal" ? (
+            <Card title="Portal access" action={<ClientActions client={actionsClient} defaultPortalVisibility={settings.clientPortalVisibility} />}>
+              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Edit changes the contact details and what the client sees; Portal invite sends portal access (it resets the client&apos;s portal password); Delete needs your PIN or password. Terms: {termsLabel(summary.terms)}.</p>
+              <ul className="grid gap-1 text-[0.8125rem] sm:grid-cols-2">
+                {visibility.map((item) => (
+                  <li key={item.key} className="flex items-center justify-between gap-2 border-b border-[hsl(var(--e-border)/0.6)] py-1">
+                    <span>{item.label}</span>
+                    <span className="flex items-center gap-1">{item.overridden ? <span className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">override</span> : null}<EPill tone={item.shown ? "ok" : "neutral"}>{item.shown ? "Shown" : "Hidden"}</EPill></span>
                   </li>
                 ))}
               </ul>
-            )}
-          </ECardBody>
-        </ECard>
+              <Link className="text-[0.8125rem] underline" href="/v2/admin/accounts?tab=assistants">Client assistants</Link>
+            </Card>
+          ) : null}
+          {tab === "messages" ? (
+            <>
+              <ClientCommunications clientId={client.id} />
+              <div id="automation"><ClientAutomationRules clientId={client.id} /></div>
+            </>
+          ) : null}
+          {tab === "documents" ? <ClientDocuments clientId={client.id} /> : null}
+          {tab === "history" ? <ClientTimeline clientId={client.id} /> : null}
+        </section>
+        <ClientRail summary={summary} visibility={visibility} />
       </div>
-
-      {/* Payment terms (per-client; issued invoices keep their snapshot) */}
-      <ClientPaymentTerms
-        clientId={client.id}
-        paymentTermsDays={client.paymentTermsDays ?? null}
-        organisationDefaultDays={paymentTermsDaysFrom(settings.invoicing?.defaultPaymentTermsDays)}
-        canEdit={canEditTerms}
-      />
-
-      {/* Profit & pricing */}
-      <ClientProfit
-        row={profitRow}
-        rangeLabel="Trailing 12 months"
-        activeRateCount={activeRateCount}
-        ratedPropertyCount={ratedPropertyCount}
-      />
-
-      {/* Communications hub (component authored separately) */}
-      <section>
-        <ClientCommunications clientId={client.id} />
-      </section>
-
-      {/* Re-send any document on request (quote, invoice, checklist, add-ons, link, report) */}
-      <section>
-        <ClientDocuments clientId={client.id} />
-      </section>
-
-      {/* Unified activity + cleaner-update timeline */}
-      <ClientTimeline clientId={client.id} />
-
-      {/* Recent jobs */}
-      <ECard>
-        <ECardHeader className="pb-2"><ECardTitle className="text-[0.95rem]">Recent jobs</ECardTitle></ECardHeader>
-        <ECardBody className="pt-0">
-          {recentJobs.length === 0 ? (
-            <EEmptyState eyebrow="No jobs" title="Nothing scheduled yet" description="This client's jobs will appear here." />
-          ) : (
-            <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-              <table className="w-full text-[0.8125rem]">
-                <thead>
-                  <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
-                    {["Date", "Property", "Service", "Status", ""].map((h) => (
-                      <th key={h} className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentJobs.map((j) => (
-                    <tr key={j.id} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
-                      <td className="px-3 py-2.5 tabular-nums whitespace-nowrap">{format(new Date(j.scheduledDate), "d MMM yy")}</td>
-                      <td className="px-3 py-2.5">{[j.property?.name, j.property?.suburb].filter(Boolean).join(", ") || "Property"}</td>
-                      <td className="px-3 py-2.5 text-[hsl(var(--e-text-secondary))]">{titleCase(j.jobType)}</td>
-                      <td className="px-3 py-2.5"><EBadge tone={jobStatusTone(j.status)} soft>{titleCase(j.status)}</EBadge></td>
-                      <td className="px-3 py-2.5 text-right"><EButton asChild variant="ghost" size="sm"><Link href={`/v2/admin/jobs/${j.id}`}>Open</Link></EButton></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </ECardBody>
-      </ECard>
-
-      {/* Outstanding invoices */}
-      <ECard>
-        <ECardHeader className="flex-row items-center justify-between pb-2">
-          <ECardTitle className="text-[0.95rem]">Outstanding invoices</ECardTitle>
-          <EButton asChild variant="ghost" size="sm"><Link href="/v2/admin/finance/invoices">All invoices</Link></EButton>
-        </ECardHeader>
-        <ECardBody className="pt-0">
-          {outstanding.length === 0 ? (
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No outstanding invoices.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-              <table className="w-full text-[0.8125rem]">
-                <thead>
-                  <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
-                    {["Invoice", "Raised", "Amount", "Status"].map((h) => (
-                      <th key={h} className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {outstanding.map((inv) => (
-                    <tr key={inv.id} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
-                      <td className="px-3 py-2.5 font-medium whitespace-nowrap">{inv.invoiceNumber}</td>
-                      <td className="px-3 py-2.5 tabular-nums whitespace-nowrap text-[hsl(var(--e-text-secondary))]">{format(new Date(inv.createdAt), "d MMM yy")}</td>
-                      <td className="px-3 py-2.5"><span className="e-numeral text-[0.9375rem]">{money(inv.totalAmount)}</span></td>
-                      <td className="px-3 py-2.5"><EBadge tone={invoiceStatusTone(inv.status)} soft>{titleCase(inv.status)}</EBadge></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </ECardBody>
-      </ECard>
-
-      {/* Quotes — linked directly via Quote.clientId (may predate any property) */}
-      <ECard>
-        <ECardHeader className="flex-row items-center justify-between pb-2">
-          <ECardTitle className="text-[0.95rem]">Quotes</ECardTitle>
-          <EButton asChild variant="ghost" size="sm"><Link href="/v2/admin/quotes">All quotes</Link></EButton>
-        </ECardHeader>
-        <ECardBody className="pt-0">
-          {quotes.length === 0 ? (
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No quotes for this client yet.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-              <table className="w-full text-[0.8125rem]">
-                <thead>
-                  <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
-                    {["Created", "Service", "Amount", "Valid until", "Status", ""].map((h) => (
-                      <th key={h} className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {quotes.map((q) => (
-                    <tr key={q.id} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
-                      <td className="px-3 py-2.5 tabular-nums whitespace-nowrap">{format(new Date(q.createdAt), "d MMM yy")}</td>
-                      <td className="px-3 py-2.5 text-[hsl(var(--e-text-secondary))]">{titleCase(q.serviceType)}</td>
-                      {/* Quotes show cents — money() rounds to whole dollars, which is fine for KPIs but not a quoted price. */}
-                      <td className="px-3 py-2.5"><span className="e-numeral text-[0.9375rem]">${q.totalAmount.toFixed(2)}</span></td>
-                      <td className="px-3 py-2.5 tabular-nums whitespace-nowrap text-[hsl(var(--e-text-secondary))]">{q.validUntil ? format(new Date(q.validUntil), "d MMM yy") : "—"}</td>
-                      <td className="px-3 py-2.5"><EBadge tone={quoteStatusTone(q.status)} soft>{titleCase(q.status)}</EBadge></td>
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                        <EButton asChild variant="ghost" size="sm"><Link href={`/v2/admin/quotes/${q.id}`}>Open</Link></EButton>
-                        {/* PDF renders server-side; new tab so the admin keeps this page. */}
-                        <EButton asChild variant="ghost" size="sm"><Link href={`/api/admin/quotes/${q.id}/pdf`} target="_blank">PDF</Link></EButton>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </ECardBody>
-      </ECard>
-
-      {/* Cases (IssueTicket) — all states shown so resolved history stays visible */}
-      <ECard>
-        <ECardHeader className="flex-row items-center justify-between pb-2">
-          <ECardTitle className="text-[0.95rem]">Cases</ECardTitle>
-          <EButton asChild variant="ghost" size="sm"><Link href="/v2/admin/cases">All cases</Link></EButton>
-        </ECardHeader>
-        <ECardBody className="pt-0">
-          {cases.length === 0 ? (
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No cases linked to this client.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))]">
-              <table className="w-full text-[0.8125rem]">
-                <thead>
-                  <tr className="bg-[hsl(var(--e-surface-raised))] text-left">
-                    {["Opened", "Title", "Type", "Status", ""].map((h) => (
-                      <th key={h} className="px-3 py-2 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-[hsl(var(--e-muted-foreground))]">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {cases.map((c) => (
-                    <tr key={c.id} className="border-t border-[hsl(var(--e-border)/0.7)] hover:bg-[hsl(var(--e-primary-soft)/0.4)]">
-                      <td className="px-3 py-2.5 tabular-nums whitespace-nowrap">{format(new Date(c.createdAt), "d MMM yy")}</td>
-                      <td className="px-3 py-2.5 font-[550]">{c.title}</td>
-                      <td className="px-3 py-2.5 text-[hsl(var(--e-text-secondary))]">{titleCase(c.caseType)}</td>
-                      <td className="px-3 py-2.5"><EBadge tone={caseStateTone(c.state)} soft>{titleCase(c.state)}</EBadge></td>
-                      <td className="px-3 py-2.5 text-right">
-                        {/* v2 case view lives inside the cases workspace; caseId mirrors the v1 deep-link convention. */}
-                        <EButton asChild variant="ghost" size="sm"><Link href={`/v2/admin/cases?caseId=${c.id}`}>Open</Link></EButton>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </ECardBody>
-      </ECard>
-
-      {/* Linked leads — display-only, matching v1 (leads are worked in the quotes pipeline) */}
-      <ECard>
-        <ECardHeader className="flex-row items-center justify-between pb-2">
-          <ECardTitle className="text-[0.95rem]">Linked leads</ECardTitle>
-          <EButton asChild variant="ghost" size="sm"><Link href="/v2/admin/quotes">Pipeline</Link></EButton>
-        </ECardHeader>
-        <ECardBody className="pt-0">
-          {leads.length === 0 ? (
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No linked leads.</p>
-          ) : (
-            <ul className="divide-y divide-[hsl(var(--e-border)/0.7)]">
-              {leads.map((lead) => (
-                <li key={lead.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-[0.8125rem]">
-                  <div className="min-w-0">
-                    <p className="font-[550]">{titleCase(lead.serviceType)}</p>
-                    <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-                      Estimate {formatEstimate(lead.estimateMin, lead.estimateMax)} · Created {format(new Date(lead.createdAt), "d MMM yy")}
-                    </p>
-                  </div>
-                  <EBadge tone={leadStatusTone(lead.status)} soft>{titleCase(lead.status)}</EBadge>
-                </li>
-              ))}
-            </ul>
-          )}
-        </ECardBody>
-      </ECard>
-
-      {/* Per-client message automation rules */}
-      <ClientAutomationRules clientId={client.id} />
     </div>
   );
 }

@@ -18,6 +18,7 @@ import {
   WashingMachine,
   ShieldCheck,
   PackageSearch,
+  PackageX,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -28,10 +29,12 @@ import { DamageReportForm } from "@/components/v2/cleaner/damage-report-form";
 import { ReportMaintenance } from "@/components/v2/cleaner/report-maintenance";
 import { SafetyCheckin } from "@/components/v2/cleaner/job-actions";
 import { LostFoundForm } from "@/components/v2/cleaner/lost-found-form";
+import { UrgentStockWorkspace } from "@/components/inventory/urgent-stock-workspace";
 import type { WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
 type ActionKey =
   | "damage"
+  | "urgentstock"
   | "maintenance"
   | "pay"
   | "continuation"
@@ -42,6 +45,7 @@ type ActionKey =
 interface Row {
   key: ActionKey;
   label: string;
+  detail?: string;
   icon: React.ReactNode;
   show: boolean;
 }
@@ -56,14 +60,17 @@ export function ActionFab({ api }: { api: WorkspaceApi }) {
   const isAirbnb = String(api.job?.jobType ?? "") === "AIRBNB_TURNOVER";
   const requiresSafety = Boolean(api.job?.requiresSafetyCheckin);
 
+  // Board order: damage, urgent stock, lost item, maintenance, extra pay,
+  // pause or continue, then the conditional laundry and safety rows.
   const allRows: Row[] = [
-    { key: "damage", label: "Report damage", icon: <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-warning))]" />, show: true },
-    { key: "maintenance", label: "Maintenance issue", icon: <Wrench className="h-4 w-4" />, show: isAirbnb },
+    { key: "damage", label: "Report damage", detail: "Photo markup, severity, cause", icon: <AlertTriangle className="h-4 w-4 text-[hsl(var(--e-warning))]" />, show: true },
+    { key: "urgentstock", label: "Urgent stock for this property", detail: "Tells the office; does not order anything", icon: <PackageX className="h-4 w-4" />, show: Boolean(api.job?.propertyId) },
+    { key: "lostfound", label: "Lost item found", icon: <PackageSearch className="h-4 w-4" />, show: true },
+    { key: "maintenance", label: "Maintenance issue", detail: "Airbnb turnovers", icon: <Wrench className="h-4 w-4" />, show: isAirbnb },
     { key: "pay", label: "Extra pay request", icon: <DollarSign className="h-4 w-4" />, show: true },
-    { key: "continuation", label: "Pause / continue request", icon: <CalendarClock className="h-4 w-4" />, show: true },
+    { key: "continuation", label: "Pause or continue tomorrow", icon: <CalendarClock className="h-4 w-4" />, show: true },
     { key: "laundry", label: "Early laundry update", icon: <WashingMachine className="h-4 w-4" />, show: api.laundryEnabled },
     { key: "safety", label: "Safety check-in", icon: <ShieldCheck className="h-4 w-4" />, show: requiresSafety },
-    { key: "lostfound", label: "Lost & found", icon: <PackageSearch className="h-4 w-4" />, show: true },
   ];
   const rows = allRows.filter((r) => r.show);
 
@@ -93,13 +100,13 @@ export function ActionFab({ api }: { api: WorkspaceApi }) {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Quick actions"
-        className="fixed bottom-20 right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[hsl(var(--e-gold))] text-[hsl(var(--e-gold-foreground))] shadow-[var(--e-elevation-gold)] transition-transform active:scale-95 lg:bottom-8 lg:right-8"
+        className="fixed bottom-36 right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[hsl(var(--e-gold))] text-[hsl(var(--e-gold-foreground))] shadow-[var(--e-elevation-gold)] transition-transform active:scale-95 lg:bottom-8 lg:right-8"
       >
         <Plus className="h-6 w-6" />
       </button>
 
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Quick actions">
           <div className="fixed inset-0 bg-[hsl(160_18%_8%/0.45)] backdrop-blur-[2px]" onClick={close} />
           <div className="e-rise relative z-10 max-h-[85vh] w-full overflow-y-auto rounded-t-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4 shadow-[var(--e-elevation-3)] sm:mx-4 sm:max-w-lg sm:rounded-[var(--e-radius-lg)]">
             <div className="mb-3 flex items-center justify-between gap-2">
@@ -107,7 +114,7 @@ export function ActionFab({ api }: { api: WorkspaceApi }) {
                 <button
                   type="button"
                   onClick={() => setActive(null)}
-                  className="inline-flex items-center gap-1 text-[0.8125rem] font-[550] text-[hsl(var(--e-muted-foreground))]"
+                  className="inline-flex min-h-11 items-center gap-1 text-[0.8125rem] font-[550] text-[hsl(var(--e-muted-foreground))]"
                 >
                   <ChevronLeft className="h-4 w-4" /> Back
                 </button>
@@ -118,7 +125,7 @@ export function ActionFab({ api }: { api: WorkspaceApi }) {
                 type="button"
                 onClick={close}
                 aria-label="Close"
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))]"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-[hsl(var(--e-border))] text-[hsl(var(--e-muted-foreground))] hover:bg-[hsl(var(--e-muted))]"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -131,10 +138,13 @@ export function ActionFab({ api }: { api: WorkspaceApi }) {
                     key={r.key}
                     type="button"
                     onClick={() => choose(r.key)}
-                    className="flex w-full items-center gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3 py-3 text-left text-[0.9375rem] font-[550] transition-colors hover:bg-[hsl(var(--e-muted))]"
+                    className="flex min-h-12 w-full items-center gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3 py-2.5 text-left text-[0.9375rem] font-[550] transition-colors hover:bg-[hsl(var(--e-muted))]"
                   >
                     {r.icon}
-                    {r.label}
+                    <span className="min-w-0 flex-1">
+                      <span className="block">{r.label}</span>
+                      {r.detail ? <span className="block text-[0.75rem] font-[400] text-[hsl(var(--e-muted-foreground))]">{r.detail}</span> : null}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -179,6 +189,11 @@ function ActionBody({
           embedded
         />
       );
+    case "urgentstock":
+      // The existing workspace, locked to this job's property and recording the job.
+      return api.job?.propertyId ? (
+        <UrgentStockWorkspace key={api.job.propertyId} isAdmin={false} panel lockProperty initialPropertyId={api.job.propertyId} jobId={jobId} />
+      ) : null;
     case "lostfound":
       return <LostFoundForm jobs={[{ id: jobId, label: api.propertyCode || api.addressLine || "This job" }]} />;
     default:

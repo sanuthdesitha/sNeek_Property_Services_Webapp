@@ -19,7 +19,7 @@ function hubTab(value: string | string[] | undefined): HubTabKey | undefined {
   return typeof value === "string" && (HUB_TABS as readonly string[]).includes(value) ? (value as HubTabKey) : undefined;
 }
 
-export default async function V2CleanerHubPage({ searchParams }: { searchParams?: { tab?: string | string[] } } = {}) {
+export default async function V2CleanerHubPage({ searchParams }: { searchParams?: { tab?: string | string[] } }) {
   await requireRole([Role.CLEANER, Role.ADMIN, Role.OPS_MANAGER]);
   return (
     <div className="space-y-6">

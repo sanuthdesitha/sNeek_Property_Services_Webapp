@@ -16,7 +16,7 @@ function levelChanges(before: Record<string, AccessLevel>, after: Record<string,
   return OPS_FEATURES.flatMap((feature) => {
     const from = before[feature.key];
     const to = after[feature.key];
-    return from === to ? [] : [`${feature.label}: ${levelLabel(from)} → ${levelLabel(to)}`];
+    return from === to ? [] : [`${feature.label.replace(/ & /g, " and ")}: ${levelLabel(from)} → ${levelLabel(to)}`];
   });
 }
 

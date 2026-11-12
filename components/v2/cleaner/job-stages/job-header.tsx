@@ -1,16 +1,20 @@
 "use client";
 
 /**
- * Sticky job header shown on every stage. Property code large, full wrapping
- * address (tap to copy), and three always-visible actions: Navigate (Google
- * Maps), Call (opens the ContactSheet), Info (opens the PropertyInfoDrawer).
- * A live "time on site" chip appears once the cleaner is clocked in.
+ * Sticky job header shown on every stage (board "One job, four moments"):
+ * back to Today, the property name with job number and a live countdown to
+ * guest arrival, and Property info. Below: status, live time-on-site chip,
+ * pause/resume, Navigate (Google Maps), Call (ContactSheet), the job date and
+ * the full wrapping address (tap to copy).
  */
 import * as React from "react";
 import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
-import { Navigation, Phone, Info, Check, Copy, Pause, Play } from "lucide-react";
+import Link from "next/link";
+import { Navigation, Phone, Info, Check, Copy, Pause, Play, ChevronLeft } from "lucide-react";
+import { summarizeTiming } from "@/lib/jobs/timing-summary";
+import { guestCountdownLabel, jobDateKey } from "@/lib/cleaner/job-screen-view";
 import { EBadge } from "@/components/v2/ui/primitives";
 import { cn } from "@/lib/utils";
 import { LiveTimerChip } from "@/components/v2/cleaner/job-stages/parts";
@@ -43,6 +47,9 @@ export function JobHeader({ api }: { api: WorkspaceApi }) {
   // are the things cleaners most often miss because the drawer was invisible.
   const infoCount =
     (api.readFirstItems?.length ?? 0) + (api.payload?.keyPickupLocation ? 1 : 0);
+  const countdown = useGuestCountdown(api);
+  const jobNumber = typeof api.job?.jobNumber === "string" && api.job.jobNumber ? api.job.jobNumber : null;
+  const subline = [jobNumber, countdown].filter(Boolean).join(" · ");
 
   async function copyAddress() {
     if (!addressLine) return;
@@ -55,70 +62,95 @@ export function JobHeader({ api }: { api: WorkspaceApi }) {
     }
   }
 
+  // Board: ‹ back · property name with job number and guest countdown · ⓘ.
+  // The second row keeps every existing header tool: status, live timer,
+  // pause/resume, date, copy address, Navigate and Call.
   return (
-    <header className="sticky top-16 z-20 -mx-4 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.92)] px-4 py-3 backdrop-blur lg:top-0">
-      <div className="flex items-start justify-between gap-3">
+    <header className="sticky top-0 z-20 -mx-4 border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface)/0.94)] px-4 pb-2.5 pt-2 backdrop-blur lg:top-16">
+      <div className="flex items-center gap-2">
+        <Link
+          href="/v2/cleaner"
+          aria-label="Back to Today"
+          title="Back to Today"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))]"
+        >
+          <ChevronLeft className="h-5 w-5" aria-hidden />
+        </Link>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <JobStatusIcon status={status} />
-            <h1 className="e-display-sm leading-tight">{propertyCode || "Job"}</h1>
-            <EBadge tone={statusTone(status)} soft>
-              {titleCase(status || "")}
-            </EBadge>
-            <LiveTimerChip timeState={timeState} />
-            <HeaderClockControl api={api} />
-          </div>
-          <p className="mt-1 text-xs text-[hsl(var(--e-muted-foreground))]">{api.job?.scheduledDate && !Number.isNaN(new Date(api.job.scheduledDate).getTime()) ? format(toZonedTime(new Date(api.job.scheduledDate), "Australia/Sydney"), "EEEE d MMM yyyy") : "Date not set"}{api.job?.startTime ? ` · ${api.job.startTime}` : ""}</p>
-          <button
-            type="button"
-            onClick={copyAddress}
-            disabled={!addressLine}
-            className="mt-1 flex items-start gap-1.5 text-left text-[0.8125rem] text-[hsl(var(--e-text-secondary))] disabled:opacity-70"
-            aria-label="Copy address"
-          >
-            <span className="whitespace-normal break-words">{addressLine || "Address not set"}</span>
-            {addressLine ? (
-              copied ? (
-                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-success))]" />
-              ) : (
-                <Copy className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-text-faint))]" />
-              )
-            ) : null}
-          </button>
+          <h1 className="truncate text-[1.0625rem] font-[650] leading-tight">{propertyCode || "Job"}</h1>
+          <p className="truncate text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{subline || (api.jobTypeLabel ?? "Job")}</p>
         </div>
+        {/* Property info holds access codes, key pickup and READ-FIRST notes —
+            labelled + accented, with a count badge when there are must-read items. */}
+        <button
+          type="button"
+          onClick={api.openInfoDrawer}
+          aria-label="Property info"
+          className="relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] px-3 text-[0.8125rem] font-[600] text-[hsl(var(--e-gold-ink))] transition-colors hover:brightness-95"
+        >
+          <Info className="h-4 w-4" />
+          <span className="hidden xs:inline">Info</span>
+          {infoCount > 0 ? (
+            <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[hsl(var(--e-gold))] px-1 text-[0.625rem] font-[700] leading-none text-[hsl(var(--e-gold-foreground))]">
+              {infoCount}
+            </span>
+          ) : null}
+        </button>
+      </div>
 
-        <div className="flex shrink-0 items-center gap-1.5">
-          <HeaderAction
-            label="Navigate"
-            href={navUrl || undefined}
-            disabled={!navUrl}
-          >
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <JobStatusIcon status={status} />
+        <EBadge tone={statusTone(status)} soft>
+          {titleCase(status || "")}
+        </EBadge>
+        <LiveTimerChip timeState={timeState} />
+        <HeaderClockControl api={api} />
+        <div className="ml-auto flex items-center gap-1.5">
+          <HeaderAction label="Navigate" href={navUrl || undefined} disabled={!navUrl}>
             <Navigation className="h-4 w-4" />
           </HeaderAction>
           <HeaderAction label="Call" onClick={api.openContactSheet}>
             <Phone className="h-4 w-4" />
           </HeaderAction>
-          {/* Property info holds access codes, key pickup and READ-FIRST notes —
-              too important to sit as a third anonymous icon. Labelled + accented,
-              with a count badge when there are must-read items. */}
-          <button
-            type="button"
-            onClick={api.openInfoDrawer}
-            aria-label="Property info"
-            className="relative inline-flex h-10 items-center gap-1.5 rounded-[var(--e-radius)] border border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] px-2.5 text-[0.8125rem] font-[600] text-[hsl(var(--e-gold-ink))] transition-colors hover:brightness-95"
-          >
-            <Info className="h-4 w-4" />
-            <span className="hidden xs:inline">Info</span>
-            {infoCount > 0 ? (
-              <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[hsl(var(--e-gold))] px-1 text-[0.625rem] font-[700] leading-none text-[hsl(var(--e-gold-foreground))]">
-                {infoCount}
-              </span>
-            ) : null}
-          </button>
         </div>
       </div>
+      <p className="mt-1 text-xs text-[hsl(var(--e-muted-foreground))]">{api.job?.scheduledDate && !Number.isNaN(new Date(api.job.scheduledDate).getTime()) ? format(toZonedTime(new Date(api.job.scheduledDate), "Australia/Sydney"), "EEEE d MMM yyyy") : "Date not set"}{api.job?.startTime ? ` · ${api.job.startTime}` : ""}</p>
+      <button
+        type="button"
+        onClick={copyAddress}
+        disabled={!addressLine}
+        className="mt-0.5 flex min-h-8 items-start gap-1.5 text-left text-[0.8125rem] text-[hsl(var(--e-text-secondary))] disabled:opacity-70"
+        aria-label="Copy address"
+      >
+        <span className="whitespace-normal break-words">{addressLine || "Address not set"}</span>
+        {addressLine ? (
+          copied ? (
+            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-success))]" />
+          ) : (
+            <Copy className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--e-text-faint))]" />
+          )
+        ) : null}
+      </button>
     </header>
   );
+}
+
+/** Live "2 h 12 m to guest arrival" from the job's own timing (refreshes each 30 s). */
+function useGuestCountdown(api: WorkspaceApi): string | null {
+  const [now, setNow] = React.useState(() => new Date());
+  React.useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  if (api.locked) return null;
+  const timing = summarizeTiming({
+    startTime: api.job?.startTime,
+    dueTime: api.job?.dueTime,
+    timingBadges: { early: api.timingRules?.earlyCheckin?.time, late: api.timingRules?.lateCheckout?.time },
+    sameDayCheckin: api.job?.sameDayCheckin === true,
+    sameDayCheckinTime: api.job?.sameDayCheckinTime ?? null,
+  });
+  return guestCountdownLabel(jobDateKey(api.job?.scheduledDate), timing.guestDeadline, now);
 }
 
 /**
@@ -154,7 +186,7 @@ function HeaderClockControl({ api }: { api: WorkspaceApi }) {
       aria-label={label}
       title={label}
       className={cn(
-        "inline-flex items-center gap-1 rounded-[var(--e-radius-pill)] border px-2 py-1 text-[0.75rem] font-[600] transition-colors disabled:opacity-50",
+        "inline-flex min-h-11 items-center gap-1 rounded-[var(--e-radius-pill)] border px-3 py-1 text-[0.75rem] font-[600] transition-colors disabled:opacity-50",
         isRunning
           ? "border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-text-secondary))] hover:bg-[hsl(var(--e-muted))]"
           : "border-[hsl(var(--e-success))] bg-[hsl(var(--e-success-soft))] text-[hsl(var(--e-success))]"
@@ -180,7 +212,7 @@ function HeaderAction({
   children: React.ReactNode;
 }) {
   const cls = cn(
-    "flex h-10 w-10 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] transition-colors hover:bg-[hsl(var(--e-muted))]",
+    "flex h-11 w-11 items-center justify-center rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-foreground))] transition-colors hover:bg-[hsl(var(--e-muted))]",
     disabled && "pointer-events-none opacity-40"
   );
   if (href) {

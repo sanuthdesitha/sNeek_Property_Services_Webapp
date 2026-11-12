@@ -6,6 +6,21 @@ import { EAlert, ECard, ECardBody, ECardHeader, ECardTitle, EPageHeader } from "
 import { TestAsPicker, type TestAsCandidate } from "@/components/admin/test-as-picker";
 import { TestAsLock } from "@/components/admin/test-as-lock";
 import { TEST_AS_UNLOCK_COOKIE, isTestAsUnlocked } from "@/lib/auth/test-as-unlock";
+import { loadAccessSubject, realActorHolds } from "@/lib/rbac/delegated-admin";
+import { accessWithin } from "@/lib/rbac/access-evaluator";
+import { getOpsPolicy } from "@/lib/rbac/ops-access";
+
+type TestableUser = { id: string; role: Role; extraRoles: Array<{ role: Role }> };
+
+/** A delegated tester sees only people whose access does not exceed theirs (never themselves). */
+async function usersWithinReach<T extends TestableUser>(actorId: string, candidates: T[]): Promise<T[]> {
+  const [actor, policy] = await Promise.all([loadAccessSubject(actorId), getOpsPolicy()]);
+  if (!actor) return [];
+  return candidates.filter((user) =>
+    user.id !== actorId &&
+    accessWithin(policy, { id: user.id, role: user.role, heldRoles: [user.role, ...user.extraRoles.map((row) => row.role)] }, actor),
+  );
+}
 
 export const metadata = { title: "Test as · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -32,7 +47,10 @@ export default async function TestAsPage({ searchParams }: { searchParams?: { us
   // Opened from a person in Accounts: show just that person (same guards, same picker).
   const focusId = typeof searchParams?.user === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(searchParams.user) ? searchParams.user : null;
   const session = await requireRealSession();
-  if (session.user.role !== Role.ADMIN) {
+  // An administrator, or a person an administrator granted "Test as" (owner
+  // decision 2026-11-12), who then sees only people with no more access.
+  const isAdmin = session.user.role === Role.ADMIN;
+  if (!isAdmin && !(await realActorHolds(session.user.id, "access.test_as"))) {
     return (
       <div className="space-y-6">
         <EPageHeader eyebrow="Testing" title="Test as" />
@@ -60,14 +78,15 @@ export default async function TestAsPage({ searchParams }: { searchParams?: { us
     );
   }
 
-  const users = await db.user.findMany({
+  const allUsers = await db.user.findMany({
     where: {
       isActive: true,
       role: { in: TESTABLE_ROLES.map((r) => r.role) },
     },
-    select: { id: true, name: true, email: true, role: true },
+    select: { id: true, name: true, email: true, role: true, extraRoles: { select: { role: true } } },
     orderBy: [{ role: "asc" }, { name: "asc" }],
   });
+  const users = isAdmin ? allUsers : await usersWithinReach(session.user.id, allUsers);
 
   const groups = TESTABLE_ROLES.map((r) => ({
     ...r,

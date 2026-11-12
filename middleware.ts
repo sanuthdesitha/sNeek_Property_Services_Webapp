@@ -1,4 +1,5 @@
 import { canUseOpsPath, type OpsLevels } from "@/lib/rbac/ops-catalog";
+import { GRANT_CAPABILITY_KEYS, type CapabilityKey } from "@/lib/rbac/capabilities";
 import { withAuth } from "next-auth/middleware";
 import type { NextRequestWithAuth } from "next-auth/middleware";
 import { NextRequest, NextResponse, type NextFetchEvent } from "next/server";
@@ -105,7 +106,7 @@ async function portalMiddleware(req: NextRequestWithAuth & { retainedValidation?
       if (validation.valid === "indeterminate" && role === Role.OPS_MANAGER) {
         return applySecurityHeaders(new NextResponse("Permissions are temporarily unavailable. Please retry.", { status: 503 }));
       }
-      if (validation.opsAccess && !canUseOpsPath(validation.opsAccess, pathname + req.nextUrl.search, req.method)) {
+      if (validation.opsAccess && !canUseOpsPath(validation.opsAccess, pathname + req.nextUrl.search, req.method, validation.opsGrants ?? [])) {
         return applySecurityHeaders(NextResponse.redirect(new URL("/v2/admin/access-denied", req.url)));
       }
 
@@ -504,10 +505,13 @@ async function validateActiveSession(req: NextRequestWithAuth) {
       requiresOnboarding?: boolean;
       defaultPortalVersion?: PortalVersion;
       opsAccess?: OpsLevels | null;
+      opsGrants?: unknown;
     };
     return {
       valid: data.valid === true,
       opsAccess: data.opsAccess ?? null,
+      // Administrator capabilities (owner-only pages this person may open); only known keys.
+      opsGrants: Array.isArray(data.opsGrants) ? (data.opsGrants.filter((key): key is CapabilityKey => typeof key === "string" && GRANT_CAPABILITY_KEYS.includes(key as CapabilityKey))) : [],
       role: data.role as Role | undefined,
       heldRoles: Array.isArray(data.heldRoles) ? (data.heldRoles as Role[]) : undefined,
       requiresPasswordReset: data.requiresPasswordReset === true,
