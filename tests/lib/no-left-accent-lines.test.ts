@@ -51,11 +51,6 @@ const ALLOWLIST: Array<{ file: string; snippet: string; reason: string }> = [
     snippet: 'border-l-2 border-[hsl(var(--e-gold))] pl-4',
     reason: "public blog lead quote styling",
   },
-  {
-    file: "components/v2/cleaner/pay-requests-panel.tsx",
-    snippet: 'border-l-[3px] border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))]',
-    reason: "PENDING: pay-request UI owned by the pay-request amount fix; convert to toneNoticeClass afterwards",
-  },
 ];
 
 function walk(dir: string, out: string[] = []): string[] {
