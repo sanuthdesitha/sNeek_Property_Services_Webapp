@@ -87,7 +87,7 @@ export async function loadAccountEmailRows(session: Session, now: Date = new Dat
           extraRoles: { select: { role: true } },
           client: { select: { name: true } },
           vaTeam: { select: { name: true, client: { select: { name: true } } } },
-          invitation: { select: { createdAt: true, acceptedAt: true, expiresAt: true, createdById: true, createdBy: { select: { name: true, email: true } } } },
+          invitation: { select: { createdAt: true, acceptedAt: true, expiresAt: true, revokedAt: true, createdById: true, createdBy: { select: { name: true, email: true } } } },
         },
       })
     : [];
@@ -118,7 +118,7 @@ export async function loadAccountEmailRows(session: Session, now: Date = new Dat
       lastSeenAt: user.lastSeenAt,
       context,
       invitation: user.invitation
-        ? { createdAt: user.invitation.createdAt, acceptedAt: user.invitation.acceptedAt, expiresAt: user.invitation.expiresAt, createdById: user.invitation.createdById, createdByName: user.invitation.createdBy ? user.invitation.createdBy.name?.trim() || user.invitation.createdBy.email : null }
+        ? { createdAt: user.invitation.createdAt, acceptedAt: user.invitation.acceptedAt, expiresAt: user.invitation.expiresAt, revokedAt: user.invitation.revokedAt, createdById: user.invitation.createdById, createdByName: user.invitation.createdBy ? user.invitation.createdBy.name?.trim() || user.invitation.createdBy.email : null }
         : null,
       latest: record,
     };

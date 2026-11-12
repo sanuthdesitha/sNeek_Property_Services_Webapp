@@ -11,21 +11,26 @@
  * and never shown; buttons freeze while a send is in flight; a failed send
  * keeps its message until the next action.
  * Endpoints: GET/POST /api/admin/users/[id]/account-emails,
- * POST /api/admin/users/[id]/account-emails/invitation-link.
+ * POST /api/admin/users/[id]/account-emails/invitation-link,
+ * POST /api/admin/users/[id]/account-emails/revoke-invitation ("Revoke
+ * invitation", owner decision 2026-11-13: same senders, confirmed first).
  */
 import { useEffect, useState } from "react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import type { AccountEmailState, AccountEmailType } from "@/lib/accounts/account-email-rules";
 import { formatDateTime } from "../hub/account-display";
+import { RevokeInvitationDialog } from "@/components/v2/admin/people/revoke-invitation-dialog";
 
 type HistoryEntry = { id: string; label: string; at: string; to: string | null; state: AccountEmailState; stateLabel: string; sentBy: string; note: string | null };
 type Option = { type: AccountEmailType; label: string; allowed: boolean; reason: string | null };
 type Overview = {
   email: string;
-  invitation: { expiresAt: string; acceptedAt: string | null; expired: boolean } | null;
+  invitation: { expiresAt: string; acceptedAt: string | null; expired: boolean; revokedAt?: string | null } | null;
   options: Option[];
   canCopyInvitationLink: boolean;
+  canRevokeInvitation?: boolean;
+  revokeRefusal?: string | null;
   history: HistoryEntry[];
   coolDownMinutes: number;
 };
@@ -33,6 +38,7 @@ type LoadState = { status: "loading" } | { status: "error"; message: string } | 
 type ActionState =
   | { status: "idle" }
   | { status: "confirming"; type: AccountEmailType }
+  | { status: "revoking" }
   | { status: "working"; label: string }
   | { status: "done"; message: string; tone: EPillTone }
   | { status: "failed"; message: string };
@@ -44,7 +50,7 @@ async function readJson(response: Response): Promise<Record<string, unknown> | n
   return (await response.json().catch(() => null)) as Record<string, unknown> | null;
 }
 
-export function AccountEmailsSection({ userId }: { userId: string }) {
+export function AccountEmailsSection({ userId, onChanged }: { userId: string; onChanged?: () => void }) {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [revision, setRevision] = useState(0);
   const [action, setAction] = useState<ActionState>({ status: "idle" });
@@ -130,12 +136,14 @@ export function AccountEmailsSection({ userId }: { userId: string }) {
             {overview.invitation
               ? overview.invitation.acceptedAt
                 ? ` Invitation accepted ${formatDateTime(overview.invitation.acceptedAt)}.`
-                : overview.invitation.expired
+                : overview.invitation.revokedAt
+                  ? ` Invitation withdrawn ${formatDateTime(overview.invitation.revokedAt)}; the link no longer works.`
+                  : overview.invitation.expired
                   ? ` Invitation expired ${formatDateTime(overview.invitation.expiresAt)}; never signed in.`
                   : ` Invitation pending until ${formatDateTime(overview.invitation.expiresAt)}; never signed in.`
               : ""}
           </p>
-          {allowed.length || overview.canCopyInvitationLink ? (
+          {allowed.length || overview.canCopyInvitationLink || overview.canRevokeInvitation ? (
             <div className="flex flex-wrap gap-1.5">
               {allowed.map((option) => (
                 <EButton key={option.type} size="sm" variant="outline" disabled={working} onClick={() => setAction({ status: "confirming", type: option.type })}>
@@ -143,6 +151,7 @@ export function AccountEmailsSection({ userId }: { userId: string }) {
                 </EButton>
               ))}
               {overview.canCopyInvitationLink ? <EButton size="sm" variant="ghost" disabled={working} onClick={() => void copyLink()}>Copy invitation link</EButton> : null}
+              {overview.canRevokeInvitation ? <EButton size="sm" variant="ghost" disabled={working} onClick={() => setAction({ status: "revoking" })}>Revoke invitation</EButton> : null}
             </div>
           ) : refusal ? (
             <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{refusal}</p>
@@ -156,6 +165,18 @@ export function AccountEmailsSection({ userId }: { userId: string }) {
               onConfirm={(option) => void send(option)}
             />
           ) : null}
+          {action.status === "revoking" ? (
+            <RevokeInvitationDialog
+              targets={[{ userId, label: overview.email }]}
+              onClose={() => setAction({ status: "idle" })}
+              onDone={(outcome) => {
+                setAction(outcome.ok ? { status: "done", message: outcome.message, tone: "ok" } : { status: "failed", message: outcome.message });
+                setRevision((value) => value + 1);
+                onChanged?.();
+              }}
+            />
+          ) : null}
+          {overview.revokeRefusal && !overview.canRevokeInvitation ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Revoke: {overview.revokeRefusal}</p> : null}
           {action.status === "working" ? <p role="status" className="text-[0.75rem]">{action.label}</p> : null}
           {action.status === "done" ? <p role="status" className="text-[0.75rem]"><EPill tone={action.tone}>Result</EPill> {action.message}</p> : null}
           {action.status === "failed" ? <p role="alert" className="text-[0.75rem] text-[hsl(var(--e-danger))]">{action.message}</p> : null}

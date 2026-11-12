@@ -71,9 +71,23 @@ export function roleAboveRefusal(actorRoles: readonly string[], targetRoles: rea
 export type AccountEmailTargetFacts = {
   isActive: boolean;
   emailVerified: boolean;
-  /** The person's invitation, when one exists. */
-  invitation: { acceptedAt: string | Date | null } | null;
+  /** The person's invitation, when one exists (revokedAt: withdrawn by the office, 2026-11-13). */
+  invitation: { acceptedAt: string | Date | null; revokedAt?: string | Date | null } | null;
 };
+
+/**
+ * Null when the office may withdraw this person's invitation now, else why
+ * not (owner decision 2026-11-13). Only an invitation that is neither accepted
+ * nor already withdrawn can be revoked; an expired one may still be revoked so
+ * the list stops offering it. A revoked invitation can be replaced by
+ * "Resend invitation", which issues a fresh link as before.
+ */
+export function invitationRevokeIneligibility(target: AccountEmailTargetFacts): string | null {
+  if (!target.invitation) return "This person was not invited by link.";
+  if (target.invitation.acceptedAt) return "The invitation was already accepted.";
+  if (target.invitation.revokedAt) return "The invitation was already withdrawn.";
+  return null;
+}
 
 /** Null when this email can be sent to the person now, else why not. */
 export function accountEmailIneligibility(type: AccountEmailType, target: AccountEmailTargetFacts): string | null {

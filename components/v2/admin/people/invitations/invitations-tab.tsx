@@ -7,10 +7,12 @@
  * history with Resend and Copy link, Open account).
  *
  * Built on GET /api/admin/users/account-emails and the existing per-person
- * account email section; sends go through the existing audited routes. Not
- * built (reported): "Revoke" (the invitation token has no revoked state) and
- * "Send by SMS instead" (no SMS path for account emails); Bounced and Opened
- * are not stored for account emails, so the Bounced figure says "Not recorded".
+ * account email section; sends go through the existing audited routes.
+ * "Revoke" (owner decision 2026-11-13) withdraws a pending invitation from the
+ * row menu, the detail panel and bulk, with a confirm; the "Revoked" chip
+ * lists withdrawn ones. Not built (reported): "Send by SMS instead" (no SMS
+ * path for account emails); Bounced and Opened are not stored for account
+ * emails, so the Bounced figure says "Not recorded".
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -29,6 +31,7 @@ import { copyInvitationLink } from "../copy-invite-link";
 import { FactStrip } from "../fact-strip";
 import { formatInstantDay } from "../format";
 import { useRead } from "../use-read";
+import { RevokeInvitationDialog, type RevokeTarget } from "../revoke-invitation-dialog";
 import { invitationColumns } from "./invitation-columns";
 import { invitationsListQuery, invitationsViewSearch, patchInvitationsView, readInvitationsView, type InvitationsView } from "./invitations-view";
 
@@ -36,6 +39,7 @@ const STATE_CHIPS: Array<{ key: EmailStateFilter; label: string }> = [
   { key: "never-signed-in", label: "Never signed in" },
   { key: "expired", label: "Expired" },
   { key: "not-sent", label: "Not sent" },
+  { key: "revoked", label: "Revoked" },
 ];
 const SEARCH_DELAY_MS = 300;
 
@@ -53,7 +57,7 @@ function asAccountRow(row: AccountEmailListRow): AccountRow {
 
 function EmailPanel({ row, onClose, onChanged }: { row: AccountEmailListRow; onClose: () => void; onChanged: () => void }) {
   return (
-    <ESidePanel open label="Account email details" title={row.name ?? row.email} subtitle={`${row.context ?? row.role} · ${row.expiresAt ? (row.expired ? "invitation lapsed" : "invited, not accepted") : row.signedInAt ? "signed in" : "never signed in"}`} onClose={onClose}>
+    <ESidePanel open label="Account email details" title={row.name ?? row.email} subtitle={`${row.context ?? row.role} · ${row.revokedAt ? "invitation withdrawn" : row.expiresAt ? (row.expired ? "invitation lapsed" : "invited, not accepted") : row.signedInAt ? "signed in" : "never signed in"}`} onClose={onClose}>
       <div className="flex flex-col gap-4 text-[0.8125rem]">
         <section className="flex flex-col gap-1.5">
           <h3 className="e-eyebrow">Latest</h3>
@@ -65,7 +69,7 @@ function EmailPanel({ row, onClose, onChanged }: { row: AccountEmailListRow; onC
           </dl>
         </section>
         {/* The person panel's own section: history timeline, Resend (warns that the old link stops working) and Copy link. */}
-        <AccountEmailsSection key={row.userId} userId={row.userId} />
+        <AccountEmailsSection key={row.userId} userId={row.userId} onChanged={onChanged} />
         <div className="flex flex-wrap gap-2">
           <EButton asChild size="sm" variant="outline"><Link href={`/v2/admin/accounts/users/${row.userId}`}>Open account</Link></EButton>
           <EButton size="sm" variant="ghost" onClick={onChanged}>Refresh list</EButton>
@@ -81,6 +85,7 @@ export function InvitationsTab({ initialSearch, canWrite }: { initialSearch: str
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; message: string } | null>(null);
+  const [revoking, setRevoking] = useState<RevokeTarget[] | null>(null);
   const query = invitationsListQuery(view);
   const list = useRead<AccountEmailListResponse>(`/api/admin/users/account-emails?${query}`, isList, { failure: "Could not load account emails." });
 
@@ -108,9 +113,11 @@ export function InvitationsTab({ initialSearch, canWrite }: { initialSearch: str
   const data = list.data;
   const rows = data?.rows ?? [];
   const open = useCallback((row: AccountEmailListRow) => update({ open: row.userId }), [update]);
-  const columns = useMemo(() => invitationColumns({ onOpen: open, onCopyLink: copyLink, busy }), [open, copyLink, busy]);
+  const revokeRow = useCallback((row: AccountEmailListRow) => setRevoking([{ userId: row.userId, label: row.name ?? row.email }]), []);
+  const columns = useMemo(() => invitationColumns({ onOpen: open, onCopyLink: copyLink, onRevoke: revokeRow, busy }), [open, copyLink, revokeRow, busy]);
   const openRow = rows.find((row) => row.userId === view.open) ?? null;
   const selectedRows = rows.filter((row) => selected.has(row.userId)).map(asAccountRow);
+  const revocable = rows.filter((row) => selected.has(row.userId) && row.canRevoke);
   const figures = data?.figures;
   const canBulk = canWrite && !data?.viewerRefusal;
 
@@ -120,6 +127,7 @@ export function InvitationsTab({ initialSearch, canWrite }: { initialSearch: str
         <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Invitations, codes and password resets: every email that gets a person into the app. Document requests are in each person&apos;s Documents and in Compliance.</p>
         <FactStrip
           label="Account email figures"
+          collapsible={{ storageKey: "people:invitations" }}
           facts={[
             { key: "open", label: "Not accepted", value: figures ? figures.notAccepted : null, extra: figures && figures.expired > 0 ? <EPill tone="bad">{figures.expired} expired</EPill> : undefined },
             { key: "never", label: "Never signed in", value: figures ? figures.neverSignedIn : null, extra: figures?.oldestNeverSignedInDays ? <EPill tone="warn">oldest {figures.oldestNeverSignedInDays} d</EPill> : undefined },
@@ -176,11 +184,24 @@ export function InvitationsTab({ initialSearch, canWrite }: { initialSearch: str
           />
         </div>
         {data ? <EPagination page={data.page} pageSize={data.pageSize} total={data.total} noun="people" disabled={list.loading} onPageChange={(page) => update({ page })} /> : null}
+        {canBulk && revocable.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-end gap-2 text-[0.8125rem]">
+            <span className="text-[hsl(var(--e-muted-foreground))]">{revocable.length} of {selected.size} selected have a pending invitation</span>
+            <EButton size="sm" variant="outline" disabled={busy} onClick={() => setRevoking(revocable.map((row) => ({ userId: row.userId, label: row.name ?? row.email })))}>Revoke {revocable.length}</EButton>
+          </div>
+        ) : null}
         {canBulk ? (
           <AccountsBulk selectedRows={selectedRows} canResend isAdmin={false} onClear={() => setSelected(new Set())} onFinished={() => list.reload()} onRunningChange={setBusy} />
         ) : null}
       </div>
       {openRow ? <EmailPanel row={openRow} onClose={() => update({ open: null })} onChanged={list.reload} /> : null}
+      {revoking ? (
+        <RevokeInvitationDialog
+          targets={revoking}
+          onClose={() => setRevoking(null)}
+          onDone={(outcome) => { setRevoking(null); setNotice(outcome); setSelected(new Set()); list.reload(); }}
+        />
+      ) : null}
     </div>
   );
 }

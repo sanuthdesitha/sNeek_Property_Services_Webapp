@@ -146,6 +146,8 @@ export type ClientInvoiceEditorData = {
   clientProperties: Array<{ id: string; name: string; suburb: string | null }>;
   editLock: InvoiceEditLock;
   canManage: boolean;
+  /** The viewer holds `invoices.void_credit` (sensitive since 2026-11-13); the server re-checks on use. */
+  canVoidCredit?: boolean;
   checks: ApprovalChecks;
   send: EditorSendPanel;
   xero: EditorXeroPanel;

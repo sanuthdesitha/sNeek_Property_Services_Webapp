@@ -152,6 +152,12 @@ export type ClientInvoiceListPayload = {
   paymentTermsDays: number;
   /** Today in the organisation timezone (yyyy-MM-dd), for "in N days" wording. */
   today: string;
+  /**
+   * The viewer holds `invoices.void_credit` (Full tier since owner decision
+   * 2026-11-13). Set by the route from the live policy; absent = unknown, and
+   * the server still decides on every void and credit note.
+   */
+  canVoidCredit?: boolean;
 };
 
 /** Bulk actions the bulk route accepts. */

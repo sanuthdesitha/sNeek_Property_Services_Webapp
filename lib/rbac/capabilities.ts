@@ -49,6 +49,7 @@ export const CAPABILITIES = [
   // Jobs and assignments
   { key: "jobs.cancel", area: "jobs", label: "Cancel jobs", tier: "manage", canText: "Cancel jobs (with a reason)", cannotText: "Cancel jobs", enforcedAt: "POST /api/admin/jobs/[id]/cancel" },
   { key: "jobs.client_delay_notice", area: "jobs", label: "Send client delay notices", tier: "manage", canText: "Tell clients a job is running late", cannotText: "Send client delay notices", enforcedAt: "lib/notifications/office-send-permission.ts (client_delay_notice)" },
+  { key: "jobs.team_message", area: "jobs", label: "Message a job's team", tier: "manage", canText: "Message the cleaners assigned to a job", cannotText: "Message a job's team", enforcedAt: "lib/notifications/office-send-permission.ts (job_team_message)" },
   { key: "jobs.clock_pause", area: "jobs", label: "Pause a cleaner's clock", tier: "manage", canText: "Pause a cleaner's clock", cannotText: "Pause a cleaner's clock", enforcedAt: "lib/notifications/office-send-permission.ts (clock_pause)" },
   { key: "jobs.delete", area: "jobs", label: "Delete jobs", tier: "full", sensitiveAction: "jobs.delete", canText: "Delete jobs (asked for their own PIN)", cannotText: "Delete jobs", enforcedAt: "lib/security/admin-verification.ts (jobs.delete)" },
   { key: "jobs.reset", area: "jobs", label: "Reset jobs and remove work records", tier: "full", sensitiveAction: "jobs.reset", canText: "Reset jobs (asked for their own PIN)", cannotText: "Reset jobs", enforcedAt: "lib/security/admin-verification.ts (jobs.reset)" },
@@ -74,7 +75,10 @@ export const CAPABILITIES = [
   { key: "invoices.approve", area: "finance", label: "Approve drafts", tier: "manage", canText: "Approve draft invoices", cannotText: "Approve draft invoices", enforcedAt: "PATCH /api/admin/invoices/[id] (status APPROVED); POST /api/admin/invoices/bulk (approve)" },
   { key: "invoices.send", area: "finance", label: "Send invoices to clients", tier: "manage", canText: "Send invoices to clients", cannotText: "Send invoices to clients", enforcedAt: "POST /api/admin/invoices/[id]/send; POST /api/admin/invoices/bulk (send)" },
   { key: "invoices.record_payment", area: "finance", label: "Record payments and mark paid", tier: "manage", canText: "Record payments and mark invoices paid", cannotText: "Record payments or mark invoices paid", enforcedAt: "PATCH /api/admin/invoices/[id] (recordPayment, status PAID or PART_PAID)" },
-  { key: "invoices.void_credit", area: "finance", label: "Void and credit notes", tier: "manage", canText: "Void invoices and raise credit notes", cannotText: "Void invoices or raise credit notes", enforcedAt: "PATCH /api/admin/invoices/[id] (status VOID); POST /api/admin/invoices/[id]/credit-note" },
+  // Owner decision 2026-11-13: void and credit notes is a sensitive action
+  // (was "manage"). Needs Finance at Full or the explicit grant, and the
+  // acting person's own PIN on every void and credit-note route.
+  { key: "invoices.void_credit", area: "finance", label: "Void and credit notes", tier: "full", sensitiveAction: "invoices.void_credit", canText: "Void invoices and raise credit notes (asked for their own PIN)", cannotText: "Void invoices or raise credit notes", enforcedAt: "PATCH /api/admin/invoices/[id] (status VOID); POST /api/admin/invoices/[id]/credit-note; lib/security/admin-verification.ts (invoices.void_credit)" },
   { key: "invoices.correct", area: "finance", label: "Reconcile Xero corrections", tier: "full", sensitiveAction: "invoices.correct", canText: "Reconcile Xero invoice corrections (asked for their own PIN)", cannotText: "Reconcile Xero corrections", enforcedAt: "lib/security/admin-verification.ts (invoices.correct)" },
   // Messages and notifications
   { key: "messages.read", area: "communications", label: "Read conversations and the delivery log", tier: "view", canText: "Read conversations and the delivery log", cannotText: "Read conversations", enforcedAt: "Route guard: communications at View (ops-catalog.ts)" },
@@ -118,6 +122,7 @@ export const SENSITIVE_ACTION_CAPABILITY: Readonly<Record<SensitiveAction, Capab
   "forms.delete": "forms.delete",
   "laundry.delete": "laundry.delete",
   "invoices.correct": "invoices.correct",
+  "invoices.void_credit": "invoices.void_credit",
 };
 
 /**

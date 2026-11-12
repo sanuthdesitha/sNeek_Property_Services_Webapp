@@ -10,6 +10,7 @@ import { CLIENT_INVOICE_SORTS } from "@/lib/billing/client-invoice-list-types";
 import { z } from "zod";
 import { createBlankInvoice } from "@/lib/billing/client-invoice-create";
 import { sydneyDayBoundary } from "@/lib/billing/period";
+import { can } from "@/lib/rbac/can";
 
 function errorStatus(error: unknown): number {
   if (isListQueryError(error)) return 400;
@@ -31,7 +32,7 @@ function errorStatus(error: unknown): number {
  */
 export async function GET(req: NextRequest) {
   try {
-    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const params = req.nextUrl.searchParams;
     const paginated = params.get("paginated");
     if (paginated === "1" || paginated === "true") {
@@ -43,7 +44,8 @@ export async function GET(req: NextRequest) {
         maxPageSize: 100,
       });
       const filters = parseClientInvoiceFilters(params);
-      return NextResponse.json(await listClientInvoices({ query, filters }));
+      const [payload, canVoidCredit] = await Promise.all([listClientInvoices({ query, filters }), can(session, "invoices.void_credit")]);
+      return NextResponse.json({ ...payload, canVoidCredit });
     }
     if (params.get("view") === "stats") {
       return NextResponse.json(await getClientInvoiceStats());

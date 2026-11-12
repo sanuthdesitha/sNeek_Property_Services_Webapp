@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
+import { CollapsibleFigures } from "@/components/v2/ui/collapsible-figures";
 import { EPill } from "@/components/v2/ui/pill";
 import type { ClientInvoiceStats, InvoicedThisMonth } from "@/lib/billing/client-invoice-stats";
 import { fmtDay, money } from "./invoice-model";
@@ -93,60 +94,63 @@ export function InvoiceStats({
     );
   }
   const { readyToBill, drafts, outstanding, paidThisMonth, invoicedThisMonth } = state.stats;
+  // On a phone the figures fold behind one row (owner decision 2026-11-13); unchanged from 640px.
   return (
-    <section aria-label="Client invoice figures" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-      <StatCard
-        label="Ready to bill"
-        value={money(readyToBill.total)}
-        aside={
-          readyToBill.clients > 0 ? (
-            <EButton size="sm" variant="gold" onClick={onCreateDrafts} disabled={!canCreate}>
-              Create {plural(readyToBill.clients, "draft")}
-            </EButton>
-          ) : null
-        }
-        caption={readyCaption(readyToBill)}
-      />
-      <StatCard
-        label="Drafts to review"
-        value={drafts.count}
-        aside={
-          drafts.missingRateJobs > 0 ? (
-            <span title={`${plural(drafts.missingRateDrafts, "draft")} with a job that has no client rate now. Approval refuses them until a rate is set.`}>
-              <EPill tone="warn">
-                {drafts.missingRateJobs} missing rate{drafts.missingRateJobs === 1 ? "" : "s"}
-              </EPill>
-            </span>
-          ) : null
-        }
-        caption={
-          drafts.missingRateDrafts > 0
-            ? `${money(drafts.total)} in drafts · ${plural(drafts.missingRateDrafts, "draft")} blocked by missing rates`
-            : `${money(drafts.total)} in drafts`
-        }
-      />
-      <StatCard
-        label="Outstanding"
-        value={money(outstanding.owing)}
-        aside={outstanding.overdue > 0 ? <EPill tone="bad">{outstanding.overdue} overdue</EPill> : null}
-        caption={
-          outstanding.oldest
-            ? `Oldest issued ${daysAgo(outstanding.oldest.createdAt)} days ago · ${outstanding.oldest.clientName}`
-            : "Nothing sent is waiting on payment"
-        }
-      />
-      {invoicedThisMonth ? (
+    <CollapsibleFigures storageKey="money:client-invoices" count={invoicedThisMonth ? 5 : 4} label="Client invoice figures">
+      <section aria-label="Client invoice figures" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <StatCard
-          label="Invoiced this month"
-          value={money(invoicedThisMonth.total)}
-          caption={invoicedCaption(invoicedThisMonth)}
+          label="Ready to bill"
+          value={money(readyToBill.total)}
+          aside={
+            readyToBill.clients > 0 ? (
+              <EButton size="sm" variant="gold" onClick={onCreateDrafts} disabled={!canCreate}>
+                Create {plural(readyToBill.clients, "draft")}
+              </EButton>
+            ) : null
+          }
+          caption={readyCaption(readyToBill)}
         />
-      ) : null}
-      <StatCard
-        label="Paid this month"
-        value={money(paidThisMonth.total)}
-        caption={`${paidThisMonth.count} invoice${paidThisMonth.count === 1 ? "" : "s"} paid in full since ${fmtDay(paidThisMonth.monthStart)}, as recorded here`}
-      />
-    </section>
+        <StatCard
+          label="Drafts to review"
+          value={drafts.count}
+          aside={
+            drafts.missingRateJobs > 0 ? (
+              <span title={`${plural(drafts.missingRateDrafts, "draft")} with a job that has no client rate now. Approval refuses them until a rate is set.`}>
+                <EPill tone="warn">
+                  {drafts.missingRateJobs} missing rate{drafts.missingRateJobs === 1 ? "" : "s"}
+                </EPill>
+              </span>
+            ) : null
+          }
+          caption={
+            drafts.missingRateDrafts > 0
+              ? `${money(drafts.total)} in drafts · ${plural(drafts.missingRateDrafts, "draft")} blocked by missing rates`
+              : `${money(drafts.total)} in drafts`
+          }
+        />
+        <StatCard
+          label="Outstanding"
+          value={money(outstanding.owing)}
+          aside={outstanding.overdue > 0 ? <EPill tone="bad">{outstanding.overdue} overdue</EPill> : null}
+          caption={
+            outstanding.oldest
+              ? `Oldest issued ${daysAgo(outstanding.oldest.createdAt)} days ago · ${outstanding.oldest.clientName}`
+              : "Nothing sent is waiting on payment"
+          }
+        />
+        {invoicedThisMonth ? (
+          <StatCard
+            label="Invoiced this month"
+            value={money(invoicedThisMonth.total)}
+            caption={invoicedCaption(invoicedThisMonth)}
+          />
+        ) : null}
+        <StatCard
+          label="Paid this month"
+          value={money(paidThisMonth.total)}
+          caption={`${paidThisMonth.count} invoice${paidThisMonth.count === 1 ? "" : "s"} paid in full since ${fmtDay(paidThisMonth.monthStart)}, as recorded here`}
+        />
+      </section>
+    </CollapsibleFigures>
   );
 }

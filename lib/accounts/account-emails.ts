@@ -13,6 +13,7 @@ import {
   ACCOUNT_EMAIL_STATE_LABELS,
   ACCOUNT_EMAIL_TYPES,
   accountEmailIneligibility,
+  invitationRevokeIneligibility,
   roleAboveRefusal,
   type AccountEmailState,
   type AccountEmailType,
@@ -46,23 +47,34 @@ export async function resolveAccountEmailActor(session: Session): Promise<Accoun
 const targetSelect = {
   id: true, email: true, name: true, role: true, isActive: true, emailVerified: true,
   extraRoles: { select: { role: true } },
-  invitation: { select: { token: true, acceptedAt: true, expiresAt: true, createdAt: true } },
+  invitation: { select: { token: true, acceptedAt: true, expiresAt: true, createdAt: true, revokedAt: true } },
 } as const;
 
-async function loadTarget(userId: string) {
+export async function loadTarget(userId: string) {
   const user = await db.user.findUnique({ where: { id: userId }, select: targetSelect });
   if (!user) throw new AccountEmailError(404, "Person not found.");
   return user;
 }
 
-type Target = Awaited<ReturnType<typeof loadTarget>>;
+export type AccountEmailTarget = Awaited<ReturnType<typeof loadTarget>>;
+type Target = AccountEmailTarget;
 
-function targetRoles(target: Target): string[] {
+export function targetRoles(target: Target): string[] {
   return [target.role, ...target.extraRoles.map((row) => row.role)].map(String);
 }
 
-function facts(target: Target) {
-  return { isActive: target.isActive, emailVerified: Boolean(target.emailVerified), invitation: target.invitation ? { acceptedAt: target.invitation.acceptedAt } : null };
+export function facts(target: Target) {
+  return {
+    isActive: target.isActive,
+    emailVerified: Boolean(target.emailVerified),
+    invitation: target.invitation ? { acceptedAt: target.invitation.acceptedAt, revokedAt: target.invitation.revokedAt } : null,
+  };
+}
+
+/** Why the actor may not act on this person at all (themselves, a higher role), or null. */
+export function personRefusal(actor: AccountEmailActor, target: Target): string | null {
+  if (target.id === actor.id) return "Use your own account settings for your own sign-in emails.";
+  return roleAboveRefusal(actor.heldRoles, targetRoles(target));
 }
 
 /** Why the actor may not send this type to this person now (role, eligibility), or null. */
@@ -72,7 +84,7 @@ function refusalFor(actor: AccountEmailActor, target: Target, type: AccountEmail
 }
 
 /** A role refusal is a permission answer (403); anything else is the person's current state (409). */
-function refusalStatus(refusal: string): number {
+export function refusalStatus(refusal: string): number {
   return refusal.startsWith("You cannot") ? 403 : 409;
 }
 
@@ -131,6 +143,7 @@ export async function copyInvitationLink(actor: AccountEmailActor, userId: strin
   const refusal = refusalFor(actor, target, "INVITATION");
   if (refusal) throw new AccountEmailError(refusalStatus(refusal), refusal);
   const invitation = target.invitation;
+  if (invitation?.revokedAt) throw new AccountEmailError(409, "The invitation was withdrawn. Resend the invitation to issue a new link.");
   if (!invitation || invitation.expiresAt.getTime() <= now.getTime()) throw new AccountEmailError(409, "The invitation has expired. Resend the invitation to get a new link.");
   await db.auditLog.create({ data: { userId: actor.id, action: "ACCOUNT_INVITATION_LINK_COPIED", entity: "User", entityId: target.id, after: { actorRole: actor.role, expiresAt: invitation.expiresAt.toISOString() } } });
   return { link: buildInvitationUrl(invitation.token), expiresAt: invitation.expiresAt.toISOString() };
@@ -149,7 +162,7 @@ export type AccountEmailHistoryEntry = {
 
 type AuditRow = { id: string; action: string; createdAt: Date; after: unknown; userId: string | null };
 
-const HISTORY_ACTIONS = [ACCOUNT_EMAIL_AUDIT_ACTION, "CREATE_USER", "RESET_USER_PASSWORD", "ACCEPT_INVITATION", "ACCOUNT_INVITATION_LINK_COPIED"];
+const HISTORY_ACTIONS = [ACCOUNT_EMAIL_AUDIT_ACTION, "CREATE_USER", "RESET_USER_PASSWORD", "ACCEPT_INVITATION", "ACCOUNT_INVITATION_LINK_COPIED", "ACCOUNT_INVITATION_REVOKED"];
 
 function legacyState(flag: unknown): AccountEmailState {
   return flag === true ? "ACCEPTED" : flag === false ? "NOT_ACCEPTED" : "NOT_RECORDED";
@@ -178,6 +191,8 @@ function historyEntry(row: AuditRow, names: Map<string, string>, email: string):
       return entry("Invitation accepted", "NOT_RECORDED", "The person", null, "Not an email: the person set their password.");
     case "ACCOUNT_INVITATION_LINK_COPIED":
       return entry("Invitation link copied", "NOT_RECORDED", by(row.userId), null, "Not an email: the office copied the pending link.");
+    case "ACCOUNT_INVITATION_REVOKED":
+      return entry("Invitation withdrawn", "NOT_RECORDED", by(row.userId), null, "Not an email: the link can no longer be accepted.");
     default:
       return null;
   }
@@ -187,9 +202,13 @@ export type AccountEmailOption = { type: AccountEmailType; label: string; allowe
 
 export type AccountEmailOverview = {
   email: string;
-  invitation: { expiresAt: string; acceptedAt: string | null; expired: boolean } | null;
+  invitation: { expiresAt: string; acceptedAt: string | null; expired: boolean; revokedAt: string | null } | null;
   options: AccountEmailOption[];
   canCopyInvitationLink: boolean;
+  /** This viewer may withdraw the pending invitation now (owner decision 2026-11-13). */
+  canRevokeInvitation: boolean;
+  /** Why not, when there is a pending invitation but this viewer may not revoke it. */
+  revokeRefusal: string | null;
   history: AccountEmailHistoryEntry[];
   coolDownMinutes: number;
 };
@@ -219,14 +238,23 @@ export async function accountEmailOverview(actor: AccountEmailActor | { refused:
     return { type, label: ACCOUNT_EMAIL_LABELS[type].button, allowed: reason === null, reason };
   });
   const invitation = target.invitation
-    ? { expiresAt: target.invitation.expiresAt.toISOString(), acceptedAt: target.invitation.acceptedAt?.toISOString() ?? null, expired: target.invitation.expiresAt.getTime() <= now.getTime() }
+    ? {
+        expiresAt: target.invitation.expiresAt.toISOString(),
+        acceptedAt: target.invitation.acceptedAt?.toISOString() ?? null,
+        expired: target.invitation.expiresAt.getTime() <= now.getTime(),
+        revokedAt: target.invitation.revokedAt?.toISOString() ?? null,
+      }
     : null;
   const inviteOption = options.find((option) => option.type === "INVITATION");
+  const revokeState = invitationRevokeIneligibility(facts(target));
+  const revokeRefusal = revokeState ? null : "refused" in actor ? actor.refused : personRefusal(actor, target);
   return {
     email: target.email,
     invitation,
     options,
-    canCopyInvitationLink: Boolean(inviteOption?.allowed && invitation && !invitation.expired),
+    canCopyInvitationLink: Boolean(inviteOption?.allowed && invitation && !invitation.expired && !invitation.revokedAt),
+    canRevokeInvitation: revokeState === null && revokeRefusal === null,
+    revokeRefusal,
     history,
     coolDownMinutes: ACCOUNT_EMAIL_COOL_DOWN_MINUTES,
   };

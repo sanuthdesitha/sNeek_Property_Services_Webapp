@@ -70,6 +70,7 @@ import { buildGoogleMapsMultiStopUrl } from "@/lib/jobs/schedule-order";
 import { toast } from "@/hooks/use-toast";
 import { TrackingIssues, TrackingStageChips, type StageFilter } from "@/components/v2/laundry/portal/tracking-extras";
 import { stageCounts, trackingDayOf, trackingStage } from "@/lib/laundry/tracking-stages";
+import { classifyRuns } from "@/lib/laundry/run-classification";
 import { PartnerRunEntries } from "@/components/v2/laundry/portal/partner-run-entries";
 
 /* ── Types (mirror the /api/laundry/week payload) ──────────────────────── */
@@ -770,38 +771,8 @@ export function QueueBoard({ canDelete = false }: BoardRoleProps) {
    RUNS — today's pickup + drop-off loops with accurate done counts.
    A pickup is "done" once picked up; a drop is "done" once returned.
    ══════════════════════════════════════════════════════════════════════════ */
-function classifyRuns(tasks: BoardTask[], range: LaundryDateRange) {
-  // Key-lost tasks have pickupDate === dropoffDate (same-day, on the clean
-  // day). They flow through both loops SEQUENTIALLY by design: while still
-  // PENDING/CONFIRMED they sit in the pickup loop only; the moment the driver
-  // marks them PICKED_UP they join the drop-off loop for the same visit. The
-  // "Key lost" badge on the card tells the driver both legs happen in one stop.
-  const inRange = (d: Date) => d >= range.start && d < range.endExclusive;
-  const pickups: BoardTask[] = [];
-  const dropoffs: BoardTask[] = [];
-
-  for (const t of tasks) {
-    if (t.noPickupRequired) continue;
-    const pickup = new Date(t.pickupDate);
-    const dropoff = new Date(t.dropoffDate);
-
-    // Pickup loop: still-to-collect (or collected) sets scheduled in the range.
-    if (["PENDING", "CONFIRMED", "FLAGGED", "PICKED_UP", "READY_TO_RETURN"].includes(t.status) && inRange(pickup)) {
-      pickups.push(t);
-    }
-
-    // Drop-off loop: picked-up sets due back in range (or overdue), plus
-    // returns completed within the range.
-    if (t.status === "PICKED_UP" || t.status === "READY_TO_RETURN") {
-      if (dropoff < range.endExclusive) dropoffs.push(t);
-    } else if (t.status === "DROPPED" && t.droppedAt && inRange(new Date(t.droppedAt))) {
-      dropoffs.push(t);
-    }
-  }
-  pickups.sort((a, b) => +new Date(a.pickupDate) - +new Date(b.pickupDate));
-  dropoffs.sort((a, b) => +new Date(a.dropoffDate) - +new Date(b.dropoffDate));
-  return { pickups, dropoffs };
-}
+// classifyRuns lives in lib/laundry/run-classification.ts (owner decision
+// 2026-11-13): the laundry portal's Today page uses the very same rule.
 
 export function RunsBoard({ canDelete = false }: BoardRoleProps) {
   const { range, control } = useLaundryDateScope("today");

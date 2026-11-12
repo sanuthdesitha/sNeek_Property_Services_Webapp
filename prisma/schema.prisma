@@ -763,6 +763,11 @@ model UserInvitation {
   createdById String?
   createdBy   User?     @relation("UserInvitationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt   DateTime  @default(now())
+  /// Withdrawn by the office (owner decision 2026-11-13): the link can no
+  /// longer be accepted. A resend issues a fresh invitation and clears these.
+  revokedAt   DateTime?
+  revokedById String?
+  revokedBy   User?     @relation("UserInvitationRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
 
   @@index([token])
   @@index([expiresAt])
@@ -923,6 +928,7 @@ model User {
   caseTransitions              CaseTransition[]            @relation("CaseTransitionActor")
   invitation                   UserInvitation?
   invitationsCreated           UserInvitation[]            @relation("UserInvitationCreatedBy")
+  invitationsRevoked           UserInvitation[]            @relation("UserInvitationRevokedBy")
   payRates                     UserPayRate[]               @relation("UserPayRateUser")
   payRatesCreated              UserPayRate[]               @relation("UserPayRateCreatedBy")
   staffLeave                   StaffLeave[]                @relation("StaffLeaveUser")

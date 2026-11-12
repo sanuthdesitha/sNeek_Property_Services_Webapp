@@ -23,6 +23,7 @@ import {
 } from "../invoice-model";
 import { STATUS_PILL, formatPeriod } from "../invoice-columns";
 import { pdfDownloadHref, pdfHref } from "../invoice-requests";
+import { VOID_CREDIT_ACTIONS } from "../invoice-row-actions";
 
 export const UNSAVED_ACTION_HINT = "Save or discard your changes first.";
 
@@ -38,6 +39,8 @@ export type EditorHeaderProps = {
   onDiscard: () => void;
   onBack: (event: React.MouseEvent<HTMLAnchorElement>) => void;
   onAction: (key: InvoiceActionKey) => void;
+  /** Why Void and Issue credit note are unavailable (no capability, 2026-11-13); null = available. */
+  voidCreditRefusal?: string | null;
 };
 
 function menuItems(props: EditorHeaderProps): ERowMenuItem[] {
@@ -46,6 +49,7 @@ function menuItems(props: EditorHeaderProps): ERowMenuItem[] {
   return editorMenuActions(invoice).map((key) => {
     const correction = CORRECTION_ACTIONS.has(key);
     const waits = dirty && ACTS_ON_SAVED_INVOICE.has(key);
+    const refused = VOID_CREDIT_ACTIONS.has(key) ? props.voidCreditRefusal ?? null : null;
     const item: ERowMenuItem =
       key === "pdf"
         ? { key, label: "Download PDF", href: pdfDownloadHref(invoice.id) }
@@ -54,8 +58,8 @@ function menuItems(props: EditorHeaderProps): ERowMenuItem[] {
             label: invoiceActionLabel(key, invoice),
             danger: key === "delete" || key === "void",
             separated: correction && !separated,
-            disabled: waits,
-            hint: waits ? UNSAVED_ACTION_HINT : undefined,
+            disabled: waits || Boolean(refused),
+            hint: refused ?? (waits ? UNSAVED_ACTION_HINT : undefined),
             onSelect: () => props.onAction(key),
           };
     if (correction) separated = true;
@@ -67,6 +71,7 @@ export function EditorHeader(props: EditorHeaderProps) {
   const { invoice, busy, dirty } = props;
   const primary = editorPrimaryAction(invoice);
   const primaryWaits = primary !== null && dirty && ACTS_ON_SAVED_INVOICE.has(primary);
+  const primaryRefused = primary !== null && VOID_CREDIT_ACTIONS.has(primary) ? props.voidCreditRefusal ?? null : null;
   const period = formatPeriod(invoice.periodStart, invoice.periodEnd);
   return (
     <div className="space-y-1">
@@ -120,8 +125,8 @@ export function EditorHeader(props: EditorHeaderProps) {
                 type="button"
                 size="sm"
                 variant="primary"
-                disabled={busy || primaryWaits}
-                title={primaryWaits ? UNSAVED_ACTION_HINT : undefined}
+                disabled={busy || primaryWaits || Boolean(primaryRefused)}
+                title={primaryRefused ?? (primaryWaits ? UNSAVED_ACTION_HINT : undefined)}
                 onClick={() => props.onAction(primary)}
               >
                 {invoiceActionLabel(primary, invoice)}

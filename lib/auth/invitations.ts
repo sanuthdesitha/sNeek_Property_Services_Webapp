@@ -52,6 +52,9 @@ export async function createUserInvitation(params: {
       expiresAt,
       acceptedAt: null,
       createdById: params.createdById,
+      // A fresh invitation after a revoke (owner decision 2026-11-13).
+      revokedAt: null,
+      revokedById: null,
     },
   });
 

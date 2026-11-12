@@ -56,6 +56,12 @@ export function TodayRouteList({ route }: { route: TodayRoute | null }) {
       {route.mode === "none" ? (
         <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No route yet. These are today&apos;s stops by planned time. <Link className="font-[600] text-[hsl(var(--e-accent-portal))] underline" href="/v2/laundry/route">Build route</Link></p>
       ) : null}
+      {route.otherDayStops > 0 ? (
+        <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+          {route.otherDayStops} stop{route.otherDayStops === 1 ? " on your route is" : "s on your route are"} not scheduled today, so {route.otherDayStops === 1 ? "it is" : "they are"} not listed here.{" "}
+          <Link className="font-[600] text-[hsl(var(--e-accent-portal))] underline" href="/v2/laundry/tracking">See them in Tracking</Link>
+        </p>
+      ) : null}
       {route.stops.length === 0 ? (
         <ECard className="p-4 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">No stops for today.</ECard>
       ) : (

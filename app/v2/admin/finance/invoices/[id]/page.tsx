@@ -6,6 +6,7 @@ import { loadClientInvoiceEditor } from "@/lib/billing/client-invoice-editor";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { InvoiceEditorPage } from "@/components/v2/admin/finance/invoices/editor/invoice-editor-page";
 import { invoiceListHref } from "@/components/v2/admin/finance/invoices/invoice-links";
+import { can } from "@/lib/rbac/can";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Invoice · Estate admin" };
@@ -39,5 +40,6 @@ export default async function AdminInvoiceEditorRoute({
   }
   const data = await loadClientInvoiceEditor(params.id, { canManage: access.canManage });
   if (!data) notFound();
-  return <InvoiceEditorPage key={data.row.id} initial={data} backHref={invoiceListHref(searchParams?.back)} />;
+  const canVoidCredit = await can(session, "invoices.void_credit");
+  return <InvoiceEditorPage key={data.row.id} initial={{ ...data, canVoidCredit }} backHref={invoiceListHref(searchParams?.back)} />;
 }

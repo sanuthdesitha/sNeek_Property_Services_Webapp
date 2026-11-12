@@ -8,16 +8,19 @@
  */
 import * as React from "react";
 import { EButton } from "@/components/v2/ui/primitives";
-import { transportList, type RequestTransport } from "@/lib/workforce/document-request-transports";
+import { SEND_TRANSPORT_KIND_LABEL, type SavedChoiceTransport, type SendTransportKind } from "@/lib/notifications/send-transport-kinds";
 import { officeRequest } from "../office-actions/office-outcomes";
 
-type SavedChoice = { transports: RequestTransport[]; savedAt: string };
-type Answer = { impersonating: boolean; readable: boolean; kinds: Partial<Record<"document_request", SavedChoice>> };
+type SavedChoice = { transports: SavedChoiceTransport[]; savedAt: string };
+type Answer = { impersonating: boolean; readable: boolean; kinds: Partial<Record<SendTransportKind, SavedChoice>> };
 type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; answer: Answer };
 
-const KIND_LABEL: Record<"document_request", string> = {
-  document_request: "Request document and expiring-document reminders",
-};
+const TRANSPORT_WORD: Record<SavedChoiceTransport, string> = { INBOX: "Inbox", PUSH: "Push", EMAIL: "Email", SMS: "SMS" };
+
+/** Document requests call their PUSH choice "Inbox" (the inbox with its phone push), as their dialog does. */
+function transportWords(kind: SendTransportKind, transports: readonly SavedChoiceTransport[]): string {
+  return transports.map((transport) => (kind === "document_request" && transport === "PUSH" ? "Inbox" : TRANSPORT_WORD[transport])).join(", ");
+}
 
 export function SendingChoices({ timeZone }: { timeZone: string }) {
   const [load, setLoad] = React.useState<Load>({ status: "loading" });
@@ -33,7 +36,7 @@ export function SendingChoices({ timeZone }: { timeZone: string }) {
     return () => controller.abort();
   }, []);
 
-  async function forget(kind: "document_request") {
+  async function forget(kind: SendTransportKind) {
     setBusy(true);
     setError(null);
     const result = await officeRequest<Answer>("/api/me/send-transports", { method: "DELETE", body: { kind } });
@@ -58,11 +61,11 @@ export function SendingChoices({ timeZone }: { timeZone: string }) {
       {load.status === "ready" && !load.answer.impersonating && load.answer.readable ? (
         Object.keys(load.answer.kinds).length === 0 ? <p>No saved choices. The dialogs ask each time.</p> : (
           <ul className="divide-y divide-[hsl(var(--e-border))]">
-            {(Object.entries(load.answer.kinds) as Array<["document_request", SavedChoice]>).map(([kind, choice]) => (
+            {(Object.entries(load.answer.kinds) as Array<[SendTransportKind, SavedChoice]>).map(([kind, choice]) => (
               <li key={kind} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="min-w-0">
-                  <b className="font-[550]">{KIND_LABEL[kind]}</b>
-                  <span className="block text-[hsl(var(--e-muted-foreground))]">Sending by: {transportList(choice.transports)} · saved {savedOn(choice.savedAt)}</span>
+                  <b className="font-[550]">{SEND_TRANSPORT_KIND_LABEL[kind]}</b>
+                  <span className="block text-[hsl(var(--e-muted-foreground))]">Sending by: {transportWords(kind, choice.transports)} · saved {savedOn(choice.savedAt)}</span>
                 </span>
                 <EButton size="sm" variant="outline" disabled={busy} onClick={() => void forget(kind)}>Ask me again</EButton>
               </li>

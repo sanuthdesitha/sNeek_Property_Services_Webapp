@@ -16,8 +16,11 @@ const m = vi.hoisted(() => ({
   update: vi.fn(),
   lineUpdate: vi.fn(),
   audit: vi.fn(),
+  verify: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.auth }));
+// Credit notes are a sensitive action (owner decision 2026-11-13): the own PIN is verified on the server.
+vi.mock("@/lib/security/admin-verification", () => ({ verifySensitiveAction: m.verify, SensitiveVerificationError: class extends Error {} }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ pricing: { gstEnabled: true } }) }));
 vi.mock("@/lib/billing/invoice-sequence", () => ({ issueInvoiceNumber: m.number }));
 vi.mock("@/lib/db", () => {
@@ -35,7 +38,8 @@ import { POST as createCredit } from "@/app/api/admin/invoices/[id]/credit-note/
 import { creditNoteLinesFrom } from "@/lib/billing/client-invoice-create";
 
 const blank = (body: unknown) => createBlank(new NextRequest("http://local/api/admin/invoices", { method: "POST", body: JSON.stringify(body) }));
-const credit = () => createCredit(new NextRequest("http://local/api/admin/invoices/orig/credit-note", { method: "POST" }), { params: { id: "orig" } });
+const credit = (security: Record<string, string> = { pin: "2468" }) =>
+  createCredit(new NextRequest("http://local/api/admin/invoices/orig/credit-note", { method: "POST", body: JSON.stringify({ security }) }), { params: { id: "orig" } });
 
 let original: Record<string, unknown>;
 
@@ -46,6 +50,7 @@ beforeEach(() => {
   m.clientFind.mockResolvedValue({ id: "c1", isActive: true });
   m.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "new", invoiceNumber: data.invoiceNumber }));
   m.audit.mockResolvedValue({});
+  m.verify.mockResolvedValue(true);
   original = {
     id: "orig", kind: "INVOICE", status: "SENT", clientId: "c1", invoiceNumber: "INV-0042", totalAmount: 260, gstEnabled: true,
     periodStart: null, periodEnd: null, clientReference: "PO-5", creditNotes: [],

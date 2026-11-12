@@ -20,6 +20,8 @@ const NEXT_STEP_LABEL = { RESEND_INVITATION: "Resend", NEW_INVITATION: "New invi
 export type InvitationRowActions = {
   onOpen: (row: AccountEmailListRow) => void;
   onCopyLink: (row: AccountEmailListRow) => void;
+  /** Revoke a pending invitation (owner decision 2026-11-13); opens the confirm. */
+  onRevoke: (row: AccountEmailListRow) => void;
   busy: boolean;
 };
 
@@ -56,7 +58,14 @@ export function invitationColumns(actions: InvitationRowActions): Array<EDataCol
       key: "expires",
       header: "Expires",
       sortKey: "expires",
-      cell: (row) => (row.expiresAt ? <span className="whitespace-nowrap e-tnum">{formatInstantDay(row.expiresAt)}{row.expired ? ", lapsed" : ""}</span> : <span className="text-[hsl(var(--e-muted-foreground))]">–</span>),
+      cell: (row) =>
+        row.revokedAt ? (
+          <EPill tone="neutral">Revoked {formatInstantDay(row.revokedAt)}</EPill>
+        ) : row.expiresAt ? (
+          <span className="whitespace-nowrap e-tnum">{formatInstantDay(row.expiresAt)}{row.expired ? ", lapsed" : ""}</span>
+        ) : (
+          <span className="text-[hsl(var(--e-muted-foreground))]">–</span>
+        ),
     },
     { key: "signedIn", header: "Signed in", sortKey: "signedIn", firstDir: "desc", cell: (row) => (row.signedInAt ? formatInstantDay(row.signedInAt) : <span className="text-[hsl(var(--e-muted-foreground))]">Never</span>) },
     {
@@ -84,6 +93,7 @@ export function invitationColumns(actions: InvitationRowActions): Array<EDataCol
           items={[
             { key: "details", label: "Details and history", onSelect: () => actions.onOpen(row) },
             { key: "copy", label: "Copy invitation link", onSelect: () => actions.onCopyLink(row), disabled: !row.canCopyLink || actions.busy, hint: row.canCopyLink ? undefined : row.refusal ?? "No valid invitation link." },
+            { key: "revoke", label: "Revoke invitation", danger: true, onSelect: () => actions.onRevoke(row), disabled: !row.canRevoke || actions.busy, hint: row.canRevoke ? undefined : row.revokedAt ? "Already withdrawn. Send a new invitation instead." : row.refusal ?? "No pending invitation." },
             { key: "account", label: "Open account", href: `/v2/admin/accounts/users/${row.userId}` },
           ]}
         />

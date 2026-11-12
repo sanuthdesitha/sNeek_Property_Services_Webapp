@@ -11,8 +11,11 @@
  * the account email routes (fresh link, audited, cool-down, same permission
  * rules); suspend / reactivate through the user routes (ADMIN, as before);
  * remove from team through DELETE /api/admin/va-teams/[id]/members/[userId].
- * "Move to another team" is not built: no existing path moves a login between
- * teams (re-inviting an assistant of another team is refused by design).
+ * Owner decisions 2026-11-13: "Revoke invite" withdraws a pending invitation
+ * (same rules as Resend, confirmed); "Move to team…" moves an assistant to
+ * another team of the SAME client (administrators, as the other team
+ * changes; PATCH /api/admin/va-teams/[id]/members/[userId]). Re-inviting an
+ * assistant of another team is still refused by design.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -29,8 +32,10 @@ import { VA_PERMISSION_KEYS } from "@/lib/va/permissions";
 import { copyInvitationLink } from "../copy-invite-link";
 import { useRead } from "../use-read";
 import { AssistantsBulk } from "./assistants-bulk";
-import { MEMBER_STATUS_LABEL, MEMBER_STATUS_TONE, mayAct } from "./member-status";
+import { MEMBER_STATUS_LABEL, MEMBER_STATUS_TONE, invitationPending, mayAct } from "./member-status";
 import { TeamPanel } from "./team-panel";
+import { MoveTeamDialog } from "./move-team-dialog";
+import { RevokeInvitationDialog, type RevokeTarget } from "../revoke-invitation-dialog";
 
 type StatusChip = "all" | "active" | "invited" | "suspended";
 type Notice = { ok: boolean; message: string } | null;
@@ -42,7 +47,7 @@ function isTeams(body: unknown): body is { teams: AssistantTeam[] } {
 function chipMatches(member: AssistantMember, chip: StatusChip): boolean {
   if (chip === "all") return true;
   if (chip === "active") return member.status === "ACTIVE";
-  if (chip === "invited") return member.status === "INVITED" || member.status === "INVITE_EXPIRED";
+  if (chip === "invited") return invitationPending(member.status) || member.status === "INVITE_REVOKED";
   return member.status === "SUSPENDED";
 }
 
@@ -71,6 +76,8 @@ export function AssistantsTab({ canManage, canResend, clients, initialSearch }: 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
+  const [revoking, setRevoking] = useState<RevokeTarget | null>(null);
+  const [moving, setMoving] = useState<{ member: AssistantMember; team: AssistantTeam } | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams({ tab: "assistants" });
@@ -105,10 +112,10 @@ export function AssistantsTab({ canManage, canResend, clients, initialSearch }: 
   }, [read]);
 
   function primaryButton(member: AssistantMember, owner: AssistantTeam) {
-    if (member.status === "INVITED" || member.status === "INVITE_EXPIRED") {
+    if (invitationPending(member.status) || member.status === "INVITE_REVOKED") {
       return (
         <EButton size="sm" variant="primary" disabled={!canResend || busy} onClick={() => act(() => postJson(`/api/admin/users/${member.id}/account-emails`, { type: "INVITATION" }), `A fresh invitation was sent to ${member.email}. The previous link stops working.`)}>
-          {member.status === "INVITE_EXPIRED" ? "New invite" : "Resend"}
+          {member.status === "INVITED" ? "Resend" : "New invite"}
         </EButton>
       );
     }
@@ -128,8 +135,10 @@ export function AssistantsTab({ canManage, canResend, clients, initialSearch }: 
         items={[
           { key: "profile", label: "Open full profile and activity", href: `/v2/admin/accounts/users/${member.id}` },
           { key: "team", label: "Open team", onSelect: () => setOpenTeam(owner.id) },
-          { key: "resend", label: "Resend invite", disabled: !canResend || busy || !(pending || member.status === "INVITE_EXPIRED"), hint: "Only for an invitation not yet accepted.", onSelect: () => act(() => postJson(`/api/admin/users/${member.id}/account-emails`, { type: "INVITATION" }), `A fresh invitation was sent to ${member.email}.`) },
+          { key: "resend", label: "Resend invite", disabled: !canResend || busy || !(invitationPending(member.status) || member.status === "INVITE_REVOKED"), hint: "Only for an invitation not yet accepted.", onSelect: () => act(() => postJson(`/api/admin/users/${member.id}/account-emails`, { type: "INVITATION" }), `A fresh invitation was sent to ${member.email}.`) },
           { key: "copy", label: "Copy invite link", disabled: !canResend || busy || !pending, hint: "Only while a valid invitation link exists.", onSelect: async () => { setBusy(true); setNotice(await copyInvitationLink(member.id)); setBusy(false); } },
+          { key: "revoke", label: "Revoke invite", disabled: !canResend || busy || !invitationPending(member.status), hint: canResend ? "Only for an invitation not yet accepted or withdrawn." : "Same rights as resending an invitation.", onSelect: () => setRevoking({ userId: member.id, label: member.name ?? member.email }) },
+          { key: "move", label: "Move to team…", disabled: !canManage || busy, hint: "Administrators only.", onSelect: () => setMoving({ member, team: owner }) },
           { key: "remove", label: "Remove from team", danger: true, separated: true, disabled: !canManage || busy, hint: "Administrators only.", onSelect: () => { if (window.confirm(`Remove ${member.name ?? member.email} from ${owner.name}? Their login is switched off.`)) void act(() => postJson(`/api/admin/va-teams/${owner.id}/members/${member.id}`, undefined, "DELETE"), "Removed from the team; the login is switched off."); } },
         ]}
       />
@@ -194,7 +203,24 @@ export function AssistantsTab({ canManage, canResend, clients, initialSearch }: 
           <div className="mt-3"><EstateVaManager clients={clients} canManage={canManage} /></div>
         </details>
       </div>
-      {team ? <TeamPanel team={team} canManage={canManage} onClose={() => setOpenTeam("")} onChanged={read.reload} /> : null}
+      {team ? <TeamPanel team={team} canManage={canManage} onClose={() => setOpenTeam("")} onChanged={read.reload} onMove={(member) => setMoving({ member, team })} /> : null}
+      {revoking ? (
+        <RevokeInvitationDialog
+          targets={[revoking]}
+          onClose={() => setRevoking(null)}
+          onDone={(outcome) => { setRevoking(null); setNotice(outcome); read.reload(); }}
+        />
+      ) : null}
+      {moving ? (
+        <MoveTeamDialog
+          key={`${moving.team.id}:${moving.member.id}`}
+          member={moving.member}
+          from={moving.team}
+          teams={teams}
+          onClose={() => setMoving(null)}
+          onMoved={(message) => { setMoving(null); setNotice({ ok: true, message }); read.reload(); }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -254,7 +280,7 @@ function GroupRows({
             <td className="px-3 py-2"><EPill tone={MEMBER_STATUS_TONE[member.status]}>{MEMBER_STATUS_LABEL[member.status]}</EPill></td>
             <td className="px-3 py-2">{mayAct(member.status) ? `${owner.grantedCount} of ${VA_PERMISSION_KEYS.length}` : <span className="text-[hsl(var(--e-muted-foreground))]">Nothing</span>}</td>
             <td className="px-3 py-2">{scopeText(owner)}</td>
-            <td className="px-3 py-2 text-[hsl(var(--e-muted-foreground))]">{member.status === "INVITED" || member.status === "INVITE_EXPIRED" ? "Never" : formatLastSeen(member.lastSeenAt)}</td>
+            <td className="px-3 py-2 text-[hsl(var(--e-muted-foreground))]">{invitationPending(member.status) || member.status === "INVITE_REVOKED" ? "Never" : formatLastSeen(member.lastSeenAt)}</td>
             <td className="px-3 py-2">{primaryButton(member, owner)}</td>
             <td className="px-3 py-2">
               <div className="flex items-center gap-1">

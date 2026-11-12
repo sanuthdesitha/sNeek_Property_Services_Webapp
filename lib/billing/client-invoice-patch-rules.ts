@@ -8,6 +8,7 @@
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { SensitiveVerificationError, verifySensitiveAction } from "@/lib/security/admin-verification";
+import type { SensitiveAction } from "@/lib/security/sensitive-actions";
 import { creditedAmountOf } from "@/lib/finance/receivables";
 import {
   CREDIT_NOTE_PAYMENT_REFUSAL,
@@ -145,10 +146,13 @@ const SECURITY_REFUSALS = new Set(["INVALID_SECURITY_VERIFICATION", "PIN_OR_PASS
 export async function verifyInvoiceSecurity(
   actor: InvoiceActor,
   security: { pin?: string; password?: string; newPin?: string } | null | undefined,
+  /** The sensitive grant to check as well (an operations manager needs it; administrators always pass). */
+  action?: SensitiveAction,
 ): Promise<InvoiceActionResult | null> {
   if (actor.impersonatedBy) return refused("FORBIDDEN", 403);
   try {
-    await verifySensitiveAction(actor.id, security ?? null);
+    if (action) await verifySensitiveAction(actor.id, security ?? null, action);
+    else await verifySensitiveAction(actor.id, security ?? null);
     return null;
   } catch (error) {
     const message = error instanceof Error ? error.message : "INVALID_SECURITY_VERIFICATION";

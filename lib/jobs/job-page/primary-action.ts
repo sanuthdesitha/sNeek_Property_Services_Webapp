@@ -68,7 +68,15 @@ export type JobPrimaryActionInput = {
   /** From restoreRefusal(); null when the job can be restored. */
   restoreRefusal: string | null;
   readOnly: boolean;
+  /**
+   * "Message team" (owner decision 2026-11-13): how many cleaners are assigned
+   * now, and why this viewer may not message them (the office-send rule), or
+   * null. Absent means nobody is known to be assigned.
+   */
+  teamMessage?: { assignedCount: number; refusal: string | null };
 };
+
+export const NO_TEAM_REASON = "Nobody is assigned to this job yet, so there is no team to message. Assign a cleaner first.";
 
 export const VIEW_ONLY_REASON = "View only: your Jobs access does not allow changes.";
 
@@ -92,10 +100,14 @@ export function primaryActionFor(input: JobPrimaryActionInput): JobPrimaryAction
         href: "#s-dispatch",
         disabledReason: input.readOnly ? VIEW_ONLY_REASON : null,
       };
-    case "message-team":
-      // The job chat is client↔office only (policy), so messaging the team
-      // opens the office compose workspace.
-      return { kind, label: "Message team", href: "/v2/admin/messages/compose", disabledReason: null };
+    case "message-team": {
+      // Opens the Message team dialog addressed to the assigned cleaners (the
+      // job chat stays client↔office only). Disabled with the reason when
+      // nobody is assigned or this viewer may not send.
+      const team = input.teamMessage ?? { assignedCount: 0, refusal: null };
+      const disabledReason = team.assignedCount === 0 ? NO_TEAM_REASON : team.refusal;
+      return { kind, label: "Message team", href: null, disabledReason };
+    }
     case "review-continuation":
       return { kind, label: "Review continuation request", href: "#s-site", disabledReason: null };
     case "review-submission":

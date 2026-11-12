@@ -21,6 +21,7 @@ import type { JobPageManageJob } from "@/lib/jobs/job-page/rows";
 import { QuickQaReview } from "../quick-qa-review";
 import { useJobRestore } from "./job-restore";
 import { JobActionDialogs, type JobDialogKey } from "./job-action-dialogs";
+import { MessageTeamDialog } from "./message-team-dialog";
 
 export type JobHeaderActionsProps = {
   jobId: string;
@@ -84,6 +85,7 @@ function ActionButton({ action, variant, onPress }: { action: JobPrimaryAction |
 
 export function JobHeaderActions(props: JobHeaderActionsProps) {
   const [dialog, setDialog] = useState<JobDialogKey | null>(props.initialOpen === "reschedule" ? "schedule" : null);
+  const [messagingTeam, setMessagingTeam] = useState(false);
   const restore = useJobRestore();
 
   async function downloadReport() {
@@ -136,7 +138,7 @@ export function JobHeaderActions(props: JobHeaderActionsProps) {
         <ActionButton
           action={props.primary.kind === "restore" && restore?.state.kind === "saving" ? { ...props.primary, label: "Restoring…", disabledReason: "Restoring…" } : props.primary}
           variant="primary"
-          onPress={props.primary.kind === "restore" ? () => void restore?.restore() : undefined}
+          onPress={props.primary.kind === "restore" ? () => void restore?.restore() : props.primary.kind === "message-team" ? () => setMessagingTeam(true) : undefined}
         />
       ) : null}
       <ERowMenu
@@ -152,6 +154,7 @@ export function JobHeaderActions(props: JobHeaderActionsProps) {
         footnote={props.menuFootnote}
         openSignal={props.initialOpen === "menu"}
       />
+      {messagingTeam ? <MessageTeamDialog key={props.jobId} jobId={props.jobId} onClose={() => setMessagingTeam(false)} /> : null}
       <JobActionDialogs
         dialog={dialog}
         onClose={() => setDialog(null)}

@@ -24,7 +24,8 @@ export type OfficeSendAction =
   | "lost_item_client_notice"
   | "client_delay_notice"
   | "clock_pause"
-  | "account_email";
+  | "account_email"
+  | "job_team_message";
 
 export type OfficeActorRole = "ADMIN" | "OPS_MANAGER";
 
@@ -69,6 +70,13 @@ export const OFFICE_SEND_POLICIES: Record<OfficeSendAction, ActionPolicy> = {
     packLabel: "Jobs & assignments",
     doing: "pause a cleaner's clock",
     instead: "Use Review clock or call the cleaner instead.",
+  },
+  // "Message team" on a job: the cleaners assigned to it (owner decision 2026-11-13).
+  job_team_message: {
+    pack: "jobs",
+    packLabel: "Jobs & assignments",
+    doing: "message the job's team from the app",
+    instead: "Call the cleaner or ask someone with Jobs access to send it.",
   },
   // Account emails (invitation, password reset link, sign-up code), 2026-11-12.
   account_email: {

@@ -32,7 +32,7 @@ import { useInvoiceEditor } from "./use-invoice-editor";
 import { StatusBanner, saveStateLabel, useNow } from "./editor-banners";
 import { useLineSuggestions } from "./use-line-suggestions";
 import { AddJobsDialog } from "./add-jobs-dialog";
-import { addJobsRequest } from "../invoice-requests";
+import { VOID_CREDIT_REFUSAL, addJobsRequest } from "../invoice-requests";
 
 export { saveStateLabel } from "./editor-banners";
 
@@ -157,6 +157,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
         onDiscard={editor.discardDrafts}
         onBack={onBack}
         onAction={(key) => void runAction(key)}
+        voidCreditRefusal={data.canVoidCredit === false ? VOID_CREDIT_REFUSAL : null}
       />
       <CreditLinks data={data} />
       <EStageBar label="Invoice stages" stages={stages.stages} terminal={stages.terminal} />

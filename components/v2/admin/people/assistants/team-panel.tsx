@@ -16,7 +16,7 @@ import { ESidePanel } from "@/components/v2/ui/side-panel";
 import { EAlert, EButton } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
 import { VA_PERMISSION_KEYS, VA_PERMISSION_LABELS, type VaPermissions } from "@/lib/va/permissions";
-import type { AssistantTeam } from "@/lib/people/assistants";
+import type { AssistantMember, AssistantTeam } from "@/lib/people/assistants";
 import { formatInstant } from "../format";
 import { MEMBER_STATUS_LABEL, MEMBER_STATUS_TONE } from "./member-status";
 
@@ -32,7 +32,20 @@ async function patchTeam(teamId: string, body: Record<string, unknown>): Promise
   return json?.error ?? `Could not save the team (${res.status}).`;
 }
 
-export function TeamPanel({ team, canManage, onClose, onChanged }: { team: AssistantTeam; canManage: boolean; onClose: () => void; onChanged: () => void }) {
+export function TeamPanel({
+  team,
+  canManage,
+  onClose,
+  onChanged,
+  onMove,
+}: {
+  team: AssistantTeam;
+  canManage: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+  /** "Move to team…" for one member (owner decision 2026-11-13); administrators only. */
+  onMove?: (member: AssistantMember) => void;
+}) {
   const [tab, setTab] = useState<PanelTab>("access");
   const [permissions, setPermissions] = useState<VaPermissions>(team.permissions);
   const [scopeAll, setScopeAll] = useState(team.propertyIds === null);
@@ -146,7 +159,12 @@ export function TeamPanel({ team, canManage, onClose, onChanged }: { team: Assis
             {team.members.map((member) => (
               <li key={member.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span>{member.name ?? member.email}<span className="block text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{member.email}</span></span>
-                <EPill tone={MEMBER_STATUS_TONE[member.status]}>{MEMBER_STATUS_LABEL[member.status]}</EPill>
+                <span className="flex items-center gap-2">
+                  <EPill tone={MEMBER_STATUS_TONE[member.status]}>{MEMBER_STATUS_LABEL[member.status]}</EPill>
+                  {canManage && onMove ? (
+                    <EButton size="sm" variant="outline" aria-label={`Move ${member.name ?? member.email} to another team`} onClick={() => onMove(member)}>Move to team…</EButton>
+                  ) : null}
+                </span>
               </li>
             ))}
             <li className="pt-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Scope: {scopeLabel}</li>
