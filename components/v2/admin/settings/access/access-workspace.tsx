@@ -121,6 +121,13 @@ export function AccessWorkspace({ initialTab = "person" }: { initialTab?: Access
     else if (tab === "assistants") setTab("person");
   }
 
+  function openTab(next: AccessTab) {
+    setTab(next);
+    // The assistants view opens on a team; the person view on a person.
+    if (next === "assistants" && selection?.kind !== "team" && data?.assistantTeams[0]) setSelection({ kind: "team", id: data.assistantTeams[0].id });
+    if (next === "person" && selection?.kind === "team" && data) setSelection(firstSelection(data));
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -131,13 +138,13 @@ export function AccessWorkspace({ initialTab = "person" }: { initialTab?: Access
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <EButton variant="outline" size="sm" onClick={() => setTab("presets")}>Presets</EButton>
+          <EButton variant="outline" size="sm" onClick={() => openTab("presets")}>Presets</EButton>
           <EButton variant="outline" size="sm" disabled={!selectedPerson || !canEdit(selectedPerson)} onClick={() => setCopyOpen(true)}>Copy access from…</EButton>
           {data.viewer.isAdmin ? <EButton asChild size="sm"><a href="/v2/admin/accounts">Give office access</a></EButton> : null}
         </div>
       </header>
       {notice ? <EAlert tone="success" title={notice} /> : null}
-      <AccessTabs active={tab} counts={{ person: office.length, presets: listPresets(draft).length, assistants: data.assistantTeams.reduce((sum, team) => sum + team.memberCount, 0) }} onSelect={setTab} />
+      <AccessTabs active={tab} counts={{ person: office.length, presets: listPresets(draft).length, assistants: data.assistantTeams.reduce((sum, team) => sum + team.memberCount, 0) }} onSelect={openTab} />
 
       {tab === "area" ? <AccessByArea people={office} draft={draft} saved={saved} editable={canEdit} onLevel={drafts.setLevel} /> : null}
       {tab === "presets" ? <AccessPresetsTab draft={draft} saved={saved} selectedPersonId={selectedPerson && !isAdminPerson(selectedPerson) ? selectedPerson.id : null} editable={data.viewer.isAdmin && !saving && !conflict} onChange={drafts.replace} /> : null}
