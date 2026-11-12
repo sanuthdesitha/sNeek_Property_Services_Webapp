@@ -9,13 +9,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { FormsLibraryTab } from "@/lib/admin/forms-redirects";
 
-export const FORMS_TAB_LABEL: Record<FormsLibraryTab, string> = {
-  forms: "Job forms",
-  qa: "QA templates",
-  blocks: "Checklist blocks",
-  messages: "Message templates",
-  stats: "Results and stats",
-};
+import { FORMS_TAB_LABEL } from "./forms-tab-labels";
 
 export function FormsTabNav({
   active,

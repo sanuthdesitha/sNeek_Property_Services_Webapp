@@ -26,7 +26,7 @@ import { HistoryCard, SendCard, XeroCard, type SendChoices } from "./editor-pane
 import { useXeroRefresh } from "./use-xero-refresh";
 import { RegroupLineDialog, RemoveLineDialog } from "./editor-line-dialogs";
 import { ClientReferenceField, CreditLinks, EditorFooterActions } from "./editor-extras";
-import { lineSections, pdfGroupsLines } from "./line-sections";
+import { lineSections, pdfGroupsLines, propertyGroupedOrder } from "./line-sections";
 import { EMPTY_NEW_LINE, validateNewLine } from "./line-drafts";
 import { useInvoiceEditor } from "./use-invoice-editor";
 import { StatusBanner, saveStateLabel, useNow } from "./editor-banners";
@@ -96,6 +96,18 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
     if (!saved) await editor.reload();
   }
 
+  /**
+   * Turning "Group by property" on SAVES the grouped line order on an editable
+   * invoice through the existing reorder save (restored from the old editor's
+   * persistLineOrder). Read-only invoices, and turning it off, change the view only.
+   */
+  function onGrouped(next: boolean) {
+    setGrouped(next);
+    if (!next || !editable) return;
+    const order = propertyGroupedOrder(data.lines);
+    if (order) void reorder(order);
+  }
+
   async function runAction(key: InvoiceActionKey) {
     if (isDirectInvoiceAction(key)) {
       setActionBusy(true);
@@ -120,7 +132,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
       });
       return;
     }
-    if (key === "record-payment" || key === "mark-paid" || key === "receipt" || key === "void" || key === "reverse" || key === "reconcile" || key === "delete" || key === "credit-note") {
+    if (key === "mark-sent" || key === "record-payment" || key === "mark-paid" || key === "receipt" || key === "void" || key === "reverse" || key === "reconcile" || key === "delete" || key === "credit-note") {
       setDialog({ kind: key, invoice: row });
     }
   }
@@ -196,7 +208,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
               canToggleGst={editable}
               frozen={frozen}
               onGst={(enabled) => void editor.mutate("GST", { gstEnabled: enabled }, { repeatable: true })}
-              onGrouped={setGrouped}
+              onGrouped={onGrouped}
               reference={<ClientReferenceField saved={row.clientReference} editable={editable} frozen={frozen} mutate={editor.mutate} />}
               mutate={draftEditable ? editor.mutate : undefined}
             />

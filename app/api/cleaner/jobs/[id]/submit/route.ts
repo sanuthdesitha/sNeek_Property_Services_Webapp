@@ -37,6 +37,7 @@ import { collectRequiredAnswerFields, collectRequiredUploadFields, flattenFields
 import { collectStructuredAnswerErrors, collectUploadMinimumErrors } from "@/lib/forms/validate-submission";
 import { planSubmissionEffects, schemaUsesEffectsOrStockCounts } from "@/lib/forms/form-effects";
 import { damageItemsForEffects, urgentRequestsForEffects } from "@/lib/forms/submission-effects";
+import { recordStockCountObservations } from "@/lib/inventory/stock-count-observations";
 import { extendedValidationOutcome } from "@/lib/forms/submission-warnings";
 import { extendedEnforcementFor } from "@/lib/forms/validation-enforcement-server";
 import { sanitizeNoPhotoReasons } from "@/lib/forms/no-photo-reasons";
@@ -786,6 +787,11 @@ export async function POST(
             bagLocation,
           },
         });
+        // Wave F: Stock count answers become count observations (applied to
+        // on-hand only when the clean is approved; unmatched items go to review).
+        if (effectsPlan && effectsPlan.stockCounts.length > 0) {
+          await recordStockCountObservations(tx, { submissionId: created.id, jobId: job.id, propertyId: job.propertyId, observedAt: created.createdAt, counts: effectsPlan.stockCounts });
+        }
 
         // Task proof was computed into a proofFieldId and then never stored
         // under it: submissionMedia rows are built from `uploads`, while the

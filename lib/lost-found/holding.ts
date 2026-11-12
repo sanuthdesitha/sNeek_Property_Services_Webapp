@@ -52,6 +52,28 @@ export function holdingCutoff(now: Date, timeZone: string, holdingDays: number):
   return fromZonedTime(`${firstUnflaggedDay}T00:00:00`, timeZone);
 }
 
+/**
+ * Owner decision seven (Wave F): an item still at "New" (REPORTED, not yet
+ * processed) is flagged once it was found more than this many days ago,
+ * counted from the found date like the holding period. A named threshold,
+ * separate from the configurable holding period; it flags only.
+ */
+export const NEW_ITEM_FLAG_DAYS = 14;
+
+export type UnprocessedFlag = { days: number } | null;
+
+/** The flag for an item still at New, or null (any other status, or not old enough). */
+export function unprocessedNewFlag(input: { status: string; foundAt: Date; now: Date; timeZone: string }): UnprocessedFlag {
+  if (input.status !== "REPORTED") return null;
+  const days = calendarDaysBetween(input.foundAt, input.now, input.timeZone);
+  return days > NEW_ITEM_FLAG_DAYS ? { days } : null;
+}
+
+/** Items found before this instant and still at New are flagged today. */
+export function unprocessedNewCutoff(now: Date, timeZone: string): Date {
+  return holdingCutoff(now, timeZone, NEW_ITEM_FLAG_DAYS);
+}
+
 /** A calendar date (YYYY-MM-DD) in `timeZone` as the instant its day starts or ends. */
 export function zonedDayBoundary(day: string, timeZone: string, edge: "start" | "end"): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;

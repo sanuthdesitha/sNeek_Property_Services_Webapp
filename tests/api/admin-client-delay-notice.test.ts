@@ -1,12 +1,15 @@
 // @vitest-environment node
 /**
  * Live ops "Notify client" (owner decision, third set item 2): the existing
- * client delay notice route (ADMIN only) and its new confirm preview.
+ * client delay notice route and its confirm preview. Owner decision
+ * 2026-11-12: operations managers may send it too, only with the Jobs pack at
+ * manage; never while impersonating; the audit row records the actor's role.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const m = vi.hoisted(() => ({ auth: vi.fn(), job: vi.fn(), audits: vi.fn(), audit: vi.fn(), office: vi.fn(), controls: vi.fn() }));
+const m = vi.hoisted(() => ({ auth: vi.fn(), job: vi.fn(), audits: vi.fn(), audit: vi.fn(), office: vi.fn(), controls: vi.fn(), ops: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.auth }));
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
 vi.mock("@/lib/db", () => ({ db: { job: { findUnique: m.job }, auditLog: { findMany: m.audits, create: m.audit } } }));
 vi.mock("@/lib/notifications/office-sends", () => ({ sendOfficeNotification: m.office }));
 vi.mock("@/lib/notifications/type-controls", () => ({ getNotificationTypeControls: m.controls, typeRespectsPreferences: () => false }));
@@ -14,12 +17,14 @@ vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Aus
 
 import { GET, POST } from "@/app/api/admin/notifications/actions/client-delay/route";
 
-function asRole(role: "ADMIN" | "OPS_MANAGER") {
+function asRole(role: "ADMIN" | "OPS_MANAGER", extra: Record<string, unknown> = {}) {
   m.auth.mockImplementation(async (roles: string[]) => {
     if (!roles.includes(role)) throw new Error("FORBIDDEN");
-    return { user: { id: "admin-1", role } };
+    return { user: { id: role === "ADMIN" ? "admin-1" : "ops-1", role, heldRoles: [role] }, ...extra };
   });
 }
+
+const packs = (jobs: "off" | "read" | "manage") => ({ jobs, dashboard: "manage", communications: "manage" });
 
 const job = (enabled: boolean | null, users = [{ id: "u1", role: "CLIENT", name: "Jo Client", email: "jo@example.invalid", isActive: true }]) => ({
   id: "j1", jobNumber: "J-1", property: { name: "Glebe House", client: { id: "cl", notificationPref: enabled === null ? null : { notificationsEnabled: enabled }, users } },
@@ -41,11 +46,44 @@ beforeEach(() => {
 });
 
 describe("who may notify a client", () => {
-  it("refuses an operations manager for the preview and the send", async () => {
+  it("lets an operations manager with the Jobs pack at manage preview and send, recording the actor and role", async () => {
     asRole("OPS_MANAGER");
-    expect((await get("jobId=j1")).status).toBe(403);
-    expect((await post({ jobId: "j1", transports: ["PUSH"] })).status).toBe(403);
+    m.ops.mockResolvedValue(packs("manage"));
+    expect((await get("jobId=j1")).status).toBe(200);
+    expect((await post({ jobId: "j1", transports: ["PUSH"], idempotencyKey: "delay:j1:2026-11-12" })).status).toBe(200);
+    expect(m.office).toHaveBeenCalledTimes(1);
+    expect(m.office.mock.calls[0][0].actorId).toBe("ops-1");
+    expect(m.audit.mock.calls[0][0].data).toMatchObject({ userId: "ops-1", action: "CLIENT_DELAY_NOTICE_SENT", after: { actorRole: "OPS_MANAGER" } });
+    expect(m.auth).toHaveBeenLastCalledWith(["ADMIN", "OPS_MANAGER"]);
+  });
+
+  it("refuses an operations manager whose Jobs pack is read-only or off (403), sending nothing", async () => {
+    asRole("OPS_MANAGER");
+    for (const level of ["read", "off"] as const) {
+      m.ops.mockResolvedValue(packs(level));
+      const preview = await get("jobId=j1");
+      expect(preview.status).toBe(403);
+      expect((await preview.json()).error).toMatch(/Jobs & assignments permission/);
+      expect((await post({ jobId: "j1", transports: ["PUSH"] })).status).toBe(403);
+    }
     expect(m.office).not.toHaveBeenCalled();
+    expect(m.audit).not.toHaveBeenCalled();
+  });
+
+  it("stays restricted for a revoked account and while impersonating, even an administrator's session", async () => {
+    m.auth.mockRejectedValue(new Error("UNAUTHORIZED"));
+    expect((await post({ jobId: "j1", transports: ["PUSH"] })).status).toBe(401);
+    asRole("OPS_MANAGER", { impersonation: { actorId: "admin-1", mode: "FULL", startedAt: 1 } });
+    m.ops.mockResolvedValue(packs("manage"));
+    expect((await post({ jobId: "j1", transports: ["PUSH"] })).status).toBe(403);
+    expect((await get("jobId=j1")).status).toBe(403);
+    expect(m.office).not.toHaveBeenCalled();
+  });
+
+  it("records ADMIN as the role for an administrator without reading any pack", async () => {
+    await post({ jobId: "j1", transports: ["PUSH"], idempotencyKey: "delay:j1:2026-11-12" });
+    expect(m.ops).not.toHaveBeenCalled();
+    expect(m.audit.mock.calls[0][0].data).toMatchObject({ userId: "admin-1", after: { actorRole: "ADMIN" } });
   });
 });
 

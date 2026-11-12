@@ -13,6 +13,7 @@
  */
 import { JobStatus, type Prisma } from "@prisma/client";
 import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
+import { keepAppliedCountsWithoutChoice } from "@/lib/inventory/stock-count-reset";
 import { db } from "@/lib/db";
 
 export type QaReviewKind = "QA" | "ADMIN" | "AUTO";
@@ -79,6 +80,8 @@ export async function recomputeJobQaOutcome(jobId: string): Promise<{
   });
 
   if (passed) await applyJobRotationCompletion(tx, { jobId, propertyId: job.propertyId });
+  // No person decides here (a recompute): counts already applied stay, recorded as kept without a choice.
+  else await keepAppliedCountsWithoutChoice(tx, { jobId, fromStatus: job.status, toStatus: status, path: "QA result recomputed" });
   return { status, passed, score: review.score };
   });
 }

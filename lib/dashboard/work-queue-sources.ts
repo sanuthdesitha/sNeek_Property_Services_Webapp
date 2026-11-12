@@ -3,6 +3,7 @@
  * with an overflow row that links to the filtered page for the rest. Every
  * total is a real count, never the length of a capped list.
  */
+import { unprocessedNewFlag } from "@/lib/lost-found/holding";
 import { JobStatus } from "@prisma/client";
 import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
@@ -253,9 +254,11 @@ export async function lostItemItems(ctx: QueueContext): Promise<WorkQueueItem[]>
     const itemHref = `${links.LOST_FOUND_HREF}?stage=new&open=${encodeURIComponent(item.id)}`;
     const actions: WorkQueueAction[] = [{ kind: "link", label: "Open", href: itemHref }];
     if (contact) actions.push({ kind: "link", label: "Contact guest", href: contact, external: true, primary: true });
+    // Wave F: still at New after the named threshold (owner decision seven).
+    const stale = unprocessedNewFlag({ status: "REPORTED", foundAt: item.createdAt, now: ctx.now, timeZone: ctx.timeZone });
     return row("lost-item", {
       id: `lost:${item.id}`,
-      title: `Lost item reported: ${item.itemName}`,
+      title: stale ? `Lost item still new after ${stale.days} days: ${item.itemName}` : `Lost item reported: ${item.itemName}`,
       detail: [item.propertyId ? propertyName.get(item.propertyId) : null, item.guestName ? `guest ${item.guestName}` : "guest not recorded", `reported ${formatInTimeZone(item.createdAt, ctx.timeZone, "d MMM")}`].filter(Boolean).join(" · "),
       href: itemHref,
       actions,

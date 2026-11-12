@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
 import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
+import { keepAppliedCountsWithoutChoice } from "@/lib/inventory/stock-count-reset";
 import { photoSourceFingerprint, photoSubmissionInclude } from "@/lib/ai/photo-review";
 import { getVisionSettings } from "@/lib/ai/vision-settings";
 import { visionSettingsSchema } from "@/lib/ai/vision-settings-schema";
@@ -123,6 +124,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         const passed = rating === "EXCELLENT" || rating === "PASS";
         await tx.job.update({ where: { id: params.id }, data: { status: passed ? "COMPLETED" : "QA_REVIEW", completedAt: passed ? submission.job.completedAt ?? new Date() : null } });
         if (passed) await applyJobRotationCompletion(tx, { jobId: params.id, propertyId: submission.job.propertyId });
+        // A verdict, not a reset: counts already applied stay, recorded as kept without a choice.
+        else await keepAppliedCountsWithoutChoice(tx, { jobId: params.id, fromStatus: String(submission.job.status), toStatus: "QA_REVIEW", path: "Photo review deduction (failed)", actorId: session.user.id });
         decision = { ...decision, findingIds: Array.from(new Set(body.findingIds)), deduction, scoreBefore: scoreReview.score, scoreAfter: score, qaReviewId: scoreReview.id };
       }
       const updated = await tx.aiPhotoReview.update({ where: { id: review.id }, data: { reviewedAt: new Date(), reviewedById: session.user.id, decision: decision as any } });

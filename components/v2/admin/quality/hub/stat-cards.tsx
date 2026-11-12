@@ -1,12 +1,14 @@
 "use client";
 
 /**
- * The five stat cards above the tabs, as drawn: eyebrow, serif figure on the
+ * The six stat cards above the tabs (the sixth, "Mgmt review queue", restored
+ * from the accountability overview by the parity audit 2026-11-12), as drawn: eyebrow, serif figure on the
  * left, a pill or muted note on the right. A figure without data reads "–"
  * with the reason; the score change only appears when the previous period
  * has reviewed cleans. Each card states its basis in its title.
  */
 import * as React from "react";
+import Link from "next/link";
 import { ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { formatMoney } from "../issues/issue-format";
@@ -32,6 +34,9 @@ function StatCard({ label, value, aside, basis }: CardProps) {
     </ECard>
   );
 }
+
+/** Where the "Mgmt review queue" card leads: the Approvals queue listing the flagged reviews. */
+export const MANAGEMENT_REVIEW_QUEUE_HREF = "/v2/admin/approvals?queue=managementReviews";
 
 function Muted({ children }: { children: React.ReactNode }) {
   return <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{children}</span>;
@@ -67,7 +72,7 @@ export function QualityStatCards({
     );
   }
 
-  const { cleansReviewed, averageScore, issuesRaised, fixesOpen, fixCost } = summary;
+  const { cleansReviewed, averageScore, issuesRaised, fixesOpen, fixCost, managementReview } = summary;
   return (
     <section aria-label="Quality figures" aria-busy={loading || undefined} className="space-y-2">
       {error ? (
@@ -75,7 +80,7 @@ export function QualityStatCards({
           Showing the last loaded figures. {error}
         </p>
       ) : null}
-      <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         <StatCard
           label="Cleans reviewed"
           value={cleansReviewed.reviewed}
@@ -111,6 +116,19 @@ export function QualityStatCards({
           value={fixCost.amount === null ? "–" : formatMoney(fixCost.amount)}
           aside={<Muted>{fixCost.amount === null ? "No fix cost recorded" : hoursText(fixCost.minutes)}</Muted>}
           basis="QA rectification pay and minutes recorded on issues raised in the period."
+        />
+        <StatCard
+          label="Mgmt review queue"
+          value={managementReview.count}
+          aside={
+            <Link
+              href={MANAGEMENT_REVIEW_QUEUE_HREF}
+              className="inline-flex min-h-11 items-center text-[0.8125rem] font-[550] text-[hsl(var(--e-primary))] underline-offset-2 hover:underline sm:min-h-0"
+            >
+              Open the queue
+            </Link>
+          }
+          basis="Reviewed cleans in the period whose deciding review was flagged for management review. The queue in Approvals lists every flagged review still waiting for a decision."
         />
       </div>
     </section>

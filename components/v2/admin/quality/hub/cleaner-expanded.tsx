@@ -7,13 +7,15 @@
  * cleaner, open fixes only). Mark fixed and Propose deduction open the issue
  * detail on that form (minutes, photos, amount and note stay required as
  * before); Reject / Confirm decide a suspected false confirmation through the
- * existing endpoint.
+ * existing endpoint. "Rating mix" (restored from the accountability overview,
+ * parity audit 2026-11-12) counts how the cleaner's reviewed cleans in the
+ * period were rated.
  */
 import * as React from "react";
 import Link from "next/link";
 import { toast } from "@/hooks/use-toast";
 import { EButton, EEyebrow } from "@/components/v2/ui/primitives";
-import { EPill } from "@/components/v2/ui/pill";
+import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { cn } from "@/lib/utils";
 import { formatIssueDayShort, hoursSince, qaPhotoKeyList, severityTone } from "../issues/issue-format";
 import { patchIssue } from "../issues/issue-requests";
@@ -21,9 +23,40 @@ import type { CleanerRow, HubContext, QualityIssueRow } from "./hub-types";
 import { isIssues } from "./hub-types";
 import { useQualityRead, useReloadOn } from "./use-quality-read";
 import { severityLabel } from "@/lib/quality/severity";
+import { RATING_KEYS, RATING_LABEL, type RatingKey, type RatingMix } from "@/lib/quality/cleans";
 
 const PREVIEW_SIZE = 5;
 const DANGER_OUTLINE = "border-[hsl(var(--e-danger)/0.45)] text-[hsl(var(--e-danger))] hover:bg-[hsl(var(--e-danger-soft))]";
+
+const RATING_TONE: Record<RatingKey, EPillTone> = {
+  EXCELLENT: "ok",
+  PASS: "info",
+  NEEDS_IMPROVEMENT: "warn",
+  FAILED: "bad",
+  MANAGEMENT_REVIEW: "bad",
+};
+
+/** The five bands with their counts; a band with none is left out, as the old table did. */
+export function RatingMixPills({ mix }: { mix: RatingMix }) {
+  const bands = RATING_KEYS.filter((key) => mix[key] > 0);
+  if (bands.length === 0 && mix.unrated === 0) {
+    return <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No reviewed cleans in this period.</p>;
+  }
+  return (
+    <ul aria-label="Rating mix" className="flex flex-wrap gap-1">
+      {bands.map((key) => (
+        <li key={key}>
+          <EPill tone={RATING_TONE[key]}>{`${RATING_LABEL[key]} ${mix[key]}`}</EPill>
+        </li>
+      ))}
+      {mix.unrated > 0 ? (
+        <li>
+          <EPill tone="neutral">{`No rating ${mix.unrated}`}</EPill>
+        </li>
+      ) : null}
+    </ul>
+  );
+}
 
 export type OpenIssueRequest = { issue: QualityIssueRow; action: "rectify" | "deduction" | null };
 
@@ -160,7 +193,9 @@ export function CleanerExpanded({
         ) : null}
       </div>
       <div className="w-full space-y-1.5 md:w-[240px] md:flex-none">
-        <EEyebrow>By category</EEyebrow>
+        <EEyebrow>Rating mix</EEyebrow>
+        <RatingMixPills mix={row.ratingMix} />
+        <EEyebrow className="pt-2">By category</EEyebrow>
         {row.categories.length === 0 ? <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No issues in this period.</p> : null}
         {row.categories.map((category, index) => (
           <div key={category.category} className="space-y-1">

@@ -675,6 +675,8 @@ export async function getClientInvoice(invoiceId: string) {
           // — and the property a maintenance charge belongs to — could not
           // reach the document the client actually receives.
           property: { select: { name: true, suburb: true } },
+          // Wave F: the case a manual charge was added from ("From case …").
+          case: { select: { id: true, title: true } },
         },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },

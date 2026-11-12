@@ -2,12 +2,13 @@
 
 /**
  * "Message guest" / "Tell client": a ready message the office can edit.
- *  - Guest, administrator: "Send by email" / "Send by text" go through the
+ *  - Guest, administrator or operations manager with the Lost & found pack (server rule):
+ *    "Send by email" / "Send by text" go through the
  *    notification system's guest-message action; the item moves to Guest
  *    contacted only when the provider accepted it ("accepted", never
  *    "delivered"). One idempotency key per draft and transport, kept until it
  *    succeeds, so a retry is not a second message.
- *  - Client, administrator: "Send to client" through the pipeline's client
+ *  - Client, same rule: "Send to client" through the pipeline's client
  *    notice (explicit transports; the timeline records the real states).
  *  - Otherwise (and always beside Send): copy, mailto:, sms:, tel:, then
  *    "Record that you contacted …", which stores what the office says it did.

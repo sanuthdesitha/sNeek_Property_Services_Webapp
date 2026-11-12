@@ -28,6 +28,7 @@ import {
 } from "@/components/v2/ui/primitives";
 import { EAvatar, EField, EInput, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import { docExpiryStatus, docStatusTone, prettify } from "@/components/v2/admin/workforce/utils";
+import { DocumentRequestDialog } from "@/components/v2/admin/accounts/document-request-dialog";
 
 export type ComplianceDoc = {
   id: string;
@@ -213,13 +214,6 @@ export function ComplianceBoard({
     }
   }, [reviewDoc]);
 
-  // Request form state
-  const [reqUser, setReqUser] = React.useState("");
-  const [reqCategory, setReqCategory] = React.useState("POLICE_CHECK");
-  const [reqTitle, setReqTitle] = React.useState("");
-  const [reqNotes, setReqNotes] = React.useState("");
-  const [reqDue, setReqDue] = React.useState("");
-
   // Filing a document the office was handed directly — a certificate brought in
   // on paper, or emailed. v1 could do this and v2 could not, so the only way to
   // get such a document on file was to ask the staff member to upload something
@@ -259,17 +253,6 @@ export function ComplianceBoard({
   React.useEffect(() => {
     setUpRequestId("");
   }, [upUser]);
-
-  React.useEffect(() => {
-    if (requestOpen) {
-      setReqUser(staff[0]?.id ?? "");
-      setReqCategory("POLICE_CHECK");
-      setReqTitle("");
-      setReqNotes("");
-      setReqDue("");
-      setError(null);
-    }
-  }, [requestOpen, staff]);
 
   async function submitReview() {
     if (!reviewDoc) return;
@@ -340,30 +323,6 @@ export function ComplianceBoard({
     } finally {
       setBusy(false);
     }
-  }
-
-  async function submitRequest() {
-    if (!reqUser || !reqTitle.trim()) {
-      setError("Pick a team member and give the document a title.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    const res = await postAction({
-      action: "REQUEST_DOCUMENT",
-      userId: reqUser,
-      category: reqCategory,
-      title: reqTitle.trim(),
-      notes: reqNotes || null,
-      dueAt: reqDue || null,
-    });
-    setBusy(false);
-    if (!res.ok) {
-      setError(res.error ?? "Could not send request.");
-      return;
-    }
-    setRequestOpen(false);
-    router.refresh();
   }
 
   return (
@@ -542,49 +501,8 @@ export function ComplianceBoard({
         ) : null}
       </EModal>
 
-      {/* Request modal */}
-      <EModal open={requestOpen} onClose={() => setRequestOpen(false)} title="Request a document" eyebrow="Compliance">
-        <div className="space-y-4">
-          <EField label="Team member">
-            <ESelect value={reqUser} onChange={(e) => setReqUser(e.target.value)}>
-              {staff.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} · {prettify(s.role)}
-                </option>
-              ))}
-            </ESelect>
-          </EField>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <EField label="Category">
-              <ESelect value={reqCategory} onChange={(e) => setReqCategory(e.target.value)}>
-                {CATEGORY_OPTIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {prettify(c)}
-                  </option>
-                ))}
-              </ESelect>
-            </EField>
-            <EField label="Due date">
-              <EInput type="date" value={reqDue} onChange={(e) => setReqDue(e.target.value)} />
-            </EField>
-          </div>
-          <EField label="Document title">
-            <EInput value={reqTitle} onChange={(e) => setReqTitle(e.target.value)} placeholder="e.g. Police check" />
-          </EField>
-          <EField label="Note to staff">
-            <ETextarea value={reqNotes} onChange={(e) => setReqNotes(e.target.value)} placeholder="Optional instructions" />
-          </EField>
-          {error ? <EAlert tone="danger">{error}</EAlert> : null}
-          <div className="flex justify-end gap-2">
-            <EButton variant="outline" size="sm" onClick={() => setRequestOpen(false)} disabled={busy}>
-              Cancel
-            </EButton>
-            <EButton variant="gold" size="sm" onClick={submitRequest} disabled={busy}>
-              {busy ? "Sending…" : "Send request"}
-            </EButton>
-          </div>
-        </div>
-      </EModal>
+      {/* Request: the shared Accounts dialog (explicit transports, "Don't ask again", recorded states). */}
+      <DocumentRequestDialog open={requestOpen} people={staff} onClose={() => setRequestOpen(false)} onSent={() => router.refresh()} />
 
       {/* Upload-on-behalf modal */}
       <EModal

@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   clear: vi.fn(), lowStock: vi.fn(), unexpected: vi.fn(), templates: vi.fn(), anchor: vi.fn(), provision: vi.fn(),
   draft: vi.fn(), lock: vi.fn(), query: vi.fn(),
   office: vi.fn(), officeNotice: vi.fn(), resolveIssue: vi.fn(), resolveTask: vi.fn(), clockApproval: vi.fn(), caseCreate: vi.fn(), caseNotify: vi.fn(), stockReceipt: vi.fn(), stockWrite: vi.fn(), laundry: vi.fn(), pay: vi.fn(), payExisting: vi.fn(), followupQueue: vi.fn(),
-  damageReport: vi.fn(), stocked: vi.fn(),
+  damageReport: vi.fn(), stocked: vi.fn(), countSupersede: vi.fn(), countCreate: vi.fn(), activeItems: vi.fn(),
 }));
 vi.mock("@/lib/cleaner/submission-followups", () => ({ enqueueSubmissionFollowups: mocks.followupQueue,
   processSubmissionFollowups: async () => { await mocks.qa("job"); await mocks.report("job"); return { reportReadySubmissionIds: ["submission"] }; } }));
@@ -127,6 +127,9 @@ beforeEach(() => {
       formSubmission: { create: mocks.create }, submissionMedia: { createMany: mocks.media },
       damageReport: { findFirst: mocks.damageReport }, propertyStock: { findMany: mocks.stocked },
       job: { update: mocks.update, findUnique: mocks.job, updateMany: mocks.claim },
+      // Wave F: stock count answers become count observations in the same transaction.
+      stockCountObservation: { updateMany: mocks.countSupersede, createMany: mocks.countCreate },
+      inventoryItem: { findMany: mocks.activeItems },
     });
     events.push("commit"); return result;
   });
@@ -134,6 +137,8 @@ beforeEach(() => {
   mocks.unexpected.mockImplementation(() => { throw new Error("Unexpected side-effect boundary"); });
   mocks.damageReport.mockResolvedValue(null);
   mocks.stocked.mockResolvedValue([{ itemId: "tabs" }]);
+  mocks.activeItems.mockResolvedValue([{ id: "tabs", name: "Tablets" }]);
+  mocks.countCreate.mockImplementation(async (args: { data: unknown[] }) => ({ count: args.data.length }));
   mocks.caseCreate.mockResolvedValue({ id: "case" });
   mocks.create.mockImplementation(async () => { events.push("snapshot"); return { id: "submission", createdAt: new Date("2026-11-11T01:00:00Z") }; });
 });
@@ -169,6 +174,8 @@ describe("structured answers on submit", () => {
     expect(data.__formEffects.stockCounts).toEqual([expect.objectContaining({ itemId: "tabs", count: 7 })]);
     expect(data.__formEffects.urgentStock).toEqual([]);
     expect(mocks.followupQueue.mock.calls[0][1].urgentStock).toBeUndefined();
+    // Wave F: recorded as a PENDING count observation (applied to on-hand only on approval).
+    expect(mocks.countCreate).toHaveBeenCalledWith({ data: [expect.objectContaining({ submissionId: "submission", itemId: "tabs", count: 7, status: "PENDING", reason: null })], skipDuplicates: true });
   });
 
   it("rejects a stock count for another item", async () => {

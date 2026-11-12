@@ -1274,3 +1274,88 @@ Tests run (all pass):
 Not run / not verified
 - Production build, the full Vitest suite and browser checks (owner asked to save time). Final browser pass, 390px and 1280px, light and dark: person panel Pay (date input, history list, Remove), Leave and days off form, Documents "required" rows, Settings → Required documents (checkbox grid at 390px), Accounts "Never signed in" / "Not recorded yet"; Jobs row menu "Cancel job…", peek "Cancel job" (danger outline) and Restore block, bulk bar "Cancel job" (bar width at 390px), cancel dialog (focus trap, reason kept on error), job page cancelled notice and Danger tab; assign modal / quick assign / bulk assign "Assign anyway"; calendar "Leave" / "Day off" cells, Status "Cancelled" filter, struck-through cancelled chips, end-time drop confirmation text; QA amending notice with the template-copy line.
 - No real message sent (notification pipeline mocked in tests).
+
+
+## Office sends for operations managers; document request transport choice (2026-11-12, uncommitted step)
+
+Scope: owner decisions A and B of 2026-11-12 (`docs/plans/admin-redesign-2026-11.md`, "Owner decisions, ninth set"). No Prisma schema change, no migration. Details: `docs/SYSTEM.md`, "Office sends for operations managers and the document request transport choice".
+
+Changed
+- A: Chase supplier (pack `laundry`), Message guest and lost-item Tell client (pack `lost-found`), client delay notice and clock pause (pack `jobs`) may be sent by an operations manager holding that pack at manage; ADMIN unchanged; refused while impersonating (also for administrators) and for revoked accounts. One rule (`lib/notifications/office-send-rules.ts`) checked on every send route and preview with the live session guard and live pack levels (`lib/notifications/office-send-permission.ts`). The three notifications-area send routes now belong to the page's pack in `opsRequestFeature`. Audit rows add `actorRole`; limits, cool-downs, idempotency, masking unchanged. UI shows Send by the same rule; Copy stays for everyone.
+- B: Accounts "Request document" (Compliance board and a person's Documents section) and Command "Send reminder" share one Inbox / Email / SMS choice (multi-select, each disabled with the reason), "Don't ask again" per office user (AppSetting `office_send_transports_v1:<userId>`), a visible "Sending by: … · Change · Ask me again" line, and a reset in Notifications → Preferences ("Your sending choices", `GET`/`DELETE /api/me/send-transports`). Options: `GET /api/admin/workforce/document-request?userId=`; the reminder preview carries the same options. The route resolves transports: named → saved → inbox only.
+
+Behaviour changed on purpose (for the owner)
+- A `REQUEST_DOCUMENT` that names no transports and whose sender saved no choice now goes to the inbox only. Before, it also sent email (when the person had an address) and SMS (when they had a phone). The new dialogs always name their transports. The classic `/admin/workforce` hub's request form names none, so from there it is now inbox only (or the sender's saved choice). Automatic onboarding requests keep the old set.
+- `REQUEST_DOCUMENT` without a document id is now refused while impersonating (the reminder path already was), so the request and the saved choice belong to the real person.
+
+Existing behaviour changed on purpose, and the tests updated for it
+- `tests/api/admin-client-delay-notice.test.ts`, `tests/api/admin-clock-pause.test.ts`, `tests/api/laundry-supplier-chase.test.ts`, `tests/api/lost-found-client-notice.test.ts`, `tests/api/lost-found-office.test.ts`, `tests/api/notifications-area-routes.test.ts`, `tests/components/lost-found-format.test.ts`: ADMIN-only assertions replaced by the pack rule (OPS with pack → allowed and audited with its role; OPS with the pack View only / Off → 403 with the reason; revoked → 401; impersonated → 403).
+- `tests/components/live-ops-follow-up.test.tsx`: the workspace takes `canNotifyClient` / `canPauseClock` instead of `canAdminister`.
+- `tests/api/document-reminder.test.ts`: the plain request without transports is inbox only; explicit transports case added; preview carries `options`.
+
+Checks run
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → no errors.
+- New: `tests/lib/office-send-rules.test.ts` (10), `tests/api/document-request-transports.test.ts` (8), `tests/components/document-request-dialog.test.tsx` (7).
+- Every existing test file covering the touched code (45 files incl. the notification catalog, notifications area, ops middleware / policy, work queue, Command, live ops, lost and found, laundry nudges, accounts person panel) → 398 passed. ESLint on the new and changed files → clean.
+
+Not run / not verified
+- Production build, full Vitest suite and browser checks (not requested in this step). Browser pass, 390px and 1280px, light and dark: Request document dialog from Compliance and from the person panel (choices, reasons, Don't ask again, Sending by line, Change / Ask me again, results list), Command Send reminder with a saved choice, Notifications → Preferences "Your sending choices", Live ops as an operations manager with and without the Jobs pack, Lost and found Send as a manager with the pack, Laundry Chase supplier Send as a manager with the pack.
+- Providers mocked; no real message sent.
+
+
+## Wave F: urgent stock, lost and found, Wave E database leftovers (2026-11-12, uncommitted step)
+
+Scope: Stock tabs as drawn; "Add to shopping run" and "Ask cleaner to buy" on urgent needs; the job on a need; operations managers on urgent stock by their inventory pack; lost items still New after 14 days; Cases "Add charge to invoice"; laundry planned pickup / drop clock times; stock count answers setting on-hand through count observations. Details: `docs/SYSTEM.md`, "Wave F: urgent stock shopping runs and buy asks …". Designs used: `Stock.dc.html`, `LostFound.dc.html`, `Cases.dc.html`, `Laundry.dc.html` from the session's design folder.
+
+Migration `20261112180000_wave_f_stock_cases_laundry` (forward only, additive: nullable columns, two new tables, two CHECK constraints, one backfill that fills only empty columns).
+- Fresh `wavef_fresh` (127.0.0.1:55439): `migrate deploy` → all 135 applied (134 earlier + this one); repeated → "No pending migrations to apply"; `migrate diff --from-url … --to-schema-datamodel prisma/schema.prisma --exit-code` → "No difference detected" (exit 0).
+- Existing `sneek_ui`: status showed only this migration pending; checksums (row text, new columns excluded) of UrgentStockNeed, UrgentStockEvent, ClientInvoice, ClientInvoiceLine, LaundryTask, PropertyStock, StockTx, ShoppingRun, ShoppingRunLine, IssueTicket, FormSubmission, Job identical before and after; repeat deploy no pending; diff exit 0. (`sneek_ui` holds few rows: 1 job, 1 laundry task, 25 stock rows, 1 shopping run.)
+- Backfill checked on `wavef_backfill` (migrated to Wave E, fixtures inserted, then Wave F applied): a form-raised need with a matching submission, property and reporter got its job and submission; a wrong reporter, a wrong property and a manual report stayed null.
+- `npx prisma generate` run.
+
+Tests run:
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → clean. ESLint on the new and changed Wave F files → clean.
+- New: `tests/db/wave-f.test.ts` (9) and `tests/db/wave-f-case-charge.test.ts` (3) on `wavef_fresh`, `--no-file-parallelism`; `tests/lib/wave-f-rules.test.ts` (12); `tests/components/wave-f-ui.test.tsx` (3); `tests/api/wave-f-routes.test.ts` (3); new cases in `tests/lib/notification-office-sends.test.ts` (inbox-only send) and `tests/lib/notification-entity-scope.test.ts` (ask scope).
+- DB-backed existing suites with the new ones: urgent-stock, stay-preparation, lost-found, lost-found-property-sort, finance-decisions, money-wave-d, client-invoice-started-jobs, wave-e, schema, notification-intents, ops-permissions, three laundry suites → 16 files, 87 passed.
+- Every non-DB test file referencing a touched module (162 files, incl. the notification catalog) → 1,715 passed, 1 failed: `tests/lib/client-invoice-editor-rules.test.ts` ("mark-sent" in the editor menu), which comes from another engineer's uncommitted invoice "Mark as sent" change in the tree (`invoice-model.ts`, `client-invoice-patch.ts` audit, and that test file itself are being edited); not a Wave F path.
+- Updated on purpose (behaviour changed): `urgent-needs-table` (an acknowledged need offers "Add to shopping run", as drawn), `admin-attention-urgent` and `urgent-stock-office` (operations managers with the pack get the badge and the redirect), `cleaner-submit-form-effects` (count observations recorded in the submit transaction), `rotation-completion` / `rotation-monthly` fixtures (approval now also applies count observations).
+
+Design comparison (Urgent stock and Lost and found). Matched: header, summary ("… must arrive before the next clean", with the real 48-hour window stated), tab names and order, stage chips with counts, Property filter, columns, "Reported by … during job …", row Next action incl. "Add to shopping run", bulk bar with "Add to one shopping run", panel subtitle "needed before Thu 10:00", stage bar, Counted / Par / Suggested / Reported by, actions Acknowledge / Add to shopping run / Ask cleaner to buy. Kept different, with reasons: search box and the extra tabs (On-hand, Scan tasks, Suppliers) stay (functions in use); the panel keeps Requested, Shopping run and Cleaner asked rows and Confirm at property / Resolve (real states the drawing omits); Stay preparation stays a lazy disclosure (secondary tool rule) rather than inline text; history has no "Office notified" line (the inbox notice is not stored as a need event); "Reported by client" cannot occur (clients have no urgent report path). Lost and found: the drawing has no New-age chip; one was added as asked, and the summary appends "· N still new after 14 days" only when there are some.
+
+Not run / not verified
+- Production build, the full Vitest suite and browser checks (not requested). Browser pass needed at 390px and 1280px, light and dark: Urgent needs tabs, Add to shopping run dialog (radio list, quantities, results), Ask cleaner dialog (cleaner select, transports, outcome list), Withdraw ask, need panel rows; cleaner job screen "Can you buy these?" and Supplies → Shopping; Stock counts → Counts from job forms (table overflow at 390px); Cases "Add charge to invoice" dialog and charge list; laundry "Set planned times" form in the run panel and card text; Lost and found chip, badge and panel note.
+- No real message sent (pipeline and providers mocked in tests). Deployment not done.
+
+## Parity audit fixes (2026-11-12, uncommitted step)
+
+Scope: restore functions lost in the admin redesign (baseline `1fb4077`): invoice "Mark as sent (not emailed)" and "Group by property" saving the order; Quality rating mix, "Mgmt review queue" and the review queue counters; laundry team metrics for quality-pack viewers; Accounts KPI strip; `/urgent-stock` for operations managers (already done by Wave F); dead accountability notification links. Details: `docs/SYSTEM.md`, "Parity audit fixes: functions restored after the admin redesign". No schema change, no migration.
+
+Tests run:
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → clean.
+- New: `tests/lib/invoice-mark-sent.test.ts` (4), `tests/api/quality-parity-audit.test.ts` (7), `tests/components/approvals-queue-deep-link.test.tsx` (2), `tests/lib/accounts-overview-kpis.test.ts` (2); new cases in `invoice-editor-page` (3), `invoice-row-actions` (2), `quality-hub-service` (4), `quality-hub-actions` (7), `quality-hub-page-access` (1), `accounts-hub` (2).
+- `tests/db/invoice-mark-sent.test.ts` (2), `tests/db/finance-decisions.test.ts` and `tests/db/money-wave-d.test.ts` on my own fresh disposable database `parity_fresh` (127.0.0.1:55439, `prisma migrate deploy` from empty, dropped afterwards) → 13 passed.
+- Every non-DB test file referencing a touched module (75 files: invoices, quality, accounts, approvals, notifications, ops catalog, urgent stock) → 766 passed after updating fixtures on purpose (exact action lists now include `mark-sent`; summary and cleaner fixtures carry `managementReview` and `ratingMix`).
+
+Not run / not verified
+- Production build, the full Vitest suite and browser checks (not requested in this step). Browser pass needed at 390px and 1280px, light and dark: invoice row menu and editor menu "Mark as sent (not emailed)" dialog (refusal shown in the dialog), "Group by property" on a draft and a sent invoice; Quality six stat cards (grid at 390px / 1280px), the expanded cleaner row's rating mix, Review queue counters, "Laundry team and suppliers" disclosure (keyboard, table overflow at 390px); Approvals opened from the card; Accounts KPI strip.
+- No real message sent; deployment not done.
+
+## Owner decisions: urgent stock rights, need-opened notice, applied stock counts on reset (2026-11-12, uncommitted step)
+
+Scope: owner's tenth set (`docs/plans/admin-redesign-2026-11.md`): (1) operations managers with the inventory pack at manage may Resolve, bulk Close and change the urgent-stock reminder settings; (2) the "urgent need opened" inbox notice also reaches operations managers with the pack; (3) resetting a job whose form's stock counts were applied asks the office to reverse or keep them; (4) lost items still New stay a separate count (no change). Details: `docs/SYSTEM.md`, "Owner decisions: urgent stock rights, need-opened notice, applied stock counts on reset". No Prisma schema change, no migration (`prisma/` untouched; `migrate diff --from-url <fresh db> --to-schema-datamodel prisma/schema.prisma --exit-code` → "No difference detected").
+
+Tests run:
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → clean. ESLint on the changed files → no errors (one pre-existing warning in `job-reset-dialog.tsx`).
+- DB-backed, on my own fresh disposable database `sneek_decisions_1794454185` (127.0.0.1:55439, `prisma migrate deploy` from empty), `--no-file-parallelism`: new `tests/db/owner-decisions-stock.test.ts` (13) with `urgent-stock`, `wave-f`, `stay-preparation`, `notification-intents` → 5 files, 45 passed.
+- New non-DB: `tests/lib/stock-count-reset-rules.test.ts` (5), `tests/components/stock-count-reset-dialog.test.tsx` (3), `tests/components/qa-reset-stock-count-choice.test.tsx` (1), `tests/components/urgent-office-manage-controls.test.tsx` (2); new cases in `tests/lib/notification-entity-scope.test.ts` (3) and `tests/lib/jobs-bulk-status.test.ts` (1).
+- Every existing non-DB test file covering touched code (urgent stock service, policy, actions, routes and UI; job reset, QA reset, job PATCH and bulk status; QA submit, admin QA score, photo review, authority; notification scopes, office sends, catalog; rotation) plus the new ones → 43 files, 422 passed. Notification catalog test passes.
+- Changed on purpose: `tests/db/wave-f.test.ts` (a manager with manage now resolves; was refused), `tests/lib/urgent-stock-policy.test.ts` and `tests/lib/urgent-stock-actions.test.ts` (policy parameter `isAdmin` renamed `mayResolve`, same assertions). Fixtures given an empty stock-count reader (the new query; no assertion weakened): `tests/api/qa-reset-financial-guard.test.ts`, `tests/lib/jobs-bulk-status.test.ts`.
+
+Rules added / changed (for the owner)
+- Resolve, bulk Close, reminder settings: ADMIN, or OPS_MANAGER with the inventory pack at manage; read refused; target's rights while impersonated; audit records role (and the impersonating administrator).
+- "Urgent need opened": admins and managers with inventory read or manage, one inbox notice each, pack re-checked at dispatch, preferences respected. Reminders unchanged (administrators only).
+- A reset that takes an approved job out of Completed with applied counts requires "Reverse" or "Keep" (Reset job, QA reset, job status edit: 409 naming the counts); bulk status refuses those jobs; QA verdicts keep the counts and record that no choice was made. Reversal only without a newer stock record; nothing deleted; a reversed count is not re-applied.
+
+Not run / not verified
+- Production build, the full Vitest suite and browser checks (not requested). Browser pass needed at 390px and 1280px, light and dark: Reset job dialog with applied counts (table overflow at 390px, radio group keyboard and focus, Reset disabled until chosen, 409 re-ask), QA reset dialog on the classic job page (Radix dialog, table, radios), Stock → Urgent needs as an operations manager with manage (Reminder settings button, panel Resolve, bulk Close) and with read (none of them), Counts from job forms "Reversed when the job was reset"; the job edit form's toast for the 409 (long message).
+- No real message sent (inbox delivery exercised against the test database only). Deployment not done.

@@ -90,11 +90,16 @@ function needColumns(need: UrgentNeed) {
   };
 }
 
+/** Wave F: where a need was reported from (job, and the form submission when it came from one). */
+export type NeedSource = { jobId: string; submissionId: string | null };
+
 export type NeedWriteOptions = {
   /** Set while the need is open; null closes the property+item slot. */
   openPairKey: string | null;
   /** Only on the first write of a need. */
   reporter?: { id: string; name: string | null };
+  /** Only on the first write of a need. */
+  source?: NeedSource;
 };
 
 export async function writeNeed(tx: Tx, need: UrgentNeed, options: NeedWriteOptions) {
@@ -106,6 +111,8 @@ export async function writeNeed(tx: Tx, need: UrgentNeed, options: NeedWriteOpti
       ...columns,
       reportedById: options.reporter?.id ?? null,
       reportedByName: options.reporter?.name ?? null,
+      sourceJobId: options.source?.jobId ?? null,
+      sourceSubmissionId: options.source?.submissionId ?? null,
     },
     update: columns,
   });

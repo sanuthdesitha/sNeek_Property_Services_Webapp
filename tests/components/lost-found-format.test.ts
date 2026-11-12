@@ -2,7 +2,8 @@
 import { describe, expect, it } from "vitest";
 import { guestSourceInfo, lostFoundStages, statusPill, visitedStatuses, formatFoundDay } from "@/components/v2/admin/lost-found/lost-found-format";
 import { readLostFoundView, listQueryString, viewSearch, DEFAULT_VIEW } from "@/components/v2/admin/lost-found/lost-found-view";
-import { CLIENT_SEND_ADMIN_ONLY_REASON, draftLostFoundMessage, mailtoHref } from "@/lib/lost-found/message";
+import { draftLostFoundMessage, mailtoHref } from "@/lib/lost-found/message";
+import { decideOfficeSend } from "@/lib/notifications/office-send-rules";
 
 describe("lost and found display", () => {
   it("says where the guest came from and never guesses", () => {
@@ -47,11 +48,14 @@ describe("message drafts", () => {
     expect(draft.body).toContain("02 9000 0000");
     expect(draft.body).not.toMatch(/fee|\$/);
   });
-  it("drafts a client message and says only administrators send it from the app", () => {
+  // Owner decision 2026-11-12: a manager with the Lost & found pack may send too;
+  // the reason for anyone else now comes from the shared send rule.
+  it("drafts a client message and says who cannot send it from the app, and why", () => {
     const draft = draftLostFoundMessage({ ...input, audience: "client" });
     expect(draft.body).toContain("Hi Harbour Stays,");
     expect(draft.body).toContain("1 Test St, Bondi");
-    expect(CLIENT_SEND_ADMIN_ONLY_REASON).toMatch(/Only administrators/);
+    const viewOnly = decideOfficeSend({ heldRoles: ["OPS_MANAGER"], impersonating: false, levels: { "lost-found": "read" } as never }, "lost_item_client_notice");
+    expect(viewOnly.reason).toMatch(/Lost & found permission.*record that you told the client/);
     expect(mailtoHref(null, draft)).toBeNull();
     expect(mailtoHref("a@b.invalid", draft)).toMatch(/^mailto:a%40b\.invalid\?subject=/);
   });

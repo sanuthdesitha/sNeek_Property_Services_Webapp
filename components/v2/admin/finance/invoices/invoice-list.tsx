@@ -133,6 +133,7 @@ export function InvoiceList() {
         case "resend":
           setDialog({ kind: "send", invoice, resend: key === "resend" });
           return;
+        case "mark-sent":
         case "record-payment":
         case "mark-paid":
         case "receipt":

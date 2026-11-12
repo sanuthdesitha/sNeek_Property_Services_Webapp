@@ -80,6 +80,9 @@ export type LaundryTaskDTO = {
   pickedUpAt?: string | null;
   droppedAt?: string | null;
   noPickupRequired?: boolean;
+  /** Wave F: planned clock times ("HH:mm") on the pickup / drop days; null = not planned. */
+  pickupTime?: string | null;
+  dropoffTime?: string | null;
   createdAt?: string | null;
   /** The version loaded; sent back as the stale-write guard on edits and moves. */
   updatedAt?: string | null;

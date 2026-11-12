@@ -1,6 +1,7 @@
 "use client";
 
 /** Table columns as drawn: Item, Property, Guest, Found, Stored at, Status. */
+import { NEW_ITEM_FLAG_DAYS } from "@/lib/lost-found/holding";
 import type { EDataColumn } from "@/components/v2/ui/data-table";
 import { EPill } from "@/components/v2/ui/pill";
 import type { LostFoundListRow } from "@/lib/lost-found/list";
@@ -49,11 +50,12 @@ export function lostFoundColumns(timeZone: string, onOpen: (row: LostFoundListRo
       header: "Status",
       sortKey: "status",
       cell: (row) => {
-        const pill = statusPill(row.status, row.holding);
+        const pill = statusPill(row.status, row.holding, row.unprocessed);
         return (
           <EPill tone={pill.tone}>
             {pill.label}
             {row.holding.past ? <span className="sr-only">, past the holding period</span> : null}
+            {row.unprocessed ? <span className="sr-only">, still new after {NEW_ITEM_FLAG_DAYS} days</span> : null}
           </EPill>
         );
       },

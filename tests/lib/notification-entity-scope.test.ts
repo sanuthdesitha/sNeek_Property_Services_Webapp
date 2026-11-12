@@ -145,3 +145,47 @@ describe("recipient scope rules", () => {
     expect(await authorizeEntityRecipient(db, recipient("LAUNDRY_TASK_CLEANER", "missing"))).toMatchObject({ ok: false });
   });
 });
+
+describe("Wave F: URGENT_STOCK_PURCHASE_ASK scope", () => {
+  const recipient = { userId: "cleaner-1", role: "CLEANER" as const, scope: { kind: "ENTITY" as const, type: "URGENT_STOCK_PURCHASE_ASK", id: "ask-1" } };
+  const reader = (ask: { cleanerId: string; state: string } | null) => ({
+    user: { findUnique: async () => ({ id: "cleaner-1", role: "CLEANER", isActive: true, clientId: null }) },
+    jobAssignment: { findFirst: async () => null }, laundryTask: { findUnique: async () => null }, job: { findUnique: async () => null },
+    urgentStockPurchaseAsk: { findUnique: async () => ask },
+  }) as never;
+  it("delivers only to the asked cleaner while the ask is still waiting", async () => {
+    expect(await authorizeEntityRecipient(reader({ cleanerId: "cleaner-1", state: "ASKED" }), recipient)).toEqual({ ok: true, role: "CLEANER" });
+    expect(await authorizeEntityRecipient(reader({ cleanerId: "cleaner-1", state: "WITHDRAWN" }), recipient)).toEqual({ ok: false, errorCode: "recipient_not_in_scope" });
+    expect(await authorizeEntityRecipient(reader({ cleanerId: "someone-else", state: "ASKED" }), recipient)).toEqual({ ok: false, errorCode: "recipient_not_in_scope" });
+    expect(await authorizeEntityRecipient(reader(null), recipient)).toEqual({ ok: false, errorCode: "recipient_not_in_scope" });
+  });
+});
+
+describe("URGENT_STOCK_OFFICE scope (owner decision 2026-11-12)", () => {
+  const office = (userId: string, role: "ADMIN" | "OPS_MANAGER") => ({ userId, role, scope: { kind: "ENTITY" as const, type: "URGENT_STOCK_OFFICE", id: "need-1" } });
+  function reader(user: Record<string, unknown>, extraRoles: string[], policy: unknown) {
+    return {
+      user: { findUnique: vi.fn(async ({ select }: { select: Record<string, unknown> }) => (select.extraRoles ? { extraRoles: extraRoles.map((role) => ({ role })) } : user)) },
+      appSetting: { findUnique: vi.fn(async () => (policy === undefined ? null : { value: policy })) },
+      jobAssignment: { findFirst: vi.fn() }, laundryTask: { findUnique: vi.fn() }, job: { findUnique: vi.fn() },
+    } as never;
+  }
+  const policy = (inventory: string) => ({ revision: 1, presets: [], assignments: { "ops-1": { presetId: "existing", overrides: { inventory } } } });
+  const ops = { id: "ops-1", role: "OPS_MANAGER", isActive: true, clientId: null };
+
+  it("admits an active ADMIN and a manager whose inventory pack is read or manage", async () => {
+    expect(await authorizeEntityRecipient(reader({ id: "a", role: "ADMIN", isActive: true, clientId: null }, [], undefined), office("a", "ADMIN"))).toEqual({ ok: true, role: "ADMIN" });
+    expect(await authorizeEntityRecipient(reader(ops, [], policy("read")), office("ops-1", "OPS_MANAGER"))).toEqual({ ok: true, role: "OPS_MANAGER" });
+    expect(await authorizeEntityRecipient(reader(ops, [], policy("manage")), office("ops-1", "OPS_MANAGER"))).toEqual({ ok: true, role: "OPS_MANAGER" });
+  });
+  it("refuses a manager with the pack off, fails closed on a corrupt policy, and lets a manager who also holds ADMIN through", async () => {
+    expect(await authorizeEntityRecipient(reader(ops, [], policy("off")), office("ops-1", "OPS_MANAGER"))).toEqual({ ok: false, errorCode: "recipient_not_in_scope" });
+    expect(await authorizeEntityRecipient(reader(ops, [], { revision: "broken" }), office("ops-1", "OPS_MANAGER"))).toEqual({ ok: false, errorCode: "recipient_not_in_scope" });
+    expect(await authorizeEntityRecipient(reader(ops, ["ADMIN"], policy("off")), office("ops-1", "OPS_MANAGER"))).toEqual({ ok: true, role: "OPS_MANAGER" });
+  });
+  it("refuses a cleaner and an inactive or re-roled account", async () => {
+    expect(await authorizeEntityRecipient(reader({ id: "c", role: "CLEANER", isActive: true, clientId: null }, [], undefined), { ...office("c", "ADMIN"), role: "CLEANER" } as never)).toEqual({ ok: false, errorCode: "recipient_not_in_scope" });
+    expect(await authorizeEntityRecipient(reader({ ...ops, isActive: false }, [], policy("manage")), office("ops-1", "OPS_MANAGER"))).toEqual({ ok: false, errorCode: "recipient_unavailable" });
+    expect(await authorizeEntityRecipient(reader({ ...ops, role: "CLEANER" }, [], policy("manage")), office("ops-1", "OPS_MANAGER"))).toEqual({ ok: false, errorCode: "recipient_unavailable" });
+  });
+});

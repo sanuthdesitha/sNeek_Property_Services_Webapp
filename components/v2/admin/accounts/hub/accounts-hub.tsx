@@ -8,9 +8,13 @@
  * The Assistants tab keeps the VA directory and the client-scoped VA team
  * manager as they were (a VA login only means something with its team).
  * Birthdays stay on Everyone and Office, in a disclosure under the table.
+ * The KPI strip (Total staff, Active cleaners, Total clients) is restored from
+ * the pre-redesign page (parity audit 2026-11-12); "Outstanding receivables"
+ * stays removed by owner decision (receivables live in Finance).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { EButton } from "@/components/v2/ui/primitives";
+import { Building2, UserCheck, Users } from "lucide-react";
+import { EButton, EStatCard } from "@/components/v2/ui/primitives";
 import { EDataTable } from "@/components/v2/ui/data-table";
 import { EPagination } from "@/components/v2/ui/pagination";
 import type { AccountBulkResponse } from "@/lib/accounts/bulk-types";
@@ -27,6 +31,31 @@ import { listQueryString, useAccountsView, type AccountsView } from "./accounts-
 import { InvitePersonDialog } from "./invite-person-dialog";
 import { CREATE_ROLE_FOR_TAB } from "./managed-roles";
 import { ACCOUNTS_PAGE_SIZE, useAccountsList } from "./use-accounts-list";
+
+/** Headline counts from getAccountsOverview; null when that count could not be read. */
+export type AccountsKpis = { totalStaff: number | null; activeCleaners: number | null; totalClients: number | null };
+
+function kpiValue(value: number | null): string {
+  return value === null ? "–" : String(value);
+}
+
+function AccountsKpiStrip({ kpis }: { kpis: AccountsKpis }) {
+  const unavailable = kpis.totalStaff === null || kpis.activeCleaners === null || kpis.totalClients === null;
+  return (
+    <section aria-label="Account figures" className="space-y-1.5">
+      <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-3">
+        <EStatCard label="Total staff" value={kpiValue(kpis.totalStaff)} icon={<Users aria-hidden className="h-4 w-4" />} />
+        <EStatCard label="Active cleaners" value={kpiValue(kpis.activeCleaners)} icon={<UserCheck aria-hidden className="h-4 w-4" />} />
+        <EStatCard label="Total clients" value={kpiValue(kpis.totalClients)} icon={<Building2 aria-hidden className="h-4 w-4" />} />
+      </div>
+      {unavailable ? (
+        <p role="status" className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+          A figure shown as – could not be read. Reload the page to try again.
+        </p>
+      ) : null}
+    </section>
+  );
+}
 
 export type AccountsHubCapabilities = { isAdmin: boolean; canWriteNotes: boolean; canMessageStaff?: boolean };
 
@@ -60,11 +89,14 @@ export function AccountsHub({
   capabilities,
   birthdays,
   vaClients,
+  kpis,
 }: {
   initialView: AccountsView;
   capabilities: AccountsHubCapabilities;
   birthdays: EstateBirthdayRow[];
   vaClients: EstateVaClientOption[];
+  /** Absent (tests, older callers): no strip rather than invented figures. */
+  kpis?: AccountsKpis;
 }) {
   const [view, update] = useAccountsView(initialView);
   const list = useAccountsList(view);
@@ -116,6 +148,8 @@ export function AccountsHub({
             {capabilities.isAdmin ? <EButton size="sm" variant="primary" onClick={() => setInviteOpen(true)}>Invite person</EButton> : null}
           </div>
         </header>
+
+        {kpis ? <AccountsKpiStrip kpis={kpis} /> : null}
 
         <AccountsTabs active={view.tab} counts={data?.counts ?? null} onSelect={(tab) => update({ tab })} />
 

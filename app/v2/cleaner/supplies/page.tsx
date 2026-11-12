@@ -1,4 +1,5 @@
 import { UrgentStockWorkspace } from "@/components/inventory/urgent-stock-workspace";
+import { PurchaseAsksCard } from "@/components/v2/cleaner/purchase-asks-card";
 import Link from "next/link";
 import { Role } from "@prisma/client";
 import { AlertTriangle, Package, PackageSearch, ScanLine, ShoppingCart } from "lucide-react";
@@ -167,6 +168,7 @@ export default async function CleanerSuppliesPage({
 
       {active === "shopping" ? (
         <div className="space-y-6">
+          <PurchaseAsksCard />
           <ShoppingLauncher
             apiPath="/api/cleaner/inventory/shopping-plan"
             runsApiBase="/api/cleaner/inventory/shopping-runs"

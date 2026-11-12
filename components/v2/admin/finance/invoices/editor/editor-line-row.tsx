@@ -48,6 +48,11 @@ function LineBadges({ line }: { line: EditorLine }) {
       {line.discount ? <EPill tone="info">{line.discountPercent !== null ? `Discount · ${line.discountPercent}%` : "Discount"}</EPill> : null}
       {line.startedWork === "unfinished" ? <EPill tone="warn">Started, not finished: review</EPill> : null}
       {line.startedWork === "changed" ? <EPill tone="warn">Changed since review</EPill> : null}
+      {line.fromCase ? (
+        <Link href={`/v2/admin/cases?open=${encodeURIComponent(line.fromCase.id)}`} className="text-[0.75rem] text-[hsl(var(--e-primary))] underline-offset-2 hover:underline">
+          From case {line.fromCase.title}
+        </Link>
+      ) : null}
     </>
   );
 }

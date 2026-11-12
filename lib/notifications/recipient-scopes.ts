@@ -2,6 +2,10 @@ import "server-only";
 import type { Prisma, Role } from "@prisma/client";
 import type { NotificationEnvelope } from "./intent-contract";
 import { STAFF_MESSAGE_ROLES } from "./staff-roles";
+import { EMPTY_OPS_POLICY, isOpsSubject, opsPolicySchema, resolveOpsLevels } from "@/lib/rbac/ops-policy";
+
+/** The AppSetting key of the operations policy (same as lib/rbac/ops-access.ts, which needs request headers). */
+const OPS_POLICY_SETTING_KEY = "ops_feature_permissions_v1";
 
 /**
  * Recipient authorization adapters for the durable notification pipeline.
@@ -24,11 +28,21 @@ import { STAFF_MESSAGE_ROLES } from "./staff-roles";
  *   login whose client owns the property the item was found at (the item
  *   stores `propertyId` without a relation, so the property is read here).
  *
+ * - URGENT_STOCK_PURCHASE_ASK (id = urgent stock purchase ask id, Wave F): an
+ *   active CLEANER who is the ask's cleaner while the ask is still ASKED (a
+ *   withdrawn or answered ask is not delivered).
+ *
+ * - URGENT_STOCK_OFFICE (id = urgent stock need id, owner decision 2026-11-12):
+ *   the office people who may see urgent stock: an active ADMIN, or an active
+ *   OPS_MANAGER whose operations pack gives the inventory feature at least
+ *   "read" (read from the live policy each time; a manager who also holds
+ *   ADMIN has no pack restriction, as everywhere else).
+ *
  * In every scope the role recorded in the envelope must still be the
  * recipient's role: a role change between queueing and dispatch skips the
  * delivery instead of disclosing to a different kind of account.
  */
-export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT"] as const;
+export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE"] as const;
 export type RecipientScopeType = (typeof RECIPIENT_SCOPE_TYPES)[number];
 
 export { STAFF_MESSAGE_ROLES };
@@ -37,7 +51,7 @@ export type RecipientAuthorization =
   | { ok: true; role: Role }
   | { ok: false; errorCode: "recipient_unavailable" | "recipient_not_in_scope" | "unsupported_recipient_scope" };
 
-type ScopeReader = Pick<Prisma.TransactionClient, "user" | "jobAssignment" | "laundryTask" | "job"> & Partial<Pick<Prisma.TransactionClient, "lostFoundItem" | "property">>;
+type ScopeReader = Pick<Prisma.TransactionClient, "user" | "jobAssignment" | "laundryTask" | "job"> & Partial<Pick<Prisma.TransactionClient, "lostFoundItem" | "property" | "urgentStockPurchaseAsk" | "appSetting">>;
 type Recipient = NotificationEnvelope["recipient"];
 
 export function isSupportedEntityScope(type: string): type is RecipientScopeType {
@@ -64,6 +78,25 @@ async function lostItemClientId(reader: ScopeReader, itemId: string) {
   if (!item?.propertyId) return null;
   const property = await reader.property.findUnique({ where: { id: item.propertyId }, select: { clientId: true } });
   return property?.clientId ?? null;
+}
+
+/**
+ * May this ADMIN / OPS_MANAGER account see urgent stock right now? ADMIN always;
+ * an operations manager by the inventory feature of their pack (read or
+ * manage). Fails closed when the policy cannot be read.
+ */
+export async function urgentStockOfficeRecipientAllowed(reader: ScopeReader, user: { id: string; role: Role }): Promise<boolean> {
+  if (user.role === "ADMIN") return true;
+  if (user.role !== "OPS_MANAGER" || !reader.appSetting) return false;
+  const account = await reader.user.findUnique({ where: { id: user.id }, select: { extraRoles: { select: { role: true } } } });
+  const heldRoles: string[] = [user.role, ...(account?.extraRoles ?? []).map((row) => row.role)];
+  if (!isOpsSubject({ role: user.role, heldRoles })) return true;
+  const record = await reader.appSetting.findUnique({ where: { key: OPS_POLICY_SETTING_KEY } });
+  const parsed = record ? opsPolicySchema.safeParse(record.value) : null;
+  if (parsed && !parsed.success) return false;
+  // Missing policy is the documented backwards-compatible default (every feature at manage).
+  const levels = resolveOpsLevels(parsed ? parsed.data : EMPTY_OPS_POLICY, user.id);
+  return levels.inventory === "read" || levels.inventory === "manage";
 }
 
 /**
@@ -97,5 +130,12 @@ export async function authorizeEntityRecipient(reader: ScopeReader, recipient: R
       if (user.role !== "CLIENT" || !user.clientId) return { ok: false, errorCode: "recipient_not_in_scope" };
       return (await lostItemClientId(reader, scope.id)) === user.clientId ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
     }
+    case "URGENT_STOCK_PURCHASE_ASK": {
+      if (user.role !== "CLEANER" || !reader.urgentStockPurchaseAsk) return { ok: false, errorCode: "recipient_not_in_scope" };
+      const ask = await reader.urgentStockPurchaseAsk.findUnique({ where: { id: scope.id }, select: { cleanerId: true, state: true } });
+      return ask && ask.cleanerId === user.id && ask.state === "ASKED" ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
+    }
+    case "URGENT_STOCK_OFFICE":
+      return (await urgentStockOfficeRecipientAllowed(reader, user)) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
   }
 }

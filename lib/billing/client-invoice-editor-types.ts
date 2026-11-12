@@ -36,6 +36,8 @@ export type EditorLine = {
   property: EditorLineProperty | null;
   /** Started-work snapshot flag for this line's job, when there is one. */
   startedWork: "unfinished" | "changed" | null;
+  /** Wave F: the case this charge was added from, when it was. */
+  fromCase?: { id: string; title: string } | null;
 };
 
 export type ApprovalCheckKey =

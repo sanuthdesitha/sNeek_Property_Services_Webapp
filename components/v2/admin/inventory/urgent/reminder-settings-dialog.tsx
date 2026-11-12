@@ -3,7 +3,8 @@
 /**
  * "Reminder settings" — the existing administrator reminder settings for
  * unresolved needs (in-app reminders only; no email, SMS or purchase), in a
- * dialog. Saved through the same service action, administrator only.
+ * dialog. Saved through the same service action: administrators, and
+ * operations managers with the inventory pack at manage.
  */
 import * as React from "react";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -33,7 +34,7 @@ export function ReminderSettingsDialog({ open, onClose }: { open: boolean; onClo
       .then(async (response) => {
         const body = (await response.json().catch(() => null)) as { settings?: Settings | null; error?: string } | null;
         if (controller.signal.aborted) return;
-        if (!response.ok || !body?.settings) throw new Error(body?.error ?? "Reminder settings are available to administrators.");
+        if (!response.ok || !body?.settings) throw new Error(body?.error ?? "Reminder settings are available to administrators and to operations managers who manage stock.");
         setLoad({ status: "ready", value: body.settings });
       })
       .catch((reason: unknown) => {
@@ -65,7 +66,7 @@ export function ReminderSettingsDialog({ open, onClose }: { open: boolean; onClo
       {load.status === "ready" ? (
         <form onSubmit={submit}>
           <fieldset disabled={saving} className="space-y-3">
-            <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">In-app reminders to administrators for unresolved needs. A running background worker is required. No emails, texts or automatic purchases.</p>
+            <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">In-app reminders to administrators for unresolved needs (operations managers receive the notice when a need is opened). A running background worker is required. No emails, texts or automatic purchases.</p>
             <label className="flex items-center gap-2 text-[0.875rem]">
               <input type="checkbox" checked={load.value.enabled} onChange={(event) => setLoad({ status: "ready", value: { ...load.value, enabled: event.target.checked } })} />
               Enable reminders

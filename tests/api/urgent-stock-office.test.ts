@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { NextRequest } from "next/server";
 import { beforeEach, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ session: vi.fn(), list: vi.fn(), office: vi.fn(), bulk: vi.fn(), redirect: vi.fn((href: string) => { throw new Error(`REDIRECT ${href}`); }) }));
+const m = vi.hoisted(() => ({ session: vi.fn(), list: vi.fn(), office: vi.fn(), bulk: vi.fn(), allowed: vi.fn(), redirect: vi.fn((href: string) => { throw new Error(`REDIRECT ${href}`); }) }));
 vi.mock("@/lib/auth/session", () => ({ requireSession: m.session }));
-vi.mock("@/lib/inventory/urgent-stock", () => ({ listUrgentStock: m.list, reportUrgentStock: vi.fn(), actOnUrgentStock: vi.fn(), setUrgentStockSettings: vi.fn() }));
+vi.mock("@/lib/inventory/urgent-stock", () => ({ listUrgentStock: m.list, reportUrgentStock: vi.fn(), actOnUrgentStock: vi.fn(), setUrgentStockSettings: vi.fn(), urgentStockOfficeAllowed: m.allowed }));
 vi.mock("@/lib/inventory/urgent-stock-list", () => ({ listUrgentNeedsForOffice: m.office, parseUrgentFilters: (params: URLSearchParams) => ({ filter: params.get("stage") ?? "open" }), URGENT_SORTS: ["neededBy", "item"] }));
 vi.mock("@/lib/inventory/urgent-stock-bulk", () => ({ runUrgentStockBulk: m.bulk }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: async () => ({ timezone: "Australia/Sydney" }) }));
@@ -18,6 +18,8 @@ beforeEach(() => {
   m.session.mockResolvedValue({ user: { id: "admin", role: "ADMIN" } });
   m.list.mockResolvedValue({ properties: [], items: [], reports: [], events: [], settings: null });
   m.office.mockResolvedValue({ rows: [], total: 0 });
+  // Wave F: the office rule (ADMIN, or OPS_MANAGER with the inventory pack).
+  m.allowed.mockImplementation(async (user: { id: string; role: string }) => user.role === "ADMIN" || user.id === "ops-with-pack");
 });
 
 it("keeps the per-property response for existing callers and adds the office list only on request", async () => {
@@ -42,12 +44,15 @@ it("bulk requires the same origin and passes the server identity", async () => {
   expect(m.bulk).toHaveBeenCalledWith({ id: "admin", role: "ADMIN" }, { action: "close" });
 });
 
-it("redirects administrators from /urgent-stock into Stock, keeping the property; cleaners keep their page", async () => {
+it("redirects the office from /urgent-stock into Stock, keeping the property; cleaners keep their page", async () => {
   await expect(UrgentStockPage({ searchParams: { propertyId: "p-1" } })).rejects.toThrow("REDIRECT /v2/admin/inventory?tab=urgent-stock&propertyId=p-1");
   m.session.mockResolvedValueOnce({ user: { id: "c", role: "CLEANER" } });
   expect(await UrgentStockPage({ searchParams: { propertyId: "p-1" } })).toBeTruthy();
   m.session.mockResolvedValueOnce({ user: { id: "o", role: "OPS_MANAGER" } });
   const ops = await UrgentStockPage({});
-  expect(JSON.stringify(ops)).toContain("administrators and assigned cleaners");
+  expect(JSON.stringify(ops)).toContain("operations managers with stock access and assigned cleaners");
   expect(m.redirect).toHaveBeenCalledTimes(1);
+  // Behaviour changed on purpose (owner decision seven): a manager with the inventory pack is sent to Stock too.
+  m.session.mockResolvedValueOnce({ user: { id: "ops-with-pack", role: "OPS_MANAGER" } });
+  await expect(UrgentStockPage({ searchParams: { propertyId: "p-2" } })).rejects.toThrow("REDIRECT /v2/admin/inventory?tab=urgent-stock&propertyId=p-2");
 });

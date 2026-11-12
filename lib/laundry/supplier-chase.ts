@@ -23,6 +23,7 @@ import {
   type TransportAvailability,
 } from "@/lib/notifications/external-recipient";
 import { dayKeyOf, daysBetweenKeys, detectExceptions, latestBagCount } from "./pipeline";
+import type { OfficeActorRole } from "@/lib/notifications/office-send-rules";
 import {
   SUPPLIER_CHASE_COOL_DOWN_MINUTES,
   draftSupplierChase,
@@ -162,8 +163,13 @@ async function refuseWithinCoolDown(taskId: string, chaseKey: string, now: Date)
   throw new ExternalMessageError(409, `The supplier was already chased at ${at}. You can chase again after ${next}.`);
 }
 
-/** Sends the chase by each chosen transport to the supplier's stored contact. ADMIN only (route). */
-export async function sendSupplierChase(actorId: string, input: unknown, now = new Date()): Promise<{ outcomes: SupplierChaseOutcome[] }> {
+/**
+ * Sends the chase by each chosen transport to the supplier's stored contact.
+ * ADMIN, or OPS_MANAGER with the Laundry pack at manage (route,
+ * `office-send-rules.ts`); `actorRole` is the role that allowed it, kept on the
+ * audit row.
+ */
+export async function sendSupplierChase(actorId: string, input: unknown, now = new Date(), actorRole: OfficeActorRole | null = null): Promise<{ outcomes: SupplierChaseOutcome[] }> {
   const request = supplierChaseSchema.parse(input);
   const run = await loadRun(request.laundryTaskId);
   if (!run) throw new ExternalMessageError(404, "Laundry run not found.");
@@ -191,7 +197,7 @@ export async function sendSupplierChase(actorId: string, input: unknown, now = n
       subject: request.subject,
       body: request.body,
       idempotencyKey: `${request.idempotencyKey}:${transport}`,
-      audit: { chaseKey: request.idempotencyKey, supplierId: run.supplier?.id ?? null },
+      audit: { chaseKey: request.idempotencyKey, supplierId: run.supplier?.id ?? null, actorRole },
       now,
     });
     outcomes.push({ transport, state: sent.state, errorCode: sent.errorCode, to: maskContact(to) });

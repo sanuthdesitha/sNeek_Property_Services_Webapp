@@ -1,16 +1,18 @@
 // @vitest-environment node
 // Wave E: "Tell client" about a lost item, sent from the app through the
-// pipeline's LOST_ITEM_PROPERTY_CLIENT scope (administrators; explicit
-// transports; the client's notification switch honoured; the timeline records
-// the real states). Operations managers keep copy-and-record.
+// pipeline's LOST_ITEM_PROPERTY_CLIENT scope (administrators and, owner
+// decision 2026-11-12, operations managers with the Lost & found pack at
+// manage; explicit transports; the client's notification switch honoured; the
+// timeline records the real states). Everyone else keeps copy-and-record.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Role } from "@prisma/client";
 
 const m = vi.hoisted(() => ({
   session: vi.fn(), item: vi.fn(), itemOrThrow: vi.fn(), property: vi.fn(), events: vi.fn(), eventCreate: vi.fn(), auditFirst: vi.fn(), audit: vi.fn(),
-  office: vi.fn(), controls: vi.fn(), settings: vi.fn(), user: vi.fn(),
+  office: vi.fn(), controls: vi.fn(), settings: vi.fn(), user: vi.fn(), ops: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.session }));
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
 vi.mock("@/lib/notifications/office-sends", async () => {
   const actual = await vi.importActual<typeof import("@/lib/notifications/office-sends")>("@/lib/notifications/office-sends");
@@ -80,13 +82,29 @@ describe("send", () => {
     expect(m.office).not.toHaveBeenCalled();
   });
 
-  it("is administrators only and not while impersonating", async () => {
+  it("is refused to a manager without the Lost & found pack at manage, other roles, a revoked account and while impersonating", async () => {
+    m.session.mockResolvedValueOnce(ops);
+    m.ops.mockResolvedValueOnce({ "lost-found": "read" });
+    const refused = await post(body());
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error).toMatch(/Lost & found permission/);
+    expect(m.session).toHaveBeenLastCalledWith([Role.ADMIN, Role.OPS_MANAGER]);
     m.session.mockRejectedValueOnce(new Error("FORBIDDEN"));
     expect((await post(body())).status).toBe(403);
-    expect(m.session).toHaveBeenLastCalledWith([Role.ADMIN]);
+    m.session.mockRejectedValueOnce(new Error("UNAUTHORIZED"));
+    expect((await post(body())).status).toBe(401);
     m.session.mockResolvedValueOnce({ ...admin, impersonation: { actorId: "owner" } });
     expect((await post(body())).status).toBe(403);
     expect(m.office).not.toHaveBeenCalled();
+  });
+
+  it("lets a manager with the Lost & found pack at manage send, recording the actor and role", async () => {
+    m.session.mockResolvedValue(ops);
+    m.ops.mockResolvedValue({ "lost-found": "manage" });
+    expect((await post(body())).status).toBe(200);
+    expect(m.office.mock.calls[0][0].actorId).toBe("ops-1");
+    expect(m.audit.mock.calls[0][0].data).toMatchObject({ userId: "ops-1", action: "LOST_FOUND_CLIENT_NOTICE_SENT", after: { actorRole: "OPS_MANAGER" } });
+    expect(m.eventCreate.mock.calls[0][0].data).toMatchObject({ userId: "ops-1", action: "CLIENT_CONTACTED" });
   });
 
   it("does not add a second timeline entry for a retry of the same request", async () => {
@@ -98,10 +116,13 @@ describe("send", () => {
 
 describe("message preview", () => {
   const get = () => MESSAGE({ nextUrl: new URL("http://localhost/x?audience=client") } as never, { params: { id: "i1" } });
-  it("offers the send to administrators and copy-and-record to operations managers", async () => {
+  it("offers the send to administrators and managers with the pack, copy-and-record to the rest", async () => {
     expect((await (await get()).json()).send).toMatchObject({ available: true, logins: 1 });
     m.session.mockResolvedValue(ops);
-    expect((await (await get()).json()).send).toMatchObject({ available: false, reason: expect.stringMatching(/Only administrators/) });
+    m.ops.mockResolvedValue({ "lost-found": "manage" });
+    expect((await (await get()).json()).send).toMatchObject({ available: true, logins: 1 });
+    m.ops.mockResolvedValue({ "lost-found": "read" });
+    expect((await (await get()).json()).send).toMatchObject({ available: false, reason: expect.stringMatching(/Lost & found permission.*record that you told the client/) });
   });
   it("says why it cannot send when the client switched notifications off", async () => {
     m.property.mockResolvedValue(clientProperty({ notificationPref: { notificationsEnabled: false } }));

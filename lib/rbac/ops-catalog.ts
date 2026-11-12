@@ -410,6 +410,12 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
 };
 
 export type OpsRequestFeature = OpsFeature | "owner" | "unmapped" | null;
+/** Office message routes owned by the page they are sent from (see `opsRequestFeature`). */
+const OFFICE_SEND_ROUTE_FEATURES: Readonly<Record<string, OpsFeature>> = {
+  "supplier-chase": "laundry",
+  "guest-message": "lost-found",
+  "client-delay": "jobs",
+};
 /** Stable route ownership; special cases precede their parent section. */
 /** Tabs of /admin/finance owned by the payroll feature. */
 export const FINANCE_PAYROLL_TABS: ReadonlySet<string> = new Set(["cleaner-invoices", "payroll", "adjustments", "time"]);
@@ -468,6 +474,11 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
   if (/^\/admin\/forms\/?$/.test(path)) {
     return FORMS_TAB_FEATURES[url.searchParams.get("tab") ?? ""] ?? "forms";
   }
+  // Office sends gated by the pack of the page they live on (owner decision
+  // 2026-11-12, lib/notifications/office-send-rules.ts), not by the
+  // notifications area's communications pack.
+  const officeSend = /^\/api\/admin\/notifications\/actions\/([a-z-]+)\/?$/.exec(path)?.[1];
+  if (officeSend && OFFICE_SEND_ROUTE_FEATURES[officeSend]) return OFFICE_SEND_ROUTE_FEATURES[officeSend];
   if (/^\/(?:api\/)?admin(?:\/|$)/.test(path)) {
     const section =
       path

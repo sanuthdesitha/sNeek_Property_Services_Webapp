@@ -188,7 +188,7 @@ Today the page only manages the per-job client PDF and shows no figures.
 - The reporting cleaner still does not receive guest details.
 - Status changes follow a transition table; reopening a closed item is an explicit action that records who and why.
 
-Status (2026-11-11): built, browser pass pending. Migration `20261111200000_lost_found_guest_urgent_stock_tables` verified on fresh and existing databases. "Message guest" sends through the notification step's guest-message action (administrators; moves to Guest contacted only when the provider accepted); operations managers and "Tell client" copy the draft and record what they did (no pipeline recipient for a lost-and-found client). Waiting for the owner: should operations managers be able to send guest messages (the notification step allows administrators only)?
+Status (2026-11-11): built, browser pass pending. Migration `20261111200000_lost_found_guest_urgent_stock_tables` verified on fresh and existing databases. "Message guest" sends through the notification step's guest-message action (administrators; moves to Guest contacted only when the provider accepted); operations managers and "Tell client" copy the draft and record what they did (no pipeline recipient for a lost-and-found client). Waiting for the owner: should operations managers be able to send guest messages (the notification step allows administrators only)? **Answered 2026-11-12 (ninth set): yes, with the Lost & found pack at manage.**
 
 ### 10. Urgent stock
 
@@ -198,6 +198,8 @@ Status (2026-11-11): built, browser pass pending. Migration `20261111200000_lost
 - Nav badge for needs awaiting acknowledgement.
 
 Status (2026-11-11): built, browser pass pending. Needs and events copied to the tables by the same migration (unreadable JSON rows stay in AppSetting, counted by the query in SYSTEM.md); reads and writes now use the tables only (no read fallback to the old rows; this replaces "reads fall back" above). Not built: "Add to one shopping run" and the panel's "Ask cleaner to buy" — no existing service adds a line to a shopping run or asks a cleaner to buy. The reporter's job is not shown: a need never recorded the job. Waiting for the owner: the tab stays administrator-only (the urgent stock service refuses operations managers); widen it?
+
+Update (Wave F, 2026-11-12): all three built ("Add to shopping run", "Ask cleaner to buy", the job on a need) and operations managers use the tab with their inventory pack (owner decisions five and seven). See Wave F below.
 
 ### 11. Accounts
 
@@ -360,7 +362,7 @@ Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notification
 | Item | Question |
 | --- | --- |
 | Reminder email and browser push still use the direct path in production | Moving them fully onto the pipeline means setting `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS=EMAIL,WEB_PUSH` on the server. That would also send any old low-stock email intents already waiting in the queue. An environment decision for the owner |
-| Client delay notice and guest messages are administrator only | Should operations managers send them too? (They can already message clients from Messages) |
+| Client delay notice and guest messages are administrator only | Should operations managers send them too? (They can already message clients from Messages) — **Resolved 2026-11-12 (ninth set)**: yes, with the Jobs / Lost & found pack at manage |
 | Manual reminders ignore the cleaner's personal notification preferences | A switch now exists in Notifications, default off |
 | "Chase supplier" for laundry | Blocked: suppliers have no contact to send to. Add a contact email or phone to suppliers? |
 
@@ -372,7 +374,7 @@ Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notification
 | "Add to shopping run" and "Ask cleaner to buy" on an urgent need | Not built: no service adds a line to a shopping run or asks a cleaner to buy. Build them? |
 | "Tell client" about a lost item is copy / email link, then recorded by hand | Give it a real send path? |
 | Items still at "New" are not flagged by the 14-day holding period (only in storage or awaiting the guest) | Confirm, or flag New items too? |
-| Administrators can send the guest message by email or SMS from the app; it moves the item to "Guest contacted" only when the provider accepts it | Confirm, or switch to copy-and-record only? |
+| Administrators can send the guest message by email or SMS from the app; it moves the item to "Guest contacted" only when the provider accepts it | Confirm, or switch to copy-and-record only? — **Resolved 2026-11-12 (ninth set)**: send kept; operations managers with the Lost & found pack send too |
 
 ### More items waiting for the owner (from the template builder step)
 
@@ -460,11 +462,11 @@ Waves (one wave holds the database at a time):
 
 > **Wave E, no-database part, built 2026-11-12 (uncommitted step; build, full suite and browser pass pending).** Details: `docs/SYSTEM.md`, "Wave E without a database change".
 > - [x] Cases: "Create repair quote" pre-filled from the case (server-read `?fromCase=`, FROM_CASE quote event + internal case note, "Quote Q-… created" on the case, "From case …" on the quote; nothing sent).
-> - [x] Laundry: "Chase supplier" to the supplier's stored email / SMS (ADMIN sends, everyone who can open the run copies; 30-minute cool-down; shared external-recipient path; catalog `laundry.supplier_chase`).
+> - [x] Laundry: "Chase supplier" to the supplier's stored email / SMS (ADMIN sends, everyone who can open the run copies; 30-minute cool-down; shared external-recipient path; catalog `laundry.supplier_chase`). Ninth set: operations managers with the Laundry pack send too.
 > - [x] Command: inline "Send reminder" for an expiring document through REQUEST_DOCUMENT (confirm, explicit transports, one per document per day; REQUEST_DOCUMENT now records real states).
-> - [x] Lost and found: Property column sortable (raw ordered ids merged with paging, PostgreSQL parity test); "Tell client" sent from the app (scope LOST_ITEM_PROPERTY_CLIENT, ADMIN; operations managers copy and record).
+> - [x] Lost and found: Property column sortable (raw ordered ids merged with paging, PostgreSQL parity test); "Tell client" sent from the app (scope LOST_ITEM_PROPERTY_CLIENT, ADMIN; operations managers copy and record). Ninth set: operations managers with the Lost & found pack send too.
 > - [x] Remaining visual differences on Cases, Laundry, Command, Live ops, Lost and found closed or listed (SYSTEM.md section).
-> - [ ] Schema step: Accounts (effective-dated pay rate, required documents, Last seen for everyone, one Pay editor), Cancel job, leave and days off, "Add charge to invoice" from a case, laundry pickup/drop clock times, QA inspection template snapshot.
+> - [x] Schema step: Accounts (effective-dated pay rate, required documents, Last seen for everyone, one Pay editor), Cancel job, leave and days off, "Add charge to invoice" from a case, laundry pickup/drop clock times, QA inspection template snapshot. (Accounts, Cancel job, leave, QA copies in the Wave E database step; "Add charge to invoice" and laundry clock times in Wave F, 2026-11-12.)
 
 > **Wave E, database part for People, Jobs, Calendar and Quality, built 2026-11-12 (uncommitted step; build, full suite and browser pass pending).** Migration `20261112120000_wave_e_people_jobs`. Details: `docs/SYSTEM.md`, "Wave E with the database"; verification and the job-status audit: review record.
 > - [x] Accounts: pay rate with "Applies from" (`UserPayRate`, one resolver on the job's day for every pay path, never backdated, scheduled rate removable before it starts, snapshots and paid amounts untouched); rate history in the Pay tab.
@@ -491,6 +493,18 @@ Waves (one wave holds the database at a time):
 ### Wave F: Urgent stock (holds the database after Wave E)
 - The fifth-set items: "Add to shopping run", "Ask cleaner to buy", the job on a need, and the drawn tab names.
 
+> **Wave F built 2026-11-12 (uncommitted step; build, full suite and browser pass pending).** Migration `20261112180000_wave_f_stock_cases_laundry`. Details: `docs/SYSTEM.md`, "Wave F: urgent stock shopping runs and buy asks …"; verification: review record.
+> - [x] Stock tabs as drawn (Urgent needs, Levels by property, Shopping runs, Stock counts, Catalogue; On-hand, Scan tasks, Suppliers after them); every old `?tab=` id kept, drawn names mapped.
+> - [x] "Add to shopping run" (row, panel, bulk "Add to one shopping run") on the existing shopping-run tables; the need shows its run; stage unchanged; idempotent; closed runs refused with the reason.
+> - [x] "Ask cleaner to buy": next clean's cleaner or a chosen one, pipeline type `urgent_stock.purchase_ask` (inbox by default, explicit transports), Asked / Accepted / Declined / Withdrawn, Bought only via the cleaner's shopping run and the office's reimbursement approval; cleaner answers on the v2 job screen and Supplies → Shopping.
+> - [x] Job on a need: stored for job-screen and form reports; certain backfill only; "Reported by … during job …" with a link.
+> - [x] Operations managers see and act on urgent stock with the inventory pack (read / manage), server-checked; ~~Resolve, bulk Close and reminder settings stay ADMIN-only~~ — changed by the owner's tenth set (2026-11-12): they need the pack at manage.
+> - [x] Lost and found: items still New after 14 days flagged (named threshold; badge, chip with count, summary, panel note, Command row).
+> - [x] Cases: "Add charge to invoice" onto a DRAFT of the case's client or a new draft, through the invoice PATCH; "Charge on INV-… (draft)" on the case, "From case …" on the line.
+> - [x] Laundry: planned pickup / drop clock times (nullable, set in the run panel), shown on cards and the panel only when planned.
+> - [x] Stock count answers set on-hand through count observations on approval (carried from Wave B).
+> - [x] Urgent stock and Lost and found compared with the designs; remaining differences listed in the SYSTEM.md section and the review record.
+
 Items in these waves that change a business rule, money, or who can do what are built because the owner asked for the design to be made real; each is listed in the final summary with exactly what rule was added.
 
 ## Owner decisions, seventh set (2026-11-11): Lost and found and Urgent stock
@@ -504,8 +518,8 @@ Items in these waves that change a business rule, money, or who can do what are 
 
 | Item | Question |
 | --- | --- |
-| Clock pause is administrator only | Let operations managers pause a clock too? |
-| Client delay notice is administrator only | Let operations managers send it too? |
+| Clock pause is administrator only | Let operations managers pause a clock too? — **Resolved 2026-11-12 (ninth set)**: yes, with the Jobs pack at manage |
+| Client delay notice is administrator only | Let operations managers send it too? — **Resolved 2026-11-12 (ninth set)**: yes, with the Jobs pack at manage |
 | "Request photo" for a missing drop-off photo goes to the job's cleaners | Should it go to the laundry driver instead? |
 | The cleaner sees the reason for an office clock pause only in the notification, not on their job screen | Show it on the job screen too? |
 
@@ -524,7 +538,7 @@ A bonus proposed by hand is limited to $5 to $200 and needs a reason. It is a pe
 ### Carried into Wave E from Wave B
 
 - [x] The office's submission review shows a Table answer as plain text, one line per row; give it a real table. (2026-11-12: real table; Stock count as "item · counted N unit".)
-- [ ] A Stock count answer is recorded on the submission and raises an urgent need when below its limit, but does not set the property's on-hand figure, because no existing path turns a counted number into stock on hand. Build that path (a count observation that sets on-hand, audited, never double-counting the same item in one submission). (Not in the no-database step's list; with Wave F / the stock work.)
+- [x] A Stock count answer is recorded on the submission and raises an urgent need when below its limit, but does not set the property's on-hand figure, because no existing path turns a counted number into stock on hand. Build that path (a count observation that sets on-hand, audited, never double-counting the same item in one submission). (Not in the no-database step's list; with Wave F / the stock work.) (2026-11-12, Wave F: `StockCountObservation`, applied on approval only, never over a newer stock movement, unmatched items to review.)
 - [x] The classic cleaner job page does not show Table or Stock count questions; only the current cleaner app does. Redirect the classic page or add them. (2026-11-12: added with the shared controls; not redirected, the classic look stays routable.)
 - [x] Two cleans in the same month before the first is approved can both show a monthly question. (2026-11-12: a submitted-not-approved clean that showed it counts; due again after a reset or rejection.)
 
@@ -538,3 +552,41 @@ A bonus proposed by hand is limited to $5 to $200 and needs a reason. It is a pe
 | Operations managers with reports access but no finance access can be chosen for the monthly Insights email (they get it without money figures) | Keep, or limit to those with finance access? |
 
 Rule added in the Finance decisions step, for the final summary: voiding a credit note is refused when the work it credited has since been billed on another live invoice, because voiding it would bill that work twice.
+
+## Owner decisions, ninth set (2026-11-12): office sends and document request transports
+
+A. Operations managers can send the office messages that were administrator only ("Yes office should be able to"): Chase supplier, Tell client (lost item), guest messages, the client delay notice and the clock pause. Rule: an operations manager may send only while holding, at "Manage available actions", the ops pack of the page the action lives on (Laundry; Lost & found; Jobs & assignments), checked on the server on every send with the live session guards; never while impersonating; rate limits, cool-downs, idempotency and masked audit rows unchanged, the audit rows now also record the actor's role. Administrators unchanged. Copy stays for everyone.
+
+B. "Request document" on Accounts asks which transport to use: Inbox, Email, SMS as explicit choices (several at once), each disabled with the reason; "Don't ask again" remembers the choice for that office user and is used next time with a visible "Sending by: … · Change" line; reset in Notifications → Preferences. The Command "Send reminder" uses the same choice and preference. A request that names no transports and has no saved choice goes to the inbox only.
+
+**Status (2026-11-12, uncommitted step, no schema change; build, full suite and browser pass pending).**
+- [x] A: one rule (`lib/notifications/office-send-rules.ts`) on every send route and preview; the three notifications-area send routes belong to the page's pack; Live ops, Laundry and Lost and found show Send by the same rule; `actorRole` on the audit rows.
+- [x] B: shared choice component for Accounts "Request document" (Compliance board and a person's Documents section) and Command "Send reminder"; per-office-user preference in AppSetting `office_send_transports_v1:<userId>`; "Your sending choices" in Notifications → Preferences.
+- Reported, not changed: the classic `/admin/workforce` request form names no transports, so it now sends by the inbox only (or the sender's saved choice); a plain document request has no idempotency key (a retry after "no answer" can create a second request); Live ops actions still also need the page not to be read-only for the viewer. Details: `docs/SYSTEM.md`, "Office sends for operations managers and the document request transport choice".
+
+## Parity audit fixes (2026-11-12)
+
+Owner rule: no function that existed before the redesign may be lost (baseline `1fb4077`). Restored in the new design's idiom, no schema change; details in `docs/SYSTEM.md`, "Parity audit fixes".
+- [x] Finance: "Mark as sent (not emailed)" on draft and approved invoices (list row menu, editor menu, confirm dialog), through the existing PATCH and every status rule; audited "marked sent without email".
+- [x] Finance: "Group by property" saves the grouped line order on an editable invoice (existing reorder save); read-only invoices only change the view.
+- [x] Quality: rating mix per cleaner in the expanded row; "Mgmt review queue" stat card linked to the Approvals queue (`?queue=managementReviews`); Awaiting QA / In progress / Completed today on the Review queue (organisation timezone).
+- [x] Laundry team metrics for an operations manager with the quality pack but not laundry: quality-pack read route and a lazy "Laundry team and suppliers" section on the Quality hub.
+- [x] Accounts: Total staff, Active cleaners, Total clients strip (receivables stay removed by owner decision; an unreadable count shows "–").
+- [x] `/urgent-stock` for an operations manager with the inventory pack: already done in Wave F (verified, no change).
+- [x] Accountability notification links point at the Quality hub; `/admin/accountability` and `/admin/accountability/coaching/[id]` redirect there.
+- Reported, not changed: the "Mgmt review queue" count is the period's flagged reviewed cleans (the hub's basis), while the Approvals queue it links to lists every flagged review not yet resolved, whatever its date; the laundry team section duplicates the rendering of the Laundry statistics panel because that file belongs to the laundry work stream (a follow-up can give `LaundryTeamMetricsPanel` an endpoint prop and reuse it).
+
+## Owner decisions, tenth set (2026-11-12): urgent stock rights, need-opened notice, applied counts on reset, lost items
+
+The three questions left open by Wave F, answered by the owner, plus one confirmation:
+
+1. **Resolved.** May operations managers Resolve an urgent need, use bulk Close and change the reminder settings? — Yes, with the inventory pack at manage (server-checked; never beyond their own rights while impersonated; audit records actor and role). ADMIN unchanged.
+2. **Resolved.** Should the "urgent need opened" inbox notice also reach operations managers? — Yes, those holding the inventory pack (at least read), through the notification pipeline (pack re-checked at queue and at dispatch, preferences respected, inbox only, one notice per person).
+3. **Resolved.** When a job is reset after a stock count from it was applied to on-hand, what happens to the count? — The office is asked: "Reverse these counts" or "Keep them", no default, and the server refuses a reset without the choice. Reversal restores the replaced value only when no newer stock record exists for that item (else reported "not reversed — newer record"); nothing is deleted. Paths nobody decides keep the counts and record that.
+4. Lost items still at New stay a separate count (the "New over 14 days" chip and summary). No code change.
+
+**Status (2026-11-12, uncommitted step, no schema change; build, full suite and browser pass pending).**
+- [x] 1: `actOnUrgentStock` (Resolve and bulk Close), `setUrgentStockSettings` and the settings read use the inventory pack at manage; Urgent needs shows Resolve, Close and Reminder settings by the same server rule.
+- [x] 2: recipient scope `URGENT_STOCK_OFFICE`; catalog entry `stock.urgent_need` audience updated. Reminders for unresolved needs still go to administrators only (not part of the decision).
+- [x] 3: `lib/inventory/stock-count-reset.ts`; Reset job dialog and QA reset dialog ask; Reset job, QA reset and the job status edit answer 409 without a choice; bulk status blocks those jobs; QA verdicts keep and record no choice.
+- Reported, not changed: the job edit form has no choice control (its 409 names the counts and points to Reset job); with "Clear form data" the observation rows still go with the deleted submission (their final state is in the audit rows; the ledger rows are kept); a REVERSED count is not re-applied if the same submission is approved again. Details: `docs/SYSTEM.md`, "Owner decisions: urgent stock rights, need-opened notice, applied stock counts on reset".

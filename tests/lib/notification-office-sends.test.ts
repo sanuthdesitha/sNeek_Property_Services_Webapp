@@ -145,3 +145,21 @@ describe("recipient authorization and switches", () => {
     expect(m.enqueue.mock.calls.at(-1)![1]).not.toHaveProperty("recipientPreferences");
   });
 });
+
+describe("Wave F: an inbox-only send", () => {
+  it("queues the inbox row alone: no phone-push marker, no browser push, no email", async () => {
+    const outcomes = await sendOfficeNotification(input({ transports: ["INBOX"] }));
+    expect(m.enqueue).toHaveBeenCalledTimes(1);
+    expect(m.enqueue.mock.calls[0][1]).toMatchObject({ transport: "INBOX" });
+    expect(m.enqueue.mock.calls[0][1]).not.toHaveProperty("mobilePushCategory");
+    expect(m.push).not.toHaveBeenCalled();
+    expect(m.email).not.toHaveBeenCalled();
+    expect(outcomes).toEqual([expect.objectContaining({ transport: "INBOX", path: "pipeline", state: "inbox_available" })]);
+  });
+
+  it("reports a refused recipient on the inbox, not as an email", async () => {
+    m.authorize.mockResolvedValue({ ok: false, errorCode: "recipient_not_in_scope" });
+    const outcomes = await sendOfficeNotification(input({ transports: ["INBOX"] }));
+    expect(outcomes).toEqual([expect.objectContaining({ transport: "INBOX", state: "skipped", errorCode: "recipient_not_in_scope" })]);
+  });
+});

@@ -15,7 +15,7 @@ import { ESidePanel } from "@/components/v2/ui/side-panel";
 import { EStageBar } from "@/components/v2/ui/stage-bar";
 import { EField, EInput } from "@/components/v2/admin/estate-kit";
 import { toast } from "@/hooks/use-toast";
-import { holdingState } from "@/lib/lost-found/holding";
+import { holdingState, NEW_ITEM_FLAG_DAYS, unprocessedNewFlag } from "@/lib/lost-found/holding";
 import type { MessageAudience, MessageDraft } from "@/lib/lost-found/message";
 import type { HydratedLostFoundItem } from "@/lib/lost-found/service";
 import { formatDateTime, lostFoundStages, visitedStatuses } from "./lost-found-format";
@@ -111,6 +111,7 @@ export function ItemPanel({ itemId, timeZone, holdingDays, onClose, onChanged }:
 
   const item = load.status === "ready" ? load.item : null;
   const holding = item ? holdingState({ status: item.status, foundAt: new Date(item.createdAt), now: new Date(), timeZone, holdingDays }) : null;
+  const unprocessed = item ? unprocessedNewFlag({ status: item.status, foundAt: new Date(item.createdAt), now: new Date(), timeZone }) : null;
 
   return (
     <ESidePanel open title={item?.itemName ?? (load.status === "error" ? "Item unavailable" : "Loading…")} label="Item detail" onClose={onClose} className="lg:w-[440px]">
@@ -122,6 +123,11 @@ export function ItemPanel({ itemId, timeZone, holdingDays, onClose, onChanged }:
           {holding.counts ? (
             <p className={holding.past ? "rounded-[var(--e-radius)] bg-[hsl(var(--e-warning-soft))] px-3 py-1.5 text-[0.8125rem] text-[hsl(var(--e-warning))]" : dt}>
               Held {holding.days} {holding.days === 1 ? "day" : "days"}{holding.past ? ` · past the ${holdingDays}-day holding period` : ` of ${holdingDays}`}
+            </p>
+          ) : null}
+          {unprocessed ? (
+            <p className="rounded-[var(--e-radius)] bg-[hsl(var(--e-warning-soft))] px-3 py-1.5 text-[0.8125rem] text-[hsl(var(--e-warning))]">
+              Still new {unprocessed.days} days after it was found (flagged after {NEW_ITEM_FLAG_DAYS}). Move it to storage or contact the guest.
             </p>
           ) : null}
           <div className="flex flex-wrap items-start gap-3">

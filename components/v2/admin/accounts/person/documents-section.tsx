@@ -5,7 +5,9 @@
  * (each opens in a new tab), documents requested and not yet uploaded, and an
  * upload through the existing workforce flow (file to /api/uploads/direct
  * first, then UPLOAD_DOCUMENT on /api/admin/workforce), shown only to a viewer
- * the workforce endpoint accepts. Review and requests stay in Compliance.
+ * the workforce endpoint accepts. "Request document" opens the shared Accounts
+ * dialog (explicit transports, "Don't ask again" for the office user, recorded
+ * states) for this person. Review stays in Compliance.
  */
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -15,6 +17,7 @@ import { EField, EInput, ESelect } from "@/components/v2/admin/estate-kit";
 import type { PersonCapabilities, PersonProfile } from "@/lib/accounts/person-types";
 import { formatDate } from "../hub/account-display";
 import { STAFF_DOCUMENT_CATEGORIES } from "@/lib/accounts/required-documents";
+import { DocumentRequestDialog } from "../document-request-dialog";
 
 // The same categories the Compliance board offers.
 const CATEGORIES = STAFF_DOCUMENT_CATEGORIES;
@@ -122,7 +125,26 @@ function RequiredDocuments({ profile }: { profile: PersonProfile }) {
   );
 }
 
+function RequestDocument({ profile, onChanged }: { profile: PersonProfile; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  // A different person in the panel closes a dialog opened for the previous one.
+  useEffect(() => setOpen(false), [profile.id]);
+  return (
+    <>
+      <div><EButton size="sm" variant="outline" onClick={() => setOpen(true)}>Request document</EButton></div>
+      <DocumentRequestDialog
+        open={open}
+        people={[{ id: profile.id, name: profile.name ?? profile.email, role: profile.role }]}
+        initialUserId={profile.id}
+        onClose={() => setOpen(false)}
+        onSent={onChanged}
+      />
+    </>
+  );
+}
+
 export function DocumentsSection({ profile, caps, onChanged }: { profile: PersonProfile; caps: PersonCapabilities; onChanged: () => void }) {
+  const staffAccount = profile.role !== "CLIENT" && profile.role !== "VA";
   return (
     <section aria-label="Documents and compliance" className="flex flex-col gap-2.5 rounded-[10px] border border-[hsl(var(--e-border))] px-3 py-2.5 text-[0.8125rem]">
       <h3 className="text-[0.65625rem] font-[600] uppercase tracking-[0.1em] text-[hsl(var(--e-gold-ink))]">Documents &amp; compliance</h3>
@@ -173,7 +195,8 @@ export function DocumentsSection({ profile, caps, onChanged }: { profile: Person
           })}
         </ul>
       )}
-      {caps.canUploadDocuments && profile.role !== "CLIENT" && profile.role !== "VA" ? <UploadForm profile={profile} onDone={onChanged} /> : null}
+      {caps.canUploadDocuments && staffAccount ? <RequestDocument profile={profile} onChanged={onChanged} /> : null}
+      {caps.canUploadDocuments && staffAccount ? <UploadForm profile={profile} onDone={onChanged} /> : null}
       <Link href="/v2/admin/workforce/compliance" className="text-[0.75rem] font-[550] text-[hsl(var(--e-primary))] hover:underline">Manage compliance →</Link>
     </section>
   );

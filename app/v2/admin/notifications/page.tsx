@@ -19,6 +19,8 @@ export default async function V2AdminNotificationsPage({ searchParams }: { searc
   const isAdmin = session.user.role === Role.ADMIN;
   const tab = resolveNotificationsTab(searchParams?.tab);
   let settings: PreferencesSettings | null = null;
+  let timeZone = "Australia/Sydney";
+  if (tab === "preferences") timeZone = (await getAppSettings().catch(() => null))?.timezone || timeZone;
   if (tab === "preferences" && isAdmin) {
     const app = await getAppSettings();
     settings = {
@@ -37,7 +39,7 @@ export default async function V2AdminNotificationsPage({ searchParams }: { searc
         description="Every notification the system sends: who receives it, by which transport, whether it is on, and what happened to it."
       />
       <ETabs ariaLabel="Notifications sections" items={NOTIFICATIONS_TABS.map((item) => ({ key: item.key, label: item.label }))} active={tab} hrefFor={notificationsTabHref} />
-      <CommsCenter tab={tab} isAdmin={isAdmin} readOnly={Boolean(session.impersonation)} settings={settings} />
+      <CommsCenter tab={tab} isAdmin={isAdmin} readOnly={Boolean(session.impersonation)} settings={settings} timeZone={timeZone} />
     </div>
   );
 }

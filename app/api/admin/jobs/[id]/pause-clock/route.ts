@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { Role } from "@prisma/client";
 import { z, ZodError } from "zod";
-import { requireRole } from "@/lib/auth/session";
+import { OfficeSendDenied, requireOfficeSend } from "@/lib/notifications/office-send-permission";
 import { getApiErrorStatus } from "@/lib/api/http";
 import { ClockPauseError, pauseCleanerClockByOffice } from "@/lib/jobs/admin-clock-pause";
 
@@ -15,25 +14,26 @@ const bodySchema = z.object({
 
 /**
  * POST /api/admin/jobs/[id]/pause-clock — an administrator pauses one
- * cleaner's running clock on this job (Live ops). ADMIN only: operations
- * managers are refused until the owner decides otherwise. Refused while
+ * cleaner's running clock on this job (Live ops). ADMIN, or OPS_MANAGER with
+ * the Jobs pack at manage (owner decision 2026-11-12). Refused while
  * impersonating (the pause must be recorded against the real person).
  * See lib/jobs/admin-clock-pause.ts for exactly what it changes.
  */
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
-    const session = await requireRole([Role.ADMIN]);
-    if (session.impersonation) return NextResponse.json({ error: "A clock cannot be paused while impersonating." }, { status: 403, headers });
+    const { actor } = await requireOfficeSend("clock_pause");
     const body = bodySchema.parse(await request.json());
     const result = await pauseCleanerClockByOffice({
       jobId: params.id,
       cleanerId: body.cleanerId,
       reason: body.reason,
       transports: body.transports,
-      actorId: session.user.id,
+      actorId: actor.id,
+      actorRole: actor.role,
     });
     return NextResponse.json(result, { headers });
   } catch (error) {
+    if (error instanceof OfficeSendDenied) return NextResponse.json({ error: error.message }, { status: error.status, headers });
     if (error instanceof ClockPauseError) return NextResponse.json({ error: error.message }, { status: error.status, headers });
     if (error instanceof ZodError) return NextResponse.json({ error: error.issues[0]?.message ?? "Check the cleaner, reason and transport." }, { status: 400, headers });
     if (error instanceof SyntaxError) return NextResponse.json({ error: "Check the cleaner, reason and transport." }, { status: 400, headers });

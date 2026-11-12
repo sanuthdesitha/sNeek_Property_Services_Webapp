@@ -25,6 +25,7 @@ import { isUploadFieldType } from "@/lib/forms/field-types";
 import { BulkPhotoAssign, type BulkAssignField } from "@/components/v2/cleaner/bulk-photo-assign";
 import { TaskChip } from "@/components/v2/cleaner/job-stages/parts";
 import { EarlyCheckoutStatus } from "@/components/v2/cleaner/job-actions";
+import { PurchaseAsksCard } from "@/components/v2/cleaner/purchase-asks-card";
 import { titleCase, type WorkspaceApi } from "@/components/v2/cleaner/job-stages/shared";
 
 export function StageClean({ api }: { api: WorkspaceApi }) {
@@ -76,8 +77,10 @@ export function StageClean({ api }: { api: WorkspaceApi }) {
     <div className="space-y-5">
       {!locked && property?.inventoryEnabled && api.job?.propertyId ? <section className="rounded-lg border border-[hsl(var(--e-border))] p-3">
         <EButton variant="outline" onClick={() => { setUrgentStockMounted(true); setUrgentStockOpen(value => !value); }} aria-expanded={urgentStockOpen}>Request urgent stock</EButton>
-        {urgentStockMounted ? <div hidden={!urgentStockOpen}><UrgentStockWorkspace key={api.job.propertyId} isAdmin={false} panel lockProperty initialPropertyId={api.job.propertyId} /></div> : null}
+        {urgentStockMounted ? <div hidden={!urgentStockOpen}><UrgentStockWorkspace key={api.job.propertyId} isAdmin={false} panel lockProperty initialPropertyId={api.job.propertyId} jobId={api.jobId} /></div> : null}
       </section> : null}
+      {/* Wave F: the office's "can you buy …" asks for this job / property. */}
+      {!locked ? <PurchaseAsksCard jobId={api.jobId} /> : null}
       {/* Admin-raised timing request (early check-in / late checkout) awaiting
           this cleaner's approval — self-hides when there is none. */}
       <EarlyCheckoutStatus jobId={api.jobId} />

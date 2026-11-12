@@ -53,6 +53,7 @@ import {
 import { draftFieldsSchema, draftFieldsRequested, draftFieldsUpdate } from "./client-invoice-draft-fields";
 import { leavesDraft, approvalRuleRefusal } from "./client-invoice-approval-rules";
 import { staleInvoiceRefusal } from "./client-invoice-stale-guard";
+import { caseChargeRefusal } from "./client-invoice-case-charge-rules";
 
 const lineUpdateSchema = z.object({
   id: z.string().cuid(),
@@ -111,6 +112,8 @@ const patchSchema = z.object({
     quantity: z.number().positive().default(1),
     unitPrice: z.number().finite(),
     category: z.string().default("SERVICE"),
+    /** Wave F: the case this charge comes from ("Add charge to invoice"). Draft invoices of the case's client only. */
+    caseId: z.string().trim().min(1).max(64).optional(),
   }).optional(),
   /** A DISCOUNT line: a positive amount or a percentage of the current subtotal. */
   addDiscount: addDiscountSchema.optional(),
@@ -234,6 +237,10 @@ async function patchLockedInvoice(
     }
     if (body.addLine?.category.startsWith("SHOPPING_")) return actionResult({ error: "Add shopping charges through the shopping run review so expenses and time are tracked once." }, 400);
     if (body.addLine?.category === DISCOUNT_CATEGORY) return actionResult({ error: "Add a discount with Add discount." }, 400);
+    if (body.addLine?.caseId) {
+      const caseRefusal = await caseChargeRefusal(db, existing, body.addLine.caseId);
+      if (caseRefusal) return actionResult({ error: caseRefusal }, 409);
+    }
     const kindRefusal = kindRuleRefusal(existing, body);
     if (kindRefusal) return kindRefusal;
     const xeroRefusal = await xeroPaymentRefusal(db, existing, body, xeroPayment);
@@ -352,6 +359,7 @@ async function patchLockedInvoice(
               unitPrice: body.addLine.unitPrice,
               lineTotal,
               category: body.addLine.category,
+              caseId: body.addLine.caseId ?? null,
             },
           });
         }
@@ -637,6 +645,26 @@ async function patchLockedInvoice(
           invoiceNumber: existing.invoiceNumber,
           reason: "voided",
           actorId: session.user.id,
+        });
+      }
+      // This action never emails (the send route does). A move to SENT here is
+      // "Mark as sent (not emailed)", so the trail says so, in the same write.
+      if (statusChanges && effectiveStatus === ClientInvoiceStatus.SENT) {
+        await tx.auditLog.create({
+          data: {
+            userId: session.user.id,
+            action: "CLIENT_INVOICE_MARKED_SENT",
+            entity: "ClientInvoice",
+            entityId: params.id,
+            before: { status: existing.status },
+            after: {
+              status: ClientInvoiceStatus.SENT,
+              invoiceNumber: existing.invoiceNumber,
+              emailed: false,
+              note: "Marked sent without email",
+              impersonatedBy: actor.impersonatedBy ?? null,
+            },
+          },
         });
       }
       if (statusChanges && existing.kind === "CREDIT_NOTE" && existing.creditsInvoiceId) {

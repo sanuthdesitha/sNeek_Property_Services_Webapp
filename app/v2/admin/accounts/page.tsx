@@ -16,7 +16,9 @@ export const dynamic = "force-dynamic";
  * This page is about LOGINS. The client business record (properties,
  * invoices, jobs) stays under Clients, and receivables live in Finance.
  * Old `?tab=team|cleaners|clients|assistants|partners` links still land on
- * the matching tab.
+ * the matching tab. The KPI strip shows Total staff, Active cleaners and Total
+ * clients from getAccountsOverview (a count that could not be read is null,
+ * shown as "–"); "Outstanding receivables" stays removed by owner decision.
  */
 export default async function EstateAccountsPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
@@ -40,6 +42,11 @@ export default async function EstateAccountsPage({ searchParams }: { searchParam
       initialView={readAccountsView(`?${query.toString()}`)}
       capabilities={{ isAdmin: viewer.isAdmin, canWriteNotes: viewer.canWriteNotes, canMessageStaff: viewer.canMessageStaff === true }}
       vaClients={vaClients}
+      kpis={{
+        totalStaff: overview.unavailable.includes("totalStaff") ? null : overview.totalStaff,
+        activeCleaners: overview.unavailable.includes("activeCleaners") ? null : overview.activeCleaners,
+        totalClients: overview.unavailable.includes("totalClients") ? null : overview.totalClients,
+      }}
       birthdays={overview.upcomingBirthdays.map((b) => ({
         id: b.id,
         name: b.name,

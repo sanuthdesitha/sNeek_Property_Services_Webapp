@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * "Tell client" sent from the app (administrators): explicit transports, one
+ * "Tell client" sent from the app (administrators, and operations managers
+ * with the Lost & found pack; server rule): explicit transports, one
  * idempotency key per draft and transport choice (kept until the server
  * answers, so a retry is not a second message), and the per-recipient states
  * the pipeline reported. The item's timeline records the same states.

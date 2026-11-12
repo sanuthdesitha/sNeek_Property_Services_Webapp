@@ -1,6 +1,7 @@
 // @vitest-environment node
 // Wave E: "Chase supplier" on a laundry run beyond the supplier's turnaround.
-// Administrators send to the supplier's STORED contact only (email / SMS
+// Administrators, and (owner decision 2026-11-12) operations managers with the
+// Laundry pack at manage, send to the supplier's STORED contact only (email / SMS
 // through the shared external-recipient path); everyone who can open the run
 // gets the draft; disabled with the reason; a cool-down per run; audit rows
 // carry a masked address; no real message leaves (providers mocked).
@@ -9,9 +10,10 @@ import { Role } from "@prisma/client";
 
 const m = vi.hoisted(() => ({
   session: vi.fn(), task: vi.fn(), auditFind: vi.fn(), auditCount: vi.fn(), auditCreate: vi.fn(), notify: vi.fn(), receipt: vi.fn(),
-  email: vi.fn(), sms: vi.fn(), smsState: vi.fn(), settings: vi.fn(),
+  email: vi.fn(), sms: vi.fn(), smsState: vi.fn(), settings: vi.fn(), ops: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.session }));
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
 vi.mock("@/lib/notifications/email", () => ({ sendEmailDetailed: m.email }));
 vi.mock("@/lib/notifications/sms", () => ({ sendSmsDetailed: m.sms, getSmsProviderState: m.smsState }));
@@ -72,12 +74,23 @@ describe("rules and draft", () => {
 });
 
 describe("preview", () => {
-  it("gives the draft and stored contact to an operations manager, without the right to send", async () => {
+  it("gives the draft and stored contact to an operations manager without the Laundry pack at manage, without the right to send", async () => {
     m.session.mockResolvedValue(ops);
+    m.ops.mockResolvedValue({ laundry: "read" });
     const body = await (await get()).json();
     expect(body).toMatchObject({ blockedReason: null, canSend: false, supplier: { email: "orders@fresh.invalid" }, transports: { EMAIL: { available: true }, SMS: { available: true } } });
+    expect(body.sendNote).toMatch(/Laundry permission/);
     expect(body.draft.body).toContain("3 bags");
     expect(m.session).toHaveBeenCalledWith([Role.ADMIN, Role.OPS_MANAGER]);
+  });
+  it("offers Send to an operations manager with the Laundry pack at manage, not while impersonating", async () => {
+    m.session.mockResolvedValue(ops);
+    m.ops.mockResolvedValue({ laundry: "manage" });
+    expect((await (await get()).json()).canSend).toBe(true);
+    m.session.mockResolvedValue({ ...admin, impersonation: { actorId: "owner" } });
+    const impersonated = await (await get()).json();
+    expect(impersonated.canSend).toBe(false);
+    expect(impersonated.sendNote).toMatch(/impersonating/);
   });
   it("disables each transport with its reason (no contact, provider not configured)", async () => {
     vi.stubEnv("RESEND_API_KEY", "");
@@ -93,13 +106,29 @@ describe("preview", () => {
 });
 
 describe("send", () => {
-  it("is refused to operations managers and while impersonating", async () => {
-    m.session.mockRejectedValueOnce(new Error("FORBIDDEN"));
-    expect((await post(sendBody())).status).toBe(403);
-    expect(m.session).toHaveBeenLastCalledWith([Role.ADMIN]);
+  it("is refused to an operations manager without the Laundry pack at manage, to a revoked account and while impersonating", async () => {
+    m.session.mockResolvedValueOnce(ops);
+    m.ops.mockResolvedValueOnce({ laundry: "read" });
+    const refused = await post(sendBody());
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error).toMatch(/Laundry permission/);
+    expect(m.session).toHaveBeenLastCalledWith([Role.ADMIN, Role.OPS_MANAGER]);
+    m.session.mockRejectedValueOnce(new Error("UNAUTHORIZED"));
+    expect((await post(sendBody())).status).toBe(401);
     m.session.mockResolvedValueOnce({ ...admin, impersonation: { actorId: "owner" } });
     expect((await post(sendBody())).status).toBe(403);
     expect(m.email).not.toHaveBeenCalled();
+  });
+
+  it("lets an operations manager with the Laundry pack at manage send, with the same limits and a masked audit row naming the actor and role", async () => {
+    m.session.mockResolvedValue(ops);
+    m.ops.mockResolvedValue({ laundry: "manage" });
+    const response = await post(sendBody());
+    expect(response.status).toBe(200);
+    const audit = m.auditCreate.mock.calls[0][0].data;
+    expect(audit).toMatchObject({ userId: "ops-1", action: "LAUNDRY_SUPPLIER_CHASE_SENT", after: { actorRole: "OPS_MANAGER", to: "o***@fresh.invalid" } });
+    // The same per-sender and per-run limits are counted for the manager.
+    expect(m.auditCount).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ userId: "ops-1" }) }));
   });
 
   it("sends to the stored address only, records the provider's answer and audits a masked address", async () => {

@@ -7,7 +7,8 @@ import { resolveFormsTab, type FormsLibraryTab } from "@/lib/admin/forms-redirec
 import { getFormsTabCounts } from "@/lib/forms/library-tab-counts";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { QaTemplatesManager } from "@/components/v2/admin/qa/qa-templates-manager";
-import { FormsTabNav, FORMS_TAB_LABEL } from "@/components/v2/admin/forms/library/forms-tab-nav";
+import { FormsTabNav } from "@/components/v2/admin/forms/library/forms-tab-nav";
+import { FORMS_TAB_LABEL } from "@/components/v2/admin/forms/library/forms-tab-labels";
 import { JobFormsLibrary } from "@/components/v2/admin/forms/library/job-forms-library";
 import { NewFormMenu } from "@/components/v2/admin/forms/library/new-form-menu";
 import { ImportFormsButton } from "@/components/v2/admin/forms/library/import-forms";

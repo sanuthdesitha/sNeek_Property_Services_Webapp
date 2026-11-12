@@ -48,6 +48,8 @@ export function describeInvoiceAudit(action: string, after: unknown): string {
       const reason = field(after, "reason");
       return `Reversed to draft from ${field(after, "from") ?? "an issued state"}${reason ? `: ${reason}` : ""}`;
     }
+    case "CLIENT_INVOICE_MARKED_SENT":
+      return "Marked sent without email";
     case "invoice.status_override":
       return `Status overridden from ${field(after, "from") ?? "?"} to ${field(after, "to") ?? "?"}`;
     case "CLIENT_INVOICE_XERO_RECONCILED_VOID":

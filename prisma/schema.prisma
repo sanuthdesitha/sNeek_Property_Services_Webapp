@@ -1598,6 +1598,9 @@ model Job {
   nfcScanEvents          NfcScanEvent[]
   feedback               JobFeedback?
   uploadFailures         UploadFailure[]
+  urgentStockNeeds       UrgentStockNeed[]
+  urgentStockAsks        UrgentStockPurchaseAsk[]
+  stockCountObservations StockCountObservation[]
 
   // Hot-path indexes: job lists, payroll, invoicing, and dashboards filter/sort
   // on status + scheduledDate/completedAt + propertyId.
@@ -1859,6 +1862,8 @@ model FormSubmission {
   media                 SubmissionMedia[]
   stockTxs              StockTx[]
   mediaOverrideRequests MediaOverrideRequest[]
+  urgentStockNeeds      UrgentStockNeed[]
+  stockCountObservations StockCountObservation[]
 }
 
 model SubmissionMedia {
@@ -2337,6 +2342,8 @@ model IssueTicket {
   /// D1 — the damage item that opened this case, when it came from a report.
   /// At most one: the case↔item pairing is 1:1 (see DamageItem.caseId).
   damageItem DamageItem? @relation("DamageItemCase")
+  /// Wave F: manual charge lines added to a client draft invoice from this case.
+  invoiceLines ClientInvoiceLine[]
 }
 
 model CaseTransition {
@@ -2665,6 +2672,10 @@ model LaundryTask {
   pickupKeyPhotoUrl  String?
   dropoffKeyPhotoUrl String?
   supplierId         String?
+  /// Wave F: planned clock time of the pickup / drop on their days ("HH:mm",
+  /// organisation time). Null = no time planned; never guessed.
+  pickupTime         String?       @db.VarChar(5)
+  dropoffTime        String?       @db.VarChar(5)
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -3196,6 +3207,8 @@ model ShoppingRun {
   receipts     ShoppingReceipt[]
   settlements  ShoppingSettlement[]
   invoiceLines ClientInvoiceLine[]
+  urgentStockNeeds UrgentStockNeed[]
+  urgentStockAsks  UrgentStockPurchaseAsk[]
 }
 
 model ShoppingRunLine {
@@ -3570,6 +3583,9 @@ model ClientInvoiceLine {
   /// stored lineTotal is the amount worked out when it was added. Null for a
   /// discount entered as an amount, and for every other line.
   discountPercent Float?
+  /// Wave F: the case a manual charge line was added from ("Add charge to
+  /// invoice"). SetNull: deleting a case never deletes a billed line.
+  caseId        String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -3578,11 +3594,13 @@ model ClientInvoiceLine {
   shoppingRun ShoppingRun?  @relation(fields: [shoppingRunId], references: [id])
   // SetNull, not Cascade: deleting a property must never delete a billed line.
   property    Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  case        IssueTicket?  @relation(fields: [caseId], references: [id], onDelete: SetNull)
 
   // generateClientInvoice scans lines by jobId to skip already-invoiced jobs.
   @@index([jobId])
   @@index([invoiceId])
   @@index([propertyId])
+  @@index([caseId])
 }
 
 /// One person's opt-out of ONE kind of automatic email.
@@ -5008,13 +5026,95 @@ model UrgentStockNeed {
   reportedByName         String?
   /// Set while open: one open need per property and item.
   openPairKey            String?            @unique
+  /// Wave F: the job (and form submission) the need was reported from. Null
+  /// when not recorded or not certain (backfill only from a submission note).
+  sourceJobId            String?
+  sourceSubmissionId     String?
+  /// Wave F: the shopping run the need was added to. Adding never marks the
+  /// need ordered, bought or delivered.
+  shoppingRunId          String?
+  shoppingRunAddedAt     DateTime?
+  shoppingRunAddedById   String?
   createdAt              DateTime
   updatedAt              DateTime
   property               Property           @relation(fields: [propertyId], references: [id], onDelete: Restrict)
   events                 UrgentStockEvent[]
+  sourceJob              Job?               @relation(fields: [sourceJobId], references: [id], onDelete: SetNull)
+  sourceSubmission       FormSubmission?    @relation(fields: [sourceSubmissionId], references: [id], onDelete: SetNull)
+  shoppingRun            ShoppingRun?       @relation(fields: [shoppingRunId], references: [id], onDelete: SetNull)
+  purchaseAsks           UrgentStockPurchaseAsk[]
 
   @@index([propertyId, stage])
   @@index([stage, updatedAt])
+  @@index([sourceJobId])
+  @@index([shoppingRunId])
+}
+
+/// Wave F: "Ask cleaner to buy" on an urgent need. ASKED -> ACCEPTED | DECLINED,
+/// or WITHDRAWN by the office. "Bought" is never stored: it is read from the
+/// cleaner's shopping run (line purchased and the reimbursement approved by the
+/// office), so it can only follow the existing reimbursement path.
+model UrgentStockPurchaseAsk {
+  id            String          @id @default(cuid())
+  needId        String
+  /// The cleaner asked (no FK: history outlives accounts; name snapshotted).
+  cleanerId     String
+  cleanerName   String
+  jobId         String?
+  /// ASKED | ACCEPTED | DECLINED | WITHDRAWN
+  state         String
+  /// The need id while ASKED or ACCEPTED: one live ask per need.
+  activeKey     String?         @unique
+  askedById     String
+  askedByName   String
+  note          String?         @db.Text
+  quantity      Float?
+  transports    Json
+  outcomes      Json?
+  respondedAt   DateTime?
+  responseNote  String?         @db.Text
+  shoppingRunId String?
+  requestKey    String          @unique
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  need          UrgentStockNeed @relation(fields: [needId], references: [id], onDelete: Restrict)
+  job           Job?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  shoppingRun   ShoppingRun?    @relation(fields: [shoppingRunId], references: [id], onDelete: SetNull)
+
+  @@index([needId, createdAt])
+  @@index([cleanerId, state])
+}
+
+/// Wave F: a Stock count answer on a job form, as a count observation for the
+/// property's item. Recorded at submission as PENDING and applied to on-hand
+/// only when the clean is approved, never over a newer stock record.
+/// PENDING | APPLIED | SKIPPED_NEWER | NEEDS_REVIEW | SUPERSEDED
+model StockCountObservation {
+  id              String         @id @default(cuid())
+  submissionId    String
+  jobId           String?
+  propertyId      String
+  itemId          String
+  itemName        String?
+  fieldId         String
+  label           String
+  unit            String?
+  count           Float
+  observedAt      DateTime
+  status          String
+  reason          String?        @db.Text
+  previousOnHand  Float?
+  stockTxId       String?
+  resolvedAt      DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  submission      FormSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  job             Job?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@unique([submissionId, itemId])
+  @@index([jobId, status])
+  @@index([propertyId, itemId, status])
+  @@index([status, createdAt])
 }
 
 model UrgentStockEvent {

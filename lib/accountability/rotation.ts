@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { collectMonthlyItems } from "./rotation-schema";
+import { applyApprovedStockCounts } from "@/lib/inventory/stock-count-observations";
 
 /**
  * Rotational-evidence scheduling for ROTATIONAL checklist items.
@@ -203,6 +204,10 @@ export async function applyJobRotationCompletion(
   // Serialize this property without upgrading QA's existing Property FOR SHARE
   // row lock (concurrent lock upgrades can deadlock across different jobs).
   await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${`rotation:${input.propertyId}`}, 0))`;
+  // Wave F: every approval path runs through here, so the job form's Stock
+  // count answers are applied to on-hand now (and only now). Idempotent on
+  // its own (only PENDING observations of the latest submission).
+  await applyApprovedStockCounts(tx, { jobId: input.jobId });
   const receiptKey = `rotation_progress_v1:${input.jobId}`;
   if (await tx.appSetting.findUnique({ where: { key: receiptKey } })) return;
   const job = await tx.job.findUnique({ where: { id: input.jobId }, select: { isRework: true, status: true, internalNotes: true } });

@@ -4,18 +4,20 @@
  * POST /api/admin/jobs/[id]/pause-clock over lib/jobs/admin-clock-pause.ts,
  * which closes the cleaner's open log through the SAME clockOutCleaner the
  * cleaner's own Stop/Pause uses (same Job row lock, same duration formula,
- * same status rule).
+ * same status rule). Owner decision 2026-11-12: operations managers may pause
+ * too, only with the Jobs pack at manage; the audit row records the role.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
-  auth: vi.fn(), job: vi.fn(), user: vi.fn(), transaction: vi.fn(), notice: vi.fn(),
+  auth: vi.fn(), job: vi.fn(), user: vi.fn(), transaction: vi.fn(), notice: vi.fn(), ops: vi.fn(),
   tx: {
     $queryRaw: vi.fn(), timeLog: { findFirst: vi.fn(), updateMany: vi.fn(), update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
     job: { updateMany: vi.fn(), findUnique: vi.fn() }, auditLog: { create: vi.fn() },
   },
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.auth }));
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
 vi.mock("@/lib/db", () => ({ db: { job: { findUnique: m.job }, user: { findUnique: m.user }, $transaction: m.transaction } }));
 vi.mock("@/lib/notifications/office-actions", () => ({ sendClockPausedNotice: m.notice }));
 
@@ -31,7 +33,7 @@ const post = (data: unknown) => POST(new Request("http://localhost/api/admin/job
 function asRole(role: "ADMIN" | "OPS_MANAGER", extra: Record<string, unknown> = {}) {
   m.auth.mockImplementation(async (roles: string[]) => {
     if (!roles.includes(role)) throw new Error("FORBIDDEN");
-    return { user: { id: "admin-1", role }, ...extra };
+    return { user: { id: role === "ADMIN" ? "admin-1" : "ops-1", role, heldRoles: [role] }, ...extra };
   });
 }
 
@@ -50,10 +52,29 @@ beforeEach(() => {
 });
 
 describe("pause-clock route: who may pause", () => {
-  it("refuses an operations manager (ADMIN only)", async () => {
+  it("lets an operations manager with the Jobs pack at manage pause, recording the actor and role", async () => {
     asRole("OPS_MANAGER");
+    m.ops.mockResolvedValue({ jobs: "manage" });
+    const response = await post(body);
+    expect(response.status).toBe(200);
+    expect(m.tx.auditLog.create.mock.calls[0][0].data).toMatchObject({ userId: "ops-1", action: "ADMIN_CLOCK_PAUSE", after: { actorRole: "OPS_MANAGER" } });
+    expect(m.notice.mock.calls[0][0].actorId).toBe("ops-1");
+  });
+
+  it("refuses an operations manager without the Jobs pack at manage (403)", async () => {
+    asRole("OPS_MANAGER");
+    m.ops.mockResolvedValue({ jobs: "read" });
     const response = await post(body);
     expect(response.status).toBe(403);
+    expect((await response.json()).error).toMatch(/pause a cleaner's clock/);
+    expect(m.transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a revoked account and other roles", async () => {
+    m.auth.mockRejectedValueOnce(new Error("UNAUTHORIZED"));
+    expect((await post(body)).status).toBe(401);
+    m.auth.mockRejectedValueOnce(new Error("FORBIDDEN"));
+    expect((await post(body)).status).toBe(403);
     expect(m.transaction).not.toHaveBeenCalled();
   });
 

@@ -5,7 +5,9 @@
  * open inspection queue, now paged with its real total instead of the first
  * 12. "Inspect" opens the existing inspection deep link
  * (/v2/admin/quality/[assignmentId]); "QA templates" opens the template page.
- * The period does not apply here: waiting work is live.
+ * The period does not apply here: waiting work is live. The old page's
+ * counters (Awaiting QA, In progress, Completed today in the organisation's
+ * timezone) head the queue again (parity audit 2026-11-12).
  */
 import * as React from "react";
 import Link from "next/link";
@@ -16,7 +18,7 @@ import { EPill } from "@/components/v2/ui/pill";
 import { INSPECTION_SORTS, titleCaseKey, type InspectionSort } from "@/lib/quality/types";
 import { QuickScoreQueue } from "../quick-score-queue";
 import { formatIssueDate } from "../issues/issue-format";
-import type { InspectionQueueRow } from "./hub-types";
+import type { InspectionQueueRow, InspectionsPayload } from "./hub-types";
 import { isInspections } from "./hub-types";
 import { useQualityRead, useReloadOn } from "./use-quality-read";
 
@@ -55,6 +57,27 @@ function columns(timeZone: string): Array<EDataColumn<InspectionQueueRow, Inspec
       ),
     },
   ];
+}
+
+function QueueCounters({ counters }: { counters: NonNullable<InspectionsPayload["counters"]> }) {
+  const items = [
+    { label: "Awaiting QA", value: counters.awaiting, note: "not picked up" },
+    { label: "In progress", value: counters.inProgress, note: "being inspected" },
+    { label: "Completed today", value: counters.completedToday, note: "inspections closed" },
+  ];
+  return (
+    <dl aria-label="Inspection queue counts" className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-3">
+      {items.map((item) => (
+        <div key={item.label} className="min-w-0 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-3 py-2.5">
+          <dt className="e-eyebrow text-[0.65625rem] text-[hsl(var(--e-gold-ink))]">{item.label}</dt>
+          <dd className="mt-1 flex flex-wrap items-baseline justify-between gap-x-2">
+            <span className="e-numeral text-[1.5rem] leading-none e-tnum">{item.value}</span>
+            <span className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{item.note}</span>
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 export function ReviewTab({
@@ -102,6 +125,7 @@ export function ReviewTab({
             <Link href="/v2/admin/qa-templates">QA templates</Link>
           </EButton>
         </div>
+        {read.data?.counters ? <QueueCounters counters={read.data.counters} /> : null}
         <ECard className="overflow-hidden p-0">
           <EDataTable<InspectionQueueRow, InspectionSort>
             label="Inspection queue"

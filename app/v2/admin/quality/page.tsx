@@ -2,7 +2,7 @@ import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getAppSettings } from "@/lib/settings";
 import { getOpsAccess } from "@/lib/rbac/ops-access";
-import { opsLevelAllows } from "@/lib/rbac/ops-catalog";
+import { canUseOpsPath, opsLevelAllows } from "@/lib/rbac/ops-catalog";
 import { qualityHubAccess } from "@/lib/quality/hub-access";
 import { QualityHub } from "@/components/v2/admin/quality/hub/quality-hub";
 
@@ -22,6 +22,8 @@ export const dynamic = "force-dynamic";
  * Coaching tab is hidden when its endpoints (coaching records, cleaner list)
  * would refuse the manager, and "Review bonus" / "Propose bonus" when
  * payroll would (the bonus proposal route re-checks on the server).
+ * "Laundry team and suppliers" reads through the quality pack; its link to
+ * Laundry statistics shows only when the laundry pack allows that page.
  */
 export default async function AdminQualityPage() {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER, Role.QA_INSPECTOR]);
@@ -43,6 +45,7 @@ export default async function AdminQualityPage() {
         canProposeBonus: isManager && access.canProposeBonus,
         timeZone: settings?.timezone || "Australia/Sydney",
         falseConfirmationDeduction: typeof deduction === "number" ? deduction : null,
+        laundryStatsLink: isManager && (!levels || canUseOpsPath(levels, "/v2/admin/laundry/stats")),
       }}
     />
   );

@@ -2,12 +2,11 @@
 
 /**
  * The Quality hub (/v2/admin/quality): one period control and one filter row
- * shared by every tab, five stat cards, and the Review queue, Issues,
+ * shared by every tab, six stat cards, and the Review queue, Issues,
  * Cleaners, Inspectors, Categories and Coaching tabs. Everything lives in the
  * URL. QA inspectors get the Issues tab only, read-only.
  */
 import * as React from "react";
-import Link from "next/link";
 import { Download } from "lucide-react";
 import { EButton, EPageHeader } from "@/components/v2/ui/primitives";
 import { sharedFiltersOnly } from "@/lib/quality/filters";
@@ -28,6 +27,7 @@ import { CategoriesTab } from "./categories-tab";
 import { ReviewTab } from "./review-tab";
 import { CoachingTab } from "./coaching-tab";
 import type { OpenIssueRequest } from "./cleaner-expanded";
+import { LaundryTeamSection } from "./laundry-team-section";
 
 const MANAGER_TABS: readonly QualityTab[] = ["review", "issues", "cleaners", "inspectors", "categories", "coaching"];
 const INSPECTOR_TABS: readonly QualityTab[] = ["issues"];
@@ -164,15 +164,9 @@ export function QualityHub({ context }: { context: HubContext }) {
         {state.tab === "coaching" && coaching.visible ? <CoachingTab canManage={coaching.canManage} fullPageLink={coaching.fullPageLink} /> : null}
       </div>
 
-      {context.inspectorView ? null : (
-        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-          Laundry team and supplier metrics are on{" "}
-          <Link href="/v2/admin/laundry/stats#team-metrics" className="text-[hsl(var(--e-primary))] underline-offset-2 hover:underline">
-            Laundry statistics
-          </Link>
-          .
-        </p>
-      )}
+      {/* Restored for quality-pack viewers (parity audit 2026-11-12): the same
+          figures as Laundry statistics, read through the quality pack. */}
+      {context.inspectorView ? null : <LaundryTeamSection laundryStatsLink={context.laundryStatsLink ?? true} />}
 
       {detail ? (
         <IssueDetail

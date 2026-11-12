@@ -5,6 +5,7 @@
  * search, Property, Found date, Value, the holding-period flag, and the sort
  * control. Every value lives in the URL view.
  */
+import { NEW_ITEM_FLAG_DAYS } from "@/lib/lost-found/holding";
 import { cn } from "@/lib/utils";
 import { EFilterPopover } from "@/components/v2/ui/filter-popover";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
@@ -64,11 +65,14 @@ export function LostFoundFilters({
   onChange,
   properties,
   holdingDays,
+  unprocessedCount = null,
 }: {
   view: LostFoundView;
   onChange: (patch: Partial<LostFoundView>) => void;
   properties: Array<{ id: string; name: string }>;
   holdingDays: number | null;
+  /** Items still at New found more than NEW_ITEM_FLAG_DAYS ago (a real count), or null while unknown. */
+  unprocessedCount?: number | null;
 }) {
   const property = properties.find((option) => option.id === view.propertyId);
   const dateValue = view.from || view.to ? `${view.from || "…"} to ${view.to || "…"}` : null;
@@ -99,6 +103,9 @@ export function LostFoundFilters({
       </EFilterPopover>
       <button type="button" aria-pressed={view.holding} onClick={() => onChange({ holding: !view.holding })} className={cn(E_CHIP_CLASS, view.holding && E_CHIP_ON_CLASS)}>
         {holdingDays ? `Held over ${holdingDays} days` : "Past holding period"}
+      </button>
+      <button type="button" aria-pressed={view.staleNew} onClick={() => onChange({ staleNew: !view.staleNew })} className={cn(E_CHIP_CLASS, view.staleNew && E_CHIP_ON_CLASS)}>
+        New over {NEW_ITEM_FLAG_DAYS} days{typeof unprocessedCount === "number" ? ` ${unprocessedCount}` : ""}
       </button>
       {view.tab === "closed" ? (
         <ESelect aria-label="Closed as" value={view.closedAs} onChange={(event) => onChange({ closedAs: event.target.value })} className="h-8 w-auto">

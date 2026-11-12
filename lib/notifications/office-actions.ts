@@ -10,6 +10,7 @@ import { getNotificationTypeControls, typeRespectsPreferences } from "./type-con
 import { formatInTimeZone } from "date-fns-tz";
 import { getAppSettings } from "@/lib/settings";
 import { NUDGE_COOL_DOWN_MINUTES, NUDGE_LABELS } from "@/lib/laundry/nudge-rules";
+import type { OfficeActorRole } from "@/lib/notifications/office-send-rules";
 
 /**
  * Office-initiated messages the other redesign steps had to leave out because
@@ -18,9 +19,9 @@ import { NUDGE_COOL_DOWN_MINUTES, NUDGE_LABELS } from "@/lib/laundry/nudge-rules
  * per-recipient states. The routes decide who may call them:
  * - staff message and laundry nudge: ADMIN and OPS_MANAGER (both can already
  *   message staff and remind cleaners);
- * - client delay notice: ADMIN only, pending the owner's decision;
- * - clock-paused notice: sent by the ADMIN-only Live ops clock pause
- *   (lib/jobs/admin-clock-pause.ts).
+ * - client delay notice and the clock-paused notice (sent by the Live ops
+ *   clock pause, lib/jobs/admin-clock-pause.ts): ADMIN, or OPS_MANAGER with the
+ *   Jobs pack at manage (owner decision 2026-11-12, `office-send-rules.ts`).
  */
 const transportsSchema = z.array(z.enum(["PUSH", "EMAIL"])).min(1).max(2);
 const keySchema = z.string().trim().min(8).max(80).regex(/^[A-Za-z0-9:_-]+$/).optional();
@@ -198,8 +199,12 @@ export async function resolveClientDelayTarget(jobId: string) {
   return { job, recipients };
 }
 
-/** (c) Tell the client their clean is running late. ADMIN only (route). */
-export async function sendClientDelayNotice(actorId: string, input: unknown): Promise<OfficeActionResult> {
+/**
+ * (c) Tell the client their clean is running late. ADMIN, or OPS_MANAGER with
+ * the Jobs pack at manage (route, `office-send-rules.ts`); `actorRole` is kept
+ * on the audit row.
+ */
+export async function sendClientDelayNotice(actorId: string, input: unknown, actorRole: OfficeActorRole | null = null): Promise<OfficeActionResult> {
   const request = clientDelaySchema.parse(input);
   const { job, recipients } = await resolveClientDelayTarget(request.jobId);
   const typeKey = "client.delay_notice";
@@ -219,7 +224,7 @@ export async function sendClientDelayNotice(actorId: string, input: unknown): Pr
     disabledTransports: controls.disabledTransports[typeKey] ?? [],
   });
   const result = { outcomes, refused: [] };
-  await audit(actorId, "CLIENT_DELAY_NOTICE_SENT", "Job", job.id, job.id, result, { etaMinutes: request.etaMinutes ?? null, transports: request.transports, idempotencyKey: request.idempotencyKey ?? null });
+  await audit(actorId, "CLIENT_DELAY_NOTICE_SENT", "Job", job.id, job.id, result, { actorRole, etaMinutes: request.etaMinutes ?? null, transports: request.transports, idempotencyKey: request.idempotencyKey ?? null });
   return result;
 }
 

@@ -12,7 +12,7 @@ import { EDataTable } from "@/components/v2/ui/data-table";
 import { EPagination } from "@/components/v2/ui/pagination";
 import type { LostFoundBulkResult } from "@/lib/lost-found/bulk-types";
 import type { LostFoundListRow } from "@/lib/lost-found/list";
-import { DEFAULT_HOLDING_DAYS } from "@/lib/lost-found/holding";
+import { DEFAULT_HOLDING_DAYS, NEW_ITEM_FLAG_DAYS } from "@/lib/lost-found/holding";
 import { lostFoundColumns } from "./lost-found-columns";
 import { LostFoundFilters, LostFoundTabs } from "./lost-found-filters";
 import { LostFoundBulk } from "./lost-found-bulk";
@@ -22,9 +22,12 @@ import { exportQueryString, listQueryString, type LostFoundView } from "./lost-f
 import { useLostFoundView } from "./use-lost-found-view";
 import { LOST_FOUND_PAGE_SIZE, useLostFoundList } from "./use-lost-found-list";
 
-function summaryLine(summary: { open: number; pastHolding: number } | undefined, holdingDays: number): string {
+function summaryLine(summary: { open: number; pastHolding: number; unprocessedNew?: number } | undefined, holdingDays: number): string {
   if (!summary) return "Loading…";
-  return `${summary.open} open ${summary.open === 1 ? "item" : "items"} · ${summary.pastHolding} waiting more than ${holdingDays} days`;
+  const base = `${summary.open} open ${summary.open === 1 ? "item" : "items"} · ${summary.pastHolding} waiting more than ${holdingDays} days`;
+  // Wave F: items still at New after the named threshold, when there are any.
+  const stale = summary.unprocessedNew ?? 0;
+  return stale > 0 ? `${base} · ${stale} still new after ${NEW_ITEM_FLAG_DAYS} days` : base;
 }
 
 export function LostFoundHub({ initialView, isAdmin, timeZone }: { initialView: LostFoundView; isAdmin: boolean; timeZone: string }) {
@@ -71,7 +74,7 @@ export function LostFoundHub({ initialView, isAdmin, timeZone }: { initialView: 
         </header>
 
         <LostFoundTabs active={view.tab} counts={data?.counts ?? null} onSelect={(tab) => update({ tab })} />
-        <LostFoundFilters view={view} onChange={update} properties={data?.properties ?? []} holdingDays={data?.holdingDays ?? null} />
+        <LostFoundFilters view={view} onChange={update} properties={data?.properties ?? []} holdingDays={data?.holdingDays ?? null} unprocessedCount={data?.summary.unprocessedNew ?? null} />
 
         <div className="overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
           <EDataTable<LostFoundListRow, LostFoundView["sort"]>

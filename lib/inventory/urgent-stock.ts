@@ -7,7 +7,9 @@ import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { countObservationDisposition, isUrgentStockClosed, urgentStockReminderDue, urgentStockReminderSettings, urgentStockReportInput, validateUrgentStockTransition, URGENT_STOCK_STAGES } from "./urgent-stock-policy";
-import { appendNeedEvent, eventFromRow, needFromRow, readNeed, readOpenNeed, writeNeed, type UrgentNeed } from "./urgent-stock-store";
+import { appendNeedEvent, eventFromRow, needFromRow, readNeed, readOpenNeed, writeNeed, type NeedSource, type UrgentNeed } from "./urgent-stock-store";
+import { urgentOfficeAllowed, type UrgentOfficeLevel } from "./urgent-stock-access";
+import { authorizeEntityRecipient } from "@/lib/notifications/recipient-scopes";
 
 export type { UrgentNeed } from "./urgent-stock-store";
 
@@ -19,7 +21,8 @@ const PREFIX = "urgent_stock_v1:";
 const SETTINGS = PREFIX + "settings";
 const DEFAULTS = { enabled: false, intervalHours: 24, maxReminders: 5, beforeNextCleanHours: 24 };
 type Tx = Prisma.TransactionClient;
-export type StockActor = { id: string; role: Role };
+/** The acting role; held roles are always re-read from the database. */
+export type StockActor = { id: string; role: Role; heldRoles?: string[]; impersonatedBy?: string | null };
 export const URGENT_STOCK_ACTIVE_JOB_STATUSES = ["UNASSIGNED", "OFFERED", "ASSIGNED", "EN_ROUTE", "IN_PROGRESS", "PAUSED", "WAITING_CONTINUATION_APPROVAL"] as const;
 const ACTIVE = URGENT_STOCK_ACTIVE_JOB_STATUSES;
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -37,39 +40,70 @@ function assignment(userId: string) {
   return { userId, removedAt: null, responseStatus: { in: ["PENDING", "ACCEPTED"] as ("PENDING" | "ACCEPTED")[] } };
 }
 
-async function actorRole(tx: Tx, actor: StockActor) {
+const URGENT_ROLES: Role[] = [Role.ADMIN, Role.OPS_MANAGER, Role.CLEANER];
+
+/** Re-reads the account: active, holds the acting role, and the role may use urgent stock. */
+async function actorAccess(tx: Tx, actor: StockActor): Promise<{ role: Role; held: Role[] }> {
   const user = await tx.user.findUnique({ where: { id: actor.id }, select: { isActive: true, role: true, extraRoles: { select: { role: true } } } });
   if (!user?.isActive) throw new Error("UNAUTHORIZED");
   const held = [user.role, ...user.extraRoles.map((row) => row.role)];
-  if (!held.includes(actor.role) || !([Role.ADMIN, Role.CLEANER] as Role[]).includes(actor.role)) throw new Error("FORBIDDEN");
-  return actor.role;
+  if (!held.includes(actor.role) || !URGENT_ROLES.includes(actor.role)) throw new Error("FORBIDDEN");
+  return { role: actor.role, held };
 }
-/** Revalidates the actor; only an administrator may use the office list. */
-export async function requireUrgentStockAdmin(actor: StockActor, tx: Tx = db) {
-  if (await actorRole(tx, actor) !== Role.ADMIN) throw new Error("FORBIDDEN");
+async function actorRole(tx: Tx, actor: StockActor) {
+  return (await actorAccess(tx, actor)).role;
+}
+/** True when the actor may use the office side at this level (ADMIN, or OPS_MANAGER with the inventory pack). */
+export async function urgentStockOfficeAllowed(actor: StockActor, level: UrgentOfficeLevel, tx: Tx = db): Promise<boolean> {
+  const access = await actorAccess(tx, actor).catch(() => null);
+  if (!access || access.role === Role.CLEANER) return false;
+  return urgentOfficeAllowed({ id: actor.id, role: access.role }, access.held, level);
+}
+/**
+ * Revalidates the actor for the office list and office writes. The name is
+ * kept for existing callers; since Wave F an operations manager with the
+ * inventory pack passes too ("read" to see, "manage" to act).
+ */
+export async function requireUrgentStockAdmin(actor: StockActor, tx: Tx = db, level: UrgentOfficeLevel = "manage") {
+  if (!(await urgentStockOfficeAllowed(actor, level, tx))) throw new Error("FORBIDDEN");
 }
 export async function urgentStockProperties(actor: StockActor, tx: Tx = db) {
-  const role = await actorRole(tx, actor);
+  const access = await actorAccess(tx, actor);
+  const office = access.role !== Role.CLEANER && await urgentOfficeAllowed({ id: actor.id, role: access.role }, access.held, "read");
+  if (access.role !== Role.CLEANER && !office) throw new Error("FORBIDDEN");
   const cleanerScope = { jobs: { some: { status: { in: [...ACTIVE] }, cleanSkipStatus: { not: "SKIPPED" as const }, assignments: { some: assignment(actor.id) } } } };
   return tx.property.findMany({
-    where: { isActive: true, inventoryEnabled: true, ...(role === Role.ADMIN ? {} : cleanerScope) },
+    where: { isActive: true, inventoryEnabled: true, ...(office ? {} : cleanerScope) },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
 }
+/** A write at this property: in scope, and for the office the "manage" level. */
 async function scope(tx: Tx, actor: StockActor, propertyId: string) {
+  if (actor.role !== Role.CLEANER) await requireUrgentStockAdmin(actor, tx, "manage");
   if (!(await urgentStockProperties(actor, tx)).some((property) => property.id === propertyId)) throw new Error("FORBIDDEN");
 }
 export async function urgentStockSettings(tx: Tx = db) {
   const row = await tx.appSetting.findUnique({ where: { key: SETTINGS } });
   return urgentStockReminderSettings.parse(row?.value ?? DEFAULTS);
 }
+/**
+ * Reminder settings: ADMIN, or (owner decision 2026-11-12) an operations
+ * manager whose inventory pack is at "manage". The role and pack are re-read
+ * here; the audit row names the acting account, its role and, while
+ * impersonating, the administrator behind it.
+ */
 export async function setUrgentStockSettings(actor: StockActor, input: unknown) {
   const settings = urgentStockReminderSettings.parse(input);
   return db.$transaction(async (tx) => {
-    if (await actorRole(tx, actor) !== Role.ADMIN) throw new Error("FORBIDDEN");
+    if (!(await urgentStockOfficeAllowed(actor, "manage", tx))) throw new Error("FORBIDDEN");
+    const before = await tx.appSetting.findUnique({ where: { key: SETTINGS } });
     await save(tx, SETTINGS, settings);
-    await tx.auditLog.create({ data: { userId: actor.id, action: "URGENT_STOCK_REMINDERS_UPDATED", entity: "AppSetting", entityId: SETTINGS, after: json(settings) } });
+    await tx.auditLog.create({ data: {
+      userId: actor.id, action: "URGENT_STOCK_REMINDERS_UPDATED", entity: "AppSetting", entityId: SETTINGS,
+      before: before ? json(before.value) : undefined,
+      after: json({ ...settings, actorRole: actor.role, impersonatedBy: actor.impersonatedBy ?? null }),
+    } });
     return settings;
   });
 }
@@ -136,6 +170,49 @@ async function notify(tx: Tx, need: UrgentNeed, kind: string, nextCleanAt?: Date
   }
   return true;
 }
+/**
+ * Who receives "an urgent need was opened" (owner decision 2026-11-12):
+ * every active ADMIN and every active OPS_MANAGER whose inventory pack is at
+ * least "read". One row per account (a person holding both roles is listed
+ * once, under the role stored on their account). The pack is checked here,
+ * at queue time, and again by the URGENT_STOCK_OFFICE scope at dispatch.
+ */
+export async function urgentNeedOpenedRecipients(tx: Tx, needId: string): Promise<Array<{ userId: string; role: Role }>> {
+  const candidates = await tx.user.findMany({
+    where: { isActive: true, role: { in: [Role.ADMIN, Role.OPS_MANAGER] } },
+    select: { id: true, role: true },
+    orderBy: { id: "asc" },
+  });
+  const seen = new Set<string>();
+  const allowed: Array<{ userId: string; role: Role }> = [];
+  for (const candidate of candidates) {
+    if (seen.has(candidate.id)) continue;
+    seen.add(candidate.id);
+    const authorization = await authorizeEntityRecipient(tx, { userId: candidate.id, role: candidate.role, scope: { kind: "ENTITY", type: "URGENT_STOCK_OFFICE", id: needId } });
+    if (authorization.ok) allowed.push({ userId: candidate.id, role: candidate.role });
+  }
+  return allowed;
+}
+
+/** The "urgent need opened" inbox notice, through the intent pipeline (inbox only, preferences respected). */
+async function notifyNeedOpened(tx: Tx, need: UrgentNeed) {
+  const recipients = await urgentNeedOpenedRecipients(tx, need.id);
+  for (const recipient of recipients) {
+    await enqueueNotificationIntent(tx, {
+      version: 1,
+      eventId: `${need.id}:Reported need remains open:${need.remindersSent}`,
+      eventKey: "urgent_stock.open_need",
+      entity: { type: "urgent_stock", id: need.id },
+      actorId: null,
+      recipient: { userId: recipient.userId, role: recipient.role, scope: { kind: "ENTITY", type: "URGENT_STOCK_OFFICE", id: need.id } },
+      severity: "ACTION", category: "shopping", transport: "INBOX", jobId: null,
+      subject: `Urgent stock: ${need.propertyName} — ${need.itemName}`,
+      body: `Reported need remains open. ${need.stage}. Observed count: ${need.observedCount ?? "unknown"}; requested purchase: ${need.purchaseQuantity ?? "unknown"}. Review /urgent-stock?propertyId=${encodeURIComponent(need.propertyId)}`,
+    });
+  }
+  return recipients.length > 0;
+}
+
 async function receipt(tx: Tx, actor: StockActor, requestId: string, input: unknown) {
   const key = PREFIX + "receipt:" + hash([actor.id, requestId]);
   await lock(tx, key);
@@ -168,16 +245,32 @@ export async function reportUrgentStockFromSubmission(input: { cleanerId: string
     await actorRole(tx, actor);
     const submission = await tx.formSubmission.findUnique({
       where: { id: input.submissionId },
-      select: { submittedById: true, job: { select: { propertyId: true } } },
+      select: { submittedById: true, jobId: true, job: { select: { propertyId: true } } },
     });
     if (!submission || submission.submittedById !== input.cleanerId || submission.job?.propertyId !== report.propertyId) {
       throw new Error("FORBIDDEN");
     }
-    return reportWithinScope(tx, actor, report);
+    // Wave F: the job is certain here. The count is NOT applied to on-hand
+    // now: the form's count observation applies it when the clean is
+    // approved (lib/inventory/stock-count-observations.ts).
+    return reportWithinScope(tx, actor, report, { source: { jobId: submission.jobId, submissionId: input.submissionId }, deferObservation: true });
   });
 }
 
-async function reportWithinScope(tx: Tx, actor: StockActor, input: z.infer<typeof urgentStockReportInput>) {
+type ReportOptions = { source?: NeedSource; deferObservation?: boolean };
+
+/** The job a report says it came from: at this property and, for a cleaner, one of their active jobs. */
+async function reportSourceJob(tx: Tx, actor: StockActor, propertyId: string, jobId: string | null | undefined): Promise<NeedSource | undefined> {
+  if (!jobId) return undefined;
+  const job = await tx.job.findFirst({
+    where: { id: jobId, propertyId, ...(actor.role === Role.CLEANER ? { assignments: { some: assignment(actor.id) } } : {}) },
+    select: { id: true },
+  });
+  if (!job) throw new Error("That job is not at this property or not one of your jobs.");
+  return { jobId: job.id, submissionId: null };
+}
+
+async function reportWithinScope(tx: Tx, actor: StockActor, input: z.infer<typeof urgentStockReportInput>, options: ReportOptions = {}) {
   {
     const request = await receipt(tx, actor, input.requestId, input);
     if (request.previous) return request.previous;
@@ -188,7 +281,10 @@ async function reportWithinScope(tx: Tx, actor: StockActor, input: z.infer<typeo
     const item = await tx.inventoryItem.findUnique({ where: { id: input.itemId } });
     if (!item?.isActive) throw new Error("Item is unavailable.");
     const now = new Date();
-    const disposition = await observation(tx, input.propertyId, input.itemId, input.observedCount, input.observedAt, now, actor.id);
+    const source = options.source ?? await reportSourceJob(tx, actor, input.propertyId, input.jobId);
+    const disposition = options.deferObservation && input.observedCount !== null
+      ? "PENDING_APPROVAL"
+      : await observation(tx, input.propertyId, input.itemId, input.observedCount, input.observedAt, now, actor.id);
     const need: UrgentNeed = {
       id: previous?.id ?? randomUUID(), propertyId: input.propertyId, itemId: input.itemId, propertyName: property.name, itemName: item.name, unit: item.unit,
       stage: previous?.stage ?? "REPORTED", createdAt: previous?.createdAt ?? now.toISOString(), updatedAt: now.toISOString(), version: (previous?.version ?? 0) + 1,
@@ -196,9 +292,9 @@ async function reportWithinScope(tx: Tx, actor: StockActor, input: z.infer<typeo
       lastReminderAt: previous?.lastReminderAt ?? null, remindersSent: previous?.remindersSent ?? 0,
     };
     const name = await actorName(tx, actor.id);
-    await writeNeed(tx, need, { openPairKey: key, reporter: previous ? undefined : { id: actor.id, name: name.stored } });
+    await writeNeed(tx, need, { openPairKey: key, reporter: previous ? undefined : { id: actor.id, name: name.stored }, source: previous ? undefined : source });
     await appendNeedEvent(tx, need, { actorId: actor.id, actorName: name.label, kind: previous ? "REPORT_UPDATED" : "REPORTED", fromStage: previous?.stage ?? null, detail: { ...input, observationDisposition: disposition } });
-    if (!previous) await notify(tx, need, "Reported need remains open");
+    if (!previous) await notifyNeedOpened(tx, need);
     await save(tx, request.key, { fingerprint: request.fingerprint, result: need });
     return need;
   }
@@ -227,8 +323,11 @@ export async function actOnUrgentStock(actor: StockActor, raw: unknown) {
     let disposition = "UNKNOWN";
     if (input.stage === "PROPERTY_CONFIRMED") disposition = await observation(tx, need.propertyId, need.itemId, input.observedCount, input.observedAt, now, actor.id);
     else if (input.observedCount !== null || input.observedAt !== null || input.needResolved) throw new Error("Only property confirmation records a new count.");
+    // Resolve (ADMIN_RESOLVED): ADMIN, or an operations manager with the
+    // inventory pack at "manage" (owner decision 2026-11-12). Re-read here.
+    const mayResolve = input.stage === "ADMIN_RESOLVED" && actor.role !== Role.CLEANER && await urgentStockOfficeAllowed(actor, "manage", tx);
     validateUrgentStockTransition({
-      from: need.stage, to: input.stage, isAdmin: actor.role === Role.ADMIN, reason: input.reason,
+      from: need.stage, to: input.stage, mayResolve, reason: input.reason,
       confirmation: { observedCount: input.observedCount, observationApplied: disposition === "APPLY", needResolved: input.needResolved, reason: input.reason },
     });
     const confirmed = input.stage === "PROPERTY_CONFIRMED" ? { observedCount: input.observedCount, observedAt: input.observedAt, observationDisposition: disposition } : {};
@@ -236,7 +335,8 @@ export async function actOnUrgentStock(actor: StockActor, raw: unknown) {
     // Closing frees the property+item slot; an open need keeps whatever slot it had.
     await writeNeed(tx, updated, { openPairKey: isUrgentStockClosed(updated.stage) ? null : current.openPairKey });
     const name = await actorName(tx, actor.id);
-    await appendNeedEvent(tx, updated, { actorId: actor.id, actorName: name.label, kind: input.stage, fromStage: need.stage, detail: { ...input, observationDisposition: disposition } });
+    const resolvedBy = input.stage === "ADMIN_RESOLVED" ? { actorRole: actor.role, impersonatedBy: actor.impersonatedBy ?? null } : {};
+    await appendNeedEvent(tx, updated, { actorId: actor.id, actorName: name.label, kind: input.stage, fromStage: need.stage, detail: { ...input, observationDisposition: disposition, ...resolvedBy } });
     await save(tx, request.key, { fingerprint: request.fingerprint, result: updated });
     return updated;
   });
@@ -244,7 +344,9 @@ export async function actOnUrgentStock(actor: StockActor, raw: unknown) {
 
 export async function listUrgentStock(actor: StockActor, propertyId?: string, reportId?: string) {
   const properties = await urgentStockProperties(actor);
-  if (!propertyId) return { properties, items: [], reports: [], events: [], settings: actor.role === Role.ADMIN ? await urgentStockSettings() : null };
+  // Reminder settings: whoever may change them (ADMIN, or OPS_MANAGER with the inventory pack at manage).
+  const settingsVisible = await urgentStockOfficeAllowed(actor, "manage");
+  if (!propertyId) return { properties, items: [], reports: [], events: [], settings: settingsVisible ? await urgentStockSettings() : null };
   if (!properties.some((property) => property.id === propertyId)) throw new Error("FORBIDDEN");
   const [items, rows, events] = await Promise.all([
     db.propertyStock.findMany({ where: { propertyId, item: { isActive: true } }, select: { itemId: true, item: { select: { name: true, unit: true } } }, orderBy: { item: { name: "asc" } } }),
@@ -253,7 +355,7 @@ export async function listUrgentStock(actor: StockActor, propertyId?: string, re
   ]);
   const timezone = (await getAppSettings()).timezone || "Australia/Sydney";
   const nextCleanAt = await nextUrgentStockClean(db, propertyId, new Date(), timezone);
-  return { properties, items, reports: rows.map(needFromRow), events: events.map(eventFromRow), nextCleanAt: nextCleanAt?.toISOString() ?? null, settings: actor.role === Role.ADMIN ? await urgentStockSettings() : null };
+  return { properties, items, reports: rows.map(needFromRow), events: events.map(eventFromRow), nextCleanAt: nextCleanAt?.toISOString() ?? null, settings: settingsVisible ? await urgentStockSettings() : null };
 }
 
 export async function dispatchUrgentStockReminders(now = new Date()) {

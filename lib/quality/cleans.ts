@@ -74,6 +74,60 @@ export function cleanTotalsByCleaner(cleans: readonly CleanFact[], range: Period
   return out;
 }
 
+/**
+ * Rating mix (restored from the accountability overview, parity audit
+ * 2026-11-12): how a cleaner's reviewed cleans in the period were rated, using
+ * that overview's rule. A review flagged for management review counts as
+ * "Mgmt review" whatever its rating; otherwise its stored rating, when it is
+ * one of the five. A review with no recognised rating is counted in `unrated`,
+ * never folded into a band.
+ */
+export const RATING_KEYS = ["EXCELLENT", "PASS", "NEEDS_IMPROVEMENT", "FAILED", "MANAGEMENT_REVIEW"] as const;
+export type RatingKey = (typeof RATING_KEYS)[number];
+export type RatingMix = Record<RatingKey, number> & { unrated: number };
+
+export const RATING_LABEL: Record<RatingKey, string> = {
+  EXCELLENT: "Excellent",
+  PASS: "Pass",
+  NEEDS_IMPROVEMENT: "Needs work",
+  FAILED: "Failed",
+  MANAGEMENT_REVIEW: "Mgmt review",
+};
+
+export function emptyRatingMix(): RatingMix {
+  return { EXCELLENT: 0, PASS: 0, NEEDS_IMPROVEMENT: 0, FAILED: 0, MANAGEMENT_REVIEW: 0, unrated: 0 };
+}
+
+export function effectiveRating(review: CleanReview): RatingKey | null {
+  if (review.managementReview) return "MANAGEMENT_REVIEW";
+  return (RATING_KEYS as readonly string[]).includes(review.rating ?? "") ? (review.rating as RatingKey) : null;
+}
+
+/** Whether an authoritative review sits in the management review queue (the old overview's rule). */
+export function inManagementReview(review: CleanReview): boolean {
+  return review.managementReview || review.rating === "MANAGEMENT_REVIEW";
+}
+
+export function ratingMixByCleaner(cleans: readonly CleanFact[], range: PeriodRange): Map<string, RatingMix> {
+  const out = new Map<string, RatingMix>();
+  for (const clean of cleans) {
+    if (!clean.review || !inRange(clean.scheduledDate, range)) continue;
+    const rating = effectiveRating(clean.review);
+    for (const cleanerId of clean.cleanerIds) {
+      const mix = out.get(cleanerId) ?? emptyRatingMix();
+      if (rating) mix[rating] += 1;
+      else mix.unrated += 1;
+      out.set(cleanerId, mix);
+    }
+  }
+  return out;
+}
+
+/** Reviewed cleans in the period whose authoritative review is in management review (each clean once). */
+export function managementReviewCount(cleans: readonly CleanFact[], range: PeriodRange): number {
+  return cleans.filter((clean) => clean.review && inRange(clean.scheduledDate, range) && inManagementReview(clean.review)).length;
+}
+
 /** Monday keys of the TREND_WEEKS Sydney weeks ending with the week of `toKey`. */
 export function trendWeekKeys(toKey: string, weeks: number = TREND_WEEKS): string[] {
   const lastMonday = weekMondayKey(toKey);

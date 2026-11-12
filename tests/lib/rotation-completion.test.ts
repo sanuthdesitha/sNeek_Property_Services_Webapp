@@ -6,7 +6,7 @@ import { serializeJobInternalNotes } from "@/lib/jobs/meta";
 import { applyJobRotationCompletion, deriveRotationalCompletion, getRotationDueMap, isRotationalItemDue } from "@/lib/accountability/rotation";
 const field = { id: "detail", frequency: "ROTATIONAL", type: "photo" };
 let tx: any;
-beforeEach(() => { tx = { $queryRaw: vi.fn(), appSetting: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() }, job: { findUnique: vi.fn().mockResolvedValue({ status: "COMPLETED", isRework: false }) }, formSubmission: { findFirst: vi.fn().mockResolvedValue({ data: { __rotationSections: [{ fields: [field] }], __templateSchema: { sections: [{ fields: [] }] }, uploads: {} } }) }, propertyRotationState: { upsert: vi.fn() } }; });
+beforeEach(() => { tx = { $queryRaw: vi.fn(), appSetting: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() }, job: { findUnique: vi.fn().mockResolvedValue({ status: "COMPLETED", isRework: false }) }, formSubmission: { findFirst: vi.fn().mockResolvedValue({ data: { __rotationSections: [{ fields: [field] }], __templateSchema: { sections: [{ fields: [] }] }, uploads: {} } }) }, propertyRotationState: { upsert: vi.fn() }, stockCountObservation: { updateMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) } }; });
 it("advances absent non-due item once at QA completion, retaining durable receipt", async () => {
   await applyJobRotationCompletion(tx, { jobId: "j", propertyId: "p" });
   expect(tx.propertyRotationState.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { cleansSinceDone: { increment: 1 } } }));

@@ -3,7 +3,8 @@
  * the draft before using it, and nothing here promises a fee, a deadline or a
  * delivery method the business has not set.
  *
- * Sending: administrators can send the guest message by email or SMS through
+ * Sending: administrators, and operations managers with the Lost & found pack
+ * at manage (`office-send-rules.ts`), can send the guest message by email or SMS through
  * the shared external-recipient path (a guest has no account), and "Tell
  * client" through the notification pipeline to the property client's logins
  * (scope LOST_ITEM_PROPERTY_CLIENT). Every role that can open the item can
@@ -55,17 +56,13 @@ export function guestSendOutcome(transport: "EMAIL" | "SMS", result: { state: Gu
   return { state: result.state, accepted: false, recordNotSent: true, note: `The ${how} was not sent (${result.errorCode ?? "provider error"}).` };
 }
 
-/** Client: why this account cannot send from the app (operations managers until the owner decides). */
-export const CLIENT_SEND_ADMIN_ONLY_REASON =
-  "Only administrators can send this to the client from the app. Copy it or open it in your email or SMS app, then record that you told the client.";
-
-/** Client: the pipeline's client notice (administrators). */
+/** Client: the pipeline's client notice (administrators and managers with the Lost & found pack). */
 export const CLIENT_SEND_NOTE =
-  "Administrators can send this to the client's logins from the app (inbox with phone and browser push, and/or email). The client's notification settings are honoured; each transport's answer is recorded on the timeline. You can also copy it and record what you did.";
+  "This is sent to the client's logins from the app (inbox with phone and browser push, and/or email). The client's notification settings are honoured; each transport's answer is recorded on the timeline. You can also copy it and record what you did.";
 
-/** Guests: the notification system's guest-message action (administrators). */
+/** Guests: the notification system's guest-message action (administrators and managers with the Lost & found pack). */
 export const GUEST_SEND_NOTE =
-  "Administrators can send this by email or text from the app through the notification system's guest message action. The provider's answer is recorded; delivery is never assumed. You can also copy it and record what you did.";
+  "This is sent by email or text from the app through the notification system's guest message action. The provider's answer is recorded; delivery is never assumed. You can also copy it and record what you did.";
 
 function firstName(name: string | null): string | null {
   const first = name?.trim().split(/\s+/)[0];

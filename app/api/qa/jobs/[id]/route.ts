@@ -54,6 +54,7 @@ import { holdsRoleWhere } from "@/lib/auth/role-query";
 
 import { enqueueQaReportFollowup, processQaReportFollowups } from "@/lib/qa/report-followups";
 import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
+import { keepAppliedCountsWithoutChoice } from "@/lib/inventory/stock-count-reset";
 import { resolveQaTemplate } from "@/lib/qa/template-resolution";
 import { requireQaSubmitAssignment } from "@/lib/qa/submit-access";
 import type { Prisma } from "@prisma/client";
@@ -1100,6 +1101,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       });
 
       if (effectivePassed) await applyJobRotationCompletion(tx, { jobId: params.id, propertyId: job.propertyId });
+      // A verdict, not a reset: counts already applied stay, recorded as kept without a choice.
+      else await keepAppliedCountsWithoutChoice(tx, { jobId: params.id, fromStatus: lockedJob.status, toStatus: JobStatus.QA_REVIEW, path: "QA inspection (failed)", actorId: session.user.id });
 
       await tx.auditLog.create({
         data: {

@@ -75,7 +75,7 @@ export function newRequestKey(prefix: string): string {
  * message; a network failure says the outcome is unknown, never that it failed
  * or worked; an aborted request is reported as aborted so callers ignore it.
  */
-export async function officeRequest<T>(url: string, init: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal } = {}): Promise<OfficeRequestResult<T>> {
+export async function officeRequest<T>(url: string, init: { method?: "GET" | "POST" | "DELETE"; body?: unknown; signal?: AbortSignal } = {}): Promise<OfficeRequestResult<T>> {
   let response: Response;
   try {
     response = await fetch(url, {

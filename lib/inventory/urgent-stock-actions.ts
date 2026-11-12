@@ -22,7 +22,7 @@ export const URGENT_STAGE_RECORDED: Record<UrgentStockStage, string> = {
   ORDERED: "Marked ordered",
   DELIVERED: "Marked delivered; awaiting confirmation at the property",
   PROPERTY_CONFIRMED: "Confirmed at the property with a fresh count",
-  ADMIN_RESOLVED: "Resolved by an administrator",
+  ADMIN_RESOLVED: "Resolved by the office",
 };
 
 export type UrgentNextAction =

@@ -15,6 +15,8 @@ export type LostFoundView = {
   to: string;
   value: ValueFilter;
   holding: boolean;
+  /** Wave F: only items still at New found more than 14 days ago (`?flag=new-stale`). */
+  staleNew: boolean;
   sort: LostFoundSort;
   dir: "asc" | "desc";
   page: number;
@@ -22,7 +24,7 @@ export type LostFoundView = {
 };
 
 export const DEFAULT_VIEW: LostFoundView = {
-  tab: "new", closedAs: "", q: "", propertyId: "", from: "", to: "", value: "any", holding: false, sort: "found", dir: "asc", page: 1, open: null,
+  tab: "new", closedAs: "", q: "", propertyId: "", from: "", to: "", value: "any", holding: false, staleNew: false, sort: "found", dir: "asc", page: 1, open: null,
 };
 
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -50,6 +52,7 @@ export function readLostFoundView(search: string): LostFoundView {
     to: day("to"),
     value: oneOf(params.get("value"), VALUE_FILTERS, "any"),
     holding: params.get("holding") === "past",
+    staleNew: params.get("flag") === "new-stale",
     sort: oneOf(params.get("sort"), LOST_FOUND_SORTS, DEFAULT_VIEW.sort),
     dir: params.get("dir") === "desc" ? "desc" : params.get("dir") === "asc" ? "asc" : DEFAULT_VIEW.dir,
     page: Number.isInteger(page) && page > 0 ? page : 1,
@@ -67,6 +70,7 @@ function filterParams(view: LostFoundView): URLSearchParams {
   if (view.to) params.set("to", view.to);
   if (view.value !== "any") params.set("value", view.value);
   if (view.holding) params.set("holding", "past");
+  if (view.staleNew) params.set("flag", "new-stale");
   return params;
 }
 
@@ -92,6 +96,7 @@ export function viewSearch(view: LostFoundView): string {
   if (view.to) params.set("to", view.to);
   if (view.value !== "any") params.set("value", view.value);
   if (view.holding) params.set("holding", "past");
+  if (view.staleNew) params.set("flag", "new-stale");
   if (view.sort !== DEFAULT_VIEW.sort || view.dir !== DEFAULT_VIEW.dir) {
     params.set("sort", view.sort);
     params.set("dir", view.dir);
@@ -103,4 +108,4 @@ export function viewSearch(view: LostFoundView): string {
 }
 
 /** Any change to what is listed starts again at page 1. */
-export const PAGE_RESETTING_KEYS: Array<keyof LostFoundView> = ["tab", "closedAs", "q", "propertyId", "from", "to", "value", "holding", "sort", "dir"];
+export const PAGE_RESETTING_KEYS: Array<keyof LostFoundView> = ["tab", "closedAs", "q", "propertyId", "from", "to", "value", "holding", "staleNew", "sort", "dir"];
