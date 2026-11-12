@@ -20,7 +20,7 @@ afterEach(() => vi.useRealTimers());
 it("combines accepted work, own pending offers and route without treating a team-assigned offer as accepted", async () => {
   mocks.jobs.mockResolvedValue([job("Accepted", "ACCEPTED"), job("Pending", "PENDING"), job("Future offer", "PENDING", "OFFERED", "2026-12-01")]);
   render(await Page());
-  expect(screen.getByText("1 accepted job today.")).toBeVisible(); expect(screen.getByText(/2 pending offers/)).toBeVisible();
+  expect(screen.getByText("1 accepted job today · 2 offers waiting")).toBeVisible();
   const route = within(screen.getByRole("region", { name: "Today's route" }));
   expect(route.getByText(/Next: Accepted/)).toBeVisible(); expect(route.queryByRole("link", { name: "Pending" })).toBeNull();
   expect(screen.getByRole("button", { name: "Respond to Pending" })).toBeVisible(); expect(screen.getByRole("button", { name: "Respond to Future offer" })).toBeVisible();
@@ -32,7 +32,7 @@ it("shows a retryable unavailable shift instead of an empty day when the query f
   expect(screen.getByRole("alert")).toHaveTextContent("Jobs and route are unavailable");
   expect(screen.getByRole("link", { name: "Refresh shift" })).toHaveAttribute("href", "/v2/cleaner");
   expect(screen.queryByRole("region", { name: "Today's route" })).toBeNull();
-  expect(screen.queryByText(/No accepted jobs|enjoy the day/)).toBeNull(); expect(screen.getAllByText("Unavailable")).toHaveLength(3);
+  expect(screen.queryByText(/No accepted jobs|enjoy the day/)).toBeNull(); expect(screen.getByText("Your shift could not be loaded.")).toBeVisible();
 });
 it("isolates attention failure without hiding assigned jobs", async () => {
   mocks.jobs.mockResolvedValue([job("Accepted", "ACCEPTED")]); mocks.attention.mockRejectedValue(new Error("offline")); render(await Page());

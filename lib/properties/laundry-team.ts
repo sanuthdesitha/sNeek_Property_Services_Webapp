@@ -69,3 +69,26 @@ export async function setPropertyLaundryTeam(propertyId: string, userIds: string
     return { outcome: "done", message: userIds.length === 0 ? "Allocation cleared." : "Laundry partner set." };
   });
 }
+
+export type LaundryTeamMember = { id: string; name: string; partnerName: string | null; turnaroundHours: number | null; active: boolean };
+
+/** The allocated laundry accounts with the partner (supplier) each belongs to, in allocation order. */
+export async function describeLaundryTeam(userIds: string[]): Promise<LaundryTeamMember[]> {
+  if (userIds.length === 0) return [];
+  const users = await db.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true, email: true, isActive: true, laundrySupplier: { select: { name: true, avgTurnaround: true } } },
+  });
+  const byId = new Map(users.map((user) => [user.id, user]));
+  return userIds.flatMap((id) => {
+    const user = byId.get(id);
+    if (!user) return [];
+    return [{
+      id,
+      name: user.name ?? user.email ?? id,
+      partnerName: user.laundrySupplier?.name ?? null,
+      turnaroundHours: user.laundrySupplier?.avgTurnaround ?? null,
+      active: user.isActive,
+    }];
+  });
+}

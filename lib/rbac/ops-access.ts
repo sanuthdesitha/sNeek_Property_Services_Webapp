@@ -2,6 +2,7 @@ import "server-only";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { canUseOpsPath, opsRequestFeature } from "./ops-catalog";
+import { policyChanges, touchesOwnAccess } from "./access-diff";
 import {
   EMPTY_OPS_POLICY,
   isOpsSubject,
@@ -46,9 +47,16 @@ export async function enforceOpsRequest(user: {
     throw new Error("FORBIDDEN");
 }
 
+/** Who saved, recorded with every change (the route refuses impersonated saves). */
+export type OpsPolicySaveContext = {
+  impersonatedBy?: string | null;
+  ipAddress?: string | null;
+};
+
 export async function saveOpsPolicy(
   actorId: string,
   input: OpsPolicy,
+  context: OpsPolicySaveContext = {},
 ): Promise<OpsPolicy> {
   const parsed = opsPolicySchema.parse(input);
   return db.$transaction(async (transaction) => {
@@ -59,6 +67,9 @@ export async function saveOpsPolicy(
       update: {},
     });
     const previous = opsPolicySchema.parse(before.value);
+    if (previous.revision !== parsed.revision) throw new Error("OPS_POLICY_CONFLICT");
+    // Nobody raises (or changes) their own access, whatever their role.
+    if (touchesOwnAccess(previous, parsed, actorId)) throw new Error("OPS_POLICY_SELF_CHANGE");
     const after = { ...parsed, revision: parsed.revision + 1 };
     const result = await transaction.appSetting.updateMany({
       where: {
@@ -75,7 +86,16 @@ export async function saveOpsPolicy(
         entity: "AppSettings",
         entityId: "app",
         before: previous,
-        after,
+        after: {
+          ...after,
+          audit: {
+            actorId,
+            actorRole: "ADMIN",
+            impersonatedBy: context.impersonatedBy ?? null,
+            changes: policyChanges(previous, after).length,
+          },
+        },
+        ipAddress: context.ipAddress ?? undefined,
       },
     });
     return after;
