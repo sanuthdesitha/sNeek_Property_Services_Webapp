@@ -1,5 +1,5 @@
 export const NOTIFICATIONS_TABS = [
-  { key: "types", label: "Types" },
+  { key: "types", label: "Types and wording" },
   { key: "log", label: "Delivery log" },
   { key: "health", label: "Health" },
   { key: "preferences", label: "Preferences" },

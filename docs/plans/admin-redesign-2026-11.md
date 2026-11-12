@@ -614,3 +614,23 @@ Owner: "build all designs as drawn" for `CleanerPortal.dc.html` and `CleanerJobF
 - [x] Today, Supplies (To do, Shopping, Counts, Urgent, My stock), Pay (This period, Invoices, Requests), Jobs List / Month.
 - [x] Job screen: header, five-stage rail, sticky bottom action, Before you submit jump links, after-submit summary, + sheet with urgent stock.
 - Reported, not built (needs a new rule or data): QA correction unlocking one item as revision 2; submission receipt number and counts; rate snapshot breakdown on the job; sent/answer sync counts; invoice opening date; early-start block while guests are inside.
+
+## Access and permissions redesign (2026-11-12)
+
+> **Status (2026-11-12, uncommitted step, no schema change; build, full suite and browser pass pending).** Built from the approved board "Access and permissions" plus the owner's decisions of the same day (client assistants on this screen through the existing VA team routes; PIN still asked at Full; password/two-step reset, Test as and editing access grantable per person with server guardrails). Details in `docs/SYSTEM.md` A3b and the review record.
+
+- [x] Screen at `/v2/admin/settings/access` (old Roles tab URL redirects); people groups, matrix over all 34 areas with Off folded per group, capabilities per area, Start from, custom presets, Copy access from, plain-language summary, sensitive marks, unsaved bar, PIN review, conflict view, history, Test as, By person / By area / Presets / Client assistants / History.
+- [x] One capability catalog and one `can()` evaluator, enforced at the existing server points; parity test over every capability.
+- [x] Administrator capabilities with guardrails (a) to (e); "Only administrators" box lists what remains.
+- Waiting for the owner: see the review record ("Owner questions").
+
+## People directory (boards People, Client, Cleaner, Client assistants, Account emails), 2026-11-12
+
+Owner: "build all designs as drawn"; answers: nav label "People"; suppliers edited only in Inventory › Suppliers; client assistants keep their own People tab; "Paid this month" accepted; Copy invite link wherever a valid link exists. Status (uncommitted step, no schema change; build, full suite and browser pass pending). Details: `docs/SYSTEM.md`, "People: clients and cleaners in one directory".
+- [x] People on `/v2/admin/accounts`: Clients, Cleaners, Office and other staff, Laundry partners and suppliers, Assistants, Invitations; Everyone / Needs attention chips; per-tab columns, figures, Columns, Export, bulk bars, side panels.
+- [x] Client page and person page redrawn from existing components (status-dependent primary action, More, key facts, tabs, rail).
+- [x] Client assistants grouped by team with the team panel; account emails list with recorded delivery, Resend and Copy link.
+- [x] `/clients`, `/cleaners`, `/workforce`, `/users` redirect into People keeping query strings (viewers who may open People; others keep the old page).
+- Lead to do: nav label "Accounts" → "People" in `app/v2/admin/layout.tsx` (People and quality group, href `/v2/admin/accounts`); remove the separate Clients / Cleaners / Workforce nav items if present (they redirect).
+- Needs the Permissions engineer: admit `/v2/admin/accounts?tab=clients` for the clients pack and `?tab=cleaners` for the workforce pack in the middleware, so the old pages can redirect for everyone.
+- Not built (needs a rule, data or path that does not exist): Revoke invitation, Send by SMS instead, stored copy of the sent email, Move assistant to another team, bulk Add payment, invitation Export, partner on-time pickups / properties served, device tracking.

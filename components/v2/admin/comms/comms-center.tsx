@@ -14,13 +14,25 @@ import type { NotificationsTab } from "@/components/v2/admin/notifications/tabs"
  * overrides under Preferences, the classic log, review queue and "Clear log"
  * under Delivery log, manual dispatch and the test push under Health.
  */
-export function CommsCenter({ tab, isAdmin, readOnly, settings, timeZone = "Australia/Sydney" }: { tab: NotificationsTab; isAdmin: boolean; readOnly: boolean; settings: PreferencesSettings | null; timeZone?: string }) {
+type CommsCenterProps = {
+  tab: NotificationsTab;
+  isAdmin: boolean;
+  readOnly: boolean;
+  settings: PreferencesSettings | null;
+  /** The organisation timezone: every history time on these tabs is shown in it. */
+  timeZone?: string;
+  companyName?: string;
+  /** `?type=` deep link to a notification type on Types and wording. */
+  initialType?: string | null;
+};
+
+export function CommsCenter({ tab, isAdmin, readOnly, settings, timeZone = "Australia/Sydney", companyName = "sNeek Property Services", initialType = null }: CommsCenterProps) {
   const { toast, push } = useEstateToast();
   return (
     <div className="space-y-6">
-      {tab === "types" ? <TypesTab isAdmin={isAdmin} readOnly={readOnly} /> : null}
-      {tab === "log" ? <DeliveryLogTab readOnly={readOnly} onToast={push} /> : null}
-      {tab === "health" ? <HealthTab isAdmin={isAdmin} onToast={push} /> : null}
+      {tab === "types" ? <TypesTab isAdmin={isAdmin} readOnly={readOnly} timeZone={timeZone} companyName={companyName} initialType={initialType} /> : null}
+      {tab === "log" ? <DeliveryLogTab readOnly={readOnly} onToast={push} timeZone={timeZone} /> : null}
+      {tab === "health" ? <HealthTab isAdmin={isAdmin} onToast={push} timeZone={timeZone} /> : null}
       {tab === "preferences" ? <PreferencesTab isAdmin={isAdmin} settings={settings} onToast={push} timeZone={timeZone} /> : null}
       <EToastViewport toast={toast} />
     </div>
