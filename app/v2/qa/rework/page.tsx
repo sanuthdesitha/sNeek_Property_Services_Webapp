@@ -3,7 +3,7 @@ import { toZonedTime } from "date-fns-tz";
 import { QaReworkSeverity, QaReworkTransferStatus, Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { EBadge, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
+import { EAlert, EBadge, ECard, ECardBody, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
 
 export const metadata = { title: "Rework · Estate QA" };
 export const dynamic = "force-dynamic";
@@ -29,6 +29,13 @@ function severityTone(sev: QaReworkSeverity): Tone {
   }
 }
 
+/** Board wording: open work waits; a decision closes it. */
+const STATUS_LABEL: Record<QaReworkTransferStatus, string> = {
+  [QaReworkTransferStatus.PENDING]: "Waiting for approval",
+  [QaReworkTransferStatus.APPROVED]: "Closed · approved",
+  [QaReworkTransferStatus.REJECTED]: "Closed · rejected",
+};
+
 function statusTone(status: QaReworkTransferStatus): Tone {
   switch (status) {
     case QaReworkTransferStatus.APPROVED:
@@ -53,7 +60,7 @@ type ReworkRow = {
   job: { id: string; scheduledDate: Date | null; property: { name: string | null; suburb: string | null } | null } | null;
 };
 
-async function getRework(): Promise<ReworkRow[]> {
+async function getRework(): Promise<ReworkRow[] | null> {
   return db.qaReworkTransfer
     .findMany({
       orderBy: [{ createdAt: "desc" }],
@@ -76,7 +83,8 @@ async function getRework(): Promise<ReworkRow[]> {
         },
       },
     })
-    .catch(() => [] as ReworkRow[]);
+    // A failed read is not "nothing flagged": the page says it is unavailable.
+    .catch(() => null);
 }
 
 const TZ = "Australia/Sydney";
@@ -109,11 +117,23 @@ function areaSummary(areas: unknown): string | null {
 export default async function QaReworkPage() {
   await requireRole([Role.QA_INSPECTOR, Role.ADMIN, Role.OPS_MANAGER]);
   const flagged = await getRework();
+  const open = flagged?.filter((f) => f.status === QaReworkTransferStatus.PENDING).length ?? null;
 
   return (
-    <div className="space-y-6">
-      <EPageHeader eyebrow="Follow-up" title="Rework" description="Areas flagged for correction." />
-      {flagged.length === 0 ? (
+    <div className="mx-auto max-w-3xl space-y-6">
+      <EPageHeader
+        eyebrow="Follow-up"
+        title="Rework"
+        description="Areas flagged for correction, newest first. Time and pay moved off a cleaner wait for the office's approval."
+        actions={open !== null && open > 0 ? <EBadge tone="warning" soft>{open} open</EBadge> : undefined}
+      />
+      {flagged === null ? (
+        <div role="alert">
+          <EAlert tone="danger" title="Rework is unavailable right now.">
+            <a href="/v2/qa/rework" className="font-[550] underline underline-offset-2">Retry</a>
+          </EAlert>
+        </div>
+      ) : flagged.length === 0 ? (
         <EEmptyState eyebrow="All clear" title="Nothing flagged" description="No rework has been raised." />
       ) : (
         <div className="space-y-3">
@@ -130,7 +150,7 @@ export default async function QaReworkPage() {
                     <p className="text-[0.875rem] font-medium">{propName}{suburb ? `, ${suburb}` : ""}</p>
                     <div className="flex items-center gap-2">
                       <EBadge tone={severityTone(f.severity)} soft>{titleCase(f.severity)}</EBadge>
-                      <EBadge tone={statusTone(f.status)} soft>{titleCase(f.status)}</EBadge>
+                      <EBadge tone={statusTone(f.status)} soft>{STATUS_LABEL[f.status] ?? titleCase(f.status)}</EBadge>
                     </div>
                   </div>
                   {areas ? <p className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{areas}</p> : null}

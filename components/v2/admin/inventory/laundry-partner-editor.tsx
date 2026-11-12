@@ -14,6 +14,7 @@ import * as React from "react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { LaundryPartnerRecord, LaundryUserOption, StockSupplierRecord } from "@/lib/suppliers/directory-types";
+import { moveConfirmText, teamMoves } from "@/lib/suppliers/partner-body";
 
 type PartnerDraft = {
   name: string;
@@ -71,12 +72,16 @@ export function LaundryPartnerEditor({ target, stockSuppliers, linkedStock, laun
   const [draft, setDraft] = React.useState<PartnerDraft | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // The moves the person confirmed (by user ids); any other change asks again.
+  const [confirmedMoves, setConfirmedMoves] = React.useState<string | null>(null);
+  const [pendingMoves, setPendingMoves] = React.useState<{ key: string; text: string } | null>(null);
   const partnerId = target?.mode === "edit" ? target.partner.id : null;
 
   // A different partner (or a new one) starts from its own record.
   React.useEffect(() => {
     setDraft(target ? draftFor(target) : null);
     setError(null);
+    setConfirmedMoves(null);
   }, [target]);
 
   if (!target || !draft) return null;
@@ -100,6 +105,15 @@ export function LaundryPartnerEditor({ target, stockSuppliers, linkedStock, laun
       setError("Turnaround is whole hours.");
       return;
     }
+    const moves = teamMoves(current.teamUserIds, partnerId, laundryUsers, partnerNames);
+    const movesKey = moves.map((move) => move.userId).sort().join(",");
+    if (moves.length && confirmedMoves !== movesKey) {
+      setError(null);
+      setConfirmedMoves(null);
+      setPendingMoves({ key: movesKey, text: moveConfirmText(moves, current.name.trim()) });
+      return;
+    }
+    setPendingMoves(null);
     setSaving(true);
     setError(null);
     try {
@@ -175,7 +189,7 @@ export function LaundryPartnerEditor({ target, stockSuppliers, linkedStock, laun
         <div className="space-y-1.5">
           <p className="text-[0.75rem] font-[550] tracking-[0.04em] text-[hsl(var(--e-text-secondary))]">Laundry team (portal accounts)</p>
           {laundryUsers.length === 0 ? (
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No laundry portal accounts exist yet. Invite one from Accounts › Partners.</p>
+            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No laundry portal accounts exist yet. Invite one from People, then link it here.</p>
           ) : (
             <ul className="max-h-48 space-y-1 overflow-y-auto rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-2">
               {laundryUsers.map((user) => {
@@ -204,9 +218,18 @@ export function LaundryPartnerEditor({ target, stockSuppliers, linkedStock, laun
           Active
         </label>
         {error ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</p> : null}
+        {pendingMoves ? (
+          <div role="alert" className="space-y-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning,var(--e-danger))/0.5)] p-3 text-[0.8125rem]">
+            <p>{pendingMoves.text}</p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <EButton size="sm" variant="outline" onClick={() => setPendingMoves(null)}>Keep them where they are</EButton>
+              <EButton size="sm" onClick={() => { setConfirmedMoves(pendingMoves.key); setPendingMoves(null); }}>Move and continue</EButton>
+            </div>
+          </div>
+        ) : null}
         <div className="flex justify-end gap-2">
           <EButton variant="outline" onClick={onClose}>Cancel</EButton>
-          <EButton variant="gold" onClick={() => void save()}>{saving ? "Saving…" : partnerId ? "Save partner" : "Add laundry partner"}</EButton>
+          <EButton variant="gold" onClick={() => void save()}>{saving ? "Saving…" : confirmedMoves ? "Save with the move" : partnerId ? "Save partner" : "Add laundry partner"}</EButton>
         </div>
       </fieldset>
     </EModal>

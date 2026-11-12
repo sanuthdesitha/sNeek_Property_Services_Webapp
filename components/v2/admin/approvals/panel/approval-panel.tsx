@@ -8,7 +8,7 @@
 import * as React from "react";
 import { ESidePanel } from "@/components/v2/ui/side-panel";
 import { APPROVAL_QUEUES } from "@/lib/admin/approvals/queues";
-import { money, waitedMs, waitingLabel, type ApprovalQueueRow, type BookingAvailability } from "@/lib/admin/approvals/rows";
+import { money, waitedMs, waitingLong, type ApprovalQueueRow, type BookingAvailability } from "@/lib/admin/approvals/rows";
 import { PanelSection, formatDay, formatInstant, type QueuePanelProps } from "./panel-kit";
 import { AccountabilityPayPanel, PayRequestPanel } from "./pay-panels";
 import { ClockPanel, TimingPanel } from "./time-panels";
@@ -75,7 +75,7 @@ export function ApprovalPanel({ row, availability, now, onClose, ...rest }: Appr
       open
       label="Request detail"
       onClose={onClose}
-      toolbar={<span className="e-eyebrow">{queue.label.replace(/s$/, "")} · {waitingLabel(waited)} waiting</span>}
+      toolbar={<span className="e-eyebrow">{queue.noun.charAt(0).toUpperCase() + queue.noun.slice(1)} · {waitingLong(waited)} waiting</span>}
       title={panelTitle(row)}
       subtitle={subtitle || undefined}
     >

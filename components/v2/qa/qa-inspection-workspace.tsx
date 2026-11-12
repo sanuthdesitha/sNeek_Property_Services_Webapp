@@ -1183,7 +1183,8 @@ export function QaInspectionWorkspace({
   const [remoteMode, setRemoteMode] = useState(false);
   const [remoteReason, setRemoteReason] = useState("");
 
-  const QA_STEPS = ["Pre-inspection brief", "Inspect & log findings", "Score, sign off & submit"];
+  // Board "QA portal" (2026-11): the stage strip reads Before you go · Inspect · Sign off.
+  const QA_STEPS = ["Before you go", "Inspect", "Sign off"];
   const step = Number.isInteger(rememberedStep)
     ? Math.max(0, Math.min(QA_STEPS.length - 1, rememberedStep))
     : 0;
@@ -2445,7 +2446,8 @@ export function QaInspectionWorkspace({
               setStep(i);
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
-            className="flex flex-1 items-center gap-2 rounded-[var(--e-radius)] px-2.5 py-1.5 text-left text-[0.8125rem] font-[550] transition-colors"
+            aria-current={i === step ? "step" : undefined}
+            className="flex min-h-11 flex-1 items-center gap-2 rounded-[var(--e-radius)] px-2.5 py-1.5 text-left text-[0.8125rem] font-[550] transition-colors"
             style={{
               backgroundColor: i === step ? "hsl(var(--e-gold-soft))" : "transparent",
               color: i === step ? "hsl(var(--e-gold-ink))" : "hsl(var(--e-muted-foreground))",
@@ -3198,6 +3200,10 @@ export function QaInspectionWorkspace({
                 </span>
               ) : null}
             </div>
+            {/* Board decision: deductions are proposals until the office applies them. */}
+            <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-text-secondary))]">
+              Deductions are proposals; the office decides.
+            </p>
             {acctPreview.active ? (
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
                 <span>Minor ×{acctPreview.minor} <span className="text-[hsl(var(--e-text-faint))]">(−{acctPreview.minor * acctScoring.minorDeduction})</span></span>

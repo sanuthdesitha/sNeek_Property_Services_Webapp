@@ -1,85 +1,30 @@
 "use client";
 
 /**
- * Estate approvals board — same endpoints as the legacy approvals page:
- *   GET  /api/client/approvals                       → ApprovalRow[]
- *   POST /api/client/approvals/[id]/respond          { decision: "APPROVE"|"DECLINE", responseNote? }
+ * Client Approvals (board 3): "Waiting N | History". Extras the office priced
+ * are approved, declined or countered here; quotes waiting for a decision are
+ * listed alongside and open the existing quote flow. Decisions and safeguards
+ * live in `useClientApprovals` (same endpoints as before).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
-import { z } from "zod";
-import { format } from "date-fns";
-import { Check, Loader2, RotateCw, Send, X } from "lucide-react";
-import {
-  EBadge,
-  EButton,
-  ECard,
-  ECardBody,
-  EEmptyState,
-  EEyebrow,
-  EThread,
-} from "@/components/v2/ui/primitives";
-import { EInlineNotice, EInput, ELabel, ETextarea } from "@/components/v2/client/fields";
+import { Info, Loader2, RotateCw } from "lucide-react";
+import { EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
+import { EInlineNotice } from "@/components/v2/client/fields";
+import { SegmentLinks } from "@/components/v2/client/portal/segment-links";
+import { useClientApprovals, type ApprovalRow, type ClientApprovalsState } from "@/components/v2/client/approvals/use-client-approvals";
+import { ApprovalCard } from "@/components/v2/client/approvals/approval-card";
+import { QuoteDecisionCard, type QuoteWaiting } from "@/components/v2/client/approvals/quote-decision-card";
+import { approvalMoney, approvalStatusTone, sydneyDateTime } from "@/components/v2/client/approvals/approval-format";
 
-type ApprovalRow = {
-  id: string;
-  version: string;
-  title: string;
-  description: string;
-  amount: number;
-  currency: string;
-  status: "PENDING" | "APPROVED" | "DECLINED" | "CANCELLED" | "EXPIRED" | "COUNTERED";
-  requestedAt: string;
-  expiresAt: string | null;
-  responseNote: string | null;
-  /** CP-3b — what this client proposed instead, once they have countered. */
-  counterAmount?: number | null;
-  counterNote?: string | null;
-  counterAt?: string | null;
-  property: { name: string; suburb: string } | null;
-  job: { id: string; jobType: string; scheduledDate: string; property: { name: string } } | null;
-};
+export type ApprovalsView = "waiting" | "history";
 
-function statusTone(status: ApprovalRow["status"]): "success" | "danger" | "warning" | "neutral" {
-  switch (status) {
-    case "APPROVED":
-      return "success";
-    case "DECLINED":
-      return "danger";
-    case "PENDING":
-    case "COUNTERED":
-      return "warning";
-    default:
-      return "neutral";
-  }
+export interface ClientApprovalsBoardProps {
+  view?: ApprovalsView;
+  /** Quotes waiting for a decision, read on the server; null when they could not be read. */
+  quotes?: QuoteWaiting[] | null;
 }
 
-/** "AIRBNB_TURNOVER" → "Airbnb turnover". */
-function sentenceCase(value: string) {
-  const words = value.replace(/_/g, " ").toLowerCase();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-function money(amount: number, currency: string) {
-  return `${currency} ${Number(amount).toFixed(2)}`;
-}
-
-const validDate = z.string().min(1).refine((value) => Number.isFinite(new Date(value).getTime()));
-const approvalSchema = z.object({
-  version: z.string().regex(/^[a-f0-9]{64}$/),
-  id: z.string().min(1), title: z.string(), description: z.string(),
-  amount: z.number().finite().nonnegative(), currency: z.string().min(1),
-  status: z.enum(["PENDING", "APPROVED", "DECLINED", "CANCELLED", "EXPIRED", "COUNTERED"]),
-  requestedAt: validDate, expiresAt: validDate.nullable(), responseNote: z.string().nullable(),
-  counterAmount: z.number().finite().nonnegative().nullish(),
-  counterNote: z.string().nullish(), counterAt: validDate.nullish(),
-  property: z.object({ name: z.string(), suburb: z.string() }).nullable(),
-  job: z.object({ id: z.string(), jobType: z.string(), scheduledDate: validDate,
-    property: z.object({ name: z.string() }) }).nullable(),
-}).refine((row) => row.status !== "COUNTERED" || row.counterAmount != null);
-const approvalsSchema = z.array(approvalSchema).refine((rows) => new Set(rows.map((row) => row.id)).size === rows.length);
-
-export function ClientApprovalsBoard() {
+export function ClientApprovalsBoard(props: ClientApprovalsBoardProps) {
   const { data: session, status } = useSession();
   if (status === "loading") return <p role="status">Loading approval requests...</p>;
   if (status !== "authenticated" || !session?.user?.id || session.user.role !== "CLIENT") {
@@ -87,149 +32,73 @@ export function ClientApprovalsBoard() {
   }
   const identity = JSON.stringify([session.user.id, session.user.role, session.impersonation?.actorId,
     session.impersonation?.mode, session.impersonation?.startedAt]);
-  return <SessionApprovalsBoard key={identity} />;
+  return <SessionApprovalsBoard key={identity} {...props} />;
 }
 
-function SessionApprovalsBoard() {
-  const [rows, setRows] = useState<ApprovalRow[]>([]);
-  const [hasSnapshot, setHasSnapshot] = useState(false);
-  const [stale, setStale] = useState(false);
-  const active = useRef(true);
-  const request = useRef<AbortController | null>(null);
-  const saving = useRef(false);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [noteById, setNoteById] = useState<Record<string, string>>({});
-  /** CP-3b — the amount the client is proposing, keyed by approval id. */
-  const [counterById, setCounterById] = useState<Record<string, string>>({});
-  const [errorById, setErrorById] = useState<Record<string, string>>({});
+function StatusBanners({ approvals }: { approvals: ClientApprovalsState }) {
+  const { stale, loadError, loading, hasSnapshot, savingId, reload } = approvals;
+  return (
+    <>
+      {stale ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <EInlineNotice tone="danger">Approval terms have changed. Refresh and review the updated terms before submitting another decision. Your notes have been preserved.</EInlineNotice>
+          <EButton variant="outline" className="min-h-11" disabled={loading || savingId !== null} onClick={() => void reload()}>
+            <RotateCw className="h-3.5 w-3.5" /> Refresh
+          </EButton>
+        </div>
+      ) : null}
+      {loadError ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <EInlineNotice tone="danger">{loadError}{hasSnapshot ? " Showing previously loaded approvals; this view may be incomplete or out of date." : ""}</EInlineNotice>
+          <EButton variant="outline" className="min-h-11" disabled={loading || savingId !== null} onClick={() => void reload()}>
+            <RotateCw className="h-3.5 w-3.5" /> {loading ? "Retrying..." : "Retry"}
+          </EButton>
+        </div>
+      ) : null}
+      {loading && hasSnapshot && !loadError ? <p role="status">Refreshing approvals; showing previously loaded requests...</p> : null}
+    </>
+  );
+}
 
-  const clearDenied = useCallback(() => {
-    if (!active.current) return;
-    setRows([]);
-    setHasSnapshot(false);
-    setNoteById({});
-    setCounterById({});
-    setErrorById({});
-    setLoadError("Approvals unavailable. Please retry.");
-  }, []);
-
-  const loadRows = useCallback(async () => {
-    if (!active.current) return;
-    request.current?.abort();
-    const controller = new AbortController();
-    request.current = controller;
-    setLoading(true);
-    try {
-      const res = await fetch("/api/client/approvals", { cache: "no-store", signal: controller.signal });
-      if ((res.status === 401 || res.status === 403) && !controller.signal.aborted && active.current) {
-        clearDenied();
-      }
-      if (!res.ok) throw new Error("Could not load approvals.");
-      const parsed = approvalsSchema.safeParse(await res.json());
-      if (!parsed.success) throw new Error("Invalid approvals response.");
-      if (controller.signal.aborted || !active.current) return;
-      setRows(parsed.data);
-      setStale(false);
-      setHasSnapshot(true);
-      setLoadError(null);
-    } catch {
-      if (!controller.signal.aborted && active.current) setLoadError("Approvals unavailable. Please retry.");
-    } finally {
-      if (!controller.signal.aborted && active.current) setLoading(false);
-    }
-  }, [clearDenied]);
-
-  useEffect(() => {
-    active.current = true;
-    void loadRows();
-    return () => {
-      active.current = false;
-      request.current?.abort();
-    };
-  }, [loadRows]);
-
-  async function respond(id: string, decision: "APPROVE" | "DECLINE") {
-    const row = rows.find((row) => row.id === id);
-    if (!active.current || saving.current || loading || loadError || stale || row?.status !== "PENDING") return;
-    saving.current = true;
-    setSavingId(id);
-    setErrorById((prev) => ({ ...prev, [id]: "" }));
-    try {
-      const res = await fetch(`/api/client/approvals/${encodeURIComponent(id)}/respond`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          decision,
-          expectedVersion: row.version,
-          responseNote: noteById[id]?.trim() || undefined,
-        }),
-      });
-      if (res.status === 401 || res.status === 403) { clearDenied(); return; }
-      const body = await res.json().catch(() => ({}));
-      if (res.status === 409 && body.code === "STALE_APPROVAL") {
-        if (active.current) setStale(true);
-        return;
-      }
-      if (!res.ok) throw new Error(body.error ?? "Could not submit your response.");
-      if (!active.current) return;
-      await loadRows();
-    } catch (err: any) {
-      if (active.current) setErrorById((prev) => ({ ...prev, [id]: err?.message ?? "Could not submit your response." }));
-    } finally {
-      saving.current = false;
-      if (active.current) setSavingId(null);
-    }
+function HistoryList({ rows }: { rows: ApprovalRow[] }) {
+  if (rows.length === 0) {
+    return <EEmptyState eyebrow="No history yet" title="No decisions recorded" description="Approved, declined and expired requests appear here." />;
   }
+  return (
+    <ECard className="overflow-hidden">
+      <ul className="divide-y divide-[hsl(var(--e-border))]">
+        {rows.map((row) => (
+          <li key={row.id} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-[0.875rem] font-medium">{row.title}</p>
+              <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+                {sydneyDateTime(row.requestedAt, "d MMM yyyy")}{row.property ? ` · ${row.property.name}` : ""}
+              </p>
+              {row.responseNote ? (
+                <p className="mt-1 whitespace-pre-wrap text-[0.75rem] italic text-[hsl(var(--e-text-secondary))]">“{row.responseNote}”</p>
+              ) : null}
+            </div>
+            <div className="flex flex-col items-end gap-1.5">
+              <p className="e-numeral text-[0.9375rem]">{approvalMoney(row.amount, row.currency)}</p>
+              <EBadge tone={approvalStatusTone(row.status)} soft>{row.status.charAt(0) + row.status.slice(1).toLowerCase()}</EBadge>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </ECard>
+  );
+}
 
-  /**
-   * CP-3b — propose a different amount instead of a plain yes/no. The request's
-   * own amount is untouched server-side; the proposal rides alongside it so
-   * both numbers stay visible while admin decides.
-   */
-  async function counter(id: string) {
-    const row = rows.find((row) => row.id === id);
-    if (!active.current || saving.current || loading || loadError || stale || row?.status !== "PENDING") return;
-    const raw = counterById[id]?.trim();
-    const amount = Number(raw);
-    if (!raw || !Number.isFinite(amount) || amount < 0) {
-      setErrorById((prev) => ({ ...prev, [id]: "Enter the amount you want to propose." }));
-      return;
-    }
-    saving.current = true;
-    setSavingId(id);
-    setErrorById((prev) => ({ ...prev, [id]: "" }));
-    try {
-      const res = await fetch(`/api/client/approvals/${encodeURIComponent(id)}/counter`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount, expectedVersion: row.version, note: noteById[id]?.trim() || undefined }),
-      });
-      if (res.status === 401 || res.status === 403) { clearDenied(); return; }
-      const body = await res.json().catch(() => ({}));
-      if (res.status === 409 && body.code === "STALE_APPROVAL") {
-        if (active.current) setStale(true);
-        return;
-      }
-      if (!res.ok) throw new Error(body.error ?? "Could not send your counter-offer.");
-      if (!active.current) return;
-      setCounterById((prev) => ({ ...prev, [id]: "" }));
-      await loadRows();
-    } catch (err: any) {
-      if (active.current) setErrorById((prev) => ({ ...prev, [id]: err?.message ?? "Could not send your counter-offer." }));
-    } finally {
-      saving.current = false;
-      if (active.current) setSavingId(null);
-    }
-  }
-
-  // A COUNTERED row is still live: the client has answered, but the ball is
-  // with admin, so it stays out of history rather than looking settled.
+function SessionApprovalsBoard({ view = "waiting", quotes = [] }: ClientApprovalsBoardProps) {
+  const approvals = useClientApprovals();
+  const { rows, hasSnapshot, loading, loadError } = approvals;
+  // A COUNTERED row is still live: the ball is with the office, so it stays
+  // out of history rather than looking settled.
   const pending = rows.filter((row) => row.status === "PENDING" || row.status === "COUNTERED");
   const history = rows.filter((row) => row.status !== "PENDING" && row.status !== "COUNTERED");
-
-  const actionsDisabled = savingId !== null || loading || !!loadError || stale;
+  const quoteList = quotes ?? [];
+  const verified = hasSnapshot && !loading && !loadError && quotes !== null;
+  const waitingCount = verified ? pending.length + quoteList.length : undefined;
 
   if (loading && !hasSnapshot && !loadError) {
     return (
@@ -240,196 +109,34 @@ function SessionApprovalsBoard() {
   }
 
   return (
-    <div className="space-y-8">
-      {stale ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <EInlineNotice tone="danger">Approval terms have changed. Refresh and review the updated terms before submitting another decision. Your notes have been preserved.</EInlineNotice>
-          <EButton variant="outline" size="sm" disabled={loading || savingId !== null} onClick={loadRows}>
-            <RotateCw className="h-3.5 w-3.5" /> Refresh
-          </EButton>
-        </div>
-      ) : null}
-      {loadError ? (
-        <div className="flex items-center justify-between gap-3">
-          <EInlineNotice tone="danger">{loadError}{hasSnapshot ? " Showing previously loaded approvals; this view may be incomplete or out of date." : ""}</EInlineNotice>
-          <EButton variant="outline" size="sm" disabled={loading || savingId !== null} onClick={loadRows}>
-            <RotateCw className="h-3.5 w-3.5" /> {loading ? "Retrying..." : "Retry"}
-          </EButton>
-        </div>
-      ) : null}
-      {loading && hasSnapshot && !loadError ? <p role="status">Refreshing approvals; showing previously loaded requests...</p> : null}
+    <div className="space-y-4">
+      <SegmentLinks
+        label="Approval views"
+        activeKey={view}
+        links={[
+          { key: "waiting", label: "Waiting", href: "/v2/client/approvals", count: waitingCount },
+          { key: "history", label: "History", href: "/v2/client/approvals?view=history" },
+        ]}
+      />
+      <StatusBanners approvals={approvals} />
 
-      {/* Pending */}
-      {hasSnapshot ? <>
-      <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <EEyebrow>Awaiting your decision</EEyebrow>
-          <span className="e-numeral text-[0.9375rem] text-[hsl(var(--e-muted-foreground))]">
-            {loadError || loading ? "Unverified" : pending.length}
-          </span>
-        </div>
-
-        {pending.length === 0 ? (loadError || loading ? null : (
-          <EEmptyState
-            eyebrow="All clear"
-            title="Nothing awaiting approval"
-            description="Optional extras appear here before any work is billed to your account."
-          />
-        )) : (
-          pending.map((row) => (
-            <ECard key={row.id} variant="ceremony">
-              <ECardBody className="space-y-4 pt-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="e-display-sm">{row.title}</p>
-                    <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">
-                      {row.description || "No extra description provided."}
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                      <span>Requested {format(new Date(row.requestedAt), "d MMM yyyy HH:mm")}</span>
-                      {row.expiresAt ? (
-                        <span>Expires {format(new Date(row.expiresAt), "d MMM yyyy HH:mm")}</span>
-                      ) : null}
-                      {row.property ? <span>{row.property.name}</span> : null}
-                      {row.job ? (
-                        <span>
-                          {sentenceCase(row.job.jobType)} ·{" "}
-                          {format(new Date(row.job.scheduledDate), "d MMM yyyy")}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="e-numeral text-[1.5rem] leading-none">{money(row.amount, row.currency)}</p>
-                    <p className="mt-1 text-[0.6875rem] uppercase tracking-[0.14em] text-[hsl(var(--e-text-faint))]">
-                      if approved
-                    </p>
-                  </div>
-                </div>
-
-                <EThread />
-
-                {/* Already countered: the client has answered and it is with
-                    admin, so show what was proposed instead of offering the
-                    buttons again. */}
-                {row.status === "COUNTERED" ? (
-                  <EInlineNotice tone="info">
-                    You proposed {money(row.counterAmount ?? 0, row.currency)}
-                    {row.counterNote ? ` — "${row.counterNote}"` : ""}. We will come back to you.
-                  </EInlineNotice>
-                ) : (
-                <div className="space-y-2">
-                  <ELabel htmlFor={`approval-note-${row.id}`}>Optional note</ELabel>
-                  <ETextarea
-                    id={`approval-note-${row.id}`}
-                    value={noteById[row.id] ?? ""}
-                    onChange={(event) =>
-                      setNoteById((prev) => ({ ...prev, [row.id]: event.target.value }))
-                    }
-                    rows={2}
-                    placeholder="Add context for your decision…"
-                  />
-
-                  {/* CP-3b — propose a different figure rather than only
-                      accepting or refusing the one you were sent. */}
-                  <div className="flex flex-wrap items-end gap-2">
-                    <div className="min-w-[10rem] flex-1 space-y-1">
-                      <ELabel htmlFor={`approval-counter-${row.id}`}>
-                        Or propose a different amount ({row.currency})
-                      </ELabel>
-                      <EInput
-                        id={`approval-counter-${row.id}`}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        inputMode="decimal"
-                        value={counterById[row.id] ?? ""}
-                        onChange={(event) =>
-                          setCounterById((prev) => ({ ...prev, [row.id]: event.target.value }))
-                        }
-                        placeholder={String(row.amount)}
-                      />
-                    </div>
-                    <EButton
-                      variant="outline"
-                      size="sm"
-                      disabled={actionsDisabled || !(counterById[row.id] ?? "").trim()}
-                      onClick={() => counter(row.id)}
-                    >
-                      <Send className="h-3.5 w-3.5" /> Send counter-offer
-                    </EButton>
-                  </div>
-
-                  {errorById[row.id] ? (
-                    <EInlineNotice tone="danger">{errorById[row.id]}</EInlineNotice>
-                  ) : null}
-                  <div className="flex flex-wrap justify-end gap-2 pt-1">
-                    <EButton
-                      variant="outline"
-                      size="sm"
-                      disabled={actionsDisabled}
-                      onClick={() => respond(row.id, "DECLINE")}
-                    >
-                      <X className="h-3.5 w-3.5" /> Decline
-                    </EButton>
-                    <EButton
-                      variant="gold"
-                      size="sm"
-                      disabled={actionsDisabled}
-                      onClick={() => respond(row.id, "APPROVE")}
-                    >
-                      {savingId === row.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Check className="h-3.5 w-3.5" />
-                      )}
-                      Approve
-                    </EButton>
-                  </div>
-                </div>
-                )}
-              </ECardBody>
-            </ECard>
-          ))
-        )}
-      </section>
-
-      {/* History */}
-      {history.length > 0 ? (
-        <section className="space-y-3">
-          <EEyebrow>History</EEyebrow>
-          <ECard>
-            <ECardBody className="space-y-1 pt-5">
-              {history.map((row, i) => (
-                <div key={row.id}>
-                  {i > 0 ? <EThread className="my-1" /> : null}
-                  <div className="flex flex-wrap items-start justify-between gap-3 py-2">
-                    <div className="min-w-0">
-                      <p className="text-[0.875rem] font-medium">{row.title}</p>
-                      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                        {format(new Date(row.requestedAt), "d MMM yyyy")}
-                        {row.property ? ` · ${row.property.name}` : ""}
-                      </p>
-                      {row.responseNote ? (
-                        <p className="mt-1 whitespace-pre-wrap text-[0.75rem] italic text-[hsl(var(--e-text-secondary))]">
-                          “{row.responseNote}”
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-col items-end gap-1.5">
-                      <p className="e-numeral text-[0.9375rem]">{money(row.amount, row.currency)}</p>
-                      <EBadge tone={statusTone(row.status)} soft>
-                        {row.status.charAt(0) + row.status.slice(1).toLowerCase()}
-                      </EBadge>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </ECardBody>
-          </ECard>
+      {hasSnapshot && view === "waiting" ? (
+        <section aria-label="Waiting for your decision" className="space-y-3">
+          {!verified ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Waiting count unverified.</p> : null}
+          {pending.map((row) => <ApprovalCard key={row.id} row={row} approvals={approvals} />)}
+          {quotes === null ? <EInlineNotice tone="danger">Quotes waiting for a decision could not be loaded. Open My quotes to check.</EInlineNotice> : null}
+          {quoteList.map((quote) => <QuoteDecisionCard key={quote.id} quote={quote} />)}
+          {verified && pending.length === 0 && quoteList.length === 0 ? (
+            <EEmptyState eyebrow="All clear" title="Nothing awaiting approval" description="Optional extras and quotes appear here before anything is billed to your account." />
+          ) : null}
         </section>
       ) : null}
-      </> : null}
+      {hasSnapshot && view === "history" ? <HistoryList rows={history} /> : null}
+
+      <p className="flex gap-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+        <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+        <span>Nothing optional is billed until you approve it here.</span>
+      </p>
     </div>
   );
 }

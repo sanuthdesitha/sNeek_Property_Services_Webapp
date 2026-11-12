@@ -302,6 +302,16 @@ export function waitingLabel(ms: number | null): string {
   return `${Math.floor(hours / 24)} d`;
 }
 
+/** "2 days", "3 hours", "12 minutes" for the panel's eyebrow. */
+export function waitingLong(ms: number | null): string {
+  if (ms == null) return "unknown time";
+  const hours = Math.floor(ms / 3_600_000);
+  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+  if (hours < 1) return plural(Math.max(1, Math.floor(ms / 60_000)), "minute");
+  if (hours < 24) return plural(hours, "hour");
+  return plural(Math.floor(hours / 24), "day");
+}
+
 export const DAY_MS = 86_400_000;
 
 export type WaitingOrder = "oldest" | "newest";
