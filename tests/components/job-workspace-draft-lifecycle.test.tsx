@@ -112,6 +112,7 @@ beforeEach(() => {
     if (url === "/api/jobs/job/form" && method === "GET") return formResponses.shift() ?? Promise.resolve(json(form(currentStatus)));
     if (url === "/api/cleaner/jobs/job/briefing" && method === "GET") return Promise.resolve(json({}));
     if (url === "/api/cleaner/property-access/property" && method === "GET") return Promise.resolve(json({}));
+    if (url === "/api/cleaner/jobs/job/form-validation" && method === "GET") return Promise.resolve(json({ enforceExtended: false }));
     if (url === "/api/cleaner/jobs/job/draft") {
       if (method === "GET") return readDraft();
       if (method === "DELETE") return Promise.resolve(json({ ok: true }));
