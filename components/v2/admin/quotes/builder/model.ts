@@ -243,6 +243,7 @@ export function buildEditSeed(editQuote: QuoteEditSeed, pricingVariables: Pricin
     refImages: editQuote.referenceImages ?? [],
     showAddOnPrices: Boolean(editQuote.showAddOnPrices),
     notes: stripNotesMeta(editQuote.notes),
+    internalNotes: editQuote.internalNotes ?? "",
     validUntilDate: editQuote.validUntil ? editQuote.validUntil.slice(0, 10) : "",
     editOverride: editChecklistFromMeta(meta),
     quoteHeading: typeof meta?.quoteHeading === "string" ? meta.quoteHeading : "",

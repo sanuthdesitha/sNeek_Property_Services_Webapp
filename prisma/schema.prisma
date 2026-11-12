@@ -3206,6 +3206,10 @@ model Quote {
   gstAmount       Float
   totalAmount     Float
   notes           String?     @db.Text
+  /// Office notes the client never sees: not in the public quote page, the
+  /// PDF, emails, the client portal or any client API. Edited on the admin
+  /// quote page; every change is audited (QUOTE_INTERNAL_NOTES_UPDATED).
+  internalNotes   String?     @db.Text
   validUntil      DateTime?
   status          QuoteStatus @default(DRAFT)
   convertedJobId  String?

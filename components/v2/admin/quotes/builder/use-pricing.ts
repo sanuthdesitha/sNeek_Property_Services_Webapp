@@ -220,6 +220,8 @@ export function useQuotePricing({ seed, services, pricingVariables, gstEnabled, 
     serviceContext, selectedExtraDetails, extraLines, variableLineItems, allLines, totals,
     pricing, autoPrice, pricingSource,
     appliedDiscount, clearDiscount: () => setAppliedDiscount(null), seededHadDiscount: seededHadDiscount.current,
+    /** After a save without a page reload: whether the stored quote now carries a discount (decides "clear" next time). */
+    setSavedHadDiscount: (value: boolean) => { seededHadDiscount.current = value; },
     couponInput, setCouponInput, manualDiscountInput, setManualDiscountInput, discountBusy, applyCoupon, applyManualDiscount,
   };
 }

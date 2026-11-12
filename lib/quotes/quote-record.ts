@@ -30,6 +30,8 @@ export interface QuoteEditSeed {
   discountCode?: string | null;
   /** Raw notes including any [[META:{…}]] block. */
   notes: string;
+  /** Office notes the client never sees (Quote.internalNotes). */
+  internalNotes?: string;
   /** ISO string or null. */
   validUntil: string | null;
 }
@@ -44,6 +46,8 @@ export type QuoteSnapshot = {
   gstAmount: number;
   totalAmount: number;
   notes: string;
+  /** Office notes the client never sees; "" when there are none. */
+  internalNotes: string;
   validUntil: string | null;
   createdAt: string;
   updatedAt: string;
@@ -79,6 +83,7 @@ export type QuoteRecordInput = {
   gstAmount?: unknown;
   totalAmount?: unknown;
   notes?: string | null;
+  internalNotes?: string | null;
   validUntil?: DateLike;
   createdAt?: DateLike;
   updatedAt?: DateLike;
@@ -169,6 +174,7 @@ export function snapshotFromRecord(record: QuoteRecordInput, fallbackParties?: {
     gstAmount: Number(record.gstAmount ?? 0),
     totalAmount: Number(record.totalAmount ?? 0),
     notes: record.notes ?? "",
+    internalNotes: typeof record.internalNotes === "string" ? record.internalNotes : "",
     validUntil: iso(record.validUntil),
     createdAt: iso(record.createdAt) ?? new Date(0).toISOString(),
     updatedAt: iso(record.updatedAt) ?? iso(record.createdAt) ?? new Date(0).toISOString(),
@@ -210,6 +216,7 @@ export function editSeedFromSnapshot(snapshot: QuoteSnapshot): QuoteEditSeed {
     lineItems: snapshot.lineItems,
     discountCode: snapshot.discountCode,
     notes: snapshot.notes,
+    internalNotes: snapshot.internalNotes,
     validUntil: snapshot.validUntil,
   };
 }

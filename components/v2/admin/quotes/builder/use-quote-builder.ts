@@ -8,13 +8,17 @@
  * (`POST /api/admin/quotes`) and save (`PATCH /api/admin/quotes/[id]`) bodies,
  * each followed by the discount route for the staged discount.
  *
- * Saves are explicit: the quote PATCH has no stale-write guard, so the page
- * does not autosave. `dirty` compares the save body with the last saved one.
+ * Create is explicit (`save()`). On a saved quote the page's autosave hook
+ * (`../full/use-quote-autosave.ts`) sends `saveRequest()` with the stale-write
+ * token and calls `markSaved` with the body that landed. `dirty` compares the
+ * current edit body with the last saved one, so edits typed while a save is in
+ * flight stay dirty and are saved next (newest wins).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PricingVariable } from "@/lib/pricing/variables";
 import type { CaseQuotePrefill } from "@/lib/cases/repair-quote";
 import type { QuoteEditSeed } from "@/lib/quotes/quote-record";
+import { quoteDraftProblem } from "@/lib/quotes/quote-autosave";
 import { buildEditSeed, type ClientOption, type LeadOption, type NewLeadDraft, type RecipientMode, type ReferenceImage, type ServiceOption } from "./model";
 import { buildCreatePayload, buildEditPatch, buildQuoteMeta, discountRequestBody, type BuilderPayloadInput } from "./payload";
 import { useQuotePricing } from "./use-pricing";
@@ -34,6 +38,17 @@ export type QuoteBuilderOptions = {
 };
 
 export type SaveResult = { ok: true; quoteId: string; marginWarning?: string | null; discountError?: string | null } | { ok: false; error: string };
+
+/** One edit save, captured at the moment it is sent. */
+export type QuoteSaveRequest = {
+  /** The dirty-tracking key of exactly this body (becomes the baseline once saved). */
+  key: string;
+  patch: ReturnType<typeof buildEditPatch>;
+  /** Discount-route body, or null to leave the stored discount alone. */
+  discount: Record<string, unknown> | null;
+  /** Whether the stored quote carries a discount once this save has landed. */
+  hadDiscountAfter: boolean;
+};
 
 async function readJson(res: Response): Promise<Record<string, unknown>> {
   return (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -65,6 +80,7 @@ export function useQuoteBuilder(options: QuoteBuilderOptions) {
   const [serviceAddress, setServiceAddress] = useState(seed?.serviceAddress ?? casePrefill?.property?.address ?? "");
   const [serviceSuburb, setServiceSuburb] = useState(seed?.serviceSuburb ?? casePrefill?.property?.suburb ?? "");
   const [notes, setNotes] = useState(seed?.notes ?? casePrefill?.description ?? "");
+  const [internalNotes, setInternalNotes] = useState(seed?.internalNotes ?? "");
   const [notesTouched, setNotesTouched] = useState(isEdit || Boolean(casePrefill));
   const [validUntilDate, setValidUntilDate] = useState(seed?.validUntilDate ?? "");
   const [quoteHeading, setQuoteHeading] = useState(seed?.quoteHeading ?? casePrefill?.title ?? "");
@@ -147,6 +163,7 @@ export function useQuoteBuilder(options: QuoteBuilderOptions) {
     totals: pricing.totals,
     validUntilDate,
     fromCaseId: casePrefill?.caseId,
+    internalNotes,
   };
 
   // Dirty tracking (edit mode): the save body plus the staged discount,
@@ -157,6 +174,32 @@ export function useQuoteBuilder(options: QuoteBuilderOptions) {
     if (baseline.current === null && !checklist.loading) baseline.current = currentKey;
   }, [checklist.loading, currentKey]);
   const dirty = isEdit && baseline.current !== null && baseline.current !== currentKey;
+  const baselineReady = baseline.current !== null;
+
+  const draftProblem = quoteDraftProblem({
+    lines: pricing.allLines,
+    subtotal: pricing.totals.subtotal,
+    validUntilDate,
+    recipientMode,
+    clientId,
+    storedHasClient: Boolean(editQuote?.clientId),
+  });
+
+  /** The edit save for the current draft (edit mode). */
+  function saveRequest(): QuoteSaveRequest {
+    return {
+      key: currentKey,
+      patch: buildEditPatch(payloadInput),
+      discount: discountRequestBody(pricing.appliedDiscount, pricing.seededHadDiscount),
+      hadDiscountAfter: Boolean(pricing.appliedDiscount),
+    };
+  }
+
+  /** A save of `request` landed: it is the new baseline (later edits stay dirty). */
+  function markSaved(request: QuoteSaveRequest) {
+    baseline.current = request.key;
+    pricing.setSavedHadDiscount(request.hadDiscountAfter);
+  }
 
   function pricingProblem(): string | null {
     return pricing.allLines.length === 0 || pricing.totals.subtotal <= 0 ? "Calculate from the rate card, add line items, or pick extras." : null;
@@ -175,19 +218,22 @@ export function useQuoteBuilder(options: QuoteBuilderOptions) {
     }
   }
 
-  /** Create (new page) or save (existing quote). Fields stay frozen while it runs; drafts survive a failure. */
+  /**
+   * Create the quote (new page only; a saved quote saves through the page's
+   * autosave hook with the stale-write token). Fields stay frozen while it
+   * runs; drafts survive a failure.
+   */
   async function save(): Promise<SaveResult> {
-    if (!isEdit && !recipientValid()) return { ok: false, error: "Choose a recipient: select a client or lead, or enter the new lead's name and email." };
+    if (editQuote) return { ok: false, error: "This quote is already created; its changes save on their own." };
+    if (!recipientValid()) return { ok: false, error: "Choose a recipient: select a client or lead, or enter the new lead's name and email." };
     const problem = pricingProblem();
     if (problem) return { ok: false, error: problem };
     setSaving(true);
     try {
-      const res = editQuote
-        ? await fetch(`/api/admin/quotes/${editQuote.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildEditPatch(payloadInput)) })
-        : await fetch("/api/admin/quotes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildCreatePayload(payloadInput)) });
+      const res = await fetch("/api/admin/quotes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buildCreatePayload(payloadInput)) });
       const data = await readJson(res);
       if (!res.ok) return { ok: false, error: typeof data.error === "string" ? data.error : "Could not save the quote." };
-      const quoteId = editQuote?.id ?? String(data.id);
+      const quoteId = String(data.id);
       const discountError = await applyDiscount(quoteId);
       baseline.current = currentKey;
       return { ok: true, quoteId, marginWarning: typeof data.marginWarning === "string" ? data.marginWarning : null, discountError };
@@ -203,10 +249,11 @@ export function useQuoteBuilder(options: QuoteBuilderOptions) {
     recipientMode, setRecipientMode, clientId, applyClient, leadId, applyLead, newLead, setNewLead, recipientEmail, setRecipientEmail,
     frequency, setFrequency, serviceAddress, setServiceAddress, serviceSuburb, setServiceSuburb,
     notes, setNotes: (value: string) => { setNotesTouched(true); setNotes(value); },
+    internalNotes, setInternalNotes,
     regenerateNotes: () => { setNotesTouched(false); setNotes(buildAutoNotes()); },
     validUntilDate, setValidUntilDate, quoteHeading, setQuoteHeading, emailSubject, setEmailSubject, emailMessage, setEmailMessage,
     refImages, setRefImages, showAddOnPrices, setShowAddOnPrices,
-    payloadInput, pricingProblem, dirty, saving, save,
+    payloadInput, pricingProblem, dirty, baselineReady, draftProblem, saving, save, saveRequest, markSaved,
   };
 }
 

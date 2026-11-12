@@ -121,6 +121,8 @@ export const createQuoteSchema = z.object({
   gstAmount: z.number(),
   totalAmount: z.number(),
   notes: z.string().optional(),
+  // Office notes the client never sees (Quote.internalNotes).
+  internalNotes: z.string().trim().max(10_000).optional(),
   validUntil: z.string().datetime().optional(),
   // Pricing-variable selections chosen in the builder (variable id → option id
   // / quantity / boolean / free-typed custom value). Snapshotted on the quote.

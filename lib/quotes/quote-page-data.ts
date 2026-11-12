@@ -59,7 +59,7 @@ export async function loadQuoteSnapshot(id: string): Promise<QuoteSnapshot | nul
     .findUnique({
       where: { id },
       select: {
-        id: true, quoteNumber: true, status: true, serviceType: true, subtotal: true, gstAmount: true, totalAmount: true, notes: true, validUntil: true,
+        id: true, quoteNumber: true, status: true, serviceType: true, subtotal: true, gstAmount: true, totalAmount: true, notes: true, internalNotes: true, validUntil: true,
         createdAt: true, updatedAt: true, clientId: true, leadId: true, publicToken: true, showAddOnPrices: true, viewedAt: true,
         acceptedAt: true, convertedJobId: true, referenceImages: true, serviceContext: true, frequency: true, serviceAddress: true,
         serviceSuburb: true, requestedAddOns: true, discountCode: true, lineItems: true,

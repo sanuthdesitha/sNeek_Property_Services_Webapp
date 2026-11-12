@@ -104,6 +104,8 @@ export type BuilderPayloadInput = {
   totals: GstBreakdown;
   validUntilDate: string;
   fromCaseId?: string;
+  /** Office notes the client never sees; omitted from the body when undefined. */
+  internalNotes?: string;
 };
 
 function notesWithMeta(input: BuilderPayloadInput): string {
@@ -146,6 +148,7 @@ export function buildCreatePayload(input: BuilderPayloadInput) {
     notes: notesWithMeta(input) || undefined,
     validUntil: validUntilIso(input.validUntilDate) ?? undefined,
     fromCaseId: input.fromCaseId,
+    ...(input.internalNotes?.trim() ? { internalNotes: input.internalNotes.trim() } : {}),
   };
 }
 
@@ -166,6 +169,7 @@ export function buildEditPatch(input: BuilderPayloadInput) {
     referenceImages: input.refImages.length > 0 ? referenceImagesBody(input.refImages) : null,
     showAddOnPrices: input.showAddOnPrices,
     validUntil: validUntilIso(input.validUntilDate),
+    ...(input.internalNotes !== undefined ? { internalNotes: input.internalNotes.trim() || null } : {}),
   };
 }
 
