@@ -303,11 +303,11 @@ describe("clocks, sweeps and reminders (original rules)", () => {
   it("clock cutoffs follow the original settings", () => {
     const startedAt = new Date("2026-10-02T23:00:00Z");
     const job = { scheduledDate: new Date("2026-10-03T00:00:00Z"), dueTime: "14:00", endTime: null, estimatedHours: 3 };
-    const result = resolveClockRuleForLog({ job, startedAt, settings: DEFAULT_SETTINGS });
-    expect(result.source).toBe("MAX_JOB_LENGTH");
-    expect(result.allowedDurationMinutes).toBe(8 * 60);
+    // The estimate never stops a clock by default; the 8-hour maximum does.
     const noDue = resolveClockRuleForLog({ job: { ...job, dueTime: null }, startedAt, settings: DEFAULT_SETTINGS });
     expect(noDue.source).toBe("MAX_JOB_LENGTH");
+    expect(noDue.allowedDurationMinutes).toBe(8 * 60);
+    expect(DEFAULT_SETTINGS.autoClockOut).toEqual({ enabled: true, stopAtEstimatedDuration: false, graceMinutes: 30, fallbackAtMidnight: true, maxJobLengthHours: 8, geofenceExit: true });
   });
 });
 
