@@ -1678,3 +1678,30 @@ Owner decision: design B, the tinted title band, colour set 1 "Honey and wine". 
 - Tests run and passing: `tsc --noEmit -p .` clean; new `tests/components/tone-band.test.tsx` (10) and `tests/lib/no-left-accent-lines.test.ts` (2); `tests/lib/server-client-value-imports.test.ts`; 40 existing test files that render the changed components (453 tests). No existing test asserted the old left-border classes.
 - Not run (as instructed): production build, full suite, browser pass at 390/1280 light/dark, so the band rendering is not visually confirmed. Deployment not verified.
 - Note: the working tree was snapshotted by another session into WIP commits (`ff63e0f`, `fe8815b`) that mix this change with the pay-request fix; this change itself was not committed by its author.
+
+## Cleaner pay is the requested amount (2026-11-13)
+
+Owner rule: once the client approves a charge (or a counter-offer) at a different amount, the cleaner is still paid what they requested. Details: `docs/SYSTEM.md`, "Cleaner pay is the requested amount, not the client charge (owner rule, 2026-11-13)". No schema change, no migration.
+
+- Before: `lib/pay-adjustments/display.ts` made the client approval's amount the `primaryDisplayAmount`, which pre-filled the Approvals panel and one-click Approve (`lib/admin/approvals/rows.ts` `payAskedAmount`), bulk "Approve as asked" (`lib/admin/approvals/bulk.ts`, including its `expectedAmounts` check), Finance › Pay adjustments and the classic workspace. The PATCH route stored whatever amount it was sent. No automatic approval existed.
+- Now: requested amount everywhere; client charge read only beside the field; server default = requested; above request = administrator override with reason only, audited `PAY_ADJUSTMENT_PAID_ABOVE_REQUEST`; same rule on Decided › Change amount; client approval records only read; cleaner surfaces never read them.
+- Existing approved or paid records were not changed. Review (read only): `npx tsx scripts/review-paid-above-request.ts`, Approvals › Decided › "Paid above request", or in production:
+
+```sql
+SELECT a."id", u."email" AS "cleanerEmail", a."title", a."requestedAmount", a."approvedAmount", a."reviewedAt"
+FROM "CleanerPayAdjustment" a
+JOIN "User" u ON u."id" = a."cleanerId"
+WHERE a."status" = 'APPROVED'
+  AND a."includedInPayrollRunId" IS NULL
+  AND a."includedInCleanerInvoiceId" IS NULL
+  AND a."approvedAmount" IS NOT NULL
+  AND ROUND(a."approvedAmount"::numeric, 2) > ROUND(a."requestedAmount"::numeric, 2)
+  AND (a."source" IS NULL OR a."source" NOT IN ('QA_RECTIFICATION_PAY', 'RECTIFICATION_DEDUCTION', 'REWORK_DEDUCTION', 'STREAK_5', 'STREAK_10', 'MONTHLY_RANK_1', 'MONTHLY_RANK_2'))
+ORDER BY a."reviewedAt" DESC NULLS LAST, a."id";
+```
+
+- Fixture result: the query returned 0 rows on `sneek_ui` and `sneek_review_test` (both hold no pay requests), so it was exercised on real data only through `tests/db/cleaner-pay-requested-amount.test.ts`. Production count not run (no production access).
+- Also: the cleaner Pay requests "From the office" note now uses `toneNoticeClass("attention")`; the pending entry above is closed and removed from the scan allowlist.
+- Known and not changed: an office user may still edit a request's requested amount (the "full edit" of the request, audited `EDIT_PAY_ADJUSTMENT`) and then approve up to it; the Decided tab Change amount dialog has no override control, so an administrator above-request correction is made from the decision panel or Finance (the server accepts `overrideAboveRequest` there).
+- Tests run and passing: `tsc --noEmit -p .` clean; the new and changed files listed in SYSTEM.md; every existing test file mentioning pay adjustments, pay requests, extra pay, approvals or client approvals (68 files) plus `tests/lib/server-client-value-imports.test.ts`, `tests/lib/no-left-accent-lines.test.ts`, `tests/components/tone-band.test.tsx`; the DB test on a fresh disposable `sneek_payrule_test` (migrate deploy applied all, `migrate diff --exit-code` no difference).
+- Not run (as instructed): production build, full suite, browser pass at 390/1280 light/dark. Deployment not verified.
