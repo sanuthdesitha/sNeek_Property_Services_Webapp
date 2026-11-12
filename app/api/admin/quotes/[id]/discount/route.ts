@@ -98,7 +98,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     // Strip any existing discount line(s) — a discount is the negative-total line.
-    const positiveLines = parseLineItems(quote.lineItems).filter((li) => li.total >= 0);
+    const storedLines = parseLineItems(quote.lineItems);
+    const previousDiscount = storedLines.filter((li) => li.total < 0).map((li) => `${li.label}|${round2(li.total)}`).join(";");
+    const positiveLines = storedLines.filter((li) => li.total >= 0);
     const positiveSubtotal = round2(positiveLines.reduce((s, li) => s + (Number(li.total) || 0), 0));
 
     let discountAmount = 0;
@@ -144,7 +146,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Usage accounting: move the count off the old coupon and onto the new one.
     await adjustCouponUsage(quote.discountCode, newCode);
 
-    await db.quote.update({
+    const saved = await db.quote.update({
       where: { id: quote.id },
       data: {
         lineItems: lineItems as unknown as object,
@@ -153,16 +155,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         totalAmount: totals.totalAmount,
         discountCode: newCode,
       },
+      select: { updatedAt: true },
     });
 
-    await recordQuoteEvent(quote.id, "NOTE", {
-      note: body.clear
-        ? "Removed discount from quote"
-        : `Applied ${discountLabel} (−$${discountAmount.toFixed(2)})`,
-    });
+    // The quote page re-applies the staged discount after every save (its
+    // PATCH rewrites the lines without it); only a real change is a timeline
+    // event, so an autosave does not repeat "Applied discount" each time.
+    const nextDiscount = discountAmount > 0 && discountLabel ? `${discountLabel}|${round2(-discountAmount)}` : "";
+    if (nextDiscount !== previousDiscount || newCode !== quote.discountCode) {
+      await recordQuoteEvent(quote.id, "NOTE", {
+        note: body.clear
+          ? "Removed discount from quote"
+          : `Applied ${discountLabel} (−$${discountAmount.toFixed(2)})`,
+      });
+    }
 
     return NextResponse.json({
       ok: true,
+      // The new version token, for a caller that sends expectedUpdatedAt next.
+      updatedAt: saved.updatedAt.toISOString(),
       subtotal: totals.subtotal,
       gstAmount: totals.gstAmount,
       totalAmount: totals.totalAmount,
