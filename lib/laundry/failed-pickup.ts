@@ -44,13 +44,13 @@ export async function recordFailedPickup(input: { taskId: string; actorId: strin
     await tx.auditLog.create({ data: { userId: input.actorId, jobId: task.jobId, action: reschedule ? "LAUNDRY_FAILED_PICKUP_RESCHEDULED" : "LAUNDRY_FAILED_PICKUP_APPROVAL_REQUESTED", entity: "LaundryTask", entityId: task.id,
       before: { status: task.status, pickupDate: task.pickupDate.toISOString() }, after: { status: after.status, reason, ...(reschedule ? { pickupDate: date!.toISOString() } : { requestedAction: input.requestedAction }), ...(input.photoKey ? { failurePhotoKey: input.photoKey } : {}) } } });
     const recipients = await tx.user.findMany({ where: { role: { in: [Role.ADMIN, Role.OPS_MANAGER] }, isActive: true, id: { not: input.actorId } }, select: { id: true, role: true } });
-    const notice = wording.render(reschedule ? "rescheduled" : "approval", "INBOX", { propertyName: property?.name ?? task.property.name, action: input.requestedAction?.toLowerCase() });
+    const notice = () => wording.render(reschedule ? "rescheduled" : "approval", "INBOX", { propertyName: property?.name ?? task.property.name, action: input.requestedAction?.toLowerCase() });
     for (const recipient of recipients) await enqueueNotificationIntent(tx, {
       version: 1, eventId: confirmation.id, eventKey: "laundry.failed_pickup", entity: { type: "LaundryTask", id: task.id },
       actorId: input.actorId, recipient: { userId: recipient.id, role: recipient.role, scope: { kind: "ADMIN_OPERATIONS" } },
       severity: "ACTION", transport: "INBOX", jobId: task.jobId,
-      subject: notice.title,
-      body: notice.body,
+      subject: notice().title,
+      body: notice().body,
     });
     return { ...updated, notificationStatus: recipients.length ? "QUEUED" as const : "NO_RECIPIENTS" as const };
   });

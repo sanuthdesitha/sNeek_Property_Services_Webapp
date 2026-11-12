@@ -104,12 +104,16 @@ describe("send test to me", () => {
     expect(response.status).toBe(200);
     const call = m.office.mock.calls[0][0];
     expect(call.recipients).toEqual([{ id: "admin-1", role: "ADMIN", name: "Me", email: "me@example.invalid" }]);
-    expect(call).toMatchObject({ scopeType: "STAFF_MEMBER", eventKey: "notification.test", subject: "[Test] Unfinished job reminder (Send reminder)", transports: ["PUSH", "EMAIL"] });
+    // Since the wording layer (2026-11) a test carries the type's live wording with sample data.
+    expect(call).toMatchObject({ scopeType: "STAFF_MEMBER", eventKey: "notification.test", subject: "[Test] Unfinished job reminder", transports: ["PUSH", "EMAIL"] });
+    expect(call.body).toContain("You have an unfinished job at Manly Loft");
+    expect(call.email(call.recipients[0]).subject).toBe("[Test] Reminder: unfinished job at Manly Loft (J-1061)");
     expect(call.scopeId(call.recipients[0])).toBe("admin-1");
   });
 
   it("refuses types without a test and malformed requests", async () => {
-    expect((await TEST_SEND(request({ typeKey: "account.security", transports: ["EMAIL"] }))).status).toBe(400);
+    // job.changed has no editable wording and no catalog test.
+    expect((await TEST_SEND(request({ typeKey: "job.changed", transports: ["EMAIL"] }))).status).toBe(400);
     expect((await TEST_SEND(request({ typeKey: "job.reminder.manual", transports: [] }))).status).toBe(400);
     expect(m.office).not.toHaveBeenCalled();
   });

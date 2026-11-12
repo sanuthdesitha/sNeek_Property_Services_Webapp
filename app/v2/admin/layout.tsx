@@ -39,7 +39,7 @@ const NAV: NavItem[] = [
   { href: "/v2/admin/laundry", label: "Laundry", icon: Shirt, group: "Operations" },
   { href: "/v2/admin/inventory", label: "Inventory", icon: Boxes, group: "Operations" },
 
-  { href: "/v2/admin/accounts", label: "Accounts", icon: Users, group: "People & property" },
+  { href: "/v2/admin/accounts", label: "People", icon: Users, group: "People & property" },
   { href: "/v2/admin/clients", label: "Clients", icon: Users, group: "People & property" },
   { href: "/v2/admin/cleaners", label: "Cleaners", icon: Sparkles, group: "People & property" },
   { href: "/v2/admin/workforce", label: "Workforce", icon: UsersRound, group: "People & property" },

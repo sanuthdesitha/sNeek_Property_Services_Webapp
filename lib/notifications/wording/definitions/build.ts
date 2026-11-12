@@ -28,15 +28,20 @@ export function linePart(id: string, label: string, transport: WordingTransport,
  * an edit made in Forms), so `defaults` stays empty here.
  */
 export function emailTemplatePart(id: string, label: string, key: AppEmailTemplateKey, required: readonly string[] = [], note?: string): WordingPartDefinition {
+  // Read lazily: modules (and tests) that never render this part need not load the template catalog.
   return {
     id,
     label,
     transport: "EMAIL",
     defaults: {},
-    variables: EMAIL_TEMPLATE_DEFINITIONS[key].variables,
+    get variables() {
+      return EMAIL_TEMPLATE_DEFINITIONS[key]?.variables ?? [];
+    },
     required,
     source: { kind: "EMAIL_TEMPLATE", key },
-    note: note ?? `Shared email template "${EMAIL_TEMPLATE_DEFINITIONS[key].label}" (also listed in Forms, Messages).`,
+    get note() {
+      return note ?? `Shared email template "${EMAIL_TEMPLATE_DEFINITIONS[key]?.label ?? key}" (also listed in Forms, Messages).`;
+    },
   };
 }
 
