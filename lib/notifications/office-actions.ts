@@ -182,15 +182,29 @@ export const laundryTeamRequestSchema = z.object({
   laundryTaskId: z.string().trim().min(1).max(200),
   kind: z.enum(LAUNDRY_TEAM_REQUEST_KINDS as [LaundryTeamRequestKind, ...LaundryTeamRequestKind[]]),
   note: z.string().trim().max(1000).optional(),
-  transports: transportsSchema,
+  /** Move pickup only: the later pickup time the office proposes (HH:mm). Never written to the run. */
+  proposedTime: z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  /**
+   * Laundry portal inbox alone (INBOX), inbox with phone and browser push
+   * (PUSH), and/or email to the team logins' addresses (EMAIL), as drawn.
+   */
+  transports: z.array(z.enum(["INBOX", "PUSH", "EMAIL"])).min(1).max(3),
   idempotencyKey: keySchema,
 }).strict();
+
+/** INBOX is contained in PUSH (the inbox row plus push), so asking for both sends PUSH once. */
+export function normalizeTeamTransports(transports: ReadonlyArray<"INBOX" | "PUSH" | "EMAIL">): Array<"INBOX" | "PUSH" | "EMAIL"> {
+  const set = new Set(transports);
+  if (set.has("PUSH")) set.delete("INBOX");
+  return (["INBOX", "PUSH", "EMAIL"] as const).filter((transport) => set.has(transport));
+}
 
 export const LAUNDRY_TEAM_REQUEST_ACTION = "LAUNDRY_TEAM_REQUEST_SENT";
 
 /** The wording part of each request kind (its title is the part's inbox title). */
 const TEAM_REQUEST_PARTS: Record<LaundryTeamRequestKind, string> = {
   TEAM_CONFIRM_PICKUP: "confirm-pickup",
+  TEAM_MOVE_PICKUP: "move-pickup",
   TEAM_CONFIRM_DROP: "confirm-drop",
   TEAM_RETURN_ETA: "return-eta",
   TEAM_PHOTO: "photo",
@@ -205,6 +219,19 @@ const TEAM_REQUEST_PARTS: Record<LaundryTeamRequestKind, string> = {
  * a supplier with no linked portal users is refused with the reason, so the
  * office uses Chase supplier. Same cool-down per run and kind as the nudges.
  */
+/** Who recorded the latest drop-off (the DROPPED event), if anyone. */
+function lastDropActorId(confirmations: ReadonlyArray<{ notes: string | null; confirmedById: string }>): string | null {
+  for (let index = confirmations.length - 1; index >= 0; index -= 1) {
+    try {
+      const meta = JSON.parse(confirmations[index].notes ?? "") as { event?: unknown };
+      if (meta?.event === "DROPPED") return confirmations[index].confirmedById;
+    } catch {
+      /* not an event row */
+    }
+  }
+  return null;
+}
+
 export async function sendLaundryTeamRequest(actorId: string, input: unknown, actorRole: OfficeActorRole | null = null): Promise<OfficeActionResult> {
   const request = laundryTeamRequestSchema.parse(input);
   const task = await db.laundryTask.findUnique({
@@ -214,7 +241,7 @@ export async function sendLaundryTeamRequest(actorId: string, input: unknown, ac
       supplier: { select: { id: true, name: true, avgTurnaround: true } },
       property: { select: { name: true, suburb: true, accessInfo: true, laundryEnabled: true } },
       job: { select: { status: true } },
-      confirmations: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { laundryReady: true, photoUrl: true, notes: true, createdAt: true } },
+      confirmations: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { laundryReady: true, photoUrl: true, notes: true, createdAt: true, confirmedById: true } },
     },
   });
   if (!task) throw new OfficeActionError(404, "Laundry run not found.");
@@ -232,8 +259,15 @@ export async function sendLaundryTeamRequest(actorId: string, input: unknown, ac
   }, sydneyTodayKey(now));
   if (!applicable.includes(request.kind)) throw new OfficeActionError(409, "This request no longer applies to the run. Reload the Pipeline.");
   const teams = await loadSupplierTeams([task.supplier.id]);
-  const team = teamForRun(teams, task.supplier.id, task.property);
-  if (!team.length) throw new OfficeActionError(409, `${task.supplier.name} has no laundry portal users who can see this property. Use Chase supplier instead.`);
+  const fullTeam = teamForRun(teams, task.supplier.id, task.property);
+  if (!fullTeam.length) throw new OfficeActionError(409, `${task.supplier.name} has no laundry portal users who can see this property. Use Chase supplier instead.`);
+  // A missing drop-off photo is asked of the team member who delivered, when
+  // they are on the run's team; otherwise the whole team (as before).
+  const delivererId = request.kind === "TEAM_PHOTO" ? lastDropActorId(task.confirmations) : null;
+  const deliverer = delivererId ? fullTeam.find((member) => member.id === delivererId) : undefined;
+  const team = deliverer ? [deliverer] : fullTeam;
+  if (request.proposedTime && request.kind !== "TEAM_MOVE_PICKUP") throw new OfficeActionError(400, "A proposed time only goes with Move pickup.");
+  const transports = normalizeTeamTransports(request.transports);
   await refuseWithinNudgeCoolDown(task.id, request.kind, request.idempotencyKey, LAUNDRY_TEAM_REQUEST_ACTION);
 
   const typeKey = "laundry.team_request";
@@ -242,7 +276,8 @@ export async function sendLaundryTeamRequest(actorId: string, input: unknown, ac
   const place = task.property?.suburb ? `${task.property.name} (${task.property.suburb})` : task.property?.name ?? "the property";
   const label = TEAM_REQUEST_LABELS[request.kind];
   const wording = await loadNotificationWording(typeKey);
-  const values = { laundryAsk: label.text, place, noteSuffix: wording.line("note-line", "INBOX", { note: request.note }, Boolean(request.note)) };
+  const askText = request.proposedTime ? `${label.text} Proposed pickup time: ${request.proposedTime}.` : label.text;
+  const values = { laundryAsk: askText, place, noteSuffix: wording.line("note-line", "INBOX", { note: request.note }, Boolean(request.note)) };
   const inbox = wording.render(TEAM_REQUEST_PARTS[request.kind], "INBOX", values);
   const body = inbox.body;
   const email = wording.render("team", "EMAIL", { place, messageText: body });
@@ -253,16 +288,17 @@ export async function sendLaundryTeamRequest(actorId: string, input: unknown, ac
     scopeType: "LAUNDRY_TASK_SUPPLIER_TEAM", scopeId: () => task.id,
     category: "laundry", severity: "ACTION", jobId: task.jobId,
     subject: inbox.title,
-    body, url: `/v2/laundry?request=${encodeURIComponent(task.id)}#office-requests`,
+    body, url: `/v2/laundry/requests?task=${encodeURIComponent(task.id)}`,
     email: () => ({ subject: email.subject, html: email.html }),
     emailKind: "admin_alert",
-    transports: request.transports, recipients,
+    transports, recipients,
     respectsPreferences: typeRespectsPreferences(controls, typeKey),
     disabledTransports: controls.disabledTransports[typeKey] ?? [],
   });
   const result = { outcomes, refused: [] };
   await audit(actorId, LAUNDRY_TEAM_REQUEST_ACTION, "LaundryTask", task.id, task.jobId, result, {
-    kind: request.kind, transports: request.transports, note: request.note ?? null, idempotencyKey: request.idempotencyKey ?? null,
+    kind: request.kind, transports, note: request.note ?? null, idempotencyKey: request.idempotencyKey ?? null,
+    proposedTime: request.proposedTime ?? null, toDeliverer: Boolean(deliverer),
     supplierId: task.supplier.id, actorRole, recipientIds: recipients.map((recipient) => recipient.id),
   });
   return result;

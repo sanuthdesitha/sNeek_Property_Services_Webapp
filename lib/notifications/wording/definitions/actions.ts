@@ -23,6 +23,7 @@ export const ACTION_WORDING: readonly TypeWordingDefinition[] = [
   ]),
   editable("laundry.team_request", [
     teamPart("confirm-pickup", "Confirm pickup", "Please confirm the laundry pickup"),
+    teamPart("move-pickup", "Move pickup", "Can you collect later today?"),
     teamPart("confirm-drop", "Confirm drop-off", "Please confirm the laundry drop-off"),
     teamPart("return-eta", "Return time", "When will the laundry be back?"),
     teamPart("photo", "Drop-off photo", "Drop-off photo requested"),
