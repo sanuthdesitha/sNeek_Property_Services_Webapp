@@ -1113,3 +1113,38 @@ Not verified
 - Production build, full Vitest suite, database tests and browser checks (Chromium 390/1280, light/dark, keyboard): Compare table overflow at 390px (it scrolls inside its card), the Import dialog, the table cards on a phone, the damage prompt inside the clean stage, the inline rename focus return, the enforcement card.
 - The classic `/cleaner/jobs/[id]` page does not render Table or Stock count controls (the v2 renderer does); a form using them should only be filled in the v2 cleaner app.
 - The raw SQL warning counts (`lib/forms/validation-warning-stats.ts`) were not run against a database.
+
+## Finance decisions (2026-11-12)
+
+Scope: owner decisions of 2026-11-11 (second set 2–6; third set 4, 6, 8) and two existing problems (Xero `offline_access`; classic cleaner-invoice screen). Details: `docs/SYSTEM.md`, "Finance decisions".
+
+Behaviour deliberately changed
+- The INVOICED job status alone no longer makes a job "invoiced" (Jobs filter, Not invoiced count, Ready to bill, generator, Money tab). Fully credited invoices stop billing their jobs.
+- Voiding / deleting a draft / fully crediting returns INVOICED jobs to their previous status (audit) or COMPLETED.
+- Voiding a credit note is refused when its invoice's work has since been billed on another live invoice.
+- A line on a VOID invoice no longer blocks job delete, QA reset or option reset; a line on a non-void invoice now also locks evidence in the option reset (before, only the INVOICED status did).
+- `sentAt` is the first send; re-sends go to `metadata.resentAt[]`. Past rows restamped by a re-send cannot be repaired.
+- Command's Money this month adds "Invoiced this month" (first row); the stats strip adds the same card.
+- Due dates use per-invoice terms (snapshot, else client terms, else default); overdue is resolved per invoice in SQL.
+- Insights revenue = invoiced (ex GST, net of credit notes) + not yet invoiced (scheduled charge), split shown; findings and CSV updated.
+- Finance summary excludes and flags cleans with no pay rate instead of costing them at $40/h. Pay itself is unchanged.
+- Xero-read payments send the client receipt; scheduled Xero rows show as "System: Xero sync (scheduled)"; `offline_access` requested.
+- Classic `/admin/cleaner-invoices` and `/admin/finance?tab=invoices` redirect to Invoices and pay.
+
+Migration verification (`20261112090000_finance_decisions`, PostgreSQL 16 on 127.0.0.1:55439)
+- Fresh: `createdb fin_fresh` → `DATABASE_URL=…/fin_fresh npx prisma migrate deploy` → "All migrations have been successfully applied."; repeated → "No pending migrations to apply."; `npx prisma migrate diff --from-url …/fin_fresh --to-schema-datamodel prisma/schema.prisma --exit-code` → "No difference detected." (exit 0). Repair record: count 0.
+- Existing `sneek_ui` (already at `20261111200000`; its own data had 0 INVOICED jobs and no invoices, so fixture clients, jobs, invoices in every status (DRAFT, APPROVED, SENT, PART_PAID, PAID, VOID), a full and a partial credit note were added first): md5 of every pre-existing column of Client, ClientInvoice, ClientInvoiceLine, of non-repaired Job rows (all columns) and of Job identity columns, before and after deploy → identical; index list md5 identical. Results: issued invoices (SENT/PART_PAID/PAID/VOID, incl. the sent credit note) got `paymentTermsDays = 14`, drafts/approved stayed null; the fully credited invoice got `creditedInFullAt`; 3 legacy jobs repaired (no line; only on VOID; only on the fully credited invoice); INVOICED jobs on SENT and DRAFT invoices unchanged. Repeat deploy → no pending; migrate diff → no difference (exit 0). The fixtures were deleted afterwards; the repair record row in `sneek_ui` still says count 3 (fixture ids).
+- Production count before deploy (works on the schema after the credit-notes migration):
+  `SELECT COUNT(*) FROM "Job" j WHERE j."status"::text='INVOICED' AND NOT EXISTS (SELECT 1 FROM "ClientInvoiceLine" l JOIN "ClientInvoice" i ON i."id"=l."invoiceId" WHERE l."jobId"=j."id" AND i."kind"::text='INVOICE' AND i."status"::text<>'VOID' AND NOT COALESCE((SELECT SUM(ABS(c."totalAmount"))>0.005 AND SUM(ABS(c."totalAmount"))+0.005>=i."totalAmount" FROM "ClientInvoice" c WHERE c."creditsInvoiceId"=i."id" AND c."kind"::text='CREDIT_NOTE' AND c."status"::text IN ('APPROVED','SENT')),false));`
+  If production does not yet have `ClientInvoice.kind` (credit-notes migration not deployed), use: `SELECT COUNT(*) FROM "Job" j WHERE j."status"::text='INVOICED' AND NOT EXISTS (SELECT 1 FROM "ClientInvoiceLine" l JOIN "ClientInvoice" i ON i."id"=l."invoiceId" WHERE l."jobId"=j."id" AND i."status"::text<>'VOID');`
+
+Checks run
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → clean at the end (earlier runs showed errors only in others' in-progress files: `lib/forms/structured-answers.ts`, `components/v2/admin/calendar/use-chip-drag.ts`, `lib/cleaner/submission-followups.ts`).
+- 256 existing and new test files covering invoices, billing, receivables, finance, insights, Xero, payroll, pay, delete/reset guards, jobs filters, clients, accounts, workers, notifications catalog, settings → 3,023 tests passed.
+- `tests/db` on the disposable `fin_fresh` database (`--no-file-parallelism`): 21 files passed incl. new `tests/db/finance-decisions.test.ts`; 1 skipped (its own condition); 1 failed: `tests/db/form-template-library.test.ts` (Forms, another engineer's in-progress area).
+- Tests updated because they encoded the old behaviour on purpose: `jobs-invoiced-rule`, `jobs-route-filters`, `jobs-view-presets` (INVOICED status no longer counts), `client-invoice-generation` (live-invoice recheck), `admin-invoices-list` (per-invoice overdue ids), `command-sections` (Invoiced this month row), `insights-csv-and-url` (revenue labels), `invoice-xero-payment-path` (system label and marker), `insights-page-access` (Email monthly state), `started-work-financial-boundary` and `invoice-step-c-xero-send` (send now stamps under a transaction), `worker-registration` (new job).
+
+Mocked only / not verified
+- Xero (offline_access, refresh, receipts, system marker) and every email: mocked providers only; nothing real was sent and nothing ran against Xero. The owner must reconnect Xero once after deploy.
+- Production build, full Vitest suite and browser checks (Client 360 Payment terms card, Settings → Monthly Insights email, Insights header, Finance stats strip at 5 cards, Accounts "No pay rate" chip, Xero reconnect alert; 390/1280, light/dark) were not run in this step.
+- The embedded web scheduler (`lib/ops/web-scheduler.ts`) does not run `insights-monthly-email` (nor `xero-invoice-sync`): a dedicated worker is needed for the monthly email.

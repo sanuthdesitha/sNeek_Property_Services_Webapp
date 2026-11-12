@@ -126,6 +126,8 @@ Today the page only manages the per-job client PDF and shows no figures.
 
 > **Built 2026-11-11, awaiting the final build and browser pass.** Delivered: Insights page and six tabs, `lib/insights/*` with one period helper on Quality's Sydney days, every figure as value + basis + excluded-with-reason (withheld below the minimum, no change without comparable data), four rule-based finding detectors with named thresholds and links, server-sorted/paged entity tables, Time and cost, CSV per tab, finance fields omitted server-side for operations managers without `finance`; PDFs tab with the laundry toggle, bulk visibility / regenerate / delete with per-row outcomes, shared delete confirmation, URL filters and legacy-link rule. Deviations: revenue is the scheduled charge (not invoiced money); "Email monthly" not built (no schedule or recipient store); without finance the property preview ranks by time over plan; the client filter is a select styled as the chip. Details: `docs/SYSTEM.md`, "Insights".
 
+> **Update 2026-11-12 (Finance decisions).** Revenue is now invoiced line totals (ex GST, net of credit notes) for invoiced cleans plus the scheduled charge for cleans not yet invoiced, shown as a split; days to pay and the slow-payer finding use per-invoice payment terms; "Email monthly" is built (Settings → Notifications → Monthly Insights email; header shows its state). Details: `docs/SYSTEM.md`, "Finance decisions".
+
 ### 2. Jobs
 
 - Split `jobs-workspace.tsx` (1,190 lines) into list, filters, bulk bar and peek panel.
@@ -264,12 +266,12 @@ Each of these would change a business rule, money, or who can see or do what, so
 | --- | --- | --- |
 | Job reminders are not on the notification pipeline | Jobs | Moving them needs cleaners as pipeline recipients, a phone-app transport, and the external-transport setting switched on in production; otherwise email reminders would silently stop |
 | Manual reminders ignore the recipient's notification preferences | Jobs | Should a manual reminder respect them? |
-| A line on a voided invoice still blocks deleting or resetting a job | Jobs | Should a voided invoice stop counting as a financial record for delete/reset? |
-| A job with status INVOICED but no live invoice line is treated as invoiced by the Jobs filter, while the generator would still bill it | Jobs / invoices | Which is right? |
-| Finance overview counts cleaner cost at a default pay rate when none is set | Finance / Insights | Insights excludes those cleans; should the overview do the same? |
-| Insights revenue uses today's rate card, so an old period's revenue moves when rates change | Insights | Switch to invoiced line totals as the fixed record? |
-| No per-client payment terms; the slow-payer finding uses the default for everyone | Insights | Add per-client terms? |
-| Monthly Insights email | Insights | Needs a schedule, a stored recipient and a settings entry; build it? |
+| A line on a voided invoice still blocks deleting or resetting a job | Jobs | Should a voided invoice stop counting as a financial record for delete/reset? — **Resolved 2026-11-12 (Finance decisions)**: no longer blocks (fully credited still does) |
+| A job with status INVOICED but no live invoice line is treated as invoiced by the Jobs filter, while the generator would still bill it | Jobs / invoices | Which is right? — **Resolved 2026-11-12 (Finance decisions)**: one rule, live invoice line only; legacy rows repaired by the migration |
+| Finance overview counts cleaner cost at a default pay rate when none is set | Finance / Insights | Insights excludes those cleans; should the overview do the same? — **Resolved 2026-11-12 (Finance decisions)**: excluded, counted, flagged (pay itself unchanged) |
+| Insights revenue uses today's rate card, so an old period's revenue moves when rates change | Insights | Switch to invoiced line totals as the fixed record? — **Resolved 2026-11-12 (Finance decisions)** |
+| No per-client payment terms; the slow-payer finding uses the default for everyone | Insights | Add per-client terms? — **Resolved 2026-11-12 (Finance decisions)**: built, snapshotted on issued invoices |
+| Monthly Insights email | Insights | Needs a schedule, a stored recipient and a settings entry; build it? — **Resolved 2026-11-12 (Finance decisions)**: built, off by default |
 | Credit notes are not allocated to the original invoice in Xero | Invoices | Left as a manual step in Xero |
 
 ## Owner decisions on the waiting items (2026-11-11, second set)
@@ -282,6 +284,8 @@ Each of these would change a business rule, money, or who can see or do what, so
 6. **Build:** per-client payment terms (used for due dates, overdue and the slow-payer finding) and the monthly Insights email (schedule, stored recipients, a settings entry, sent through the notification pipeline).
 
 Build order for these: a "Finance decisions" step (2 to 6, includes a migration for per-client terms and email settings) and a "Notifications in one place" step (1), each after the step currently holding the schema.
+
+**Status, items 2–6 (Finance decisions, 2026-11-12, uncommitted step, migration `20261112090000_finance_decisions`).** Done: one invoiced rule in `lib/invoicing/invoiced-job-rule.ts` (live = INVOICE, not VOID, not fully credited) used by the generator, Ready to bill, Jobs filter/count and Money tab; void, draft delete and full credit return INVOICED jobs to billable in the same transaction (audited); legacy INVOICED-without-live-line jobs returned to COMPLETED by the migration (count query for production in the review record). Voided lines no longer block delete/reset. Finance summary leaves out, counts and flags cleans with no pay rate (the default rate still applies to actual pay: payroll, cleaner invoices, payouts). Insights revenue = invoiced (ex GST, net of credit notes) + not yet invoiced (scheduled charge, labelled). Per-client terms with a snapshot on issued invoices; one due-date rule everywhere. Monthly Insights email (off by default). Not done: the embedded web scheduler does not run the monthly email (a dedicated worker is needed); browser checks pending. Details: `docs/SYSTEM.md`, "Finance decisions".
 
 **Status, item 1 (Notifications in one place, 2026-11-11, uncommitted step, no schema change).** Done: manual job reminders run on the notification pipeline (assigned-cleaner scope re-checked at dispatch; inbox intent explicitly declares the phone push; email and browser push fall back to the direct path while `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS` leaves them off, with a Health banner, so nothing stopped); a catalog of all 45 notification types with a completeness test; `/v2/admin/notifications` is the one area (Types, Delivery log, Health, Preferences) with a nav entry and a settings destination; server functions and routes for staff message, laundry cleaner nudge, client delay notice (ADMIN only) and guest message (ADMIN only) ready for buttons. The owner's "switch the needed transports on" was NOT done by code: switching the outbox transports on is a production env change (see SYSTEM.md, "Notifications in one place", operator note), and turning EMAIL on also releases any old queued low-stock email intents. Still waiting for the owner: whether operations managers may send the client delay notice and guest messages; whether manual reminders should respect personal preferences (switch exists, default off); whether to set `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS=EMAIL,WEB_PUSH`; "Chase supplier" has no recipient (suppliers have no account). Other producers stay direct (listed in the catalog); moving each needs a stable event receipt and, for non-office recipients, a scope.
 
@@ -302,20 +306,20 @@ Build order for these: a "Finance decisions" step (2 to 6, includes a migration 
 | "Tell client" about a late cleaner opens the job's Messages tab | Add a one-click "notify client of delay"? It changes who can message clients |
 | "Pause clock" is "Review clock" (opens the job's time records) | Add an administrator clock pause? None exists today |
 | Expiring-document reminder is a link to the account | May it send the existing document request inline? |
-| "Invoiced this month" is shown as "Paid this month" | Define "invoiced this month" (by invoice date, sent date, or approval date) |
+| "Invoiced this month" is shown as "Paid this month" | Define "invoiced this month" (by invoice date, sent date, or approval date) — **Resolved 2026-11-12 (Finance decisions)**: first sent in the month less credit notes sent |
 | Declining a continuation from the queue sends no note to the cleaner | Require a reason? |
 
 ### More items waiting for the owner (from the Xero and cleaner invoice step)
 
 | Item | Question |
 | --- | --- |
-| A payment read from Xero does not email the client a receipt; a manual "Record payment" does | Send a receipt for Xero-read payments too? |
+| A payment read from Xero does not email the client a receipt; a manual "Record payment" does | Send a receipt for Xero-read payments too? — **Resolved 2026-11-12 (Finance decisions)** |
 | Any difference over half a cent between Xero's total and ours goes to "needs review" | Allow a small rounding tolerance? |
-| Scheduled Xero checks are recorded under the earliest active administrator, labelled "Xero sync (scheduled)" | Acceptable, or create a dedicated system account? |
+| Scheduled Xero checks are recorded under the earliest active administrator, labelled "Xero sync (scheduled)" | Acceptable, or create a dedicated system account? — **Resolved 2026-11-12 (Finance decisions)**: shown as "System: Xero sync (scheduled)" everywhere (marker on the row) |
 | An operations manager can confirm a payee's payment claim made before the invoice was approved | Require approval before a claim can be confirmed? |
 | Rejecting a claim on an approved invoice not in Xero sends it back to Submitted | Acceptable that it needs approving again? |
 
-To do under the standing rule (not owner decisions): the Xero connection does not request `offline_access`, so its sign-in lapses after about 30 minutes and scheduled checks will mostly report "state unknown" until it is added and Xero is reconnected once; the classic `/admin/cleaner-invoices` screen has no Approve button and should redirect to the new tab.
+To do under the standing rule (not owner decisions): the Xero connection does not request `offline_access`, so its sign-in lapses after about 30 minutes and scheduled checks will mostly report "state unknown" until it is added and Xero is reconnected once; the classic `/admin/cleaner-invoices` screen has no Approve button and should redirect to the new tab. **Fixed 2026-11-12 (Finance decisions):** `offline_access` is requested (owner: reconnect Xero once after deploy; Settings, Health and the Finance badge say so until then); the classic cleaner-invoice screen and classic invoice management redirect to Invoices and pay.
 
 ### More items waiting for the owner (from the Cases and Laundry step)
 
@@ -339,6 +343,8 @@ For the parity audit: the Cases "Refresh" button was replaced by automatic refre
 8. Scheduled Xero checks are shown clearly as the system, not as a person: recorded and displayed as "System: Xero sync (scheduled)" wherever they appear.
 
 Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notifications step; 4, 6 and 8 in the "Finance decisions" step. 1 and 7 need no change.
+
+**Status, items 4, 6, 8 (Finance decisions, 2026-11-12).** 4: "Invoiced this month" built (first sent in the month, organisation timezone, less credit notes sent, void excluded) on Command beside Paid this month and Outstanding and in the Finance stats strip; `sentAt` now keeps the first send (re-sends recorded separately; past restamped rows cannot be repaired). 6: Xero-read payments send the manual path's receipt once per Xero payment id, never while the invoice needs review, failures recorded. 8: scheduled Xero rows carry a system marker and show as "System: Xero sync (scheduled)" in History, the Activity pages and the payment ledger; a person's activity list omits them. Mocked Xero only.
 
 **Status, items 2, 3 and 5 (Live ops follow-up, 2026-11-11, uncommitted step, no schema change; build, full suite and browser pass pending).** 2: "Notify client" on a late exception for administrators (others keep the Messages link): confirm from a server preview (client logins, exact wording with the ETA in minutes, switched-off transports, the send's refusal such as "client switched notifications off"), explicit transports, truthful states, idempotent per job and day; a notice already requested today shows on the row and needs "Send another". 3: "Pause clock" (ADMIN only; operations managers refused) through `POST /api/admin/jobs/[id]/pause-clock`, which uses the cleaner's own `clockOutCleaner` (same lock, duration and IN_PROGRESS → PAUSED rule), marks the log "Paused by the office: <reason>", audits it and notifies the cleaner, who resumes with the existing Resume clock; "Review clock" kept. 5: decline needs a reason (server 400 without one; Live ops and Command share one dialog; both job pages require it); the cleaner sees it in the decline notification. Also in this step: Laundry "Ask cleaner" / "Request photo" (where the exception applies, 30-minute cool-down; "Chase supplier" still blocked), Accounts bulk "Message", Cases manual Refresh restored. Waiting for the owner: may operations managers pause a clock or send the delay notice; should "Request photo" for a missing drop-off photo reach the driver instead of the job's cleaners. Details: `docs/SYSTEM.md`, "Live ops follow-up".
 
@@ -475,3 +481,14 @@ A bonus proposed by hand is limited to $5 to $200 and needs a reason. It is a pe
 - A Stock count answer is recorded on the submission and raises an urgent need when below its limit, but does not set the property's on-hand figure, because no existing path turns a counted number into stock on hand. Build that path (a count observation that sets on-hand, audited, never double-counting the same item in one submission).
 - The classic cleaner job page does not show Table or Stock count questions; only the current cleaner app does. Redirect the classic page or add them.
 - Two cleans in the same month before the first is approved can both show a monthly question.
+
+### More items waiting for the owner (from the Finance decisions step)
+
+| Item | Question |
+| --- | --- |
+| A job can still be set to INVOICED by hand with no invoice line; under the one rule it simply is not invoiced | Refuse that manual status change? |
+| The "No pay rate" filter in Accounts looks at the person's hourly rate only | Also treat a per-job-type rate as "has a rate"? |
+| An invoice-level discount is not spread over that invoice's cleans in Insights revenue | Spread it? |
+| Operations managers with reports access but no finance access can be chosen for the monthly Insights email (they get it without money figures) | Keep, or limit to those with finance access? |
+
+Rule added in the Finance decisions step, for the final summary: voiding a credit note is refused when the work it credited has since been billed on another live invoice, because voiding it would bill that work twice.

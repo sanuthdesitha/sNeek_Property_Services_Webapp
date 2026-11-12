@@ -169,7 +169,14 @@ describe.skipIf(!url)("forms library on PostgreSQL", () => {
   });
 
   it("the library list pages, sorts, searches questions and counts for real", async () => {
-    await saveTemplateDraft({ templateId: ids.a, schema: formSchema("Oven cleaned inside", [{ id: "mystery", type: "hologram", label: "Mystery" }]), actorId: actor });
+    // A draft with an unknown question type can no longer be saved (the strict
+    // save check refuses it), but one stored before that rule must still load
+    // and show as a check error. Save a valid draft, then store the old shape.
+    await saveTemplateDraft({ templateId: ids.a, schema: formSchema("Oven cleaned inside"), actorId: actor });
+    await m.client.formTemplateVersion.updateMany({
+      where: { templateId: ids.a, kind: "DRAFT" },
+      data: { schema: formSchema("Oven cleaned inside", [{ id: "mystery", type: "hologram", label: "Mystery" }]) as object },
+    });
     const query = (sort: "name" | "checks", dir: "asc" | "desc", page = 1) => ({ page, pageSize: 2, sort, dir, skip: (page - 1) * 2, take: 2 });
     const filters = { scope: "active" as const, group: "", tag: "", status: "any" as const, usedBy: "any" as const, problems: false, q: tag };
     const first = await listFormLibrary({ query: query("name", "asc"), filters });
