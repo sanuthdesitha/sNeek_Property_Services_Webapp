@@ -11,7 +11,9 @@
  * Links keep working: `?tab=` accepts the new ids and the old ones (today,
  * completed, investigate, live, reports, suppliers); `?date=YYYY-MM-DD` (the
  * Calendar's laundry-run links) opens the Pipeline on that day; `?open=<taskId>`
- * opens a run's side panel. Polling runs only on Pipeline and Drivers live.
+ * opens a run's side panel; `?supplier=<laundry partner id>` (the Suppliers
+ * list's "Laundry runs" link) opens the Pipeline filtered to that partner.
+ * Polling runs only on Pipeline and Drivers live.
  */
 import * as React from "react";
 import Link from "next/link";
@@ -86,6 +88,12 @@ export function LaundryWorkspace({ canReviewBags = false }: { canReviewBags?: bo
       setTabState("pipeline");
       setView("board");
       setQuery((current) => ({ ...current, date }));
+    }
+    const supplierId = (params.get("supplier") ?? "").trim();
+    if (supplierId && supplierId.length <= 64) {
+      setTabState("pipeline");
+      setView("board");
+      setQuery((current) => ({ ...current, supplierId }));
     }
     // Only on arrival; later choices are the person's own.
     // eslint-disable-next-line react-hooks/exhaustive-deps

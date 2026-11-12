@@ -22,7 +22,7 @@ import {
   EEmptyState,
 } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/cleaner/fields";
-import { MediaGallery } from "@/components/shared/media-gallery";
+import { LostFoundLightbox, LostFoundThumb } from "@/components/v2/admin/lost-found/lost-found-photo";
 import { EModal } from "@/components/v2/admin/estate-kit";
 import { MediaCapture, type CapturedMedia } from "@/components/v2/cleaner/media-capture";
 import { toast } from "@/hooks/use-toast";
@@ -38,7 +38,7 @@ interface JobOption {
   label: string;
 }
 
-type Photo = { url: string; key: string; caption?: string | null };
+type Photo = { url: string; key: string; caption?: string | null; src?: string };
 
 type ItemRow = {
   id: string;
@@ -90,6 +90,7 @@ export function LostFoundForm({ jobs }: { jobs: JobOption[] }) {
 
   const [detail, setDetail] = React.useState<ItemDetail | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
+  const [lightbox, setLightbox] = React.useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = React.useState(false);
   const [comment, setComment] = React.useState("");
   const [posting, setPosting] = React.useState(false);
@@ -320,15 +321,11 @@ export function LostFoundForm({ jobs }: { jobs: JobOption[] }) {
             ) : null}
 
             {detail.photos.length > 0 ? (
-              <MediaGallery
-                items={detail.photos.map((p) => ({
-                  id: p.key,
-                  url: p.url,
-                  mediaType: (p as any).mediaType,
-                }))}
-                title={detail.itemName}
-                className="grid grid-cols-3 gap-2 sm:grid-cols-4"
-              />
+              <div className="flex flex-wrap gap-2" aria-label="Photos">
+                {detail.photos.map((photo) => (
+                  <LostFoundThumb key={photo.key} photo={photo} alt={detail.itemName} className="h-20 w-20" onOpen={setLightbox} />
+                ))}
+              </div>
             ) : null}
 
             {/* Timeline */}
@@ -369,6 +366,7 @@ export function LostFoundForm({ jobs }: { jobs: JobOption[] }) {
           </div>
         )}
       </EModal>
+      <LostFoundLightbox url={lightbox} onClose={() => setLightbox(null)} />
     </div>
   );
 }
