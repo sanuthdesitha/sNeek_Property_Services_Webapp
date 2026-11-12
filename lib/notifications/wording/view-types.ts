@@ -19,7 +19,8 @@ export type WordingPartView = {
   required: string[];
   note: string | null;
   push: "SHARED" | null;
-  source: "STORE" | "EMAIL_TEMPLATE";
+  /** TEMPLATE: an existing shared email or in-app/SMS template (also listed in Forms). */
+  source: "STORE" | "TEMPLATE";
   templateKey: string | null;
   defaults: WordingFields;
   live: WordingFields;

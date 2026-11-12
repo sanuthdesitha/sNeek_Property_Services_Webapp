@@ -273,6 +273,28 @@ export function JobActionHub({
     return actions.filter((action) => action.visible);
   }, [finished, status, reportAvailable]);
 
+  function renderLight(type: LightType) {
+    const action = lightActions.find((item) => item.type === type);
+    if (!action) return null;
+    if (openLights.has(type)) {
+      return <EBadge key={type} tone="warning" soft>{LIGHT_PENDING[type]}</EBadge>;
+    }
+    const confirming = lightConfirm === type;
+    return (
+      <EButton
+        key={type}
+        size="sm"
+        className="min-h-11"
+        variant={confirming ? "primary" : "outline"}
+        disabled={lightBusy !== null}
+        onClick={() => (confirming ? submitLight(type) : setLightConfirm(type))}
+      >
+        {lightBusy === type ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : action.icon}
+        {confirming ? `Confirm — ${LIGHT_LABEL[type].toLowerCase()}?` : LIGHT_LABEL[type]}
+      </EButton>
+    );
+  }
+
   return (
     <ECard>
       <ECardHeader>
@@ -282,77 +304,48 @@ export function JobActionHub({
         {notice ? <EInlineNotice tone="success">{notice}</EInlineNotice> : null}
         {error ? <EInlineNotice tone="danger">{error}</EInlineNotice> : null}
 
-        {/* Primary actions */}
-        <div className="grid gap-2 sm:grid-cols-2">
+        {/* Board order (approved client board, "One clean"): Ask for ETA, Ask
+            for an update, Request an add-on, New date, Request the report, Skip
+            this clean; then "Message us about this clean". Same actions,
+            confirmations and pending chips as before. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {renderLight("ETA")}
+          {renderLight("UPDATE")}
+          {showClientTaskRequests && !finished ? (
+            <EButton variant="outline" size="sm" className="min-h-11" onClick={() => setAddonOpen(true)}>
+              <ListPlus className="h-3.5 w-3.5" /> Request an add-on
+              {addonPending > 0 ? <EBadge tone="warning" soft>{addonPending} pending</EBadge> : null}
+            </EButton>
+          ) : null}
           {!finished ? (
             reschedPending ? (
-              <div className="flex items-center gap-2 rounded-[var(--e-radius)] border border-dashed border-[hsl(var(--e-border-strong))] px-3 py-2.5 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                <CalendarClock className="h-4 w-4 shrink-0" />
-                Reschedule requested — awaiting approval
-              </div>
+              <EBadge tone="warning" soft>New date requested — awaiting approval</EBadge>
             ) : (
-              <EButton variant="outline" onClick={() => setReschedOpen(true)} className="justify-start">
-                <CalendarClock className="h-4 w-4" /> Reschedule
+              <EButton variant="outline" size="sm" className="min-h-11" onClick={() => setReschedOpen(true)}>
+                <CalendarClock className="h-3.5 w-3.5" /> New date
               </EButton>
             )
           ) : null}
-
-          {showClientTaskRequests && !finished ? (
-            <EButton variant="outline" onClick={() => setAddonOpen(true)} className="justify-start">
-              <ListPlus className="h-4 w-4" /> Request an add-on
-              {addonPending > 0 ? (
-                <EBadge tone="warning" soft>
-                  {addonPending} pending
-                </EBadge>
-              ) : null}
-            </EButton>
-          ) : null}
-
-          <EButton variant="outline" onClick={() => setChatOpen(true)} className="justify-start">
-            <MessageCircle className="h-4 w-4" /> Message us
-          </EButton>
+          {renderLight("REPORT")}
         </div>
 
-        {/* Light requests */}
-        {lightActions.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-2 border-t border-[hsl(var(--e-border))] pt-3">
-            {lightActions.map(({ type, icon }) => {
-              const pending = openLights.has(type);
-              if (pending) {
-                return (
-                  <EBadge key={type} tone="warning" soft>
-                    {LIGHT_PENDING[type]}
-                  </EBadge>
-                );
-              }
-              const confirming = lightConfirm === type;
-              return (
-                <EButton
-                  key={type}
-                  size="sm"
-                  variant={confirming ? "primary" : "ghost"}
-                  disabled={lightBusy !== null}
-                  onClick={() => (confirming ? submitLight(type) : setLightConfirm(type))}
-                >
-                  {lightBusy === type ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : icon}
-                  {confirming ? `Confirm — ${LIGHT_LABEL[type].toLowerCase()}?` : LIGHT_LABEL[type]}
-                </EButton>
-              );
-            })}
-          </div>
-        ) : null}
-
-        {/* Skip */}
         {canSkip || skipStatus === "REQUESTED" ? (
-          <div className="flex items-center justify-between gap-3 border-t border-[hsl(var(--e-border))] pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[hsl(var(--e-border))] pt-3">
             <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              {skipStatus === "REQUESTED"
-                ? "Skip request pending admin review."
-                : "Don't need this clean?"}
+              {skipStatus === "REQUESTED" ? "Skip request pending admin review." : "Skip this clean?"}
             </p>
             <JobSkipAction jobId={jobId} skipStatus={skipStatus} />
           </div>
         ) : null}
+
+        <button
+          type="button"
+          onClick={() => setChatOpen(true)}
+          className="flex min-h-12 w-full items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 text-left text-[0.875rem] font-semibold hover:bg-[hsl(var(--e-muted))] focus-visible:outline focus-visible:outline-2"
+        >
+          <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4" aria-hidden /> Message us about this clean</span>
+          <span aria-hidden className="text-[hsl(var(--e-muted-foreground))]">›</span>
+        </button>
       </ECardBody>
 
       {/* ── Reschedule modal ── */}

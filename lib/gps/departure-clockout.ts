@@ -22,6 +22,7 @@ import { getAppSettings } from "@/lib/settings";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { evaluateDeparture } from "./departure";
 import { DEFAULT_GEOFENCE_RADIUS_M } from "./distance";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const RECENT_PINGS_TO_EVALUATE = 10;
 
@@ -158,6 +159,8 @@ export async function handleGeofenceDeparture(
   // Notify — best-effort: never let notification plumbing undo the clock-out.
   try {
     const jobLabel = `${job.jobNumber || job.id}: ${job.property?.name ?? "job site"}`;
+    const wording = await loadNotificationWording("job.clock_changes");
+    const leftSite = wording.render("left-site", "INBOX", {});
 
     const cleaner = await db.user.findUnique({
       where: { id: input.userId },
@@ -168,10 +171,7 @@ export async function handleGeofenceDeparture(
         recipients: [cleaner],
         category: "jobs",
         jobId: job.id,
-        web: {
-          subject: "Clocked out — left job site",
-          body: "You've been clocked out — you left the job site. Resume the job if this was a mistake.",
-        },
+        web: { subject: leftSite.title, body: leftSite.body },
       });
     }
 
@@ -179,15 +179,13 @@ export async function handleGeofenceDeparture(
       where: { role: Role.ADMIN, isActive: true },
       select: { id: true, role: true, email: true, phone: true, name: true },
     });
+    const leftSiteOffice = wording.render("left-site-office", "INBOX", { cleanerName: cleaner?.name ?? "A cleaner", jobLabel, distance: input.distanceM });
     if (admins.length > 0) {
       await deliverNotificationToRecipients({
         recipients: admins,
         category: "jobs",
         jobId: job.id,
-        web: {
-          subject: "Cleaner auto clocked out (left site)",
-          body: `${cleaner?.name ?? "A cleaner"} left the site at ${jobLabel} (~${input.distanceM}m away) and was clocked out automatically.`,
-        },
+        web: { subject: leftSiteOffice.title, body: leftSiteOffice.body },
       });
     }
   } catch {

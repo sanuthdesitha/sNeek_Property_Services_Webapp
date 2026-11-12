@@ -7,7 +7,7 @@ import { JobStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { getClientPortalContext } from "@/lib/client/portal";
-import { requireClientPortalPage } from "@/lib/auth/client-portal";
+import { propertyScopeWhere, requireClientPortalPage, type ClientPortalContext } from "@/lib/auth/client-portal";
 import { formatCurrency } from "@/lib/utils";
 import { googleMapsSearchUrl } from "@/lib/maps/google-maps-url";
 import {
@@ -95,10 +95,13 @@ function titleCase(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-async function getScopedJob(id: string, clientId: string) {
+async function getScopedJob(id: string, scope: Pick<ClientPortalContext, "clientId" | "propertyIds">) {
   return db.job
     .findFirst({
-      where: { id, property: { clientId } },
+      // propertyScopeWhere narrows an assistant to their team's properties, as
+      // the job API does; a client-wide filter here let a scoped VA open any
+      // job of the client by URL.
+      where: { id, property: propertyScopeWhere(scope) },
       select: {
         id: true,
         jobNumber: true,
@@ -277,7 +280,7 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
   const clientId = portal?.clientId;
   if (!clientId) notFound();
 
-  const job = await getScopedJob(params.id, clientId);
+  const job = await getScopedJob(params.id, { clientId, propertyIds: portalCtx.propertyIds });
   if (!job) notFound();
 
   // Open client requests on this job — drives the action hub's pending states.
@@ -330,6 +333,13 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
     !["COMPLETED", "INVOICED"].includes(job.status) &&
     (skipStatus === "NONE" || skipStatus === "DECLINED" || skipStatus === "REQUESTED");
   const showReportTab = job.report?.clientVisible;
+  // Invoice lines are money: an assistant sees them only with the invoice grant.
+  const showCosts = portalCtx.actor === "CLIENT" || portalCtx.permissions.invoicesView === true;
+  const isToday = format(scheduled, "yyyy-MM-dd") === format(toZonedTime(new Date(), TZ), "yyyy-MM-dd");
+  const onSite = job.status === "IN_PROGRESS" || job.status === "PAUSED" || job.status === "WAITING_CONTINUATION_APPROVAL";
+  // The arrival time is shown only where live progress is shared; otherwise the
+  // status alone ("on site") is what the client already sees.
+  const arrivalTime = showLiveProgress && job.arrivedAt ? format(toZonedTime(job.arrivedAt, TZ), "H:mm") : null;
 
   return (
     <div className="space-y-8">
@@ -341,9 +351,9 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
       </div>
 
       <EPageHeader
-        eyebrow={`SCHEDULING${job.jobNumber ? ` · #${job.jobNumber}` : ""}`}
-        title={job.property.name}
-        description={`${titleCase(job.jobType)} · ${format(scheduled, "EEEE d MMMM yyyy")}${
+        eyebrow={`CLEAN${job.jobNumber ? ` · #${job.jobNumber}` : ""}`}
+        title={`${job.property.name}${isToday ? " · today" : ""}`}
+        description={`${titleCase(job.jobType)}${showCosts && job.invoiceLines.length > 0 ? ` · ${formatCurrency(totalCharged)}` : ""} · ${format(scheduled, "EEEE d MMMM yyyy")}${
           job.startTime ? ` · ${job.startTime}` : ""
         }`}
         actions={
@@ -361,6 +371,13 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
           <StatusTimeline status={job.status} />
         </ECardBody>
       </ECard>
+
+      {onSite ? (
+        <p role="status" className="flex items-center gap-2 rounded-[var(--e-radius)] border-l-4 border-[hsl(var(--e-info))] bg-[hsl(var(--e-surface))] px-3 py-2 text-[0.875rem]">
+          <span aria-hidden className="h-2 w-2 rounded-full bg-[hsl(var(--e-info))]" />
+          <span><span className="font-semibold">Cleaner has arrived</span>{arrivalTime ? ` ${arrivalTime}` : ""} · checked in on site</span>
+        </p>
+      ) : null}
 
       {/* Live arrival tracking (polls while EN_ROUTE) */}
       {job.status === "EN_ROUTE" ? <JobLivePanel jobId={job.id} /> : null}
@@ -571,7 +588,7 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
       ) : null}
 
       {/* Costs */}
-      {job.invoiceLines.length > 0 ? (
+      {showCosts && job.invoiceLines.length > 0 ? (
         <ECard>
           <ECardHeader>
             <ECardTitle className="flex items-center gap-2 text-[1rem]">

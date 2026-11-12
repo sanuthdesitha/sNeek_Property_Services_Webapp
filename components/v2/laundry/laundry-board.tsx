@@ -66,6 +66,8 @@ import { SYDNEY_TZ, sydneyDateKey, sydneyTodayKey } from "@/lib/time/sydney-rang
 import { fullAddressText, googleMapsDirectionsUrl } from "@/lib/maps/google-maps-url";
 import { buildGoogleMapsMultiStopUrl } from "@/lib/jobs/schedule-order";
 import { toast } from "@/hooks/use-toast";
+import { TrackingIssues, TrackingStageChips, type StageFilter } from "@/components/v2/laundry/portal/tracking-extras";
+import { stageCounts, trackingDayOf, trackingStage } from "@/lib/laundry/tracking-stages";
 
 /* ── Types (mirror the /api/laundry/week payload) ──────────────────────── */
 export type LaundryStatus =
@@ -999,7 +1001,7 @@ function stageIndex(status: LaundryStatus): number {
   }
 }
 
-async function decodeQrFromFile(file: File): Promise<string | null> {
+export async function decodeQrFromFile(file: File): Promise<string | null> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result ?? ""));
@@ -1153,6 +1155,8 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
   const { requestDelete, modal: deleteModal } = useLaundryDeleteDialog(remove);
   const [scanningQr, setScanningQr] = React.useState(false);
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
+  const [stage, setStage] = React.useState<StageFilter>("all");
+  const todayKey = sydneyTodayKey();
 
   // Live tracking = everything currently moving through the pipeline (exclude
   // no-pickup + already-returned-and-old so the list stays actionable).
@@ -1160,6 +1164,9 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
     .filter((t) => !t.noPickupRequired)
     .filter((t) => t.status !== "SKIPPED_PICKUP")
     .sort((a, b) => stageIndex(a.status) - stageIndex(b.status) || +new Date(a.pickupDate) - +new Date(b.pickupDate));
+  // Stage chips (board "Laundry partner portal", 3 Tracking): counts over the loaded sets.
+  const counts = stageCounts(tracked, todayKey);
+  const shown = stage === "all" ? tracked : tracked.filter((t) => trackingStage(t, todayKey) === stage);
 
   // Deep-link support: the calendar (and any `…/tracking#task-<id>` link) jumps
   // to a specific set. Because the feed loads async, native hash-scroll fires
@@ -1269,12 +1276,14 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
         </div>
       </div>
 
-      {tracked.length === 0 ? (
-        <EEmptyState eyebrow="Quiet" title="Nothing to track" description="No laundry sets are moving through the pipeline right now." />
+      <TrackingStageChips value={stage} counts={counts} total={tracked.length} onChange={setStage} />
+      {shown.length === 0 ? (
+        <EEmptyState eyebrow="Quiet" title="Nothing to track" description={stage === "all" ? "No laundry sets are moving through the pipeline right now." : "No sets at this stage in the chosen dates."} />
       ) : (
         <div className="space-y-3">
-          {tracked.map((t) => {
+          {shown.map((t) => {
             const idx = stageIndex(t.status);
+            const dayOf = trackingDayOf(t, todayKey);
             const bags = bagCountFor(t);
             const canPickup = ["PENDING", "CONFIRMED"].includes(t.status);
             const canDrop = t.status === "PICKED_UP";
@@ -1341,6 +1350,11 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
                         </EBadge>
                       ) : null}
                       <KeyLostBadge task={t} />
+                      {dayOf ? (
+                        <EBadge tone={dayOf.day > dayOf.planned ? "danger" : "neutral"} soft>
+                          Day {dayOf.day} of {dayOf.planned}
+                        </EBadge>
+                      ) : null}
                       <EBadge tone={STATUS_TONE[t.status]} soft>
                         {STATUS_LABEL[t.status]}
                       </EBadge>
@@ -1488,6 +1502,7 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole }: BoardRoleP
           })}
         </div>
       )}
+      <TrackingIssues tasks={tracked} />
       {bagTrackingRole ? (
         <OperationsDisclosure
           title="Track individual bags (optional)"

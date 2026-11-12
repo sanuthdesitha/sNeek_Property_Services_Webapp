@@ -18,6 +18,7 @@ import {
   type ApprovalQueueKey,
 } from "@/lib/admin/approval-history";
 import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
+import { verifySensitiveAction } from "@/lib/security/admin-verification";
 
 /**
  * POST /api/admin/approvals/history/[id]
@@ -40,6 +41,8 @@ const bodySchema = z.object({
   /** New amount for `edit` (money queues). */
   amount: z.number().positive().optional(),
   note: z.string().trim().max(4000).optional(),
+  /** PIN or password for `delete`, checked here (not only in the browser). */
+  security: z.object({ pin: z.string().optional(), password: z.string().optional() }).optional(),
 });
 
 const MONEY_QUEUES: ApprovalQueueKey[] = [
@@ -52,6 +55,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = bodySchema.parse(await req.json().catch(() => ({})));
+    // Deleting removes the record of who approved what and for how much, so the
+    // PIN or password is verified on the server before anything else happens.
+    if (body.action === "delete") {
+      try {
+        await verifySensitiveAction(session.user.id, body.security);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "INVALID_SECURITY_VERIFICATION";
+        const text =
+          message === "PIN_OR_PASSWORD_REQUIRED"
+            ? "Enter your PIN or password to delete this record."
+            : message === "INVALID_SECURITY_VERIFICATION"
+              ? "That PIN or password was not accepted."
+              : message;
+        return NextResponse.json({ error: text }, { status: message === "FORBIDDEN" ? 403 : 400 });
+      }
+    }
 
     const historyRow = await db.auditLog.findUnique({ where: { id: params.id } });
     if (!historyRow) {

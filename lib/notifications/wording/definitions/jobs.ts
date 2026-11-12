@@ -5,6 +5,8 @@
  */
 import type { TypeWordingDefinition } from "../types";
 import { editable, emailTemplatePart, inCode, linePart, someParts, storePart } from "./build";
+import { JOB_CHANGED_WORDING } from "./job-changes";
+import { CLOCK_CHANGES_WORDING } from "./clock";
 
 const MANUAL_REMINDER_EMAIL = `
               <p>Hi {{recipientName}},</p>
@@ -87,9 +89,9 @@ export const JOB_WORDING: readonly TypeWordingDefinition[] = [
     linePart("timing-line", "Timing notes line (SMS)", "SMS", " {{timingFlags}}.", ["timingFlags"], "Added only when the job has timing notes."),
   ]),
   someParts("job.offer", [emailTemplatePart("cleaner", "Cleaner", "jobAssigned")], INBOX_ASSIGNMENT_REASON),
-  inCode("job.changed", "Composed in four producers from what changed (timing rules, the special note, extra tasks, a reset or a reschedule); each change builds its own sentence around the changed values. Not yet split into named parts."),
+  JOB_CHANGED_WORDING,
   someParts("job.skipped_or_cancelled", [emailTemplatePart("cleaner", "Cleaner", "jobRemoved")], "The inbox and phone push (\"Shift cancelled\") are composed in the skip route and in iCal sync with different sentences for a skip, a moved booking and a removed booking; not yet moved to the wording layer."),
-  inCode("job.clock_changes", "Five producers (auto clock-out, leaving the site, auto-pause, admin clock edits) each compose their own notice from the time log; not yet split into named parts."),
+  CLOCK_CHANGES_WORDING,
   someParts("job.cleaner_requests_decided", [emailTemplatePart("cleaner", "Cleaner", "extraPayRequest")], "Only the extra-pay email uses a template. The continuation, early check-out and clock-adjustment decisions are composed in five producers; not yet moved."),
   inCode("job.qa_and_accountability", "lib/notifications/accountability.ts builds about a dozen different notices (QA result, rework offer, bonus, coaching, score, streak) from scores and rules; not yet split into named parts."),
   someParts("job.cleaner_invoice", [emailTemplatePart("accounts", "Accounts", "cleanerInvoice")], "The \"change requested\" email to the cleaner is composed in lib/cleaner/invoice-admin-notify.ts; not yet moved."),

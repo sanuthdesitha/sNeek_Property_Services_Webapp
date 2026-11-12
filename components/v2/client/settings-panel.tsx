@@ -142,6 +142,10 @@ export function ClientSettingsPanel({ comms }: { comms: SettingsComms }) {
   }
 
   const notificationsOff = !pref.notificationsEnabled;
+  // Board: each event row names how it reaches the client (the preferred channel).
+  const channelText = notificationsOff
+    ? "Notifications are off"
+    : pref.preferredChannel === "BOTH" ? "Email and SMS" : pref.preferredChannel === "SMS" ? "SMS" : "Email";
 
   return (
     <div className="space-y-6">
@@ -158,27 +162,28 @@ export function ClientSettingsPanel({ comms }: { comms: SettingsComms }) {
             label="Enable notifications"
             description="Turn all service notifications on or off."
             checked={pref.notificationsEnabled}
+            disabled={saving}
             onChange={(v) => patchComms({ notificationsEnabled: v })}
           />
           <ToggleRow
-            label="Cleaner en route"
-            description="When your cleaner is on the way."
+            label="Cleaner on the way"
+            description={channelText}
             checked={pref.notifyOnEnRoute}
-            disabled={notificationsOff}
+            disabled={notificationsOff || saving}
             onChange={(v) => patchComms({ notifyOnEnRoute: v })}
           />
           <ToggleRow
-            label="Job started"
-            description="When a service begins at your property."
+            label="Clean started"
+            description={channelText}
             checked={pref.notifyOnJobStart}
-            disabled={notificationsOff}
+            disabled={notificationsOff || saving}
             onChange={(v) => patchComms({ notifyOnJobStart: v })}
           />
           <ToggleRow
-            label="Job completed"
-            description="When a service is finished and a report is ready."
+            label="Clean finished, report ready"
+            description={channelText}
             checked={pref.notifyOnJobComplete}
-            disabled={notificationsOff}
+            disabled={notificationsOff || saving}
             onChange={(v) => patchComms({ notifyOnJobComplete: v })}
           />
         </div>

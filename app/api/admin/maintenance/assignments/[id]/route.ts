@@ -109,10 +109,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (!before || before.total !== proposed.total || before.payer !== proposed.payer) {
         await notifyPayee({
           assignment,
-          subject: before ? "Your pay for this job has changed" : "Pay set for your job",
-          line: before
-            ? `The pay for <strong>${escapeHtml(assignment.item.title)}</strong> is now ${describePay(proposed)} (was ${describePay(before)}).`
-            : `<strong>${escapeHtml(assignment.item.title)}</strong> pays ${describePay(proposed)}.`,
+          partId: before ? "pay-changed" : "pay-set",
+          values: { pay: describePay(proposed), previousPay: before ? describePay(before) : "" },
           note: body.note ?? null,
         });
       }
@@ -148,10 +146,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     await notifyPayee({
       assignment,
-      subject: approving ? "Your price request was approved" : "Your price request was declined",
-      line: approving
-        ? `Your price for <strong>${escapeHtml(assignment.item.title)}</strong> was approved${after ? ` — it now pays ${describePay(after)}` : ""}.`
-        : `Your price request for <strong>${escapeHtml(assignment.item.title)}</strong> was not approved${before ? `, so it still pays ${describePay(before)}` : ""}.`,
+      partId: approving ? "price-approved" : "price-declined",
+      values: { pay: after ? describePay(after) : "", previousPay: before ? describePay(before) : "" },
+      lines: { nowPays: approving && Boolean(after), stillPays: !approving && Boolean(before) },
       note: body.note ?? null,
     });
 
@@ -164,10 +161,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       { status }
     );
   }
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /**
@@ -186,8 +179,10 @@ async function notifyPayee(input: {
     user: { name: string | null; email: string | null };
     item: { title: string; property: { name: string | null } | null };
   };
-  subject: string;
-  line: string;
+  /** The maintenance.assignment wording part of this email. */
+  partId: "pay-changed" | "pay-set" | "price-approved" | "price-declined";
+  values: { pay: string; previousPay: string };
+  lines?: { nowPays: boolean; stillPays: boolean };
   note: string | null;
 }): Promise<void> {
   try {
@@ -198,16 +193,23 @@ async function notifyPayee(input: {
     const settings = await getAppSettings();
     const place = input.assignment.item.property?.name;
 
+    const { loadNotificationWording } = await import("@/lib/notifications/wording/render");
+    const wording = await loadNotificationWording("maintenance.assignment");
+    const message = wording.render(input.partId, "EMAIL", {
+      recipientName: input.assignment.user.name ?? "there",
+      itemTitle: input.assignment.item.title,
+      ...input.values,
+      nowPays: wording.line("now-pays", "EMAIL", { pay: input.values.pay }, input.lines?.nowPays ?? false),
+      stillPays: wording.line("still-pays", "EMAIL", { previousPay: input.values.previousPay }, input.lines?.stillPays ?? false),
+      placeSuffix: wording.line("place-suffix", "EMAIL", { place }, Boolean(place)),
+      noteParagraph: wording.line("note-paragraph", "EMAIL", { note: input.note }, Boolean(input.note)),
+      companyName: settings.companyName,
+    });
     await sendEmailDetailed({
       kind: "job_assignment",
       to: email,
-      subject: input.subject,
-      html: [
-        `<p>Hi ${escapeHtml(input.assignment.user.name ?? "there")},</p>`,
-        `<p>${input.line}${place ? ` (${escapeHtml(place)})` : ""}</p>`,
-        input.note ? `<p><strong>Note:</strong> ${escapeHtml(input.note)}</p>` : "",
-        `<p>— ${escapeHtml(settings.companyName)}</p>`,
-      ].join(""),
+      subject: message.subject,
+      html: message.html,
     });
   } catch (err) {
     logger.error({ err }, "[maintenance-pay] payee email failed; the pay change stands");

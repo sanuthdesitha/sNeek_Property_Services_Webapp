@@ -13,7 +13,7 @@ export function partViews(typeKey: string, live: Record<string, WordingFields> =
     return {
       id: part.id, label: part.label, transport: part.transport, fields: [...partFields(part)],
       variables: part.variables.map(variableDefinition), required: [...part.required], note: part.note ?? null, push: part.push ?? null,
-      source: part.source.kind, templateKey: null, defaults: part.defaults, live: current, liveHash: wordingHash(current),
+      source: part.source.kind === "STORE" ? "STORE" : "TEMPLATE", templateKey: null, defaults: part.defaults, live: current, liveHash: wordingHash(current),
       liveVersion: edited ? 2 : 1, liveSource: edited ? "override" : "default", problems: [],
       versions: [
         { version: 1, savedAt: null, actorName: null, kind: "DEFAULT", change: "Original", fields: part.defaults },

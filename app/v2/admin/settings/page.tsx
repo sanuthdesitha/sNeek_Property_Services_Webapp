@@ -1,5 +1,7 @@
 import { SettingsNavigation } from "@/components/v2/admin/settings/settings-navigation";
-import { availableSettings } from "@/components/v2/admin/settings/settings-catalog";
+import { availableSettings, settingsHref, SETTINGS_GROUPS } from "@/components/v2/admin/settings/settings-catalog";
+import { SettingsHome } from "@/components/v2/admin/settings/settings-home";
+import { loadSettingsHomeState } from "@/lib/admin/settings-home";
 import { HolidayRatesWorkspace } from "@/components/finance/holiday-rates-workspace";
 import { PropertyFormEditor } from "@/components/v2/admin/settings/property-form-editor";
 import { getPropertyFormConfig } from "@/lib/property-form/config-store";
@@ -67,20 +69,47 @@ export default async function SettingsPage({
   const activeTab = requested ?? "overview";
   const propertyFormConfig =
     activeTab === "property-form" ? await getPropertyFormConfig() : null;
+  // Settings home (2026-11 board): every category and destination at once,
+  // filtered by the same availableSettings call as the category navigation.
+  const home = activeTab === "overview" ? await loadSettingsHomeState({ isAdmin }).catch(() => ({ states: {}, recent: null })) : null;
+  const auditHref = availableTabs.some((tab) => tab.key === "audit") ? settingsHref("audit") : null;
 
   return (
     <div className="min-w-0 space-y-6">
       <EPageHeader
         eyebrow="Configuration"
         title="Settings"
-        description="Find the right setting, then make changes in one place."
+        description={
+          activeTab === "overview"
+            ? "How the business runs: company, notifications, money, quality, operations, access and system."
+            : "Find the right setting, then make changes in one place."
+        }
+        actions={
+          auditHref ? (
+            <EButton asChild variant="outline" size="sm">
+              <Link href={auditHref}>Settings audit</Link>
+            </EButton>
+          ) : undefined
+        }
       />
 
-      <SettingsNavigation
-        key={activeTab}
-        sections={availableTabs}
-        activeTab={activeTab}
-      />
+      {activeTab === "overview" && home ? (
+        <SettingsHome
+          groups={SETTINGS_GROUPS.map((group) => ({ key: group.key, label: group.label, description: group.description }))}
+          destinations={availableTabs.map((tab) => ({ key: tab.key, label: tab.label, description: tab.description, group: tab.group, adminOnly: tab.adminOnly, href: settingsHref(tab.key) }))}
+          isAdmin={isAdmin}
+          states={home.states}
+          recent={home.recent}
+          auditHref={auditHref}
+          timezone={appSettings.timezone || "Australia/Sydney"}
+        />
+      ) : (
+        <SettingsNavigation
+          key={activeTab}
+          sections={availableTabs}
+          activeTab={activeTab}
+        />
+      )}
 
       {activeTab === "holiday-rates" && isAdmin ? (
         <section aria-labelledby="holiday-rates-heading" className="space-y-3">

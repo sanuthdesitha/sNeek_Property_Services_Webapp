@@ -1,12 +1,14 @@
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { EPageHeader } from "@/components/v2/ui/primitives";
-import { ClientQuotesBoard } from "@/components/v2/client/quotes-board";
+import { ClientQuotesBoard, type QuoteFocusIntent } from "@/components/v2/client/quotes-board";
+
+const INTENTS: readonly QuoteFocusIntent[] = ["accept", "decline", "change"];
 
 export const metadata = { title: "Quotes · Estate client" };
 export const dynamic = "force-dynamic";
 
-export default async function V2ClientQuotesRoute() {
+export default async function V2ClientQuotesRoute({ searchParams }: { searchParams?: { quote?: string; intent?: string } }) {
   await requireRole([Role.CLIENT]);
 
   return (
@@ -16,7 +18,10 @@ export default async function V2ClientQuotesRoute() {
         title="Quotes"
         description="Your requested estimates and their status — review, accept, or decline."
       />
-      <ClientQuotesBoard />
+      <ClientQuotesBoard
+        focusQuoteId={typeof searchParams?.quote === "string" ? searchParams.quote : undefined}
+        intent={INTENTS.find((value) => value === searchParams?.intent)}
+      />
     </div>
   );
 }

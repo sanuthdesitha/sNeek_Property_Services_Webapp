@@ -6,6 +6,7 @@
  * these shapes.
  */
 import type { AppEmailTemplateKey } from "@/lib/email-templates";
+import type { AppNotificationTemplateKey } from "@/lib/notification-templates";
 
 /**
  * The wording transports an admin edits.
@@ -89,7 +90,12 @@ export type WordingPartSource =
    * The existing shared email template (`settings.emailTemplates[key]`, also
    * shown in Forms). Saves write there; this layer keeps its version history.
    */
-  | { kind: "EMAIL_TEMPLATE"; key: AppEmailTemplateKey };
+  | { kind: "EMAIL_TEMPLATE"; key: AppEmailTemplateKey }
+  /**
+   * The existing shared in-app / SMS template (`settings.notificationTemplates[key]`:
+   * web subject and body for the INBOX part, SMS body for the SMS part).
+   */
+  | { kind: "NOTIFICATION_TEMPLATE"; key: AppNotificationTemplateKey };
 
 export type WordingPartDefinition = {
   /** Stable id within the type; with the transport it keys the store. Never rename. */

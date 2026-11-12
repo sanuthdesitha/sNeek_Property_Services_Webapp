@@ -82,7 +82,10 @@ export type LaundryPartnerRecord = {
  */
 export type TradeSupplierRecord = {
   id: string;
+  /** The business (company) when recorded, else the person. */
   name: string;
+  /** The person on the maintenance record. */
+  contactName: string;
   company: string | null;
   trade: string | null;
   phone: string | null;

@@ -18,9 +18,16 @@ type Props = {
   callbackUrl?: string;
   disabled?: boolean;
   onError?: (message: string) => void;
+  /**
+   * Layout only. "after-form" (default) keeps the original "or" divider above
+   * the button, for pages that list it under the password form. "first" is the
+   * passkey-first sign-in (board "Public and sign in", 2026-11): no divider,
+   * the board's label and help line. The click handler is identical.
+   */
+  layout?: "after-form" | "first";
 };
 
-export function BiometricSignInButton({ email, callbackUrl, disabled, onError }: Props) {
+export function BiometricSignInButton({ email, callbackUrl, disabled, onError, layout = "after-form" }: Props) {
   const [supported, setSupported] = useState(false);
   const [checking, setChecking] = useState(true);
   const [working, setWorking] = useState(false);
@@ -99,6 +106,26 @@ export function BiometricSignInButton({ email, callbackUrl, disabled, onError }:
   }
 
   if (checking || !supported) return null;
+
+  if (layout === "first") {
+    return (
+      <div className="space-y-1.5">
+        <Button
+          type="button"
+          className="h-12 w-full gap-2 rounded-lg"
+          onClick={handleClick}
+          disabled={disabled || working}
+          aria-describedby="passkey-sign-in-help"
+        >
+          <Fingerprint className="h-4 w-4" />
+          {working ? "Verifying..." : "Sign in with passkey"}
+        </Button>
+        <p id="passkey-sign-in-help" className="text-center text-xs text-muted-foreground">
+          Face ID, fingerprint or your phone&apos;s screen lock
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">

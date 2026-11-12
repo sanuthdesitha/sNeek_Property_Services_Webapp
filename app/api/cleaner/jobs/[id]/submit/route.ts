@@ -49,6 +49,7 @@ import { sendClientJobNotification } from "@/lib/notifications/client-job-notifi
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { queueClientPostJobAutomations } from "@/lib/notifications/client-automation";
 import { SELF_INSPECTION_MODULE_KEY } from "@/lib/checklists/catalog";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import {
   JobStatus,
   MediaType,
@@ -909,14 +910,18 @@ export async function POST(
             select: { id: true },
           });
           if (adminUsers.length > 0) {
+            const clockReview = (await loadNotificationWording("office.cleaner_requests")).render("clock-adjustment", "INBOX", {
+              propertyName: job.property.name,
+              cleanerName: session.user.name ?? session.user.email ?? "Cleaner",
+            });
             await db.notification.createMany({
               data: adminUsers.map((admin) => ({
                 userId: admin.id,
                 jobId: job.id,
                 externalId: mobilePendingMarker("approvals"),
                 channel: "PUSH",
-                subject: "Clock adjustment approval needed",
-                body: `${job.property.name}: ${session.user.name ?? session.user.email ?? "Cleaner"} requested a clock adjustment review.`,
+                subject: clockReview.title,
+                body: clockReview.body,
                 status: "SENT",
                 sentAt: new Date(),
               })),
@@ -1156,14 +1161,15 @@ export async function POST(
         });
         reviewers.forEach((u) => recipients.add(u.id));
         if (recipients.size > 0) {
+          const reclean = (await loadNotificationWording("office.cleaner_requests")).render("reclean-submitted", "INBOX", { propertyName: job.property.name, areaCount: afterAreas });
           await db.notification.createMany({
             data: Array.from(recipients).map((userId) => ({
               userId,
               jobId: job.id,
               externalId: mobilePendingMarker("jobs"),
               channel: NotificationChannel.PUSH,
-              subject: "Reclean submitted — ready to review",
-              body: `${job.property.name}: the cleaner re-did ${afterAreas} flagged area(s) and uploaded after photos/videos. Review the before vs after.`,
+              subject: reclean.title,
+              body: reclean.body,
               status: NotificationStatus.SENT,
               sentAt: new Date(),
             })),

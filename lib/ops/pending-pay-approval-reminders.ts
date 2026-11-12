@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import { getAppSettings } from "@/lib/settings";
 import { resolveAppUrl } from "@/lib/app-url";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const STATE_KEY = "pending_pay_approval_reminder_v1";
 /** Only remind about requests that have been waiting at least this long. */
@@ -92,26 +93,22 @@ export async function sendPendingPayApprovalReminders(
     .join("");
 
   const actionUrl = resolveAppUrl("/admin/pay-adjustments");
-  const html = `
-    <div style="font-family:Arial,sans-serif;color:#111;">
-      <h2 style="margin:0 0 8px;">${pending.length} extra-pay request${pending.length === 1 ? "" : "s"} awaiting your approval</h2>
-      <p style="color:#555;margin:0 0 12px;">These have been pending for more than ${AGING_HOURS} hours. Total requested: <strong>${money(totalAmount)}</strong>. Approving affects what cleaners can invoice.</p>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr>
-          <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #ddd;">Cleaner</th>
-          <th style="text-align:left;padding:6px 8px;border-bottom:2px solid #ddd;">For</th>
-          <th style="text-align:right;padding:6px 8px;border-bottom:2px solid #ddd;">Requested</th>
-          <th style="text-align:right;padding:6px 8px;border-bottom:2px solid #ddd;">Waiting</th>
-        </tr></thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
-      <p style="margin:16px 0;">
-        <a href="${actionUrl}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;">Review pay requests</a>
-      </p>
-    </div>`;
-
+  const wording = await loadNotificationWording("office.cleaner_requests");
   const settings = await getAppSettings();
-  const subject = `${settings.companyName}: ${pending.length} extra-pay request${pending.length === 1 ? "" : "s"} awaiting approval`;
+  const reminderValues = {
+    companyName: settings.companyName,
+    count: pending.length,
+    requestWord: pending.length === 1 ? "request" : "requests",
+    agingHours: AGING_HOURS,
+    total: money(totalAmount),
+    requestRows: rowsHtml,
+    actionUrl,
+  };
+
+  const reminderInbox = wording.render("pay-reminder", "INBOX", reminderValues);
+  const reminderEmail = wording.render("pay-reminder", "EMAIL", reminderValues);
+  const subject = reminderInbox.title;
+  const html = reminderEmail.html;
 
   const admins = await db.user.findMany({
     where: { role: { in: ["ADMIN", "OPS_MANAGER"] }, isActive: true },
@@ -121,13 +118,13 @@ export async function sendPendingPayApprovalReminders(
   // Route through the notification system so per-admin channel preferences are
   // honoured, Notification rows are written (visible in the feed + the
   // "failed notifications" health tile), rather than a raw email bypass.
-  const summaryLine = `${pending.length} extra-pay request${pending.length === 1 ? "" : "s"} awaiting approval — ${money(totalAmount)} total.`;
+  const summaryLine = reminderInbox.body;
   await deliverNotificationToRecipients({
     recipients: admins.map((a) => ({ id: a.id, role: a.role, email: a.email, phone: a.phone, name: a.name })),
     category: "approvals",
     url: actionUrl,
     web: { subject, body: summaryLine },
-    email: { subject, html },
+    email: { subject: reminderEmail.subject, html },
   });
   const sent = admins.filter((a) => a.email).length;
 

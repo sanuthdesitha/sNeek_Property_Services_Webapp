@@ -116,7 +116,7 @@ export function MaintenanceAssignmentActions({
 
         {!declined ? (
           <EButton size="sm" variant="ghost" disabled={busy} onClick={() => setDialog("decline")}>
-            <X className="h-3.5 w-3.5" /> Can&apos;t do it
+            <X className="h-3.5 w-3.5" /> Can&apos;t take it
           </EButton>
         ) : (
           <EBadge tone="danger" soft>
@@ -143,7 +143,7 @@ export function MaintenanceAssignmentActions({
               onClick={() => setDialog("price")}
               className="inline-flex items-center gap-1 text-[hsl(var(--e-primary))] underline underline-offset-2"
             >
-              <CircleDollarSign className="h-3 w-3" /> Ask for a different price
+              <CircleDollarSign className="h-3 w-3" /> Other price
             </button>
           )}
         </div>

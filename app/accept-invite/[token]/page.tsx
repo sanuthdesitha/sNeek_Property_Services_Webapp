@@ -1,13 +1,29 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { EButton } from "@/components/v2/ui/primitives";
+import { AuthFrame } from "@/components/v2/public/auth-frame";
 import { AcceptInviteForm } from "@/components/auth/accept-invite-form";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: { token: string };
+}
+
+/**
+ * Invitation link (board "Public and sign in", screens 2 and 7). The checks and
+ * their order are unchanged: not recognised, already accepted, expired, account
+ * unavailable, then the set-password form. Every broken link says exactly why
+ * and offers one button: Go to sign in.
+ */
+function InviteProblem({ eyebrow, title, body }: { eyebrow: string; title: string; body: string }) {
+  return (
+    <AuthFrame eyebrow={eyebrow} title={title} intro={<p>{body}</p>}>
+      <EButton asChild variant="gold" size="lg" className="w-full">
+        <Link href="/login">Go to sign in</Link>
+      </EButton>
+    </AuthFrame>
+  );
 }
 
 export default async function AcceptInvitePage({ params }: PageProps) {
@@ -18,85 +34,47 @@ export default async function AcceptInvitePage({ params }: PageProps) {
     },
   });
 
-  const wrapper = (children: React.ReactNode) => (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <div className="w-full max-w-md">{children}</div>
-    </div>
-  );
-
   if (!invite) {
-    return wrapper(
-      <Card>
-        <CardHeader>
-          <CardTitle>Invalid invitation</CardTitle>
-          <CardDescription>
-            This invitation link is not recognized. Ask an administrator to send a new one.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild variant="outline" className="w-full">
-            <Link href="/login">Go to sign in</Link>
-          </Button>
-        </CardContent>
-      </Card>
+    return (
+      <InviteProblem
+        eyebrow="Not recognised"
+        title="Invalid invitation"
+        body="This invitation link is not recognised. Ask the office to send a new one."
+      />
     );
   }
 
   if (invite.acceptedAt) {
-    return wrapper(
-      <Card>
-        <CardHeader>
-          <CardTitle>Invitation already accepted</CardTitle>
-          <CardDescription>
-            This invitation has already been used. If that was you, just sign in below.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild className="w-full">
-            <Link href="/login">Go to sign in</Link>
-          </Button>
-        </CardContent>
-      </Card>
+    return (
+      <InviteProblem
+        eyebrow="Used"
+        title="Already accepted"
+        body="This invitation has already been used. If that was you, sign in."
+      />
     );
   }
 
   if (invite.expiresAt.getTime() < Date.now()) {
-    return wrapper(
-      <Card>
-        <CardHeader>
-          <CardTitle>Invitation expired</CardTitle>
-          <CardDescription>
-            This invitation has expired. Ask an administrator to send a new one.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild variant="outline" className="w-full">
-            <Link href="/login">Go to sign in</Link>
-          </Button>
-        </CardContent>
-      </Card>
+    return (
+      <InviteProblem
+        eyebrow="Expired"
+        title="Invitation expired"
+        body="This invitation has expired. Ask the office to send a new one."
+      />
     );
   }
 
   if (!invite.user.isActive) {
-    return wrapper(
-      <Card>
-        <CardHeader>
-          <CardTitle>Account unavailable</CardTitle>
-          <CardDescription>
-            This account is no longer active. Contact an administrator for help.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild variant="outline" className="w-full">
-            <Link href="/login">Go to sign in</Link>
-          </Button>
-        </CardContent>
-      </Card>
+    return (
+      <InviteProblem
+        eyebrow="Not available"
+        title="Account unavailable"
+        body="This account is no longer active. Contact the office for help."
+      />
     );
   }
 
-  return wrapper(
+  return (
     <AcceptInviteForm
       token={params.token}
       user={{

@@ -48,9 +48,17 @@ describe("which laundry team requests a run offers", () => {
 
   it("asks the team to confirm a due or overdue pickup unless the bags are not ready", () => {
     expect(laundryTeamRequestKinds(teamRun(), TODAY)).toEqual(["TEAM_CONFIRM_PICKUP"]);
-    expect(laundryTeamRequestKinds(teamRun({ readiness: null, exceptions: [exc("PICKUP_OVERDUE")] }), TODAY)).toEqual(["TEAM_CONFIRM_PICKUP"]);
-    expect(laundryTeamRequestKinds(teamRun({ readiness: false, exceptions: [exc("NOT_READY"), exc("PICKUP_OVERDUE")] }), TODAY)).toEqual([]);
+    // Changed on purpose (Suppliers board, 2026-11-12): bags not out yet on the pickup day also offer "move pickup".
+    expect(laundryTeamRequestKinds(teamRun({ readiness: null, exceptions: [exc("PICKUP_OVERDUE")] }), TODAY)).toEqual(["TEAM_CONFIRM_PICKUP", "TEAM_MOVE_PICKUP"]);
+    expect(laundryTeamRequestKinds(teamRun({ readiness: false, exceptions: [exc("NOT_READY"), exc("PICKUP_OVERDUE")] }), TODAY)).toEqual(["TEAM_MOVE_PICKUP"]);
     expect(laundryTeamRequestKinds(teamRun({ pickupDate: "2026-11-13T00:00:00.000Z" }), TODAY)).toEqual([]);
+  });
+
+  it("asks the team to move the pickup only when the bags are not out on the pickup day", () => {
+    expect(laundryTeamRequestKinds(teamRun({ readiness: null }), TODAY)).toEqual(["TEAM_MOVE_PICKUP"]);
+    expect(laundryTeamRequestKinds(teamRun({ readiness: true }), TODAY)).toEqual(["TEAM_CONFIRM_PICKUP"]);
+    expect(laundryTeamRequestKinds(teamRun({ readiness: null, pickupDate: "2026-11-13T00:00:00.000Z" }), TODAY)).toEqual([]);
+    expect(laundryTeamRequestKinds(teamRun({ status: "PICKED_UP", readiness: null, dropoffDate: "2026-11-14T00:00:00.000Z" }), TODAY)).toEqual([]);
   });
 
   it("asks when it will be back, confirms a due drop-off, and asks for the missing drop photo", () => {

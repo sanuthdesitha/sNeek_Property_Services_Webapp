@@ -638,3 +638,23 @@ Owner: "build all designs as drawn"; answers: nav label "People"; suppliers edit
 ## Status: Notifications types and wording (2026-11-12)
 
 Built as drawn (`NotificationTemplates.dc.html`): "Types and wording" tab with the grouped list, details, wording editor per transport, versions, Regenerate (proposal only), preview and Send test to me; Delivery log, Health and Preferences kept (timezone and stale-read fixes). Wording layer with one render function; 14 of 55 types fully editable, 16 with editable parts (shared email templates), 6 written by the sender, 2 edited elsewhere, 17 in code with the reason shown. Access per the owner decision: ADMIN or operations manager with notifications at Manage, never while impersonating. Waiting: browser pass at 390/1280 light/dark; moving the remaining in-code types (listed in SYSTEM.md, "Notification types and wording").
+
+## QA portal, maintenance portal, sign in and public pages (2026-11-12)
+
+Owner: "build all designs as drawn" for `QaPortal.dc.html`, `MaintenancePortal.dc.html`, `PublicAndAuth.dc.html`. Presentation and composition only; no schema, no API, no authentication change. Details: `docs/SYSTEM.md`, "QA portal, maintenance portal, sign in and public pages redesign (2026-11-12)".
+
+**Status (uncommitted; TypeScript clean in these paths, focused and existing area tests passing; build and browser pass pending).**
+- [x] QA and maintenance five-tab bars with role-filtered More menus; `/v2/qa/more` and `/v2/maintenance/more` are menus again; every old destination keeps a home.
+- [x] QA Today (figures, visit order, readiness, Monitor clean, Start anyway, Know before you go link, other dates), inspection stage labels and "deductions are proposals", Pay headline with "Office to fix", Reviews / Credits / Invoices, Rework counts and failure state, self-rework labels.
+- [x] Maintenance Today (New for you, Due today, Replacements, Open next), visit stage strip, cost card, outcome choices, offline line, Tickets By day / By stage.
+- [x] Sign in passkey first, two-step wording, invitation and its four problem states, password reset, onboarding steps with the passkey offer, grouped public menu.
+- Reported, not built: maintenance invoices (proposed; no maintenance pay today); inspector reordering (permission decision); single "Fail" verdict; passkey on the invitation screen (no session there — offered in onboarding); onboarding "Do this later"; two-step method switch; quote wizard; suburb menu entry. Full list in SYSTEM.md.
+
+## Client portal redesign (2026-11-12)
+
+Owner: "build all designs as drawn" for `ClientPortal.dc.html` and `ClientPortalDesktop.dc.html`. Presentation and composition; no schema change. Details: `docs/SYSTEM.md`, "Client portal redesign (2026-11-12)".
+
+**Status (uncommitted; TypeScript clean, focused and existing client tests passing; build and browser pass pending).**
+- [x] Phone tabs Home, Cleans, Approvals, Money, More; Messages and Request sheet in the header; server-filtered More; desktop rail grouped as drawn; old URLs kept or redirected with query.
+- [x] Home (phone) and desktop dashboard; property tabs; Approvals with quotes waiting; Money; one clean; Messages with saved/retry; Settings rows.
+- Reported, not built (needs data or a rule that does not exist): report photo thumbnails and QA score on Home and the table; booking pre-selected for a property ("Book a clean here"); a quote reference number; "Usually replies within 1 hour"; "guest in" time on Happening now; calendar property filter chip and dashboard search box (the shell search stays); the board's "11 cleans, 2 add-ons" reads "11 cleans, 2 other items".

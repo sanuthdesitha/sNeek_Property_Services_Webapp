@@ -4,11 +4,13 @@ import { render, screen, within } from "@testing-library/react";
 import { LaundryStatus, Role } from "@prisma/client";
 import LaundryTodayPage from "@/app/v2/laundry/page";
 
-const mocks = vi.hoisted(() => ({ tasks: vi.fn(), routes: vi.fn(), property: vi.fn(), requireRole: vi.fn(), audit: vi.fn() }));
+const mocks = vi.hoisted(() => ({ tasks: vi.fn(), routes: vi.fn(), property: vi.fn(), requireRole: vi.fn(), audit: vi.fn(), replies: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: {
   laundryTask: { findMany: mocks.tasks }, laundryRoute: { findMany: mocks.routes },
   // "Requests from the office" (2026-11-12): the audit rows of Ask laundry team requests.
   auditLog: { findMany: mocks.audit },
+  // Typed answers to those requests (2026-11-12, LaundryTeamRequestReply).
+  laundryTeamRequestReply: { findMany: mocks.replies },
   // findMany answers the viewer-scope lookup: the properties this driver serves.
   property: { findUnique: mocks.property, findMany: async () => [{ id: "property-1", accessInfo: {}, laundryEnabled: true }] },
 } }));
@@ -31,7 +33,14 @@ beforeEach(() => {
   mocks.routes.mockResolvedValue([]);
   mocks.property.mockResolvedValue({ name: "Harbour House" });
   mocks.audit.mockResolvedValue([]);
+  mocks.replies.mockResolvedValue([]);
 });
+
+/** The route's stop runs (Today route list, 2026-11-12): answered for an id lookup only. */
+function stopTasks(rows: Array<Record<string, unknown>>) {
+  mocks.tasks.mockImplementation(async (args: { where?: { id?: unknown } }) => (args.where?.id ? rows : []));
+}
+const stopTask = (patch: Record<string, unknown> = {}) => ({ id: "task-1", status: "CONFIRMED", pickupTime: "14:30", dropoffTime: null, pickedUpAt: null, droppedAt: null, dropoffCostAud: null, property: { name: "Harbour House", address: "1 Ocean St", suburb: "Manly" }, confirmations: [], ...patch });
 afterEach(() => vi.useRealTimers());
 
 describe("laundry dashboard reliability", () => {
@@ -49,8 +58,8 @@ describe("laundry dashboard reliability", () => {
     const view = render(await LaundryTodayPage());
     labels.forEach((label) => expect(tile(label).getByText("Unavailable")).toBeVisible());
     expect(screen.queryByText("No laundry scheduled")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Continue route" })).toBeVisible();
-    expect(screen.getByText("Next: Harbour House pickup")).toBeVisible();
+    // The Today route list (2026-11-12) replaced "Continue route": the route stays reachable.
+    expect(screen.getByRole("link", { name: /Edit route order/ })).toHaveAttribute("href", "/v2/laundry/route");
     expect(screen.getByRole("link", { name: "Retry laundry" })).toHaveAttribute("href", "/v2/laundry");
     view.rerender(await LaundryTodayPage());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -81,19 +90,17 @@ describe("laundry dashboard reliability", () => {
     expect(screen.queryByText("No laundry scheduled")).not.toBeInTheDocument();
   });
 
-  it("retains route progress on property failure and distinguishes a missing property", async () => {
-    mocks.routes.mockResolvedValue([activeRoute]);
-    mocks.property.mockRejectedValueOnce(new Error("offline"));
-    const view = render(await LaundryTodayPage());
-    expect(screen.getByText(/Route in progress/)).toHaveTextContent("stop 1 of 1");
-    expect(screen.getByText("Next: Property unavailable pickup")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Retry property details" })).toHaveAttribute("href", "/v2/laundry");
-    expect(screen.getByRole("link", { name: "Continue route" })).toBeVisible();
-    expect(mocks.property).toHaveBeenCalledWith({ where: { id: "property-1" }, select: { name: true } });
-    mocks.property.mockResolvedValueOnce(null);
-    view.rerender(await LaundryTodayPage());
-    expect(screen.getByText("Next: Unknown property pickup")).toBeVisible();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  // Route card replaced by the Today route list (board "Laundry partner portal", 2026-11-12): changed on purpose.
+  it("lists the active route in order with planned times and goes to the current stop", async () => {
+    mocks.routes.mockResolvedValue([{ ...activeRoute, startedAt: new Date("2026-09-08T22:10:00Z") }]);
+    stopTasks([stopTask()]);
+    render(await LaundryTodayPage());
+    expect(screen.getByText(/Route started 8:10 · stop 1 of 1/)).toBeVisible();
+    expect(screen.getByText("Pickup · Harbour House")).toBeVisible();
+    expect(screen.getByText("14:30")).toBeVisible();
+    expect(screen.getByText("Cleaner has not confirmed bags")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Go to stop 1 · Harbour House" })).toHaveAttribute("href", "/v2/laundry/stop/task-1?kind=pickup");
+    expect(screen.getByRole("link", { name: /Open in Maps/ }).getAttribute("href")).toContain("google.com/maps");
   });
 
   it("prefers active routes over drafts and preserves completed progress", async () => {
@@ -101,17 +108,18 @@ describe("laundry dashboard reliability", () => {
       { status: "DRAFT", updatedAt: new Date("2026-09-09"), stops: [] },
       { ...activeRoute, stops: [{ ...stop, completedAt: "2026-09-09T01:00:00Z" }] },
     ]);
+    stopTasks([stopTask()]);
     render(await LaundryTodayPage());
-    expect(screen.getByRole("link", { name: "Continue route" })).toBeVisible();
-    expect(screen.getByText(/All stops complete/)).toBeVisible();
-    expect(mocks.property).not.toHaveBeenCalled();
+    expect(screen.getByText("All stops done.")).toBeVisible();
+    expect(screen.queryByRole("link", { name: /Go to stop/ })).not.toBeInTheDocument();
   });
 
   it("offers an existing draft for resumption", async () => {
     mocks.routes.mockResolvedValue([{ ...activeRoute, status: "DRAFT" }]);
+    stopTasks([stopTask()]);
     render(await LaundryTodayPage());
-    expect(screen.getByText("Your route draft is waiting")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Resume draft" })).toHaveAttribute("href", "/v2/laundry/route");
+    expect(screen.getByText(/Your route draft is waiting/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Resume draft route" })).toHaveAttribute("href", "/v2/laundry/route");
   });
 
   it("renders exception statuses and missing property or weight without hiding a load", async () => {
@@ -130,15 +138,17 @@ describe("laundry dashboard reliability", () => {
   });
 
   it("handles multiple route drafts and a drop-off next stop", async () => {
+    stopTasks([stopTask({ status: "PICKED_UP" })]);
     mocks.routes.mockResolvedValueOnce([
       { ...activeRoute, status: "DRAFT", updatedAt: new Date("2026-09-08") },
       { ...activeRoute, status: "DRAFT", updatedAt: new Date("2026-09-09") },
     ]);
     const view = render(await LaundryTodayPage());
-    expect(screen.getByRole("link", { name: "Resume draft" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Resume draft route" })).toBeVisible();
     mocks.routes.mockResolvedValueOnce([{ ...activeRoute, stops: [{ ...stop, kind: "DROP" }] }]);
     view.rerender(await LaundryTodayPage());
-    expect(screen.getByText("Next: Harbour House drop-off")).toBeVisible();
+    expect(screen.getByText("Drop · Harbour House")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Go to stop 1 · Harbour House" })).toHaveAttribute("href", "/v2/laundry/stop/task-1?kind=drop");
   });
 
   it.each([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER])("preserves role access and route ownership for %s", async (role) => {
@@ -221,18 +231,18 @@ describe("laundry dashboard reliability", () => {
   });
 });
 
-describe("requests from the office (Ask laundry team)", () => {
-  it("lists this team member's requests as Open while the run still calls for them, with the way to answer", async () => {
+describe("From the office (Ask laundry team)", () => {
+  // The Today card summarises; answers are given in From the office (2026-11-12): changed on purpose.
+  it("shows the open requests for this team member and the way into the inbox", async () => {
     mocks.audit.mockResolvedValue([{ id: "a1", entityId: "task-9", createdAt: new Date("2026-11-12T01:00:00Z"), after: { kind: "TEAM_CONFIRM_PICKUP", note: "Gate code 1234", recipientIds: ["driver-1"] } }]);
     mocks.tasks.mockImplementation(async (args: { where?: { id?: unknown } }) => (args.where?.id
-      ? [{ id: "task-9", jobId: "j9", status: LaundryStatus.CONFIRMED, pickupDate: new Date("2020-01-01T00:00:00Z"), dropoffDate: new Date("2020-01-02T00:00:00Z"), pickedUpAt: null, flagReason: null, supplier: { avgTurnaround: null }, property: { name: "Harbour House", suburb: "Manly" }, job: { status: "COMPLETED" }, confirmations: [] }]
+      ? [{ id: "task-9", jobId: "j9", status: LaundryStatus.CONFIRMED, pickupDate: new Date("2020-01-01T00:00:00Z"), dropoffDate: new Date("2020-01-02T00:00:00Z"), pickedUpAt: null, flagReason: null, pickupTime: null, dropoffTime: null, supplier: { avgTurnaround: null }, property: { name: "Harbour House", suburb: "Manly" }, job: { status: "COMPLETED" }, confirmations: [] }]
       : []));
     render(await LaundryTodayPage());
-    const card = screen.getByRole("heading", { name: "Requests from the office" }).closest("#office-requests") as HTMLElement;
-    expect(within(card).getByText("Confirm the pickup · Harbour House, Manly")).toBeVisible();
-    expect(within(card).getByText(/Gate code 1234/)).toBeVisible();
-    expect(within(card).getByText("Open")).toBeVisible();
-    expect(within(card).getByRole("link", { name: /Answer on the Queue/ })).toHaveAttribute("href", "/v2/laundry/queue");
+    const card = screen.getByRole("heading", { name: "From the office" }).closest("#office-requests") as HTMLElement;
+    expect(within(card).getByText("1 open")).toBeVisible();
+    expect(within(card).getByText(/Harbour House pickup/)).toBeVisible();
+    expect(within(card).getByRole("link", { name: /Answer in From the office/ })).toHaveAttribute("href", "/v2/laundry/requests");
     expect(mocks.audit.mock.calls[0][0].where).toMatchObject({ action: "LAUNDRY_TEAM_REQUEST_SENT", after: { path: ["recipientIds"], array_contains: ["driver-1"] } });
   });
 

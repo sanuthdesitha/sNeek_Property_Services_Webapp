@@ -10,7 +10,14 @@ import { loadCaseQuotePrefill } from "@/lib/cases/repair-quote";
 export const metadata = { title: "New quote · Estate admin" };
 export const dynamic = "force-dynamic";
 
-type SearchParams = { fromCase?: string | string[] };
+type SearchParams = { fromCase?: string | string[]; clientId?: string | string[]; leadId?: string | string[] };
+
+const ID = /^[A-Za-z0-9_-]{1,200}$/;
+
+function single(value: string | string[] | undefined): string | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw && ID.test(raw) ? raw : null;
+}
 type ClientOption = { id: string; name: string; email: string; suburb: string | null };
 
 /** The case's client stays choosable even when it is outside the first 500 active clients. */
@@ -29,6 +36,16 @@ export default async function V2NewQuotePage({ searchParams }: { searchParams?: 
   const rawCase = Array.isArray(searchParams?.fromCase) ? searchParams?.fromCase[0] : searchParams?.fromCase;
   const fromCaseId = rawCase && /^[A-Za-z0-9_-]{1,200}$/.test(rawCase) ? rawCase : null;
   const casePrefill = fromCaseId ? await loadCaseQuotePrefill(fromCaseId) : null;
+  // `?clientId=` (New quote from a client page) and `?leadId=` (Make quote from
+  // the pipeline) preselect the recipient only when the record exists (an
+  // inactive client is not offered). Anything else is ignored with a notice.
+  const requestedClientId = single(searchParams?.clientId);
+  const requestedLeadId = single(searchParams?.leadId);
+  const [prefillClient, prefillLead] = await Promise.all([
+    requestedClientId ? db.client.findFirst({ where: { id: requestedClientId, isActive: true }, select: { id: true, name: true, email: true, suburb: true } }) : null,
+    requestedLeadId ? db.quoteLead.findUnique({ where: { id: requestedLeadId }, select: { id: true, name: true, email: true, suburb: true, serviceType: true, bedrooms: true, bathrooms: true, estimateMin: true, estimateMax: true } }) : null,
+  ]);
+  const prefillMissing = Boolean((requestedClientId && !prefillClient) || (requestedLeadId && !prefillLead));
 
   const [leads, clients, settings] = await Promise.all([
     db.quoteLead.findMany({
@@ -71,14 +88,23 @@ export default async function V2NewQuotePage({ searchParams }: { searchParams?: 
         title="New quote"
         description="Quote an existing client or a new lead, priced per service from your rate card."
       />
+      {prefillMissing ? (
+        <p role="alert" className="rounded-[var(--e-radius)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]">
+          The client or lead this quote was started for could not be found or is inactive, so no recipient was chosen.
+        </p>
+      ) : null}
       {fromCaseId && !casePrefill ? (
         <p role="alert" className="rounded-[var(--e-radius)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]">
           The case this quote was started from could not be found, so nothing was filled in.
         </p>
       ) : null}
       <QuoteBuilder
-        leads={leads}
-        clients={withCaseClient(clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "", suburb: c.suburb ?? null })), casePrefill?.client ?? null)}
+        leads={prefillLead && !leads.some((lead) => lead.id === prefillLead.id) ? [prefillLead, ...leads] : leads}
+        clients={withCaseClient(
+          withCaseClient(clients.map((c) => ({ id: c.id, name: c.name, email: c.email ?? "", suburb: c.suburb ?? null })), casePrefill?.client ?? null),
+          prefillClient ? { id: prefillClient.id, name: prefillClient.name } : null,
+        )}
+        recipientPrefill={casePrefill ? undefined : { clientId: prefillClient?.id, leadId: prefillLead?.id }}
         services={serviceOptions}
         gstEnabled={settings.pricing.gstEnabled}
         pricingVariables={settings.pricingVariables}

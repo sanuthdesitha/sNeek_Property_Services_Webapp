@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * are charged"); they are read from the client's own quotes and decided in the
  * existing My quotes flow.
  */
-export default async function ClientApprovalsPage({ searchParams }: { searchParams?: { view?: string } } = {}) {
+export default async function ClientApprovalsPage({ searchParams }: { searchParams?: { view?: string } }) {
   await ensureClientModuleAccess("approvals");
   const session = await requireRole([Role.CLIENT]);
   const portal = await getClientPortalContext(session.user.id).catch(() => null);

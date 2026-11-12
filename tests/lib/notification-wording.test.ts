@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { NOTIFICATION_CATALOG } from "@/lib/notifications/catalog";
 import { WORDING_DEFINITIONS, wordingDefinition } from "@/lib/notifications/wording/registry";
 import { checkWording, fromEmailTemplateSyntax, renderHtml, renderPlain, smsLength, templateVariables, toEmailTemplateSyntax, wordingHash } from "@/lib/notifications/wording/template";
-import { partFields } from "@/lib/notifications/wording/types";
 import { AUDIENCE_GROUPS, audienceGroup } from "@/lib/notifications/wording/audience-groups";
-import { getDefaultEmailTemplates } from "@/lib/email-templates";
+import { templateDefaults } from "@/lib/notifications/wording/template-sources";
+import { partProblems } from "@/lib/notifications/wording/store";
 
 describe("wording registry", () => {
   it("has exactly one definition for every catalog type, and no definition for unknown types", () => {
@@ -27,8 +27,7 @@ describe("wording registry", () => {
   it("every default is valid wording for its own part: known variables only, required ones present", () => {
     for (const definition of WORDING_DEFINITIONS) {
       for (const part of definition.parts) {
-        const defaults = part.source.kind === "STORE" ? part.defaults : { subject: fromEmailTemplateSyntax(getDefaultEmailTemplates()[part.source.key].subject), body: fromEmailTemplateSyntax(getDefaultEmailTemplates()[part.source.key].html) };
-        const problems = checkWording({ transport: part.transport, fields: defaults, fieldNames: partFields(part), allowed: part.variables, required: part.required });
+        const problems = partProblems(part, templateDefaults(part));
         expect(problems, `${definition.typeKey}/${part.id}/${part.transport}`).toEqual([]);
         for (const name of part.required) expect(part.variables, `${definition.typeKey}/${part.id}`).toContain(name);
       }

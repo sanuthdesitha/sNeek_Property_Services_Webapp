@@ -3,11 +3,9 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import "@/app/v2/estate.css";
+import { EButton } from "@/components/v2/ui/primitives";
+import { AUTH_INPUT_CLASS, AUTH_LABEL_CLASS, AuthFrame } from "@/components/v2/public/auth-frame";
 
 export default function ResetPasswordPage() {
   const searchParams = useSearchParams();
@@ -54,54 +52,50 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center p-4">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_14%_18%,rgba(255,178,98,0.2),transparent_35%),radial-gradient(circle_at_86%_10%,rgba(38,157,169,0.2),transparent_31%)]" />
-      <Card className="w-full max-w-sm shadow-xl">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Set a new password</CardTitle>
-          {email ? <CardDescription>for {email}</CardDescription> : null}
-        </CardHeader>
-        <CardContent>
-          {done ? (
-            <div className="space-y-4">
-              <Alert>
-                <AlertDescription>Your password has been reset. You can now sign in.</AlertDescription>
-              </Alert>
-              <Button asChild className="w-full">
-                <Link href="/login">Go to sign in</Link>
-              </Button>
-            </div>
-          ) : !linkValid ? (
-            <div className="space-y-4">
-              <Alert variant="destructive">
-                <AlertDescription>This reset link is incomplete or invalid. Please request a new one.</AlertDescription>
-              </Alert>
-              <Button asChild variant="outline" className="w-full">
-                <Link href="/forgot-password">Request a new link</Link>
-              </Button>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-              <div className="space-y-1">
-                <Label htmlFor="password">New password</Label>
-                <Input id="password" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="confirm">Confirm password</Label>
-                <Input id="confirm" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
-              </div>
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Saving…" : "Reset password"}
-              </Button>
-            </form>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    <AuthFrame
+      eyebrow="Password reset"
+      title="Set a new password"
+      intro={email ? <p>for <span className="[overflow-wrap:anywhere]">{email}</span></p> : undefined}
+    >
+      {done ? (
+        <div className="space-y-4">
+          <p role="status" className="text-[0.875rem]">Your password has been reset. You can now sign in.</p>
+          <EButton asChild variant="gold" size="lg" className="w-full">
+            <Link href="/login">Go to sign in</Link>
+          </EButton>
+        </div>
+      ) : !linkValid ? (
+        <div className="space-y-4">
+          <p role="alert" className="rounded-[var(--e-radius)] border-l-2 border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] px-3 py-2 text-[0.8125rem]">
+            This reset link is incomplete or invalid. Please request a new one.
+          </p>
+          <EButton asChild variant="outline" size="lg" className="w-full">
+            <Link href="/forgot-password">Request a new link</Link>
+          </EButton>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* The link is checked when you submit; it works once and expires a
+              short time after it was sent (the email states how long). */}
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            This link works once and expires a short time after it was sent.
+          </p>
+          <div className="space-y-1.5">
+            <label htmlFor="password" className={AUTH_LABEL_CLASS}>New password</label>
+            <input id="password" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} className={AUTH_INPUT_CLASS} />
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="confirm" className={AUTH_LABEL_CLASS}>Confirm password</label>
+            <input id="confirm" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} className={AUTH_INPUT_CLASS} />
+          </div>
+          {error ? (
+            <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{error}</p>
+          ) : null}
+          <EButton type="submit" variant="gold" size="lg" className="w-full" disabled={loading}>
+            {loading ? "Saving…" : "Reset password"}
+          </EButton>
+        </form>
+      )}
+    </AuthFrame>
   );
 }

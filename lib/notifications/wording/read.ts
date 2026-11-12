@@ -4,12 +4,13 @@ import { getAppSettings } from "@/lib/settings";
 import { NOTIFICATION_CATALOG } from "../catalog";
 import { wordingHash } from "./template";
 import { wordingDefinition } from "./registry";
-import { emailTemplateFields, parseStoredRow, partDefaults, partProblems, readStoredRow, WORDING_KEY_PREFIX, type StoredVersion } from "./store";
+import { parseStoredRow, partDefaults, partProblems, readStoredRow, WORDING_KEY_PREFIX, type StoredVersion } from "./store";
 import { variableDefinition } from "./variables";
+import { isTemplatePart, templateLive, type TemplateSettings } from "./template-sources";
 import { entryKey, partFields, type WordingPartDefinition } from "./types";
 import type { WordingPartView, WordingSummary, WordingVersionView } from "./view-types";
 
-type Templates = Record<string, { subject: string; html: string }>;
+type Templates = Pick<TemplateSettings, "emailTemplates" | "notificationTemplates">;
 
 function versionsView(part: WordingPartDefinition, history: StoredVersion[], defaults: ReturnType<typeof partDefaults>): WordingVersionView[] {
   const original: WordingVersionView = { version: 1, savedAt: null, actorName: null, kind: "DEFAULT", change: "Original", fields: defaults };
@@ -28,8 +29,8 @@ function partView(part: WordingPartDefinition, history: StoredVersion[], templat
   const last = history[history.length - 1];
   let live = defaults;
   let liveSource: WordingPartView["liveSource"] = "default";
-  if (part.source.kind === "EMAIL_TEMPLATE") {
-    live = emailTemplateFields(templates, part.source.key);
+  if (isTemplatePart(part)) {
+    live = templateLive(templates, part);
     const matchesHistory = last ? wordingHash(last.fields ?? defaults) === wordingHash(live) : wordingHash(live) === wordingHash(defaults);
     liveSource = !matchesHistory ? "forms" : last?.fields ? "override" : "default";
   } else if (last?.fields) {
@@ -46,8 +47,8 @@ function partView(part: WordingPartDefinition, history: StoredVersion[], templat
     required: [...part.required],
     note: part.note ?? null,
     push: part.push ?? null,
-    source: part.source.kind,
-    templateKey: part.source.kind === "EMAIL_TEMPLATE" ? part.source.key : null,
+    source: part.source.kind === "STORE" ? "STORE" : "TEMPLATE",
+    templateKey: part.source.kind === "STORE" ? null : part.source.key,
     defaults,
     live,
     liveHash: wordingHash(live),
@@ -67,7 +68,7 @@ export async function readTypeWording(typeKey: string): Promise<{ status: string
     status: definition.status,
     reason: definition.reason ?? null,
     href: definition.href ?? null,
-    parts: definition.parts.map((part) => partView(part, row.entries[entryKey(part.id, part.transport)] ?? [], settings.emailTemplates)),
+    parts: definition.parts.map((part) => partView(part, row.entries[entryKey(part.id, part.transport)] ?? [], settings)),
   };
 }
 
@@ -81,7 +82,7 @@ export async function readWordingSummaries(): Promise<WordingSummary[]> {
   return NOTIFICATION_CATALOG.map((entry) => {
     const definition = wordingDefinition(entry.key)!;
     const row = byType.get(entry.key) ?? { entries: {} };
-    const views = definition.parts.map((part) => partView(part, row.entries[entryKey(part.id, part.transport)] ?? [], settings.emailTemplates));
+    const views = definition.parts.map((part) => partView(part, row.entries[entryKey(part.id, part.transport)] ?? [], settings));
     return {
       typeKey: entry.key,
       status: definition.status,

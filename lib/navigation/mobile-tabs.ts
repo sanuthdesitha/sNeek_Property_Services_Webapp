@@ -3,7 +3,7 @@ const MOBILE_PATHS: Record<string, readonly string[]> = {
   client: ["", "jobs", "approvals", "finance", "more"],
   cleaner: ["", "jobs", "supplies", "pay", "more"],
   qa: ["", "reviews", "rework", "pay", "more"],
-  laundry: ["", "queue", "runs", "tracking", "calendar"],
+  laundry: ["", "runs", "tracking", "history", "more"],
   maintenance: ["", "tickets", "replacements", "log", "more"],
 };
 

@@ -132,6 +132,7 @@ export async function loadTrades(): Promise<TradeSupplierRecord[]> {
   return workers.map((worker) => ({
     id: worker.id,
     name: worker.company?.trim() || worker.name,
+    contactName: worker.name,
     company: worker.company,
     trade: worker.trade,
     phone: worker.phone,

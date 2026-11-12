@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export const runtime = "nodejs";
 
@@ -117,12 +118,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         },
       });
       if (!changed.count) return NextResponse.json({ ok: true, unchanged: true });
-      await notifyOffice({
-        subject: `Maintenance completed — ${assignment.item.title}`,
-        body: `${actorName} finished ${assignment.item.title} at ${propertyName}.${
-          body.note?.trim() ? ` Note: ${body.note.trim()}` : ""
-        }`,
+      const wording = await loadNotificationWording("office.field_alerts");
+      const completedNote = body.note?.trim();
+      const completed = wording.render("maintenance-completed", "INBOX", {
+        actorName,
+        itemTitle: assignment.item.title,
+        propertyName,
+        noteSuffix: wording.line("note-suffix", "INBOX", { note: completedNote }, Boolean(completedNote)),
       });
+      await notifyOffice({ subject: completed.title, body: completed.body });
       return NextResponse.json({ ok: true, completedAt: now });
     }
 
@@ -150,12 +154,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       },
     });
     if (payChange.count === 0) return NextResponse.json({ ok: true, payChangeStatus: "PENDING", unchanged: true });
-    await notifyOffice({
-      subject: `Price change requested — ${assignment.item.title}`,
-      body: `${actorName} asked for $${amount.toFixed(2)} on ${assignment.item.title} (currently ${
-        assignment.payAmount != null ? `$${assignment.payAmount.toFixed(2)}` : "unpriced"
-      }).${body.note?.trim() ? ` Reason: ${body.note.trim()}` : ""}`,
+    const wording = await loadNotificationWording("office.field_alerts");
+    const priceNote = body.note?.trim();
+    const priceRequest = wording.render("price-requested", "INBOX", {
+      actorName,
+      amount: `$${amount.toFixed(2)}`,
+      itemTitle: assignment.item.title,
+      currentPay: assignment.payAmount != null ? `$${assignment.payAmount.toFixed(2)}` : wording.line("unpriced", "INBOX", {}),
+      reasonSuffix: wording.line("reason-suffix", "INBOX", { note: priceNote }, Boolean(priceNote)),
     });
+    await notifyOffice({ subject: priceRequest.title, body: priceRequest.body });
 
     return NextResponse.json({ ok: true, payChangeStatus: "PENDING" });
   } catch (err: any) {

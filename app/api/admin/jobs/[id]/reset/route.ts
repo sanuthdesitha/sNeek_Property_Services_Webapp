@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { verifySensitiveAction, type SensitiveActionCredentials } from "@/lib/security/admin-verification";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { FINANCIAL_RECORD_LINE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
 import {
@@ -298,22 +299,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (plan.notifyCleaners && affectedCleaners.length > 0) {
       const jobReference = getJobReference({ jobNumber: job.jobNumber, id: job.id });
       const propertyLabel = `${job.property?.name ?? "the property"}${job.property?.suburb ? ` (${job.property.suburb})` : ""}`;
+      const wording = await loadNotificationWording("job.changed");
       const cleared: string[] = [];
-      if (applied.deletedTimeLogs > 0) cleared.push("your clock records");
-      if (applied.deletedSubmissions > 0) cleared.push("the submitted form and photos");
-      const clearedText = cleared.join(" and ") || "the job progress";
-      const bodyText = `${jobReference} at ${propertyLabel} has been reset by admin — ${clearedText} were cleared. Please start the job again from your app.`;
+      if (applied.deletedTimeLogs > 0) cleared.push(wording.line("cleared-clock", "INBOX", {}));
+      if (applied.deletedSubmissions > 0) cleared.push(wording.line("cleared-form", "INBOX", {}));
+      const clearedText = cleared.join(wording.line("cleared-joiner", "INBOX", {})) || wording.line("cleared-default", "INBOX", {});
+      const values = { jobNumber: jobReference, propertyName: propertyLabel, clearedText };
+      const inbox = wording.render("reset", "INBOX", values);
+      const email = wording.render("reset", "EMAIL", values);
+      const bodyText = inbox.body;
       await deliverNotificationToRecipients({
         recipients: affectedCleaners,
         category: "jobs",
         jobId: params.id,
-        web: { subject: "Job reset by admin", body: bodyText },
+        web: { subject: inbox.title, body: bodyText },
         email: {
-          subject: "Job reset by admin",
-          html: `<h2 style="margin:0 0 12px;">Job reset</h2><p>${bodyText}</p>`,
+          subject: email.subject,
+          html: email.html,
           logBody: bodyText,
         },
-        sms: bodyText.slice(0, 320),
+        sms: wording.render("reset", "SMS", values).body.slice(0, 320),
       }).catch(() => undefined);
     }
 

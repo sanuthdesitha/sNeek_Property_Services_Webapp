@@ -1,11 +1,11 @@
 import "server-only";
-import { renderEmailTemplate } from "@/lib/email-templates";
 import { logger } from "@/lib/logger";
 import { getAppSettings, type AppSettings } from "@/lib/settings";
 import { renderHtml, renderPlain, type TemplateValues } from "./template";
 import { wordingDefinition } from "./registry";
 import { liveStoreOverride, readStoredRow } from "./store";
 import { variableFormats } from "./variables";
+import { isTemplatePart, renderTemplatePart } from "./template-sources";
 import type { WordingFields, WordingPartDefinition, WordingTransport } from "./types";
 
 /**
@@ -68,10 +68,9 @@ function renderPart(part: WordingPartDefinition, fields: WordingFields, values: 
 function makeRenderer(typeKey: string, overrides: Overrides, settings: AppSettings | null): WordingRenderer {
   function render(partId: string, transport: WordingTransport, values: TemplateValues): RenderedWording {
     const part = findPart(typeKey, partId, transport);
-    if (part.source.kind === "EMAIL_TEMPLATE") {
+    if (isTemplatePart(part)) {
       if (!settings) throw new Error(`Settings are needed to render ${typeKey}/${partId}`);
-      const rendered = renderEmailTemplate(settings, part.source.key, values as Record<string, unknown>);
-      return { title: "", body: rendered.html, subject: rendered.subject, html: rendered.html, source: "default" };
+      return { ...renderTemplatePart(settings, part, values as Record<string, unknown>), source: "default" };
     }
     const override = overrides.get(`${part.id}:${part.transport}`);
     return { ...renderPart(part, override ?? part.defaults, values), source: override ? "override" : "default" };
@@ -115,7 +114,7 @@ export async function loadNotificationWording(typeKey: string): Promise<WordingR
     warn({ typeKey, error: error instanceof Error ? error.message : String(error) }, "Notification wording overrides unavailable; defaults used");
     overrides.clear();
   }
-  if (parts.some((part) => part.source.kind === "EMAIL_TEMPLATE")) settings = await getAppSettings();
+  if (parts.some(isTemplatePart)) settings = await getAppSettings();
   return makeRenderer(typeKey, overrides, settings);
 }
 

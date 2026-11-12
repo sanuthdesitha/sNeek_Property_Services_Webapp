@@ -1,663 +1,73 @@
-import { projectClientJobList } from "@/lib/client/list-projection";
 import Link from "next/link";
-import { requirePropertyFavoritesContext } from "@/lib/client/property-favorites-store";
-import { loadPropertyHomeRows } from "@/lib/client/property-home";
-import { PropertyPortfolio } from "@/components/v2/client/property-portfolio";
-import { format } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
-import { db } from "@/lib/db";
-import { requireClientPortalPage, propertyScopeWhere } from "@/lib/auth/client-portal";
-import { getClientPortalContext } from "@/lib/client/portal";
-import { listClientJobsForUser, listClientReportsForUser } from "@/lib/client/portal-data";
-import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
-import { getClientImmediateAttention } from "@/lib/dashboard/immediate-attention";
-import {
-  EBadge,
-  EButton,
-  ECard,
-  ECardBody,
-  ECardHeader,
-  ECardTitle,
-  EEmptyState,
-  EEyebrow,
-  EStatCard,
-  EThread,
-} from "@/components/v2/ui/primitives";
-import { EstateReportDownloadButton } from "@/components/v2/client/report-download-button";
-import {
-  CalendarClock,
-  FileText,
-  MapPin,
-  MessageSquare,
-  Package,
-  Plus,
-  Shirt,
-  Star,
-  ClipboardCheck,
-} from "lucide-react";
+import { requireClientPortalPage } from "@/lib/auth/client-portal";
+import { loadClientHome } from "@/lib/client/home-dashboard";
+import { PhoneHome } from "@/components/v2/client/home/phone-home";
+import { DesktopDashboard } from "@/components/v2/client/home/desktop-dashboard";
+import { RequestButton } from "@/components/v2/client/portal/request-sheet";
+import { EEyebrow } from "@/components/v2/ui/primitives";
+import { greetingFor, happeningNow, sydneyFormat, sydneyKey, type HomeJob } from "@/components/v2/client/home/home-model";
 
 export const metadata = { title: "Home · Estate client" };
 export const dynamic = "force-dynamic";
 
-const TZ = "Australia/Sydney";
-
-const ACTIVE_JOB_STATUSES = [
-  "UNASSIGNED",
-  "OFFERED",
-  "ASSIGNED",
-  // Without EN_ROUTE the home card skipped today's job while the cleaner was
-  // driving to it and advertised tomorrow's as "next" instead.
-  "EN_ROUTE",
-  "IN_PROGRESS",
-  "PAUSED",
-  "WAITING_CONTINUATION_APPROVAL",
-  "SUBMITTED",
-  "QA_REVIEW",
-];
-
-function money(value: number) {
-  return `$${value.toFixed(2)}`;
-}
-
-function Unavailable({ section }: { section: string }) {
-  return <p className="py-4 text-sm text-[hsl(var(--e-muted-foreground))]">{section} unavailable.</p>;
-}
-
-function titleCase(value: string) {
-  return value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function parseConfirmationMeta(notes: string | null | undefined) {
-  if (!notes) return null;
-  try {
-    return JSON.parse(notes);
-  } catch {
-    return null;
-  }
-}
-
-const ATTENTION_TONE: Record<string, string> = {
-  critical: "hsl(var(--e-danger))",
-  warning: "hsl(var(--e-warning))",
-  info: "hsl(var(--e-info))",
-};
-
+/**
+ * Client Home (approved boards, 2026-11). One page, two compositions of the
+ * same server data: the phone Home (board 1) below the desktop breakpoint and
+ * the desktop dashboard above it. One heading and one main landmark (the
+ * shell's). Every section keeps the visibility switches and VA grants it had.
+ */
 export default async function ClientHomePage() {
-  const portalCtx = await requireClientPortalPage();
-  // Shim: downstream code reads session.user.id — for a VA that is THEIR id,
-  // and the VA-aware resolvers scope it to their team's client and properties.
-  const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
-  const portal = await getClientPortalContext(session.user.id).catch(() => null);
-  const visibility = { ...portalCtx.visibility };
-  if (portalCtx.actor === "VA") {
-    const grants = portalCtx.permissions;
-    visibility.showProperties &&= grants.properties;
-    visibility.showInventory &&= grants.properties;
-    visibility.showReports &&= grants.reports;
-    visibility.showFinanceDetails &&= grants.invoicesView;
-    visibility.showBooking &&= grants.bookings;
-    visibility.showCases &&= grants.maintenance;
-    visibility.showShopping = false;
-    visibility.showQuoteRequests = false;
-    visibility.showApprovals = false;
-  }
-  const propertyWhere = propertyScopeWhere(portalCtx);
-  const firstName = session.user.name ? session.user.name.split(" ")[0] : null;
+  const portal = await requireClientPortalPage();
+  const data = await loadClientHome(portal);
+  const now = new Date();
+  const todayKey = sydneyKey(now);
+  const firstName = portal.userName ? portal.userName.split(" ")[0] : null;
 
-  const [jobsResult, reportsResult] = await Promise.all([
-    listClientJobsForUser(session.user.id).then((rows) => projectClientJobList(rows, visibility)).catch(() => null),
-    visibility?.showReports
-      ? listClientReportsForUser(session.user.id).catch(() => null)
-      : Promise.resolve([]),
-  ]);
-
-  const finance =
-    portal?.clientId && visibility?.showFinanceDetails
-      ? await getClientFinanceOverview(portal.clientId, portalCtx.propertyIds).catch(() => null)
-      : null;
-
-  const clientId = portal?.clientId ?? null;
-
-  const [propertiesResult, stocksResult, laundryResult, attentionResult] = await Promise.all([
-    visibility.showProperties && clientId
-      ? loadPropertyHomeRows(portalCtx).catch(() => null)
-      : Promise.resolve(visibility.showProperties ? null : []),
-    clientId && visibility?.showInventory
-      ? db.propertyStock
-          .findMany({
-            where: { property: propertyWhere },
-            include: {
-              property: { select: { id: true, name: true } },
-              item: { select: { name: true } },
-            },
-            orderBy: [{ property: { name: "asc" } }, { item: { name: "asc" } }],
-            take: 2000,
-          })
-          .catch(() => null)
-      : Promise.resolve(visibility.showInventory ? null : []),
-    clientId && visibility?.showLaundryUpdates
-      ? db.laundryTask
-          .findMany({
-            where: { property: propertyWhere },
-            select: {
-              id: true,
-              status: true,
-              pickupDate: true,
-              dropoffDate: true,
-              droppedAt: true,
-              property: { select: { name: true, suburb: true } },
-              confirmations: {
-                orderBy: { createdAt: "desc" },
-                take: 3,
-                select: { notes: true },
-              },
-            },
-            orderBy: [{ pickupDate: "asc" }],
-            take: 6,
-          })
-          .catch(() => null)
-      : Promise.resolve(visibility.showLaundryUpdates ? null : []),
-    clientId
-      ? getClientImmediateAttention({ clientId, visibility, propertyIds: portalCtx.propertyIds }).catch(() => null)
-      : Promise.resolve(null),
-  ]);
-
-  const jobs = jobsResult ?? [];
-  const reports = reportsResult ?? [];
-  const properties = propertiesResult ?? [];
-  const propertyStocks = stocksResult ?? [];
-  const laundryUpdates = laundryResult ?? [];
-  const urgentItems = attentionResult ?? [];
-  const financeUnavailable = visibility.showFinanceDetails && finance === null;
-  const failedSections = [
-    !clientId && "Account",
-    jobsResult === null && "Services",
-    reportsResult === null && "Reports",
-    propertiesResult === null && "Properties",
-    stocksResult === null && "Inventory",
-    laundryResult === null && "Laundry",
-    attentionResult === null && "Attention",
-    financeUnavailable && "Finance",
-  ].filter(Boolean);
-  const unavailableValue = <span className="text-sm">Unavailable</span>;
-
-  const stockByProperty = new Map<string, (typeof propertyStocks)[number][]>();
-  for (const stock of propertyStocks) {
-    const list = stockByProperty.get(stock.propertyId);
-    if (list) list.push(stock);
-    else stockByProperty.set(stock.propertyId, [stock]);
-  }
-  const inventoryByProperty = Array.from(stockByProperty.entries()).map(([propertyId, rows]) => {
-    const low = rows.filter((row) => row.onHand <= row.reorderThreshold);
-    return {
-      id: propertyId,
-      name: rows[0]?.property.name ?? "Property",
-      totalTracked: rows.length,
-      lowCount: low.length,
-      preview: low.slice(0, 3).map((row) => ({
-        name: row.item.name,
-        onHand: row.onHand,
-        par: row.parLevel,
-      })),
-    };
-  });
-
-  const nowSyd = toZonedTime(new Date(), TZ);
-  const dateLine = format(nowSyd, "EEEE · d MMMM").toUpperCase();
-  const todayKey = format(nowSyd, "yyyy-MM-dd");
-
-  const activeJobs = jobs.filter((job) => ACTIVE_JOB_STATUSES.includes(job.status));
-  const upcoming = [...activeJobs].sort(
-    (a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime()
-  );
-  // "Next service" = the earliest active job scheduled today or later (Sydney
-  // day boundary). Past-but-open jobs still show in the jobs board's past
-  // group — they just aren't "next".
-  const nextJob =
-    upcoming.find((job) => format(toZonedTime(job.scheduledDate, TZ), "yyyy-MM-dd") >= todayKey) ??
-    null;
-  const showCleanerNames = visibility?.showCleanerNames ?? false;
-  const cleanerNames = showCleanerNames
-    ? nextJob?.assignments.map((a) => a.user?.name).filter(Boolean).join(" & ") || null
-    : null;
-  const cleanerCount = showCleanerNames
-    ? nextJob?.assignments.filter((a) => a.user?.name).length ?? 0
-    : 0;
-
-  // Daily-use derivations. All from data already loaded above — no extra query.
-  const todayJobs = activeJobs.filter(
-    (job) => format(toZonedTime(job.scheduledDate, TZ), "yyyy-MM-dd") === todayKey
-  );
-  const nextJobLabel = nextJob
-    ? format(toZonedTime(nextJob.scheduledDate, TZ), "EEE d MMM")
-    : "—";
-  // What is actually blocking the client: the same items the attention strip
-  // above lists, counted so the number and the list can never disagree.
-  const actionableItems = urgentItems.filter((item) => item.tone !== "info");
-  const needsYouCount = actionableItems.reduce((sum, item) => sum + item.count, 0);
-  const lowStockTotal = inventoryByProperty.reduce((sum, row) => sum + row.lowCount, 0);
-
-  const favoritesContext = visibility.showProperties && properties.length > 0
-    ? await requirePropertyFavoritesContext().then(value => value.context).catch(() => null) : null;
-
-  const unbilledCount = finance?.summary.pendingChargeCount;
+  const propertyCount = Array.isArray(data.properties) ? data.properties.length : null;
+  const liveCount = data.jobs ? (happeningNow(data.jobs as HomeJob[], todayKey) ? 1 : 0) : null;
+  const decisions = data.decisions && data.quotes ? data.decisions.count + data.quotes.length : null;
+  const summary = [
+    data.clientName,
+    sydneyFormat(now, "EEEE d MMMM"),
+    data.visibility.showProperties && propertyCount !== null ? `${propertyCount} ${propertyCount === 1 ? "property" : "properties"}` : null,
+    liveCount !== null ? `${liveCount} clean in progress` : null,
+    data.showDecisions && decisions !== null ? `${decisions} ${decisions === 1 ? "decision" : "decisions"} waiting` : null,
+  ].filter(Boolean).join(" · ");
 
   return (
-    <div className="space-y-8">
-      <header className="e-rise">
-        <EEyebrow>{dateLine} · SYDNEY</EEyebrow>
-        <h1 className="e-display-lg mt-2">
-          {firstName ? `Welcome back, ${firstName}.` : "Welcome back."}
-        </h1>
-        {portal?.client?.name ? (
-          <p className="mt-1 text-[0.9375rem] text-[hsl(var(--e-muted-foreground))]">
-            {portal.client.name}
-          </p>
-        ) : null}
-        <div className="e-signature-rule mt-4" />
+    <div className="space-y-4 lg:space-y-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <EEyebrow className="lg:hidden">{sydneyFormat(now, "EEEE · d MMMM")}</EEyebrow>
+          <h1 className="e-display-md mt-0.5">
+            <span className="lg:hidden">{firstName ? `Welcome back, ${firstName}.` : "Welcome back."}</span>
+            <span className="hidden lg:inline">{greetingFor(now)}{firstName ? `, ${firstName}` : ""}</span>
+          </h1>
+          <p className="mt-1 hidden text-[0.875rem] text-[hsl(var(--e-muted-foreground))] lg:block">{summary}</p>
+        </div>
+        <div className="hidden items-center gap-2 lg:flex">
+          <RequestButton variant="labelled" />
+          {data.visibility.showBooking ? (
+            <Link href="/v2/client/booking" className="inline-flex min-h-11 items-center rounded-[var(--e-radius)] bg-[hsl(var(--e-accent-portal))] px-4 text-[0.875rem] font-[600] text-[hsl(var(--e-accent-portal-foreground))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+              Book a clean
+            </Link>
+          ) : null}
+        </div>
       </header>
 
-      {failedSections.length > 0 ? (
-        <div role="alert" className="border-l-4 border-red-600 px-4 py-3 text-sm">
-          Some dashboard data could not be loaded: {failedSections.join(", ")}.{" "}
+      {data.failed.length > 0 ? (
+        <div role="alert" className="border-l-4 border-[hsl(var(--e-danger))] px-4 py-3 text-sm">
+          Some dashboard data could not be loaded: {data.failed.join(", ")}.{" "}
           <a href="/v2/client" className="underline">Retry</a>
         </div>
       ) : null}
 
-      {/* Property-first portfolio */}
-      {visibility.showProperties ? <ECard>
-        <ECardHeader className="flex-row items-center justify-between">
-          <ECardTitle>Your properties</ECardTitle>
-          <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/properties">Manage</Link></EButton>
-        </ECardHeader>
-        <ECardBody className="pt-0">
-          {propertiesResult === null ? <Unavailable section="Properties" /> : properties.length === 0 ? <p className="py-4 text-sm">No properties found for this account.</p> :
-            <PropertyPortfolio rows={properties} expectedContext={favoritesContext} scope={JSON.stringify([portalCtx.userId, portalCtx.clientId, portalCtx.actor, portalCtx.team?.id, portalCtx.propertyIds, visibility])} />}
-        </ECardBody>
-      </ECard> : null}
-
-      {/* Next-service hero */}
-      <ECard variant="ceremony" className="overflow-hidden">
-        <div className="grid gap-0 md:grid-cols-[1.4fr_1fr]">
-          <ECardBody className="space-y-3 pt-6">
-            <EEyebrow>NEXT SERVICE</EEyebrow>
-            {jobsResult === null ? <Unavailable section="Next service" /> : nextJob ? (
-              <>
-                <p className="e-display-sm">
-                  {format(toZonedTime(nextJob.scheduledDate, TZ), "EEE d MMM")}
-                  {nextJob.startTime ? ` · ${nextJob.startTime}` : ""}
-                </p>
-                <p className="text-[0.9375rem] text-[hsl(var(--e-text-secondary))]">
-                  {titleCase(nextJob.jobType)} at{" "}
-                  <span className="font-medium text-[hsl(var(--e-foreground))]">
-                    {nextJob.property.name}
-                    {nextJob.property.suburb ? `, ${nextJob.property.suburb}` : ""}
-                  </span>
-                </p>
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  {cleanerNames ? (
-                    <EBadge tone="primary" soft>
-                      <MapPin className="h-3 w-3" /> {cleanerNames}{" "}
-                      {cleanerCount > 1 ? "· cleaners assigned" : "assigned"}
-                    </EBadge>
-                  ) : showCleanerNames ? (
-                    <EBadge tone="warning" soft>Awaiting cleaner</EBadge>
-                  ) : null}
-                  <EBadge tone="gold" soft>{titleCase(nextJob.status)}</EBadge>
-                </div>
-                <div className="flex flex-wrap gap-2 pt-3">
-                  {visibility.showBooking ? <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton> : null}
-                  {visibility?.showQuoteRequests ? (
-                    <EButton asChild variant="outline" size="sm"><Link href="/v2/client/quote">
-                        <Plus className="h-3.5 w-3.5" /> Request quote
-                      </Link></EButton>
-                  ) : null}
-                  <EButton asChild variant="outline" size="sm"><Link href="/v2/client/services">View services</Link></EButton>
-                  {portalCtx.permissions.messages ? <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
-                      <MessageSquare className="h-3.5 w-3.5" /> Message ops
-                    </Link></EButton> : null}
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-[0.9375rem] text-[hsl(var(--e-text-secondary))]">
-                  No active services scheduled right now.
-                </p>
-                <div className="flex flex-wrap gap-2 pt-3">
-                  {visibility.showBooking ? <EButton asChild variant="gold" size="sm"><Link href="/v2/client/booking">Book a clean</Link></EButton> : null}
-                  {portalCtx.permissions.messages ? <EButton asChild variant="outline" size="sm"><Link href="/v2/client/messages">
-                      <MessageSquare className="h-3.5 w-3.5" /> Message ops
-                    </Link></EButton> : null}
-                </div>
-              </>
-            )}
-          </ECardBody>
-          <div className="hidden items-center justify-center bg-[hsl(var(--e-primary))] p-6 md:flex">
-            <div className="text-center text-[hsl(var(--e-primary-foreground))]">
-              <CalendarClock className="mx-auto h-10 w-10 opacity-80" />
-              {nextJob ? (
-                <>
-                  <p className="e-serif mt-2 text-[1.5rem]">
-                    {format(toZonedTime(nextJob.scheduledDate, TZ), "EEE d")}
-                  </p>
-                  <p className="text-[0.75rem] opacity-70">
-                    {format(toZonedTime(nextJob.scheduledDate, TZ), "MMMM yyyy")}
-                  </p>
-                </>
-              ) : (
-                <p className="e-serif mt-2 text-[1.25rem]">—</p>
-              )}
-            </div>
-          </div>
-        </div>
-      </ECard>
-
-      {/* Requires attention */}
-      {actionableItems.length > 0 ? (
-        <ECard variant="ceremony">
-          <ECardHeader>
-            <ECardTitle>Requires attention</ECardTitle>
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              Approvals, disputes, and service updates that need a quick response.
-            </p>
-          </ECardHeader>
-          <ECardBody className="space-y-2 pt-0">
-            {actionableItems.map((item) => {
-              const color = ATTENTION_TONE[item.tone ?? "info"] ?? ATTENTION_TONE.info;
-              const href = item.href ? item.href.replace(/^\/client/, "/v2/client") : null;
-              return (
-                <div
-                  key={item.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--e-radius)] border-l-[3px] bg-[hsl(var(--e-surface-raised))] px-3 py-2.5"
-                  style={{ borderColor: color }}
-                >
-                  <div className="min-w-0">
-                    <p className="text-[0.875rem] font-medium">
-                      {item.title}{" "}
-                      <span className="e-numeral text-[0.9375rem]" style={{ color }}>
-                        {item.count}
-                      </span>
-                    </p>
-                    <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{item.description}</p>
-                  </div>
-                  {href ? (
-                    <EButton asChild variant="outline" size="sm"><Link href={href}>{item.actionLabel ?? "Open"}</Link></EButton>
-                  ) : null}
-                </div>
-              );
-            })}
-          </ECardBody>
-        </ECard>
-      ) : null}
-
-      {/* KPIs — daily-use figures only.
-          "Total on record" and "reports available" are inventory counts, not
-          things a client acts on in a morning; what matters day to day is
-          whether something is happening today, what is coming next, whether
-          anything is waiting on them, and whether a property will run out of
-          something. Each tile answers one of those. */}
-      <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <EStatCard
-          label="Today"
-          value={jobsResult === null ? unavailableValue : String(todayJobs.length)}
-          delta={
-            jobsResult === null ? "Services could not be loaded" : todayJobs.length === 0
-              ? "Nothing scheduled"
-              : todayJobs.map((job) => job.property?.name).filter(Boolean).join(", ") || "Scheduled"
-          }
-          deltaTone="neutral"
-          icon={<CalendarClock className="h-4 w-4" />}
-        />
-        <EStatCard
-          label="Next clean"
-          value={jobsResult === null ? unavailableValue : nextJobLabel}
-          delta={jobsResult === null ? "Services could not be loaded" : nextJob?.property?.name ?? "Nothing upcoming"}
-          deltaTone="neutral"
-          icon={<CalendarClock className="h-4 w-4" />}
-        />
-        <EStatCard
-          label="Needs you"
-          value={attentionResult === null ? unavailableValue : String(needsYouCount)}
-          delta={attentionResult === null ? "Attention could not be loaded" : needsYouCount === 0 ? "Nothing waiting" : "Items requiring attention"}
-          deltaTone={needsYouCount > 0 ? "danger" : "neutral"}
-          icon={<ClipboardCheck className="h-4 w-4" />}
-        />
-        {visibility?.showFinanceDetails ? (
-          <EStatCard
-            label="Unbilled work"
-            value={finance ? money(finance.summary.pendingChargeTotal) : unavailableValue}
-            delta={finance ? `${unbilledCount} service${unbilledCount === 1 ? "" : "s"} awaiting invoice` : "Finance could not be loaded"}
-            deltaTone="neutral"
-            icon={<FileText className="h-4 w-4" />}
-          />
-        ) : visibility.showInventory ? (
-          <EStatCard
-            label="Low stock"
-            value={stocksResult === null ? unavailableValue : String(lowStockTotal)}
-            delta={stocksResult === null ? "Inventory could not be loaded" : lowStockTotal === 0 ? "All topped up" : "Items at or below threshold"}
-            deltaTone={lowStockTotal > 0 ? "danger" : "neutral"}
-            icon={<Star className="h-4 w-4" />}
-          />
-        ) : null}
-      </section>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Upcoming services */}
-        <ECard>
-          <ECardHeader className="flex-row items-center justify-between">
-            <ECardTitle>Upcoming services</ECardTitle>
-            <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/services">View all</Link></EButton>
-          </ECardHeader>
-          <ECardBody className="space-y-1">
-            {jobsResult === null ? <Unavailable section="Upcoming services" /> : upcoming.length === 0 ? (
-              <EEmptyState
-                eyebrow="All quiet"
-                title="No upcoming services"
-                description="Nothing is currently scheduled for your properties."
-              />
-            ) : (
-              upcoming.slice(0, 4).map((job, i) => (
-                <div key={job.id}>
-                  {i > 0 ? <EThread className="my-1" /> : null}
-                  <div className="flex items-center justify-between gap-2 py-1.5">
-                    <div className="min-w-0">
-                      <p className="text-[0.875rem] font-medium truncate">{job.property.name}</p>
-                      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                        {titleCase(job.jobType)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))] tabular-nums">
-                        {format(toZonedTime(job.scheduledDate, TZ), "d MMM")}
-                      </span>
-                      <EBadge tone="primary" soft>{titleCase(job.status)}</EBadge>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </ECardBody>
-        </ECard>
-
-        {/* Recent reports */}
-        {visibility.showReports ? <ECard>
-          <ECardHeader className="flex-row items-center justify-between">
-            <ECardTitle>Recent reports</ECardTitle>
-            <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/reports">View all</Link></EButton>
-          </ECardHeader>
-          <ECardBody className="space-y-1">
-            {reportsResult === null ? <Unavailable section="Reports" /> : reports.length === 0 ? (
-              <EEmptyState
-                eyebrow="Nothing yet"
-                title="No reports available"
-                description="Reports appear here once a service is completed."
-              />
-            ) : (
-              reports.slice(0, 4).map((report, i) => (
-                <div key={report.id}>
-                  {i > 0 ? <EThread className="my-1" /> : null}
-                  <div className="flex items-center justify-between gap-2 py-1.5">
-                    <div className="min-w-0">
-                      <p className="text-[0.875rem] font-medium truncate">
-                        {report.job.property.name}
-                      </p>
-                      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                        {titleCase(report.job.jobType)}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <span className="text-[0.75rem] text-[hsl(var(--e-text-faint))] tabular-nums">
-                        {format(toZonedTime(report.job.scheduledDate, TZ), "d MMM")}
-                      </span>
-                      {visibility?.showReportDownloads ? (
-                        <EstateReportDownloadButton jobId={report.job.id} label="PDF" />
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </ECardBody>
-        </ECard> : null}
+      <div className="lg:hidden">
+        <PhoneHome data={data} todayKey={todayKey} />
       </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Inventory snapshot */}
-        {visibility?.showInventory ? (
-          <ECard>
-            <ECardHeader className="flex-row items-center justify-between">
-              <ECardTitle className="flex items-center gap-2">
-                <Package className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Inventory snapshot
-              </ECardTitle>
-              <div className="flex gap-1.5">
-                <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/inventory">View</Link></EButton>
-                {visibility?.showShopping ? (
-                  <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/shopping">Shop</Link></EButton>
-                ) : null}
-              </div>
-            </ECardHeader>
-            <ECardBody className="space-y-3 pt-0">
-              {stocksResult === null ? <Unavailable section="Inventory" /> : inventoryByProperty.length === 0 ? (
-                <p className="py-4 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-                  No inventory tracked yet.
-                </p>
-              ) : (
-                inventoryByProperty.map((property) => (
-                  <div
-                    key={property.id}
-                    className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-4"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-[0.875rem] font-semibold">{property.name}</p>
-                        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                          {property.totalTracked} items tracked
-                        </p>
-                      </div>
-                      {property.lowCount > 0 ? (
-                        <EBadge tone="danger" soft>
-                          {property.lowCount} low
-                        </EBadge>
-                      ) : null}
-                    </div>
-                    {property.preview.length > 0 ? (
-                      <div className="mt-3 space-y-1 border-t border-[hsl(var(--e-border))] pt-2">
-                        {property.preview.map((item) => (
-                          <p key={item.name} className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                            {item.name}:{" "}
-                            <span className="font-medium text-[hsl(var(--e-danger))]">{item.onHand}</span> / par{" "}
-                            {item.par}
-                          </p>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ))
-              )}
-            </ECardBody>
-          </ECard>
-        ) : null}
-
-        {/* Laundry updates */}
-        {visibility?.showLaundryUpdates ? (
-          <ECard>
-            <ECardHeader className="flex-row items-center justify-between">
-              <ECardTitle className="flex items-center gap-2">
-                <Shirt className="h-4 w-4 text-[hsl(var(--e-accent-portal))]" /> Laundry updates
-              </ECardTitle>
-              <EButton asChild variant="ghost" size="sm"><Link href="/v2/client/laundry">View all</Link></EButton>
-            </ECardHeader>
-            <ECardBody className="space-y-3 pt-0">
-              {laundryResult === null ? <Unavailable section="Laundry" /> : laundryUpdates.length === 0 ? (
-                <p className="py-4 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
-                  No laundry updates.
-                </p>
-              ) : (
-                laundryUpdates.map((task) => {
-                  const meta = parseConfirmationMeta(task.confirmations[0]?.notes);
-                  const price = typeof meta?.totalPrice === "number" ? meta.totalPrice : null;
-                  const isComplete = task.status === "DROPPED";
-                  // Same six labels/tones as the client laundry workspace, so
-                  // "Picked up" and "Confirmed" never blur into one state.
-                  const laundryLabel =
-                    (
-                      {
-                        PENDING: "Pending",
-                        CONFIRMED: "Confirmed",
-                        PICKED_UP: "Picked up",
-                        DROPPED: "Delivered",
-                        FLAGGED: "Flagged",
-                        SKIPPED_PICKUP: "Skipped",
-                      } as Record<string, string>
-                    )[String(task.status)] ?? titleCase(task.status);
-                  const laundryTone = isComplete
-                    ? ("success" as const)
-                    : task.status === "PICKED_UP"
-                      ? ("primary" as const)
-                      : task.status === "CONFIRMED"
-                        ? ("info" as const)
-                        : task.status === "FLAGGED"
-                          ? ("danger" as const)
-                          : ("neutral" as const);
-                  return (
-                    <div
-                      key={task.id}
-                      className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] p-3.5"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[0.875rem] font-semibold">{task.property.name}</p>
-                          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                            {task.property.suburb}
-                          </p>
-                        </div>
-                        <EBadge tone={laundryTone} soft>
-                          {laundryLabel}
-                        </EBadge>
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                        <span>Pickup: {format(toZonedTime(task.pickupDate, TZ), "d MMM")}</span>
-                        <span>Return: {format(toZonedTime(task.dropoffDate, TZ), "d MMM")}</span>
-                        {task.droppedAt ? (
-                          <span className="col-span-2">
-                            Returned: {format(toZonedTime(task.droppedAt, TZ), "d MMM yyyy")}
-                          </span>
-                        ) : null}
-                      </div>
-                      {visibility?.showLaundryCosts && price != null ? (
-                        <p className="mt-1.5 text-[0.75rem] font-medium text-[hsl(var(--e-gold-ink))]">
-                          Charge: ${price.toFixed(2)}
-                        </p>
-                      ) : null}
-                    </div>
-                  );
-                })
-              )}
-            </ECardBody>
-          </ECard>
-        ) : null}
+      <div className="hidden lg:block">
+        <DesktopDashboard data={data} todayKey={todayKey} />
       </div>
-
     </div>
   );
 }

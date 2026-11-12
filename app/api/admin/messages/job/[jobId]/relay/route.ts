@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 /**
  * POST { messageId } — relay one client chat message to the job's assigned
@@ -63,20 +64,27 @@ export async function POST(req: NextRequest, { params }: { params: { jobId: stri
       return NextResponse.json({ error: "No assigned cleaner to relay to." }, { status: 400 });
     }
 
+    const wording = await loadNotificationWording("office.client_requests");
+    const relayValues = {
+      jobRef: job.jobNumber ? `#${job.jobNumber}` : "",
+      propertyName: job.property.name,
+      excerpt: `${message.body.slice(0, 240)}${message.body.length > 240 ? "…" : ""}`,
+      actorName: session.user.name ?? "admin",
+      message: message.body,
+    };
+    const relayInbox = wording.render("relayed", "INBOX", relayValues);
+    const relayEmail = wording.render("relayed", "EMAIL", relayValues);
     await deliverNotificationToRecipients({
       recipients: cleaners,
       category: "jobs",
       jobId: job.id,
       web: {
-        subject: `Message from the client — job ${job.jobNumber ? `#${job.jobNumber}` : ""}`.trim(),
-        body: `${job.property.name}: “${message.body.slice(0, 240)}${message.body.length > 240 ? "…" : ""}” (relayed by ${session.user.name ?? "admin"})`,
+        subject: relayInbox.title.trim(),
+        body: relayInbox.body,
       },
       email: {
-        subject: `Client message relayed — job ${job.jobNumber ? `#${job.jobNumber}` : ""}`.trim(),
-        html: `
-          <p>An admin relayed a client message for ${job.property.name}.</p>
-          <blockquote>${message.body}</blockquote>
-        `,
+        subject: relayEmail.subject.trim(),
+        html: relayEmail.html,
       },
     });
 

@@ -23,7 +23,7 @@ import { InventoryChipTabs } from "@/components/v2/admin/inventory/inventory-chi
 import { normalizeInventoryTab } from "@/components/v2/admin/inventory/inventory-tabs";
 import { urgentStockOfficeAllowed } from "@/lib/inventory/urgent-stock";
 import { EstateItems } from "@/components/v2/admin/inventory/estate-items";
-import { EstateSuppliers } from "@/components/v2/admin/inventory/estate-suppliers";
+import { SuppliersDirectory } from "@/components/v2/admin/inventory/suppliers/suppliers-directory";
 import { EstateOnHand } from "@/components/v2/admin/inventory/estate-on-hand";
 import { EstateStockRuns } from "@/components/v2/admin/inventory/estate-stock-runs";
 import { FormCountObservations } from "@/components/v2/admin/inventory/form-count-observations";
@@ -176,6 +176,12 @@ export default async function EstateInventoryPage({
     return <UrgentNeedsWorkspace initialView={readUrgentView(searchString(searchParams))} tabs={tabBar} timeZone={settings.timezone || "Australia/Sydney"} canResolve={canManageUrgent} canEditReminders={canManageUrgent} />;
   }
 
+  // Suppliers (board "Suppliers"): its own header, as drawn, with the Stock tabs
+  // kept; the URL stays /v2/admin/inventory?tab=suppliers.
+  if (tab === "suppliers") {
+    return <SuppliersDirectory tabs={tabBar} />;
+  }
+
   const { rows: propertyRows, totals: propertyTotals } = await getPropertyOverview();
   const [itemCount, openShoppingRuns, activeStockCounts, openScanTasks, suppliers, onHandAgg] =
     await Promise.all([
@@ -323,7 +329,6 @@ export default async function EstateInventoryPage({
         ) : null}
         {tab === "scan-tasks" ? <EstateScanTasks /> : null}
         {tab === "shopping-runs" ? <EstateShoppingRuns /> : null}
-        {tab === "suppliers" ? <EstateSuppliers /> : null}
       </div>
     </div>
   );

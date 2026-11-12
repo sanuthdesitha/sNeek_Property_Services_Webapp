@@ -5,7 +5,7 @@
  *   GET   /api/client/quotes                    → { quotes: Quote[] }
  *   PATCH /api/client/quotes                    { quoteId, action: "ACCEPT"|"DECLINE" }
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import { Check, ListChecks, Loader2, MessageSquarePlus, X } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -56,7 +56,15 @@ function money(value: number) {
   return `$${Number(value).toFixed(2)}`;
 }
 
-export function ClientQuotesBoard() {
+export type QuoteFocusIntent = "accept" | "decline" | "change";
+
+/**
+ * `focusQuoteId` / `intent` come from Approvals (`?quote=…&intent=…`): the
+ * named quote is scrolled to and highlighted, and the chosen action is focused
+ * (or, for "change", the request form opens). Nothing is decided until the
+ * client presses the button here.
+ */
+export function ClientQuotesBoard({ focusQuoteId, intent }: { focusQuoteId?: string; intent?: QuoteFocusIntent } = {}) {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -87,6 +95,19 @@ export function ClientQuotesBoard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const focusedOnce = useRef(false);
+  useEffect(() => {
+    if (focusedOnce.current || loading || !focusQuoteId) return;
+    const quote = quotes.find((item) => item.id === focusQuoteId);
+    if (!quote) return;
+    focusedOnce.current = true;
+    const card = document.getElementById(`quote-${quote.id}`);
+    card?.scrollIntoView({ block: "center" });
+    if (intent === "change") { openRequest(quote); return; }
+    const target = card?.querySelector<HTMLButtonElement>(`[data-quote-action="${intent === "decline" ? "decline" : "accept"}"]`);
+    (target ?? card)?.focus();
+  }, [loading, quotes, focusQuoteId, intent]);
 
   async function respond(quoteId: string, action: "ACCEPT" | "DECLINE") {
     setActing(quoteId + action);
@@ -225,7 +246,13 @@ export function ClientQuotesBoard() {
         const st = STATUS[q.status] ?? { label: q.status, tone: "neutral" as const };
         const open = q.status === "SENT";
         return (
-          <ECard key={q.id} variant={open ? "ceremony" : "default"}>
+          <ECard
+            key={q.id}
+            id={`quote-${q.id}`}
+            tabIndex={-1}
+            variant={open ? "ceremony" : "default"}
+            className={q.id === focusQuoteId ? "ring-2 ring-[hsl(var(--e-accent-portal))]" : undefined}
+          >
             <ECardBody className="space-y-4 pt-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0">
@@ -358,6 +385,8 @@ export function ClientQuotesBoard() {
                     <EButton
                       variant="outline"
                       size="sm"
+                      data-quote-action="decline"
+                      className="min-h-11"
                       disabled={acting === q.id + "DECLINE"}
                       onClick={() => respond(q.id, "DECLINE")}
                     >
@@ -366,6 +395,8 @@ export function ClientQuotesBoard() {
                     <EButton
                       variant="gold"
                       size="sm"
+                      data-quote-action="accept"
+                      className="min-h-11"
                       disabled={acting === q.id + "ACCEPT"}
                       onClick={() => respond(q.id, "ACCEPT")}
                     >

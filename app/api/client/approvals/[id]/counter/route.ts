@@ -10,6 +10,7 @@ import { sendEmailDetailed } from "@/lib/notifications/email";
 import { logger } from "@/lib/logger";
 import { getClientApprovalById, counterClientApproval } from "@/lib/commercial/client-approvals";
 import { recordApprovalDecision } from "@/lib/admin/approval-history-write";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 /**
  * CP-3b — the client proposes different terms instead of a plain yes/no.
@@ -89,14 +90,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         select: { id: true, email: true },
         take: 20,
       });
+      const counterWording = await loadNotificationWording("office.client_requests");
+      const counterValues = {
+        approvalTitle: updated.title,
+        asked: `${updated.currency} ${updated.amount.toFixed(2)}`,
+        offered: `${updated.currency} ${(updated.counterAmount ?? 0).toFixed(2)}`,
+      };
+      const counterInbox = counterWording.render("counter-offer", "INBOX", counterValues);
       if (admins.length > 0) {
         await db.notification.createMany({
           data: admins.map((admin) => ({
             userId: admin.id,
             externalId: mobilePendingMarker("approvals"),
             channel: NotificationChannel.PUSH,
-            subject: "Client counter-offer",
-            body: `${updated.title}: asked ${updated.currency} ${updated.amount.toFixed(2)}, client offered ${updated.currency} ${(updated.counterAmount ?? 0).toFixed(2)}`,
+            subject: counterInbox.title,
+            body: counterInbox.body,
             status: NotificationStatus.SENT,
             sentAt: new Date(),
           })),
@@ -104,16 +112,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         const settings = await getAppSettings();
         const to = admins.map((a) => a.email).filter((email): email is string => Boolean(email));
         if (to.length > 0) {
+          const counterEmail = counterWording.render("counter-offer", "EMAIL", {
+            ...counterValues,
+            companyName: settings.companyName,
+            clientNoteParagraph: counterWording.line("client-note", "EMAIL", { note: updated.counterNote }, Boolean(updated.counterNote)),
+          });
           await sendEmailDetailed({
             kind: "admin_alert",
             to,
-            subject: `${settings.companyName} - Client counter-offer`,
-            html: `
-              <p>A client responded with a counter-offer for: <strong>${updated.title.replace(/</g, "&lt;")}</strong></p>
-              <p>Asked: ${updated.currency} ${updated.amount.toFixed(2)}<br/>
-                 Client offered: <strong>${updated.currency} ${(updated.counterAmount ?? 0).toFixed(2)}</strong></p>
-              ${updated.counterNote ? `<p>Client note: ${updated.counterNote.replace(/</g, "&lt;")}</p>` : ""}
-            `,
+            subject: counterEmail.subject,
+            html: counterEmail.html,
           });
         }
       }

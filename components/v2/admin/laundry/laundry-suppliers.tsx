@@ -187,6 +187,10 @@ export function LaundrySuppliers() {
           <Plus className="h-3.5 w-3.5" /> Add supplier
         </EButton>
       </div>
+      <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+        Laundry partners are suppliers: their portal logins, runs and chase history are in{" "}
+        <a className="text-[hsl(var(--e-primary))] hover:underline" href={"/v2/admin/inventory?tab=suppliers&type=laundry"}>Suppliers</a>, where the team is linked.
+      </p>
 
       <ECard className="overflow-hidden p-0">
         {loading ? (

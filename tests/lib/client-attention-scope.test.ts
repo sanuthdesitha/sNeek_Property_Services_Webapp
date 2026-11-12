@@ -4,7 +4,7 @@ import { GET } from "@/app/api/client/attention-counts/route";
 
 const mocks = vi.hoisted(() => ({
   portal: vi.fn(), approvals: vi.fn(), cases: vi.fn(), quotes: vi.fn(),
-  invoices: vi.fn(), client: vi.fn(),
+  invoices: vi.fn(), client: vi.fn(), messages: vi.fn(), jobs: vi.fn(),
 }));
 vi.mock("@/lib/auth/client-portal", () => ({ requireClientPortal: mocks.portal }));
 vi.mock("@/lib/commercial/client-approval-access", () => ({ countPendingApprovalsForUser: mocks.approvals }));
@@ -12,11 +12,25 @@ vi.mock("@/lib/db", () => ({ db: {
   issueTicket: { count: mocks.cases },
   quote: { count: mocks.quotes }, clientInvoice: { count: mocks.invoices },
   client: { findUnique: mocks.client },
+  clientMessage: { count: mocks.messages }, job: { findMany: mocks.jobs },
 } }));
+
+// Merged per-client visibility, as requireClientPortal returns it.
+const VISIBILITY = {
+  showProperties: true, showJobs: true, showBooking: true, showCalendar: false, showReports: true,
+  showInventory: true, showShopping: false, showStockRuns: true, allowStockRuns: true,
+  showFinanceDetails: false, showCases: true, showLaundryUpdates: true, showQuoteRequests: true,
+  showApprovals: true, showClientTaskRequests: false,
+};
+const MODULES = {
+  jobs: true, calendar: false, reports: true, laundry: true, properties: true, inventory: true,
+  shopping: false, stockRuns: true, cases: true, finance: false, quoteRequests: true, approvals: true,
+  booking: true, taskRequests: false,
+};
 
 function portal(actor = "VA", propertyIds: string[] | null = ["allowed"], permissions = {}) {
   return { actor, userId: "portal-user", clientId: "client", propertyIds, permissions,
-    team: actor === "VA" ? { name: "Assistants" } : null };
+    team: actor === "VA" ? { name: "Assistants" } : null, visibility: VISIBILITY };
 }
 
 beforeEach(() => {
@@ -27,6 +41,8 @@ beforeEach(() => {
   mocks.quotes.mockResolvedValue(4);
   mocks.invoices.mockResolvedValue(5);
   mocks.client.mockResolvedValue({ name: "Owner" });
+  mocks.messages.mockResolvedValue(6);
+  mocks.jobs.mockResolvedValue([{ id: "job-allowed" }]);
 });
 
 describe("client attention scope", () => {
@@ -35,10 +51,13 @@ describe("client attention scope", () => {
     const response = await GET();
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      portal: { actor: "CLIENT", permissions: {}, actingFor: null, teamName: null },
+      portal: { actor: "CLIENT", permissions: {}, actingFor: null, teamName: null, modules: MODULES },
       counts: { "/v2/client/approvals": 2, "/v2/client/cases": 3,
-        "/v2/client/quotes": 4, "/v2/client/finance": 5 },
+        "/v2/client/quotes": 4, "/v2/client/finance": 5, "/v2/client/messages": 6 },
     });
+    // Unread office replies across the whole client thread (no property scope).
+    expect(mocks.messages).toHaveBeenCalledWith({ where: { clientId: "client", isFromAdmin: true, isRead: false } });
+    expect(mocks.jobs).not.toHaveBeenCalled();
     // The badge counts what the Approvals page lists for this person, not the
     // client's own job requests waiting on the office.
     expect(mocks.approvals).toHaveBeenCalledWith("portal-user");
@@ -56,10 +75,10 @@ describe("client attention scope", () => {
     const response = await GET();
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      portal: { actor: "VA", permissions: {}, actingFor: "Owner", teamName: "Assistants" },
+      portal: { actor: "VA", permissions: {}, actingFor: "Owner", teamName: "Assistants", modules: MODULES },
       counts: {},
     });
-    for (const query of [mocks.approvals, mocks.cases, mocks.quotes, mocks.invoices]) {
+    for (const query of [mocks.approvals, mocks.cases, mocks.quotes, mocks.invoices, mocks.messages]) {
       expect(query).not.toHaveBeenCalled();
     }
   });
@@ -113,7 +132,25 @@ describe("client attention scope", () => {
     expect((await (await GET()).json()).counts).toEqual({ "/v2/client/finance": 1 });
   });
 
-  it.each(["approvals", "cases", "quotes", "invoices", "client", "portal"] as const)(
+  it("counts unread messages only inside a messages-granted VA's job scope", async () => {
+    mocks.portal.mockResolvedValue(portal("VA", ["allowed"], { messages: true }));
+    expect((await (await GET()).json()).counts).toEqual({ "/v2/client/messages": 6 });
+    expect(mocks.jobs).toHaveBeenCalledWith({
+      where: { property: { clientId: "client", id: { in: ["allowed"] } } }, select: { id: true },
+    });
+    expect(mocks.messages).toHaveBeenCalledWith({ where: {
+      clientId: "client", isFromAdmin: true, isRead: false,
+      OR: [{ jobId: null }, { jobId: { in: ["job-allowed"] } }],
+    } });
+  });
+
+  it("reports module switches from the merged per-client visibility", async () => {
+    mocks.portal.mockResolvedValue({ ...portal("CLIENT", null), visibility: { ...VISIBILITY, showFinanceDetails: true, showCases: false } });
+    const { portal: gate } = await (await GET()).json();
+    expect(gate.modules).toEqual({ ...MODULES, finance: true, cases: false });
+  });
+
+  it.each(["approvals", "cases", "quotes", "invoices", "client", "portal", "messages"] as const)(
     "returns retriable failure without counts or grants when %s fails", async (query) => {
       mocks.portal.mockResolvedValue(portal(query === "client" ? "VA" : "CLIENT", null));
       mocks[query].mockRejectedValue(new Error("database connection lost: private details"));

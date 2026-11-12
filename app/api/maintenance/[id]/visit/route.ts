@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { syncCaseFromMaintenance } from "@/lib/cases/damage-maintenance-sync";
 import { getWorkerForUser, setMaintenanceVisitState, userIsAssignedWorker } from "@/lib/maintenance/workers";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   event: z.enum(["EN_ROUTE", "ARRIVED", "CLOCK_IN", "START", "CLOCK_OUT", "COMPLETE"]),
@@ -70,14 +71,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       });
       admins.forEach((a) => recipients.add(a.id));
       const label = body.event.replace(/_/g, " ").toLowerCase();
+      const wording = await loadNotificationWording("office.field_alerts");
+      const visitOutcome = body.event === "COMPLETE" && body.outcome ? body.outcome.replace(/_/g, " ").toLowerCase() : "";
+      const visit = wording.render("maintenance-visit", "INBOX", {
+        event: label,
+        workerName: detail?.assignedWorker?.name ?? "Worker",
+        propertyName: detail?.property?.name ?? "property",
+        itemTitle: detail?.title ?? "job",
+        outcomeSuffix: wording.line("outcome-suffix", "INBOX", { outcome: visitOutcome }, Boolean(visitOutcome)),
+      });
       if (recipients.size > 0) {
         await db.notification.createMany({
           data: Array.from(recipients).map((userId) => ({
             userId,
             externalId: mobilePendingMarker("cases"),
             channel: NotificationChannel.PUSH,
-            subject: `Maintenance: ${label}`,
-            body: `${detail?.assignedWorker?.name ?? "Worker"} — ${detail?.property?.name ?? "property"}: ${detail?.title ?? "job"}${body.event === "COMPLETE" && body.outcome ? ` (${body.outcome.replace(/_/g, " ").toLowerCase()})` : ""}`,
+            subject: visit.title,
+            body: visit.body,
             status: NotificationStatus.SENT,
             sentAt: new Date(),
           })),

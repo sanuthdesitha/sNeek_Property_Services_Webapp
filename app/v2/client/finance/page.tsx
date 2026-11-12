@@ -54,7 +54,7 @@ function moneyView(finance: FinanceOverview): { rows: ClientMoneyRow[]; toPay: C
   return { rows, toPay: summarizeToPay(rows) };
 }
 
-export default async function V2ClientFinancePage({ searchParams }: { searchParams?: { tab?: string; paid?: string } } = {}) {
+export default async function V2ClientFinancePage({ searchParams }: { searchParams?: { tab?: string; paid?: string } }) {
   const portalCtx = await requireClientPortalPage({ module: "finance", permission: "invoicesView" });
   const portal = await getClientPortalContext(portalCtx.userId).catch(() => null);
   if (!portal) return <Unavailable message="Account visibility could not be loaded. Try again to see your financial details." />;

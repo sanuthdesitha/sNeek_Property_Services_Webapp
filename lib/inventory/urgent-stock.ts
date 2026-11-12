@@ -10,6 +10,7 @@ import { countObservationDisposition, isUrgentStockClosed, urgentStockReminderDu
 import { appendNeedEvent, eventFromRow, needFromRow, readNeed, readOpenNeed, writeNeed, type NeedSource, type UrgentNeed } from "./urgent-stock-store";
 import { urgentOfficeAllowed, type UrgentOfficeLevel } from "./urgent-stock-access";
 import { authorizeEntityRecipient } from "@/lib/notifications/recipient-scopes";
+import { loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
 
 export type { UrgentNeed } from "./urgent-stock-store";
 
@@ -151,7 +152,22 @@ async function actorName(tx: Tx, actorId: string | null) {
   const user = actorId ? await tx.user.findUnique({ where: { id: actorId }, select: { name: true } }) : null;
   return { stored: user?.name ?? null, label: user?.name ?? (actorId ? "Team member" : "Reminder worker") };
 }
+/** The office notice wording of a need (catalog type stock.urgent_need). */
+function urgentNeedText(wording: WordingRenderer, partId: "opened" | "reminder", need: UrgentNeed, nextCleanAt?: Date | null) {
+  const unknown = wording.render("unknown", "INBOX", {}).body;
+  return wording.render(partId, "INBOX", {
+    propertyName: need.propertyName,
+    itemName: need.itemName,
+    stage: need.stage,
+    observedCount: need.observedCount ?? unknown,
+    purchaseQuantity: need.purchaseQuantity ?? unknown,
+    deadlineLine: wording.line("deadline-line", "INBOX", { deadline: nextCleanAt?.toISOString() }, Boolean(nextCleanAt)),
+    reviewPath: `/urgent-stock?propertyId=${encodeURIComponent(need.propertyId)}`,
+  });
+}
+
 async function notify(tx: Tx, need: UrgentNeed, kind: string, nextCleanAt?: Date | null) {
+  const text = urgentNeedText(await loadNotificationWording("stock.urgent_need"), "reminder", need, nextCleanAt);
   const admins = await tx.user.findMany({ where: { isActive: true, OR: [{ role: Role.ADMIN }, { extraRoles: { some: { role: Role.ADMIN } } }] }, select: { id: true } });
   if (!admins.length) return false;
   // In-app only. No email, SMS, purchase or external dispatch is performed.
@@ -164,8 +180,8 @@ async function notify(tx: Tx, need: UrgentNeed, kind: string, nextCleanAt?: Date
       actorId: null,
       recipient: { userId: admin.id, role: Role.ADMIN, scope: { kind: "ADMIN_OPERATIONS" } },
       severity: "ACTION", category: "shopping", transport: "INBOX", jobId: null,
-      subject: `Urgent stock: ${need.propertyName} — ${need.itemName}`,
-      body: `${kind}. ${need.stage}. Observed count: ${need.observedCount ?? "unknown"}; requested purchase: ${need.purchaseQuantity ?? "unknown"}. ${nextCleanAt ? `Next clean planning deadline: ${nextCleanAt.toISOString()}. ` : ""}Review /urgent-stock?propertyId=${encodeURIComponent(need.propertyId)}`,
+      subject: text.title,
+      body: text.body,
     });
   }
   return true;
@@ -197,6 +213,7 @@ export async function urgentNeedOpenedRecipients(tx: Tx, needId: string): Promis
 /** The "urgent need opened" inbox notice, through the intent pipeline (inbox only, preferences respected). */
 async function notifyNeedOpened(tx: Tx, need: UrgentNeed) {
   const recipients = await urgentNeedOpenedRecipients(tx, need.id);
+  const text = urgentNeedText(await loadNotificationWording("stock.urgent_need"), "opened", need);
   for (const recipient of recipients) {
     await enqueueNotificationIntent(tx, {
       version: 1,
@@ -206,8 +223,8 @@ async function notifyNeedOpened(tx: Tx, need: UrgentNeed) {
       actorId: null,
       recipient: { userId: recipient.userId, role: recipient.role, scope: { kind: "ENTITY", type: "URGENT_STOCK_OFFICE", id: need.id } },
       severity: "ACTION", category: "shopping", transport: "INBOX", jobId: null,
-      subject: `Urgent stock: ${need.propertyName} — ${need.itemName}`,
-      body: `Reported need remains open. ${need.stage}. Observed count: ${need.observedCount ?? "unknown"}; requested purchase: ${need.purchaseQuantity ?? "unknown"}. Review /urgent-stock?propertyId=${encodeURIComponent(need.propertyId)}`,
+      subject: text.title,
+      body: text.body,
     });
   }
   return recipients.length > 0;

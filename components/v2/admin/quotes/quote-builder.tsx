@@ -188,6 +188,8 @@ interface QuoteBuilderProps {
   editQuote?: QuoteEditSeed;
   /** Cases "Create repair quote": read on the server from the case. Create mode only. */
   casePrefill?: CaseQuotePrefill;
+  /** `?clientId=` / `?leadId=` on New quote, checked on the server. Create mode only. */
+  recipientPrefill?: { clientId?: string; leadId?: string };
 }
 
 /** Pull + parse the [[META:{…}]] JSON block out of stored quote notes. */
@@ -354,6 +356,7 @@ export function QuoteBuilder({
   pricingVariables = [],
   editQuote,
   casePrefill: casePrefillProp,
+  recipientPrefill: recipientPrefillProp,
 }: QuoteBuilderProps) {
   // A case prefill only seeds a new quote; editing never re-applies it.
   const casePrefill = editQuote ? undefined : casePrefillProp;
@@ -364,9 +367,12 @@ export function QuoteBuilder({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const seed = useMemo(() => (editQuote ? buildEditSeed(editQuote, pricingVariables) : null), []);
 
-  const [recipientMode, setRecipientMode] = useState<RecipientMode>(seed?.recipientMode ?? "client");
-  const [clientId, setClientId] = useState(seed?.clientId ?? casePrefill?.client?.id ?? "");
-  const [leadId, setLeadId] = useState(seed?.leadId ?? "");
+  const recipientPrefill = editQuote ? undefined : recipientPrefillProp;
+  const [recipientMode, setRecipientMode] = useState<RecipientMode>(
+    seed?.recipientMode ?? (recipientPrefill?.leadId && !recipientPrefill?.clientId ? "lead" : "client"),
+  );
+  const [clientId, setClientId] = useState(seed?.clientId ?? casePrefill?.client?.id ?? recipientPrefill?.clientId ?? "");
+  const [leadId, setLeadId] = useState(seed?.leadId ?? recipientPrefill?.leadId ?? "");
   const [newLead, setNewLead] = useState({ name: "", email: "", phone: "", suburb: "" });
 
   const [serviceType, setServiceType] = useState<string>(

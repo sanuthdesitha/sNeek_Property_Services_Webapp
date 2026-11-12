@@ -1,6 +1,8 @@
 /** Small builders for wording definitions. Plain module. */
 import { EMAIL_TEMPLATE_DEFINITIONS, type AppEmailTemplateKey } from "@/lib/email-templates";
+import { NOTIFICATION_TEMPLATE_DEFINITIONS, type AppNotificationTemplateKey } from "@/lib/notification-templates";
 import type { TypeWordingDefinition, WordingField, WordingFields, WordingPartDefinition, WordingTransport } from "../types";
+import { templateVariables } from "../template";
 
 type StoreOptions = { push?: "SHARED"; note?: string; fields?: readonly WordingField[] };
 
@@ -63,4 +65,54 @@ export function composed(typeKey: string, reason: string, href?: string): TypeWo
 
 export function elsewhere(typeKey: string, reason: string, href: string): TypeWordingDefinition {
   return { typeKey, status: "ELSEWHERE", parts: [], reason, href };
+}
+
+type AutoOptions = { required?: readonly string[]; push?: "SHARED"; note?: string; extra?: readonly string[] };
+
+/** Variables used by a set of default fields, in order of first use. */
+function usedVariables(defaults: WordingFields): string[] {
+  return Array.from(new Set([defaults.title, defaults.subject, defaults.body].flatMap((text) => (text ? templateVariables(text) : []))));
+}
+
+/**
+ * A store part whose variables are exactly the ones its default wording uses
+ * (plus `extra`). Required defaults to every variable that carries a fact a
+ * recipient cannot work out (callers narrow it where a value is optional).
+ */
+export function part(id: string, label: string, transport: WordingTransport, defaults: WordingFields, options: AutoOptions = {}): WordingPartDefinition {
+  const variables = Array.from(new Set([...usedVariables(defaults), ...(options.extra ?? [])]));
+  return storePart(id, label, transport, defaults, variables, options.required ?? [], { push: options.push, note: options.note });
+}
+
+/** An inbox part whose text is also the phone push (the usual inbox row). */
+export function inbox(id: string, label: string, title: string, body: string, options: AutoOptions = {}): WordingPartDefinition {
+  return part(id, label, "INBOX", { title, body }, { push: "SHARED", ...options });
+}
+
+/** A line part whose variables are the ones its sentence uses. */
+export function line(id: string, label: string, transport: WordingTransport, body: string, note: string): WordingPartDefinition {
+  return linePart(id, label, transport, body, templateVariables(body), note);
+}
+
+/**
+ * The INBOX (title, body; also the phone push) and SMS parts backed by the
+ * existing shared in-app / SMS template `settings.notificationTemplates[key]`.
+ */
+export function notificationTemplateParts(id: string, label: string, key: AppNotificationTemplateKey, required: readonly string[] = []): WordingPartDefinition[] {
+  const make = (transport: "INBOX" | "SMS"): WordingPartDefinition => ({
+    id,
+    label,
+    transport,
+    defaults: {},
+    get variables() {
+      return NOTIFICATION_TEMPLATE_DEFINITIONS[key]?.variables ?? [];
+    },
+    required,
+    source: { kind: "NOTIFICATION_TEMPLATE", key },
+    ...(transport === "INBOX" ? { push: "SHARED" as const } : {}),
+    get note() {
+      return `Shared notification template "${NOTIFICATION_TEMPLATE_DEFINITIONS[key]?.label ?? key}" (also listed in Forms, Messages).`;
+    },
+  });
+  return [make("INBOX"), make("SMS")];
 }

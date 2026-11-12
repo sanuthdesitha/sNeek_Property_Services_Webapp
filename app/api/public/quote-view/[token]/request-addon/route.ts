@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import { format } from "date-fns";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
@@ -91,19 +92,20 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       const settings = await getAppSettings();
       if (settings.accountsEmail) {
         const shortRef = String(quote.id).slice(-7).toUpperCase();
+        const wording = await loadNotificationWording("leads.alerts");
+        const email = wording.render("addon", "EMAIL", {
+          quoteRef: shortRef,
+          clientName: recipient,
+          serviceType: String(quote.serviceType).replace(/_/g, " ").toLowerCase(),
+          addonList: labels.map((l) => `<li style="margin:2px 0;">${escapeHtml(l)}</li>`).join(""),
+          clientNoteParagraph: wording.line("client-note", "EMAIL", { note }, Boolean(note)),
+          quoteId: quote.id,
+        });
         await sendEmailDetailed({
           kind: "lead_alert",
           to: settings.accountsEmail,
-          subject: `Add-on request on quote ${shortRef} from ${recipient}`,
-          html: `
-            <h2 style="margin:0 0 12px 0;">Add-on request — quote ${escapeHtml(shortRef)}</h2>
-            <p style="margin:0 0 8px 0;"><strong>${escapeHtml(recipient)}</strong> asked about these add-ons on their ${escapeHtml(String(quote.serviceType).replace(/_/g, " ").toLowerCase())} quote:</p>
-            <ul style="margin:0 0 12px 0;padding-left:20px;">
-              ${labels.map((l) => `<li style="margin:2px 0;">${escapeHtml(l)}</li>`).join("")}
-            </ul>
-            ${note ? `<p style="margin:0 0 8px 0;"><strong>Client note:</strong> ${escapeHtml(note)}</p>` : ""}
-            <p style="margin:0;color:#6b7280;font-size:13px;">Quote ID: ${escapeHtml(quote.id)}</p>
-          `,
+          subject: email.subject,
+          html: email.html,
         });
       }
     } catch (err) {

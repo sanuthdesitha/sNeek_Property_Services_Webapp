@@ -1489,3 +1489,53 @@ Tests run
 - Tests added: `tests/lib/notification-wording.test.ts` (registry covers every catalog type, defaults valid, template language never executes, escaping, refusal rules, SMS length, syntax conversion), `tests/lib/notification-wording-parity.test.ts` (byte parity per wired type and transport), `tests/lib/notification-wording-store.test.ts` (versions, restore, reset, 409, 400, audit, email-template parts, overrides on every transport, invalid override and store failure fall back), `tests/api/notification-wording-routes.test.ts` (ADMIN; OPS at Manage allowed; view only / no pack 403; impersonation 403; regenerate proposal never saved, rejected proposals, no provider; test-send truthfulness), `tests/components/notification-wording-editor.test.tsx` (draft kept across tabs, chip insertion at the caret, required-variable refusal, 409 keeps the draft, proposal Use fills only, read-only). Changed with the behaviour: `tests/components/notifications-area.test.tsx` (new screen), `tests/api/notifications-area-routes.test.ts` (test subject is the live wording; the "no test" example is now `job.changed`).
 - Verified: `npx tsc --noEmit` clean in these paths (remaining errors only in another engineer's in-progress laundry files: `app/v2/laundry/page.tsx`, `lib/laundry/supplier-chase-rules.ts`). 217 notification-related test files: all pass except 7 tests in others' in-progress work (`tests/components/laundry-dashboard.test.tsx`, `tests/components/office-actions-ui.test.tsx`, `tests/lib/laundry-nudges.test.ts` from the new TEAM_MOVE_PICKUP kind; `tests/lib/portal-navigation.test.ts`). `tests/lib/server-client-value-imports.test.ts` passes.
 - Not done: production build, full suite and the browser pass (390/1280, light/dark) were not run here. No real message was sent; the AI provider and SMS/email providers are mocked in tests.
+
+## QA portal, maintenance portal, sign in and public pages (2026-11-12)
+
+Scope: boards `QaPortal.dc.html`, `MaintenancePortal.dc.html`, `PublicAndAuth.dc.html`; details in `docs/SYSTEM.md`, "QA portal, maintenance portal, sign in and public pages redesign (2026-11-12)". No schema change, no migration, no API change, no authentication logic change.
+
+What changed
+- Navigation: `components/v2/qa/portal/{qa-nav.ts,qa-more-menu.tsx}`, `components/v2/maintenance/portal/{maintenance-nav.ts,maintenance-more-menu.tsx}`, `components/v2/portal/more-menu-list.tsx`, `lib/navigation/{portal-more,tabbed-nav}.ts`, `lib/navigation/mobile-tabs.ts` (qa and maintenance fifth tab = More), `app/v2/{qa,maintenance}/layout.tsx`, `app/v2/{qa,maintenance}/more/page.tsx` (menus, no longer redirects).
+- QA: `app/v2/qa/page.tsx`, `components/v2/qa/today/{qa-visit-order,early-start-dialog}.tsx`, `lib/qa/visit-order-view.ts`, `app/v2/qa/pay/page.tsx`, `lib/qa/pay-view.ts`, `app/v2/qa/rework/page.tsx`; targeted edits in `qa-inspection-workspace.tsx` (step labels, proposals sentence, `#know-before-you-go` anchor, 44px step buttons) and `qa-self-rework-workspace.tsx` (labels).
+- Maintenance: `app/v2/maintenance/page.tsx`, `components/v2/maintenance/today/new-assignments.tsx`, `components/v2/maintenance/visit/{visit-cost-card,outcome-choice,offline-notice}.tsx`, `lib/maintenance/{visit-outcomes,visit-stages,tickets-by-day}.ts`, targeted edits in `visit-workspace.tsx` and `tickets-workspace.tsx`; shared `components/v2/portal/maintenance-assignment-actions.tsx` labels ("Can't take it", "Other price").
+- Sign in and public: `app/v2/login/page.tsx` (markup), `components/auth/biometric-sign-in-button.tsx` (layout-only `layout` prop, default unchanged), `app/accept-invite/[token]/{page,layout}.tsx`, `components/auth/accept-invite-form.tsx`, `app/(auth)/reset-password/page.tsx` (markup), `components/v2/public/{auth-frame.tsx,public-menu.ts}`, `components/v2/public/estate-public-shell.tsx` (menu), `app/v2/onboarding/page.tsx`, `components/v2/onboarding/onboarding-fields.tsx`, `lib/onboarding/steps.ts`.
+
+Fixed by default (existing problems)
+- QA Pay showed an inspection with no rate as "$0.00" with a badge; it now reads "Office to fix" and the period headline says it is not final.
+- QA Rework turned a failed database read into "Nothing flagged"; it is now an alert with Retry.
+- Onboarding showed an empty form when its load failed; it now shows an alert with Retry. Saving offline now keeps the answers with a clear message.
+- Invitation expiry used the viewer's timezone and a date only; it is shown in Sydney time with the hour.
+- Public menu button was 36px without `aria-expanded`; now 44px with state. Sign in and onboarding now have one main landmark.
+
+Tests
+- New: `tests/components/qa-maintenance-portal-redesign.test.tsx` (12: QA and maintenance tab order, More completeness against the old nav, role filtering, `/more` URLs render menus, Office to fix never $0.00 in the view model, the Pay page and planned visits, visit order readiness/next/move, all seven outcomes equal the Prisma enum as radios, visit stages from recorded times, tickets by Sydney day), `tests/components/public-auth-redesign.test.tsx` (9: passkey above the unchanged email/password form, hint, one main; four invitation problem states with one Go to sign in link; invitation form checks and identical POST body; reset page incomplete link, mismatch and identical body; onboarding steps per role and missing-field step; public menu links).
+- Changed with the behaviour: `tests/components/qa-dashboard.test.tsx` (three drawn figures with the same ownership, failure isolation and Sydney-day assertions; Rework open uses the PENDING definition; inspectors open the All inspections disclosure), `tests/components/maintenance-tickets.test.tsx` (toggle names By day / By stage; assertions unchanged).
+- Existing, unchanged and passing: `v2-login`, `credentials-sign-in`, `audit-auth-login`, `auth-path-middleware`, `maintenance-dashboard`, `maintenance-section`, `qa-queue-readiness`, `photo-review-panel`, `portal-navigation`, `server-client-value-imports` (see the area run in the hand-over report).
+- Not run (as instructed): production build, full suite, browser pass at 390/1280 light/dark.
+
+## Client portal redesign (2026-11-12)
+
+Scope: boards `ClientPortal.dc.html` and `ClientPortalDesktop.dc.html`; details in `docs/SYSTEM.md`, "Client portal redesign (2026-11-12)". No schema change, no migration, no change to payment, approval, dispute or quote decision logic.
+
+What changed
+- Navigation: `components/v2/client/portal/{portal-nav.ts,request-sheet.tsx,header-actions.tsx,more-menu.tsx,more-account.tsx,segment-links.tsx}`, `app/v2/client/layout.tsx`, `app/v2/client/more/page.tsx`, `lib/client/portal-modules.ts`, `lib/navigation/mobile-tabs.ts` (client line only), `lib/navigation/redirect-query.ts`, redirects in `app/v2/client/{money,services,disputes}/page.tsx`. Shared: `components/v2/portal/portal-shell.tsx` gained an optional `headerActions` prop (other portals unchanged); `components/v2/portal/use-attention-counts.ts` parses optional `portal.modules`.
+- Home/dashboard: `app/v2/client/page.tsx`, `lib/client/home-dashboard.ts`, `components/v2/client/home/*`; Properties page hosts the pinned portfolio.
+- Property page: `app/v2/client/properties/[id]/page.tsx`, `components/v2/client/property/*`.
+- Approvals/quotes: `app/v2/client/approvals/page.tsx`, `components/v2/client/approvals-board.tsx`, `components/v2/client/approvals/*`, `lib/client/quotes-waiting.ts`; `components/v2/client/quotes-board.tsx` and `app/v2/client/quotes/page.tsx` accept `?quote=&intent=` (focus only).
+- Money: `app/v2/client/finance/page.tsx`, `components/v2/client/money/*`, `lib/billing/client-portal-money.ts`, read-only fields in `lib/billing/client-portal-finance.ts`, `components/v2/client/pay-invoice-button.tsx` (label/width props).
+- Clean, messages, settings: `app/v2/client/jobs/[id]/page.tsx`, `components/v2/client/{job-action-hub,job-skip-action,messages-thread,settings-panel}.tsx`, `app/v2/client/settings/page.tsx`, `app/v2/client/calendar/page.tsx` (names switch).
+- Route: `app/api/client/attention-counts/route.ts` adds the unread messages count and module switches.
+
+Fixed by default (existing problems)
+- Clean page looked jobs up by client only, so a property-scoped assistant could open another property's clean by URL; it now uses `propertyScopeWhere`.
+- Clean page showed invoice lines to an assistant without the invoice grant.
+- Calendar page showed cleaner names with the per-client names switch off.
+- Approval, property activity and laundry confirmation times were formatted in server time; now Sydney.
+- Home listed the six oldest laundry tasks ever; the redesigned table shows the open (else latest) run per property.
+- Retired client URLs dropped their query string on redirect.
+
+Tests
+- New: `tests/components/client-portal-redesign.test.tsx` (tab order, More/rail/sheet completeness against every `app/v2/client` route, assistant limits, module switches, redirects with query), `tests/components/client-visibility-redesign.test.tsx` (names switch on the calendar, property tabs per switch and reports grant, Book a clean here grant, assistant scope on the clean page, server-filtered More), `tests/components/client-approvals-quotes-messages.test.tsx` (quotes listed and linked, expired quote, unreadable quotes never "All clear", History segment, saved/retry with the same request id, mismatched receipt), `tests/lib/client-portal-money.test.ts` (Due/Overdue/Not yet sent/Part paid/Paid/Fully credited/credit note, unknown terms, pay-first order).
+- Changed with the behaviour (same guarantees, new labels or placement): `client-dashboard` (rewritten for the phone Home and dashboard: failures stay unavailable and are listed, no zero money, VA hiding and scoping, names switch, approvals switch, live clean and decisions), `client-approvals-board` (Approve carries the amount, counter opens from Offer other price, history on its segment), `client-finance-reliability` (Paid badge, row links, single Pay now; page called with props), `client-layout-gates` (Cleans label, booking via the Request sheet, sheet withheld until access is confirmed), `client-attention-scope` (unread messages count, module switches, failure), `portal-navigation` (client tabs).
+- Run and passing: TypeScript; 62 client/portal/VA/finance/navigation test files (905 tests) including every existing client-portal file and `server-client-value-imports`.
+- Not run (as instructed): production build, full suite, database tests (`tests/db/client-message-receipt.test.ts` needs the loopback database; the message API is unchanged), browser pass at 390/1280 light/dark.

@@ -24,6 +24,7 @@ import { getPresignedDownloadUrl } from "@/lib/s3";
 import { displayKeyFor, normalizeQaPhotoRefs } from "@/lib/qa/annotation-composite";
 import { buildQaResultEmail } from "@/lib/notifications/qa-result-email";
 import { QUALITY_COACHING_HREF, recurringPatternHref } from "@/lib/quality/redirects";
+import { loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
 
 type AdminRecipient = {
   id: string;
@@ -49,19 +50,20 @@ async function getCleanerRecipient(cleanerId: string) {
   return { id: user.id, role: user.role, email: user.email, phone: user.phone, name: user.name };
 }
 
-function emailShell(title: string, bodyHtml: string, actionUrl?: string, actionLabel?: string) {
-  return `<div style="font-family:Arial,sans-serif;color:#111;">
-    <h2 style="margin:0 0 8px;">${title}</h2>
-    <div style="color:#555;margin:0 0 12px;">${bodyHtml}</div>
-    ${
-      actionUrl
-        ? `<p style="margin:16px 0;"><a href="${actionUrl}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;">${
-            actionLabel ?? "Open"
-          }</a></p>`
-        : ""
-    }
-  </div>`;
+type AccountabilityValues = Record<string, string | number | null | undefined>;
+
+
+/**
+ * One accountability notice from its editable wording (catalog type
+ * job.qa_and_accountability): the inbox title and body, and the email in the
+ * Quality shell around the same text.
+ */
+function accountabilityText(wording: WordingRenderer, partId: string, values: AccountabilityValues, actionUrl?: string) {
+  const inbox = wording.render(partId, "INBOX", values);
+  const email = wording.render(partId, "EMAIL", { ...values, title: inbox.title, messageText: inbox.body, actionUrl });
+  return { subject: inbox.title, body: inbox.body, email: { subject: email.subject, html: email.html } };
 }
+
 
 /** Prettify a category key when settings hold no label for it. */
 function humanizeKey(value: string): string {
@@ -186,11 +188,14 @@ export async function notifyQaResultToCleaner(input: {
       managementReview: input.managementReview ?? false,
     });
 
-    const shortSummary = input.passed
-      ? `QA passed (${Math.round(input.score)}%)`
-      : `QA needs attention (${Math.round(input.score)}%)${
-          input.issueSummary ? ` — ${input.issueSummary}` : ""
-        }`;
+    const wording = await loadNotificationWording("job.qa_and_accountability");
+    const summaryText = built.text.split("\n").slice(0, 3).join(" ");
+    const qaInbox = wording.render(input.passed ? "qa-passed" : "qa-attention", "INBOX", {
+      score: Math.round(input.score),
+      issueSuffix: wording.line("issue-suffix", "INBOX", { issueSummary: input.issueSummary }, Boolean(input.issueSummary)),
+      summary: summaryText,
+    });
+    const shortSummary = qaInbox.title;
 
     await deliverNotificationToRecipients({
       recipients,
@@ -200,9 +205,9 @@ export async function notifyQaResultToCleaner(input: {
       // download) lives. The old link went to a v1 path these cleaners no
       // longer use.
       url: qualityUrl,
-      web: { subject: shortSummary, body: built.text.split("\n").slice(0, 3).join(" ") },
+      web: { subject: shortSummary, body: qaInbox.body },
       email: { subject: built.subject, html: built.html },
-      sms: `${settings.companyName}: ${shortSummary}. See the app for details.`,
+      sms: wording.render("qa-result", "SMS", { companyName: settings.companyName, shortSummary }).body,
     });
   } catch (err) {
     logger.error({ err, jobId: input.jobId }, "[accountability] notifyQaResultToCleaner failed");
@@ -220,23 +225,22 @@ export async function notifyManagementReviewFlagged(input: {
     const admins = await getAdminRecipients();
     if (admins.length === 0) return;
     const settings = await getAppSettings();
-    const who = input.cleanerName ? ` — ${input.cleanerName}` : "";
-    const where = input.propertyName ? ` at ${input.propertyName}` : "";
-    const subject = `QA flagged for management review${where}`;
-    const body = `A QA inspection${where}${who} was routed to management review.${
-      input.reason ? ` ${input.reason}` : ""
-    }`;
     const url = resolveAppUrl(`/admin/jobs/${input.jobId}`);
+    const wording = await loadNotificationWording("job.qa_and_accountability");
+    const text = accountabilityText(wording, "management-review", {
+      companyName: settings.companyName,
+      where: wording.line("where", "INBOX", { propertyName: input.propertyName }, Boolean(input.propertyName)),
+      whoDash: wording.line("who-dash", "INBOX", { cleanerName: input.cleanerName }, Boolean(input.cleanerName)),
+      reasonSentence: wording.line("reason-sentence", "INBOX", { reason: input.reason }, Boolean(input.reason)),
+    }, url);
+    const { subject, body } = text;
     await deliverNotificationToRecipients({
       recipients: admins,
       category: "approvals",
       jobId: input.jobId,
       url,
       web: { subject, body },
-      email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, `<p>${body}</p>`, url, "Review job"),
-      },
+      email: text.email,
     });
   } catch (err) {
     logger.error({ err, jobId: input.jobId }, "[accountability] notifyManagementReviewFlagged failed");
@@ -255,23 +259,23 @@ export async function notifyFalseConfirmationSuspected(input: {
     const admins = await getAdminRecipients();
     if (admins.length === 0) return;
     const settings = await getAppSettings();
-    const who = input.cleanerName ? ` by ${input.cleanerName}` : "";
-    const where = input.propertyName ? ` at ${input.propertyName}` : "";
-    const subject = `${input.count} suspected false confirmation${input.count === 1 ? "" : "s"}${where}`;
-    const body = `A QA inspection${where} flagged ${input.count} suspected false confirmation${
-      input.count === 1 ? "" : "s"
-    }${who}. Please review.`;
     const url = resolveAppUrl(`/admin/jobs/${input.jobId}`);
+    const wording = await loadNotificationWording("job.qa_and_accountability");
+    const text = accountabilityText(wording, "false-confirmation", {
+      companyName: settings.companyName,
+      count: input.count,
+      confirmationWord: input.count === 1 ? "confirmation" : "confirmations",
+      where: wording.line("where", "INBOX", { propertyName: input.propertyName }, Boolean(input.propertyName)),
+      whoBy: wording.line("who-by", "INBOX", { cleanerName: input.cleanerName }, Boolean(input.cleanerName)),
+    }, url);
+    const { subject, body } = text;
     await deliverNotificationToRecipients({
       recipients: admins,
       category: "approvals",
       jobId: input.jobId,
       url,
       web: { subject, body },
-      email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, `<p>${body}</p>`, url, "Review job"),
-      },
+      email: text.email,
     });
   } catch (err) {
     logger.error({ err, jobId: input.jobId }, "[accountability] notifyFalseConfirmationSuspected failed");
@@ -298,28 +302,24 @@ export async function notifyReworkOfferToCleaner(input: {
     const cleaner = await getCleanerRecipient(input.cleanerId);
     if (!cleaner) return;
     const settings = await getAppSettings();
-    const where = input.propertyName ? ` at ${input.propertyName}` : "";
     const minutes = Math.max(1, Math.round((input.expiresAt.getTime() - Date.now()) / 60_000));
-    const subject = `Rework offered${where} — respond within ${minutes} min`;
-    const body = [
-      `QA flagged items on your clean${where}.`,
-      input.reason ? `Reason: ${input.reason}` : null,
-      "You can go back and fix it yourself at no cost to you. If you decline or the offer lapses, it is reassigned to another cleaner and the rework pay is deducted from your job.",
-    ]
-      .filter(Boolean)
-      .join(" ");
     const url = resolveAppUrl(`/cleaner/jobs/${input.jobId}`);
+    const wording = await loadNotificationWording("job.qa_and_accountability");
+    const text = accountabilityText(wording, "rework-offer", {
+      companyName: settings.companyName,
+      minutes,
+      where: wording.line("where", "INBOX", { propertyName: input.propertyName }, Boolean(input.propertyName)),
+      reasonSentence: wording.line("rework-reason", "INBOX", { reason: input.reason }, Boolean(input.reason)),
+    }, url);
+    const { subject, body } = text;
     await deliverNotificationToRecipients({
       recipients: [cleaner],
       category: "jobs",
       jobId: input.jobId,
       url,
       web: { subject, body },
-      email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, `<p>${body}</p>`, url, "View rework"),
-      },
-      sms: `${settings.companyName}: ${subject}. Open the app to accept or decline.`,
+      email: text.email,
+      sms: wording.render("rework-offer", "SMS", { companyName: settings.companyName, title: subject }).body,
     });
   } catch (err) {
     logger.error({ err, jobId: input.jobId }, "[accountability] notifyReworkOfferToCleaner failed");
@@ -338,17 +338,15 @@ export async function notifyBonusOutcomeToCleaner(input: {
     const cleaner = await getCleanerRecipient(input.cleanerId);
     if (!cleaner) return;
     const settings = await getAppSettings();
-    const amountStr =
-      input.approved && input.amount != null && Number.isFinite(Number(input.amount))
-        ? ` ($${Number(input.amount).toFixed(2)})`
-        : "";
-    const subject = input.approved
-      ? `Bonus approved${amountStr}`
-      : "Bonus not approved";
-    const body = input.approved
-      ? `Your ${input.title} has been approved${amountStr} and will be included in payroll.`
-      : `Your ${input.title} was not approved.`;
+    const hasAmount = input.approved && input.amount != null && Number.isFinite(Number(input.amount));
     const url = resolveAppUrl("/cleaner/pay-requests");
+    const wording = await loadNotificationWording("job.qa_and_accountability");
+    const text = accountabilityText(wording, input.approved ? "bonus-approved" : "bonus-declined", {
+      companyName: settings.companyName,
+      bonusTitle: input.title,
+      amountSuffix: wording.line("amount-suffix", "INBOX", { amount: hasAmount ? Number(input.amount).toFixed(2) : "" }, hasAmount),
+    }, url);
+    const { subject, body } = text;
     await deliverNotificationToRecipients({
       recipients: [cleaner],
       category: "jobs",
@@ -356,8 +354,8 @@ export async function notifyBonusOutcomeToCleaner(input: {
       url,
       web: { subject, body },
       email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, `<p>${body}</p>`, url, "View pay requests"),
+        subject: text.email.subject,
+        html: text.email.html,
       },
     });
   } catch (err) {
@@ -377,20 +375,23 @@ export async function notifyCoachingCreated(input: {
     const cleaner = await getCleanerRecipient(input.cleanerId);
     if (!cleaner) return;
     const settings = await getAppSettings();
-    const typeLabel = input.type.replace(/_/g, " ").toLowerCase();
-    const subject = `New coaching record: ${typeLabel}`;
-    const body = `${input.reason}${
-      input.retrainingRequired ? " Retraining is required — please acknowledge." : " Please review and acknowledge."
-    }`;
     const url = resolveAppUrl(`/cleaner/coaching/${input.coachingId}`);
+    const wording = await loadNotificationWording("job.qa_and_accountability");
+    const text = accountabilityText(wording, "coaching-created", {
+      companyName: settings.companyName,
+      typeLabel: input.type.replace(/_/g, " ").toLowerCase(),
+      reason: input.reason,
+      acknowledgeSentence: wording.line(input.retrainingRequired ? "retraining" : "acknowledge", "INBOX", {}),
+    }, url);
+    const { subject, body } = text;
     await deliverNotificationToRecipients({
       recipients: [cleaner],
       category: "jobs",
       url,
       web: { subject, body },
       email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, `<p>${body}</p>`, url, "View coaching"),
+        subject: text.email.subject,
+        html: text.email.html,
       },
     });
   } catch (err) {
@@ -411,9 +412,12 @@ export async function notifyCoachingAcknowledged(input: {
     });
     if (!creator || !creator.isActive) return;
     const settings = await getAppSettings();
-    const who = input.cleanerName ? input.cleanerName : "The cleaner";
-    const subject = "Coaching record acknowledged";
-    const body = `${who} has acknowledged the coaching record you created.`;
+    const ackWording = await loadNotificationWording("job.qa_and_accountability");
+    const ackValues = {
+      companyName: settings.companyName,
+      cleanerName: input.cleanerName ? input.cleanerName : ackWording.line("the-cleaner", "INBOX", {}),
+    };
+    const { title: subject, body } = ackWording.render("coaching-acknowledged", "INBOX", ackValues);
     // The old /admin/accountability/coaching/[id] page no longer exists; coaching
     // records are followed up on the Quality hub's Coaching tab.
     const url = resolveAppUrl(QUALITY_COACHING_HREF);
@@ -425,8 +429,7 @@ export async function notifyCoachingAcknowledged(input: {
       url,
       web: { subject, body },
       email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, `<p>${body}</p>`, url, "View coaching"),
+        ...accountabilityText(ackWording, "coaching-acknowledged", ackValues, url).email,
       },
     });
   } catch (err) {
@@ -446,10 +449,15 @@ export async function notifyScoreAdjusted(input: {
     const cleaner = await getCleanerRecipient(input.cleanerId);
     if (!cleaner) return;
     const settings = await getAppSettings();
-    const where = input.propertyName ? ` at ${input.propertyName}` : "";
-    const subject = `QA score updated to ${Math.round(input.newScore)}${where}`;
-    const body = `An admin adjusted your QA score${where} to ${Math.round(input.newScore)}. Reason: ${input.reason}`;
     const url = resolveAppUrl(`/cleaner/jobs/${input.jobId}`);
+    const wording = await loadNotificationWording("job.qa_and_accountability");
+    const text = accountabilityText(wording, "score-adjusted", {
+      companyName: settings.companyName,
+      score: Math.round(input.newScore),
+      reason: input.reason,
+      where: wording.line("where", "INBOX", { propertyName: input.propertyName }, Boolean(input.propertyName)),
+    }, url);
+    const { subject, body } = text;
     await deliverNotificationToRecipients({
       recipients: [cleaner],
       category: "jobs",
@@ -457,8 +465,8 @@ export async function notifyScoreAdjusted(input: {
       url,
       web: { subject, body },
       email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, `<p>${body}</p>`, url, "View job"),
+        subject: text.email.subject,
+        html: text.email.html,
       },
     });
   } catch (err) {
@@ -482,15 +490,18 @@ export async function notifyRecurringPatternAlert(input: {
     const admins = await getAdminRecipients();
     if (admins.length === 0) return;
     const settings = await getAppSettings();
-    const subjectWho =
-      input.cleanerName ?? input.propertyName ?? "A cleaner";
-    const categoryLabel = input.category.replace(/_/g, " ");
-    const subject = `Recurring issue pattern: ${categoryLabel}`;
-    const body = `${subjectWho} has ${input.count} ${categoryLabel} issue${
-      input.count === 1 ? "" : "s"
-    } in the last ${input.windowDays} day${input.windowDays === 1 ? "" : "s"}.${
-      input.propertyName && input.cleanerName ? ` Property: ${input.propertyName}.` : ""
-    }`;
+    const patternWording = await loadNotificationWording("job.qa_and_accountability");
+    const patternValues = {
+      companyName: settings.companyName,
+      who: input.cleanerName ?? input.propertyName ?? patternWording.line("a-cleaner", "INBOX", {}),
+      category: input.category.replace(/_/g, " "),
+      count: input.count,
+      issueWord: input.count === 1 ? "issue" : "issues",
+      windowDays: input.windowDays,
+      dayWord: input.windowDays === 1 ? "day" : "days",
+      propertySentence: patternWording.line("property-sentence", "INBOX", { propertyName: input.propertyName }, Boolean(input.propertyName && input.cleanerName)),
+    };
+    const { title: subject, body } = patternWording.render("recurring-pattern", "INBOX", patternValues);
     // The old /admin/accountability page no longer exists: the pattern's issues
     // are the Quality hub's Issues tab for that cleaner and category.
     const url = resolveAppUrl(
@@ -502,8 +513,7 @@ export async function notifyRecurringPatternAlert(input: {
       url,
       web: { subject, body },
       email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, `<p>${body}</p>`, url, "Open in Quality"),
+        ...accountabilityText(patternWording, "recurring-pattern", patternValues, url).email,
       },
     });
   } catch (err) {
@@ -521,20 +531,23 @@ export async function notifyRestockRunCreated(input: {
     const admins = await getAdminRecipients();
     if (admins.length === 0) return;
     const settings = await getAppSettings();
-    const where = input.propertyName ? ` at ${input.propertyName}` : "";
-    const subject = `Auto shopping run created${where}`;
-    const body = `${input.itemCount} low-stock item${
-      input.itemCount === 1 ? "" : "s"
-    }${where} were added to an automatically created shopping run.`;
     const url = resolveAppUrl("/admin/shopping-runs");
+    const wording = await loadNotificationWording("job.qa_and_accountability");
+    const text = accountabilityText(wording, "restock-run", {
+      companyName: settings.companyName,
+      itemCount: input.itemCount,
+      itemWord: input.itemCount === 1 ? "item" : "items",
+      where: wording.line("where", "INBOX", { propertyName: input.propertyName }, Boolean(input.propertyName)),
+    }, url);
+    const { subject, body } = text;
     await deliverNotificationToRecipients({
       recipients: admins,
       category: "shopping",
       url,
       web: { subject, body },
       email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, `<p>${body}</p>`, url, "Open shopping run"),
+        subject: text.email.subject,
+        html: text.email.html,
       },
     });
   } catch (err) {
@@ -552,21 +565,22 @@ export async function notifyStreakProgress(input: {
     const cleaner = await getCleanerRecipient(input.cleanerId);
     if (!cleaner) return;
     const settings = await getAppSettings();
-    const subject = `Quality streak: ${input.streak} clean${input.streak === 1 ? "" : "s"}`;
-    const toGo =
-      input.nextThreshold != null && input.nextThreshold > input.streak
-        ? ` ${input.nextThreshold - input.streak} more to your next bonus.`
-        : "";
-    const body = `You're on a streak of ${input.streak} high-quality clean${
-      input.streak === 1 ? "" : "s"
-    }.${toGo}`;
+    const hasNext = input.nextThreshold != null && input.nextThreshold > input.streak;
+    const streakWording = await loadNotificationWording("job.qa_and_accountability");
+    const streakText = accountabilityText(streakWording, "streak", {
+      companyName: settings.companyName,
+      streak: input.streak,
+      cleanWord: input.streak === 1 ? "clean" : "cleans",
+      toGo: streakWording.line("to-go", "INBOX", { remaining: hasNext ? input.nextThreshold! - input.streak : "" }, hasNext),
+    });
+    const { subject, body } = streakText;
     await deliverNotificationToRecipients({
       recipients: [cleaner],
       category: "jobs",
       web: { subject, body },
       email: {
-        subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, `<p>${body}</p>`),
+        subject: streakText.email.subject,
+        html: streakText.email.html,
       },
     });
   } catch (err) {

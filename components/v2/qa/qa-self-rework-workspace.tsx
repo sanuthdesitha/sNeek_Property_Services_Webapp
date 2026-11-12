@@ -136,7 +136,7 @@ export function QaSelfReworkWorkspace({ jobId }: { jobId: string }) {
           </Link>
         </EButton>
         <div className="min-w-0 flex-1">
-          <p className="e-eyebrow">QA rework · you are fixing this</p>
+          <p className="e-eyebrow">You are fixing this</p>
           <h1 className="e-display-md mt-1 truncate">{payload.job?.property?.name ?? "Property"}</h1>
           <p className="truncate text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">
             {[payload.job?.property?.address, payload.job?.property?.suburb].filter(Boolean).join(", ")}
@@ -247,7 +247,7 @@ export function QaSelfReworkWorkspace({ jobId }: { jobId: string }) {
               />
             </EField>
           </div>
-          <EField label="Reason / summary">
+          <EField label="What you did to put it right">
             <ETextarea value={reason} onChange={(e) => setReason(e.target.value)} />
           </EField>
           {overWindow ? (

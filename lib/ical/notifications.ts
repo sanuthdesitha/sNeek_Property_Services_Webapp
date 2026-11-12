@@ -11,6 +11,7 @@ import { sendSmsDetailed } from "@/lib/notifications/sms";
 import { canDeliverNotification } from "@/lib/notifications/preferences";
 import { resolveAppUrl } from "@/lib/app-url";
 import type { IcalSyncSnapshot, IcalSyncSummary } from "@/lib/ical/sync";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 function describeJobChange(
   before: IcalSyncSnapshot["jobs"][number]["before"],
@@ -101,7 +102,11 @@ export async function notifyAutoSyncChanges(input: {
   const urgentChanges = changedJobs.filter((job) => job.urgent);
   const urgent = urgentChanges.length > 0;
   const propertyLabel = `${input.propertyName}${input.propertySuburb ? ` (${input.propertySuburb})` : ""}`;
-  const subject = `${urgent ? "IMPORTANT: " : ""}iCal sync changes - ${propertyLabel}`;
+  const wording = await loadNotificationWording("office.ical_alerts");
+  const importantPrefix = wording.line("important-prefix", "INBOX", {}, urgent);
+  const inboxText = wording.render(urgent ? "near-term" : "changes", "INBOX", { importantPrefix, propertyName: propertyLabel, changeCount, urgentCount: urgentChanges.length });
+  const changesText = wording.render("changes", "INBOX", { importantPrefix, propertyName: propertyLabel, changeCount });
+  const subject = inboxText.title;
   const integrationsUrl = resolveAppUrl("/admin/integrations");
   const propertyUrl = resolveAppUrl(`/admin/properties/${input.propertyId}`);
   const summaryHtml = `
@@ -146,27 +151,28 @@ export async function notifyAutoSyncChanges(input: {
         </div>
       `
       : "";
-  const emailHtml = `
-    <h2 style="margin:0 0 12px;">${urgent ? "Important iCal sync change detected" : "iCal sync change summary"}</h2>
-    <p><strong>Property:</strong> ${propertyLabel}</p>
-    <p><strong>Run:</strong> ${input.runId}</p>
-    <p><strong>Synced at:</strong> ${format(toZonedTime(now, timezone), "dd MMM yyyy HH:mm")}</p>
-    ${
-      urgent
-        ? `<p style="color:#b91c1c;font-weight:700;">Changes affect jobs scheduled today, tomorrow, or within the next 48 hours.</p>`
-        : ""
-    }
-    ${summaryHtml}
-    ${changedJobsHtml}
-    ${warningsHtml}
-    <p><a href="${propertyUrl}">Open property</a> - <a href="${integrationsUrl}">Open integrations</a></p>
-  `;
+  const emailHtml = wording.render("changes", "EMAIL", {
+    subjectLine: subject,
+    heading: wording.line(urgent ? "heading-urgent" : "heading", "EMAIL", {}),
+    propertyName: propertyLabel,
+    runId: input.runId,
+    syncedAt: format(toZonedTime(now, timezone), "dd MMM yyyy HH:mm"),
+    nearTermParagraph: wording.line("near-term-paragraph", "EMAIL", {}, urgent),
+    summaryHtml,
+    changedJobsHtml,
+    warningsHtml,
+    propertyUrl,
+    integrationsUrl,
+  }).html;
 
   const smsText = urgent
-    ? `IMPORTANT iCal sync for ${input.propertyName}: ${urgentChanges
-        .slice(0, 3)
-        .map((job) => `${job.reference} ${job.scheduledLabel}`)
-        .join("; ")}`
+    ? wording.render("near-term", "SMS", {
+        propertyName: input.propertyName,
+        urgentJobs: urgentChanges
+          .slice(0, 3)
+          .map((job) => `${job.reference} ${job.scheduledLabel}`)
+          .join("; "),
+      }).body
     : null;
 
   const admins = await db.user.findMany({
@@ -197,9 +203,7 @@ export async function notifyAutoSyncChanges(input: {
           externalId: mobilePendingMarker("ical"),
           channel: NotificationChannel.PUSH,
           subject,
-          body: urgent
-            ? `${urgentChanges.length} near-term job change(s) detected for ${propertyLabel}.`
-            : `${changeCount} iCal sync change(s) detected for ${propertyLabel}.`,
+          body: inboxText.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },
@@ -217,7 +221,7 @@ export async function notifyAutoSyncChanges(input: {
           userId: admin.id,
           channel: NotificationChannel.EMAIL,
           subject,
-          body: `${changeCount} iCal sync change(s) detected for ${propertyLabel}.`,
+          body: changesText.body,
           status: result.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
           sentAt: result.ok ? new Date() : undefined,
           errorMsg: result.ok ? undefined : result.error ?? "iCal sync alert email failed.",

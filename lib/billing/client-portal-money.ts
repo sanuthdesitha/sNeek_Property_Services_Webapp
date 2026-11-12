@@ -141,7 +141,7 @@ export function buildClientMoneyRow(
   };
 }
 
-const OWING_STATES: ReadonlySet<ClientMoneyState> = new Set(["DUE", "OVERDUE", "NOT_SENT", "PART_PAID"]);
+const OWING_STATES: ReadonlySet<ClientMoneyState> = new Set<ClientMoneyState>(["DUE", "OVERDUE", "NOT_SENT", "PART_PAID"]);
 
 export function summarizeToPay(rows: readonly ClientMoneyRow[]): ClientMoneyToPay {
   const outstanding = rows.filter((row) => OWING_STATES.has(row.state) && row.owing > 0);

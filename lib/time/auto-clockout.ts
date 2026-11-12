@@ -3,6 +3,7 @@ import { NotificationChannel, NotificationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { resolveClockRuleForLog } from "@/lib/time/clock-rules";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export async function autoClockOutStaleTimeLogsForUser(userId: string) {
   const settings = await getAppSettings();
@@ -66,17 +67,19 @@ export async function autoClockOutStaleTimeLogsForUser(userId: string) {
         },
       });
       if (claimed.count !== 1) return false;
+      const notice = (await loadNotificationWording("job.clock_changes")).render("auto-clock-out", "INBOX", {
+        jobNumber: log.job.jobNumber || log.job.id,
+        propertyName: log.job.property.name,
+        time: stoppedAt.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" }),
+      });
       await tx.notification.create({
         data: {
           userId,
           jobId: log.jobId,
           externalId: mobilePendingMarker("jobs"),
           channel: NotificationChannel.PUSH,
-          subject: "Auto clocked out",
-          body: `${log.job.jobNumber || log.job.id}: ${log.job.property.name} was automatically clocked out at ${stoppedAt.toLocaleTimeString("en-AU", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}.`,
+          subject: notice.title,
+          body: notice.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },

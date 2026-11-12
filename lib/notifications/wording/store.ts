@@ -1,9 +1,9 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { getDefaultEmailTemplates, type AppEmailTemplateKey } from "@/lib/email-templates";
 import { getTransactionAppSettings, saveAppSettings } from "@/lib/settings";
-import { checkWording, fromEmailTemplateSyntax, toEmailTemplateSyntax, wordingHash, type WordingProblem } from "./template";
+import { checkWording, wordingHash, type WordingProblem } from "./template";
+import { isTemplatePart, templateDefaults, templateLimitProblem, templateLive, templatePatch, templateStoredFields } from "./template-sources";
 import { wordingDefinition, wordingPart } from "./registry";
 import { entryKey, partFields, type WordingFields, type WordingPartDefinition, type WordingTransport } from "./types";
 
@@ -69,22 +69,15 @@ export async function readStoredRow(typeKey: string): Promise<StoredRow> {
   return parseStoredRow(row?.value);
 }
 
-/** Default wording of a part (email-template parts: the shipped template). */
+/** Default wording of a part (template parts: the shipped template). */
 export function partDefaults(part: WordingPartDefinition): WordingFields {
-  if (part.source.kind === "EMAIL_TEMPLATE") {
-    const template = getDefaultEmailTemplates()[part.source.key];
-    return { subject: fromEmailTemplateSyntax(template.subject), body: fromEmailTemplateSyntax(template.html) };
-  }
-  return part.defaults;
-}
-
-export function emailTemplateFields(templates: Record<string, { subject: string; html: string }>, key: AppEmailTemplateKey): WordingFields {
-  const template = templates[key] ?? getDefaultEmailTemplates()[key];
-  return { subject: fromEmailTemplateSyntax(template.subject), body: fromEmailTemplateSyntax(template.html) };
+  return templateDefaults(part);
 }
 
 export function partProblems(part: WordingPartDefinition, fields: WordingFields): WordingProblem[] {
-  return checkWording({ transport: part.transport, fields, fieldNames: partFields(part), allowed: part.variables, required: part.required });
+  const problems = checkWording({ transport: part.transport, fields, fieldNames: partFields(part), allowed: part.variables, required: part.required });
+  const limit = templateLimitProblem(part, fields);
+  return limit ? [...problems, { field: null, code: "too_long", message: limit }] : problems;
 }
 
 /** The live override of a store part, or null (default / invalid → default). */
@@ -135,8 +128,8 @@ function nextFields(input: SaveWordingInput, part: WordingPartDefinition, histor
     return found.fields;
   }
   const fields: WordingFields = {};
-  for (const name of partFields(part)) fields[name] = part.source.kind === "EMAIL_TEMPLATE" ? (input.fields?.[name] ?? "").trim() : input.fields?.[name] ?? "";
-  return fields;
+  for (const name of partFields(part)) fields[name] = input.fields?.[name] ?? "";
+  return isTemplatePart(part) ? templateStoredFields(part, fields) : fields;
 }
 
 /**
@@ -153,10 +146,8 @@ export async function saveWording(input: SaveWordingInput): Promise<SaveWordingR
     const stored = await tx.appSetting.findUnique({ where: { key }, select: { value: true } });
     const row = parseStoredRow(stored?.value);
     const history = row.entries[entry] ?? [];
-    const settings = part.source.kind === "EMAIL_TEMPLATE" ? await getTransactionAppSettings(tx) : null;
-    const liveBefore = part.source.kind === "EMAIL_TEMPLATE"
-      ? emailTemplateFields(settings!.emailTemplates, part.source.key)
-      : liveStoreOverride(row, part) ?? partDefaults(part);
+    const settings = isTemplatePart(part) ? await getTransactionAppSettings(tx) : null;
+    const liveBefore = settings ? templateLive(settings, part) : liveStoreOverride(row, part) ?? partDefaults(part);
     if (wordingHash(liveBefore) !== input.expectedHash) throw new WordingConflictError();
     const fields = nextFields(input, part, history);
     const effective = fields ?? partDefaults(part);
@@ -165,11 +156,7 @@ export async function saveWording(input: SaveWordingInput): Promise<SaveWordingR
     const version = Math.max(1, ...history.map((item) => item.version)) + 1;
     const record: StoredVersion = { version, fields, savedAt: new Date().toISOString(), actor: input.actor, kind: input.kind, change: (input.change ?? "").trim().slice(0, 200) };
     const nextRow: StoredRow = { entries: { ...row.entries, [entry]: [...history, record].slice(-HISTORY_LIMIT) } };
-    if (part.source.kind === "EMAIL_TEMPLATE") {
-      const templateKey = part.source.key;
-      const written = { subject: toEmailTemplateSyntax(effective.subject ?? ""), html: toEmailTemplateSyntax(effective.body ?? "") };
-      await saveAppSettings({ emailTemplates: { ...settings!.emailTemplates, [templateKey]: written } });
-    }
+    if (settings) await saveAppSettings(templatePatch(settings, part, effective));
     await tx.appSetting.upsert({ where: { key }, create: { key, value: nextRow as unknown as Prisma.InputJsonValue }, update: { value: nextRow as unknown as Prisma.InputJsonValue } });
     await tx.auditLog.create({ data: {
       userId: input.actor.id, action: "NOTIFICATION_WORDING_UPDATED", entity: "AppSetting", entityId: key,

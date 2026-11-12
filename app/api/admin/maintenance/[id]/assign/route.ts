@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { assignMaintenanceItem } from "@/lib/maintenance/workers";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   workerId: z.string().min(1),
@@ -38,13 +39,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         where: { id: params.id },
         select: { title: true, property: { select: { name: true } } },
       });
+      const notice = (await loadNotificationWording("maintenance.assignment")).render("assigned", "INBOX", { propertyName: detail?.property?.name ?? "A property", itemTitle: detail?.title ?? "Repair job" });
       await db.notification.create({
         data: {
           userId: worker.userId,
           externalId: mobilePendingMarker("cases"),
           channel: NotificationChannel.PUSH,
-          subject: "New maintenance job assigned",
-          body: `${detail?.property?.name ?? "A property"}: ${detail?.title ?? "Repair job"}`,
+          subject: notice.title,
+          body: notice.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },

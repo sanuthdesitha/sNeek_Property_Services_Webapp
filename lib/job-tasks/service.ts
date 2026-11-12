@@ -12,6 +12,21 @@ import { db } from "@/lib/db";
 import { publicUrl } from "@/lib/s3";
 import { getAppSettings } from "@/lib/settings";
 import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
+import { loadNotificationWording, type WordingRenderer } from "@/lib/notifications/wording/render";
+import { escapeHtml } from "@/lib/utils/escape-html";
+
+type NoticeValues = Record<string, string | number | null | undefined>;
+
+/** One job.changed notice (inbox, email, SMS) from the editable wording. */
+function jobChangeMessages(wording: WordingRenderer, partId: string, values: NoticeValues) {
+  const inbox = wording.render(partId, "INBOX", values);
+  const email = wording.render(partId, "EMAIL", values);
+  return { web: { subject: inbox.title, body: inbox.body }, email: { subject: email.subject, html: email.html }, sms: wording.render(partId, "SMS", values).body };
+}
+
+async function jobChangeNotice(partId: string, values: NoticeValues) {
+  return jobChangeMessages(await loadNotificationWording("job.changed"), partId, values);
+}
 import { getJobReference } from "@/lib/jobs/job-number";
 import { resolveAppUrl } from "@/lib/app-url";
 import { applyReschedule } from "@/lib/phase4/analytics";
@@ -251,8 +266,11 @@ export async function notifyJobTasksAdded(jobId: string, titles: string[]) {
   const companyName = settings.companyName || "sNeek Property Services";
   const propertyLabel = `${job.property.name}${job.property.suburb ? ` (${job.property.suburb})` : ""}`;
   const jobReference = getJobReference(job);
-  const listHtml = titles.map((t) => `<li>${t}</li>`).join("");
   const listText = titles.join(", ");
+  const notice = await jobChangeNotice("tasks-added", {
+    companyName, jobNumber: jobReference, propertyName: propertyLabel, taskListText: listText,
+    taskWord: titles.length === 1 ? "task" : "tasks", taskList: titles.map((t) => `<li>${escapeHtml(t)}</li>`).join(""),
+  });
 
   await deliverNotificationToRecipients({
     recipients,
@@ -261,20 +279,9 @@ export async function notifyJobTasksAdded(jobId: string, titles: string[]) {
     // reaches for when they decide extra-task alerts are or aren't wanted.
     kind: "job_task_added",
     jobId: job.id,
-    web: {
-      subject: `${companyName}: extra task${titles.length === 1 ? "" : "s"} added`,
-      body: `${jobReference} at ${propertyLabel}: ${listText}`,
-    },
-    email: {
-      subject: `${companyName}: extra task${titles.length === 1 ? "" : "s"} on ${jobReference}`,
-      html: `
-        <h2 style="margin:0 0 12px;">Extra task${titles.length === 1 ? "" : "s"} added</h2>
-        <p><strong>${jobReference}</strong> at <strong>${propertyLabel}</strong> now includes:</p>
-        <ul style="padding-left:18px;margin:12px 0;">${listHtml}</ul>
-        <p>Open the job before you start so you have the full list.</p>
-      `,
-    },
-    sms: `${companyName}: ${jobReference} extra task — ${listText}`.slice(0, 320),
+    web: notice.web,
+    email: notice.email,
+    sms: notice.sms.slice(0, 320),
   });
 }
 
@@ -373,26 +380,15 @@ export async function createClientJobTaskRequest(input: {
   const jobReference = getJobReference(job);
   const propertyLabel = `${job.property.name}${job.property.suburb ? ` (${job.property.suburb})` : ""}`;
   const actionUrl = resolveAppUrl(`/admin/jobs/${job.id}`, input.baseUrl);
+  const notice = await jobChangeNotice("client-task", { jobNumber: jobReference, propertyName: propertyLabel, taskTitle: created.title, actionUrl });
 
   await deliverNotificationToRecipients({
     recipients: admins,
     category: "approvals",
     jobId: job.id,
-    web: {
-      subject: "Client task approval required",
-      body: `Client task request for ${jobReference} at ${propertyLabel} needs approval.`,
-    },
-    email: {
-      subject: `Client task approval required - ${jobReference}`,
-      html: `
-        <p>A client task request needs approval.</p>
-        <p><strong>Job:</strong> ${jobReference}</p>
-        <p><strong>Property:</strong> ${propertyLabel}</p>
-        <p><strong>Task:</strong> ${created.title}</p>
-        <p><a href="${actionUrl}">Review job</a></p>
-      `,
-    },
-    sms: `Approval needed: client task for ${jobReference} at ${propertyLabel}.`,
+    web: notice.web,
+    email: notice.email,
+    sms: notice.sms,
   });
 
   return created;
@@ -466,31 +462,21 @@ export async function createClientLightRequest(input: {
   const jobReference = getJobReference(job);
   const propertyLabel = `${job.property.name}${job.property.suburb ? ` (${job.property.suburb})` : ""}`;
   const actionUrl = resolveAppUrl(`/v2/admin/jobs/${job.id}`, input.baseUrl);
-  const subjectByType: Record<typeof input.requestType, string> = {
-    UPDATE: "Client asked for an update",
-    ETA: "Client asked for an ETA",
-    REPORT: "Client asked for their report",
-  };
+  const partByType: Record<typeof input.requestType, string> = { UPDATE: "client-update", ETA: "client-eta", REPORT: "client-report" };
+  const wording = await loadNotificationWording("job.changed");
+  const notice = jobChangeMessages(wording, partByType[input.requestType], {
+    jobNumber: jobReference, propertyName: propertyLabel, actionUrl,
+    noteQuote: wording.line("note-quote", "INBOX", { note }, Boolean(note)),
+    noteParagraph: wording.line("note-paragraph", "EMAIL", { note }, Boolean(note)),
+  });
 
   await deliverNotificationToRecipients({
     recipients: admins,
     category: "approvals",
     jobId: job.id,
-    web: {
-      subject: subjectByType[input.requestType],
-      body: `${jobReference} at ${propertyLabel}${note ? ` — “${note}”` : ""}`,
-    },
-    email: {
-      subject: `${subjectByType[input.requestType]} - ${jobReference}`,
-      html: `
-        <p>${subjectByType[input.requestType]}.</p>
-        <p><strong>Job:</strong> ${jobReference}</p>
-        <p><strong>Property:</strong> ${propertyLabel}</p>
-        ${note ? `<p><strong>Note:</strong> ${note}</p>` : ""}
-        <p><a href="${actionUrl}">Open job</a></p>
-      `,
-    },
-    sms: `${subjectByType[input.requestType]}: ${jobReference} at ${propertyLabel}.`,
+    web: notice.web,
+    email: notice.email,
+    sms: notice.sms,
   });
 
   return created;
@@ -577,35 +563,19 @@ export async function reviewJobTaskRequest(input: {
           : "/client/jobs",
       input.baseUrl
     );
+    const wording = await loadNotificationWording("job.changed");
+    const decisionNote = input.note?.trim();
+    const notice = jobChangeMessages(wording, input.decision === "APPROVE" ? "task-approved" : "task-declined", {
+      taskTitle: task.title, jobNumber: context.jobReference, propertyName: context.propertyLabel, actionUrl,
+      noteParagraph: wording.line("note-paragraph", "EMAIL", { note: decisionNote }, Boolean(decisionNote)),
+    });
     await deliverNotificationToRecipients({
       recipients,
       category: input.decision === "APPROVE" ? "jobs" : "approvals",
       jobId: task.jobId ?? null,
-      web: {
-        subject: input.decision === "APPROVE" ? "Job task approved" : "Job task request declined",
-        body:
-          input.decision === "APPROVE"
-            ? `${task.title} was approved for ${context.jobReference}.`
-            : `${task.title} was declined for ${context.jobReference}.`,
-      },
-      email: {
-        subject:
-          input.decision === "APPROVE"
-            ? `Job task approved - ${context.jobReference}`
-            : `Job task request declined - ${context.jobReference}`,
-        html: `
-          <p>${input.decision === "APPROVE" ? "A job task was approved." : "A job task request was declined."}</p>
-          <p><strong>Task:</strong> ${task.title}</p>
-          <p><strong>Job:</strong> ${context.jobReference}</p>
-          <p><strong>Property:</strong> ${context.propertyLabel}</p>
-          ${input.note?.trim() ? `<p><strong>Note:</strong> ${input.note.trim()}</p>` : ""}
-          <p><a href="${actionUrl}">Open</a></p>
-        `,
-      },
-      sms:
-        input.decision === "APPROVE"
-          ? `Approved: ${task.title} for ${context.jobReference}.`
-          : `Declined: ${task.title} for ${context.jobReference}.`,
+      web: notice.web,
+      email: notice.email,
+      sms: notice.sms,
     });
   }
 
@@ -659,24 +629,16 @@ export async function autoApprovePendingClientJobTasks(now = new Date(), baseUrl
       ...(context.task.requestedBy ? [context.task.requestedBy] : []),
     ];
 
+    const notice = await jobChangeNotice("task-auto-approved", { taskTitle: context.task.title, jobNumber: context.jobReference, propertyName: context.propertyLabel });
+    const titleForEmail = updated.title;
+    const emailNotice = await jobChangeNotice("task-auto-approved", { taskTitle: titleForEmail, jobNumber: context.jobReference, propertyName: context.propertyLabel });
     await deliverNotificationToRecipients({
       recipients,
       category: "approvals",
       jobId: context.task.jobId ?? null,
-      web: {
-        subject: "Job task auto-approved",
-        body: `${context.task.title} was auto-approved for ${context.jobReference}.`,
-      },
-      email: {
-        subject: `Job task auto-approved - ${context.jobReference}`,
-        html: `
-          <p>A client job task was auto-approved because no admin decision was made before the deadline.</p>
-          <p><strong>Task:</strong> ${updated.title}</p>
-          <p><strong>Job:</strong> ${context.jobReference}</p>
-          <p><strong>Property:</strong> ${context.propertyLabel}</p>
-        `,
-      },
-      sms: `Auto-approved: ${updated.title} for ${context.jobReference}.`,
+      web: notice.web,
+      email: emailNotice.email,
+      sms: emailNotice.sms,
     });
   }
 
@@ -925,26 +887,18 @@ export async function applyCleanerJobTaskUpdates(input: {
       const propertyLabel = `${job.property.name}${job.property.suburb ? ` (${job.property.suburb})` : ""}`;
       const jobReference = getJobReference(job);
       const actionUrl = resolveAppUrl(`/admin/jobs/${input.jobId}`, input.baseUrl);
+      const wording = await loadNotificationWording("job.changed");
+      const notice = jobChangeMessages(wording, "task-not-completed", {
+        taskTitle: existing.title, jobNumber: jobReference, propertyName: propertyLabel, actionUrl,
+        reasonParagraph: wording.line("reason-paragraph", "EMAIL", { note }, Boolean(note)),
+      });
       await deliverNotificationToRecipients({
         recipients: admins,
         category: "jobs",
         jobId: input.jobId,
-        web: {
-          subject: "Job task not completed",
-          body: `${existing.title} was marked not completed for ${jobReference}.`,
-        },
-        email: {
-          subject: `Job task not completed - ${jobReference}`,
-          html: `
-            <p>A cleaner marked a job task as not completed.</p>
-            <p><strong>Task:</strong> ${existing.title}</p>
-            <p><strong>Job:</strong> ${jobReference}</p>
-            <p><strong>Property:</strong> ${propertyLabel}</p>
-            ${note ? `<p><strong>Reason:</strong> ${note}</p>` : ""}
-            <p><a href="${actionUrl}">Review job</a></p>
-          `,
-        },
-        sms: `Not completed: ${existing.title} on ${jobReference}.`,
+        web: notice.web,
+        email: notice.email,
+        sms: notice.sms,
       });
       };
       if (options.afterCommit) options.afterCommit.push(notify);

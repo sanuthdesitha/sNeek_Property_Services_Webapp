@@ -6,6 +6,7 @@ import { haversineMeters } from "@/lib/jobs/gps";
 import { notifyAdminsByPush } from "@/lib/notifications/admin-alerts";
 import { classifyCheckInLocation, resolveOnSiteRadius } from "@/lib/gps/distance";
 import { OFF_SITE_REASON_CODES, isValidOffSiteReason, offSiteReasonLabel } from "@/lib/gps/off-site-reasons";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 function toNumber(value: unknown) {
   const numeric = Number(value);
@@ -170,13 +171,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // When the cleaner adjusts the auto-detected location, alert admins and
     // leave a note so the manual override is reviewable.
     if (adjusted) {
-      afterCommit.push(() => notifyAdminsByPush({
-        jobId: job.id,
-        subject: "Cleaner adjusted GPS check-in",
-        body: `${job.property?.name ?? "A job"}: ${session.user.name ?? "Cleaner"} manually adjusted their check-in location${
-          distanceMeters != null ? ` (~${distanceMeters}m from property)` : ""
-        }.${note ? ` Note: ${note}` : ""}`,
-      }).catch(() => undefined));
+      afterCommit.push(async () => {
+        const wording = await loadNotificationWording("office.field_alerts");
+        const alert = wording.render("gps-adjusted", "INBOX", {
+          propertyName: job.property?.name ?? "A job",
+          cleanerName: session.user.name ?? "Cleaner",
+          distanceSuffix: wording.line("distance-suffix", "INBOX", { distance: distanceMeters }, distanceMeters != null),
+          noteSuffix: wording.line("note-suffix", "INBOX", { note }, Boolean(note)),
+        });
+        await notifyAdminsByPush({ jobId: job.id, subject: alert.title, body: alert.body }).catch(() => undefined);
+      });
 
       await db.auditLog
         .create({
@@ -195,13 +199,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // An off-site start is worth an admin's attention AND an audit row. The
     // note alone was never enough: nothing surfaced it, and nothing counted it.
     if (verdict === "OFF_SITE" && reasonCode) {
-      afterCommit.push(() => notifyAdminsByPush({
-        jobId: job.id,
-        subject: "Job started away from the property",
-        body: `${job.property?.name ?? "A job"}: ${session.user.name ?? "Cleaner"} started ~${Math.round(
-          distanceMeters ?? 0
-        )}m away — ${offSiteReasonLabel(reasonCode)}.${note ? ` Note: ${note}` : ""}`,
-      }).catch(() => undefined));
+      afterCommit.push(async () => {
+        const wording = await loadNotificationWording("office.field_alerts");
+        const alert = wording.render("off-site-start", "INBOX", {
+          propertyName: job.property?.name ?? "A job",
+          cleanerName: session.user.name ?? "Cleaner",
+          distance: Math.round(distanceMeters ?? 0),
+          reason: offSiteReasonLabel(reasonCode),
+          noteSuffix: wording.line("note-suffix", "INBOX", { note }, Boolean(note)),
+        });
+        await notifyAdminsByPush({ jobId: job.id, subject: alert.title, body: alert.body }).catch(() => undefined);
+      });
 
       await db.auditLog
         .create({

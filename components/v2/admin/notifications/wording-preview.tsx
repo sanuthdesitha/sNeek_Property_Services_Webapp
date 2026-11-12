@@ -47,7 +47,7 @@ export function WordingPreview({ parts, drafts, companyName }: Props) {
             <div className="opacity-70">From {companyName}</div>
             <b className="break-words">{emailPreview.subject}</b>
             <iframe title="Email body preview" sandbox="" srcDoc={`<!doctype html><meta charset="utf-8"><body style="margin:0;font:13px/1.5 system-ui,sans-serif;color:#23211c;background:#fff">${emailPreview.html}</body>`} className="mt-2 h-48 w-full rounded border border-[#e5e1d8] bg-white" />
-            {email?.source === "EMAIL_TEMPLATE" ? <p className="mt-1 opacity-70">The sent email adds the company header, footer and button around this body.</p> : null}
+            {email?.source === "TEMPLATE" ? <p className="mt-1 opacity-70">The sent email adds the company header, footer and button around this body.</p> : null}
           </div>
         </div>
       ) : null}
