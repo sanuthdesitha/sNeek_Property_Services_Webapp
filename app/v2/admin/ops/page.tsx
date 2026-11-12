@@ -7,7 +7,8 @@ import { buildWorkQueue } from "@/lib/dashboard/work-queue";
 import { liveAttentionLinks } from "@/lib/ops/live-attention";
 import { sydneyTodayKey } from "@/lib/time/sydney-range";
 import { LiveFeedProvider } from "@/components/v2/admin/ops/live-feed-provider";
-import { LIVE_VIEWS, LiveOpsWorkspace, type LiveView } from "@/components/v2/admin/ops/live-ops-workspace";
+import { LiveOpsWorkspace } from "@/components/v2/admin/ops/live-ops-workspace";
+import { LIVE_VIEWS, type LiveView } from "@/components/v2/admin/ops/live-views";
 import type { OpsMapProperty } from "@/components/v2/admin/ops/estate-ops-map";
 
 export const metadata = { title: "Live ops · Estate admin" };

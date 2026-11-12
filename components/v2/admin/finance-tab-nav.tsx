@@ -10,15 +10,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { EPill } from "@/components/v2/ui/pill";
 
-export type FinanceTabKey = "invoices" | "cleaner-invoices" | "payroll" | "adjustments" | "overview";
-
-export const FINANCE_TAB_LABEL: Record<FinanceTabKey, string> = {
-  invoices: "Client invoices",
-  "cleaner-invoices": "Cleaner invoices",
-  payroll: "Pay runs",
-  adjustments: "Adjustments and time",
-  overview: "Overview",
-};
+import { FINANCE_TAB_LABEL, type FinanceTabKey } from "./finance-tab-labels";
 
 export type FinanceTabBadges = { clientToSend: number | null; cleanerToReview: number | null };
 

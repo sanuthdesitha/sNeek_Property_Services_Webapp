@@ -20,8 +20,7 @@ import { LiveExceptions } from "./live-exceptions";
 import { OnSiteRows, SimpleJobList } from "./live-state-lists";
 import { AlsoNeedsAttention, FieldStatus, PersonCard, type AttentionLink } from "./live-side-parts";
 
-export type LiveView = "exceptions" | "onsite" | "travelling" | "notstarted";
-export const LIVE_VIEWS: LiveView[] = ["exceptions", "onsite", "travelling", "notstarted"];
+import type { LiveView } from "./live-views";
 
 type WorkspaceProps = {
   properties: OpsMapProperty[];
