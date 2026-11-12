@@ -10,8 +10,11 @@
  *   paged list cannot pretend one page is the whole order.
  * - Selection is controlled and keyed by row id. The header checkbox selects or
  *   clears the rows on THIS page only.
- * - The table scrolls inside its own labelled region, so a wide table never
- *   widens the page at 390px.
+ * - From 640px up the table scrolls inside its own labelled region. Below
+ *   640px (phones) it is one DOM laid out as stacked rows: the first column is
+ *   the row title, the other columns sit two across under their header text,
+ *   and a "Sort by" control replaces the hidden header buttons. Nothing has to
+ *   be scrolled sideways.
  */
 import * as React from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, RefreshCw } from "lucide-react";
@@ -81,6 +84,13 @@ const ALIGN: Record<NonNullable<EDataColumn<unknown>["align"]>, string> = {
   right: "text-right",
   center: "text-center",
 };
+
+/** Header text used as the phone label of a cell; only plain text headers qualify. */
+function headerText(header: React.ReactNode): string | undefined {
+  if (typeof header === "string") return header.trim() || undefined;
+  if (typeof header === "number") return String(header);
+  return undefined;
+}
 
 function ariaSortFor(active: boolean, dir: SortDirection | undefined): "ascending" | "descending" | "none" {
   if (!active) return "none";
@@ -225,6 +235,7 @@ export function EDataTable<TRow, TSort extends string = string>({
           onRowClick(row);
         } : undefined}
         className={cn(
+          "max-sm:flex max-sm:flex-wrap max-sm:items-start max-sm:gap-x-3 max-sm:gap-y-2 max-sm:px-3 max-sm:py-3",
           "hover:bg-[hsl(var(--e-surface-raised)/0.6)]",
           onRowClick && "cursor-pointer",
           (checked || active) && "bg-[hsl(var(--e-primary-soft))] hover:bg-[hsl(var(--e-primary-soft))]",
@@ -232,7 +243,7 @@ export function EDataTable<TRow, TSort extends string = string>({
         )}
       >
         {selection ? (
-          <td className={cn("w-[34px] align-middle", cellPadding)}>
+          <td className={cn("w-[34px] align-middle max-sm:w-auto max-sm:!p-0 max-sm:pt-0.5", cellPadding)}>
             <input
               type="checkbox"
               className="h-[15px] w-[15px] accent-[hsl(var(--e-primary))]"
@@ -248,17 +259,35 @@ export function EDataTable<TRow, TSort extends string = string>({
             />
           </td>
         ) : null}
-        {columns.map((column) => (
-          <td key={column.key} className={cn("align-middle", cellPadding, ALIGN[column.align ?? "left"], column.className)}>
-            {column.cell(row)}
-          </td>
-        ))}
+        {columns.map((column, index) => {
+          const phoneLabel = index === 0 ? undefined : headerText(column.header);
+          return (
+            <td
+              key={column.key}
+              data-label={phoneLabel}
+              className={cn(
+                "align-middle",
+                cellPadding,
+                ALIGN[column.align ?? "left"],
+                column.className,
+                // Phone: no cell padding, left aligned; title first, then pairs.
+                "max-sm:!w-auto max-sm:min-w-0 max-sm:!p-0 max-sm:!text-left",
+                index === 0 && "max-sm:flex-1 max-sm:basis-[60%] max-sm:text-[0.9375rem]",
+                index > 0 && phoneLabel && "max-sm:basis-[calc(50%-0.375rem)] max-sm:before:block max-sm:before:text-[0.6875rem] max-sm:before:font-semibold max-sm:before:text-[hsl(var(--e-muted-foreground))] max-sm:before:content-[attr(data-label)]",
+                index > 0 && !phoneLabel && "max-sm:flex max-sm:basis-full max-sm:flex-wrap max-sm:items-center max-sm:gap-2",
+              )}
+            >
+              {column.cell(row)}
+            </td>
+          );
+        })}
       </tr>
     );
   }
 
   return (
     <div className={cn("min-w-0", className)}>
+      <PhoneSortControl columns={columns} sort={sort ?? null} onSortChange={onSortChange} label={label} />
       {error ? (
         // Stale: the rows below are the last good read, not the current one.
         <div
@@ -269,13 +298,17 @@ export function EDataTable<TRow, TSort extends string = string>({
           <RetryButton onRetry={onRetry} />
         </div>
       ) : null}
-      <div role="region" aria-label={label} tabIndex={0} className="overflow-x-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]">
-        <table className="w-full text-[0.875rem]" style={{ minWidth }} aria-busy={loading || undefined}>
+      <div role="region" aria-label={label} tabIndex={0} className="overflow-x-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))] max-sm:overflow-x-visible">
+        <table
+          className="w-full text-[0.875rem] max-sm:block sm:min-w-[var(--e-table-min-width)]"
+          style={{ "--e-table-min-width": minWidth } as React.CSSProperties}
+          aria-busy={loading || undefined}
+        >
           <caption className="sr-only">{label}</caption>
-          <thead>
-            <tr className="border-b border-[hsl(var(--e-border))]">
+          <thead className={cn("max-sm:block", !selection && "max-sm:hidden")}>
+            <tr className="border-b border-[hsl(var(--e-border))] max-sm:flex max-sm:items-center max-sm:gap-2 max-sm:bg-[hsl(var(--e-surface-raised))]">
               {selection ? (
-                <th scope="col" className="w-[34px] bg-[hsl(var(--e-surface-raised))] px-3 py-2">
+                <th scope="col" className="w-[34px] bg-[hsl(var(--e-surface-raised))] px-3 py-2 max-sm:flex max-sm:w-auto max-sm:items-center max-sm:gap-2 max-sm:after:text-[0.75rem] max-sm:after:font-normal max-sm:after:text-[hsl(var(--e-muted-foreground))] max-sm:after:content-['Select_all_on_this_page']">
                   <PageCheckbox rows={rows} rowKey={rowKey} selection={selection} />
                 </th>
               ) : null}
@@ -283,6 +316,7 @@ export function EDataTable<TRow, TSort extends string = string>({
                 const active = Boolean(column.sortKey) && sort?.key === column.sortKey;
                 // The concept's `table.t th`: 11px, muted, on the raised surface.
                 const thClass = cn(
+                  "max-sm:hidden",
                   "whitespace-nowrap bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.6875rem] font-semibold text-[hsl(var(--e-muted-foreground))]",
                   ALIGN[column.align ?? "left"],
                   column.className,
@@ -315,15 +349,15 @@ export function EDataTable<TRow, TSort extends string = string>({
               })}
             </tr>
           </thead>
-          <tbody className="divide-y divide-[hsl(var(--e-border))]">
+          <tbody className="divide-y divide-[hsl(var(--e-border))] max-sm:block">
             {(groups ?? [{ key: "", label: null, rows }]).map((group) => (
               <React.Fragment key={group.key || "rows"}>
                 {groups ? (
-                  <tr>
+                  <tr className="max-sm:block">
                     <th
                       scope="colgroup"
                       colSpan={columns.length + (selection ? 1 : 0)}
-                      className="bg-[hsl(var(--e-background))] px-3 py-1.5 text-left text-[0.8125rem] font-[600] text-[hsl(var(--e-foreground))]"
+                      className="bg-[hsl(var(--e-background))] px-3 py-1.5 text-left text-[0.8125rem] font-[600] text-[hsl(var(--e-foreground))] max-sm:block"
                     >
                       {group.label}
                     </th>
@@ -335,6 +369,65 @@ export function EDataTable<TRow, TSort extends string = string>({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Phones only: the header row is hidden there, so sorting is offered as one
+ * labelled select plus a direction button. Controlled exactly like the header
+ * buttons (the caller re-reads the server).
+ */
+function PhoneSortControl<TRow, TSort extends string>({
+  columns,
+  sort,
+  onSortChange,
+  label,
+}: {
+  columns: Array<EDataColumn<TRow, TSort>>;
+  sort: TableSort<TSort> | null;
+  onSortChange?: (next: TableSort<TSort>) => void;
+  label: string;
+}) {
+  const id = React.useId();
+  const sortable = columns.filter((column) => column.sortKey && headerText(column.header));
+  if (!onSortChange || sortable.length === 0) return null;
+  const active = sortable.find((column) => column.sortKey === sort?.key);
+  const dir: SortDirection = sort?.dir ?? "asc";
+
+  return (
+    <div className="flex items-center gap-2 border-b border-[hsl(var(--e-border))] px-3 py-2 sm:hidden">
+      <label htmlFor={id} className="text-[0.75rem] font-semibold text-[hsl(var(--e-muted-foreground))]">
+        Sort by
+      </label>
+      <select
+        id={id}
+        aria-label={`Sort ${label} by`}
+        className="min-h-[2.25rem] min-w-0 flex-1 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-2 text-[0.8125rem]"
+        value={active?.sortKey ?? ""}
+        onChange={(event) => {
+          const column = sortable.find((candidate) => candidate.sortKey === event.target.value);
+          if (column?.sortKey) onSortChange({ key: column.sortKey, dir: column.firstDir ?? "asc" });
+        }}
+      >
+        {active ? null : <option value="">Default order</option>}
+        {sortable.map((column) => (
+          <option key={column.key} value={column.sortKey}>
+            {headerText(column.header)}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        disabled={!active}
+        aria-label={dir === "asc" ? "Ascending. Switch to descending" : "Descending. Switch to ascending"}
+        onClick={() => {
+          if (active?.sortKey) onSortChange({ key: active.sortKey, dir: dir === "asc" ? "desc" : "asc" });
+        }}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-border))] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--e-ring))]"
+      >
+        <SortIcon active={Boolean(active)} dir={dir} />
+      </button>
     </div>
   );
 }

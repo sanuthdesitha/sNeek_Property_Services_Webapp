@@ -7,7 +7,23 @@ import { ListQueryError, parseListQuery, readQueryValue, type ListQuery, type Li
 import type { AccountStatus, AttentionReason, DocumentState } from "./attention";
 import { normalizeAccountTab, roleFilterOptions, type AccountTab } from "./tabs";
 
-export const ACCOUNT_SORTS = ["name", "role", "status", "rate", "jobs30", "qa30", "documents", "lastSeen", "jobsWeek", "owed"] as const;
+export const ACCOUNT_SORTS = [
+  "name",
+  "role",
+  "status",
+  "rate",
+  "jobs30",
+  "qa30",
+  "documents",
+  "lastSeen",
+  "jobsWeek",
+  "owed",
+  // Cleaner performance figures restored from the old Cleaners roster (parity, 2026-11-12).
+  "rating",
+  "reliability",
+  "attendance",
+  "hours30",
+] as const;
 export type AccountSort = (typeof ACCOUNT_SORTS)[number];
 
 export const ACCOUNT_STATUS_FILTERS = ["all", "active", "invited", "disabled"] as const;
@@ -21,6 +37,12 @@ export type AccountListVisibility = {
   pay: boolean;
   /** Jobs and QA figures from the Quality hub; follows the hub's own access. */
   quality: boolean;
+  /**
+   * Per-cleaner performance figures the old Cleaners roster showed (customer
+   * rating, reliability, attendance, hours 30 d). Follows the workforce pack,
+   * the access that roster had. Absent = false (older callers).
+   */
+  performance?: boolean;
 };
 
 export type AccountFilters = {
@@ -56,6 +78,16 @@ export type AccountRow = {
   /** Present only when the viewer may see quality figures. null = no figure. */
   jobs30?: number | null;
   qa30?: number | null;
+  /**
+   * Present only when the viewer may see performance figures; null = no
+   * figure (not a cleaner, no data in the window, or the read failed or
+   * timed out). From lib/workforce/performance, as the old roster read them.
+   */
+  rating?: number | null;
+  reliability?: number | null;
+  attendance?: number | null;
+  /** Logged hours over the last 30 days (completed time logs). null = could not be read. */
+  hours30?: number | null;
   documents: Pick<DocumentState, "kind" | "label">;
   /** Assigned jobs scheduled this Sydney week (Mon–Sun), cancelled excluded. */
   jobsWeek: number;
@@ -104,11 +136,14 @@ export function parseAccountFilters(source: Source): AccountFilters {
   };
 }
 
+const PERFORMANCE_SORTS: readonly AccountSort[] = ["rating", "reliability", "attendance", "hours30"];
+
 /** Sort columns the viewer can actually see; anything else is refused (400). */
 export function sortableFor(visibility: AccountListVisibility): AccountSort[] {
   return ACCOUNT_SORTS.filter((sort) => {
     if (sort === "rate" || sort === "owed") return visibility.pay;
     if (sort === "jobs30" || sort === "qa30") return visibility.quality;
+    if (PERFORMANCE_SORTS.includes(sort)) return visibility.performance === true;
     return true;
   });
 }

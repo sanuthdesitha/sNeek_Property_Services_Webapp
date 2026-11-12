@@ -15,6 +15,7 @@ import { displayName } from "./access-labels";
 import { AccessPeopleList, type AccessSelection } from "./access-people-list";
 import { AccessPersonPane } from "./access-person-pane";
 import { AccessPresetsTab } from "./access-presets-tab";
+import { AccessRoleReference } from "./access-role-reference";
 import { AccessSaveDialog, AccessUnsavedBar, rebaseDraft, type SaveConflict } from "./access-save";
 import { AccessTabs, type AccessTab } from "./access-tabs";
 import { useAccessDraft } from "./use-access-draft";
@@ -177,6 +178,8 @@ export function AccessWorkspace({ initialTab = "person" }: { initialTab?: Access
       {tab !== "person" && tab !== "assistants" ? (
         <AccessUnsavedBar saved={saved} draft={draft} names={names} busy={saving} onDiscard={() => drafts.discard()} onReview={() => { setSaveError(""); setSaveOpen(true); }} />
       ) : null}
+      {/* The old Roles settings reference, read-only and collapsed (parity, 2026-11-12). */}
+      <AccessRoleReference />
 
       <AccessCopyDialog open={copyOpen} target={selectedPerson} people={office} draft={draft} onClose={() => setCopyOpen(false)} onCopy={(fromId) => { if (selectedPerson) drafts.copy(fromId, selectedPerson.id); setCopyOpen(false); }} />
       <AccessSaveDialog

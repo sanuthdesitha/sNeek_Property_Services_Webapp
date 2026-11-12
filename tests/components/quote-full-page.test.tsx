@@ -87,7 +87,8 @@ describe("Quote full page", () => {
     expect(screen.getByRole("list", { name: "Quote progress" }).textContent).toMatch(/2 Sent to client/);
     expect(screen.getAllByRole("button", { name: "Resend" }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Mark won" }));
-    await waitFor(() => expect(calls.some((c) => c.method === "PATCH" && JSON.stringify(c.body) === JSON.stringify({ status: "ACCEPTED" }))).toBe(true));
+    // Changed on purpose (owner decision 2026-11-13): status changes carry the version token.
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH" && JSON.stringify(c.body) === JSON.stringify({ status: "ACCEPTED", expectedUpdatedAt: "2026-11-09T03:48:00.000Z" }))).toBe(true));
   });
 
   it("keeps Convert to job disabled until the quote is won", () => {

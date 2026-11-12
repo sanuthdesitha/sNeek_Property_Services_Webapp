@@ -87,7 +87,35 @@ describe("EDataTable", () => {
     render(<EDataTable label="Things" columns={columns} rows={rows} rowKey={(row) => row.id} minWidth="60rem" />);
     const region = screen.getByRole("region", { name: "Things" });
     expect(region.className).toContain("overflow-x-auto");
-    expect(within(region).getByRole("table")).toHaveStyle({ minWidth: "60rem" });
+    // The minimum width applies from 640px up (as a CSS variable); phones stack rows.
+    const table = within(region).getByRole("table");
+    expect(table.style.getPropertyValue("--e-table-min-width")).toBe("60rem");
+    expect(table.className).toContain("sm:min-w-[var(--e-table-min-width)]");
+    expect(table.className).toContain("max-sm:block");
+  });
+
+  it("offers a phone sort control for sortable text headers and labels cells with their header", () => {
+    const onSortChange = vi.fn();
+    render(
+      <EDataTable
+        label="Things"
+        columns={[
+          { key: "name", header: "Name", sortKey: "name", cell: (row: { id: string; name: string }) => row.name },
+          { key: "size", header: "Size", sortKey: "size", firstDir: "desc", cell: () => "3" },
+        ]}
+        rows={[{ id: "a", name: "Alpha" }]}
+        rowKey={(row) => row.id}
+        sort={{ key: "name", dir: "asc" }}
+        onSortChange={onSortChange}
+      />,
+    );
+    const select = screen.getByLabelText("Sort Things by");
+    fireEvent.change(select, { target: { value: "size" } });
+    expect(onSortChange).toHaveBeenLastCalledWith({ key: "size", dir: "desc" });
+    fireEvent.click(screen.getByRole("button", { name: "Ascending. Switch to descending" }));
+    expect(onSortChange).toHaveBeenLastCalledWith({ key: "name", dir: "desc" });
+    expect(screen.getByText("3").closest("td")).toHaveAttribute("data-label", "Size");
+    expect(screen.getByText("Alpha").closest("td")).not.toHaveAttribute("data-label");
   });
 });
 

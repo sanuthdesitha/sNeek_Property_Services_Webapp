@@ -28,6 +28,7 @@ import { accountColumns, DEFAULT_COLUMN_PREFS, type ColumnPrefs } from "@/compon
 import { AccountsBulk } from "@/components/v2/admin/accounts/hub/accounts-bulk";
 import { AccountsFilters } from "@/components/v2/admin/accounts/hub/accounts-filters";
 import { formatMoney } from "@/components/v2/admin/accounts/hub/account-display";
+import { formatPercentFigure, formatRatingFigure } from "@/components/v2/admin/accounts/hub/accounts-columns";
 import { listQueryString, readAccountsView, useAccountsView, type AccountsView } from "@/components/v2/admin/accounts/hub/accounts-url";
 import { ACCOUNTS_PAGE_SIZE, useAccountsList } from "@/components/v2/admin/accounts/hub/use-accounts-list";
 import { FactStrip, type Fact } from "./fact-strip";
@@ -39,15 +40,20 @@ const NO_VISIBILITY = { pay: false, quality: false };
 function readColumnPrefs(tab: PeopleTab): ColumnPrefs {
   try {
     const raw = window.localStorage.getItem(`${COLUMNS_KEY}:${tab}`);
-    return raw ? { ...DEFAULT_COLUMN_PREFS, ...(JSON.parse(raw) as Partial<ColumnPrefs>) } : defaultPrefs(tab);
+    // Saved choices win; a column added since then takes this tab's default.
+    return raw ? { ...defaultPrefs(tab), ...(JSON.parse(raw) as Partial<ColumnPrefs>) } : defaultPrefs(tab);
   } catch {
     return defaultPrefs(tab);
   }
 }
 
-/** Each tab keeps the columns drawn for it; the rest stay in Columns. */
-function defaultPrefs(tab: PeopleTab): ColumnPrefs {
-  if (tab === "cleaners") return { ...DEFAULT_COLUMN_PREFS, role: false, jobs30: false };
+/**
+ * Each tab keeps the columns drawn for it; the rest stay in Columns. Cleaners
+ * shows the old roster's Customer rating and Reliability; Attendance and
+ * Hours, 30 d are one click away in Columns.
+ */
+export function defaultPrefs(tab: PeopleTab): ColumnPrefs {
+  if (tab === "cleaners") return { ...DEFAULT_COLUMN_PREFS, role: false, jobs30: false, rating: true, reliability: true };
   if (tab === "office" || tab === "partners") return { ...DEFAULT_COLUMN_PREFS, jobsWeek: false, rate: false, owed: false, jobs30: false, qa30: false, documents: false };
   return DEFAULT_COLUMN_PREFS;
 }
@@ -56,6 +62,8 @@ function cleanerFacts(figures: CleanerFigures): Fact[] {
   return [
     { key: "active", label: "Active cleaners", value: figures.activeCleaners },
     { key: "jobs", label: "Active jobs", value: figures.activeJobs },
+    { key: "avgQuality", label: "Avg quality", value: figures.avgQuality === null ? null : formatPercentFigure(figures.avgQuality) },
+    { key: "avgRating", label: "Avg rating", value: figures.avgRating === null ? null : formatRatingFigure(figures.avgRating) },
     { key: "owed", label: "Owed (approved)", value: figures.owedApproved === null ? null : formatMoney(figures.owedApproved) },
     { key: "expired", label: "Docs expired", value: figures.docsExpired },
     { key: "expiring", label: "Expiring ≤14 d", value: figures.docsExpiring },

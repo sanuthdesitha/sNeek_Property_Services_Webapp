@@ -12,6 +12,7 @@ import type { Role } from "@prisma/client";
 import { listResponse, type ListQuery } from "@/lib/admin/list-query";
 import { accountStatus, attentionReasons, documentState, documentsNeedAttention, inviteAgeDays, type AccountFacts, type DocumentState } from "./attention";
 import { ACCOUNT_TABS, tabIncludesRole, type AccountTab } from "./tabs";
+import type { CleanerPerformanceMap } from "./performance";
 import type { AccountFilters, AccountListResponse, AccountListVisibility, AccountRow, AccountSort } from "./types";
 
 export type AccountRecord = AccountFacts & {
@@ -35,7 +36,13 @@ export type AccountFigures = Map<string, { jobs30: number | null; qa30: number |
 /** Roles whose work the Quality hub counts (an assigned clean). */
 const FIELD_ROLES: ReadonlySet<Role> = new Set<Role>(["CLEANER"]);
 
-export function buildRow(record: AccountRecord, figures: AccountFigures, visibility: AccountListVisibility, now: Date): AccountRow {
+export function buildRow(
+  record: AccountRecord,
+  figures: AccountFigures,
+  visibility: AccountListVisibility,
+  now: Date,
+  performance: CleanerPerformanceMap = new Map(),
+): AccountRow {
   const docs: DocumentState = documentState(record, now);
   const row: AccountRow = {
     id: record.id,
@@ -64,6 +71,15 @@ export function buildRow(record: AccountRecord, figures: AccountFigures, visibil
     // A cleaner with no clean in the window has a real 0; anyone else has no figure.
     row.jobs30 = figure ? figure.jobs30 : counted ? 0 : null;
     row.qa30 = figure ? figure.qa30 : null;
+  }
+  if (visibility.performance) {
+    // Only cleaners have these figures (the old roster's basis); anyone else, or a
+    // cleaner whose figures were not read, has none, never 0.
+    const own = performance.get(record.id);
+    row.rating = own?.rating ?? null;
+    row.reliability = own?.reliability ?? null;
+    row.attendance = own?.attendance ?? null;
+    row.hours30 = own?.hours30 ?? null;
   }
   return row;
 }
@@ -126,6 +142,14 @@ function sortValue(row: AccountRow, sort: AccountSort): string | number | null {
       return row.jobsWeek;
     case "owed":
       return row.owed ?? null;
+    case "rating":
+      return row.rating ?? null;
+    case "reliability":
+      return row.reliability ?? null;
+    case "attendance":
+      return row.attendance ?? null;
+    case "hours30":
+      return row.hours30 ?? null;
   }
 }
 

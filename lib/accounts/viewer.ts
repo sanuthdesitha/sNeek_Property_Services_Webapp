@@ -68,6 +68,9 @@ export async function resolveAccountsViewer(user: SessionUser): Promise<Accounts
       // the rate on the account page.
       pay: true,
       quality: allows("quality", "GET"),
+      // The old Cleaners roster's figures (rating, reliability, attendance,
+      // hours) followed that roster's access: the workforce pack.
+      performance: allows("workforce", "GET"),
     },
   };
 }

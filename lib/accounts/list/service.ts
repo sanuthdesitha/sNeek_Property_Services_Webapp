@@ -18,6 +18,7 @@ import { missingRequiredLabels, requiredCategoriesFor, requiredDocumentStatuses,
 import { readRequiredDocuments } from "@/lib/accounts/required-documents-store";
 import { currentHourlyRates } from "@/lib/accounts/pay-rate-history";
 import { buildListResponse, buildRow, type AccountFigures, type AccountRecord } from "./derive";
+import { loadCleanerPerformance, type CleanerPerformanceMap } from "./performance";
 import type { AccountFilters, AccountListResponse, AccountListVisibility, AccountRow, AccountSort } from "./types";
 import type { ListQuery } from "@/lib/admin/list-query";
 
@@ -126,12 +127,23 @@ export async function loadQualityFigures(now: Date): Promise<AccountFigures> {
   return figures;
 }
 
+/**
+ * Rating, reliability, attendance and hours for every CLEANER login (the old
+ * roster's set), when the viewer may see them; see ./performance.
+ */
+async function loadPerformanceFor(records: AccountRecord[], visibility: AccountListVisibility, now: Date): Promise<CleanerPerformanceMap> {
+  if (!visibility.performance) return new Map();
+  const cleanerIds = records.filter((record) => record.role === "CLEANER").map((record) => record.id);
+  return loadCleanerPerformance(cleanerIds, now);
+}
+
 export async function loadAccountRows(visibility: AccountListVisibility, now: Date = new Date()): Promise<AccountRow[]> {
   const [records, figures] = await Promise.all([
     loadAccountRecords(now),
     visibility.quality ? loadQualityFigures(now) : Promise.resolve<AccountFigures>(new Map()),
   ]);
-  return records.map((record) => buildRow(record, figures, visibility, now));
+  const performance = await loadPerformanceFor(records, visibility, now);
+  return records.map((record) => buildRow(record, figures, visibility, now, performance));
 }
 
 export async function listAccounts(

@@ -3,14 +3,18 @@
 import * as React from "react";
 import { EPill } from "@/components/v2/ui/pill";
 import { E_CHIP_CLASS, E_CHIP_ON_CLASS } from "@/components/v2/ui/filter-chips";
+import { EFilterPopover } from "@/components/v2/ui/filter-popover";
 import { ESwitch } from "@/components/v2/admin/estate-kit";
 import { cn } from "@/lib/utils";
 import { AUDIENCE_GROUPS, audienceGroup, type AudienceGroup } from "@/lib/notifications/wording/audience-groups";
+import { CATALOG_GROUPS, type CatalogGroup } from "@/lib/notifications/catalog-types";
 import type { CatalogTypeView } from "@/lib/notifications/catalog-view-types";
 import type { WordingSummary } from "@/lib/notifications/wording/view-types";
 import { isTypeOff, rowSwitch, transportTags } from "./type-row-switch";
 
 export type ListFilter = "all" | "edited" | "off" | "missing";
+/** Business-area filter (the old Types tab's "Notification group" chips). */
+export type GroupFilter = CatalogGroup | "all";
 
 type Props = {
   types: CatalogTypeView[];
@@ -28,6 +32,39 @@ function matches(type: CatalogTypeView, summary: WordingSummary | undefined, que
   if (!query) return true;
   const text = `${type.name} ${type.trigger} ${type.audience} ${type.key}`.toLowerCase();
   return text.includes(query) || (summary?.status ?? "").toLowerCase().includes(query);
+}
+
+function countByGroup(types: CatalogTypeView[]): Map<CatalogGroup, number> {
+  const counts = new Map<CatalogGroup, number>();
+  for (const type of types) counts.set(type.group, (counts.get(type.group) ?? 0) + 1);
+  return counts;
+}
+
+/**
+ * Restores the old Types tab's filter by notification group (business area),
+ * as a popover so the narrow list keeps its search, status chips and audience
+ * headings. Counts are over every type, as the old chips counted them.
+ */
+function GroupFilterControl({ types, value, onChange }: { types: CatalogTypeView[]; value: GroupFilter; onChange: (next: GroupFilter) => void }) {
+  const counts = countByGroup(types);
+  const options: Array<{ key: GroupFilter; label: string; count: number }> = [
+    { key: "all", label: "All groups", count: types.length },
+    ...CATALOG_GROUPS.map((group) => ({ key: group, label: group, count: counts.get(group) ?? 0 })),
+  ];
+  return (
+    <EFilterPopover label="Group" value={value === "all" ? null : value} emptyValue="All" className="ml-auto">
+      <fieldset className="space-y-0.5">
+        <legend className="sr-only">Notification group</legend>
+        {options.map((option) => (
+          <label key={option.key} className="flex min-h-10 cursor-pointer items-center gap-2 rounded px-2 text-sm hover:bg-[hsl(var(--e-muted))]">
+            <input type="radio" name="notification-type-group" value={option.key} checked={value === option.key} onChange={() => onChange(option.key)} />
+            <span className="min-w-0 flex-1">{option.label}</span>
+            <span className="e-tnum text-xs text-[hsl(var(--e-muted-foreground))]">{option.count}</span>
+          </label>
+        ))}
+      </fieldset>
+    </EFilterPopover>
+  );
 }
 
 function TypeRow({ type, summary, selected, onSelect, props }: { type: CatalogTypeView; summary: WordingSummary | undefined; selected: boolean; onSelect: () => void; props: Props }) {
@@ -59,6 +96,7 @@ function TypeRow({ type, summary, selected, onSelect, props }: { type: CatalogTy
 export function TypeList(props: Props) {
   const [query, setQuery] = React.useState("");
   const [filter, setFilter] = React.useState<ListFilter>("all");
+  const [group, setGroup] = React.useState<GroupFilter>("all");
   const needle = query.trim().toLowerCase();
   const counts = {
     all: props.types.length,
@@ -69,6 +107,7 @@ export function TypeList(props: Props) {
   const visible = props.types.filter((type) => {
     const summary = props.summaries.get(type.key);
     if (!matches(type, summary, needle)) return false;
+    if (group !== "all" && type.group !== group) return false;
     if (filter === "edited") return Boolean(summary?.edited);
     if (filter === "off") return isTypeOff(type, props.controlsUpdatedAt);
     if (filter === "missing") return (summary?.problems ?? 0) > 0;
@@ -94,6 +133,7 @@ export function TypeList(props: Props) {
             {chip.label} <span className="e-tnum">{counts[chip.key]}</span>
           </button>
         ))}
+        <GroupFilterControl types={props.types} value={group} onChange={setGroup} />
       </div>
       <div className="flex justify-between px-2 text-xs text-[hsl(var(--e-muted-foreground))]" aria-hidden="true"><span>Notification</span><span>On · transports</span></div>
       {props.switchNote ? <p className="px-2 text-xs text-[hsl(var(--e-muted-foreground))]">{props.switchNote}</p> : null}

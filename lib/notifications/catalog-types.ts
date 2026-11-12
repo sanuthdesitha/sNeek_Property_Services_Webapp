@@ -74,7 +74,9 @@ export type TemplateRef =
   | { kind: "FINANCE_TEMPLATE" }
   | { kind: "MESSAGE_TEMPLATE" };
 
-export type CatalogGroup = "Jobs" | "Cleaners" | "Clients" | "Office alerts" | "Laundry" | "Stock" | "Money" | "Accounts" | "Workforce" | "Leads & marketing";
+/** Business areas of the catalog, in the order the Types list offers them as a filter. */
+export const CATALOG_GROUPS = ["Jobs", "Cleaners", "Clients", "Office alerts", "Laundry", "Stock", "Money", "Accounts", "Workforce", "Leads & marketing"] as const;
+export type CatalogGroup = (typeof CATALOG_GROUPS)[number];
 
 export type NotificationTypeEntry = {
   /** Stable key; used by type controls, the delivery log and the API. Never rename. */
