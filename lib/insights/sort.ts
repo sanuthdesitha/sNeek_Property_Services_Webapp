@@ -9,7 +9,7 @@ import type { CleanerRow, ClientRow, PropertyRow } from "./entities";
 import type { EntityFigures } from "./types";
 
 const COMMON_SORTS = ["name", "cleans", "planned", "actual", "overruns", "onTime", "qa", "issues", "rework"] as const;
-export const PROPERTY_SORTS = [...COMMON_SORTS, "revenue", "margin"] as const;
+export const PROPERTY_SORTS = [...COMMON_SORTS, "ratio", "revenue", "margin"] as const;
 export const CLIENT_SORTS = [...COMMON_SORTS, "revenue", "cost", "margin", "daysToPay", "overdue"] as const;
 export const CLEANER_SORTS = COMMON_SORTS;
 export const FINANCE_SORTS: readonly string[] = ["revenue", "cost", "margin", "daysToPay", "overdue"];
@@ -33,6 +33,8 @@ function figureValue(figures: EntityFigures, sort: AnySort): SortValue {
       return figures.hours.plannedHours.value;
     case "actual":
       return figures.hours.actualHours.value;
+    case "ratio":
+      return figures.hours.ratio.value;
     case "overruns":
       return figures.hours.ratio.basisCount > 0 ? figures.hours.overruns : null;
     case "onTime":

@@ -15,12 +15,14 @@ export type EFilterPopoverProps = {
   label: string;
   /** Current value in words; when set the chip reads "Label: value" and looks active. */
   value?: string | null;
+  /** Shown as "Label: emptyValue" (not active) when no value is set, e.g. "Client: all". */
+  emptyValue?: string;
   disabled?: boolean;
   children: React.ReactNode;
   className?: string;
 };
 
-export function EFilterPopover({ label, value, disabled = false, children, className }: EFilterPopoverProps) {
+export function EFilterPopover({ label, value, emptyValue, disabled = false, children, className }: EFilterPopoverProps) {
   const [open, setOpen] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
@@ -54,7 +56,7 @@ export function EFilterPopover({ label, value, disabled = false, children, class
         onClick={() => setOpen((current) => !current)}
         className={cn(E_CHIP_CLASS, value && E_CHIP_ON_CLASS, "max-w-[16rem]")}
       >
-        <span className="truncate">{value ? `${label}: ${value}` : label}</span>
+        <span className="truncate">{value ? `${label}: ${value}` : emptyValue ? `${label}: ${emptyValue}` : label}</span>
         <ChevronDown aria-hidden className="h-3 w-3 shrink-0" />
       </button>
       <div

@@ -80,7 +80,7 @@ function EntityTable<T extends { id: string }>({
 export function PropertiesTab({ controls }: { controls: TableControls }) {
   const columns: Array<EDataColumn<PropertyRow, string>> = [
     { key: "name", header: "Property", sortKey: "name", cell: (row) => <NameCell title={row.propertyName} subtitle={row.clientName} /> },
-    ...figureColumns<PropertyRow>({ money: controls.money, overruns: true, onTime: true, rework: true }),
+    ...figureColumns<PropertyRow>({ money: controls.money, ratio: true, overruns: true, onTime: true, rework: true }),
     linksColumn<PropertyRow>(),
   ];
   return <EntityTable path="/api/admin/insights/properties" label="Properties" noun="properties" controls={controls} columns={columns} note={BASIS_NOTE} />;

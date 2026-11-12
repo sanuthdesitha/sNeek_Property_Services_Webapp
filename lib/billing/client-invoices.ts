@@ -768,6 +768,8 @@ export function buildClientInvoiceHtml(
   },
   /** Organisation timezone for the due day (the list's rule). */
   timezone?: string | null,
+  /** Office preview of an unsent invoice: label the due day provisional. */
+  options: { provisionalDue?: boolean } = {},
 ) {
   function lineRowHtml(line: (typeof invoice.lines)[number], showProperty: boolean) {
     // The property is dropped from the row when the SECTION already names it —
@@ -841,7 +843,7 @@ export function buildClientInvoiceHtml(
     clientTermsDays: invoice.client?.paymentTermsDays ?? null,
     organisationDefaultDays: paymentTermsDaysFrom(invoicingSettings?.defaultPaymentTermsDays),
   });
-  const dueLine = pdfDueLine(invoice, termsDays, timezone);
+  const dueLine = pdfDueLine(invoice, termsDays, timezone, { provisional: options.provisionalDue });
   const creditNote = isCreditNoteDocument(invoice);
 
   // A credit note asks for no payment, so it carries no bank details.
@@ -931,11 +933,12 @@ export async function renderClientInvoicePdf(
   invoice: NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>,
   companyName: string,
   logoUrl?: string | null,
-  invoicingSettings?: Parameters<typeof buildClientInvoiceHtml>[3]
+  invoicingSettings?: Parameters<typeof buildClientInvoiceHtml>[3],
+  options: Parameters<typeof buildClientInvoiceHtml>[5] = {},
 ) {
   // The due day is read in the organisation timezone, as the list reads it.
   const timezone = (await getAppSettings()).timezone || null;
-  return renderPdfFromHtml(buildClientInvoiceHtml(invoice, companyName, logoUrl, invoicingSettings, timezone), "client invoice PDF generation");
+  return renderPdfFromHtml(buildClientInvoiceHtml(invoice, companyName, logoUrl, invoicingSettings, timezone, options), "client invoice PDF generation");
 }
 
 export async function buildClientInvoiceXeroCsv(invoice: NonNullable<Awaited<ReturnType<typeof getClientInvoice>>>) {

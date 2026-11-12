@@ -9,6 +9,8 @@
  *  - Cleaner cost: sum of recorded pay over cleans with a cost.
  *  - Margin: (revenue − cleaner cost) ÷ revenue, ONLY over cleans where both
  *    are known, as a percentage. No margin when that revenue is not positive.
+ *  - Margin per clean: the same (revenue − cleaner cost) ÷ those cleans, in
+ *    dollars (the overrun finding's "makes $N per clean").
  *  - Planned / actual hours and their ratio: over cleans with both.
  *  - Overrun: logged time exceeds planned by more than OVERRUN_TOLERANCE_MINUTES.
  *  - On time: share of cleans with a start time and a clock-in that started on time.
@@ -81,12 +83,15 @@ export function moneyFigures(facts: readonly JobFact[], minBasis: number): Money
   const { both, excluded } = pairs(facts.map((fact) => ({ a: fact.charge, b: fact.cost })));
   const bothRevenue = sum(both.map((pair) => pair.a));
   const bothCost = sum(both.map((pair) => pair.b));
-  const margin = bothRevenue > 0 ? roundTo(((bothRevenue - bothCost) / bothRevenue) * 100, 1) : null;
+  const kept = bothRevenue - bothCost;
+  const margin = bothRevenue > 0 ? roundTo((kept / bothRevenue) * 100, 1) : null;
+  const perClean = both.length > 0 ? roundCents(kept / both.length) : null;
   return {
     revenue: buildMeasure(roundCents(sum(revenue.values)), revenue.values.length, revenue.excluded, minBasis),
     revenueSplit: revenueSplit(facts),
     cleanerCost: buildMeasure(roundCents(sum(cost.values)), cost.values.length, cost.excluded, minBasis),
     margin: buildMeasure(margin, both.length, excluded, minBasis),
+    marginPerClean: buildMeasure(perClean, both.length, excluded, minBasis),
   };
 }
 

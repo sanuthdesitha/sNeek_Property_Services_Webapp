@@ -8,6 +8,7 @@ import { patchClientInvoice } from "@/lib/billing/client-invoice-patch";
 import { loadClientInvoiceEditor } from "@/lib/billing/client-invoice-editor";
 import { canManageInvoices } from "@/lib/billing/client-invoice-access";
 import { securitySchema, verifyInvoiceSecurity } from "@/lib/billing/client-invoice-patch-rules";
+import { isXeroExportPending } from "@/lib/billing/client-invoice-guards";
 
 /** 401/403 for the session guards, like the other invoice routes; 400 otherwise. */
 function authStatus(message: string): number {
@@ -73,7 +74,7 @@ export async function DELETE(
       await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${params.id} FOR UPDATE`;
       const invoice = await tx.clientInvoice.findUnique({ where: { id: params.id } });
       if (!invoice || invoice.status !== "DRAFT" || invoice.xeroInvoiceId || invoice.paidAt || Number(invoice.paidAmount ?? 0) > 0 ||
-          (invoice.metadata as Record<string, unknown> | null)?.xeroExportState === "PENDING") {
+          isXeroExportPending(invoice.metadata)) {
         throw new Error("Only an unpaid, unexported draft may be deleted. Use a reconciled correction for issued invoices.");
       }
       await releaseInvoiceConsumables(tx, invoice.id);

@@ -6,8 +6,12 @@
 export const CLIENT_INVOICE_STATUSES = ["DRAFT", "APPROVED", "SENT", "PART_PAID", "PAID", "VOID"] as const;
 export type ClientInvoiceStatusValue = (typeof CLIENT_INVOICE_STATUSES)[number];
 
-/** Columns the list route can sort by. Each maps to a real column. */
-export const CLIENT_INVOICE_SORTS = ["number", "client", "period", "created", "sent", "total", "status", "xero"] as const;
+/**
+ * Columns the list route can sort by. Each maps to a real column, except
+ * "owing", which is ordered in SQL by the same arithmetic as
+ * invoiceAmountOwing (lib/billing/client-invoice-owing-sql.ts).
+ */
+export const CLIENT_INVOICE_SORTS = ["number", "client", "period", "created", "sent", "total", "owing", "status", "xero"] as const;
 export type ClientInvoiceSort = (typeof CLIENT_INVOICE_SORTS)[number];
 
 /**
@@ -25,15 +29,18 @@ export const CLIENT_INVOICE_STATUS_FILTERS = [
 export type ClientInvoiceStatusFilter = (typeof CLIENT_INVOICE_STATUS_FILTERS)[number];
 
 /**
- * Xero state as far as the stored export metadata allows. A failed push leaves
- * the reservation PENDING, so "pending" also covers failed pushes; the two
- * cannot be told apart from the data.
+ * Xero state from the stored export metadata and the status pull. Since Wave D
+ * a failed push is recorded as FAILED, so "pending" (in flight or cut off) and
+ * "failed" (the provider refused or could not be reached) are separate.
  */
 export const CLIENT_INVOICE_XERO_FILTERS = [
   "any",
   "none",
   "pushed",
   "pending",
+  "failed",
+  // In Xero, never read back by the status pull.
+  "unchecked",
   // From the Xero status pull (metadata.xeroSync.state).
   "in-xero",
   "paid-in-xero",
@@ -41,7 +48,11 @@ export const CLIENT_INVOICE_XERO_FILTERS = [
   "unknown",
 ] as const;
 export type ClientInvoiceXeroFilter = (typeof CLIENT_INVOICE_XERO_FILTERS)[number];
+/** PENDING covers an open reservation, in flight or failed; see xeroPushFailure for which. */
 export type ClientInvoiceXeroState = "NONE" | "PUSHED" | "PENDING";
+
+/** A failed push: the provider's sanitised reason and when (ISO; may be blank on old rows). */
+export type ClientInvoiceXeroPushFailure = { reason: string; at: string };
 
 /** The last Xero status pull for this invoice, from metadata.xeroSync; null when never checked. */
 export type ClientInvoiceXeroSyncView = {
@@ -92,7 +103,15 @@ export type ClientInvoiceListRow = {
   xeroInvoiceId: string | null;
   xeroExportedAt: string | null;
   xeroState: ClientInvoiceXeroState;
+  /** Set while the reservation is FAILED (Wave D); null when pending, exported or never pushed. */
+  xeroPushFailure: ClientInvoiceXeroPushFailure | null;
   xeroSync: ClientInvoiceXeroSyncView | null;
+  /**
+   * DRAFT rows only: job lines whose job resolves no client rate now (the rule
+   * approval enforces, lib/billing/missing-rates.ts). Null on other statuses,
+   * or when it could not be read.
+   */
+  missingRateJobs: number | null;
   client: { id: string; name: string; email: string | null };
   kind: ClientInvoiceKindValue;
   /** The client's reference / PO number. */

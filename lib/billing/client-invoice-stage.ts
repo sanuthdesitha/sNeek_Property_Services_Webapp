@@ -4,8 +4,9 @@
  *
  * - Approval is optional (DRAFT may be sent or paid directly) and is not
  *   recorded once the status moves on, so past it the stage reads "passed".
- * - "In Xero" is done only when Xero returned an invoice id. A reservation left
- *   PENDING (in flight or failed) reads "pending", never done.
+ * - "In Xero" is done only when Xero returned an invoice id. An open
+ *   reservation reads "pending", never done, noted "Push pending" or "Push
+ *   failed"; a done stage is noted "Synced" or "Not yet checked" from the pull.
  * - A paid invoice that was never emailed shows "Sent to client" as skipped.
  * - VOID replaces the bar with a terminal state.
  *
@@ -15,7 +16,7 @@ import type { EStage } from "@/components/v2/ui/stage-bar";
 import type { ClientInvoiceListRow } from "./client-invoice-list-types";
 
 export type StageFacts = Pick<ClientInvoiceListRow, "status" | "sentAt" | "xeroInvoiceId" | "xeroState"> &
-  Partial<Pick<ClientInvoiceListRow, "xeroSync">>;
+  Partial<Pick<ClientInvoiceListRow, "xeroSync" | "xeroPushFailure">>;
 
 export type InvoiceStageView =
   | { terminal: { title: string; description: string }; stages: [] }
@@ -44,9 +45,11 @@ function xeroStage(facts: StageFacts): EStage {
     if (sync === "NEEDS_REVIEW") return { ...base, state: "done", note: "Needs review" };
     if (sync === "UNKNOWN") return { ...base, state: "done", note: "State unknown" };
     if (sync === "PAID_IN_XERO") return { ...base, state: "done", note: "Paid in Xero" };
-    return { ...base, state: "done" };
+    if (sync === "IN_XERO") return { ...base, state: "done", note: "Synced" };
+    return { ...base, state: "done", note: "Not yet checked" };
   }
-  if (facts.xeroState === "PENDING") return { ...base, state: "pending", note: "Pending or failed" };
+  // The same states as the list's Xero column (client-invoice-xero-display.ts).
+  if (facts.xeroState === "PENDING") return { ...base, state: "pending", note: facts.xeroPushFailure ? "Push failed" : "Push pending" };
   return { ...base, state: "todo" };
 }
 

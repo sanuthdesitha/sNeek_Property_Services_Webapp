@@ -43,7 +43,33 @@ export type PropertyHoursInput = {
   propertyId: string;
   propertyName: string;
   hours: HoursFigures;
+  /**
+   * Margin per clean in dollars (lib/insights/aggregate, the margin's basis).
+   * Present only for viewers with finance access: absent → the money sentence
+   * is left out entirely.
+   */
+  marginPerClean?: Measure;
 };
+
+/**
+ * The overrun finding's money sentence, as drawn ("At the current rate this
+ * property makes $11 per clean."). Below the minimum basis there is no number,
+ * only "not enough data" with the count. Formatting only.
+ */
+export function moneyPerCleanSentence(measure: Measure): { detail: string; basis: string } {
+  const cleans = plural(measure.basisCount, "clean");
+  if (measure.value === null) {
+    return {
+      detail: "Money per clean: not enough data.",
+      basis: `Money per clean needs revenue and cleaner pay on more cleans (${cleans} with both).`,
+    };
+  }
+  const verb = measure.value < 0 ? "loses" : "makes";
+  return {
+    detail: `At the current rate this property ${verb} ${formatAud(Math.abs(measure.value))} per clean.`,
+    basis: `Per clean: revenue less cleaner pay, over ${cleans} with both.`,
+  };
+}
 
 export function detectPropertyOverruns(rows: readonly PropertyHoursInput[], span: DaySpan): Finding[] {
   const findings: Finding[] = [];
@@ -51,12 +77,14 @@ export function detectPropertyOverruns(rows: readonly PropertyHoursInput[], span
     const basis = row.hours.ratio.basisCount;
     const average = row.hours.averageOverMinutes;
     if (average === null || basis < OVERRUN_MIN_CLEANS || average < OVERRUN_MIN_MINUTES) continue;
+    const money = row.marginPerClean ? moneyPerCleanSentence(row.marginPerClean) : null;
+    const hoursBasis = `Cleans with allocated time and a finished time log${row.hours.ratio.excludedCount ? `; ${row.hours.ratio.excludedCount} excluded` : ""}.`;
     findings.push({
       id: `property_overrun:${row.propertyId}`,
       detector: "property_overrun",
       headline: `${row.propertyName} runs ${average} minutes over its allocated time on average.`,
-      detail: `${row.hours.overruns} of ${plural(basis, "clean")} went over.`,
-      basis: `Cleans with allocated time and a finished time log${row.hours.ratio.excludedCount ? `; ${row.hours.ratio.excludedCount} excluded` : ""}.`,
+      detail: [`${row.hours.overruns} of ${plural(basis, "clean")} went over.`, money?.detail].filter(Boolean).join(" "),
+      basis: [hoursBasis, money?.basis].filter(Boolean).join(" "),
       link: { label: "See cleans", href: jobsHref(span, { propertyId: row.propertyId }) },
       score: average / OVERRUN_MIN_MINUTES,
     });

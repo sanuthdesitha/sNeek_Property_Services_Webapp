@@ -5,6 +5,7 @@ import { listInvoiceContext, listInvoiceFormContext } from "@/lib/billing/client
 import { isListQueryError, parseListQuery } from "@/lib/admin/list-query";
 import { listClientInvoices, parseClientInvoiceFilters } from "@/lib/billing/client-invoice-list";
 import { getClientInvoiceStats } from "@/lib/billing/client-invoice-stats";
+import { getReadyToBill } from "@/lib/billing/ready-to-bill";
 import { CLIENT_INVOICE_SORTS } from "@/lib/billing/client-invoice-list-types";
 import { z } from "zod";
 import { createBlankInvoice } from "@/lib/billing/client-invoice-create";
@@ -24,6 +25,7 @@ function errorStatus(error: unknown): number {
  *                   server paging, sorting and filters (the Estate list).
  *   ?view=context → { clients, properties } for the generator and filters.
  *   ?view=stats   → the four figures above the table (lib/billing/client-invoice-stats).
+ *   ?view=ready-to-bill → finished unbilled jobs per client with their charges.
  *   (neither)     → the original { clients, properties, rates, invoices } with
  *                   the newest 100 invoices, kept for the classic admin screen.
  */
@@ -45,6 +47,10 @@ export async function GET(req: NextRequest) {
     }
     if (params.get("view") === "stats") {
       return NextResponse.json(await getClientInvoiceStats());
+    }
+    // Per-client "Ready to bill" for the "Create N drafts" dialog.
+    if (params.get("view") === "ready-to-bill") {
+      return NextResponse.json(await getReadyToBill());
     }
     if (params.get("view") === "context") {
       return NextResponse.json(await listInvoiceFormContext());

@@ -7,6 +7,7 @@ import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { releaseInvoiceConsumables } from "@/lib/billing/client-invoices";
 import { LIVE_CREDIT_NOTES_REFUSAL } from "@/lib/billing/client-invoice-adjustments";
 import { termsSnapshotFor } from "@/lib/billing/invoice-terms";
+import { isXeroExportPending } from "@/lib/billing/client-invoice-guards";
 import { creditNoteVoidRebillRefusal, refreshCreditCoverage, returnInvoicedJobsToBillable } from "@/lib/billing/invoice-job-release";
 
 const schema = z.object({
@@ -42,7 +43,7 @@ export async function POST(
       if (!invoice) throw new Error("Invoice not found.");
       if (invoice.status === "VOID") return; // Idempotent retry after a lost response.
       const metadata = (invoice.metadata ?? {}) as Record<string, unknown>;
-      if (metadata.xeroExportState === "PENDING")
+      if (isXeroExportPending(metadata))
         throw new Error(
           "Reconcile the pending Xero export before voiding this invoice.",
         );

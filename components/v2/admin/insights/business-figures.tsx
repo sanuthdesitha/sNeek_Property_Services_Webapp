@@ -1,9 +1,11 @@
 "use client";
 
 /**
- * The Business tab's "Worth knowing this period" strip and the row of figure
- * cards, as drawn. Each card: eyebrow, serif figure, change pill, and the
- * basis line under it. Money cards are absent for viewers without finance.
+ * The Business tab's "Worth knowing this period" strip (three findings in a
+ * row, each with its link) and the row of figure cards, as drawn. Each card:
+ * eyebrow, serif figure, change pill, and the basis count under it; the
+ * definitions sit in one disclosure below the row. Money cards are absent for
+ * viewers without finance.
  */
 import * as React from "react";
 import Link from "next/link";
@@ -17,17 +19,17 @@ export function FindingsStrip({ findings }: { findings: Finding[] }) {
   return (
     <section
       aria-labelledby="insights-worth-knowing"
-      className="space-y-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-primary)/0.25)] bg-[hsl(var(--e-primary-soft))] p-4"
+      className="space-y-3 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-primary)/0.25)] bg-[hsl(var(--e-primary-soft))] px-4 py-3.5"
     >
-      <h2 id="insights-worth-knowing" className="text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--e-primary))]">
+      <h2 id="insights-worth-knowing" className="text-[0.65625rem] font-semibold uppercase tracking-[0.1em] text-[hsl(var(--e-primary))]">
         Worth knowing this period
       </h2>
       {findings.length === 0 ? (
         <p className="text-[0.875rem] text-[hsl(var(--e-text-secondary))]">Nothing notable this period.</p>
       ) : (
-        <ul className="grid gap-4 md:grid-cols-3">
+        <ul className="flex flex-col gap-4 md:flex-row md:items-start md:gap-6">
           {findings.map((finding) => (
-            <li key={finding.id} className="min-w-0 space-y-1">
+            <li key={finding.id} className="min-w-0 space-y-1 md:flex-1">
               <p className="text-[0.875rem] font-[600] text-[hsl(var(--e-foreground))]">{finding.headline}</p>
               <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
                 {finding.detail}{" "}
@@ -51,6 +53,7 @@ type CardSpec = {
   label: string;
   format: FigureFormat;
   good: Direction;
+  /** How the figure is worked out; listed under "How these figures are worked out". */
   basis: string;
   noun?: { one: string; many: string };
 };
@@ -82,16 +85,40 @@ function FigureCard({ spec, measure, previousLabel, split }: { spec: CardSpec; m
   return (
     <ECard className="flex min-w-0 flex-col gap-1.5 px-4 py-3.5">
       <EEyebrow className="text-[0.65625rem]">{spec.label}</EEyebrow>
-      <span className="e-numeral text-[1.625rem] leading-none e-tnum">
+      <span className="e-numeral text-[1.75rem] leading-none e-tnum">
         <FigureValue measure={measure} format={spec.format} />
       </span>
       <div>
         <DeltaPill measure={measure} good={spec.good} previousLabel={previousLabel} />
       </div>
-      <p className="text-[0.6875rem] leading-snug text-[hsl(var(--e-muted-foreground))]">{spec.basis}</p>
       {split ? <RevenueSplitLine split={split} /> : null}
       {spec.key === "cleans" ? null : <BasisLine measure={measure} noun={spec.noun} />}
     </ECard>
+  );
+}
+
+/**
+ * The definitions behind the cards, kept out of the cards as drawn and one
+ * click away (a native disclosure; nothing is fetched).
+ */
+export function FigureDefinitions({ cards, minBasis }: { cards: BusinessCards; minBasis: number }) {
+  const shown = CARD_SPECS.filter((spec) => cards[spec.key]);
+  return (
+    <details className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+      <summary className="cursor-pointer text-[hsl(var(--e-primary))]">How these figures are worked out</summary>
+      <dl className="mt-2 grid gap-x-4 gap-y-1.5 sm:grid-cols-[max-content_1fr]">
+        {shown.map((spec) => (
+          <React.Fragment key={spec.key}>
+            <dt className="font-[600] text-[hsl(var(--e-text-secondary))]">{spec.label}</dt>
+            <dd>{spec.basis}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
+      <p className="mt-2">
+        Every figure counts only the cleans that carry its inputs and says under it how many were left out and why. Below{" "}
+        {minBasis} supporting records a figure shows &ldquo;Not enough data&rdquo; and no change.
+      </p>
+    </details>
   );
 }
 

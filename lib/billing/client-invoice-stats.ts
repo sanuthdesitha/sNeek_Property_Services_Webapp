@@ -2,9 +2,14 @@
  * The four figures above the client-invoice table. Each is a real aggregate of
  * stored data, and each label says what it counts:
  *   Ready to bill    — finished jobs (COMPLETED/INVOICED, not skipped) that are
- *                      on no live invoice (lib/invoicing/invoiced-job-rule). A count, not a dollar figure:
- *                      the charge depends on rates the generator resolves.
- *   Drafts to review — DRAFT invoices and their stored totals.
+ *                      on no live invoice (lib/invoicing/invoiced-job-rule), with
+ *                      the sum of their computeClientCharge per client
+ *                      (lib/billing/ready-to-bill.ts). Jobs with no rate are not
+ *                      in the dollar figure; they are counted, with the clients
+ *                      the generator would refuse because of them.
+ *   Drafts to review — DRAFT invoices and their stored totals, and how many
+ *                      drafts have a job line whose job resolves no client rate
+ *                      now (lib/billing/missing-rates.ts; approval refuses them).
  *   Outstanding      — owing on SENT and PART_PAID invoices less payments and
  *                      approved/sent credit notes (lib/finance/receivables);
  *                      fully credited invoices are not counted. Overdue count
@@ -20,16 +25,17 @@
  *                      CREDIT_NOTE documents sent this month; VOID documents
  *                      are excluded. Approved-but-unsent is not yet invoiced.
  */
-import { ClientInvoiceStatus, JobStatus, type Prisma } from "@prisma/client";
+import { ClientInvoiceStatus, type Prisma } from "@prisma/client";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { getOutstandingReceivables, OUTSTANDING_INVOICE_STATUSES } from "@/lib/finance/receivables";
 import { loadListContext, overdueWhere } from "./client-invoice-list";
-import { NOT_INVOICED_JOB_WHERE } from "@/lib/invoicing/invoiced-job-rule";
+import { getReadyToBill, type ReadyToBillSummary } from "./ready-to-bill";
+import { draftsWithMissingRates } from "./missing-rates";
 
 export type ClientInvoiceStats = {
-  readyToBill: { jobs: number; clients: number };
-  drafts: { count: number; total: number };
+  readyToBill: Omit<ReadyToBillSummary, "byClient">;
+  drafts: { count: number; total: number; missingRateDrafts: number; missingRateJobs: number };
   outstanding: {
     count: number;
     owing: number;
@@ -80,21 +86,14 @@ function nextMonthKey(monthKey: string): string {
   return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, "0")}`;
 }
 
-const READY_TO_BILL_JOB: Prisma.JobWhereInput = {
-  status: { in: [JobStatus.COMPLETED, JobStatus.INVOICED] },
-  cleanSkipStatus: { not: "SKIPPED" },
-  // The shared rule: no line on a live invoice (not void, not fully credited).
-  ...NOT_INVOICED_JOB_WHERE,
-};
-
 export async function getClientInvoiceStats(now = new Date()): Promise<ClientInvoiceStats> {
   const context = await loadListContext(now);
   const monthKey = formatInTimeZone(now, context.timezone, "yyyy-MM");
   const monthStart = fromZonedTime(`${monthKey}-01T00:00:00`, context.timezone);
   const nextMonthStart = fromZonedTime(`${nextMonthKey(monthKey)}-01T00:00:00`, context.timezone);
-  const [readyJobs, readyClients, drafts, receivables, overdue, oldest, paid, sentInvoices, sentCredits] = await Promise.all([
-    db.job.count({ where: READY_TO_BILL_JOB }),
-    db.client.count({ where: { properties: { some: { jobs: { some: READY_TO_BILL_JOB } } } } }),
+  const [ready, missingRates, drafts, receivables, overdue, oldest, paid, sentInvoices, sentCredits] = await Promise.all([
+    getReadyToBill(),
+    draftsWithMissingRates(),
     db.clientInvoice.aggregate({
       where: { status: ClientInvoiceStatus.DRAFT },
       _count: { _all: true },
@@ -120,8 +119,19 @@ export async function getClientInvoiceStats(now = new Date()): Promise<ClientInv
     db.clientInvoice.aggregate({ where: sentInMonthWhere("CREDIT_NOTE", monthStart, nextMonthStart), _count: { _all: true }, _sum: { totalAmount: true } }),
   ]);
   return {
-    readyToBill: { jobs: readyJobs, clients: readyClients },
-    drafts: { count: drafts._count._all, total: Number((drafts._sum.totalAmount ?? 0).toFixed(2)) },
+    readyToBill: {
+      total: ready.total,
+      jobs: ready.jobs,
+      clients: ready.clients,
+      unratedJobs: ready.unratedJobs,
+      blockedClients: ready.blockedClients,
+    },
+    drafts: {
+      count: drafts._count._all,
+      total: Number((drafts._sum.totalAmount ?? 0).toFixed(2)),
+      missingRateDrafts: missingRates.drafts,
+      missingRateJobs: missingRates.jobs,
+    },
     outstanding: {
       count: receivables.outstandingCount,
       owing: receivables.outstandingAud,

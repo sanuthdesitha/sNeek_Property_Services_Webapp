@@ -429,6 +429,11 @@ Waves (one wave holds the database at a time):
   - [x] Both actions on a row (2026-11-11): one button (Start coaching, else Review bonus, else Propose bonus) and the rest in the row's "more" menu.
   - [x] Remaining design differences checked element by element; deliberate ones listed in `docs/SYSTEM.md`, "Quality design completion … (Wave C, 2026-11-11)". Awaiting the final build and browser pass.
 - Insights: the overrun finding states the money effect per clean; sorting the five-row preview in place.
+  - [x] Money per clean on the overrun finding (2026-11-12): "At the current rate this property makes $N per clean", (revenue − cleaner cost) ÷ cleans over the margin's basis, count in the basis line, not-enough-data rule, finance access only (omitted server-side).
+  - [x] Preview sorted in place (2026-11-12): top five of the whole set for the chosen order from the server; "All N properties" keeps the order (new `ratio` order without finance).
+  - [x] Client filter as the drawn chip (2026-11-12): shared `EFilterPopover`, searchable and keyboard-operable.
+  - [x] Margin badge bands from named thresholds, number always shown (2026-11-12).
+  - [x] Element-by-element pass (2026-11-12): header order and Email monthly state button, subtitle, findings row, cards, chart legend, actual-hours threshold; header controls kept hidden on the PDFs tab (they do not apply there). Deliberate differences listed in `docs/SYSTEM.md`, "Insights design completion … (Wave C, 2026-11-12)". Awaiting the final build and browser pass.
 
 ### Wave D: Money (holds the database)
 - List: "Ready to bill" with a dollar total and "Create N drafts" for every client with unbilled work in one action; "N missing rates" on the Drafts card; Xero column distinguishes Synced, Push pending and Push failed (failure recorded when a push fails); "On send" in the Due column for unsent invoices; bulk "Download PDFs" (one archive); Owing sortable.

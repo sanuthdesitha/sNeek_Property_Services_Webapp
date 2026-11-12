@@ -15,10 +15,42 @@ export const XERO_ISSUED_REFUSAL =
 export const PAYMENT_EVIDENCE_REFUSAL =
   "This invoice has payment evidence. Use a reconciled correction; its payment history cannot be cleared.";
 
-/** A durable Xero export reservation (also left behind by a failed push). */
+/**
+ * The stored export reservation: PENDING while a push is in flight (or was cut
+ * off before it could record anything), FAILED when the provider refused or
+ * could not be reached (Wave D, with metadata.xeroExportFailure), EXPORTED
+ * once Xero returned an id. NONE when no push was ever reserved.
+ */
+export type XeroExportState = "NONE" | "PENDING" | "FAILED" | "EXPORTED";
+
+export function xeroExportStateOf(metadata: unknown): XeroExportState {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return "NONE";
+  const state = (metadata as Record<string, unknown>).xeroExportState;
+  return state === "PENDING" || state === "FAILED" || state === "EXPORTED" ? state : "NONE";
+}
+
+/** The sanitised provider reason and time stored with a FAILED reservation, or null. */
+export type XeroExportFailure = { reason: string; at: string };
+
+export function xeroExportFailureOf(metadata: unknown): XeroExportFailure | null {
+  if (xeroExportStateOf(metadata) !== "FAILED") return null;
+  const raw = (metadata as Record<string, unknown>).xeroExportFailure;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { reason: "The push failed. No reason was recorded.", at: "" };
+  const failure = raw as Record<string, unknown>;
+  return {
+    reason: typeof failure.reason === "string" && failure.reason ? failure.reason : "The push failed. No reason was recorded.",
+    at: typeof failure.at === "string" ? failure.at : "",
+  };
+}
+
+/**
+ * A durable Xero export reservation: in flight (PENDING) or failed (FAILED).
+ * Both keep the row locked against edits, keep the provider idempotency key,
+ * and are cleared only by a successful retry, so "Retry Xero" stays safe.
+ */
 export function isXeroExportPending(metadata: unknown): boolean {
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
-  return (metadata as Record<string, unknown>).xeroExportState === "PENDING";
+  const state = xeroExportStateOf(metadata);
+  return state === "PENDING" || state === "FAILED";
 }
 
 export type PaymentEvidenceFacts = {

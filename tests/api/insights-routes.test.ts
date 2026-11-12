@@ -124,3 +124,38 @@ describe("Insights API access", () => {
     expect((await exportCsv(request("/api/admin/insights/export?tab=pdfs"))).status).toBe(400);
   });
 });
+
+describe("Insights design completion (Wave C)", () => {
+  it("states the overrun's money per clean for finance access and leaves it out server-side otherwise", async () => {
+    m.ops.mockResolvedValue(null);
+    const body = await (await business(request("/api/admin/insights/business?period=last-month"))).json();
+    const overrun = body.findings.find((finding: { detector: string }) => finding.detector === "property_overrun");
+    // Six cleans at $150 charge and $90 pay, 20 minutes over plan each.
+    expect(overrun.detail).toBe("6 of 6 cleans went over. At the current rate this property makes $60 per clean.");
+    expect(overrun.basis).toContain("over 6 cleans with both");
+
+    m.ops.mockResolvedValue({ ...allOpsLevels("manage"), finance: "off" });
+    const bare = await (await business(request("/api/admin/insights/business?period=last-month"))).json();
+    const plain = bare.findings.find((finding: { detector: string }) => finding.detector === "property_overrun");
+    expect(plain.detail).toBe("6 of 6 cleans went over.");
+    expect(JSON.stringify(bare)).not.toMatch(/per clean|marginPerClean/);
+    expect(bare.properties.order).toEqual({ sort: "ratio", dir: "desc" });
+  });
+
+  it("serves the preview's top five for any order from the whole property set", async () => {
+    m.ops.mockResolvedValue(null);
+    m.facts.mockResolvedValue(
+      Array.from({ length: 8 }, (_, p) =>
+        Array.from({ length: p + 1 }, (_, c) =>
+          deriveJobFact(jobRow({ id: `p${p}-${c}`, propertyId: `prop-${p}`, property: { name: `Home ${p}`, clientId: "client-1", client: { name: "Northside Lets" } } }), context),
+        ),
+      ).flat(),
+    );
+    const most = await (await properties(request("/api/admin/insights/properties?period=last-month&sort=cleans&dir=desc&page=1&pageSize=5"))).json();
+    expect(most.rows.map((row: { id: string }) => row.id)).toEqual(["prop-7", "prop-6", "prop-5", "prop-4", "prop-3"]);
+    expect(most.total).toBe(8);
+    const fewest = await (await properties(request("/api/admin/insights/properties?period=last-month&sort=cleans&dir=asc&page=1&pageSize=5"))).json();
+    expect(fewest.rows.map((row: { id: string }) => row.id)).toEqual(["prop-0", "prop-1", "prop-2", "prop-3", "prop-4"]);
+    expect((await properties(request("/api/admin/insights/properties?sort=ratio&dir=desc&pageSize=5"))).status).toBe(200);
+  });
+});

@@ -131,6 +131,11 @@ export type MoneyFigures = {
   cleanerCost: Measure;
   /** Percentage, over jobs where both revenue and cost are known. */
   margin: Measure;
+  /**
+   * Dollars kept per clean: (revenue − cleaner cost) ÷ cleans, over the same
+   * cleans as `margin` (both known). Withheld below the minimum basis.
+   */
+  marginPerClean: Measure;
 };
 
 /** The common measures for one entity (company, property, client, cleaner, job type). */

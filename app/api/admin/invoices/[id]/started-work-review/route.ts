@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { loadStartedWorkReview } from "@/lib/billing/started-work-reconciliation";
 import { calculateShoppingAwareInvoiceTotals } from "@/lib/billing/shopping-client-charges";
+import { isXeroExportPending } from "@/lib/billing/client-invoice-guards";
 const schema = z.object({ action: z.enum(["REFRESH", "CONFIRM"]), expectedUpdatedAt: z.string().datetime(), evidenceNote: z.string().trim().min(10).max(2000).optional() });
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${params.id} FOR UPDATE`;
       const invoice = await tx.clientInvoice.findUnique({ where: { id: params.id }, include: { lines: true } });
-      if (!invoice || invoice.status !== "DRAFT" || invoice.xeroInvoiceId || invoice.xeroExportedAt || invoice.paidAt || Number(invoice.paidAmount ?? 0) > 0 || (invoice.metadata as any)?.xeroExportState === "PENDING") {
+      if (!invoice || invoice.status !== "DRAFT" || invoice.xeroInvoiceId || invoice.xeroExportedAt || invoice.paidAt || Number(invoice.paidAmount ?? 0) > 0 || isXeroExportPending(invoice.metadata)) {
         throw new Error("Only an unpaid, unexported draft can be reconciled. Approved or issued invoices need a manual correction.");
       }
       if (invoice.updatedAt.toISOString() !== body.expectedUpdatedAt) throw new Error("The invoice changed. Reload it before reviewing.");

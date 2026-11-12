@@ -3,7 +3,8 @@
  * `app/api/admin/invoices/[id]/xero-push/route.ts` so the single action and the
  * bulk route share the VOID refusal, the already-pushed idempotency answer, the
  * durable PENDING reservation under the row lock, the started-work review and
- * the provider idempotency key. Push semantics are unchanged.
+ * the provider idempotency key. Since Wave D a failure after the reservation is
+ * recorded as FAILED (reason and time) instead of being left PENDING.
  */
 import { isShoppingDisbursement, shoppingXeroMapping } from "@/lib/finance/shopping-accounting";
 import { ClientInvoiceStatus } from "@prisma/client";
@@ -11,6 +12,7 @@ import { db } from "@/lib/db";
 import { assertStartedWorkReviewed } from "@/lib/billing/started-work-reconciliation";
 import { pushClientCreditNoteToXero, pushClientInvoiceToXero } from "@/lib/xero/client";
 import { emptyInvoiceRefusal } from "./client-invoice-guards";
+import { recordXeroPushFailure } from "./client-invoice-xero-failure";
 import { recordInvoiceAudit } from "./client-invoice-audit";
 import { xeroCreditNoteLineItem, xeroInvoiceReference } from "./client-invoice-xero-mapping";
 import { getPhase3IntegrationsSettings } from "@/lib/phase3/integrations";
@@ -37,6 +39,9 @@ export async function pushClientInvoiceToXeroOnce(invoiceId: string, actorId?: s
 }
 
 async function pushOnce(invoiceId: string): Promise<InvoiceActionResult> {
+  // Set once this call wrote the PENDING reservation: from then on a failure is
+  // the provider's (or ours after reserving), and is recorded as FAILED.
+  let reserved = false;
   try {
     const [invoice, integrations] = await Promise.all([
       db.clientInvoice.findUnique({
@@ -128,8 +133,10 @@ async function pushOnce(invoiceId: string): Promise<InvoiceActionResult> {
         itemCode: isShoppingDisbursement(line.category) ? undefined : itemCodeFor(line),
       }));
     // Reserve a durable export intent under the same row lock as invoice edits.
-    // Failures leave PENDING; retry reuses the document's provider key.
-    const reserved = await db.$transaction(async tx => {
+    // A failure after this point is recorded as FAILED with the provider's
+    // sanitised reason (client-invoice-xero-failure.ts); the reservation still
+    // locks the row, and a retry reuses the document's provider key.
+    const alreadyExported = await db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${invoice.id} FOR UPDATE`;
       const current = await tx.clientInvoice.findUnique({ where: { id: invoice.id } });
       if (!current || current.status === ClientInvoiceStatus.VOID) throw new Error("Invoice is no longer exportable.");
@@ -137,10 +144,12 @@ async function pushOnce(invoiceId: string): Promise<InvoiceActionResult> {
       if (current.xeroInvoiceId) return current.xeroInvoiceId;
       if (current.updatedAt?.getTime() !== invoice.updatedAt?.getTime()) throw new Error("Invoice changed before export. Refresh and retry.");
       const metadata = current.metadata && typeof current.metadata === "object" && !Array.isArray(current.metadata) ? current.metadata : {};
-      await tx.clientInvoice.update({ where: { id: current.id }, data: { metadata: { ...metadata, xeroExportState: "PENDING" } } });
+      const { xeroExportFailure: _previousFailure, ...rest } = metadata as Record<string, unknown>;
+      await tx.clientInvoice.update({ where: { id: current.id }, data: { metadata: { ...rest, xeroExportState: "PENDING" } as object } });
       return null;
     });
-    if (reserved) return actionResult({ ok: true, alreadyPushed: true, xeroInvoiceId: reserved });
+    if (alreadyExported) return actionResult({ ok: true, alreadyPushed: true, xeroInvoiceId: alreadyExported });
+    reserved = true;
 
     const contact = {
       clientName: invoice.client.name || "Unknown Client",
@@ -176,8 +185,10 @@ async function pushOnce(invoiceId: string): Promise<InvoiceActionResult> {
       await tx.$queryRaw`SELECT "id" FROM "ClientInvoice" WHERE "id" = ${invoice.id} FOR UPDATE`;
       const current = await tx.clientInvoice.findUnique({ where: { id: invoice.id } });
       const metadata = current?.metadata && typeof current.metadata === "object" && !Array.isArray(current.metadata) ? current.metadata : {};
-      await tx.clientInvoice.update({ where: { id: invoice.id }, data: { xeroInvoiceId: result.xeroInvoiceId, xeroExportedAt: new Date(), metadata: { ...metadata, xeroExportState: "EXPORTED" } } });
+      const { xeroExportFailure: _clearedFailure, ...rest } = metadata as Record<string, unknown>;
+      await tx.clientInvoice.update({ where: { id: invoice.id }, data: { xeroInvoiceId: result.xeroInvoiceId, xeroExportedAt: new Date(), metadata: { ...rest, xeroExportState: "EXPORTED" } as object } });
     });
+    reserved = false;
     if (!invoice.client.xeroContactId && result.contactId) {
       await db.client.update({
         where: { id: invoice.clientId },
@@ -188,6 +199,7 @@ async function pushOnce(invoiceId: string): Promise<InvoiceActionResult> {
     return actionResult({ ok: true, xeroInvoiceId: result.xeroInvoiceId });
   } catch (err: unknown) {
     const message = err instanceof Error && err.message ? err.message : "Could not push invoice to Xero.";
+    if (reserved) await recordXeroPushFailure(invoiceId, message);
     const status = message === "UNAUTHORIZED" ? 401 : message === "FORBIDDEN" ? 403 : 400;
     return actionResult({ error: message }, status);
   }

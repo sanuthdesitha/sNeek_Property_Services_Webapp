@@ -94,6 +94,23 @@ export function describeInvoiceAudit(action: string, after: unknown): string {
       };
       return `${label[state ?? ""] ?? "Checked against Xero"}${paid ? `, ${paid} payment${paid === 1 ? "" : "s"} recorded` : ""}${reason ? ` (${reason})` : ""}`;
     }
+    case "CLIENT_INVOICE_BATCH_CREATED":
+      return `Draft created by "Create drafts" from finished jobs${field(after, "includedJobCount") ? ` (${field(after, "includedJobCount")} jobs)` : ""}`;
+    case "CLIENT_INVOICE_JOBS_ADDED":
+      return `Finished jobs added: ${field(after, "jobNumbers") ?? `${field(after, "count") ?? "some"} jobs`}`;
+    case "CLIENT_INVOICE_DRAFT_FIELDS":
+      return `Draft details changed: ${field(after, "summary") ?? "bill to, period or due terms"}`;
+    case "CLIENT_INVOICE_SEND_OPTIONS": {
+      const push = field(after, "xeroPush");
+      const link = field(after, "paymentLink");
+      const parts = [
+        link === "included" ? "payment link included" : null,
+        push === "pushed" ? "pushed to Xero after sending" : null,
+        push === "already-pushed" ? "already in Xero" : null,
+        push === "failed" ? `push to Xero after sending failed${field(after, "xeroError") ? `: ${field(after, "xeroError")}` : ""}` : null,
+      ].filter(Boolean);
+      return `Send options: ${parts.join("; ") || "none"}`;
+    }
     case "CLIENT_INVOICE_BLANK_CREATED":
       return "Created as a blank invoice";
     case "CLIENT_INVOICE_CREDIT_NOTE_CREATED":

@@ -1148,3 +1148,27 @@ Mocked only / not verified
 - Xero (offline_access, refresh, receipts, system marker) and every email: mocked providers only; nothing real was sent and nothing ran against Xero. The owner must reconnect Xero once after deploy.
 - Production build, full Vitest suite and browser checks (Client 360 Payment terms card, Settings → Monthly Insights email, Insights header, Finance stats strip at 5 cards, Accounts "No pay rate" chip, Xero reconnect alert; 390/1280, light/dark) were not run in this step.
 - The embedded web scheduler (`lib/ops/web-scheduler.ts`) does not run `insights-monthly-email` (nor `xero-invoice-sync`): a dedicated worker is needed for the monthly email.
+
+## Insights design completion (Wave C, 2026-11-12)
+
+Scope: the Insights half of Wave C in `docs/plans/admin-redesign-2026-11.md` plus an element-by-element pass against `Insights.dc.html`. No schema change; read-only analytics; no money, business or access rule changed. Details: `docs/SYSTEM.md`, "Insights design completion … (Wave C, 2026-11-12)".
+
+Changed
+- Overrun finding adds "At the current rate this property makes $N per clean." from `marginPerClean` = (revenue − cleaner cost) ÷ cleans over the margin's basis; basis count in the finding's basis line; "not enough data" and no number below 3; computed and sent only with finance access.
+- Business preview sorts in place: the first five of the whole property set in the chosen order via the properties route (`pageSize=5`); "All N properties" keeps the order. Shared ordering in `lib/insights/property-order.ts`; new non-financial sort key `ratio` ("Actual vs planned" column on Properties).
+- Client filter is the shared `EFilterPopover` chip with a searchable, keyboard-operable list (`EFilterPopover` gains optional `emptyValue`; other callers unchanged).
+- Margin badge bands from named thresholds (`lib/insights/margin-band.ts`), number always shown.
+- Design pass: header order (… Export, Email monthly), Email monthly as a state button opening the owner-only setting, subtitle "compared with September", findings in a row, card definitions in one disclosure, chart legend badges in the header and solid gold bars, actual-hours danger above 110%.
+
+Existing problems fixed
+- Without finance, the preview ranked by time over plan but "All N properties" opened name order; Time and cost's "All N properties" did the same. Both now open `ratio` highest first.
+- Actual hours were red at exactly 110% of planned; the design marks only above it.
+
+Checks run
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → no errors in Insights files; remaining errors only in Wave D Money paths in progress (`components/v2/admin/finance/invoices/invoice-filters.tsx`, `lib/billing/client-invoice-list.ts`).
+- Vitest: `tests/lib/insights-design-completion.test.ts` (new), `tests/components/insights-header-controls.test.tsx` (new), `tests/api/insights-routes.test.ts` (2 new cases), and the existing `insights-*`, `finance-decisions-rules`, `worker-registration`, `insights-page-access` files → 12 files, 109 tests passed. No existing test was changed or weakened.
+- ESLint on the touched files: clean.
+
+Not run (owner asked to save time)
+- Production build, full Vitest suite, browser checks. For the final browser pass: Business tab at 390/1280, light/dark — findings row and money sentence, cards with the disclosure, chart header legend wrapping at 390, preview header sort (busy state, error retry, URL survives refresh), "All N properties" order, Client chip popover (search, arrows, Escape, overflow at 390), Email monthly button for ADMIN and for an operations manager, PDFs tab with no header controls.
+

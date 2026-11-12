@@ -9,37 +9,39 @@ import * as React from "react";
 import Link from "next/link";
 import type { EDataColumn } from "@/components/v2/ui/data-table";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
-import { LOW_MARGIN_MAX_PCT } from "@/lib/insights/findings";
+import { MARGIN_BAND_LABEL, marginBand, type MarginBand } from "@/lib/insights/margin-band";
 import type { EntityFigures, InsightsLink, Measure } from "@/lib/insights/types";
 import { CellFigure, formatFigure, revenueSplitNote } from "./measure-view";
 
-/** Display bands for the margin pill (presentation only; the finding floor is LOW_MARGIN_MAX_PCT). */
-const MARGIN_WARN_BELOW = 30;
-const MARGIN_GOOD_FROM = 45;
-/** Actual hours shown in the danger colour at or above this % of planned. */
-const HOURS_ALERT_RATIO = 110;
+/**
+ * Actual hours shown in the danger colour above this % of planned (as drawn:
+ * 3.6 h against 3.0 h is red, 3.3 h against 3.0 h is not).
+ */
+export const HOURS_ALERT_ABOVE_RATIO = 110;
 
 type WithFigures = { id: string; figures: EntityFigures; links: InsightsLink[] };
 
-function marginTone(value: number): EPillTone {
-  if (value <= LOW_MARGIN_MAX_PCT) return "bad";
-  if (value < MARGIN_WARN_BELOW) return "warn";
-  if (value >= MARGIN_GOOD_FROM) return "ok";
-  return "neutral";
-}
+/** Margin band → pill tone (lib/insights/margin-band holds the thresholds). */
+export const MARGIN_BAND_TONE: Record<MarginBand, EPillTone> = {
+  danger: "bad",
+  warning: "warn",
+  neutral: "neutral",
+  success: "ok",
+};
 
 export function MarginCell({ measure }: { measure: Measure | undefined }) {
   if (!measure || measure.value === null) return <CellFigure measure={measure} format="pct" />;
+  const band = marginBand(measure.value);
   return (
-    <span title={`${measure.basisCount} cleans with both sides; ${measure.excludedCount} excluded`}>
-      <EPill tone={marginTone(measure.value)}>{formatFigure(measure.value, "pct")}</EPill>
+    <span title={`Margin ${MARGIN_BAND_LABEL[band]}. ${measure.basisCount} cleans with both revenue and pay; ${measure.excludedCount} excluded`}>
+      <EPill tone={MARGIN_BAND_TONE[band]}>{formatFigure(measure.value, "pct")}</EPill>
     </span>
   );
 }
 
 function ActualHoursCell({ figures }: { figures: EntityFigures }) {
   const ratio = figures.hours.ratio.value;
-  const alert = ratio !== null && ratio >= HOURS_ALERT_RATIO;
+  const alert = ratio !== null && ratio > HOURS_ALERT_ABOVE_RATIO;
   return (
     <span className={alert ? "font-[600] text-[hsl(var(--e-danger))]" : undefined}>
       <CellFigure measure={figures.hours.actualHours} format="hours" />
@@ -48,7 +50,7 @@ function ActualHoursCell({ figures }: { figures: EntityFigures }) {
   );
 }
 
-export type ColumnOptions = { money: boolean; issues?: boolean; onTime?: boolean; overruns?: boolean; rework?: boolean };
+export type ColumnOptions = { money: boolean; issues?: boolean; onTime?: boolean; overruns?: boolean; rework?: boolean; ratio?: boolean };
 
 export function figureColumns<T extends WithFigures>(options: ColumnOptions): Array<EDataColumn<T, string>> {
   const columns: Array<EDataColumn<T, string>> = [
@@ -56,6 +58,9 @@ export function figureColumns<T extends WithFigures>(options: ColumnOptions): Ar
     { key: "planned", header: "Planned h", sortKey: "planned", firstDir: "desc", align: "right", cell: (row) => <CellFigure measure={row.figures.hours.plannedHours} format="hours" /> },
     { key: "actual", header: "Actual h", sortKey: "actual", firstDir: "desc", align: "right", cell: (row) => <ActualHoursCell figures={row.figures} /> },
   ];
+  if (options.ratio) {
+    columns.push({ key: "ratio", header: "Actual vs planned", sortKey: "ratio", firstDir: "desc", align: "right", cell: (row) => <CellFigure measure={row.figures.hours.ratio} format="pct" /> });
+  }
   if (options.overruns) {
     columns.push({
       key: "overruns",

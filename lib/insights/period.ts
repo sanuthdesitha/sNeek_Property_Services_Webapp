@@ -182,6 +182,22 @@ export function rangeLabel(range: Pick<ClosedRange, "fromKey" | "toKey">): strin
   return `${fromText} – ${shortDayLabel(toKey)} ${yearOf(toKey)}`;
 }
 
+/**
+ * The earlier period in the page subtitle, as drawn ("October 2026 compared
+ * with September"): a whole month in the same year as the current period is
+ * named without the year; anything else is its full range label.
+ */
+export function comparisonLabel(
+  current: Pick<ClosedRange, "fromKey" | "toKey">,
+  previous: Pick<ClosedRange, "fromKey" | "toKey">,
+): string {
+  const wholeMonth = previous.fromKey === monthStartKey(previous.fromKey) && previous.toKey === monthEndKey(previous.fromKey);
+  if (wholeMonth && yearOf(previous.fromKey) === yearOf(current.fromKey)) {
+    return MONTH_NAMES[Number(previous.fromKey.slice(5, 7)) - 1];
+  }
+  return rangeLabel(previous);
+}
+
 export function periodPayload(period: InsightsPeriod): PeriodPayload {
   return {
     key: period.key,

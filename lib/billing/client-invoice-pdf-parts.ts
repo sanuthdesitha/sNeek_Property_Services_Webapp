@@ -43,9 +43,23 @@ export function pdfDocumentTitle(invoice: PdfDocumentFacts): string {
  * The due line, from the same function the invoice list uses. A credit note
  * has nothing due, so it prints none.
  */
-export function pdfDueLine(invoice: PdfDocumentFacts, termsDays: number, timezone: string | null | undefined): string | null {
+export function pdfDueLine(
+  invoice: PdfDocumentFacts,
+  termsDays: number,
+  timezone: string | null | undefined,
+  options: { provisional?: boolean } = {},
+): string | null {
   if (isCreditNoteDocument(invoice)) return null;
-  return `Due: ${printCalendarDay(invoiceDueDay(invoice.createdAt, termsDays, timezone))}`;
+  const day = printCalendarDay(invoiceDueDay(invoice.createdAt, termsDays, timezone));
+  // An office preview of an unsent invoice: its terms are fixed when it is
+  // first sent, so the day is labelled provisional (never on a sent document).
+  if (options.provisional) return `Due (provisional): ${day} · ${termsDays}-day terms, fixed when sent`;
+  return `Due: ${day}`;
+}
+
+/** The admin preview labels the due day provisional while the invoice has not been sent. */
+export function isProvisionalDueStatus(status: string | null | undefined): boolean {
+  return status === "DRAFT" || status === "APPROVED";
 }
 
 /** Extra lines under the number: the invoice a credit note credits, and the client's reference. */

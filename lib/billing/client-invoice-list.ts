@@ -19,6 +19,9 @@ import {
 } from "@/lib/finance/receivables";
 import { FALLBACK_INVOICE_TIMEZONE, effectivePaymentTermsDays, invoiceDueDay, paymentTermsDaysFrom } from "./invoice-due";
 import { readStoredXeroSync } from "./client-invoice-xero-sync-rules";
+import { xeroExportFailureOf, xeroExportStateOf } from "./client-invoice-guards";
+import { missingRateReports } from "./missing-rates";
+import { OWING_SORT_MAX_ROWS, pageIdsByOwing } from "./client-invoice-owing-sql";
 import { ListQueryError, listResponse, readQueryValue, type ListQuery } from "@/lib/admin/list-query";
 import {
   CLIENT_INVOICE_STATUSES,
@@ -85,8 +88,12 @@ export type ListContext = {
   startOfToday: Date;
   /** Outstanding invoices past their own due day (per-invoice terms; see invoice-due.ts). */
   overdueIds: string[];
-  /** Unexported invoices whose Xero reservation is PENDING (incl. failed pushes). */
+  /** Unexported invoices whose Xero reservation is PENDING (in flight or cut off). */
   pendingXeroIds: string[];
+  /** Unexported invoices whose push FAILED (reason recorded; reservation kept). */
+  failedXeroIds: string[];
+  /** In Xero but never read back by the status pull. */
+  uncheckedXeroIds: string[];
   /** Sent or part-paid invoices whose approved/sent credit notes cover them: nothing is owed. */
   fullyCreditedIds: string[];
 };
@@ -95,7 +102,7 @@ export function startOfTodayIn(timezone: string, now: Date): Date {
   return fromZonedTime(`${formatInTimeZone(now, timezone, "yyyy-MM-dd")}T00:00:00`, timezone);
 }
 
-type TermsContext = Omit<ListContext, "pendingXeroIds" | "fullyCreditedIds" | "overdueIds">;
+type TermsContext = Omit<ListContext, "pendingXeroIds" | "failedXeroIds" | "uncheckedXeroIds" | "fullyCreditedIds" | "overdueIds">;
 
 /** Timezone and the organisation's default terms, read from settings exactly as the PDF reads them. */
 async function loadTermsContext(now: Date): Promise<TermsContext> {
@@ -146,15 +153,29 @@ async function loadFullyCreditedIds(): Promise<string[]> {
 
 export async function loadListContext(now: Date): Promise<ListContext> {
   const terms = await loadTermsContext(now);
-  const [pending, fullyCreditedIds, overdueIds] = await Promise.all([
+  const [pending, failed, unchecked, fullyCreditedIds, overdueIds] = await Promise.all([
     db.clientInvoice.findMany({
       where: { xeroInvoiceId: null, metadata: { path: ["xeroExportState"], equals: "PENDING" } },
       select: { id: true },
     }),
+    db.clientInvoice.findMany({
+      where: { xeroInvoiceId: null, metadata: { path: ["xeroExportState"], equals: "FAILED" } },
+      select: { id: true },
+    }),
+    db.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "ClientInvoice"
+      WHERE "xeroInvoiceId" IS NOT NULL AND ("metadata" IS NULL OR jsonb_typeof("metadata") <> 'object' OR "metadata"->'xeroSync' IS NULL)`,
     loadFullyCreditedIds(),
     loadOverdueIds(terms),
   ]);
-  return { ...terms, pendingXeroIds: pending.map((row) => row.id), fullyCreditedIds, overdueIds };
+  return {
+    ...terms,
+    pendingXeroIds: pending.map((row) => row.id),
+    failedXeroIds: failed.map((row) => row.id),
+    uncheckedXeroIds: unchecked.map((row) => row.id),
+    fullyCreditedIds,
+    overdueIds,
+  };
 }
 
 function xeroWhere(filters: ClientInvoiceListFilters, context: ListContext): Prisma.ClientInvoiceWhereInput {
@@ -163,8 +184,12 @@ function xeroWhere(filters: ClientInvoiceListFilters, context: ListContext): Pri
       return { OR: [{ xeroInvoiceId: { not: null } }, { xeroExportedAt: { not: null } }] };
     case "pending":
       return { id: { in: context.pendingXeroIds } };
+    case "failed":
+      return { id: { in: context.failedXeroIds } };
+    case "unchecked":
+      return { id: { in: context.uncheckedXeroIds } };
     case "none":
-      return { xeroInvoiceId: null, xeroExportedAt: null, id: { notIn: context.pendingXeroIds } };
+      return { xeroInvoiceId: null, xeroExportedAt: null, id: { notIn: [...context.pendingXeroIds, ...context.failedXeroIds] } };
     case "in-xero":
       return { xeroInvoiceId: { not: null }, metadata: { path: ["xeroSync", "state"], equals: "IN_XERO" } };
     case "paid-in-xero":
@@ -211,7 +236,7 @@ function needsActionWhere(context: ListContext): Prisma.ClientInvoiceWhereInput 
   return {
     OR: [
       { status: { in: [ClientInvoiceStatus.DRAFT, ClientInvoiceStatus.APPROVED] } },
-      { id: { in: context.pendingXeroIds } },
+      { id: { in: [...context.pendingXeroIds, ...context.failedXeroIds] } },
     ],
   };
 }
@@ -250,6 +275,8 @@ function orderByFor(sort: ClientInvoiceSort, dir: "asc" | "desc"): Prisma.Client
     created: { createdAt: dir },
     sent: { sentAt: nullsLast },
     total: { totalAmount: dir },
+    // Ordered in SQL by pageIdsByOwing; this fallback is never the primary key.
+    owing: { totalAmount: dir },
     status: { status: dir },
     xero: { xeroExportedAt: nullsLast },
   };
@@ -288,18 +315,15 @@ function iso(value: Date | null): string | null {
   return value ? value.toISOString() : null;
 }
 
+/** PENDING covers an open reservation, in flight or FAILED (see xeroExportFailureOf for which). */
 export function clientInvoiceXeroState(invoice: {
   xeroInvoiceId: string | null;
   xeroExportedAt: Date | string | null;
   metadata: unknown;
 }): ClientInvoiceXeroState {
   if (invoice.xeroInvoiceId || invoice.xeroExportedAt) return "PUSHED";
-  const metadata = invoice.metadata;
-  const state =
-    metadata && typeof metadata === "object" && !Array.isArray(metadata)
-      ? (metadata as Record<string, unknown>).xeroExportState
-      : undefined;
-  return state === "PENDING" ? "PENDING" : "NONE";
+  const state = xeroExportStateOf(invoice.metadata);
+  return state === "PENDING" || state === "FAILED" ? "PENDING" : "NONE";
 }
 
 /** The stored Xero pull state for the row, or null when never checked. */
@@ -309,7 +333,7 @@ export function xeroSyncView(metadata: unknown): ClientInvoiceListRow["xeroSync"
   return { state: stored.state, reason: stored.reason, xeroStatus: stored.xeroStatus, checkedAt: stored.checkedAt, lastReadAt: stored.lastReadAt };
 }
 
-function toRow(invoice: SelectedInvoice, context: TermsContext): ClientInvoiceListRow {
+function toRow(invoice: SelectedInvoice, context: TermsContext, missingRateJobs: number | null = null): ClientInvoiceListRow {
   const creditNote = invoice.kind === "CREDIT_NOTE";
   const creditedAmount = creditNote ? 0 : creditedAmountOf(invoice.creditNotes);
   const owingFacts = { totalAmount: invoice.totalAmount, paidAmount: invoice.paidAmount, creditedAmount };
@@ -338,7 +362,9 @@ function toRow(invoice: SelectedInvoice, context: TermsContext): ClientInvoiceLi
     xeroInvoiceId: invoice.xeroInvoiceId,
     xeroExportedAt: iso(invoice.xeroExportedAt),
     xeroState: clientInvoiceXeroState(invoice),
+    xeroPushFailure: invoice.xeroInvoiceId || invoice.xeroExportedAt ? null : xeroExportFailureOf(invoice.metadata),
     xeroSync: xeroSyncView(invoice.metadata),
+    missingRateJobs: invoice.status === "DRAFT" ? missingRateJobs : null,
     client: { id: invoice.client.id, name: invoice.client.name, email: invoice.client.email ?? null },
     kind: creditNote ? "CREDIT_NOTE" : "INVOICE",
     clientReference: invoice.clientReference ?? null,
@@ -379,6 +405,55 @@ function whereFor(filters: ClientInvoiceListFilters, context: ListContext): Pris
   return { AND: [baseWhere(filters, context), statusWhere(filters, context)] };
 }
 
+/**
+ * One page sorted by owing: the ids of the WHOLE filtered set, then one SQL
+ * ORDER BY over the owing expression (client-invoice-owing-sql.ts), then the
+ * page's rows in that order. Refused, not cut, above OWING_SORT_MAX_ROWS.
+ */
+async function findPageByOwing(where: Prisma.ClientInvoiceWhereInput, query: ListQuery<ClientInvoiceSort>): Promise<SelectedInvoice[]> {
+  const matching = await db.clientInvoice.findMany({ where, select: { id: true }, take: OWING_SORT_MAX_ROWS + 1 });
+  if (matching.length > OWING_SORT_MAX_ROWS) {
+    throw new ListQueryError(`Sorting by Owing works on up to ${OWING_SORT_MAX_ROWS} invoices. Narrow the filters first.`, "filter");
+  }
+  const ids = await pageIdsByOwing({ ids: matching.map((row) => row.id), dir: query.dir, skip: query.skip, take: query.take });
+  const rows = await db.clientInvoice.findMany({ where: { id: { in: ids } }, select: ROW_SELECT });
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
+}
+
+async function findPage(where: Prisma.ClientInvoiceWhereInput, query: ListQuery<ClientInvoiceSort>): Promise<SelectedInvoice[]> {
+  if (query.sort === "owing") return findPageByOwing(where, query);
+  return db.clientInvoice.findMany({
+    where,
+    select: ROW_SELECT,
+    orderBy: orderByFor(query.sort, query.dir),
+    skip: query.skip,
+    take: query.take,
+  });
+}
+
+/** Missing-rate job counts for the DRAFT rows on a page (null when unreadable). */
+async function draftMissingRates(invoices: SelectedInvoice[]): Promise<Map<string, number> | null> {
+  const drafts = invoices.filter((invoice) => invoice.status === "DRAFT");
+  if (drafts.length === 0) return new Map();
+  try {
+    const lines = await db.clientInvoiceLine.findMany({
+      where: { invoiceId: { in: drafts.map((invoice) => invoice.id) }, jobId: { not: null } },
+      select: { invoiceId: true, jobId: true },
+    });
+    const reports = await missingRateReports(
+      drafts.map((invoice) => ({
+        id: invoice.id,
+        clientId: invoice.client.id,
+        jobIds: lines.flatMap((line) => (line.invoiceId === invoice.id && line.jobId ? [line.jobId] : [])),
+      })),
+    );
+    return new Map(Array.from(reports).map(([id, report]) => [id, report.unrated.length + report.missingJobIds.length]));
+  } catch {
+    return null;
+  }
+}
+
 export async function listClientInvoices(input: {
   query: ListQuery<ClientInvoiceSort>;
   filters: ClientInvoiceListFilters;
@@ -389,18 +464,13 @@ export async function listClientInvoices(input: {
   const where = whereFor(input.filters, context);
   const [total, invoices, counts] = await Promise.all([
     db.clientInvoice.count({ where }),
-    db.clientInvoice.findMany({
-      where,
-      select: ROW_SELECT,
-      orderBy: orderByFor(input.query.sort, input.query.dir),
-      skip: input.query.skip,
-      take: input.query.take,
-    }),
+    findPage(where, input.query),
     countChips(base, context),
   ]);
+  const missing = await draftMissingRates(invoices);
   return {
     ...listResponse(
-      invoices.map((invoice) => toRow(invoice, context)),
+      invoices.map((invoice) => toRow(invoice, context, missing ? missing.get(invoice.id) ?? 0 : null)),
       total,
       input.query,
     ),
@@ -450,10 +520,13 @@ export async function listClientInvoicesForExport(input: {
       "filter",
     );
   }
-  const invoices = await db.clientInvoice.findMany({
-    where,
-    select: ROW_SELECT,
-    orderBy: orderByFor(input.sort, input.dir),
+  const invoices = await findPage(where, {
+    page: 1,
+    pageSize: CLIENT_INVOICE_EXPORT_MAX_ROWS,
+    sort: input.sort,
+    dir: input.dir,
+    skip: 0,
+    take: CLIENT_INVOICE_EXPORT_MAX_ROWS,
   });
   return invoices.map((invoice) => toRow(invoice, context));
 }
@@ -510,7 +583,7 @@ export function clientInvoicesCsv(rows: ClientInvoiceListRow[]): string {
       { amount: row.totalAmount },
       row.paidAmount === null ? "" : { amount: row.paidAmount },
       { amount: row.amountOwing },
-      row.xeroState,
+      row.xeroPushFailure ? "FAILED" : row.xeroState,
       row.xeroInvoiceId,
       row.xeroSync?.state ?? "",
       row.xeroSync?.reason ?? "",

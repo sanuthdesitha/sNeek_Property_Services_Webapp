@@ -2,10 +2,11 @@
 
 /**
  * Column chart by week, one or two series, as drawn ("Revenue and cleaner cost
- * by week"). Accessible without colour: the series differ by fill AND pattern
- * (the second is hatched), the legend names them in text, every bar carries
- * its value as text for screen readers and as a tooltip, and the same numbers
- * are available as a table under "Show as a table". A week without data is a
+ * by week"). Accessible without colour: within each week the series always
+ * stand in legend order (the first on the left), the legend names them in
+ * text as drawn (solid badges), every bar carries its value as text for
+ * screen readers and as a tooltip, and the same numbers are available as a
+ * table under "Show as a table". A week without data is a
  * gap marked "no data", never a zero-height bar pretending to be zero.
  * The chart scrolls in its own box on a narrow screen.
  */
@@ -17,27 +18,49 @@ export type ChartWeek = { key: string; label: string; values: Array<number | nul
 
 const FILL: Record<ChartSeries["kind"], React.CSSProperties> = {
   primary: { background: "hsl(var(--e-primary))" },
-  gold: {
-    background:
-      "repeating-linear-gradient(135deg, hsl(var(--e-gold)) 0 4px, hsl(var(--e-gold) / 0.65) 4px 7px)",
-  },
+  gold: { background: "hsl(var(--e-gold))" },
+};
+
+/** Legend badges as drawn: the first series solid primary, the second the gold badge. */
+const LEGEND_CLASS: Record<ChartSeries["kind"], string> = {
+  primary: "bg-[hsl(var(--e-primary))] text-[hsl(var(--e-primary-foreground))]",
+  gold: "bg-[hsl(var(--e-gold-soft))] text-[hsl(var(--e-gold-ink))]",
 };
 
 const CHART_HEIGHT = 120;
 
-export function WeekColumns({ title, series, weeks }: { title: string; series: ChartSeries[]; weeks: ChartWeek[] }) {
+export function ChartLegend({ series }: { series: ChartSeries[] }) {
+  return (
+    <ul className="flex flex-wrap items-center gap-2" aria-label="Legend">
+      {series.map((item) => (
+        <li
+          key={item.label}
+          className={`inline-flex h-5 items-center whitespace-nowrap rounded-[var(--e-radius-pill)] px-2 text-[0.6875rem] font-[600] ${LEGEND_CLASS[item.kind]}`}
+        >
+          {item.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function WeekColumns({
+  title,
+  series,
+  weeks,
+  showLegend = true,
+}: {
+  title: string;
+  series: ChartSeries[];
+  weeks: ChartWeek[];
+  /** False when the caller shows <ChartLegend> in its own header row. */
+  showLegend?: boolean;
+}) {
   const max = Math.max(0, ...weeks.flatMap((week) => week.values.filter((value): value is number => value !== null)));
   const hasData = max > 0;
   return (
     <div className="space-y-2">
-      <ul className="flex flex-wrap items-center gap-3 text-[0.75rem]" aria-label="Legend">
-        {series.map((item) => (
-          <li key={item.label} className="inline-flex items-center gap-1.5">
-            <span aria-hidden className="inline-block h-3 w-3 rounded-[2px]" style={FILL[item.kind]} />
-            {item.label}
-          </li>
-        ))}
-      </ul>
+      {showLegend ? <ChartLegend series={series} /> : null}
       {hasData ? (
         <div className="overflow-x-auto">
           <div role="group" aria-label={title} className="flex min-w-[18rem] items-end gap-3" style={{ height: CHART_HEIGHT + 20 }}>

@@ -26,12 +26,11 @@ import {
   allowedSorts,
   CLEANER_SORTS,
   CLIENT_SORTS,
-  PROPERTY_SORTS,
   cleanerSortValue,
   clientSortValue,
-  propertySortValue,
   sortRows,
 } from "./sort";
+import { orderPropertyRows, parsePropertyQuery } from "./property-order";
 import type { InsightsAccess, PeriodPayload } from "./types";
 
 type QuerySource = URLSearchParams;
@@ -55,11 +54,10 @@ export async function sortedPropertyRows(
   access: InsightsAccess,
   params: QuerySource,
 ): Promise<Sorted<PropertyRow>> {
-  const sortable = allowedSorts(PROPERTY_SORTS, access.finance);
-  const query = parseListQuery(params, { sortable, defaultSort: access.finance ? "margin" : "name", defaultDir: "asc" });
+  const query = parsePropertyQuery(params, access);
   const [facts, issues] = await Promise.all([loadJobFacts(period, filters), loadIssueCounts(period, filters)]);
   const rows = propertyRows(facts, issues, span(period), access.finance);
-  return { rows: sortRows(rows, (row) => propertySortValue(row, query.sort), query.dir, (row) => row.propertyName), query };
+  return { rows: orderPropertyRows(rows, { sort: query.sort, dir: query.dir }), query };
 }
 
 export async function sortedClientRows(
@@ -161,7 +159,8 @@ export async function getTimeCostInsights(
 ): Promise<TimeCostPayload> {
   const [facts, issues] = await Promise.all([loadJobFacts(period, filters), loadIssueCounts(period, filters)]);
   const properties = propertyRows(facts, issues, span(period), access.finance);
-  const ranked = sortRows(properties, (row) => row.figures.hours.ratio.value, "desc", (row) => row.propertyName);
+  // The same order the Properties tab uses for "ratio, highest first", so "All N properties" continues it.
+  const ranked = orderPropertyRows(properties, { sort: "ratio", dir: "desc" });
   return {
     period: periodPayload(period),
     access,

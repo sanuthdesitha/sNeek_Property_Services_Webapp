@@ -25,10 +25,10 @@ import { loadCategoryLabelMap, loadIssueCounts, loadJobFacts, type InsightsFilte
 import { countMeasure, MIN_BASIS_SUMMARY, sum, withDelta } from "./measure";
 import { periodPayload, type ClosedRange, type InsightsPeriod } from "./period";
 import { clientPayment, loadReceivablesFacts, type ReceivablesFacts } from "./receivables";
-import { propertySortValue, sortRows } from "./sort";
+import { orderPropertyRows, previewDefaultOrder, PROPERTY_PREVIEW_ROWS, type PropertyOrder } from "./property-order";
 import type { EntityFigures, InsightsAccess, MeasureWithDelta, PeriodPayload, RevenueSplit } from "./types";
 
-export const PROPERTY_PREVIEW_ROWS = 5;
+export { PROPERTY_PREVIEW_ROWS };
 
 export type BusinessCards = {
   revenue?: MeasureWithDelta;
@@ -56,7 +56,8 @@ export type BusinessPayload = {
   access: InsightsAccess;
   cards: BusinessCards;
   weekly: WeekPoint[] | null;
-  properties: { rows: PropertyRow[]; total: number; rankedBy: "margin" | "hours" };
+  /** The first rows in `order` over every property; `rankedBy` names the default order. */
+  properties: { rows: PropertyRow[]; total: number; rankedBy: "margin" | "hours"; order: PropertyOrder };
   findings: Finding[];
 };
 
@@ -117,11 +118,9 @@ function slowPayerRows(receivables: ReceivablesFacts) {
   });
 }
 
+/** The preview's default order over every property (see ./property-order). */
 export function rankPropertyPreview(rows: readonly PropertyRow[], finance: boolean): PropertyRow[] {
-  if (finance) {
-    return sortRows(rows, (row) => propertySortValue(row, "margin"), "asc", (row) => row.propertyName);
-  }
-  return sortRows(rows, (row) => row.figures.hours.ratio.value, "desc", (row) => row.propertyName);
+  return orderPropertyRows(rows, previewDefaultOrder({ finance }));
 }
 
 export async function getBusinessInsights(
@@ -148,7 +147,13 @@ export async function getBusinessInsights(
 
   const candidates: Finding[] = [
     ...detectPropertyOverruns(
-      properties.map((row) => ({ propertyId: row.id, propertyName: row.propertyName, hours: row.figures.hours })),
+      properties.map((row) => ({
+        propertyId: row.id,
+        propertyName: row.propertyName,
+        hours: row.figures.hours,
+        // Absent without finance access (row.figures.money is then not computed).
+        marginPerClean: access.finance ? row.figures.money?.marginPerClean : undefined,
+      })),
       span,
     ),
     ...detectIssueSurges(categoryRows(issues, previousIssues, labels), span, payload.previous?.label ?? null),
@@ -174,6 +179,7 @@ export async function getBusinessInsights(
       rows: rankPropertyPreview(properties, access.finance).slice(0, PROPERTY_PREVIEW_ROWS),
       total: properties.length,
       rankedBy: access.finance ? "margin" : "hours",
+      order: previewDefaultOrder(access),
     },
     findings: pickFindings(candidates),
   };
