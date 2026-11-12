@@ -4,6 +4,15 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { FINANCIAL_RECORD_LINE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
+import {
+  APPLIED_COUNT_CHOICES,
+  assertStockCountChoice,
+  listAppliedStockCounts,
+  resolveAppliedCountsOnReset,
+  stockCountChoiceRequiredBody,
+  StockCountChoiceRequiredError,
+  type ResetCountResolution,
+} from "@/lib/inventory/stock-count-reset";
 
 /**
  * Reset a job's QA and re-request an inspection. Clears any existing QA reviews
@@ -11,11 +20,33 @@ import { FINANCIAL_RECORD_LINE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
  * creates one), and puts the job back to QA_REVIEW so it re-appears in the QA
  * queue for a fresh inspection. Works whether or not a review already exists.
  * INVOICED jobs are locked and cannot be reset.
+ *
+ * The job leaves Completed, so stock counts from its form that were already
+ * applied to on-hand need the office's choice (owner decision 2026-11-12):
+ * GET lists them; POST requires `appliedStockCounts: "REVERSE" | "KEEP"` when
+ * any exist (409 STOCK_COUNT_CHOICE_REQUIRED naming them otherwise).
  */
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
+    const job = await db.job.findUnique({ where: { id: params.id }, select: { id: true } });
+    if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    return NextResponse.json({ appliedStockCounts: await listAppliedStockCounts(db, params.id) });
+  } catch (err: any) {
+    const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
+    return NextResponse.json({ error: err.message }, { status });
+  }
+}
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const confirmation = z.object({ confirm: z.literal(true), reason: z.string().trim().min(10).max(2000) }).parse(await req.json());
+    const confirmation = z.object({
+      confirm: z.literal(true),
+      reason: z.string().trim().min(10).max(2000),
+      appliedStockCounts: z.enum(APPLIED_COUNT_CHOICES).optional(),
+    }).parse(await req.json());
+    const stockCountChoice = confirmation.appliedStockCounts ?? null;
 
     const job = await db.job.findUnique({
       where: { id: params.id },
@@ -25,12 +56,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (job.status === JobStatus.INVOICED) {
       return NextResponse.json({ error: "This job is invoiced and locked — QA can't be reset." }, { status: 400 });
     }
+    await assertStockCountChoice(db, params.id, stockCountChoice);
 
     let deletedReviews = 0;
     let cancelledReworks = 0;
     let reversedDeductions = 0;
     let skippedPaidDeductions = 0;
     let startedReworksRemaining = 0;
+    let stockCounts: ResetCountResolution = { choice: stockCountChoice ?? "NONE", outcomes: [] };
     await db.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${params.id}))`;
       await tx.$queryRaw`SELECT id FROM "Job" WHERE id = ${params.id} OR "reworkOfJobId" = ${params.id} ORDER BY id FOR UPDATE`;
@@ -44,6 +77,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (adjustments || transfers || cleanerClaim || relatedJobs.some(row => row.payrollRunId || row.cleanerPaidAt || row.invoiceLines.length > 0 || row.status === JobStatus.INVOICED)) {
         throw new Error("QA reset is blocked by financial records. Reopen the inspection and review the existing pay decisions instead.");
       }
+
+      stockCounts = await resolveAppliedCountsOnReset(tx, {
+        jobId: params.id,
+        choice: stockCountChoice,
+        actor: { id: session.user.id, role: session.user.role, impersonatedBy: session.impersonation?.actorId ?? null },
+        path: "QA reset",
+      });
 
       const reviews = await tx.qAReview.findMany({ where: { jobId: params.id }, select: { id: true } });
       const reviewIds = reviews.map((r) => r.id);
@@ -155,6 +195,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             startedReworksRemaining,
             reversedDeductions,
             skippedPaidDeductions,
+            stockCounts,
           } as any,
         },
       });
@@ -173,9 +214,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       reversedDeductions,
       skippedPaidDeductions,
       startedReworksRemaining,
+      stockCounts,
       warning,
     });
   } catch (err: any) {
+    if (err instanceof StockCountChoiceRequiredError) {
+      return NextResponse.json(stockCountChoiceRequiredBody(err.counts), { status: 409 });
+    }
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message ?? "Could not reset QA." }, { status });
   }

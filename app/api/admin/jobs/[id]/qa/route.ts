@@ -15,6 +15,7 @@ import {
 import { recomputeJobQaOutcome } from "@/lib/qa/authority";
 import { getAdminReworkContext } from "@/lib/qa/admin-rework";
 import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
+import { keepAppliedCountsWithoutChoice } from "@/lib/inventory/stock-count-reset";
 import { assertNotSelfInspection } from "@/lib/qa/self-review";
 import { notifyQaResultToCleaner } from "@/lib/notifications/accountability";
 
@@ -122,6 +123,8 @@ export async function POST(
       });
 
       if (effectivePassed) await applyJobRotationCompletion(tx, { jobId: params.id, propertyId: job.propertyId });
+      // A verdict, not a reset: counts already applied stay, recorded as kept without a choice.
+      else await keepAppliedCountsWithoutChoice(tx, { jobId: params.id, fromStatus: lockedJob.status, toStatus: JobStatus.QA_REVIEW, path: "QA score (failed)", actorId: session.user.id });
 
       await tx.auditLog.create({
         data: {

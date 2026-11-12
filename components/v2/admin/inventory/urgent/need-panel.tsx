@@ -145,7 +145,7 @@ export function NeedPanel({ needId, row, timeZone, canResolve, onClose, onChange
       {need.status === "error" ? <p role="alert" className="text-[0.875rem] text-[hsl(var(--e-danger))]">{need.message}</p> : null}
       {value ? (
         <>
-          <EStageBar label="Need stages" stages={urgentStages(value.stage)} terminal={value.stage === "ADMIN_RESOLVED" ? { title: "Resolved by an administrator", description: "Closed without a property confirmation; the reason is in the history." } : null} />
+          <EStageBar label="Need stages" stages={urgentStages(value.stage)} terminal={value.stage === "ADMIN_RESOLVED" ? { title: "Resolved by the office", description: "Closed without a property confirmation; the reason is in the history." } : null} />
           <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 text-[0.8125rem]">
             <dt className={dt}>Counted</dt>
             <dd>{value.observedCount === null ? "Unknown" : quantity(value.observedCount, value.unit)}{value.observedAt ? `, ${formatInTimeZone(new Date(value.observedAt), timeZone, "d MMM HH:mm")}` : ""}{dispositionNote(value.observationDisposition, value.observedCount)}</dd>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { requireSession } from "@/lib/auth/session";
 import { runUrgentStockBulk } from "@/lib/inventory/urgent-stock-bulk";
+import { urgentStockActor } from "@/lib/inventory/urgent-stock-actor";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return json({ error: "Same-origin request required." }, 403);
   try {
     const session = await requireSession();
-    return json(await runUrgentStockBulk(session.user, await req.json()));
+    return json(await runUrgentStockBulk(urgentStockActor(session), await req.json()));
   } catch (error) {
     if (error instanceof ZodError) return json({ error: error.issues[0]?.message ?? "Invalid request." }, 400);
     const message = error instanceof Error ? error.message : "Could not record these actions.";

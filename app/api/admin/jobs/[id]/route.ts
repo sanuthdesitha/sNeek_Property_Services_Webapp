@@ -18,6 +18,13 @@ import { deliverNotificationToRecipients } from "@/lib/notifications/delivery";
 import { renderNotificationTemplate } from "@/lib/notification-templates";
 import { getValidationErrorMessage } from "@/lib/validations/errors";
 import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
+import {
+  APPLIED_COUNT_CHOICES,
+  assertStockCountChoice,
+  resolveAppliedCountsOnReset,
+  stockCountChoiceRequiredBody,
+  StockCountChoiceRequiredError,
+} from "@/lib/inventory/stock-count-reset";
 import { syncAdminJobTasks, notifyJobTasksAdded } from "@/lib/job-tasks/service";
 import { sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { isRestartTransition, startArtifactResetFields } from "@/lib/jobs/job-reset";
@@ -162,9 +169,16 @@ export async function PATCH(
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const parsed = updateJobSchema
-      .extend({ confirmCompletedReset: z.boolean().optional(), expectedUpdatedAt: z.string().datetime().optional(), cancelTaskIds: z.array(z.string().min(1)).max(200).optional() })
+      .extend({
+        confirmCompletedReset: z.boolean().optional(),
+        expectedUpdatedAt: z.string().datetime().optional(),
+        cancelTaskIds: z.array(z.string().min(1)).max(200).optional(),
+        // Owner decision 2026-11-12: leaving Completed with applied stock counts needs a choice.
+        appliedStockCounts: z.enum(APPLIED_COUNT_CHOICES).optional(),
+      })
       .parse(await req.json());
-    const { confirmCompletedReset, expectedUpdatedAt, cancelTaskIds, ...body } = parsed;
+    const { confirmCompletedReset, expectedUpdatedAt, cancelTaskIds, appliedStockCounts: stockCountChoiceInput, ...body } = parsed;
+    const stockCountChoice = stockCountChoiceInput ?? null;
     const current = await db.job.findUnique({
       where: { id: params.id },
       select: {
@@ -202,6 +216,15 @@ export async function PATCH(
     if (current.status === JobStatus.CANCELLED && body.status !== undefined && body.status !== JobStatus.CANCELLED) {
       return NextResponse.json({ error: "This job is cancelled. Use Restore to bring it back." }, { status: 409 });
     }
+    // A status edit that takes an approved job out of Completed is a reset for
+    // the stock counts its form applied: the office must choose (the Reset job
+    // dialog asks; API callers pass `appliedStockCounts`).
+    const leavesApproval =
+      body.status !== undefined &&
+      (current.status === JobStatus.COMPLETED || current.status === JobStatus.INVOICED) &&
+      body.status !== JobStatus.COMPLETED &&
+      body.status !== JobStatus.INVOICED;
+    if (leavesApproval) await assertStockCountChoice(db, params.id, stockCountChoice);
     if (
       body.status === JobStatus.UNASSIGNED &&
       (current.status === JobStatus.COMPLETED || current.status === JobStatus.INVOICED) &&
@@ -352,6 +375,14 @@ export async function PATCH(
         data,
       });
       if (changed.count !== 1) throw new Error("JOB_EDIT_CONFLICT");
+      if (leavesApproval) {
+        await resolveAppliedCountsOnReset(tx, {
+          jobId: params.id,
+          choice: stockCountChoice,
+          actor: { id: session.user.id, role: session.user.role, impersonatedBy: session.impersonation?.actorId ?? null },
+          path: "Job status edit",
+        });
+      }
       if (body.status === JobStatus.UNASSIGNED) {
         await tx.jobAssignment.updateMany({
           where: { jobId: params.id, removedAt: null },
@@ -531,6 +562,10 @@ export async function PATCH(
     }
     return NextResponse.json(job);
   } catch (err: any) {
+    if (err instanceof StockCountChoiceRequiredError) {
+      const refusal = stockCountChoiceRequiredBody(err.counts);
+      return NextResponse.json({ ...refusal, error: `${refusal.error} Use Reset job on this job: it shows them and asks.` }, { status: 409 });
+    }
     const status = err.message === "JOB_EDIT_CONFLICT" ? 409 : err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: getValidationErrorMessage(err, "Could not update job.") }, { status });
   }

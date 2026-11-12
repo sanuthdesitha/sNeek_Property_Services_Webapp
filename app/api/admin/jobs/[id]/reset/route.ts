@@ -12,6 +12,15 @@ import {
   startArtifactResetFields,
   type JobResetContext,
 } from "@/lib/jobs/job-reset";
+import {
+  assertStockCountChoice,
+  listAppliedStockCounts,
+  parseAppliedCountChoice,
+  resolveAppliedCountsOnReset,
+  stockCountChoiceRequiredBody,
+  StockCountChoiceRequiredError,
+  type ResetCountResolution,
+} from "@/lib/inventory/stock-count-reset";
 
 /**
  * Option-driven job reset (the rich "Reset job" dialog on the admin job page).
@@ -24,6 +33,17 @@ import {
  * GET returns the context the dialog needs to preview the reset (counts + the
  * guard state), so the dialog and this route plan from the same numbers via the
  * shared pure helper in lib/jobs/job-reset.ts.
+ *
+ * Applied stock counts (owner decision 2026-11-12): when a stock count from
+ * this job's form was already applied to on-hand, GET lists it and POST
+ * requires `appliedStockCounts: "REVERSE" | "KEEP"` (409
+ * STOCK_COUNT_CHOICE_REQUIRED naming the counts otherwise). The choice is
+ * carried out inside the reset transaction by lib/inventory/stock-count-reset.ts,
+ * before "Clear form data" puts used stock back: a reversed count's item
+ * returns to its pre-submission value; a kept (or not reversable) count's
+ * item keeps its counted value, so its older usage rows are not added back on
+ * top of it, and the count's ledger row is kept (detached from the deleted
+ * submission) as the record that explains on-hand.
  */
 
 async function loadContext(jobId: string) {
@@ -69,7 +89,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const loaded = await loadContext(params.id);
     if (!loaded) return NextResponse.json({ error: "Job not found." }, { status: 404 });
-    return NextResponse.json({ context: loaded.context });
+    const appliedStockCounts = await listAppliedStockCounts(db, params.id);
+    return NextResponse.json({ context: loaded.context, appliedStockCounts });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });
@@ -81,6 +102,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const options = normalizeJobResetOptions(body.options);
+    const stockCountChoice = parseAppliedCountChoice(body.appliedStockCounts);
 
     const loaded = await loadContext(params.id);
     if (!loaded) return NextResponse.json({ error: "Job not found." }, { status: 404 });
@@ -103,6 +125,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         { status: 409 }
       );
     }
+    // Applied stock counts need an explicit choice; checked again inside the transaction.
+    await assertStockCountChoice(db, params.id, stockCountChoice);
     // Anything that destroys records requires a PIN/password, same bar as the
     // full reset and delete actions. A status-only reset does not.
     if (plan.destructive) {
@@ -126,24 +150,49 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       deletedQaReviews: 0,
       resetLaundryTask: false,
     };
+    let stockCounts: ResetCountResolution = { choice: stockCountChoice ?? "NONE", outcomes: [] };
 
     await db.$transaction(async (tx) => {
       const keys = new Set(plan.mutations.map((m) => m.key));
 
+      // Counts already applied to on-hand: carry out the office's choice first.
+      const countLedger = await tx.stockCountObservation.findMany({
+        where: { jobId: params.id, stockTxId: { not: null } },
+        select: { stockTxId: true, propertyId: true, itemId: true },
+      });
+      stockCounts = await resolveAppliedCountsOnReset(tx, {
+        jobId: params.id,
+        choice: stockCountChoice,
+        actor: { id: session.user.id, role: session.user.role, impersonatedBy: session.impersonation?.actorId ?? null },
+        path: "Reset job",
+      });
+
       if (keys.has("formData")) {
+        // The count ledger rows are history, not usage: keep them (detached
+        // from the submission that is about to go) and never "restore" them.
+        const countLedgerIds = countLedger.map((row) => row.stockTxId as string);
+        // Items whose applied count stays in force keep their counted value;
+        // the usage recorded before that count is already inside it.
+        const countStillInForce = new Set(
+          stockCounts.outcomes.filter((row) => row.outcome !== "REVERSED").map((row) => row.itemId),
+        );
+        if (countLedgerIds.length > 0) {
+          await tx.stockTx.updateMany({ where: { id: { in: countLedgerIds } }, data: { submissionId: null } });
+        }
         // Put the stock the cleaner recorded as used back on the shelf, then
         // drop the submission, its media and its stock movements.
         const stockTxs = await tx.stockTx.findMany({
           where: { submission: { jobId: params.id } },
-          select: { id: true, propertyStockId: true, quantity: true },
+          select: { id: true, propertyStockId: true, quantity: true, propertyStock: { select: { itemId: true } } },
         });
         for (const stockTx of stockTxs) {
+          if (countStillInForce.has(stockTx.propertyStock.itemId)) continue;
           await tx.propertyStock.update({
             where: { id: stockTx.propertyStockId },
             data: { onHand: { increment: Number((-stockTx.quantity).toFixed(2)) } },
           });
+          applied.restoredStockTransactions += 1;
         }
-        applied.restoredStockTransactions = stockTxs.length;
         await tx.stockTx.deleteMany({ where: { submission: { jobId: params.id } } });
         const media = await tx.submissionMedia.deleteMany({ where: { submission: { jobId: params.id } } });
         applied.deletedPhotos = media.count;
@@ -239,7 +288,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           entity: "Job",
           entityId: params.id,
           before: { ...context, status: job.status } as any,
-          after: { options, applied, summary: plan.summary } as any,
+          after: { options, applied, summary: plan.summary, stockCounts, impersonatedBy: session.impersonation?.actorId ?? null } as any,
         },
       });
     });
@@ -268,8 +317,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }).catch(() => undefined);
     }
 
-    return NextResponse.json({ ok: true, applied, summary: plan.summary });
+    return NextResponse.json({ ok: true, applied, summary: plan.summary, stockCounts });
   } catch (err: any) {
+    if (err instanceof StockCountChoiceRequiredError) {
+      return NextResponse.json(stockCountChoiceRequiredBody(err.counts), { status: 409 });
+    }
     const status =
       err.message === "UNAUTHORIZED"
         ? 401

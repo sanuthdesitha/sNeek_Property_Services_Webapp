@@ -167,7 +167,7 @@ describe.skipIf(!url)("Wave F stock, cases and laundry on PostgreSQL", () => {
     expect(states).toEqual([{ state: "DECLINED", activeKey: null, responseNote: "No car today" }, { state: "WITHDRAWN", activeKey: null, responseNote: "Bought it ourselves" }]);
   });
 
-  it("lets an operations manager act with the inventory pack: read sees, manage acts, off is refused; resolving stays ADMIN-only", async () => {
+  it("lets an operations manager act with the inventory pack: read sees, manage acts (including Resolve), off is refused", async () => {
     const reported = await openNeed();
     const query = parseListQuery(new URLSearchParams(), { sortable: URGENT_SORTS, defaultSort: "neededBy", defaultDir: "asc", defaultPageSize: 25, maxPageSize: 100 });
     await setOps({ inventory: "off" });
@@ -178,7 +178,9 @@ describe.skipIf(!url)("Wave F stock, cases and laundry on PostgreSQL", () => {
     await setOps({ inventory: "manage" });
     const acknowledged = await actOnUrgentStock(ops, { reportId: reported.id, requestId: randomUUID(), expectedVersion: reported.version, stage: "ACKNOWLEDGED", reason: "Seen", observedCount: null, observedAt: null, needResolved: false });
     expect(acknowledged.stage).toBe("ACKNOWLEDGED");
-    await expect(actOnUrgentStock(ops, { reportId: reported.id, requestId: randomUUID(), expectedVersion: acknowledged.version, stage: "ADMIN_RESOLVED", reason: "Close", observedCount: null, observedAt: null, needResolved: false })).rejects.toThrow(/Only an administrator/);
+    // Changed on purpose (owner decision 2026-11-12): a manager with the pack at manage may Resolve.
+    const resolved = await actOnUrgentStock(ops, { reportId: reported.id, requestId: randomUUID(), expectedVersion: acknowledged.version, stage: "ADMIN_RESOLVED", reason: "Close", observedCount: null, observedAt: null, needResolved: false });
+    expect(resolved.stage).toBe("ADMIN_RESOLVED");
   });
 
   it("stores the job a need was reported from, refuses another property's job, and defers a form's count to approval", async () => {

@@ -7,7 +7,8 @@
  * at another stage is refused with the policy's reason). One reason covers the
  * selection, as the service requires a reason for every action. "Add to one
  * shopping run" (Wave F) opens the shared add-to-run dialog for the selection.
- * Close (an administrator resolution) is offered to administrators only.
+ * Close (an office resolution) is offered to administrators and to operations
+ * managers with the inventory pack at manage (`canResolve`, from the server).
  */
 import { useRef, useState } from "react";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -24,7 +25,7 @@ type RunState = { status: "idle" } | { status: "running" } | { status: "finished
 const COPY: Record<UrgentBulkAction, { title: string; reason: string; body: string }> = {
   acknowledge: { title: "Acknowledge", reason: "Acknowledged by the office.", body: "Records Acknowledged for each selected need that is at Reported." },
   "mark-ordered": { title: "Mark ordered", reason: "Marked ordered by the office.", body: "Records Ordered for each selected need that is at Acknowledged. This does not place an order." },
-  close: { title: "Close", reason: "", body: "Resolves each selected open need as an administrator, with your reason. Use it when the need no longer applies." },
+  close: { title: "Close", reason: "", body: "Resolves each selected open need for the office, with your reason. Use it when the need no longer applies." },
 };
 
 const MAX = 50;

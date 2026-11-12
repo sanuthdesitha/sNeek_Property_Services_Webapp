@@ -169,7 +169,11 @@ export default async function EstateInventoryPage({
   // Urgent needs (first tab, administrators): its own header and list, as drawn.
   if (tab === "urgent-stock") {
     const settings = await getAppSettings();
-    return <UrgentNeedsWorkspace initialView={readUrgentView(searchString(searchParams))} tabs={tabBar} timeZone={settings.timezone || "Australia/Sydney"} isAdmin={session.user.role === Role.ADMIN} />;
+    // Resolve, bulk Close and Reminder settings: ADMIN, or an operations
+    // manager with the inventory pack at manage (owner decision 2026-11-12);
+    // the service re-checks the same rule on every write.
+    const canManageUrgent = await urgentStockOfficeAllowed(session.user, "manage");
+    return <UrgentNeedsWorkspace initialView={readUrgentView(searchString(searchParams))} tabs={tabBar} timeZone={settings.timezone || "Australia/Sydney"} canResolve={canManageUrgent} canEditReminders={canManageUrgent} />;
   }
 
   const { rows: propertyRows, totals: propertyTotals } = await getPropertyOverview();

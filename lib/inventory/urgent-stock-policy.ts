@@ -33,14 +33,15 @@ export type StockConfirmation = {
 export function validateUrgentStockTransition(input: {
   from: UrgentStockStage;
   to: UrgentStockStage;
-  isAdmin: boolean;
+  /** ADMIN, or OPS_MANAGER with the inventory pack at manage (decided by the caller from live rights). */
+  mayResolve: boolean;
   reason: string;
   confirmation?: StockConfirmation;
 }): void {
   if (isUrgentStockClosed(input.from)) throw new Error("This report is already closed. Create a new report for a new need.");
   if (!input.reason.trim() || input.reason.length > 2000) throw new Error("Record a reason for this action.");
   if (input.to === "ADMIN_RESOLVED") {
-    if (!input.isAdmin) throw new Error("Only an administrator can explicitly resolve an unconfirmed need.");
+    if (!input.mayResolve) throw new Error("Only an administrator, or an operations manager who manages stock, can explicitly resolve an unconfirmed need.");
     return;
   }
   if (input.to === "PROPERTY_CONFIRMED") {

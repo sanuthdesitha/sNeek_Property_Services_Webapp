@@ -15,15 +15,15 @@ describe("one next action per stage", () => {
     for (const stage of URGENT_STOCK_STAGES) {
       const next = urgentNextAction(stage);
       if (next.kind !== "transition") continue;
-      expect(() => validateUrgentStockTransition({ from: stage, to: next.to, isAdmin: true, reason: next.reason })).not.toThrow();
+      expect(() => validateUrgentStockTransition({ from: stage, to: next.to, mayResolve: true, reason: next.reason })).not.toThrow();
       expect(next.reason).not.toMatch(/purchased|bought|delivered to/i);
     }
     expect(urgentNextAction("DELIVERED").label).toMatch(/cleaner to confirm/);
   });
   it("bulk targets are policy stages; the policy refuses out-of-order rows", () => {
     expect(URGENT_BULK_TARGET).toEqual({ acknowledge: "ACKNOWLEDGED", "mark-ordered": "ORDERED", close: "ADMIN_RESOLVED" });
-    expect(() => validateUrgentStockTransition({ from: "ORDERED", to: "ACKNOWLEDGED", isAdmin: true, reason: "x" })).toThrow("in order");
-    expect(() => validateUrgentStockTransition({ from: "REPORTED", to: "ADMIN_RESOLVED", isAdmin: false, reason: "x" })).toThrow("administrator");
+    expect(() => validateUrgentStockTransition({ from: "ORDERED", to: "ACKNOWLEDGED", mayResolve: true, reason: "x" })).toThrow("in order");
+    expect(() => validateUrgentStockTransition({ from: "REPORTED", to: "ADMIN_RESOLVED", mayResolve: false, reason: "x" })).toThrow("administrator");
     expect(urgentBulkInput.safeParse({ action: "acknowledge", bulkRequestId: crypto.randomUUID(), reason: " ", needs: [{ id: crypto.randomUUID(), expectedVersion: 1 }] }).success).toBe(false);
   });
   it("derives a stable UUID-shaped request id per need within one bulk request", () => {

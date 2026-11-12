@@ -6,7 +6,8 @@
  * counts, search and Property, one all-property table sorted by Needed by,
  * the bulk bar and the need panel on `?open=`. Administrators, and since Wave F
  * operations managers with the inventory pack (the service checks both);
- * resolving and reminder settings stay with administrators. A need never
+ * Resolve, bulk Close and reminder settings need the pack at manage (owner
+ * decision 2026-11-12). A need never
  * places a purchase or proves a delivery.
  */
 import * as React from "react";
@@ -36,7 +37,11 @@ function summaryLine(summary: UrgentListSummary | undefined): string {
   return `${needs} · ${summary.dueSoon} must arrive before the next clean (within 48 hours)`;
 }
 
-export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, isAdmin }: { initialView: UrgentView; tabs: React.ReactNode; timeZone: string; isAdmin: boolean }) {
+/**
+ * `canResolve` (Resolve, bulk Close) and `canEditReminders` come from the
+ * server: ADMIN, or an operations manager with the inventory pack at manage.
+ */
+export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, canResolve, canEditReminders }: { initialView: UrgentView; tabs: React.ReactNode; timeZone: string; canResolve: boolean; canEditReminders: boolean }) {
   const [view, update] = useUrgentView(initialView);
   const list = useUrgentNeeds(view);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -70,7 +75,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, isAdmin }: {
             <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{summaryLine(data?.summary)}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {isAdmin ? <EButton size="sm" variant="outline" onClick={() => setSettingsOpen(true)}>Reminder settings</EButton> : null}
+            {canEditReminders ? <EButton size="sm" variant="outline" onClick={() => setSettingsOpen(true)}>Reminder settings</EButton> : null}
             <EButton size="sm" onClick={() => setReportOpen(true)}>Report a need</EButton>
           </div>
         </header>
@@ -121,7 +126,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, isAdmin }: {
         </div>
         <UrgentBulk
           selectedRows={selectedRows}
-          canResolve={isAdmin}
+          canResolve={canResolve}
           onClear={() => setSelected(new Set())}
           onRunningChange={setBulkRunning}
           onFinished={(results) => {
@@ -141,7 +146,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, isAdmin }: {
         ) : null}
       </div>
 
-      {view.open ? <NeedPanel key={view.open} needId={view.open} row={openRow} timeZone={zone} canResolve={isAdmin} onClose={() => update({ open: null })} onChanged={list.reload} /> : null}
+      {view.open ? <NeedPanel key={view.open} needId={view.open} row={openRow} timeZone={zone} canResolve={canResolve} onClose={() => update({ open: null })} onChanged={list.reload} /> : null}
       {acting ? (
         <NeedActionDialog
           need={acting}
@@ -155,7 +160,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, isAdmin }: {
       ) : null}
       {addingToRun ? <AddToRunDialog needs={[addingToRun]} onClose={() => setAddingToRun(null)} onDone={() => list.reload()} /> : null}
       <ReportNeedDialog key={view.propertyId} open={reportOpen} initialPropertyId={view.propertyId} onClose={() => setReportOpen(false)} onReported={() => { setReportOpen(false); list.reload(); }} />
-      <ReminderSettingsDialog open={isAdmin && settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ReminderSettingsDialog open={canEditReminders && settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

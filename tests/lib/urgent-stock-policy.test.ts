@@ -25,21 +25,21 @@ describe("urgent stock facts", () => {
 describe("urgent stock lifecycle", () => {
  it("keeps acknowledgement, order and delivery open", () => {
   for (const [from, to] of [["REPORTED", "ACKNOWLEDGED"], ["ACKNOWLEDGED", "ORDERED"], ["ORDERED", "DELIVERED"]] as const) {
-   expect(() => transition({ from, to, isAdmin: false, reason: "Recorded action" })).not.toThrow();
+   expect(() => transition({ from, to, mayResolve: false, reason: "Recorded action" })).not.toThrow();
    expect(isUrgentStockClosed(to)).toBe(false);
   }
  });
  it("requires fresh positive stock and explicit confirmation to close", () => {
-  const base = { from: "DELIVERED", to: "PROPERTY_CONFIRMED", isAdmin: false, reason: "Checked at property" } as const;
+  const base = { from: "DELIVERED", to: "PROPERTY_CONFIRMED", mayResolve: false, reason: "Checked at property" } as const;
   expect(() => transition(base)).toThrow();
   const proof = { observedCount: 12, observationApplied: true, needResolved: true, reason: "Enough stock now present" };
   expect(() => transition({ ...base, confirmation: proof })).not.toThrow();
   for (const override of [{ observedCount: null }, { observedCount: 0 }, { observationApplied: false }, { needResolved: false }]) expect(() => transition({ ...base, confirmation: { ...proof, ...override } })).toThrow();
  });
  it("allows only justified admin resolution and never rewrites closed history", () => {
-  const base = { from: "REPORTED", to: "ADMIN_RESOLVED", isAdmin: true, reason: "Duplicate need covered by verified existing supply" } as const;
+  const base = { from: "REPORTED", to: "ADMIN_RESOLVED", mayResolve: true, reason: "Duplicate need covered by verified existing supply" } as const;
   expect(() => transition(base)).not.toThrow();
-  expect(() => transition({ ...base, isAdmin: false })).toThrow();
+  expect(() => transition({ ...base, mayResolve: false })).toThrow();
   expect(() => transition({ ...base, reason: " " })).toThrow();
   expect(() => transition({ ...base, from: "PROPERTY_CONFIRMED" })).toThrow();
   expect(() => transition({ ...base, to: "DELIVERED" })).toThrow();

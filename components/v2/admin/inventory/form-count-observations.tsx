@@ -5,7 +5,7 @@
  * count answer on a job form, what happened to it (waiting for the clean's
  * approval, applied with the previous on-hand, not applied because a newer
  * stock movement exists, needs review, reviewed, replaced by a newer
- * submission) and the reason. A count that needs review can be marked
+ * submission, reversed when the job was reset) and the reason. A count that needs review can be marked
  * reviewed with a note; nothing here changes on-hand.
  */
 import * as React from "react";
@@ -23,6 +23,7 @@ const STATUS_LABEL: Record<FormCountRow["status"], string> = {
   NEEDS_REVIEW: "Needs review",
   REVIEWED: "Reviewed",
   SUPERSEDED: "Replaced by a newer submission",
+  REVERSED: "Reversed when the job was reset",
 };
 const FILTER_LABEL: Record<FormCountFilter, string> = { review: "Needs review", pending: "Waiting for approval", all: "All" };
 

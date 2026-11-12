@@ -4,11 +4,13 @@ import { applyBulkStatus, previewBulkStatus } from "@/lib/jobs/bulk-status-store
 import { Prisma } from "@prisma/client";
 const m = vi.hoisted(() => ({ rotation: vi.fn(), read: vi.fn(), update: vi.fn(), assignments: vi.fn(), audit: vi.fn(), lock: vi.fn(), transaction: vi.fn() }));
 vi.mock("@/lib/accountability/rotation", () => ({ applyJobRotationCompletion: m.rotation }));
-vi.mock("@/lib/db", () => ({ db: { job: { findMany: m.read }, $transaction: m.transaction } }));
+// No applied stock counts unless a test says so (owner decision 2026-11-12 blocks those rows).
+const counts = vi.hoisted(() => ({ findMany: vi.fn() }));
+vi.mock("@/lib/db", () => ({ db: { job: { findMany: m.read }, stockCountObservation: counts, $transaction: m.transaction } }));
 const row = (id = "a", status = "ASSIGNED") => ({ id, propertyId: "p", jobNumber: `JOB-${id}`, scheduledDate: new Date("2026-09-09T00:00:00Z"), status, updatedAt: new Date("2026-09-10T00:00:00Z"), completedAt: null, property: { name: `Property ${id}` }, assignments: [{ id: `${id}-assignment`, userId: "cleaner", isPrimary: true, responseStatus: "ACCEPTED" }] });
 beforeEach(() => {
-  vi.resetAllMocks(); m.read.mockResolvedValue([row()]); m.update.mockResolvedValue({ count: 1 });
-  m.transaction.mockImplementation(async callback => callback({ $queryRaw: m.lock, job: { findMany: m.read, updateMany: m.update }, jobAssignment: { updateMany: m.assignments }, auditLog: { create: m.audit } }));
+  vi.resetAllMocks(); m.read.mockResolvedValue([row()]); m.update.mockResolvedValue({ count: 1 }); counts.findMany.mockResolvedValue([]);
+  m.transaction.mockImplementation(async callback => callback({ $queryRaw: m.lock, job: { findMany: m.read, updateMany: m.update }, jobAssignment: { updateMany: m.assignments }, auditLog: { create: m.audit }, stockCountObservation: counts }));
 });
 const input = { jobIds: ["a"], status: "UNASSIGNED" };
 it.each([{ code: "P2034" }, { code: "P2010", meta: { code: "40001" } }, { code: "P2010", meta: { code: "40P01" } }])("reports serialization rollback without automatically retrying %j", async options => {
@@ -64,4 +66,15 @@ it("counts rotation in transaction and preserves an existing completion timestam
   await applyBulkStatus("admin", { ...input, status: "COMPLETED" });
   expect(m.update.mock.calls[0][0].data.completedAt).toEqual(completedAt);
   expect(m.rotation).toHaveBeenCalledWith(expect.objectContaining({ job: expect.any(Object) }), { jobId: "a", propertyId: "p" });
+});
+
+it("blocks taking a completed job with applied stock counts out of Completed, naming it, before writes (owner decision 2026-11-12)", async () => {
+  m.read.mockResolvedValue([row("a", "COMPLETED")]); counts.findMany.mockResolvedValue([{ jobId: "a" }]);
+  const preview = await previewBulkStatus({ jobIds: ["a"], status: "ASSIGNED" });
+  expect(preview.rows[0].blocked).toBe(true);
+  expect(preview.rows[0].consequences[0]).toMatch(/Use Reset job/);
+  await expect(applyBulkStatus("admin", { jobIds: ["a"], status: "ASSIGNED" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("JOB-a") });
+  expect(m.update).not.toHaveBeenCalled();
+  // Staying completed is not a reset: no block.
+  expect((await previewBulkStatus({ jobIds: ["a"], status: "COMPLETED" })).rows[0].blocked).toBe(false);
 });

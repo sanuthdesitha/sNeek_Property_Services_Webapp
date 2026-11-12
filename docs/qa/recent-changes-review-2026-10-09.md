@@ -1339,3 +1339,23 @@ Tests run:
 Not run / not verified
 - Production build, the full Vitest suite and browser checks (not requested in this step). Browser pass needed at 390px and 1280px, light and dark: invoice row menu and editor menu "Mark as sent (not emailed)" dialog (refusal shown in the dialog), "Group by property" on a draft and a sent invoice; Quality six stat cards (grid at 390px / 1280px), the expanded cleaner row's rating mix, Review queue counters, "Laundry team and suppliers" disclosure (keyboard, table overflow at 390px); Approvals opened from the card; Accounts KPI strip.
 - No real message sent; deployment not done.
+
+## Owner decisions: urgent stock rights, need-opened notice, applied stock counts on reset (2026-11-12, uncommitted step)
+
+Scope: owner's tenth set (`docs/plans/admin-redesign-2026-11.md`): (1) operations managers with the inventory pack at manage may Resolve, bulk Close and change the urgent-stock reminder settings; (2) the "urgent need opened" inbox notice also reaches operations managers with the pack; (3) resetting a job whose form's stock counts were applied asks the office to reverse or keep them; (4) lost items still New stay a separate count (no change). Details: `docs/SYSTEM.md`, "Owner decisions: urgent stock rights, need-opened notice, applied stock counts on reset". No Prisma schema change, no migration (`prisma/` untouched; `migrate diff --from-url <fresh db> --to-schema-datamodel prisma/schema.prisma --exit-code` → "No difference detected").
+
+Tests run:
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → clean. ESLint on the changed files → no errors (one pre-existing warning in `job-reset-dialog.tsx`).
+- DB-backed, on my own fresh disposable database `sneek_decisions_1794454185` (127.0.0.1:55439, `prisma migrate deploy` from empty), `--no-file-parallelism`: new `tests/db/owner-decisions-stock.test.ts` (13) with `urgent-stock`, `wave-f`, `stay-preparation`, `notification-intents` → 5 files, 45 passed.
+- New non-DB: `tests/lib/stock-count-reset-rules.test.ts` (5), `tests/components/stock-count-reset-dialog.test.tsx` (3), `tests/components/qa-reset-stock-count-choice.test.tsx` (1), `tests/components/urgent-office-manage-controls.test.tsx` (2); new cases in `tests/lib/notification-entity-scope.test.ts` (3) and `tests/lib/jobs-bulk-status.test.ts` (1).
+- Every existing non-DB test file covering touched code (urgent stock service, policy, actions, routes and UI; job reset, QA reset, job PATCH and bulk status; QA submit, admin QA score, photo review, authority; notification scopes, office sends, catalog; rotation) plus the new ones → 43 files, 422 passed. Notification catalog test passes.
+- Changed on purpose: `tests/db/wave-f.test.ts` (a manager with manage now resolves; was refused), `tests/lib/urgent-stock-policy.test.ts` and `tests/lib/urgent-stock-actions.test.ts` (policy parameter `isAdmin` renamed `mayResolve`, same assertions). Fixtures given an empty stock-count reader (the new query; no assertion weakened): `tests/api/qa-reset-financial-guard.test.ts`, `tests/lib/jobs-bulk-status.test.ts`.
+
+Rules added / changed (for the owner)
+- Resolve, bulk Close, reminder settings: ADMIN, or OPS_MANAGER with the inventory pack at manage; read refused; target's rights while impersonated; audit records role (and the impersonating administrator).
+- "Urgent need opened": admins and managers with inventory read or manage, one inbox notice each, pack re-checked at dispatch, preferences respected. Reminders unchanged (administrators only).
+- A reset that takes an approved job out of Completed with applied counts requires "Reverse" or "Keep" (Reset job, QA reset, job status edit: 409 naming the counts); bulk status refuses those jobs; QA verdicts keep the counts and record that no choice was made. Reversal only without a newer stock record; nothing deleted; a reversed count is not re-applied.
+
+Not run / not verified
+- Production build, the full Vitest suite and browser checks (not requested). Browser pass needed at 390px and 1280px, light and dark: Reset job dialog with applied counts (table overflow at 390px, radio group keyboard and focus, Reset disabled until chosen, 409 re-ask), QA reset dialog on the classic job page (Radix dialog, table, radios), Stock → Urgent needs as an operations manager with manage (Reminder settings button, panel Resolve, bulk Close) and with read (none of them), Counts from job forms "Reversed when the job was reset"; the job edit form's toast for the 409 (long message).
+- No real message sent (inbox delivery exercised against the test database only). Deployment not done.

@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth/session";
 import { isListQueryError, parseListQuery } from "@/lib/admin/list-query";
 import { actOnUrgentStock, listUrgentStock, reportUrgentStock, setUrgentStockSettings } from "@/lib/inventory/urgent-stock";
 import { listUrgentNeedsForOffice, parseUrgentFilters, URGENT_SORTS } from "@/lib/inventory/urgent-stock-list";
+import { urgentStockActor } from "@/lib/inventory/urgent-stock-actor";
 export const dynamic = "force-dynamic";
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
 function failure(error: unknown) {
@@ -33,8 +34,8 @@ export async function POST(req: NextRequest) {
     const session = await requireSession();
     const { action, ...input } = await req.json();
     if (action === "report") return json(await reportUrgentStock(session.user, input));
-    if (action === "transition") return json(await actOnUrgentStock(session.user, input));
-    if (action === "settings") return json(await setUrgentStockSettings(session.user, input));
+    if (action === "transition") return json(await actOnUrgentStock(urgentStockActor(session), input));
+    if (action === "settings") return json(await setUrgentStockSettings(urgentStockActor(session), input));
     return json({ error: "Unknown action." }, 400);
   } catch (error) { return failure(error); }
 }

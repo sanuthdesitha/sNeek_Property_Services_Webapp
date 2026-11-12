@@ -241,7 +241,7 @@ export const OFFICE_NOTIFICATION_TYPES: NotificationTypeEntry[] = [
     name: "Urgent stock need",
     group: "Stock",
     trigger: "An urgent stock need is opened, or a job form's stock count needs review.",
-    audience: OFFICE,
+    audience: "Active administrators and operations managers. \"Need opened\" (owner decision 2026-11-12): administrators and the operations managers whose inventory pack allows at least read, through scope URGENT_STOCK_OFFICE (pack re-checked at queue and at dispatch, one notice per person); reminders for unresolved needs go to administrators.",
     audienceKeys: ["STAFF_ADMIN"],
     initiator: "AUTOMATIC",
     transports: ["INBOX"],

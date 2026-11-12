@@ -22,6 +22,9 @@
  *    the new submission records counts, and in any case at approval). An
  *    already APPLIED count stays as the history it is; the newer submission's
  *    count applies on its own approval.
+ * 5. When the job is reset after a count was applied, the office chooses to
+ *    reverse or keep it (lib/inventory/stock-count-reset.ts, owner decision
+ *    2026-11-12). A REVERSED count is never applied again.
  */
 import { Prisma, Role } from "@prisma/client";
 import type { StockCountObservation as FormStockCount } from "@/lib/forms/form-effects";
@@ -29,7 +32,8 @@ import { queueDelivery } from "@/lib/notifications/queue-delivery";
 
 type Tx = Prisma.TransactionClient;
 
-export const COUNT_OBSERVATION_STATUSES = ["PENDING", "APPLIED", "SKIPPED_NEWER", "NEEDS_REVIEW", "REVIEWED", "SUPERSEDED"] as const;
+/** REVERSED (owner decision 2026-11-12): an applied count the office reversed when the job was reset (lib/inventory/stock-count-reset.ts). */
+export const COUNT_OBSERVATION_STATUSES = ["PENDING", "APPLIED", "SKIPPED_NEWER", "NEEDS_REVIEW", "REVIEWED", "SUPERSEDED", "REVERSED"] as const;
 export type CountObservationStatus = (typeof COUNT_OBSERVATION_STATUSES)[number];
 
 export const NOT_STOCKED_REASON = "This property does not stock this item, so the count cannot set its on-hand. Add the item to the property's stock or check the form's item.";

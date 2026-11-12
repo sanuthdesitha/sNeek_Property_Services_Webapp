@@ -9,9 +9,12 @@
  * - Everyone else: refused (cleaners keep their own job-scoped path).
  *
  * The role is re-read from the database by the caller (revoked roles lose
- * access at once); the pack is read from the live operations policy. Rules
- * that stay ADMIN-only are enforced where they live: resolving a need without
- * a property confirmation (urgent-stock-policy) and the reminder settings.
+ * access at once); the pack is read from the live operations policy.
+ *
+ * Owner decision 2026-11-12: Resolve (closing a need without a property
+ * confirmation), bulk Close and the reminder settings are no longer
+ * ADMIN-only: they need "manage", like every other office write. The
+ * callers (actOnUrgentStock, setUrgentStockSettings) re-check it.
  */
 import { Role } from "@prisma/client";
 import { getOpsAccess } from "@/lib/rbac/ops-access";

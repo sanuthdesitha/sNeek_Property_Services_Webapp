@@ -498,7 +498,7 @@ Waves (one wave holds the database at a time):
 > - [x] "Add to shopping run" (row, panel, bulk "Add to one shopping run") on the existing shopping-run tables; the need shows its run; stage unchanged; idempotent; closed runs refused with the reason.
 > - [x] "Ask cleaner to buy": next clean's cleaner or a chosen one, pipeline type `urgent_stock.purchase_ask` (inbox by default, explicit transports), Asked / Accepted / Declined / Withdrawn, Bought only via the cleaner's shopping run and the office's reimbursement approval; cleaner answers on the v2 job screen and Supplies → Shopping.
 > - [x] Job on a need: stored for job-screen and form reports; certain backfill only; "Reported by … during job …" with a link.
-> - [x] Operations managers see and act on urgent stock with the inventory pack (read / manage), server-checked; Resolve, bulk Close and reminder settings stay ADMIN-only.
+> - [x] Operations managers see and act on urgent stock with the inventory pack (read / manage), server-checked; ~~Resolve, bulk Close and reminder settings stay ADMIN-only~~ — changed by the owner's tenth set (2026-11-12): they need the pack at manage.
 > - [x] Lost and found: items still New after 14 days flagged (named threshold; badge, chip with count, summary, panel note, Command row).
 > - [x] Cases: "Add charge to invoice" onto a DRAFT of the case's client or a new draft, through the invoice PATCH; "Charge on INV-… (draft)" on the case, "From case …" on the line.
 > - [x] Laundry: planned pickup / drop clock times (nullable, set in the run panel), shown on cards and the panel only when planned.
@@ -575,3 +575,18 @@ Owner rule: no function that existed before the redesign may be lost (baseline `
 - [x] `/urgent-stock` for an operations manager with the inventory pack: already done in Wave F (verified, no change).
 - [x] Accountability notification links point at the Quality hub; `/admin/accountability` and `/admin/accountability/coaching/[id]` redirect there.
 - Reported, not changed: the "Mgmt review queue" count is the period's flagged reviewed cleans (the hub's basis), while the Approvals queue it links to lists every flagged review not yet resolved, whatever its date; the laundry team section duplicates the rendering of the Laundry statistics panel because that file belongs to the laundry work stream (a follow-up can give `LaundryTeamMetricsPanel` an endpoint prop and reuse it).
+
+## Owner decisions, tenth set (2026-11-12): urgent stock rights, need-opened notice, applied counts on reset, lost items
+
+The three questions left open by Wave F, answered by the owner, plus one confirmation:
+
+1. **Resolved.** May operations managers Resolve an urgent need, use bulk Close and change the reminder settings? — Yes, with the inventory pack at manage (server-checked; never beyond their own rights while impersonated; audit records actor and role). ADMIN unchanged.
+2. **Resolved.** Should the "urgent need opened" inbox notice also reach operations managers? — Yes, those holding the inventory pack (at least read), through the notification pipeline (pack re-checked at queue and at dispatch, preferences respected, inbox only, one notice per person).
+3. **Resolved.** When a job is reset after a stock count from it was applied to on-hand, what happens to the count? — The office is asked: "Reverse these counts" or "Keep them", no default, and the server refuses a reset without the choice. Reversal restores the replaced value only when no newer stock record exists for that item (else reported "not reversed — newer record"); nothing is deleted. Paths nobody decides keep the counts and record that.
+4. Lost items still at New stay a separate count (the "New over 14 days" chip and summary). No code change.
+
+**Status (2026-11-12, uncommitted step, no schema change; build, full suite and browser pass pending).**
+- [x] 1: `actOnUrgentStock` (Resolve and bulk Close), `setUrgentStockSettings` and the settings read use the inventory pack at manage; Urgent needs shows Resolve, Close and Reminder settings by the same server rule.
+- [x] 2: recipient scope `URGENT_STOCK_OFFICE`; catalog entry `stock.urgent_need` audience updated. Reminders for unresolved needs still go to administrators only (not part of the decision).
+- [x] 3: `lib/inventory/stock-count-reset.ts`; Reset job dialog and QA reset dialog ask; Reset job, QA reset and the job status edit answer 409 without a choice; bulk status blocks those jobs; QA verdicts keep and record no choice.
+- Reported, not changed: the job edit form has no choice control (its 409 names the counts and points to Reset job); with "Clear form data" the observation rows still go with the deleted submission (their final state is in the audit rows; the ledger rows are kept); a REVERSED count is not re-applied if the same submission is approved again. Details: `docs/SYSTEM.md`, "Owner decisions: urgent stock rights, need-opened notice, applied stock counts on reset".

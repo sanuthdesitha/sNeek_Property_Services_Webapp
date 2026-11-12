@@ -12,6 +12,12 @@
  * summarised before the admin confirms. The preview is computed with the SAME
  * pure planner the server runs (lib/jobs/job-reset.ts), so what's promised here
  * is what happens.
+ *
+ * When stock counts from the job's form were already applied to on-hand, the
+ * dialog lists them and asks "Reverse these counts" / "Keep them" (owner
+ * decision 2026-11-12). Nothing is pre-selected and Reset stays disabled
+ * until one is chosen; the server refuses the reset without it (409), and a
+ * count applied after the dialog opened arrives in that refusal and is shown.
  */
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, RotateCcw, ShieldCheck } from "lucide-react";
@@ -25,6 +31,14 @@ import {
   type JobResetOptions,
   type JobResetTargetStatus,
 } from "@/lib/jobs/job-reset";
+import {
+  appliedCountsFromRefusal,
+  summarizeCountResolution,
+  type AppliedCountChoice,
+  type AppliedStockCount,
+} from "@/lib/inventory/stock-count-reset-format";
+import { toast } from "@/hooks/use-toast";
+import { AppliedStockCountChoice } from "./applied-stock-count-choice";
 
 const STATUS_LABEL: Record<JobResetTargetStatus, string> = {
   ASSIGNED: "Assigned — keep the crew, they start again",
@@ -99,24 +113,36 @@ export function JobResetDialog({
   const [pin, setPin] = useState("");
   const [password, setPassword] = useState("");
   const [extraConfirmed, setExtraConfirmed] = useState(false);
+  const [appliedCounts, setAppliedCounts] = useState<AppliedStockCount[]>([]);
+  const [countChoice, setCountChoice] = useState<AppliedCountChoice | null>(null);
 
   useEffect(() => {
     if (!open || !jobId) return;
+    const controller = new AbortController();
     setOptions(DEFAULT_JOB_RESET_OPTIONS);
     setPin("");
     setPassword("");
     setExtraConfirmed(false);
     setError(null);
     setContext(null);
+    setAppliedCounts([]);
+    setCountChoice(null);
     setLoading(true);
-    fetch(`/api/admin/jobs/${jobId}/reset`, { cache: "no-store" })
+    fetch(`/api/admin/jobs/${jobId}/reset`, { cache: "no-store", signal: controller.signal })
       .then(async (res) => {
         const body = await res.json().catch(() => ({}));
+        if (controller.signal.aborted) return;
         if (!res.ok) throw new Error(body.error ?? "Could not load the job's reset details.");
         setContext(body.context as JobResetContext);
+        setAppliedCounts(Array.isArray(body.appliedStockCounts) ? (body.appliedStockCounts as AppliedStockCount[]) : []);
       })
-      .catch((err: any) => setError(err?.message ?? "Could not load the job's reset details."))
-      .finally(() => setLoading(false));
+      .catch((err: any) => {
+        if (!controller.signal.aborted) setError(err?.message ?? "Could not load the job's reset details.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
   }, [open, jobId]);
 
   const plan = useMemo(
@@ -130,7 +156,8 @@ export function JobResetDialog({
 
   const securityOk = !plan?.destructive || Boolean(pin.trim() || password.trim());
   const confirmOk = !plan?.requiresExtraConfirm || extraConfirmed;
-  const canConfirm = Boolean(plan?.allowed) && securityOk && confirmOk && !busy && !loading;
+  const countChoiceOk = appliedCounts.length === 0 || countChoice !== null;
+  const canConfirm = Boolean(plan?.allowed) && securityOk && confirmOk && countChoiceOk && !busy && !loading;
 
   async function run() {
     if (!jobId || !plan) return;
@@ -144,10 +171,20 @@ export function JobResetDialog({
           options,
           confirmProtected: extraConfirmed || undefined,
           security: plan.destructive ? { pin: pin.trim() || undefined, password: password.trim() || undefined } : undefined,
+          appliedStockCounts: appliedCounts.length > 0 ? countChoice ?? undefined : undefined,
         }),
       });
       const body = await res.json().catch(() => ({}));
+      const refusedCounts = res.status === 409 ? appliedCountsFromRefusal(body) : null;
+      if (refusedCounts) {
+        // A count was applied after the dialog opened: show it and ask again.
+        setAppliedCounts(refusedCounts);
+        setCountChoice(null);
+        throw new Error(body.error ?? "Choose what happens to the applied stock counts.");
+      }
       if (!res.ok) throw new Error(body.error ?? "Could not reset the job.");
+      const countSummary = summarizeCountResolution(body.stockCounts);
+      if (countSummary) toast({ title: "Job reset", description: countSummary });
       onClose();
       await onDone();
     } catch (err: any) {
@@ -283,6 +320,14 @@ export function JobResetDialog({
                 )}
               </div>
             ) : null}
+
+            <AppliedStockCountChoice
+              counts={appliedCounts}
+              choice={countChoice}
+              onChoiceChange={setCountChoice}
+              disabled={busy}
+              name={`reset-stock-counts-${jobId ?? "job"}`}
+            />
 
             {plan?.allowed && plan.requiresExtraConfirm ? (
               <label className="flex cursor-pointer items-start gap-3 rounded-[var(--e-radius)] border border-[hsl(var(--e-danger)/0.4)] p-3">
