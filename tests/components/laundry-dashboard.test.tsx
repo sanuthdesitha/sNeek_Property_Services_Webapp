@@ -4,9 +4,11 @@ import { render, screen, within } from "@testing-library/react";
 import { LaundryStatus, Role } from "@prisma/client";
 import LaundryTodayPage from "@/app/v2/laundry/page";
 
-const mocks = vi.hoisted(() => ({ tasks: vi.fn(), routes: vi.fn(), property: vi.fn(), requireRole: vi.fn() }));
+const mocks = vi.hoisted(() => ({ tasks: vi.fn(), routes: vi.fn(), property: vi.fn(), requireRole: vi.fn(), audit: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: {
   laundryTask: { findMany: mocks.tasks }, laundryRoute: { findMany: mocks.routes },
+  // "Requests from the office" (2026-11-12): the audit rows of Ask laundry team requests.
+  auditLog: { findMany: mocks.audit },
   // findMany answers the viewer-scope lookup: the properties this driver serves.
   property: { findUnique: mocks.property, findMany: async () => [{ id: "property-1", accessInfo: {}, laundryEnabled: true }] },
 } }));
@@ -28,6 +30,7 @@ beforeEach(() => {
   mocks.tasks.mockResolvedValue([]);
   mocks.routes.mockResolvedValue([]);
   mocks.property.mockResolvedValue({ name: "Harbour House" });
+  mocks.audit.mockResolvedValue([]);
 });
 afterEach(() => vi.useRealTimers());
 
@@ -215,5 +218,27 @@ describe("laundry dashboard reliability", () => {
   it("lists only tasks at the properties this driver serves", async () => {
     render(await LaundryTodayPage());
     expect(mocks.tasks.mock.calls[0][0].where.propertyId).toEqual({ in: ["property-1"] });
+  });
+});
+
+describe("requests from the office (Ask laundry team)", () => {
+  it("lists this team member's requests as Open while the run still calls for them, with the way to answer", async () => {
+    mocks.audit.mockResolvedValue([{ id: "a1", entityId: "task-9", createdAt: new Date("2026-11-12T01:00:00Z"), after: { kind: "TEAM_CONFIRM_PICKUP", note: "Gate code 1234", recipientIds: ["driver-1"] } }]);
+    mocks.tasks.mockImplementation(async (args: { where?: { id?: unknown } }) => (args.where?.id
+      ? [{ id: "task-9", jobId: "j9", status: LaundryStatus.CONFIRMED, pickupDate: new Date("2020-01-01T00:00:00Z"), dropoffDate: new Date("2020-01-02T00:00:00Z"), pickedUpAt: null, flagReason: null, supplier: { avgTurnaround: null }, property: { name: "Harbour House", suburb: "Manly" }, job: { status: "COMPLETED" }, confirmations: [] }]
+      : []));
+    render(await LaundryTodayPage());
+    const card = screen.getByRole("heading", { name: "Requests from the office" }).closest("#office-requests") as HTMLElement;
+    expect(within(card).getByText("Confirm the pickup · Harbour House, Manly")).toBeVisible();
+    expect(within(card).getByText(/Gate code 1234/)).toBeVisible();
+    expect(within(card).getByText("Open")).toBeVisible();
+    expect(within(card).getByRole("link", { name: /Answer on the Queue/ })).toHaveAttribute("href", "/v2/laundry/queue");
+    expect(mocks.audit.mock.calls[0][0].where).toMatchObject({ action: "LAUNDRY_TEAM_REQUEST_SENT", after: { path: ["recipientIds"], array_contains: ["driver-1"] } });
+  });
+
+  it("says the requests could not be loaded instead of showing none", async () => {
+    mocks.audit.mockRejectedValue(new Error("offline"));
+    render(await LaundryTodayPage());
+    expect(screen.getByText("Requests from the office could not be loaded.")).toBeVisible();
   });
 });

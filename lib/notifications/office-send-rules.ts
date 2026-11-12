@@ -7,7 +7,7 @@
  *   is at "Manage available actions" (the same level every other change on
  *   that page needs): Laundry for Chase supplier, Lost & found for the guest
  *   message and Tell client, Jobs for the client delay notice and the clock
- *   pause.
+ *   pause; Staff accounts for account emails (invitation, reset link, code).
  * - Nobody while impersonating: the message or pause must be recorded against
  *   the real person, and the target's restrictions apply.
  *
@@ -23,7 +23,8 @@ export type OfficeSendAction =
   | "guest_message"
   | "lost_item_client_notice"
   | "client_delay_notice"
-  | "clock_pause";
+  | "clock_pause"
+  | "account_email";
 
 export type OfficeActorRole = "ADMIN" | "OPS_MANAGER";
 
@@ -68,6 +69,13 @@ export const OFFICE_SEND_POLICIES: Record<OfficeSendAction, ActionPolicy> = {
     packLabel: "Jobs & assignments",
     doing: "pause a cleaner's clock",
     instead: "Use Review clock or call the cleaner instead.",
+  },
+  // Account emails (invitation, password reset link, sign-up code), 2026-11-12.
+  account_email: {
+    pack: "accounts",
+    packLabel: "Staff accounts",
+    doing: "send account emails",
+    instead: "Ask an administrator to send it.",
   },
 };
 

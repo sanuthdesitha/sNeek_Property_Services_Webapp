@@ -66,10 +66,11 @@ export function PersonActions({
     }
   }
 
-  const canResend = caps.canResendInvite && (!profile.emailVerified || !profile.isActive);
+  // A pending invitation gets a fresh link; an unverified self-registered login a fresh code (the server decides again).
+  const canResend = caps.canResendInvite && profile.isActive && (profile.status === "INVITED" || !profile.emailVerified);
   const items: ERowMenuItem[] = [];
   if (fullPageHref) items.push({ key: "page", label: "Open full page", href: fullPageHref });
-  if (canResend) items.push({ key: "resend", label: "Resend invite", onSelect: () => void run("Invite sent", () => post(`${base}/resend-otp`, "POST")) });
+  if (canResend) items.push({ key: "resend", label: "Resend invite", onSelect: () => void run("Invite sent", () => post(`${base}/resend-otp`, "POST"), (body) => toast({ title: typeof body.message === "string" ? body.message : "Invite sent" })) });
   if (caps.isAdmin) {
     items.push(
       { key: "password", label: "Reset password", onSelect: () => setDialog("password"), separated: items.length > 0 },

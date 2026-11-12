@@ -106,7 +106,7 @@ export function EstateSuppliers() {
     return () => loadRef.current?.abort();
   }, [load]);
 
-  const rows: SupplierDirectoryRow[] = directory?.rows ?? [];
+  const rows: SupplierDirectoryRow[] = useMemo(() => directory?.rows ?? [], [directory]);
   const stockSuppliers = useMemo(() => rows.flatMap((row) => (row.stock ? [row.stock] : [])), [rows]);
   const linkedStock = useMemo(() => new Map(rows.flatMap((row) => (row.stock && row.laundry ? [[row.stock.id, row.laundry.name] as [string, string]] : []))), [rows]);
   const partnerNames = useMemo(() => new Map(rows.flatMap((row) => (row.laundry ? [[row.laundry.id, row.laundry.name] as [string, string]] : []))), [rows]);

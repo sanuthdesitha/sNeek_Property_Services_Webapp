@@ -55,8 +55,12 @@ it("cleaner job screen: answers an ask with Accept, and hides itself when there 
 
 it("laundry cards show a planned time only when one was planned, never a guessed one", () => {
   const card = { id: "t", status: "CONFIRMED", pickupDate: "2026-11-11T00:00:00.000Z", dropoffDate: "2026-11-13T00:00:00.000Z", lane: "pickup", exceptions: [], carriedIn: false, readiness: true, confirmations: [], driver: { driverName: "Tom", stop: 3 }, updatedAt: "" } as unknown as PipelineCardDTO;
-  expect(cardFacts(card)).toContain("Driver Tom, stop 3");
-  expect(cardFacts({ ...card, pickupTime: "14:30" })).toContain("Driver Tom 14:30");
+  // The route stop is the laundry team member carrying it (2026-11-12), with the partner when recorded.
+  expect(cardFacts(card)).toContain("Laundry team · Tom, stop 3");
+  expect(cardFacts({ ...card, pickupTime: "14:30" })).toContain("Laundry team · Tom, stop 3 · 14:30");
+  expect(cardFacts({ ...card, supplier: { id: "s1", name: "Fresh Linen" } } as PipelineCardDTO)).toContain("Fresh Linen · Tom, stop 3");
+  expect(cardFacts({ ...card, driver: null, supplier: { id: "s1", name: "Fresh Linen" } } as PipelineCardDTO)).toContain("Pickup by Fresh Linen");
+  expect(cardFacts(card)).not.toContain("Driver");
   expect(cardFacts({ ...card, lane: "drop", dropoffTime: "09:15" } as PipelineCardDTO)).toContain("Drop 09:15");
   expect(dayWithTime("2026-11-11T00:00:00.000Z", null)).toBe("Wed 11 Nov");
   expect(dayWithTime("2026-11-11T00:00:00.000Z", "15:00")).toBe("Wed 11 Nov 15:00");

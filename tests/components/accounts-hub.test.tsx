@@ -50,7 +50,7 @@ describe("Accounts hub", () => {
     expect(screen.queryByRole("columnheader", { name: /QA, 30 d/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Jane Cleaner" }));
     const bar = screen.getByRole("region", { name: "Bulk actions" });
-    expect(within(bar).getByRole("button", { name: "Resend invite" })).toBeInTheDocument();
+    expect(within(bar).getByRole("button", { name: "Resend invitation" })).toBeInTheDocument();
     expect(within(bar).queryByRole("button", { name: "Change rate" })).not.toBeInTheDocument();
     expect(within(bar).queryByRole("button", { name: "Disable" })).not.toBeInTheDocument();
   });

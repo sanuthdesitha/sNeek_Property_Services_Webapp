@@ -18,6 +18,7 @@ describe("which pack governs each action", () => {
       guest_message: "lost-found",
       lost_item_client_notice: "lost-found",
       client_delay_notice: "jobs",
+      account_email: "accounts",
       clock_pause: "jobs",
     });
   });

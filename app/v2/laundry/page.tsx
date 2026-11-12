@@ -20,6 +20,7 @@ import { LaundryRouteMap } from "@/components/v2/laundry/route-map";
 import { PlanBrief } from "@/components/v2/laundry/plan-brief";
 import { sydneyDayKey } from "@/lib/laundry/route-candidates";
 import { nextIncompleteStop, parseRouteStops } from "@/lib/laundry/route-plan";
+import { listOfficeRequestsForLaundryUser, OFFICE_REQUEST_WINDOW_HOURS, type LaundryOfficeRequest } from "@/lib/laundry/office-requests";
 import { ArrowRight, Navigation, PackageCheck, Route as RouteIcon, Timer, Truck, Waves } from "lucide-react";
 
 export const metadata = { title: "Today · Estate laundry" };
@@ -162,9 +163,11 @@ async function getRouteCard(userId: string) {
 
 export default async function LaundryTodayPage() {
   const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
-  const [{ tasks, inQueue, inTransit, ready }, routeCard] = await Promise.all([
+  const [{ tasks, inQueue, inTransit, ready }, routeCard, officeRequests] = await Promise.all([
     getLaundry(await laundryTaskScope(session.user)),
     getRouteCard(session.user.id).catch(() => null),
+    // Null = could not be read (shown as such, never as "no requests").
+    listOfficeRequestsForLaundryUser(session.user).catch(() => null),
   ]);
 
   return (
@@ -222,6 +225,8 @@ export default async function LaundryTodayPage() {
         </ECardBody>
       </ECard>
 
+      {session.user.role === Role.LAUNDRY ? <OfficeRequestsCard requests={officeRequests} /> : null}
+
       {/* 2. Plan brief — counts, weather, traffic, special days, deadlines. */}
       <PlanBrief />
 
@@ -278,5 +283,55 @@ export default async function LaundryTodayPage() {
 
       <LaundryRouteMap />
     </div>
+  );
+}
+
+/**
+ * Requests the office sent this laundry team member ("Ask laundry team"), with
+ * whether the run still calls for it. They are answered with the run's own
+ * actions on the Queue (confirm pickup / drop-off, add the drop-off photo).
+ */
+function OfficeRequestsCard({ requests }: { requests: LaundryOfficeRequest[] | null }) {
+  const open = requests?.filter((request) => request.open) ?? [];
+  return (
+    <ECard id="office-requests">
+      <ECardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <ECardTitle>Requests from the office</ECardTitle>
+          {requests && requests.length ? <EBadge tone={open.length ? "warning" : "success"} soft>{open.length ? `${open.length} open` : "All done"}</EBadge> : null}
+        </div>
+      </ECardHeader>
+      <ECardBody className="space-y-1">
+        {requests === null ? (
+          <div role="alert">
+            <p>Requests from the office could not be loaded.</p>
+            <a href="/v2/laundry#office-requests" className="underline">Retry</a>
+          </div>
+        ) : requests.length === 0 ? (
+          <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No requests in the last {OFFICE_REQUEST_WINDOW_HOURS / 24} days.</p>
+        ) : (
+          requests.map((request, index) => (
+            <div key={request.id}>
+              {index > 0 ? <EThread className="my-1" /> : null}
+              <div className="flex flex-wrap items-start justify-between gap-2 py-1.5">
+                <div className="min-w-0">
+                  <p className="text-[0.875rem] font-medium">{request.label} · {request.propertyName}</p>
+                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{request.text}{request.note ? ` Note: ${request.note}` : ""}</p>
+                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Asked {request.askedAtLabel}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <EBadge tone={request.open ? "warning" : "success"} soft>{request.open ? "Open" : "Done"}</EBadge>
+                  {request.open ? (
+                    <Link href="/v2/laundry/queue" className="text-[0.8125rem] font-medium text-[hsl(var(--e-accent-portal))] hover:underline">
+                      Answer on the Queue →
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </ECardBody>
+    </ECard>
   );
 }

@@ -20,9 +20,9 @@ import { AccountsMessageDialog } from "./accounts-message-dialog";
 
 const COPY: Record<AccountBulkAction, { title: string; confirm: string; body: string }> = {
   "resend-invite": {
-    title: "Resend invites",
+    title: "Resend invitations",
     confirm: "Resend",
-    body: "Each person who has not verified their email, or is disabled, is sent a new sign-up code. Anyone already verified and active is reported back unchanged. The code service's cooldown applies per person.",
+    body: "Each person who has not accepted their invitation (never signed in) gets a fresh invitation link, and the old link stops working. A self-registered login that has not verified gets a fresh sign-up code. Anyone else, a disabled account, or a person whose role is above yours is reported back unchanged. One resend per person every 5 minutes.",
   },
   "change-rate": {
     title: "Change hourly rate",
@@ -112,7 +112,7 @@ export function AccountsBulk({
         note={tooMany ? `At most ${ACCOUNT_BULK_MAX_IDS} at a time.` : "Selection covers this page of the current list."}
       >
         {canMessage ? <EBulkButton disabled={tooMany} onClick={() => setMessageOpen(true)}>Message</EBulkButton> : null}
-        {canResend ? <EBulkButton disabled={tooMany} onClick={() => open("resend-invite")}>Resend invite</EBulkButton> : null}
+        {canResend ? <EBulkButton disabled={tooMany} onClick={() => open("resend-invite")}>Resend invitation</EBulkButton> : null}
         {isAdmin ? <EBulkButton disabled={tooMany} onClick={() => open("change-rate")}>Change rate</EBulkButton> : null}
         {isAdmin ? <EBulkButton disabled={tooMany} onClick={() => open("disable")}>Disable</EBulkButton> : null}
       </EBulkBar>
