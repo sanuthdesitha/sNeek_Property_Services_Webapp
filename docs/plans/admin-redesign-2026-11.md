@@ -458,6 +458,14 @@ Waves (one wave holds the database at a time):
 - Command: inline "Send reminder" for an expiring document.
 - Lost and found: Property column sortable; "Tell client" with a real send path.
 
+> **Wave E, no-database part, built 2026-11-12 (uncommitted step; build, full suite and browser pass pending).** Details: `docs/SYSTEM.md`, "Wave E without a database change".
+> - [x] Cases: "Create repair quote" pre-filled from the case (server-read `?fromCase=`, FROM_CASE quote event + internal case note, "Quote Q-… created" on the case, "From case …" on the quote; nothing sent).
+> - [x] Laundry: "Chase supplier" to the supplier's stored email / SMS (ADMIN sends, everyone who can open the run copies; 30-minute cool-down; shared external-recipient path; catalog `laundry.supplier_chase`).
+> - [x] Command: inline "Send reminder" for an expiring document through REQUEST_DOCUMENT (confirm, explicit transports, one per document per day; REQUEST_DOCUMENT now records real states).
+> - [x] Lost and found: Property column sortable (raw ordered ids merged with paging, PostgreSQL parity test); "Tell client" sent from the app (scope LOST_ITEM_PROPERTY_CLIENT, ADMIN; operations managers copy and record).
+> - [x] Remaining visual differences on Cases, Laundry, Command, Live ops, Lost and found closed or listed (SYSTEM.md section).
+> - [ ] Schema step: Accounts (effective-dated pay rate, required documents, Last seen for everyone, one Pay editor), Cancel job, leave and days off, "Add charge to invoice" from a case, laundry pickup/drop clock times, QA inspection template snapshot.
+
 ### Wave F: Urgent stock (holds the database after Wave E)
 - The fifth-set items: "Add to shopping run", "Ask cleaner to buy", the job on a need, and the drawn tab names.
 
@@ -484,6 +492,7 @@ Items in these waves that change a business rule, money, or who can do what are 
 1. When the new server checks on submissions start rejecting: the lead's choice. They stay warnings at launch. The switch becomes an administrator setting on the Forms page with counts of recent warnings beside it, so it can be turned on once the counts are low; a submission started before the switch is still accepted with warnings. (Added to Wave B.)
 2. QA inspections keep a copy of the template they were filled in on, so editing a template never changes how a past inspection displays. Needs a database change: Wave E.
 3. Port the classic Forms page's Submissions tab (edit a submission, add or remove media) and Checklists tab to the new Forms page, then redirect the classic page. Wave E.
+   - [x] Built 2026-11-12: Results and stats → Submissions (every classic function; edits keep history, removed media kept and restorable); per-service checklists already covered the classic Checklists tab; `/admin/forms` redirects with tabs mapped.
 4. Build the "Table" and "Stock count" question types and the stock and damage effects. Already in Wave B.
 
 ### Rule added in Wave C (Quality), for the final summary
@@ -492,10 +501,10 @@ A bonus proposed by hand is limited to $5 to $200 and needs a reason. It is a pe
 
 ### Carried into Wave E from Wave B
 
-- The office's submission review shows a Table answer as plain text, one line per row; give it a real table.
-- A Stock count answer is recorded on the submission and raises an urgent need when below its limit, but does not set the property's on-hand figure, because no existing path turns a counted number into stock on hand. Build that path (a count observation that sets on-hand, audited, never double-counting the same item in one submission).
-- The classic cleaner job page does not show Table or Stock count questions; only the current cleaner app does. Redirect the classic page or add them.
-- Two cleans in the same month before the first is approved can both show a monthly question.
+- [x] The office's submission review shows a Table answer as plain text, one line per row; give it a real table. (2026-11-12: real table; Stock count as "item · counted N unit".)
+- [ ] A Stock count answer is recorded on the submission and raises an urgent need when below its limit, but does not set the property's on-hand figure, because no existing path turns a counted number into stock on hand. Build that path (a count observation that sets on-hand, audited, never double-counting the same item in one submission). (Not in the no-database step's list; with Wave F / the stock work.)
+- [x] The classic cleaner job page does not show Table or Stock count questions; only the current cleaner app does. Redirect the classic page or add them. (2026-11-12: added with the shared controls; not redirected, the classic look stays routable.)
+- [x] Two cleans in the same month before the first is approved can both show a monthly question. (2026-11-12: a submitted-not-approved clean that showed it counts; due again after a reset or rejection.)
 
 ### More items waiting for the owner (from the Finance decisions step)
 
