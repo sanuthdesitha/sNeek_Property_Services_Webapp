@@ -634,3 +634,7 @@ Owner: "build all designs as drawn"; answers: nav label "People"; suppliers edit
 - Lead to do: nav label "Accounts" → "People" in `app/v2/admin/layout.tsx` (People and quality group, href `/v2/admin/accounts`); remove the separate Clients / Cleaners / Workforce nav items if present (they redirect).
 - Needs the Permissions engineer: admit `/v2/admin/accounts?tab=clients` for the clients pack and `?tab=cleaners` for the workforce pack in the middleware, so the old pages can redirect for everyone.
 - Not built (needs a rule, data or path that does not exist): Revoke invitation, Send by SMS instead, stored copy of the sent email, Move assistant to another team, bulk Add payment, invitation Export, partner on-time pickups / properties served, device tracking.
+
+## Status: Notifications types and wording (2026-11-12)
+
+Built as drawn (`NotificationTemplates.dc.html`): "Types and wording" tab with the grouped list, details, wording editor per transport, versions, Regenerate (proposal only), preview and Send test to me; Delivery log, Health and Preferences kept (timezone and stale-read fixes). Wording layer with one render function; 14 of 55 types fully editable, 16 with editable parts (shared email templates), 6 written by the sender, 2 edited elsewhere, 17 in code with the reason shown. Access per the owner decision: ADMIN or operations manager with notifications at Manage, never while impersonating. Waiting: browser pass at 390/1280 light/dark; moving the remaining in-code types (listed in SYSTEM.md, "Notification types and wording").

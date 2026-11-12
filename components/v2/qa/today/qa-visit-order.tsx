@@ -65,6 +65,8 @@ export function QaVisitOrder({ viewerId, canReorder, qaPaySettings, todayKey }: 
     setState({ kind: "loading" });
     try {
       const qs = new URLSearchParams({ scope: "active", date: dateParam });
+      // The office may widen the queue; the visit order is always their own day.
+      if (canReorder) qs.set("assignedOnly", "1");
       const res = await fetch(`/api/qa/queue?${qs.toString()}`, { cache: "no-store", signal });
       const body: { assignments?: QueueAssignmentInput[]; error?: string } = await res.json().catch(() => ({}));
       if (request !== sequence.current || signal?.aborted) return;
@@ -77,7 +79,7 @@ export function QaVisitOrder({ viewerId, canReorder, qaPaySettings, todayKey }: 
       if (request !== sequence.current || (error instanceof DOMException && error.name === "AbortError")) return;
       setState({ kind: "error", message: "Could not load your visit order. Check your connection and retry." });
     }
-  }, [dateParam, qaPaySettings]);
+  }, [dateParam, qaPaySettings, canReorder]);
 
   React.useEffect(() => {
     const controller = new AbortController();

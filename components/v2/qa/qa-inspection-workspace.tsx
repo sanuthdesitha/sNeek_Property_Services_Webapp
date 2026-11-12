@@ -1062,7 +1062,7 @@ function QaMonitorPanel({
         {/* brief items that are already knowable */}
         {brief.length > 0 ? (
           <div className="space-y-2">
-            <p className="e-eyebrow">Know before you go</p>
+            <p id="know-before-you-go" className="e-eyebrow">Know before you go</p>
             {brief.map((item) => (
               <EAlert key={item.id} tone={item.tone === "danger" ? "danger" : item.tone === "warning" ? "warning" : "info"}>
                 <span className="font-[550]">{item.title}</span> — {item.detail}
