@@ -2,10 +2,12 @@
 
 /**
  * One run card in a Pipeline lane: property, one state pill, one line of facts
- * and its contextual actions as drawn: the exception's own action ("Ask
- * cleaner", "Request photo", "Chase supplier", each only where the run's
- * exception calls for it) and "Move to <next day>" (the reschedule endpoint
- * with its stale-write guard). Opening the card shows the side panel, where
+ * and its contextual actions: the run's own request (the laundry partner's
+ * team for pickup / drop-off / return date / photo, "Ask cleaner" only for the
+ * bags at the property, "Chase supplier" for the partner's stored contact;
+ * each only where the run calls for it) and "Move to <next day>" (the
+ * reschedule endpoint with its stale-write guard). The route stop names the
+ * laundry team member carrying it, not a "driver". Opening the card shows the side panel, where
  * Edit, Delete and every other run action live.
  */
 import * as React from "react";
@@ -15,7 +17,7 @@ import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { EButton } from "@/components/v2/ui/primitives";
 import { SYDNEY_TZ } from "@/lib/time/sydney-range";
 import { statusLabel } from "./laundry-shared";
-import { LaundryNudgeActions, nudgeKindsForTask } from "./laundry-nudge";
+import { LaundryNudgeActions, requestOptionsForTask } from "./laundry-nudge";
 import { LaundrySupplierChase, chaseAppliesToTask } from "./laundry-supplier-chase";
 import type { PipelineCardDTO } from "./use-laundry-pipeline";
 
@@ -55,12 +57,21 @@ export function cardPill(card: PipelineCardDTO): { label: string; tone: EPillTon
   }
 }
 
+/**
+ * The laundry route stop as what the data is: the laundry team member (a
+ * LAUNDRY portal account) carrying it, with the run's partner when known.
+ */
+export function laundryRouteLabel(stop: { driverName: string; stop: number }, supplierName: string | null): string {
+  return `${supplierName ? `${supplierName} · ` : "Laundry team · "}${stop.driverName}, stop ${stop.stop}`;
+}
+
 export function cardFacts(card: PipelineCardDTO): string {
   const bags = card.bagCount ? `${card.bagCount} bag${card.bagCount === 1 ? "" : "s"}` : null;
   const weight = card.bagWeightKg ? `${card.bagWeightKg} kg` : null;
-  const driver = card.driver ? `Driver ${card.driver.driverName}, stop ${card.driver.stop}` : null;
+  const partner = card.supplier?.name ?? null;
+  const driver = card.driver ? laundryRouteLabel(card.driver, partner) : null;
   // Planned clock times (Wave F): shown only when the office planned one.
-  const pickupAt = card.pickupTime ? (card.driver ? `Driver ${card.driver.driverName} ${card.pickupTime}` : `Pickup ${card.pickupTime}`) : driver;
+  const pickupAt = card.pickupTime ? (card.driver ? `${driver} · ${card.pickupTime}` : `Pickup ${card.pickupTime}${partner ? ` · ${partner}` : ""}`) : driver ?? (partner ? `Pickup by ${partner}` : null);
   const dropAt = card.dropoffTime ? `Drop ${card.dropoffTime}` : null;
   const latestHandoff = [...(card.confirmations ?? [])].reverse().find((row) => row.bagLocation || row.photoUrl);
   const nextGuest = card.nextGuest?.checkinAt ? `next guest ${shortDay(card.nextGuest.checkinAt)}` : null;
@@ -103,7 +114,7 @@ type Props = {
 
 export function LaundryLaneCard({ card, active, selectable, selected, saving, moveLabel, onOpen, onToggle, onMove, todayKey }: Props) {
   const pill = cardPill(card);
-  const hasExceptionAction = nudgeKindsForTask(card, todayKey).length > 0 || chaseAppliesToTask(card);
+  const hasExceptionAction = requestOptionsForTask(card, todayKey).length > 0 || chaseAppliesToTask(card, todayKey);
   const name = card.property?.name ?? "Property";
   return (
     <li
@@ -129,8 +140,8 @@ export function LaundryLaneCard({ card, active, selectable, selected, saving, mo
       ) : null}
       {moveLabel || hasExceptionAction ? (
         <div className="flex flex-wrap gap-1.5">
-          <LaundryNudgeActions task={card} todayKey={todayKey} />
-          <LaundrySupplierChase task={card} />
+          <LaundryNudgeActions task={card} todayKey={todayKey} compact />
+          <LaundrySupplierChase task={card} todayKey={todayKey} />
           {moveLabel ? <EButton size="sm" variant="outline" disabled={saving} onClick={onMove}>{moveLabel}</EButton> : null}
         </div>
       ) : null}

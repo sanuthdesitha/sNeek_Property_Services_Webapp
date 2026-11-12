@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Pipeline board: search, Driver and Supplier filters, "Exceptions first",
+ * Pipeline board: search, Laundry team (route) and Laundry partner filters, "Exceptions first",
  * multi-select with a bulk "Move to…" and the four lanes. At desktop the lanes
  * sit side by side; on a phone each lane is a collapsible section with its count.
  */
@@ -114,19 +114,19 @@ export function LaundryPipelineBoard(props: Props) {
           placeholder="Search property or supplier"
           className="h-9 w-full rounded-[var(--e-radius)] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-3 text-[16px] sm:w-[220px] sm:text-[0.8125rem]"
         />
-        <EFilterPopover label="Driver" value={driverName}>
-          <EField label="Driver on the day's route">
+        <EFilterPopover label="Laundry team" value={driverName}>
+          <EField label="Laundry team member on the day's route">
             <ESelect value={query.driverId} onChange={(event) => onQuery({ driverId: event.target.value })}>
-              <option value="">All drivers</option>
+              <option value="">Everyone</option>
               <option value="__none">No route yet</option>
               {data?.drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
             </ESelect>
           </EField>
         </EFilterPopover>
-        <EFilterPopover label="Supplier" value={supplierName}>
-          <EField label="Supplier">
+        <EFilterPopover label="Laundry partner" value={supplierName}>
+          <EField label="Laundry partner">
             <ESelect value={query.supplierId} onChange={(event) => onQuery({ supplierId: event.target.value })}>
-              <option value="">All suppliers</option>
+              <option value="">All partners</option>
               {data?.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
             </ESelect>
           </EField>

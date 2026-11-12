@@ -25,44 +25,76 @@ function outcomes(name: string, id: string) {
   return { outcomes: [{ userId: id, name, transport: "INBOX", path: "pipeline", state: "queued" }, { userId: id, name, transport: "WEB_PUSH", path: "direct", state: "requested" }], refused: [] };
 }
 
-describe("Laundry nudges", () => {
+describe("Laundry requests: the partner's team for pickup and drop-off, the cleaner for the bags", () => {
   const task = (patch: Partial<RunPanelTask>): RunPanelTask => ({
     id: "t1", jobId: "j1", status: "PENDING", pickupDate: "2026-11-11T00:00:00.000Z", dropoffDate: "2026-11-12T00:00:00.000Z",
-    property: { name: "Bondi Flat" }, job: { status: "SUBMITTED" }, cleaners: ["Ana"], readiness: true, exceptions: [], ...patch,
+    property: { name: "Bondi Flat" }, job: { status: "SUBMITTED" }, cleaners: ["Ana"], readiness: true, exceptions: [],
+    supplier: { id: "s1", name: "Fresh Linen" }, supplierTeam: { supplierName: "Fresh Linen", count: 1, names: ["Tom"] }, ...patch,
   } as RunPanelTask);
 
-  it("shows only the nudge the run's exception calls for, and no Chase supplier", () => {
-    const { rerender } = render(<LaundryNudgeActions task={task({})} todayKey="2026-11-11" />);
-    expect(screen.queryByRole("button", { name: "Ask cleaner" })).toBeNull();
-    rerender(<LaundryNudgeActions task={task({ exceptions: [{ code: "NOT_READY", label: "Not ready" }] })} todayKey="2026-11-11" />);
+  it("asks the cleaner only about the bags, and the laundry team about pickup, return and the photo", () => {
+    const { rerender } = render(<LaundryNudgeActions task={task({ pickupDate: "2026-11-13T00:00:00.000Z" })} todayKey="2026-11-11" />);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    rerender(<LaundryNudgeActions task={task({ readiness: false, exceptions: [{ code: "NOT_READY", label: "Not ready" }] })} todayKey="2026-11-11" />);
     expect(screen.getByRole("button", { name: "Ask cleaner" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Request photo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /laundry team/ })).toBeNull();
+    // Bags ready on the pickup day: the partner's team confirms the pickup, not the cleaner.
+    rerender(<LaundryNudgeActions task={task({})} todayKey="2026-11-11" />);
+    expect(screen.getByRole("button", { name: "Ask laundry team to confirm pickup" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Ask cleaner" })).toBeNull();
+    rerender(<LaundryNudgeActions task={task({ status: "PICKED_UP", dropoffDate: "2026-11-13T00:00:00.000Z", exceptions: [{ code: "OVER_TURNAROUND", label: "Over" }] })} todayKey="2026-11-11" />);
+    expect(screen.getByRole("button", { name: "Ask laundry team: when will it be back?" })).toBeInTheDocument();
     rerender(<LaundryNudgeActions task={task({ status: "DROPPED", exceptions: [{ code: "NO_DROP_PHOTO", label: "No drop photo" }] })} todayKey="2026-11-11" />);
-    expect(screen.getByRole("button", { name: "Request photo" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /supplier/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Ask laundry team for a photo" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request photo" })).toBeNull();
   });
 
-  it("confirms recipient and transport, sends one keyed request, shows real states and the cool-down refusal", async () => {
+  it("disables a team request with the reason when the partner has no portal users", () => {
+    render(<LaundryNudgeActions task={task({ supplierTeam: { supplierName: "Fresh Linen", count: 0, names: [] } })} todayKey="2026-11-11" />);
+    const button = screen.getByRole("button", { name: "Ask laundry team to confirm pickup" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(/Fresh Linen has no laundry portal users linked.*Chase supplier/);
+  });
+
+  it("sends a team request to the partner's team through its own route with a fixed key", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(outcomes("Tom", "l1")), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LaundryNudgeActions task={task({ status: "DROPPED", exceptions: [{ code: "NO_DROP_PHOTO", label: "No drop photo" }] })} todayKey="2026-11-11" />);
+    fireEvent.click(screen.getByRole("button", { name: "Ask laundry team for a photo" }));
+    const dialog = await screen.findByRole("dialog", { name: "Ask the laundry team for a drop-off photo" });
+    expect(within(dialog).getByText("Fresh Linen laundry team: Tom")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send request" }));
+    expect(await within(dialog).findByText("In-app inbox: Queued")).toBeInTheDocument();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/admin/notifications/actions/laundry-team-request");
+    const body = JSON.parse(String(init.body));
+    expect(body).toMatchObject({ laundryTaskId: "t1", kind: "TEAM_PHOTO", transports: ["PUSH"] });
+    expect(body.idempotencyKey).toMatch(/^nudge:t1:TEAM_PHOTO:\d+$/);
+  });
+
+  it("confirms recipient and transport for Ask cleaner, shows real states and the cool-down refusal", async () => {
     let call = 0;
     const fetchMock = vi.fn(async () => (++call === 1
       ? new Response(JSON.stringify(outcomes("Ana", "c1")), { status: 200 })
       : new Response(JSON.stringify({ error: "Already asked at 12:05. You can ask again after 12:35." }), { status: 409 })));
     vi.stubGlobal("fetch", fetchMock);
-    render(<LaundryNudgeActions task={task({ exceptions: [{ code: "NOT_READY", label: "Not ready" }] })} todayKey="2026-11-11" />);
+    render(<LaundryNudgeActions task={task({ readiness: false, exceptions: [{ code: "NOT_READY", label: "Not ready" }] })} todayKey="2026-11-11" />);
     fireEvent.click(screen.getByRole("button", { name: "Ask cleaner" }));
-    let dialog = await screen.findByRole("dialog", { name: "Ask the cleaner about the laundry" });
+    let dialog = await screen.findByRole("dialog", { name: "Ask the cleaner about the bags" });
     expect(within(dialog).getByText("Ana")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("In-app inbox with phone and browser push")).toBeChecked();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Ask cleaner" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send request" }));
     expect(await within(dialog).findByText("In-app inbox: Queued")).toBeInTheDocument();
     expect(within(dialog).getByText("Browser push: Requested (no receipt)")).toBeInTheDocument();
-    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/admin/notifications/actions/laundry-nudge");
+    const body = JSON.parse(String(init.body));
     expect(body).toMatchObject({ laundryTaskId: "t1", kind: "ASK_CLEANER", transports: ["PUSH"] });
     expect(body.idempotencyKey).toMatch(/^nudge:t1:ASK_CLEANER:\d+$/);
     fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
     fireEvent.click(screen.getByRole("button", { name: "Ask cleaner" }));
-    dialog = await screen.findByRole("dialog", { name: "Ask the cleaner about the laundry" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Ask cleaner" }));
+    dialog = await screen.findByRole("dialog", { name: "Ask the cleaner about the bags" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send request" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Already asked at 12:05");
   });
 });

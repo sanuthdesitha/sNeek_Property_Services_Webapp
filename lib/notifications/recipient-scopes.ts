@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma, Role } from "@prisma/client";
 import type { NotificationEnvelope } from "./intent-contract";
 import { STAFF_MESSAGE_ROLES } from "./staff-roles";
+import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 import { EMPTY_OPS_POLICY, isOpsSubject, opsPolicySchema, resolveOpsLevels } from "@/lib/rbac/ops-policy";
 
 /** The AppSetting key of the operations policy (same as lib/rbac/ops-access.ts, which needs request headers). */
@@ -20,6 +21,13 @@ const OPS_POLICY_SETTING_KEY = "ops_feature_permissions_v1";
  *   the job that has not been removed, and the account is active.
  * - LAUNDRY_TASK_CLEANER (id = laundry task id): the same rule on the job that
  *   owns the laundry task.
+ * - LAUNDRY_TASK_SUPPLIER_TEAM (id = laundry task id, owner decision
+ *   2026-11-12: pickup and drop-off are the laundry partner's work): an active
+ *   LAUNDRY account linked to the run's supplier (`User.laundrySupplierId`)
+ *   that may see the run's property under the laundry visibility rule
+ *   (laundry service on; on the property's laundry team, or no team set).
+ *   A run whose supplier changed, or a person moved to another partner, is
+ *   skipped at dispatch.
  * - STAFF_MEMBER (id = recipient user id): an active staff account (not a
  *   client, VA or anonymous contact) addressed by name, for office messages.
  * - JOB_CLIENT_CONTACT (id = job id): an active CLIENT login whose client owns
@@ -42,7 +50,7 @@ const OPS_POLICY_SETTING_KEY = "ops_feature_permissions_v1";
  * recipient's role: a role change between queueing and dispatch skips the
  * delivery instead of disclosing to a different kind of account.
  */
-export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE"] as const;
+export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "LAUNDRY_TASK_SUPPLIER_TEAM", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT", "URGENT_STOCK_PURCHASE_ASK", "URGENT_STOCK_OFFICE"] as const;
 export type RecipientScopeType = (typeof RECIPIENT_SCOPE_TYPES)[number];
 
 export { STAFF_MESSAGE_ROLES };
@@ -108,7 +116,7 @@ export async function authorizeEntityRecipient(reader: ScopeReader, recipient: R
   if (scope.kind !== "ENTITY" || !isSupportedEntityScope(scope.type)) return { ok: false, errorCode: "unsupported_recipient_scope" };
   const user = await reader.user.findUnique({
     where: { id: recipient.userId },
-    select: { id: true, role: true, isActive: true, clientId: true },
+    select: { id: true, role: true, isActive: true, clientId: true, laundrySupplierId: true },
   });
   if (!user?.isActive || user.role !== recipient.role) return { ok: false, errorCode: "recipient_unavailable" };
 
@@ -119,6 +127,12 @@ export async function authorizeEntityRecipient(reader: ScopeReader, recipient: R
       const task = await reader.laundryTask.findUnique({ where: { id: scope.id }, select: { jobId: true } });
       if (!task) return { ok: false, errorCode: "recipient_not_in_scope" };
       return (await activeAssignment(reader, task.jobId, user.id)) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
+    }
+    case "LAUNDRY_TASK_SUPPLIER_TEAM": {
+      if (user.role !== "LAUNDRY" || !user.laundrySupplierId) return { ok: false, errorCode: "recipient_not_in_scope" };
+      const task = await reader.laundryTask.findUnique({ where: { id: scope.id }, select: { supplierId: true, property: { select: { accessInfo: true, laundryEnabled: true } } } });
+      if (!task?.supplierId || task.supplierId !== user.laundrySupplierId) return { ok: false, errorCode: "recipient_not_in_scope" };
+      return propertyIsVisibleToLaundry(task.property, user.id) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
     }
     case "STAFF_MEMBER":
       return scope.id === user.id && STAFF_MESSAGE_ROLES.includes(user.role) ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };

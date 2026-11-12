@@ -9,7 +9,10 @@ import { STAFF_MESSAGE_ROLES } from "./recipient-scopes";
 import { getNotificationTypeControls, typeRespectsPreferences } from "./type-controls";
 import { formatInTimeZone } from "date-fns-tz";
 import { getAppSettings } from "@/lib/settings";
-import { NUDGE_COOL_DOWN_MINUTES, NUDGE_LABELS } from "@/lib/laundry/nudge-rules";
+import { LAUNDRY_TEAM_REQUEST_KINDS, NUDGE_COOL_DOWN_MINUTES, NUDGE_LABELS, TEAM_REQUEST_LABELS, laundryTeamRequestKinds, type LaundryTeamRequestKind } from "@/lib/laundry/nudge-rules";
+import { detectExceptions, latestReadiness } from "@/lib/laundry/pipeline";
+import { loadSupplierTeams, teamForRun } from "@/lib/laundry/partners";
+import { sydneyTodayKey } from "@/lib/time/sydney-range";
 import type { OfficeActorRole } from "@/lib/notifications/office-send-rules";
 
 /**
@@ -115,10 +118,10 @@ async function organisationTimeZone(): Promise<string> {
  * retry carrying the first request's idempotency key is the same request and
  * passes (the pipeline then answers with the states it already has).
  */
-async function refuseWithinNudgeCoolDown(taskId: string, kind: string, idempotencyKey: string | undefined) {
+async function refuseWithinNudgeCoolDown(taskId: string, kind: string, idempotencyKey: string | undefined, action = "LAUNDRY_CLEANER_NUDGE_SENT") {
   const since = new Date(Date.now() - LAUNDRY_NUDGE_COOL_DOWN_MINUTES * 60_000);
   const recent = await db.auditLog.findFirst({
-    where: { action: "LAUNDRY_CLEANER_NUDGE_SENT", entity: "LaundryTask", entityId: taskId, createdAt: { gte: since }, after: { path: ["kind"], equals: kind } },
+    where: { action, entity: "LaundryTask", entityId: taskId, createdAt: { gte: since }, after: { path: ["kind"], equals: kind } },
     orderBy: { createdAt: "desc" },
     select: { createdAt: true, after: true },
   });
@@ -162,6 +165,91 @@ export async function sendLaundryCleanerNudge(actorId: string, input: unknown): 
   });
   const result = { outcomes, refused: [] };
   await audit(actorId, "LAUNDRY_CLEANER_NUDGE_SENT", "LaundryTask", task.id, task.jobId, result, { kind: request.kind, transports: request.transports, note: request.note ?? null, idempotencyKey: request.idempotencyKey ?? null });
+  return result;
+}
+
+export const laundryTeamRequestSchema = z.object({
+  laundryTaskId: z.string().trim().min(1).max(200),
+  kind: z.enum(LAUNDRY_TEAM_REQUEST_KINDS as [LaundryTeamRequestKind, ...LaundryTeamRequestKind[]]),
+  note: z.string().trim().max(1000).optional(),
+  transports: transportsSchema,
+  idempotencyKey: keySchema,
+}).strict();
+
+export const LAUNDRY_TEAM_REQUEST_ACTION = "LAUNDRY_TEAM_REQUEST_SENT";
+
+const TEAM_REQUEST_SUBJECTS: Record<LaundryTeamRequestKind, string> = {
+  TEAM_CONFIRM_PICKUP: "Please confirm the laundry pickup",
+  TEAM_CONFIRM_DROP: "Please confirm the laundry drop-off",
+  TEAM_RETURN_ETA: "When will the laundry be back?",
+  TEAM_PHOTO: "Drop-off photo requested",
+};
+
+/**
+ * (b2) Ask the laundry partner's team about a run (owner decision 2026-11-12:
+ * pickup and drop-off are the partner's work). Recipients: the active LAUNDRY
+ * users linked to the run's supplier who may see the property (scope
+ * LAUNDRY_TASK_SUPPLIER_TEAM, re-checked when queued and at dispatch). The
+ * request must still apply to the run as it is now (the Pipeline's rules);
+ * a supplier with no linked portal users is refused with the reason, so the
+ * office uses Chase supplier. Same cool-down per run and kind as the nudges.
+ */
+export async function sendLaundryTeamRequest(actorId: string, input: unknown, actorRole: OfficeActorRole | null = null): Promise<OfficeActionResult> {
+  const request = laundryTeamRequestSchema.parse(input);
+  const task = await db.laundryTask.findUnique({
+    where: { id: request.laundryTaskId },
+    select: {
+      id: true, jobId: true, status: true, pickupDate: true, dropoffDate: true, pickedUpAt: true, flagReason: true, supplierId: true,
+      supplier: { select: { id: true, name: true, avgTurnaround: true } },
+      property: { select: { name: true, suburb: true, accessInfo: true, laundryEnabled: true } },
+      job: { select: { status: true } },
+      confirmations: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { laundryReady: true, photoUrl: true, notes: true, createdAt: true } },
+    },
+  });
+  if (!task) throw new OfficeActionError(404, "Laundry run not found.");
+  if (!task.supplier) throw new OfficeActionError(409, "No laundry partner is recorded for this run.");
+  const settings = await getAppSettings().catch(() => null);
+  const now = new Date();
+  const exceptions = detectExceptions(task, {
+    todayKey: sydneyTodayKey(now),
+    now,
+    settings: { maxOutdoorDays: settings?.laundryOperations?.maxOutdoorDays ?? 3, requireDropoffPhoto: settings?.laundryPortalVisibility?.requireDropoffPhoto === true },
+  });
+  const applicable = laundryTeamRequestKinds({
+    status: task.status, pickupDate: task.pickupDate, dropoffDate: task.dropoffDate, exceptions,
+    readiness: latestReadiness(task.confirmations), jobStatus: task.job?.status ?? null, hasJob: Boolean(task.jobId), hasSupplier: true,
+  }, sydneyTodayKey(now));
+  if (!applicable.includes(request.kind)) throw new OfficeActionError(409, "This request no longer applies to the run. Reload the Pipeline.");
+  const teams = await loadSupplierTeams([task.supplier.id]);
+  const team = teamForRun(teams, task.supplier.id, task.property);
+  if (!team.length) throw new OfficeActionError(409, `${task.supplier.name} has no laundry portal users who can see this property. Use Chase supplier instead.`);
+  await refuseWithinNudgeCoolDown(task.id, request.kind, request.idempotencyKey, LAUNDRY_TEAM_REQUEST_ACTION);
+
+  const typeKey = "laundry.team_request";
+  const controls = await getNotificationTypeControls();
+  const requestId = request.idempotencyKey ?? randomUUID();
+  const place = task.property?.suburb ? `${task.property.name} (${task.property.suburb})` : task.property?.name ?? "the property";
+  const label = TEAM_REQUEST_LABELS[request.kind];
+  const body = `${label.text} (${place})${request.note ? ` Note: ${request.note}` : ""}`;
+  const recipients: OfficeRecipient[] = team.map((member) => ({ id: member.id, role: member.role, name: member.name, email: member.email }));
+  const outcomes = await sendOfficeNotification({
+    typeKey, eventKey: typeKey, eventId: `laundry-team:${task.id}:${request.kind}:${requestId}`,
+    entity: { type: "LaundryTask", id: task.id }, actorId,
+    scopeType: "LAUNDRY_TASK_SUPPLIER_TEAM", scopeId: () => task.id,
+    category: "laundry", severity: "ACTION", jobId: task.jobId,
+    subject: TEAM_REQUEST_SUBJECTS[request.kind],
+    body, url: `/v2/laundry?request=${encodeURIComponent(task.id)}#office-requests`,
+    email: () => ({ subject: `Laundry: ${place}`, html: `<p>${escapeHtml(body)}</p>` }),
+    emailKind: "admin_alert",
+    transports: request.transports, recipients,
+    respectsPreferences: typeRespectsPreferences(controls, typeKey),
+    disabledTransports: controls.disabledTransports[typeKey] ?? [],
+  });
+  const result = { outcomes, refused: [] };
+  await audit(actorId, LAUNDRY_TEAM_REQUEST_ACTION, "LaundryTask", task.id, task.jobId, result, {
+    kind: request.kind, transports: request.transports, note: request.note ?? null, idempotencyKey: request.idempotencyKey ?? null,
+    supplierId: task.supplier.id, actorRole, recipientIds: recipients.map((recipient) => recipient.id),
+  });
   return result;
 }
 

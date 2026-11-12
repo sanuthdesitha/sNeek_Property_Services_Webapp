@@ -22,11 +22,11 @@ import { LaundryEvidenceReplacement } from "./laundry-evidence-replacement";
 import { LaundryNudgeActions } from "./laundry-nudge";
 import { LaundrySupplierChase } from "./laundry-supplier-chase";
 import { buildTaskMedia, statusLabel, type LaundryTaskDTO } from "./laundry-shared";
-import { cardPill, dayWithTime, shortDay } from "./laundry-lane-card";
+import { cardPill, dayWithTime, laundryRouteLabel, shortDay } from "./laundry-lane-card";
 import { LaundryPlannedTimes } from "./laundry-planned-times";
 import type { PipelineCardDTO } from "./use-laundry-pipeline";
 
-export type RunPanelTask = LaundryTaskDTO & Partial<Pick<PipelineCardDTO, "exceptions" | "cleaners" | "nextGuest" | "bagCount" | "lane" | "readiness" | "dayOf" | "carriedIn" | "driver">>;
+export type RunPanelTask = LaundryTaskDTO & Partial<Pick<PipelineCardDTO, "exceptions" | "cleaners" | "nextGuest" | "bagCount" | "lane" | "readiness" | "dayOf" | "carriedIn" | "driver" | "supplierTeam">>;
 
 function stamp(value: string | null | undefined): string {
   if (!value) return "—";
@@ -59,10 +59,11 @@ export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onD
     ["Pickup", dayWithTime(task.pickupDate, task.pickupTime)],
     ["Drop", dayWithTime(task.dropoffDate, task.dropoffTime)],
     ["Next guest", task.nextGuest ? `${task.nextGuest.checkinAt ? shortDay(task.nextGuest.checkinAt) : "Date not given"}${task.nextGuest.name ? ` · ${task.nextGuest.name}` : ""}` : "Not recorded"],
-    ["Supplier", task.supplier?.name ?? "Not recorded"],
+    ["Laundry partner", task.supplier?.name ?? "Not recorded"],
     ["Client", task.property?.client?.name ?? task.property?.client?.email ?? "Unassigned client"],
   ];
-  if (task.driver) facts.push(["Driver", `${task.driver.driverName}, stop ${task.driver.stop}`]);
+  if (task.supplierTeam) facts.push(["Laundry team", task.supplierTeam.count ? task.supplierTeam.names.join(", ") : "No portal users linked"]);
+  if (task.driver) facts.push(["On the laundry route", laundryRouteLabel(task.driver, task.supplier?.name ?? null)]);
   if (task.bagCount) facts.push(["Bags", String(task.bagCount)]);
   if (task.bagWeightKg) facts.push(["Weight", `${task.bagWeightKg} kg`]);
   if (task.dropoffCostAud != null) facts.push(["Cost", `$${Number(task.dropoffCostAud).toFixed(2)}`]);
@@ -132,7 +133,7 @@ export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onD
       <div className="h-px bg-[hsl(var(--e-border))]" />
       <div className="flex flex-wrap gap-1.5">
         <LaundryNudgeActions task={task} todayKey={todayKey} />
-        <LaundrySupplierChase task={task} />
+        <LaundrySupplierChase task={task} todayKey={todayKey} />
         <EButton size="sm" variant="outline" onClick={() => onEdit(task)}>Edit</EButton>
         <EButton size="sm" variant="outline" disabled={done || busy} title={done ? "Delivered or skipped runs have nothing to move" : undefined} onClick={() => onReschedule(task)}>Reschedule</EButton>
         <EButton size="sm" variant="outline" onClick={() => onReport(task)}>Task report / PDF</EButton>

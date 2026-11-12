@@ -2,6 +2,7 @@ import "server-only";
 import { Prisma, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getSupplierById, listSupplierCatalog } from "@/lib/inventory/suppliers";
+import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 import { buildSupplierDirectory, type LaundryPartnerRecord, type SupplierDirectoryResponse } from "@/lib/suppliers/directory-types";
 
 /**
@@ -126,4 +127,38 @@ export async function unlinkStockSupplier(actorId: string, stockSupplierId: stri
   const partner = await db.laundrySupplier.findFirst({ where: { stockSupplierId }, select: { id: true } });
   if (!partner) return;
   await applyPartnerLinks(actorId, partner.id, { stockSupplierId: null });
+}
+
+export type SupplierTeamMember = { id: string; name: string | null; email: string; role: Role };
+
+/**
+ * The active LAUNDRY portal users of each given partner (one query). The
+ * caller narrows to a run with `teamForRun`, which also applies the laundry
+ * property visibility rule, as the recipient scope does.
+ */
+export async function loadSupplierTeams(supplierIds: string[]): Promise<Map<string, SupplierTeamMember[]>> {
+  const ids = Array.from(new Set(supplierIds.filter(Boolean)));
+  const out = new Map<string, SupplierTeamMember[]>();
+  if (!ids.length) return out;
+  const users = await db.user.findMany({
+    where: { role: Role.LAUNDRY, isActive: true, laundrySupplierId: { in: ids } },
+    select: { id: true, name: true, email: true, role: true, laundrySupplierId: true },
+    orderBy: { name: "asc" },
+  });
+  for (const user of users) {
+    const list = out.get(user.laundrySupplierId as string) ?? [];
+    list.push({ id: user.id, name: user.name, email: user.email, role: user.role });
+    out.set(user.laundrySupplierId as string, list);
+  }
+  return out;
+}
+
+/** The members of a run's partner team who may see the run's property. */
+export function teamForRun(
+  teams: Map<string, SupplierTeamMember[]>,
+  supplierId: string | null | undefined,
+  property: { accessInfo?: unknown; laundryEnabled?: boolean | null } | null | undefined,
+): SupplierTeamMember[] {
+  if (!supplierId) return [];
+  return (teams.get(supplierId) ?? []).filter((member) => propertyIsVisibleToLaundry(property, member.id));
 }

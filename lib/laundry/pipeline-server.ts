@@ -5,6 +5,8 @@ import "server-only";
  * (from that day's laundry routes), the next guest from the job's reservation
  * context, today's three stat figures and the Approvals laundry count.
  */
+import { loadSupplierTeams, teamForRun, type SupplierTeamMember } from "./partners";
+import type { SupplierTeamSummary } from "./nudge-rules";
 import { LaundryStatus, Prisma, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
@@ -60,6 +62,8 @@ export type PipelineCard = Record<string, unknown> & {
   dayOf: { day: number; planned: number } | null;
   nextGuest: { checkinAt: string | null; name: string | null } | null;
   cleaners: string[];
+  /** The run's laundry partner team who can be asked (null when the run has no supplier). */
+  supplierTeam: SupplierTeamSummary;
 };
 
 export type PipelineResponse = {
@@ -83,6 +87,13 @@ function matchesSearch(task: { id: string; property?: unknown; supplier?: unknow
   const supplier = (task.supplier ?? {}) as { name?: string | null };
   const haystack = [task.id, property.name, property.suburb, property.address, property.client?.name, supplier.name].filter(Boolean).join(" ").toLowerCase();
   return haystack.includes(q.toLowerCase());
+}
+
+/** Names only: the screen shows who will be asked, never their contact details. */
+function supplierTeamSummary(task: { supplierId: string | null; supplier: { name: string } | null; property: { accessInfo?: unknown; laundryEnabled?: boolean | null } | null }, teams: Map<string, SupplierTeamMember[]>): SupplierTeamSummary {
+  if (!task.supplierId || !task.supplier) return null;
+  const members = teamForRun(teams, task.supplierId, task.property);
+  return { supplierName: task.supplier.name, count: members.length, names: members.map((member) => member.name?.trim() || "Laundry team member") };
 }
 
 async function loadDriverStops(dayKey: string): Promise<{ byTask: Map<string, PipelineDriverStop>; drivers: Array<{ id: string; name: string }> }> {
@@ -142,6 +153,7 @@ export async function loadLaundryPipeline(
 
   const truncated = rawTasks.length > PIPELINE_TASK_CAP;
   const visible = await withHandoffActorNames(filterTasksVisibleToUser(rawTasks.slice(0, PIPELINE_TASK_CAP), viewer.role, viewer.userId));
+  const teams = await loadSupplierTeams(visible.map((task) => task.supplierId ?? "").filter(Boolean));
 
   const all: PipelineCard[] = [];
   for (const task of visible) {
@@ -168,6 +180,7 @@ export async function loadLaundryPipeline(
           : null,
       nextGuest: arriving?.hasAnything ? { checkinAt: arriving.checkinAtLocal, name: arriving.name } : null,
       cleaners: job?.assignments.map((row) => row.user.name?.trim() || "Cleaner") ?? [],
+      supplierTeam: supplierTeamSummary(task, teams),
     });
   }
 
