@@ -29,7 +29,7 @@ const props = { readOnly: false, timeZone: "Australia/Sydney", companyName: "sNe
 
 it("lists types grouped by audience with transports and opens details, wording, switches, test send and recent deliveries", async () => {
   render(<TypesTab isAdmin {...props} />);
-  const list = await screen.findByRole("region", { name: "Notification types" }).catch(() => screen.getByLabelText("Notification types"));
+  const list = await screen.findByRole("region", { name: "Notification types" });
   expect(within(list).getByRole("heading", { name: /Cleaners/ })).toBeInTheDocument();
   fireEvent.click(within(list).getByRole("button", { name: reminder.name }));
   expect(await screen.findByRole("heading", { level: 2, name: reminder.name })).toBeInTheDocument();
