@@ -390,3 +390,15 @@
   .e-job-row-summary { display: none; }
   .e-job-row-status, .e-job-row-actions { grid-column: auto; grid-row: auto; max-width: none; }
 }
+
+/*
+ * Scroll containers contain their absolutely positioned descendants.
+ * A visually hidden label (`sr-only`, position: absolute) inside a table or tab
+ * row that scrolls sideways is otherwise positioned against a far ancestor,
+ * escapes the scroller's clipping and makes the whole page wider than a phone
+ * screen. `:where()` keeps specificity at zero, so any explicit position
+ * utility on the same element (sticky, absolute, fixed) still wins.
+ */
+:where(.overflow-x-auto, .overflow-auto, .overflow-x-scroll, .overflow-scroll) {
+  position: relative;
+}
