@@ -131,7 +131,7 @@ export async function updatePartnerSchedule(actorId: string, supplierId: string,
 export async function scheduleForLaundryUser(userId: string): Promise<{ partnerName: string; schedule: PartnerSchedule } | null> {
   const user = await db.user.findUnique({
     where: { id: userId },
-    select: { laundrySupplier: { select: { name: true, isActive: true, ...PARTNER_SCHEDULE_SELECT } } },
+    select: { laundrySupplier: { select: { name: true, ...PARTNER_SCHEDULE_SELECT } } },
   });
   const partner = user?.laundrySupplier;
   if (!partner?.isActive) return null;

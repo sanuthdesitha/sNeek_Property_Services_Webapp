@@ -76,7 +76,9 @@ export const APPROVAL_QUEUES: Record<ApprovalsQueueKey, ApprovalsQueueDefinition
     noun: "pay request",
     group: "pay",
     bulk: {
-      approve: refused("Each pay request is approved with its own amount, so approve them one at a time."),
+      // Each row at its own asked amount, only when it passes every check a
+      // single approval needs (owner decision 2026-11-13; bulk.ts planPayApprovals).
+      approve: allowed("Approve as asked"),
       decline: allowed("Decline with one note"),
     },
   },

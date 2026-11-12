@@ -49,9 +49,10 @@ describe("POST /api/admin/approvals/bulk", () => {
   it("refuses a malformed body and a decision the queue does not allow in bulk", async () => {
     expect((await post({ queue: "nope", decision: "approve", ids: ["a"] })).status).toBe(400);
     expect((await post({ queue: "timingRequests", decision: "approve", ids: [] })).status).toBe(400);
-    const refused = await post({ queue: "payAdjustments", decision: "approve", ids: ["p1"] });
+    // Pay requests are approved in bulk "as asked" since 2026-11-13; clock fixes still need their own minutes.
+    const refused = await post({ queue: "timeAdjustments", decision: "approve", ids: ["t1"] });
     expect(refused.status).toBe(400);
-    expect((await refused.json()).error).toMatch(/own amount/);
+    expect((await refused.json()).error).toMatch(/own minutes/);
   });
 
   it("hands each row to the existing route handler and returns per-row outcomes", async () => {

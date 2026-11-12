@@ -31,7 +31,7 @@ it.each([true, false])("removal requires verified security and accurately descri
  if (!verified) m.verify.mockResolvedValue(response({ error: "Denied" }, false));
  render(<JobExtrasPanel jobId="j" fixedPrice={120} />); await screen.findByText("Detail extra"); fireEvent.click(screen.getByRole("button", { name: "Remove Detail extra" }));
  expect(screen.getByText(/No client email is sent/)).toBeVisible();
- fireEvent.change(field("Security PIN"), { target: { value: "1234" } }); fireEvent.click(screen.getByRole("button", { name: "Remove extra" }));
+ fireEvent.change(field("Your PIN"), { target: { value: "1234" } }); fireEvent.click(screen.getByRole("button", { name: "Remove extra" }));
  if (verified) {
   await waitFor(() => expect(m.toast).toHaveBeenCalledWith({ title: "Extra removed", description: "New total $140.00 · saved without sending a client email" }));
   expect(m.mutate.mock.calls[0][0].method).toBe("DELETE"); expect(JSON.parse(m.mutate.mock.calls[0][0].body)).toEqual({ removeLabels: ["Detail extra"] });

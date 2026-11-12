@@ -183,7 +183,8 @@ describe("laundry dashboard reliability", () => {
       where: { propertyId: { in: ["property-1"] }, noPickupRequired: false, OR: [
         { pickupDate: { gte: scheduledStart, lt: scheduledEnd } }, { dropoffDate: { gte: scheduledStart, lt: scheduledEnd } },
         { droppedAt: { gte: start, lt: end } },
-        { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.CONFIRMED] } },
+        // Changed on purpose (2026-11-13): a "Ready to return" set is still in transit.
+        { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN, LaundryStatus.CONFIRMED] } },
       ] },
       orderBy: [{ pickupDate: "asc" }],
       select: { id: true, status: true, droppedAt: true, bagWeightKg: true, property: { select: { name: true, suburb: true } } },

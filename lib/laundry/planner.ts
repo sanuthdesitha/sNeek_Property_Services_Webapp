@@ -459,9 +459,11 @@ export async function ensureLaundryTaskForJob(jobId: string, transaction?: Prism
   const draftItem = await computeDraftItem(job, settings.laundryOperations, database);
   if (transaction) {
     // Partner schedule defaults: planned times only, never the dates above.
-    const times = await partnerTimesForNewRun(transaction, {
+    // Read outside the caller's transaction and best-effort: a failed lookup
+    // must never block or abort creating the run (it then has no time).
+    const times = await partnerTimesForNewRun(db, {
       propertyId: draftItem.propertyId, pickupDate: new Date(draftItem.pickupDate), dropoffDate: new Date(draftItem.dropoffDate), flagNotes: draftItem.flagNotes ?? null,
-    });
+    }).catch(() => ({ pickupTime: null, dropoffTime: null }));
     return database.laundryTask.create({ data: {
       jobId, propertyId: draftItem.propertyId, pickupDate: new Date(draftItem.pickupDate), dropoffDate: new Date(draftItem.dropoffDate),
       status: draftItem.status, flagReason: draftItem.flagReason, flagNotes: draftItem.flagNotes, notifyLaundry: false,

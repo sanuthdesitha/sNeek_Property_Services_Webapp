@@ -104,7 +104,7 @@ export default async function EstateClientPropertyDetailPage({
 
       {canBook ? (
         <div className="sticky bottom-[4.75rem] z-20 -mx-4 border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-2.5 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0">
-          <Link href="/v2/client/booking" className="flex min-h-12 w-full items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-accent-portal))] text-[0.9375rem] font-[600] text-[hsl(var(--e-accent-portal-foreground))] lg:w-auto lg:px-6">
+          <Link href={`/v2/client/booking?propertyId=${encodeURIComponent(params.id)}`} className="flex min-h-12 w-full items-center justify-center rounded-[var(--e-radius)] bg-[hsl(var(--e-accent-portal))] text-[0.9375rem] font-[600] text-[hsl(var(--e-accent-portal-foreground))] lg:w-auto lg:px-6">
             Book a clean here
           </Link>
         </div>

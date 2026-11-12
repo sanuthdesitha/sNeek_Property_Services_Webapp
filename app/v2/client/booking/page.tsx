@@ -4,12 +4,12 @@ import { propertyScopeWhere, requireClientPortalPage } from "@/lib/auth/client-p
 import { db } from "@/lib/db";
 import { EstateBookingFlow } from "@/components/v2/client/booking-flow";
 import { EAlert, EButton, EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
-import { rebookSeed } from "@/lib/booking/rebook";
+import { bookingPropertyPrefill, rebookSeed } from "@/lib/booking/rebook";
 
 export const metadata = { title: "Book a clean · Estate client" };
 export const dynamic = "force-dynamic";
 
-export default async function ClientBookingPage({ searchParams = {} }: { searchParams?: { rebook?: string } }) {
+export default async function ClientBookingPage({ searchParams = {} }: { searchParams?: { rebook?: string; propertyId?: string } }) {
   const portalCtx = await requireClientPortalPage({ module: "booking", permission: "bookings" });
   // Use the same authorized snapshot for the options, attribution and draft key.
   const properties = await db.property.findMany({
@@ -28,12 +28,18 @@ export default async function ClientBookingPage({ searchParams = {} }: { searchP
     select: { propertyId: true, jobType: true, status: true, isRework: true },
   }).catch(() => undefined) : null;
   const seed = sourceId ? rebookSeed(source ?? null, properties?.map(property => property.id) ?? []) : null;
+  // "Book a clean here": checked against the same scoped property list; a rebook wins.
+  const prefill = sourceId || !properties
+    ? { propertyId: null, notice: null }
+    : bookingPropertyPrefill(searchParams.propertyId, properties.map(property => property.id));
   const formKey = JSON.stringify([
     portalCtx.actor, portalCtx.userId, portalCtx.clientId, portalCtx.team?.id ?? null,
     portalCtx.propertyIds === null ? null : [...portalCtx.propertyIds].sort(),
     properties?.map((property) => property.id).sort(),
-    // A rebook draft cannot overwrite a separate ordinary booking in this tab.
+    // A rebook draft cannot overwrite a separate ordinary booking in this tab;
+    // nor can a booking started from one property's page.
     ...(sourceId ? [sourceId] : []),
+    ...(prefill.propertyId ? [`property:${prefill.propertyId}`] : []),
   ]);
 
   return (
@@ -71,6 +77,11 @@ export default async function ClientBookingPage({ searchParams = {} }: { searchP
       ) : (
         <>
         {seed ? <EAlert title="Rebook a previous clean"><p>Property and service are selected. Choose a new date and review current availability and pricing.</p></EAlert> : null}
+        {prefill.notice === "not-available" ? (
+          <EAlert tone="warning" title="That property is not available here">
+            <p>The property in the link is not one you can book for in this account, so none is preselected. Choose a property below.</p>
+          </EAlert>
+        ) : null}
         <EstateBookingFlow
           key={formKey}
           draftScope={createHash("sha256").update(formKey).digest("hex")}
@@ -78,6 +89,7 @@ export default async function ClientBookingPage({ searchParams = {} }: { searchP
           actorName={portalCtx.userName ?? portalCtx.actorLabel}
           actingFor={properties[0].client.name}
           rebook={seed ?? undefined}
+          initialPropertyId={prefill.propertyId ?? undefined}
         />
         </>
       )}

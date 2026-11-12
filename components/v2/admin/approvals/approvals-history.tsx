@@ -5,7 +5,8 @@
  * GET /api/admin/approvals/history. Filters: queue, decided by, from / to date,
  * search. Each row's "more" menu offers Change amount, Reverse and Delete only
  * as the server's capability map allows, with the server's reason when not.
- * Delete asks for a typed DELETE and a PIN or password, verified by the server.
+ * Delete (administrators only, as the server decides) asks for a typed DELETE
+ * and the administrator's own PIN, verified by the server.
  */
 import * as React from "react";
 import { toast } from "@/hooks/use-toast";
@@ -68,6 +69,8 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
   const [search, setSearch] = useRestorableState("approvals-history:search", "");
   const [editRow, setEditRow] = React.useState<HistoryRow | null>(null);
   const [deleteRow, setDeleteRow] = React.useState<HistoryRow | null>(null);
+  // Only an administrator may delete a decision record; the list read says so.
+  const [canDeleteRecords, setCanDeleteRecords] = React.useState(false);
   const controller = React.useRef<AbortController | null>(null);
 
   const load = React.useCallback(
@@ -85,7 +88,7 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
       if (after) qs.set("cursor", after);
       try {
         const res = await fetch(`/api/admin/approvals/history?${qs.toString()}`, { cache: "no-store", signal: current.signal });
-        const body = (await res.json().catch(() => null)) as { items?: HistoryRow[]; nextCursor?: string | null; error?: string } | null;
+        const body = (await res.json().catch(() => null)) as { items?: HistoryRow[]; nextCursor?: string | null; canDeleteRecords?: boolean; error?: string } | null;
         if (current.signal.aborted) return;
         if (!res.ok || !body) {
           setError(body?.error ?? "Could not load decisions.");
@@ -93,6 +96,7 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
         }
         setRows((existing) => (after ? [...existing, ...(body.items ?? [])] : body.items ?? []));
         setCursor(body.nextCursor ?? null);
+        setCanDeleteRecords(body.canDeleteRecords === true);
         setError(null);
       } catch {
         if (!current.signal.aborted) setError("Could not load decisions.");
@@ -171,12 +175,14 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
         <ERowMenu
           label={`More actions for ${row.label ?? "this decision"}`}
           disabled={acting === row.id}
-          footnote="Delete asks for your PIN or password."
+          footnote={canDeleteRecords ? "Delete asks for your own PIN." : undefined}
           items={[
             ...(row.href ? [{ key: "open", label: "Open", href: row.href }] : []),
             { key: "edit", label: "Change amount", disabled: !row.capabilities.canEdit, hint: row.capabilities.reasons.edit, onSelect: () => setEditRow(row), separated: Boolean(row.href) },
             { key: "undo", label: "Reverse decision", disabled: !row.capabilities.canUndo, hint: row.capabilities.reasons.undo, onSelect: () => void act(row, "undo") },
-            { key: "delete", label: "Delete record", danger: true, separated: true, disabled: !row.capabilities.canDelete, hint: row.capabilities.reasons.delete, onSelect: () => setDeleteRow(row) },
+            ...(canDeleteRecords
+              ? [{ key: "delete", label: "Delete record", danger: true, separated: true, disabled: !row.capabilities.canDelete, hint: row.capabilities.reasons.delete, onSelect: () => setDeleteRow(row) }]
+              : []),
           ]}
         />
       ),
@@ -234,7 +240,7 @@ export function ApprovalsHistory({ timezone = "Australia/Sydney" }: { timezone?:
         open={Boolean(deleteRow)}
         onClose={() => setDeleteRow(null)}
         title="Delete this approval record"
-        description="The decision, who made it and the amount attached to it are removed from the history for good. Enter your PIN or password to continue."
+        description="The decision, who made it and the amount attached to it are removed from the history for good. Enter your own PIN to continue."
         confirmLabel="Delete record"
         confirmPhrase="DELETE"
         requireSecurity

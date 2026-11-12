@@ -103,13 +103,30 @@ describe("Approvals list", () => {
     expect(JSON.parse(String(sent?.init?.body))).toEqual({ status: "APPROVED" });
   });
 
-  it("bulk bar: decline with one note is offered, approve is disabled with the reason", async () => {
+  it("bulk bar: approve as asked shows count and total and sends each asked amount", async () => {
+    // Changed on purpose (owner decision 2026-11-13): pay requests can be approved in bulk as asked.
+    window.history.replaceState(null, "", "/v2/admin/approvals?queue=payAdjustments");
+    render(<ApprovalsWorkspace />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Select Marco Rossi/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Select Aiko Tanaka/ }));
+    const bar = screen.getByRole("region", { name: "Bulk actions" });
+    fireEvent.click(within(bar).getByRole("button", { name: "Approve as asked" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(/Approve 2 pay requests, each at its own asked amount/);
+    expect(dialog).toHaveTextContent(/no receipt/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Approve as asked" }));
+    await waitFor(() => expect(calls.some((call) => call.url === "/api/admin/approvals/bulk")).toBe(true));
+    const sent = JSON.parse(String(calls.find((call) => call.url === "/api/admin/approvals/bulk")?.init?.body));
+    expect(sent).toMatchObject({ queue: "payAdjustments", decision: "approve" });
+    expect(Object.keys(sent.expectedAmounts).sort()).toEqual(["pa1", "pa2"]);
+    expect(sent.expectedAmounts.pa2).toBe(22.67);
+  });
+
+  it("bulk bar: decline with one note is offered", async () => {
     window.history.replaceState(null, "", "/v2/admin/approvals?queue=payAdjustments");
     render(<ApprovalsWorkspace />);
     fireEvent.click(await screen.findByRole("checkbox", { name: /Select Marco Rossi/ }));
     const bar = screen.getByRole("region", { name: "Bulk actions" });
-    expect(within(bar).getByRole("button", { name: /Approve/ })).toBeDisabled();
-    expect(screen.getByText(/Approve: Each pay request is approved with its own amount/)).toBeInTheDocument();
     fireEvent.click(within(bar).getByRole("button", { name: "Decline with one note" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Decline with one note" }));

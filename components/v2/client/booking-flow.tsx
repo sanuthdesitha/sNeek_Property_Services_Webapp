@@ -197,6 +197,8 @@ type BookingFlowProps = {
   actingFor: string;
   draftScope?: string;
   rebook?: RebookSeed;
+  /** "Book a clean here": a property the server checked against this account's scope. */
+  initialPropertyId?: string;
 };
 
 export function EstateBookingFlow(props: BookingFlowProps) {
@@ -219,9 +221,10 @@ export function EstateBookingFlow(props: BookingFlowProps) {
   return <BookingFlowBody key={props.draftScope} {...props} initialDraft={draft} />;
 }
 
-function BookingFlowBody({ properties, actorName, actingFor, draftScope, initialDraft, rebook }: BookingFlowProps & { initialDraft?: BookingDraft }) {
+function BookingFlowBody({ properties, actorName, actingFor, draftScope, initialDraft, rebook, initialPropertyId }: BookingFlowProps & { initialDraft?: BookingDraft }) {
   const [step, setStep] = useState<1 | 2 | 3>(initialDraft?.request ? 3 : initialDraft?.step ?? 1);
-  const [propertyId, setPropertyId] = useState(initialDraft?.propertyId ?? rebook?.propertyId ?? properties[0]?.id ?? "");
+  const prefilledProperty = initialPropertyId && properties.some((property) => property.id === initialPropertyId) ? initialPropertyId : undefined;
+  const [propertyId, setPropertyId] = useState(initialDraft?.propertyId ?? rebook?.propertyId ?? prefilledProperty ?? properties[0]?.id ?? "");
   const [jobType, setJobType] = useState<MarketedJobTypeValue>(
     (initialDraft?.jobType as MarketedJobTypeValue | undefined) ?? (rebook?.jobType as MarketedJobTypeValue | undefined) ?? (BOOKABLE_SERVICES[0]?.jobType as MarketedJobTypeValue | undefined) ?? "GENERAL_CLEAN"
   );

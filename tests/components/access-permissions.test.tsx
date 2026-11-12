@@ -30,8 +30,21 @@ const screenData = (): AccessScreenData => ({
 
 let fetcher: ReturnType<typeof vi.fn>;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+// The save prompt reads the editor's own PIN state first (2026-11-13: own PINs).
+let ownPin: { hasPin: boolean; lockedUntil: null; userId: string } = { hasPin: true, lockedUntil: null, userId: "hannah" };
+let nextPut: ((url: string, init?: RequestInit) => Promise<Response>) | null = null;
 beforeEach(() => {
-  fetcher = vi.fn(async (_url: string, init?: RequestInit) => (init?.method === "PUT" ? json({ error: "unexpected" }, 500) : json(screenData())));
+  ownPin = { hasPin: true, lockedUntil: null, userId: "hannah" };
+  nextPut = null;
+  fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/me/admin-pin") return json(ownPin);
+    if (init?.method === "PUT") {
+      const handler = nextPut;
+      nextPut = null;
+      return handler ? handler(url, init) : json({ error: "unexpected" }, 500);
+    }
+    return json(screenData());
+  });
   vi.stubGlobal("fetch", fetcher);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -112,11 +125,11 @@ describe("saving", () => {
     await unfoldMoney();
     fireEvent.click(financeLevel("View"));
     const theirs: OpsPolicy = { ...structuredClone(policy), revision: 3, assignments: { ...policy.assignments, chloe: { presetId: "observer", overrides: {} } } };
-    fetcher.mockImplementationOnce(async () => json({ error: "Someone else saved", code: "OPS_POLICY_CONFLICT", current: theirs }, 409));
+    nextPut = async () => json({ error: "Someone else saved", code: "OPS_POLICY_CONFLICT", current: theirs }, 409);
     fireEvent.click(screen.getByRole("button", { name: "Review and save" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
-    fireEvent.change(within(dialog).getByLabelText("Your PIN or password"), { target: { value: "1234" } });
+    fireEvent.change(await within(dialog).findByLabelText("Your PIN"), { target: { value: "1234" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await screen.findByText("Someone else saved first");
     const body = JSON.parse(fetcher.mock.calls.find(([, init]) => init?.method === "PUT")![1].body);
@@ -129,15 +142,20 @@ describe("saving", () => {
   });
 
   it("keeps the draft after a failed save and freezes nothing afterwards", async () => {
+    // Changed on purpose (2026-11-13): a password alone no longer confirms; an
+    // editor with no PIN yet gives their password once and chooses a PIN.
+    ownPin = { hasPin: false, lockedUntil: null, userId: "hannah" };
     await openPriya();
     await unfoldMoney();
     fireEvent.click(financeLevel("View"));
     fireEvent.click(screen.getByRole("button", { name: "Review and save" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Your PIN or password"), { target: { value: "hunter2-password" } });
+    fireEvent.change(await within(dialog).findByLabelText("Account password"), { target: { value: "hunter2-password" } });
+    fireEvent.change(within(dialog).getByLabelText("Choose your PIN"), { target: { value: "5824" } });
+    fireEvent.change(within(dialog).getByLabelText("Confirm your PIN"), { target: { value: "5824" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("unexpected");
-    expect(JSON.parse(fetcher.mock.calls.find(([, init]) => init?.method === "PUT")![1].body).security).toEqual({ password: "hunter2-password" });
+    expect(JSON.parse(fetcher.mock.calls.find(([, init]) => init?.method === "PUT")![1].body).security).toEqual({ password: "hunter2-password", newPin: "5824" });
     expect(financeLevel("View")).toHaveAttribute("aria-checked", "true");
   });
 
@@ -147,10 +165,10 @@ describe("saving", () => {
     fireEvent.click(screen.getByRole("button", { name: "New preset" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Dispatch team" } });
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "Dispatch team, Jobs and assignments level" })).getByRole("radio", { name: "View" }));
-    fetcher.mockImplementationOnce(async (_url: string, init?: RequestInit) => json({ policy: { ...JSON.parse(String(init?.body)).policy, revision: 3 } }));
+    nextPut = async (_url: string, init?: RequestInit) => json({ policy: { ...JSON.parse(String(init?.body)).policy, revision: 3 } });
     fireEvent.click(screen.getByRole("button", { name: "Review and save" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Your PIN or password"), { target: { value: "1234" } });
+    fireEvent.change(await within(dialog).findByLabelText("Your PIN"), { target: { value: "1234" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(fetcher.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
     const payload = JSON.parse(fetcher.mock.calls.find(([, init]) => init?.method === "PUT")![1].body).policy;

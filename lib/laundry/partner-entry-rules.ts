@@ -139,8 +139,10 @@ export function partnerCostEntry(
     const meta = parseMeta(row.notes);
     const partner = meta.event === PARTNER_WEIGHT_PRICE_EVENT;
     const set = valuesSetBy(meta);
-    if (set.price !== null) price = { partner, value: set.price, row };
-    if (set.weight !== null) weight = { partner, value: set.weight, row };
+    // A later save that repeats the same figure (e.g. the office edit form
+    // resending the stored price) does not take the entry over.
+    if (set.price !== null && !(price && Math.abs(price.value - set.price) < 0.005)) price = { partner, value: set.price, row };
+    if (set.weight !== null && !(weight && Math.abs(weight.value - set.weight) < 0.0005)) weight = { partner, value: set.weight, row };
   }
   const priceIsPartner = Boolean(price?.partner && current.dropoffCostAud != null && Math.abs(price.value - current.dropoffCostAud) < 0.005);
   const weightIsPartner = Boolean(weight?.partner && current.bagWeightKg != null && Math.abs(weight.value - current.bagWeightKg) < 0.0005);

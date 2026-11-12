@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QaAssignmentStatus, Role } from "@prisma/client";
 import QaTodayPage from "@/app/v2/qa/page";
+import { reworkMineWhere } from "@/lib/qa/rework-list";
 
 const mocks = vi.hoisted(() => ({
   count: vi.fn(), reworkCount: vi.fn(), roster: vi.fn(), requireRole: vi.fn(),
@@ -97,10 +98,14 @@ describe("QA dashboard reliability", () => {
       { where: { ...owner, status: QaAssignmentStatus.COMPLETED, completedAt: { gte: expect.any(Date), lt: expect.any(Date) } } },
     ]);
     for (const label of labels.slice(0, 2)) expect(tile(label).getByText("41")).toBeVisible();
-    // Rework open: the PENDING definition shared with the Rework badge and Approvals.
-    expect(mocks.reworkCount).toHaveBeenCalledWith({ where: { status: "PENDING" } });
-    expect(tile("Rework open").getByText("team-wide")).toBeVisible();
-    expect(mocks.visitOrder).toHaveBeenCalledWith(expect.objectContaining({ viewerId: "inspector-1", canReorder: canAssign }));
+    // Rework open (owner decision 2026-11-12): PENDING transfers in the Rework
+    // list's scope — team-wide for the office, the inspector's own otherwise.
+    const reworkScope = canAssign ? {} : reworkMineWhere("inspector-1");
+    expect(mocks.reworkCount).toHaveBeenCalledWith({ where: { AND: [{ status: "PENDING" }, reworkScope] } });
+    expect(tile("Rework open").getByText(canAssign ? "team-wide" : "yours")).toBeVisible();
+    expect(mocks.visitOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ viewerId: "inspector-1", canReorder: canAssign, inspectorMayReorder: !canAssign })
+    );
     expect(mocks.queue).toHaveBeenCalledWith(expect.objectContaining({ canAssign, inspectors: canAssign ? [{ id: "inspector-1", name: "Inspector" }] : [] }));
     expect(mocks.roster).toHaveBeenCalledTimes(canAssign ? 1 : 0);
     expect(mocks.planner).toHaveBeenCalledTimes(canAssign ? 1 : 0);

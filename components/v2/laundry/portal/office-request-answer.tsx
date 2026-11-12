@@ -13,6 +13,7 @@ import Link from "next/link";
 import { EButton } from "@/components/v2/ui/primitives";
 import { stopHref, type LaundryOfficeRequest } from "@/lib/laundry/office-request-types";
 import { teamReplyProblem, type TeamReplyAnswer, type TeamReplySummary } from "@/lib/laundry/team-request-reply-rules";
+import { PartnerRunEntries } from "./partner-run-entries";
 
 type Draft = { answer: TeamReplyAnswer; time: string; date: string; note: string; key: string; /** Sent by one tap ("Yes, 15:30"): the form shows only after a failure. */ quick?: boolean };
 type SendState = { status: "idle" } | { status: "sending" } | { status: "failed"; message: string; unknown: boolean };
@@ -24,7 +25,7 @@ function newKey(): string {
 
 const inputClass = "h-11 w-full rounded-[10px] border border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] px-3 text-[16px]";
 
-export function OfficeRequestAnswer({ request, todayKey, onAnswered }: { request: LaundryOfficeRequest; todayKey: string; onAnswered: (reply: TeamReplySummary) => void }) {
+export function OfficeRequestAnswer({ request, todayKey, onAnswered, partnerEntries = false, onRunChanged }: { request: LaundryOfficeRequest; todayKey: string; onAnswered: (reply: TeamReplySummary) => void; /** A LAUNDRY login acting as themselves. */ partnerEntries?: boolean; onRunChanged?: () => void }) {
   const [draft, setDraft] = React.useState<Draft | null>(null);
   const [send, setSend] = React.useState<SendState>({ status: "idle" });
   const ids = { time: React.useId(), date: React.useId(), note: React.useId() };
@@ -106,7 +107,14 @@ export function OfficeRequestAnswer({ request, todayKey, onAnswered }: { request
   return (
     <div className="mt-2 space-y-2">
       <div className="flex flex-wrap gap-1.5">{quick}{request.kind !== "TEAM_PHOTO" && request.kind !== "TEAM_RETURN_ETA" ? go : null}</div>
-      {request.kind === "TEAM_PHOTO" ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">A photo cannot be added to a finished drop-off from the portal. Tell the office why, or send it to them another way.</p> : null}
+      {request.kind === "TEAM_PHOTO" && !(partnerEntries && request.run?.status === "DROPPED") ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Tell the office why a photo cannot be added, or send it another way.</p> : null}
+      {partnerEntries && request.run && request.state === "open" ? (
+        <PartnerRunEntries
+          key={request.taskId}
+          task={{ id: request.taskId, status: request.run.status, updatedAt: request.run.updatedAt, bagWeightKg: request.run.bagWeightKg, dropoffCostAud: request.run.dropoffCostAud, propertyName: request.propertyName }}
+          onSaved={onRunChanged ?? (() => undefined)}
+        />
+      ) : null}
       {draft && (!draft.quick || send.status === "failed") ? (
         <fieldset disabled={sending} className="space-y-2 rounded-[10px] bg-[hsl(var(--e-surface-raised,var(--e-muted)))] p-2.5">
           {draft.answer === "RETURN_AT" ? (

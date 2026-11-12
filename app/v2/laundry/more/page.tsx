@@ -5,6 +5,8 @@ import { requireRole } from "@/lib/auth/session";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { LAUNDRY_MORE_ITEMS } from "@/components/v2/laundry/portal/laundry-nav";
 import { LaundryAccountActions } from "@/components/v2/laundry/portal/laundry-account-actions";
+import { PartnerScheduleCard, type PartnerScheduleCardData } from "@/components/v2/laundry/portal/partner-schedule-card";
+import { scheduleForLaundryUser } from "@/lib/laundry/partner-schedule-server";
 
 export const metadata = { title: "More · Estate laundry" };
 
@@ -15,10 +17,20 @@ export const metadata = { title: "More · Estate laundry" };
  * is a menu again (and still reachable from old links).
  */
 export default async function V2LaundryMorePage() {
-  await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+  const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
+  // The signed-in team member's partner schedule (2026-11-13); office accounts have none.
+  let schedule: PartnerScheduleCardData = null;
+  let scheduleFailed = false;
+  if (session.user.role === Role.LAUNDRY) {
+    schedule = await scheduleForLaundryUser(session.user.id).catch(() => {
+      scheduleFailed = true;
+      return null;
+    });
+  }
   return (
     <div className="space-y-4">
       <EPageHeader eyebrow="Laundry" title="More" />
+      <PartnerScheduleCard data={schedule} failed={scheduleFailed} />
       <ul className="divide-y divide-[hsl(var(--e-border))] overflow-hidden rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
         {LAUNDRY_MORE_ITEMS.map((item) => {
           const Icon = item.icon;

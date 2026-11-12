@@ -40,6 +40,7 @@ type EditForm = {
   skipReasonNote: string;
   adminOverrideNote: string;
   totalPrice: string;
+  weightKg: string;
   bagCount: string;
   evidenceNote: string;
 };
@@ -62,6 +63,7 @@ export function LaundryEditDialog({
     skipReasonNote: "",
     adminOverrideNote: "",
     totalPrice: "",
+    weightKg: "",
     bagCount: "",
     evidenceNote: "",
   });
@@ -79,6 +81,7 @@ export function LaundryEditDialog({
       skipReasonNote: task.skipReasonNote ?? "",
       adminOverrideNote: task.adminOverrideNote ?? "",
       totalPrice: task.dropoffCostAud != null ? String(task.dropoffCostAud) : "",
+      weightKg: task.bagWeightKg != null ? String(task.bagWeightKg) : "",
       // Bag count lives on confirmation meta (not a task column) — opens blank;
       // set it only when recording a new pickup/drop-off count.
       bagCount: "",
@@ -112,6 +115,15 @@ export function LaundryEditDialog({
       toast({ title: "Invalid price", description: "Enter a valid drop-off price.", variant: "destructive" });
       return;
     }
+
+    // Weight is sent only when changed (blank keeps it unchanged).
+    const trimmedWeight = form.weightKg.trim();
+    const parsedWeight = trimmedWeight ? Number(trimmedWeight) : null;
+    if (trimmedWeight && (!Number.isFinite(parsedWeight) || (parsedWeight as number) < 0 || (parsedWeight as number) > 500)) {
+      toast({ title: "Invalid weight", description: "Enter a load weight between 0 and 500 kg.", variant: "destructive" });
+      return;
+    }
+    const weightChanged = trimmedWeight !== "" && parsedWeight !== (task.bagWeightKg ?? null);
 
     const trimmedBags = form.bagCount.trim();
     const parsedBags = trimmedBags ? Number(trimmedBags) : null;
@@ -154,6 +166,7 @@ export function LaundryEditDialog({
         skipReasonNote: form.skipReasonNote || null,
         adminOverrideNote: form.adminOverrideNote || null,
         ...(trimmedPrice ? { totalPrice: parsedPrice } : {}),
+        ...(weightChanged ? { loadWeightKg: parsedWeight } : {}),
         ...(trimmedBags ? { bagCount: parsedBags } : {}),
         ...(evidencePhotoKeys.length ? { evidencePhotoKeys } : {}),
         ...(form.evidenceNote.trim() ? { evidenceNote: form.evidenceNote.trim() } : {}),
@@ -247,6 +260,17 @@ export function LaundryEditDialog({
               value={form.totalPrice}
               onChange={(e) => set({ totalPrice: e.target.value })}
               placeholder="e.g. 45.00"
+            />
+          </EField>
+          <EField label="Load weight (kg)" hint="As entered by the laundry team or at drop-off. Blank keeps it unchanged.">
+            <EInput
+              type="number"
+              min={0}
+              max={500}
+              step="0.1"
+              value={form.weightKg}
+              onChange={(e) => set({ weightKg: e.target.value })}
+              placeholder="e.g. 11.2"
             />
           </EField>
           <EField label="Bag count" hint="Optional — recorded as evidence and shown in reports (1–50).">

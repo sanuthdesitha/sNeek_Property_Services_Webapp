@@ -61,8 +61,8 @@ import type { Prisma } from "@prisma/client";
 import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 import { exactTemplateCopy, templateCopyLabel } from "@/lib/qa/inspection-template";
 import {
-  isVerdictAllowedOnScale,
   normalizeVerdictScale,
+  offScaleVerdicts,
   storedSeverityForVerdict,
   type QaStoredSeverity,
 } from "@/lib/qa/verdict-scale";
@@ -819,9 +819,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // re-mapped: new inspections cannot record Major / Critical, and an older
     // in-progress or amended inspection keeps exactly the options it began with.
     const verdictScale = normalizeVerdictScale(authorizedAssignment.verdictScale);
-    const offScale = (accountabilityInput?.verdicts ?? []).filter(
-      (entry) => !isVerdictAllowedOnScale(entry.verdict, verdictScale)
-    );
+    const offScale = offScaleVerdicts(accountabilityInput?.verdicts ?? [], verdictScale);
     if (offScale.length > 0) {
       return NextResponse.json(
         {

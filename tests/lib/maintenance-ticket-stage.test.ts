@@ -9,7 +9,8 @@ describe("maintenance visit status", () => {
     [{ outcome: "NEEDS_PARTS", clockOutAt: "2026-09-10T01:00:00Z" }, "Needs parts"],
     [{ outcome: "NEEDS_FOLLOWUP" }, "Needs follow-up"],
     [{ outcome: "NO_ACCESS" }, "No access"],
-    [{ outcome: "OTHER" }, "Visit ended; work order remains open"],
+    // OTHER was merged into NEEDS_FOLLOWUP (2026-11-13); a resolved-type outcome on an open item:
+    [{ outcome: "REPLACED_OR_REPAIRED" }, "Visit ended; work order remains open"],
     [{ clockOutAt: "2026-09-10T01:00:00Z" }, "Visit ended; work order remains open"],
     [{ clockInAt: "2026-09-10T01:00:00Z" }, "On site"],
     [{ arrivedAt: "2026-09-10T01:00:00Z" }, "Arrived"],

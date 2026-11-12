@@ -11,7 +11,7 @@ import { EActionDialog } from "@/components/v2/ui/action-dialog";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
 import { APPROVAL_QUEUES, type ApprovalsQueueKey, type BulkDecision } from "@/lib/admin/approvals/queues";
-import type { ApprovalQueueRow } from "@/lib/admin/approvals/rows";
+import { money, type ApprovalQueueRow } from "@/lib/admin/approvals/rows";
 
 export type BulkOutcome = { id: string; status: "done" | "refused" | "unchanged"; message: string };
 
@@ -59,6 +59,14 @@ export function BulkDecisionBar({ queue, selectedRows, onClear, onFinished, requ
     onRequestHandled();
   }, [request, onRequestHandled]);
 
+  // Pay requests approved as asked: each selected row's own asked amount, frozen
+  // when the dialog opened, shown as a count and total and sent with the ids.
+  const payAsAsked = queue === "payAdjustments" && pending?.decision === "approve";
+  const askedRows = payAsAsked ? selectedRows.filter((row) => pending?.ids.includes(row.id)) : [];
+  const withAmount = askedRows.filter((row) => row.askedAmount != null && Number.isFinite(row.askedAmount) && row.askedAmount > 0);
+  const askedTotal = withAmount.reduce((sum, row) => sum + (row.askedAmount ?? 0), 0);
+  const expectedAmounts = payAsAsked ? Object.fromEntries(withAmount.map((row) => [row.id, row.askedAmount as number])) : undefined;
+
   const labelFor = (id: string) => {
     const row = selectedRows.find((item) => item.id === id);
     return row ? `${row.who}${row.jobLabel ? ` · ${row.jobLabel}` : ""}` : id;
@@ -72,7 +80,7 @@ export function BulkDecisionBar({ queue, selectedRows, onClear, onFinished, requ
       const res = await fetch("/api/admin/approvals/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ queue, decision: pending.decision, ids: pending.ids, note: note.trim() || undefined, noteVisibleToPayee: PAY_QUEUES.has(queue) ? visible : undefined }),
+        body: JSON.stringify({ queue, decision: pending.decision, ids: pending.ids, note: note.trim() || undefined, noteVisibleToPayee: PAY_QUEUES.has(queue) ? visible : undefined, expectedAmounts }),
       });
       const body = (await res.json().catch(() => null)) as { outcomes?: BulkOutcome[]; error?: string } | null;
       if (!res.ok || !body?.outcomes) {
@@ -166,6 +174,22 @@ export function BulkDecisionBar({ queue, selectedRows, onClear, onFinished, requ
           <fieldset disabled={running} className="space-y-2">
             <p>Each request is decided through its own decision, with the same checks and notices as deciding it on its own.</p>
             {CONSEQUENCE[queue] ? <p className="font-[550]">{CONSEQUENCE[queue]}</p> : null}
+            {payAsAsked ? (
+              <div className="space-y-1.5">
+                <p className="font-[550]">
+                  Approve {askedRows.length} pay {askedRows.length === 1 ? "request" : "requests"}, each at its own asked amount: {money(askedTotal) ?? "$0.00"} in total{withAmount.length < askedRows.length ? ` for ${withAmount.length} with an amount` : ""}.
+                </p>
+                <ul className="max-h-48 space-y-1 overflow-y-auto text-[0.8125rem]">
+                  {askedRows.map((row) => (
+                    <li key={row.id} className="flex flex-wrap justify-between gap-2">
+                      <span className="min-w-0 [overflow-wrap:anywhere]">{labelFor(row.id)}</span>
+                      <span className="e-numeral">{money(row.askedAmount) ?? "No amount"}{row.hasEvidence ? "" : " · no receipt"}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">A request without a receipt or amount, waiting for the client, or changed since you selected it is refused with the reason and stays selected. To change an amount, use Review.</p>
+              </div>
+            ) : null}
             {pending?.decision === "decline" && NOTE_QUEUES.has(queue) ? (
               <>
                 <label htmlFor={`${ids}-note`} className="block text-[0.75rem] font-[550]">One note for all, optional</label>

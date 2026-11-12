@@ -13,6 +13,20 @@ type ClientJobProjection = {
   auditLogs: Array<{ user: { name: string | null } | null }>;
 };
 
+/**
+ * Invoice lines (charged amounts) on a clean are finance: shown only when the
+ * client's finance module is switched on AND the viewer is the account holder
+ * or an assistant with the invoice grant. One rule for the job API and the
+ * clean page (owner decision 2026-11-13).
+ */
+export function clientMaySeeJobCosts(portal: {
+  actor: ClientPortalContext["actor"];
+  permissions: Pick<ClientPortalContext["permissions"], "invoicesView">;
+  visibility: Pick<ClientPortalContext["visibility"], "showFinanceDetails">;
+}): boolean {
+  return portal.visibility.showFinanceDetails === true && (portal.actor === "CLIENT" || portal.permissions.invoicesView === true);
+}
+
 /** Apply portal visibility and actor grants before serializing either client UI's job response. */
 export function projectClientJob<T extends ClientJobProjection>(
   job: T,
@@ -53,7 +67,7 @@ export function projectClientJob<T extends ClientJobProjection>(
       ...job.report,
       pdfUrl: portal.visibility.showReportDownloads ? job.report.pdfUrl : null,
     } : null,
-    invoiceLines: portal.visibility.showFinanceDetails && (portal.actor === "CLIENT" || portal.permissions.invoicesView) ? job.invoiceLines : [],
+    invoiceLines: clientMaySeeJobCosts(portal) ? job.invoiceLines : [],
     laundryTask: portal.visibility.showLaundryUpdates && job.laundryTask ? {
       ...job.laundryTask,
       confirmations: job.laundryTask.confirmations.map((confirmation) => ({

@@ -2,7 +2,7 @@
  * The visit outcomes a maintenance worker can record when finishing, in the
  * order the finish screen lists them. The values are what
  * `POST /api/maintenance/[id]/visit` stores; changing this list changes data,
- * so tests pin it (tests/lib/maintenance-portal-redesign.test.ts,
+ * so tests pin it (tests/components/qa-maintenance-portal-redesign.test.tsx,
  * tests/lib/maintenance-outcome-merge.test.ts).
  *
  * Owner decision 2026-11-12: the five drawn on the board. Migration

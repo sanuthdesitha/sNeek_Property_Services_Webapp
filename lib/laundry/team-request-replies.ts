@@ -95,10 +95,13 @@ export const PLANNED_TIME_FROM_ANSWER_ACTION = "LAUNDRY_PLANNED_TIMES_UPDATED";
 /** Inside the reply transaction: lock the run and set its planned time when the answer calls for it. */
 async function applyPlannedTimeFromAnswer(
   tx: Prisma.TransactionClient,
-  args: { taskId: string; jobId: string; kind: LaundryTeamRequestKind; answer: TeamReplyAnswer; time: string | null | undefined; actorId: string; replyId: string; requestId: string },
+  args: { taskId: string; kind: LaundryTeamRequestKind; answer: TeamReplyAnswer; time: string | null | undefined; actorId: string; replyId: string; requestId: string },
 ): Promise<PlannedTimeFromAnswer | null> {
+  // Only a "Yes" with a valid time to a time request can set anything; every
+  // other answer leaves the run untouched without locking it.
+  if (!plannedTimeFromAnswer({ kind: args.kind, answer: args.answer, time: args.time ?? null, status: args.kind === "TEAM_CONFIRM_DROP" ? "PICKED_UP" : "PENDING" })) return null;
   await tx.$queryRaw`SELECT "id" FROM "LaundryTask" WHERE "id" = ${args.taskId} FOR UPDATE`;
-  const run = await tx.laundryTask.findUnique({ where: { id: args.taskId }, select: { status: true, pickupTime: true, dropoffTime: true } });
+  const run = await tx.laundryTask.findUnique({ where: { id: args.taskId }, select: { jobId: true, status: true, pickupTime: true, dropoffTime: true } });
   if (!run) return null;
   const change = plannedTimeFromAnswer({ kind: args.kind, answer: args.answer, time: args.time ?? null, status: run.status });
   if (!change) return null;
@@ -107,7 +110,7 @@ async function applyPlannedTimeFromAnswer(
   await tx.laundryTask.update({ where: { id: args.taskId }, data: { [change.field]: change.time } });
   await tx.auditLog.create({
     data: {
-      userId: args.actorId, jobId: args.jobId, action: PLANNED_TIME_FROM_ANSWER_ACTION, entity: "LaundryTask", entityId: args.taskId,
+      userId: args.actorId, jobId: run.jobId, action: PLANNED_TIME_FROM_ANSWER_ACTION, entity: "LaundryTask", entityId: args.taskId,
       before: { pickupTime: run.pickupTime, dropoffTime: run.dropoffTime } as Prisma.InputJsonObject,
       after: {
         pickupTime: change.field === "pickupTime" ? change.time : run.pickupTime,
@@ -134,7 +137,7 @@ export async function recordTeamRequestReply(viewer: TeamReplyViewer, requestId:
 
   const scope = await laundryTaskScope(viewer);
   const [task, me] = await Promise.all([
-    db.laundryTask.findFirst({ where: { ...scope, id: request.taskId }, select: { id: true, jobId: true, supplierId: true } }),
+    db.laundryTask.findFirst({ where: { ...scope, id: request.taskId }, select: { id: true, supplierId: true } }),
     db.user.findUnique({ where: { id: viewer.id }, select: { name: true, laundrySupplierId: true, isActive: true } }),
   ]);
   if (!task) throw new TeamReplyError(404, "That run is not one you can see.");
@@ -172,7 +175,7 @@ export async function recordTeamRequestReply(viewer: TeamReplyViewer, requestId:
         },
       });
       const plannedTimeSet = await applyPlannedTimeFromAnswer(tx, {
-        taskId: task.id, jobId: task.jobId, kind: request.kind, answer: body.answer, time: body.time, actorId: viewer.id, replyId: created.id, requestId: request.id,
+        taskId: task.id, kind: request.kind, answer: body.answer, time: body.time, actorId: viewer.id, replyId: created.id, requestId: request.id,
       });
       return { created, plannedTimeSet };
     });

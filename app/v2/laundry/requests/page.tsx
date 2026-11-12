@@ -30,7 +30,7 @@ export default async function LaundryRequestsPage({ searchParams }: { searchPara
       {session.user.role !== Role.LAUNDRY ? (
         <p className="text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Office requests go to laundry partner logins. This account has none.</p>
       ) : (
-        <OfficeRequestsInbox initial={initial} todayKey={sydneyTodayKey()} focusTaskId={typeof searchParams?.task === "string" ? searchParams.task : null} />
+        <OfficeRequestsInbox initial={initial} todayKey={sydneyTodayKey()} focusTaskId={typeof searchParams?.task === "string" ? searchParams.task : null} partnerEntries={!session.impersonation} />
       )}
     </div>
   );

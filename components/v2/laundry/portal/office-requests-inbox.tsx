@@ -21,7 +21,7 @@ function dayLabel(key: string): string {
   return Number.isNaN(date.getTime()) ? key : date.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 }
 
-function RequestCard({ request, todayKey, onAnswered, highlight }: { request: LaundryOfficeRequest; todayKey: string; onAnswered: (reply: TeamReplySummary) => void; highlight: boolean }) {
+function RequestCard({ request, todayKey, onAnswered, highlight, partnerEntries, onRunChanged }: { request: LaundryOfficeRequest; todayKey: string; onAnswered: (reply: TeamReplySummary) => void; highlight: boolean; partnerEntries: boolean; onRunChanged: () => void }) {
   const badge = OFFICE_REQUEST_BADGES[request.kind];
   return (
     <ECard className={`p-3 ${badge.tone === "warning" ? "border-l-[3px] border-l-[hsl(var(--e-warning))]" : ""} ${highlight ? "ring-2 ring-[hsl(var(--e-ring))]" : ""}`}>
@@ -31,7 +31,7 @@ function RequestCard({ request, todayKey, onAnswered, highlight }: { request: La
       </div>
       <b className="mt-1.5 block break-words text-[0.9375rem] font-[600]">{request.title}</b>
       <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{request.note ? `"${request.note}"` : request.text}</p>
-      <OfficeRequestAnswer request={request} todayKey={todayKey} onAnswered={onAnswered} />
+      <OfficeRequestAnswer request={request} todayKey={todayKey} onAnswered={onAnswered} partnerEntries={partnerEntries} onRunChanged={onRunChanged} />
     </ECard>
   );
 }
@@ -51,7 +51,7 @@ function AnsweredRow({ request }: { request: LaundryOfficeRequest }) {
   );
 }
 
-export function OfficeRequestsInbox({ initial, todayKey, focusTaskId }: { initial: OfficeRequestsResponse | null; todayKey: string; focusTaskId: string | null }) {
+export function OfficeRequestsInbox({ initial, todayKey, focusTaskId, partnerEntries = false }: { initial: OfficeRequestsResponse | null; todayKey: string; focusTaskId: string | null; /** A LAUNDRY login acting as themselves (2026-11-13 entries). */ partnerEntries?: boolean }) {
   const [data, setData] = React.useState<OfficeRequestsResponse | null>(initial);
   const [stale, setStale] = React.useState(false);
   const controllerRef = React.useRef<AbortController | null>(null);
@@ -98,7 +98,7 @@ export function OfficeRequestsInbox({ initial, todayKey, focusTaskId }: { initia
     <div className="space-y-3">
       {stale ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">Could not refresh; this list may be out of date. <button type="button" className="underline" onClick={() => void reload()}>Retry</button></p> : null}
       {open.length === 0 ? <ECard className="p-4 text-[0.875rem] text-[hsl(var(--e-muted-foreground))]">Nothing to answer. New requests from the office appear here.</ECard> : null}
-      {open.map((request) => <RequestCard key={request.id} request={request} todayKey={todayKey} highlight={request.taskId === focusTaskId} onAnswered={(reply) => answered(request.id, reply)} />)}
+      {open.map((request) => <RequestCard key={request.id} request={request} todayKey={todayKey} highlight={request.taskId === focusTaskId} partnerEntries={partnerEntries} onRunChanged={() => void reload()} onAnswered={(reply) => answered(request.id, reply)} />)}
       {closed.length ? (
         <section aria-labelledby="answered-requests" className="space-y-2">
           <h2 id="answered-requests" className="e-eyebrow">Answered</h2>
@@ -106,7 +106,7 @@ export function OfficeRequestsInbox({ initial, todayKey, focusTaskId }: { initia
         </section>
       ) : null}
       <p className="rounded-[10px] bg-[hsl(var(--e-surface-raised,var(--e-muted)))] px-3 py-2 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
-        Requests from the last {data.windowHours / 24} days arrive in this inbox. The office chooses whether a push or email copy is also sent. An answer here tells the office; it does not change the run.
+        Requests from the last {data.windowHours / 24} days arrive in this inbox. The office chooses whether a push or email copy is also sent. An answer here tells the office. A &quot;Yes&quot; with a time also sets that planned time on the run; nothing else on the run changes.
       </p>
     </div>
   );

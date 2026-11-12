@@ -28,6 +28,8 @@ const bodySchema = z.object({
   ids: z.array(z.string().min(1).max(64)).min(1).max(APPROVALS_BULK_MAX_IDS),
   note: z.string().trim().max(2000).optional().nullable(),
   noteVisibleToPayee: z.boolean().optional(),
+  /** Pay requests approved as asked: the amount confirmed for each id (refused per row when it changed). */
+  expectedAmounts: z.record(z.string().min(1).max(64), z.number().finite().nonnegative()).optional(),
 });
 
 type RouteContext = { params: { id: string } };

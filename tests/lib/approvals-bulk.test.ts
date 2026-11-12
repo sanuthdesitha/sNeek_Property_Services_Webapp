@@ -36,7 +36,9 @@ beforeEach(() => {
 
 describe("bulk rules per queue", () => {
   it("refuses bulk approve where each decision needs its own amount, minutes, score or reason", () => {
-    for (const key of ["payAdjustments", "timeAdjustments", "bookingRequests", "managementReviews", "cleanerInvoicePayClaims"] as const) {
+    // Pay requests are approved in bulk "as asked" since 2026-11-13 (tested below).
+    expect(APPROVAL_QUEUES.payAdjustments.bulk.approve.allowed).toBe(true);
+    for (const key of ["timeAdjustments", "bookingRequests", "managementReviews", "cleanerInvoicePayClaims"] as const) {
       expect(APPROVAL_QUEUES[key].bulk.approve.allowed).toBe(false);
     }
     expect(APPROVAL_QUEUES.bookingRequests.bulk.decline.allowed).toBe(false);
@@ -48,7 +50,9 @@ describe("bulk rules per queue", () => {
     for (const key of APPROVAL_QUEUE_ORDER) {
       for (const decision of ["approve", "decline"] as const) {
         const request = decisionRequestFor(key, decision, "x1");
-        expect(Boolean(request), `${key} ${decision}`).toBe(APPROVAL_QUEUES[key].bulk[decision].allowed);
+        // Pay-request approval has its own per-row plan with each asked amount (planPayApprovals).
+        const expected = key === "payAdjustments" && decision === "approve" ? false : APPROVAL_QUEUES[key].bulk[decision].allowed;
+        expect(Boolean(request), `${key} ${decision}`).toBe(expected);
       }
     }
   });
@@ -62,7 +66,7 @@ describe("bulk rules per queue", () => {
 
 describe("runBulkDecision", () => {
   it("throws for a decision the queue does not allow in bulk", async () => {
-    await expect(runBulkDecision({ queue: "payAdjustments", decision: "approve", ids: ["p1"], actor: admin, invoke: vi.fn() })).rejects.toBeInstanceOf(BulkDecisionNotAllowed);
+    await expect(runBulkDecision({ queue: "bookingRequests", decision: "approve", ids: ["b1"], actor: admin, invoke: vi.fn() })).rejects.toBeInstanceOf(BulkDecisionNotAllowed);
   });
 
   it("decides each row through the single request and keeps going after a refusal", async () => {

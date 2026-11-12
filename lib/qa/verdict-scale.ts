@@ -53,6 +53,14 @@ export function isVerdictAllowedOnScale(verdict: string, scale: QaVerdictScaleKe
   return (VERDICTS_BY_SCALE[scale] as readonly string[]).includes(verdict);
 }
 
+/**
+ * The entries an inspection may not record on its stored scale. The submit
+ * route refuses these with the reason (409) instead of re-mapping them.
+ */
+export function offScaleVerdicts<T extends { verdict: string }>(entries: readonly T[], scale: QaVerdictScaleKey): T[] {
+  return entries.filter((entry) => !isVerdictAllowedOnScale(entry.verdict, scale));
+}
+
 /** Verdicts that raise an issue (need a category and description). */
 export function isFlaggingVerdict(verdict: string): boolean {
   return verdict === "MINOR" || verdict === "FAIL" || verdict === "MAJOR" || verdict === "CRITICAL";

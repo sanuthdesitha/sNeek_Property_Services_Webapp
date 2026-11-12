@@ -29,6 +29,8 @@ const updateLaundryTaskSchema = z.object({
   // drop-off price / bag count, and stamp the lifecycle timestamps so the
   // change is fully reflected in reports and the confirmation timeline.
   totalPrice: z.number().min(0).max(100000).optional().nullable(),
+  // 2026-11-13: the office corrects a weight the laundry team entered before drop-off.
+  loadWeightKg: z.number().min(0).max(500).optional().nullable(),
   bagCount: z.number().int().min(1).max(50).optional().nullable(),
   evidencePhotoKeys: z.array(z.string().trim().min(1)).max(8).optional(),
   receiptImageKey: z.string().trim().optional().nullable(),
@@ -309,6 +311,7 @@ export async function PATCH(
     if (body.status === LaundryStatus.PICKED_UP && !existingTask.pickedUpAt) data.pickedUpAt = now;
     if (body.status === LaundryStatus.DROPPED && !existingTask.droppedAt) data.droppedAt = now;
     if (body.totalPrice !== undefined) data.dropoffCostAud = body.totalPrice;
+    if (body.loadWeightKg !== undefined) data.bagWeightKg = body.loadWeightKg;
     if (body.receiptImageKey !== undefined) {
       data.receiptImageUrl = body.receiptImageKey ? publicUrl(body.receiptImageKey) : null;
     }
@@ -346,6 +349,7 @@ export async function PATCH(
     const hasEvidence =
       evidenceKeys.length > 0 ||
       body.totalPrice != null ||
+      body.loadWeightKg != null ||
       body.bagCount != null ||
       Boolean(body.receiptImageKey) ||
       Boolean(body.evidenceNote && body.evidenceNote.trim());
@@ -371,6 +375,7 @@ export async function PATCH(
             editedById: session.user.id,
             status: targetStatus,
             totalPrice: body.totalPrice ?? undefined,
+            loadWeightKg: body.loadWeightKg ?? undefined,
             bagCount: body.bagCount ?? undefined,
             dropoffPhotoKey: event === "DROPPED" ? primaryKey : undefined,
             pickupPhotoKey: event === "PICKED_UP" ? primaryKey : undefined,

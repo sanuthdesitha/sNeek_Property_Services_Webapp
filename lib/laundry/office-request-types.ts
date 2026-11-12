@@ -36,6 +36,8 @@ export type LaundryOfficeRequest = {
   /** Typed answers this request accepts. */
   answers: readonly TeamReplyAnswer[];
   replies: TeamReplySummary[];
+  /** The run as it is now (2026-11-13 portal entries: weight / price, ready to return, drop-off photo). Optional for older readers. */
+  run?: { status: string; updatedAt: string; bagWeightKg: number | null; dropoffCostAud: number | null };
 };
 
 export type OfficeRequestsResponse = { requests: LaundryOfficeRequest[]; openCount: number; windowHours: number };

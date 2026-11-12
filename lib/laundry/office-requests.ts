@@ -63,6 +63,7 @@ export async function listOfficeRequestsForLaundryUser(viewer: { id: string; rol
       where: { ...scope, id: { in: taskIds } },
       select: {
         id: true, jobId: true, status: true, pickupDate: true, dropoffDate: true, pickedUpAt: true, flagReason: true, pickupTime: true, dropoffTime: true,
+        updatedAt: true, bagWeightKg: true, dropoffCostAud: true,
         supplier: { select: { avgTurnaround: true } },
         property: { select: { name: true, suburb: true } },
         job: { select: { status: true } },
@@ -124,6 +125,7 @@ export async function listOfficeRequestsForLaundryUser(viewer: { id: string; rol
       stopKind,
       answers: ANSWERS_BY_KIND[kind],
       replies,
+      run: task.updatedAt instanceof Date ? { status: task.status, updatedAt: task.updatedAt.toISOString(), bagWeightKg: task.bagWeightKg ?? null, dropoffCostAud: task.dropoffCostAud ?? null } : undefined,
     });
   }
   return out;

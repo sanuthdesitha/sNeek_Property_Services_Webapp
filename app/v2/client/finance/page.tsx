@@ -54,7 +54,7 @@ function moneyView(finance: FinanceOverview): { rows: ClientMoneyRow[]; toPay: C
   return { rows, toPay: summarizeToPay(rows) };
 }
 
-export default async function V2ClientFinancePage({ searchParams }: { searchParams?: { tab?: string; paid?: string } }) {
+export default async function V2ClientFinancePage({ searchParams }: { searchParams?: { tab?: string; paid?: string; payment?: string } }) {
   const portalCtx = await requireClientPortalPage({ module: "finance", permission: "invoicesView" });
   const portal = await getClientPortalContext(portalCtx.userId).catch(() => null);
   if (!portal) return <Unavailable message="Account visibility could not be loaded. Try again to see your financial details." />;
@@ -91,6 +91,10 @@ export default async function V2ClientFinancePage({ searchParams }: { searchPara
       {searchParams?.paid === "1" ? (
         <p role="status" className="rounded-[var(--e-radius)] border-l-4 border-[hsl(var(--e-info))] bg-[hsl(var(--e-surface))] px-3 py-2 text-[0.8125rem]">
           Your payment was handed to the payment provider. The invoice shows Paid once the provider confirms it.
+        </p>
+      ) : searchParams?.payment === "cancelled" ? (
+        <p role="status" className="rounded-[var(--e-radius)] border-l-4 border-[hsl(var(--e-warning))] bg-[hsl(var(--e-surface))] px-3 py-2 text-[0.8125rem]">
+          You left the payment page before finishing. Nothing was recorded as paid; you can choose Pay now again.
         </p>
       ) : null}
 

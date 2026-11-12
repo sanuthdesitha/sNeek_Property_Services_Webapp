@@ -1,4 +1,5 @@
 import { JobStatusProgress } from "@/components/shared/job-status-progress";
+import { clientMaySeeJobCosts } from "@/lib/client/job-response";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
@@ -95,7 +96,7 @@ function titleCase(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-async function getScopedJob(id: string, scope: Pick<ClientPortalContext, "clientId" | "propertyIds">) {
+async function getScopedJob(id: string, scope: Pick<ClientPortalContext, "clientId" | "propertyIds">, includeCosts: boolean) {
   return db.job
     .findFirst({
       // propertyScopeWhere narrows an assistant to their team's properties, as
@@ -157,7 +158,10 @@ async function getScopedJob(id: string, scope: Pick<ClientPortalContext, "client
             },
           },
         },
+        // Not even read when the viewer may not see costs (finance switch off,
+        // or an assistant without the invoice grant).
         invoiceLines: {
+          where: includeCosts ? undefined : { id: { in: [] } },
           select: {
             id: true,
             description: true,
@@ -280,7 +284,14 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
   const clientId = portal?.clientId;
   if (!clientId) notFound();
 
-  const job = await getScopedJob(params.id, { clientId, propertyIds: portalCtx.propertyIds });
+  // Invoice lines are money: shown only with the finance module on and, for an
+  // assistant, the invoice grant (the same rule as the job API).
+  const showCosts = clientMaySeeJobCosts({
+    actor: portalCtx.actor,
+    permissions: portalCtx.permissions,
+    visibility: { showFinanceDetails: portal?.visibility?.showFinanceDetails === true },
+  });
+  const job = await getScopedJob(params.id, { clientId, propertyIds: portalCtx.propertyIds }, showCosts);
   if (!job) notFound();
 
   // Open client requests on this job — drives the action hub's pending states.
@@ -333,8 +344,6 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
     !["COMPLETED", "INVOICED"].includes(job.status) &&
     (skipStatus === "NONE" || skipStatus === "DECLINED" || skipStatus === "REQUESTED");
   const showReportTab = job.report?.clientVisible;
-  // Invoice lines are money: an assistant sees them only with the invoice grant.
-  const showCosts = portalCtx.actor === "CLIENT" || portalCtx.permissions.invoicesView === true;
   const isToday = format(scheduled, "yyyy-MM-dd") === format(toZonedTime(new Date(), TZ), "yyyy-MM-dd");
   const onSite = job.status === "IN_PROGRESS" || job.status === "PAUSED" || job.status === "WAITING_CONTINUATION_APPROVAL";
   // The arrival time is shown only where live progress is shared; otherwise the
