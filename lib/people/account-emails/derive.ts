@@ -31,7 +31,7 @@ export type PersonEmailFacts = {
   emailVerified: boolean;
   lastSeenAt: Date | null;
   context: string | null;
-  invitation: { createdAt: Date; acceptedAt: Date | null; expiresAt: Date; createdByName: string | null; createdById: string | null } | null;
+  invitation: { createdAt: Date; acceptedAt: Date | null; expiresAt: Date; createdByName: string | null; createdById: string | null; revokedAt?: Date | null } | null;
   /** Most recent recorded account email, if any. */
   latest: EmailRecordFact | null;
 };
@@ -41,6 +41,8 @@ export type EmailViewer = { id: string; heldRoles: string[] } | { refused: strin
 
 function nextStepFor(facts: PersonEmailFacts, now: Date): AccountEmailNextStep {
   if (!facts.isActive) return null;
+  // A withdrawn invitation is replaced by a fresh one (owner decision 2026-11-13).
+  if (facts.invitation && !facts.invitation.acceptedAt && facts.invitation.revokedAt) return "NEW_INVITATION";
   if (facts.invitation && !facts.invitation.acceptedAt) return facts.invitation.expiresAt.getTime() <= now.getTime() ? "NEW_INVITATION" : "RESEND_INVITATION";
   if (!facts.invitation && !facts.emailVerified && facts.latest?.kind === "SIGNUP_CODE") return "RESEND_SIGNUP_CODE";
   return null;
@@ -56,9 +58,17 @@ function refusalFor(viewer: EmailViewer, facts: PersonEmailFacts, step: AccountE
   return accountEmailIneligibility(type, { isActive: facts.isActive, emailVerified: facts.emailVerified, invitation: facts.invitation ? { acceptedAt: facts.invitation.acceptedAt } : null });
 }
 
+/** Why this viewer may not revoke (viewer or person rules only; the invitation's own state is checked by the caller). */
+function personRefusalFor(viewer: EmailViewer, facts: PersonEmailFacts): string | null {
+  if ("refused" in viewer) return viewer.refused;
+  if (facts.userId === viewer.id) return "Use your own account settings for your own sign-in emails.";
+  return roleAboveRefusal(viewer.heldRoles, facts.roles);
+}
+
 export function buildEmailRow(facts: PersonEmailFacts, viewer: EmailViewer, now: Date): AccountEmailListRow {
   const invitation = facts.invitation;
-  const pending = Boolean(invitation && !invitation.acceptedAt);
+  const revokedAt = invitation && !invitation.acceptedAt ? invitation.revokedAt ?? null : null;
+  const pending = Boolean(invitation && !invitation.acceptedAt && !revokedAt);
   const expired = Boolean(pending && invitation && invitation.expiresAt.getTime() <= now.getTime());
   const inviteKind: AccountEmailKind = facts.role === "VA" ? "ASSISTANT_ACCESS" : "INVITATION";
   // The invitation row is newer than any recorded email when it was re-issued elsewhere (e.g. the assistants screen).
@@ -89,6 +99,8 @@ export function buildEmailRow(facts: PersonEmailFacts, viewer: EmailViewer, now:
     nextStep: step,
     canResend: step !== null && refusal === null,
     canCopyLink: pending && !expired && refusal === null,
+    revokedAt: revokedAt ? revokedAt.toISOString() : null,
+    canRevoke: pending && personRefusalFor(viewer, facts) === null,
     refusal,
   };
 }
@@ -105,6 +117,8 @@ export function matchesState(row: AccountEmailListRow, state: EmailStateFilter):
       return row.expired;
     case "not-sent":
       return row.delivery === "NOT_ACCEPTED" || row.delivery === "SKIPPED";
+    case "revoked":
+      return row.revokedAt !== null;
   }
 }
 

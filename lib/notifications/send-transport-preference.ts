@@ -16,20 +16,25 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { DOCUMENT_REQUEST_TRANSPORTS, type DocumentRequestTransport } from "@/lib/workforce/document-request-send";
+import {
+  SAVED_CHOICE_TRANSPORTS,
+  SEND_TRANSPORT_KINDS,
+  SEND_TRANSPORT_KIND_LABEL,
+  type SavedChoiceTransport,
+  type SendTransportKind,
+} from "./send-transport-kinds";
+
+export { SEND_TRANSPORT_KINDS, SEND_TRANSPORT_KIND_LABEL, type SendTransportKind };
 
 export const SEND_TRANSPORT_PREFERENCE_PREFIX = "office_send_transports_v1:";
 
-/** The kinds of send that offer "Don't ask again". */
-export const SEND_TRANSPORT_KINDS = ["document_request"] as const;
-export type SendTransportKind = (typeof SEND_TRANSPORT_KINDS)[number];
-
-export const SEND_TRANSPORT_KIND_LABEL: Record<SendTransportKind, string> = {
-  document_request: "Request document and expiring-document reminders",
-};
-
+/**
+ * A saved choice names transports from the shared list; each kind's route
+ * accepts only its own (document requests: PUSH, EMAIL, SMS; Message team,
+ * owner decision 2026-11-13: INBOX, PUSH, SMS). Existing rows still parse.
+ */
 const savedChoiceSchema = z.object({
-  transports: z.array(z.enum(DOCUMENT_REQUEST_TRANSPORTS)).min(1).max(3),
+  transports: z.array(z.enum(SAVED_CHOICE_TRANSPORTS)).min(1).max(4),
   savedAt: z.string().min(1).max(40),
 }).strict();
 
@@ -86,7 +91,7 @@ async function writeKinds(userId: string, change: (kinds: StoredPreferences["kin
 export async function saveTransportChoice(
   userId: string,
   kind: SendTransportKind,
-  transports: readonly DocumentRequestTransport[],
+  transports: readonly SavedChoiceTransport[],
   now = new Date(),
 ): Promise<SavedTransportChoice> {
   const choice: SavedTransportChoice = { transports: Array.from(new Set(transports)), savedAt: now.toISOString() };

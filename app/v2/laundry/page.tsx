@@ -1,8 +1,6 @@
-import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { LaundryStatus, Role } from "@prisma/client";
 import { laundryTaskScope } from "@/lib/laundry/teams";
 import { requireRole } from "@/lib/auth/session";
-import { db } from "@/lib/db";
 import {
   EBadge,
   ECard,
@@ -22,6 +20,7 @@ import { TodayRouteList } from "@/components/v2/laundry/portal/today-route-list"
 import { listOfficeRequestsForLaundryUser, OFFICE_REQUEST_WINDOW_HOURS, type LaundryOfficeRequest } from "@/lib/laundry/office-requests";
 import { LAUNDRY_REQUESTS_HREF } from "@/lib/laundry/office-request-types";
 import { loadTodayRoute } from "@/lib/laundry/today-route";
+import { loadTodayRuns, type TodayRuns } from "@/lib/laundry/today-runs";
 import { PackageCheck, Timer, Truck, Waves } from "lucide-react";
 
 export const metadata = { title: "Today · Estate laundry" };
@@ -71,74 +70,43 @@ function statusLabel(status: LaundryStatus): string {
   }
 }
 
-async function getLaundry(scope: Awaited<ReturnType<typeof laundryTaskScope>>) {
-  const today = sydneyTodayKey();
-  const tomorrow = addDaysToKey(today, 1);
-  // Scheduled dates are UTC date-only keys; delivery events are actual instants.
-  // Keep these ranges distinct, especially across Sydney's 23/25-hour DST days.
-  const scheduledStart = new Date(`${today}T00:00:00.000Z`);
-  const scheduledEnd = new Date(`${tomorrow}T00:00:00.000Z`);
-  const todayStart = sydneyDayStart(today);
-  const todayEnd = sydneyDayStart(tomorrow);
+type TodayFigures = { inQueue: number; inTransit: number; delivered: number; total: number };
 
-  // Mirrors app/v2/admin/laundry/page.tsx getLaundry(await laundryTaskScope(session.user)).
-  //
-  // A set the laundry team already returned in the v1 portal is written as
-  // status=DROPPED with a `droppedAt` timestamp (see the RETURNED→DROPPED map in
-  // app/api/laundry/[taskId]/status/route.ts). Early returns — a first-class flow
-  // here — leave the *scheduled* `dropoffDate` in the future, so filtering the
-  // "today" board on `dropoffDate` alone dropped those sets entirely: v2 showed
-  // them as un-returned (or missing) even though v1 marked them done. Match on the
-  // canonical `droppedAt` as well so anything actually delivered today shows and
-  // is counted as Delivered, regardless of its scheduled drop-off date.
-  const tasks = await db.laundryTask
-    .findMany({
-      where: {
-        ...scope,
-        noPickupRequired: false,
-        OR: [
-          { pickupDate: { gte: scheduledStart, lt: scheduledEnd } },
-          { dropoffDate: { gte: scheduledStart, lt: scheduledEnd } },
-          { droppedAt: { gte: todayStart, lt: todayEnd } },
-          { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN, LaundryStatus.CONFIRMED] } },
-        ],
-      },
-      orderBy: [{ pickupDate: "asc" }],
-      select: {
-        id: true,
-        status: true,
-        droppedAt: true,
-        bagWeightKg: true,
-        property: { select: { name: true, suburb: true } },
-      },
-    })
-    .catch(() => null);
-
-  if (tasks === null) return { tasks: null, inQueue: null, inTransit: null, ready: null };
-
-  const deliveredToday = (t: { status: LaundryStatus; droppedAt: Date | null }) =>
-    t.status === LaundryStatus.DROPPED &&
-    t.droppedAt != null &&
-    t.droppedAt >= todayStart &&
-    t.droppedAt < todayEnd;
-
-  const inQueue = tasks.filter((t) => t.status === LaundryStatus.PENDING || t.status === LaundryStatus.CONFIRMED).length;
-  const inTransit = tasks.filter((t) => t.status === LaundryStatus.PICKED_UP || t.status === LaundryStatus.READY_TO_RETURN).length;
-  const ready = tasks.filter(deliveredToday).length;
-
-  return { tasks, inQueue, inTransit, ready };
+/** Today's figures from today's runs only (the Runs rule; owner decision 2026-11-13). */
+function todayFigures(runs: TodayRuns): TodayFigures {
+  return {
+    inQueue: runs.pickups.filter((t) => t.status === LaundryStatus.PENDING || t.status === LaundryStatus.CONFIRMED).length,
+    inTransit: runs.dropoffs.filter((t) => t.status === LaundryStatus.PICKED_UP || t.status === LaundryStatus.READY_TO_RETURN).length,
+    delivered: runs.dropoffs.filter((t) => t.status === LaundryStatus.DROPPED).length,
+    total: runs.tasks.length,
+  };
 }
 
+function figure(value: number | undefined) {
+  return value === undefined ? <span className="text-sm">Unavailable</span> : String(value);
+}
+
+/**
+ * Today (owner decision 2026-11-13: "only show what is scheduled today, as in
+ * the Runs page"). Every section reads today's runs from the SAME query and
+ * rule as the Runs board (lib/laundry/today-runs.ts): the route list, the
+ * figures, "Today's runs" and the office requests about those runs. A failed
+ * or flagged run from another day is not shown here; it stays on Runs
+ * (another range), Tracking, Queue and History. A run scheduled today that
+ * failed today shows, marked Flagged.
+ */
 export default async function LaundryTodayPage() {
   const session = await requireRole([Role.LAUNDRY, Role.ADMIN, Role.OPS_MANAGER]);
-  const laundry = getLaundry(await laundryTaskScope(session.user));
-  // Null = could not be read (shown as such, never as "no requests").
-  const officeRequests = await listOfficeRequestsForLaundryUser(session.user).catch(() => null);
-  const [{ tasks, inQueue, inTransit, ready }, route] = await Promise.all([
-    laundry,
-    loadTodayRoute(session.user, officeRequests).catch(() => null),
+  const scope = await laundryTaskScope(session.user);
+  // Null = could not be read (shown as such, never as "no requests" or "no runs").
+  const [officeRequests, runs] = await Promise.all([
+    listOfficeRequestsForLaundryUser(session.user).catch(() => null),
+    loadTodayRuns(session.user, scope).catch(() => null),
   ]);
-  const done = route?.stops.filter((stop) => stop.state === "done").length ?? 0;
+  const route = runs
+    ? await loadTodayRoute(session.user, officeRequests, { pickupIds: new Set(runs.pickups.map((t) => t.id)), dropIds: new Set(runs.dropoffs.map((t) => t.id)) }).catch(() => null)
+    : null;
+  const figures = runs ? todayFigures(runs) : null;
   const current = route?.stops.find((stop) => stop.state === "now");
   const routeLine = route === null
     ? "Route unavailable"
@@ -155,40 +123,40 @@ export default async function LaundryTodayPage() {
         <div className="e-signature-rule mt-4" />
       </header>
 
-      {/* 1. The route in order, with planned times and the next stop. */}
+      {/* 1. The route in order, with planned times and the next stop (today's runs only). */}
       <TodayRouteList route={route} />
 
-      {session.user.role === Role.LAUNDRY ? <OfficeRequestsCard requests={officeRequests} /> : null}
+      {session.user.role === Role.LAUNDRY ? <OfficeRequestsCard requests={officeRequests} todayTaskIds={runs?.taskIds ?? null} /> : null}
 
-      {/* 2. Today's figures (scoped to the properties this login serves). */}
+      {/* 2. Today's figures (today's runs, scoped to the properties this login serves). */}
       <section aria-label="Today's figures" className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <EStatCard label="In queue" value={inQueue === null ? <span className="text-sm">Unavailable</span> : String(inQueue)} delta="pending" deltaTone="neutral" icon={<Waves className="h-4 w-4" />} />
-        <EStatCard label="In transit" value={inTransit === null ? <span className="text-sm">Unavailable</span> : String(inTransit)} delta="picked up" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
-        <EStatCard label="Delivered" value={ready === null ? <span className="text-sm">Unavailable</span> : String(ready)} delta="today" deltaTone={ready === null ? "neutral" : "success"} icon={<PackageCheck className="h-4 w-4" />} />
-        <EStatCard label="In pipeline" value={tasks === null ? <span className="text-sm">Unavailable</span> : String(tasks.length)} delta="today and open work" deltaTone="neutral" icon={<Truck className="h-4 w-4" />} />
+        <EStatCard label="In queue" value={figure(figures?.inQueue)} delta="to collect today" deltaTone="neutral" icon={<Waves className="h-4 w-4" />} />
+        <EStatCard label="In transit" value={figure(figures?.inTransit)} delta="due back today" deltaTone="neutral" icon={<Timer className="h-4 w-4" />} />
+        <EStatCard label="Delivered" value={figure(figures?.delivered)} delta="today" deltaTone={figures ? "success" : "neutral"} icon={<PackageCheck className="h-4 w-4" />} />
+        <EStatCard label="Runs today" value={figure(figures?.total)} delta="pickups and drop-offs" deltaTone="neutral" icon={<Truck className="h-4 w-4" />} />
       </section>
 
       {/* 3. Plan brief — counts, weather, traffic, special days, deadlines. */}
       <PlanBrief />
 
-      {/* 4. Live queue — next 5 only; the full list lives on /v2/laundry/queue. */}
+      {/* 4. Today's runs — next 5; the loops live on Runs, every set by stage on Queue. */}
       <ECard>
         <ECardHeader>
           <div className="flex items-center justify-between gap-2">
-            <ECardTitle>Live queue</ECardTitle>
-            <Link href="/v2/laundry/queue" className="text-[0.8125rem] font-medium text-[hsl(var(--e-accent-portal))] hover:underline">View all →</Link>
+            <ECardTitle>Today&apos;s runs</ECardTitle>
+            <Link href="/v2/laundry/runs" className="text-[0.8125rem] font-medium text-[hsl(var(--e-accent-portal))] hover:underline">View all →</Link>
           </div>
         </ECardHeader>
         <ECardBody className="space-y-1">
-          {tasks === null ? (
+          {runs === null ? (
             <div role="alert">
-              <p>Laundry totals and live queue are unavailable.</p>
+              <p>Today&apos;s runs are unavailable.</p>
               <a href="/v2/laundry" className="underline">Retry laundry</a>
             </div>
-          ) : tasks.length === 0 ? (
-            <EEmptyState eyebrow="Quiet" title="No laundry scheduled" description="Nothing in the laundry pipeline right now." />
+          ) : runs.tasks.length === 0 ? (
+            <EEmptyState eyebrow="Quiet" title="No runs today" description="No pickups or drop-offs are scheduled for today." />
           ) : (
-            tasks.slice(0, 5).map((t, i) => (
+            runs.tasks.slice(0, 5).map((t, i) => (
               <div key={t.id}>
                 {i > 0 ? <EThread className="my-1" /> : null}
                 <div className="flex items-center justify-between gap-2 py-1.5">
@@ -201,6 +169,9 @@ export default async function LaundryTodayPage() {
               </div>
             ))
           )}
+          <p className="pt-1 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            Runs from other days (failed, flagged or overdue) are in <Link href="/v2/laundry/tracking" className="underline">Tracking</Link> and <Link href="/v2/laundry/queue" className="underline">Queue</Link>.
+          </p>
         </ECardBody>
       </ECard>
 
@@ -214,14 +185,18 @@ export default async function LaundryTodayPage() {
  * "From the office" on Today: how many requests are still open, the first
  * two, and the way into the inbox where each is answered.
  */
-function OfficeRequestsCard({ requests }: { requests: LaundryOfficeRequest[] | null }) {
-  const open = requests?.filter((request) => request.state === "open") ?? [];
+function OfficeRequestsCard({ requests, todayTaskIds }: { requests: LaundryOfficeRequest[] | null; todayTaskIds: ReadonlySet<string> | null }) {
+  // Only the open requests about today's runs (owner decision 2026-11-13); the
+  // header's "From the office" icon keeps the full count, and the inbox lists all.
+  const allOpen = requests?.filter((request) => request.state === "open") ?? [];
+  const open = todayTaskIds ? allOpen.filter((request) => todayTaskIds.has(request.taskId)) : allOpen;
+  const otherDays = allOpen.length - open.length;
   return (
     <ECard id="office-requests">
       <ECardHeader>
         <div className="flex items-center justify-between gap-2">
           <ECardTitle>From the office</ECardTitle>
-          {requests && requests.length ? <EBadge tone={open.length ? "warning" : "success"} soft>{open.length ? `${open.length} open` : "All answered"}</EBadge> : null}
+          {requests && requests.length ? <EBadge tone={open.length ? "warning" : "success"} soft>{open.length ? `${open.length} open today` : allOpen.length ? "None today" : "All answered"}</EBadge> : null}
         </div>
       </ECardHeader>
       <ECardBody className="space-y-2">
@@ -233,13 +208,17 @@ function OfficeRequestsCard({ requests }: { requests: LaundryOfficeRequest[] | n
         ) : requests.length === 0 ? (
           <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No requests in the last {OFFICE_REQUEST_WINDOW_HOURS / 24} days.</p>
         ) : (
-          open.slice(0, 2).map((request) => (
-            <p key={request.id} className="text-[0.8125rem]"><b className="font-[600]">{request.badge}</b> · {request.title} <span className="text-[hsl(var(--e-muted-foreground))]">({request.askedAtLabel})</span></p>
-          ))
+          <>
+            {open.length === 0 ? <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">No open requests about today&apos;s runs.</p> : null}
+            {open.slice(0, 2).map((request) => (
+              <p key={request.id} className="text-[0.8125rem]"><b className="font-[600]">{request.badge}</b> · {request.title} <span className="text-[hsl(var(--e-muted-foreground))]">({request.askedAtLabel})</span></p>
+            ))}
+            {otherDays > 0 ? <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{otherDays} more open about other days.</p> : null}
+          </>
         )}
         {requests && requests.length ? (
           <Link href={LAUNDRY_REQUESTS_HREF} className="inline-flex min-h-11 items-center text-[0.875rem] font-medium text-[hsl(var(--e-accent-portal))] hover:underline">
-            {open.length ? "Answer in From the office →" : "Open From the office →"}
+            {allOpen.length ? "Answer in From the office →" : "Open From the office →"}
           </Link>
         ) : null}
       </ECardBody>

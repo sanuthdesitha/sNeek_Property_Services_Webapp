@@ -18,6 +18,7 @@ import { getNotificationTypeControls } from "@/lib/notifications/type-controls";
 import { readSendTransportPreferences, saveTransportChoice, type SendTransportPreferences } from "@/lib/notifications/send-transport-preference";
 import { DOCUMENT_REQUEST_TYPE } from "./document-request-send";
 import {
+  REQUEST_TRANSPORTS,
   documentRequestTransportOptions,
   type DocumentRequestOptions,
   type DocumentRequestPerson,
@@ -27,6 +28,18 @@ import {
 
 export type RequestTransportSource = "request" | "saved" | "default";
 export type ResolvedRequestTransports = { transports: RequestTransport[]; source: RequestTransportSource };
+
+/** A saved choice may name transports of other kinds of send; only document request transports are used here. */
+function requestTransportsOnly(transports: readonly string[]): RequestTransport[] {
+  return REQUEST_TRANSPORTS.filter((transport) => transports.includes(transport));
+}
+
+function savedDocumentChoice(preferences: SendTransportPreferences): DocumentRequestOptions["saved"] {
+  const saved = preferences.kinds.document_request;
+  if (!saved) return null;
+  const transports = requestTransportsOnly(saved.transports);
+  return transports.length ? { transports, savedAt: saved.savedAt } : null;
+}
 
 type PersonRow = { id: string; name: string | null; email: string | null; phone: string | null; isActive: boolean };
 
@@ -80,7 +93,7 @@ export async function optionsForPerson(
   return {
     person,
     transports,
-    saved: preferences.kinds.document_request ?? null,
+    saved: savedDocumentChoice(preferences),
     savedReadable: preferences.readable,
     impersonating: sender.impersonating,
   };
@@ -93,7 +106,7 @@ export async function resolveRequestTransports(
 ): Promise<ResolvedRequestTransports> {
   if (requested && requested.length > 0) return { transports: Array.from(new Set(requested)), source: "request" };
   const preferences = await readSendTransportPreferences(senderId);
-  const saved = preferences.kinds.document_request;
+  const saved = savedDocumentChoice(preferences);
   if (saved) return { transports: [...saved.transports], source: "saved" };
   return { transports: ["PUSH"], source: "default" };
 }

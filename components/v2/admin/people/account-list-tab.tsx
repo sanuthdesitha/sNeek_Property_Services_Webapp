@@ -184,7 +184,7 @@ export function AccountListTab({
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         {peopleTab === "cleaners" ? (
           <>
-            <FactStrip label="Cleaner figures" facts={cleanerFacts(cleanerFigures)} />
+            <FactStrip label="Cleaner figures" facts={cleanerFacts(cleanerFigures)} collapsible={{ storageKey: "people:cleaners" }} />
             <CleanerLinks capabilities={capabilities} />
           </>
         ) : null}

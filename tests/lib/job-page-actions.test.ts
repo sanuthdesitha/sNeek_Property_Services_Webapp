@@ -23,6 +23,10 @@ describe("primary action by status", () => {
     expect(primaryActionFor({ ...base, status: "UNASSIGNED" })).toMatchObject({ label: "Assign cleaner", href: "#s-dispatch", disabledReason: null });
     expect(primaryActionFor({ ...base, status: "SUBMITTED" })).toMatchObject({ label: "Review and approve", href: "#s-submitted" });
     expect(primaryActionFor({ ...base, status: "IN_PROGRESS" })).toMatchObject({ label: "Message team" });
+    // Owner decision 2026-11-13: a dialog (no link); disabled with the reason when nobody is assigned or the viewer may not send.
+    expect(primaryActionFor({ ...base, status: "IN_PROGRESS", teamMessage: { assignedCount: 2, refusal: null } })).toMatchObject({ href: null, disabledReason: null });
+    expect(primaryActionFor({ ...base, status: "ASSIGNED", teamMessage: { assignedCount: 0, refusal: null } })?.disabledReason).toMatch(/Nobody is assigned/);
+    expect(primaryActionFor({ ...base, status: "ASSIGNED", teamMessage: { assignedCount: 1, refusal: "Messages cannot be sent while impersonating." } })?.disabledReason).toBe("Messages cannot be sent while impersonating.");
     expect(primaryActionFor({ ...base, status: "INVOICED", liveInvoice: { id: "inv_9", invoiceNumber: "INV-0421" } })).toMatchObject({
       label: "Open invoice INV-0421",
       href: "/v2/admin/finance/invoices/inv_9",

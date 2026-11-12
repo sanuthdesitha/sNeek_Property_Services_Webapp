@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { upsertAuthUserState } from "@/lib/auth/account-state";
+import { INVITATION_REFUSAL_TEXT, invitationLinkState, type InvitationLinkState } from "@/lib/auth/invitation-state";
 
 const acceptSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters").max(100),
@@ -17,20 +18,21 @@ async function loadInvite(token: string) {
   });
 }
 
+/** 404 for an unknown link, 410 (with a code) for every other refused state. */
+function refusal(state: Exclude<InvitationLinkState, "valid">) {
+  return NextResponse.json(
+    { error: INVITATION_REFUSAL_TEXT[state], code: state.toUpperCase() },
+    { status: state === "invalid" ? 404 : 410 },
+  );
+}
+
+/** Thrown inside the accept transaction when the invitation changed under us (revoked, accepted, re-issued). */
+class InvitationChanged extends Error {}
+
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   const invite = await loadInvite(params.token);
-  if (!invite) {
-    return NextResponse.json({ error: "Invalid invitation." }, { status: 404 });
-  }
-  if (invite.acceptedAt) {
-    return NextResponse.json({ error: "This invitation has already been accepted." }, { status: 410 });
-  }
-  if (invite.expiresAt.getTime() < Date.now()) {
-    return NextResponse.json({ error: "This invitation has expired." }, { status: 410 });
-  }
-  if (!invite.user.isActive) {
-    return NextResponse.json({ error: "This account is no longer active." }, { status: 410 });
-  }
+  const state = invitationLinkState(invite);
+  if (state !== "valid" || !invite) return refusal(state === "valid" ? "invalid" : state);
   return NextResponse.json({
     valid: true,
     user: {
@@ -47,31 +49,31 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   try {
     const parsed = acceptSchema.parse(await req.json());
     const invite = await loadInvite(params.token);
-    if (!invite) {
-      return NextResponse.json({ error: "Invalid invitation." }, { status: 404 });
-    }
-    if (invite.acceptedAt) {
-      return NextResponse.json({ error: "This invitation has already been accepted." }, { status: 410 });
-    }
-    if (invite.expiresAt.getTime() < Date.now()) {
-      return NextResponse.json({ error: "This invitation has expired." }, { status: 410 });
-    }
-    if (!invite.user.isActive) {
-      return NextResponse.json({ error: "This account is no longer active." }, { status: 410 });
-    }
+    const state = invitationLinkState(invite);
+    if (state !== "valid" || !invite) return refusal(state === "valid" ? "invalid" : state);
 
     const passwordHash = await bcrypt.hash(parsed.password, 10);
     const now = new Date();
-    await db.$transaction([
-      db.user.update({
-        where: { id: invite.userId },
-        data: { passwordHash, emailVerified: now },
-      }),
-      db.userInvitation.update({
-        where: { id: invite.id },
-        data: { acceptedAt: now },
-      }),
-    ]);
+    try {
+      await db.$transaction(async (tx) => {
+        // Claim the invitation only if it is STILL this token, unused, not
+        // withdrawn and not expired: a revoke (or a resend) between the check
+        // above and here wins, and no password is set.
+        const claimed = await tx.userInvitation.updateMany({
+          where: { id: invite.id, token: params.token, acceptedAt: null, revokedAt: null, expiresAt: { gte: now } },
+          data: { acceptedAt: now },
+        });
+        if (claimed.count !== 1) throw new InvitationChanged();
+        await tx.user.update({
+          where: { id: invite.userId },
+          data: { passwordHash, emailVerified: now },
+        });
+      });
+    } catch (error) {
+      if (!(error instanceof InvitationChanged)) throw error;
+      const current = invitationLinkState(await loadInvite(params.token));
+      return refusal(current === "valid" ? "invalid" : current);
+    }
 
     await upsertAuthUserState(invite.userId, {
       requiresPasswordReset: false,

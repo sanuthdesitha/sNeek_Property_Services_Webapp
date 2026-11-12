@@ -80,3 +80,28 @@ describe("Mark as sent (not emailed), restored from the pre-redesign editor", ()
     expect(onAction).toHaveBeenLastCalledWith("mark-sent", expect.objectContaining({ id: "inv" }));
   });
 });
+
+describe("void and credit notes need the sensitive capability (owner decision 2026-11-13)", () => {
+  const reason = "Void and credit notes is a sensitive action: it needs Finance at Full (or that grant) and your own PIN. Ask an administrator.";
+
+  it("disables Void and Issue credit note with the reason for someone without it", () => {
+    const onAction = vi.fn();
+    render(<InvoiceRowActions invoice={row({ status: "SENT" })} busy={false} disabled={false} voidCreditRefusal={reason} onAction={onAction} />);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for INV-1" }));
+    for (const name of ["Void", "Issue credit note"]) {
+      const item = screen.getByRole("menuitem", { name: new RegExp(`^${name}`) });
+      expect(item).toHaveAttribute("aria-disabled", "true");
+      expect(item.getAttribute("title")).toBe(reason);
+      fireEvent.click(item);
+    }
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it("keeps them available when the viewer holds it", () => {
+    const onAction = vi.fn();
+    render(<InvoiceRowActions invoice={row({ status: "SENT" })} busy={false} disabled={false} voidCreditRefusal={null} onAction={onAction} />);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for INV-1" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Void" }));
+    expect(onAction).toHaveBeenCalledWith("void", expect.objectContaining({ id: "inv" }));
+  });
+});

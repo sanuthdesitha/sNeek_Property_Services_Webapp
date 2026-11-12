@@ -49,6 +49,13 @@ export const ACTION_WORDING: readonly TypeWordingDefinition[] = [
     }, ["jobLabel", "time", "reason"], ["jobLabel", "reason"], { push: "SHARED" }),
     storePart("cleaner", "Cleaner", "EMAIL", { subject: "Your clock was paused by the office", body: "<p>{{messageText}}</p>" }, ["jobLabel", "time", "reason", "messageText"], ["messageText"], { note: EMAIL_FROM_INBOX }),
   ]),
+  editable("job.office_message", [
+    storePart("cleaner", "Cleaner", "INBOX", {
+      title: "Message from the office: {{jobLabel}}",
+      body: "{{messageText}}",
+    }, ["jobLabel", "propertyName", "messageText"], ["messageText"], { push: "SHARED", note: "{{messageText}} is the message the office writes on the job (Message team). The title is shown above it in the cleaner's inbox, linked to the job." }),
+    storePart("cleaner", "Cleaner", "SMS", { body: "sNeek office ({{jobLabel}}): {{messageText}}" }, ["jobLabel", "propertyName", "messageText"], ["messageText"]),
+  ]),
   composed("guest.message", "The office writes the message to the guest each time (the subject defaults to \"About your <item>\" when left empty). Reusable message templates are in Forms.", MESSAGE_TEMPLATES),
   composed("laundry.supplier_chase", "The office writes the chase message to the supplier each time. Reusable message templates are in Forms.", MESSAGE_TEMPLATES),
   composed("lostfound.client_notice", "The office writes the subject and message to the client each time. Reusable message templates are in Forms.", MESSAGE_TEMPLATES),

@@ -26,10 +26,36 @@ const OFFICE_SEND_CAPABILITY: Record<OfficeSendAction, CapabilityKey> = {
   client_delay_notice: "jobs.client_delay_notice",
   clock_pause: "jobs.clock_pause",
   account_email: "accounts.account_email",
+  // New capability (owner decision 2026-11-13, "Message team"): the Jobs pack rule, like the other job sends.
+  job_team_message: "jobs.team_message",
 };
 
-/** The pre-redesign answer, from the old rules only. */
+/**
+ * THE ONE INTENDED CHANGE, recorded deliberately (owner decision 2026-11-13):
+ * "Void and credit notes" moved from the Manage tier to the Full (sensitive)
+ * tier. Before, any operations manager at Finance Manage could void and raise
+ * credit notes; now it takes Finance at Full or the explicit sensitive grant,
+ * plus the person's own PIN at the moment of use. Managers who had it at
+ * Manage lose it until granted (accepted by the owner). Every other
+ * capability still reproduces the earlier rules exactly.
+ */
+const INTENDED_CHANGES: Readonly<Partial<Record<CapabilityKey, string>>> = {
+  "invoices.void_credit": "Owner decision 2026-11-13: void and credit notes is a sensitive action (was Manage).",
+};
+
+/** The rule in force for an intended change: Full tier, explicit grant on top of Manage. */
+function intendedAnswer(policy: OpsPolicy, subject: AccessSubject, key: CapabilityKey): boolean {
+  const roles = subject.heldRoles ?? [subject.role];
+  if (subject.role === "ADMIN" || roles.includes("ADMIN")) return true;
+  if (!roles.includes("OPS_MANAGER")) return false;
+  const capability = CAPABILITIES.find((item) => item.key === key)!;
+  const manage = resolveOpsLevels(policy, subject.id)[capability.area!] === "manage";
+  return manage && resolveSensitiveGrants(policy, subject.id)[capability.sensitiveAction!] === true;
+}
+
+/** The pre-redesign answer, from the old rules only (intended changes use the new rule). */
 function todaysAnswer(policy: OpsPolicy, subject: AccessSubject, key: CapabilityKey): boolean {
+  if (INTENDED_CHANGES[key]) return intendedAnswer(policy, subject, key);
   const roles = subject.heldRoles ?? [subject.role];
   if (subject.role === "ADMIN" || roles.includes("ADMIN")) return true;
   if (!roles.includes("OPS_MANAGER")) return false;
@@ -124,10 +150,27 @@ describe("the evaluator agrees with the enforcement points it now sits behind", 
   it("invoice writes: capability === the finance route guard for a write", () => {
     for (const level of LEVELS) {
       const levels = resolveOpsLevels(uniform(level), "m");
-      for (const key of ["invoices.approve", "invoices.send", "invoices.record_payment", "invoices.void_credit"] as CapabilityKey[]) {
+      // invoices.void_credit left this list on purpose (owner decision 2026-11-13): see below.
+      for (const key of ["invoices.approve", "invoices.send", "invoices.record_payment"] as CapabilityKey[]) {
         expect(evaluateCapability(uniform(level), ops, key)).toBe(canUseOpsPath(levels, "/api/admin/invoices/one", "PATCH"));
       }
     }
+  });
+
+  it("the recorded exception: void and credit notes needs Finance at Full or the grant (owner decision 2026-11-13)", () => {
+    expect(Object.keys(INTENDED_CHANGES)).toEqual(["invoices.void_credit"]);
+    const definition = CAPABILITIES.find((item) => item.key === "invoices.void_credit")!;
+    expect(definition.tier).toBe("full");
+    // Before the decision this was true at Manage (the finance write route guard); now it is not.
+    expect(canUseOpsPath(resolveOpsLevels(uniform("manage"), "m"), "/api/admin/invoices/one", "PATCH")).toBe(true);
+    expect(evaluateCapability(uniform("manage"), ops, "invoices.void_credit")).toBe(false);
+    const fullFinance = opsPolicySchema.parse({ ...EMPTY_OPS_POLICY, assignments: { m: { presetId: "existing", overrides: { ...allOpsLevels("manage"), finance: "full" } } } });
+    expect(evaluateCapability(fullFinance, ops, "invoices.void_credit")).toBe(true);
+    const granted = opsPolicySchema.parse({ ...EMPTY_OPS_POLICY, assignments: { m: { presetId: "existing", overrides: allOpsLevels("manage"), sensitive: { "invoices.void_credit": true } } } });
+    expect(evaluateCapability(granted, ops, "invoices.void_credit")).toBe(true);
+    const withheld = opsPolicySchema.parse({ ...EMPTY_OPS_POLICY, assignments: { m: { presetId: "existing", overrides: { ...allOpsLevels("manage"), finance: "full" }, sensitive: { "invoices.void_credit": false } } } });
+    expect(evaluateCapability(withheld, ops, "invoices.void_credit")).toBe(false);
+    expect(evaluateCapability(uniform("manage"), { id: "a", role: "ADMIN", heldRoles: ["ADMIN"] }, "invoices.void_credit")).toBe(true);
   });
 
   it("Full routes exactly like Manage everywhere a route guard looks", () => {

@@ -43,6 +43,7 @@ export const OFFICE_SEND_CAPABILITY: Readonly<Record<OfficeSendAction, Capabilit
   client_delay_notice: "jobs.client_delay_notice",
   clock_pause: "jobs.clock_pause",
   account_email: "accounts.account_email",
+  job_team_message: "jobs.team_message",
 };
 
 /**

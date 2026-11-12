@@ -21,7 +21,12 @@ import { jobStages } from "./stage-bar";
 import { buildTimeline, type TimelineFacts } from "./timeline";
 import type { JobPageJob, JobPageRelated } from "./load";
 
-export type JobPageViewer = { isAdmin: boolean; readOnly: boolean };
+export type JobPageViewer = {
+  isAdmin: boolean;
+  readOnly: boolean;
+  /** Why this viewer may not use "Message team" (office-send rule), or null (owner decision 2026-11-13). */
+  teamMessageRefusal?: string | null;
+};
 
 /** Required items done / total for the latest submission, or null when it cannot be worked out. */
 export function checklistCount(job: JobPageJob, property: Record<string, unknown>): ChecklistCount {
@@ -78,6 +83,7 @@ export function buildJobPageModel(input: {
     liveInvoice: liveInvoice ? { id: liveInvoice.id, invoiceNumber: liveInvoice.invoiceNumber } : null,
     restoreRefusal: refusal,
     readOnly: viewer.readOnly,
+    teamMessage: { assignedCount: job.assignments.length, refusal: viewer.teamMessageRefusal ?? null },
   });
   const secondary = secondaryActionsFor({ jobId: job.id, status, reminder, hasSubmission, readOnly: viewer.readOnly });
   const menu = moreMenuFor({

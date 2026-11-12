@@ -21,6 +21,7 @@ import { InvoiceDialogs, type InvoiceDialog } from "./invoice-dialogs";
 import type { InvoiceActionKey, InvoiceFormContext, InvoiceRow } from "./invoice-model";
 import { isDirectInvoiceAction, runDirectInvoiceAction } from "./invoice-direct-actions";
 import { invoiceEditorHref } from "./invoice-links";
+import { VOID_CREDIT_REFUSAL } from "./invoice-requests";
 import {
   filterSignature,
   listApiQuery,
@@ -87,13 +88,18 @@ export function InvoiceList() {
 
   // "New invoice → …" arrives as ?new=jobs, ?new=blank or ?new=credit.
   useEffect(() => {
-    if (!context || typeof window === "undefined") return;
+    if (!context || !payload || typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const requested = params.get(NEW_INVOICE_PARAM);
     if (requested !== "jobs" && requested !== "blank" && requested !== "credit") return;
     params.delete(NEW_INVOICE_PARAM);
     const query = params.toString();
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    // "New invoice → Credit note" needs the void and credit notes capability (2026-11-13).
+    if (requested === "credit" && payload?.canVoidCredit === false) {
+      toast({ title: "Credit notes are not available to you", description: VOID_CREDIT_REFUSAL, variant: "destructive" });
+      return;
+    }
     setDialog(NEW_INVOICE_DIALOGS[requested]);
   });
 
@@ -163,11 +169,12 @@ export function InvoiceList() {
             busy={busyId === invoice.id}
             disabled={bulkRunning}
             editHref={editHref(invoice)}
+            voidCreditRefusal={payload?.canVoidCredit === false ? VOID_CREDIT_REFUSAL : null}
             onAction={onAction}
           />
         ),
       }),
-    [payload?.today, payload?.paymentTermsDays, busyId, bulkRunning, onAction, editHref],
+    [payload?.today, payload?.paymentTermsDays, payload?.canVoidCredit, busyId, bulkRunning, onAction, editHref],
   );
 
   function onBulkFinished(response: ClientInvoiceBulkResponse) {

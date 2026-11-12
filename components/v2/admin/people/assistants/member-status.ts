@@ -6,6 +6,7 @@ export const MEMBER_STATUS_LABEL: Record<AssistantMemberStatus, string> = {
   ACTIVE: "Active",
   INVITED: "Invited",
   INVITE_EXPIRED: "Invite expired",
+  INVITE_REVOKED: "Invite withdrawn",
   SUSPENDED: "Suspended",
   TEAM_OFF: "Team off",
 };
@@ -14,6 +15,7 @@ export const MEMBER_STATUS_TONE: Record<AssistantMemberStatus, EPillTone> = {
   ACTIVE: "ok",
   INVITED: "info",
   INVITE_EXPIRED: "bad",
+  INVITE_REVOKED: "neutral",
   SUSPENDED: "bad",
   TEAM_OFF: "warn",
 };
@@ -21,4 +23,9 @@ export const MEMBER_STATUS_TONE: Record<AssistantMemberStatus, EPillTone> = {
 /** An assistant who can act now: active, on a team that is on. */
 export function mayAct(status: AssistantMemberStatus): boolean {
   return status === "ACTIVE";
+}
+
+/** An invitation that may still be accepted or has lapsed: Resend and Revoke apply (2026-11-13). */
+export function invitationPending(status: AssistantMemberStatus): boolean {
+  return status === "INVITED" || status === "INVITE_EXPIRED";
 }

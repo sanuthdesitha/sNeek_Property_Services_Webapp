@@ -76,7 +76,7 @@ export function fallbackTypes() {
     key: entry.key,
     name: entry.name,
     transports: entry.transports.flatMap((transport) =>
-      transport === "EMAIL" || transport === "SMS" || transport === "WEB_PUSH" ? [transport] : [],
+      (transport === "EMAIL" || transport === "SMS" || transport === "WEB_PUSH") && !(entry.directTransports ?? []).includes(transport) ? [transport] : [],
     ),
   }));
 }

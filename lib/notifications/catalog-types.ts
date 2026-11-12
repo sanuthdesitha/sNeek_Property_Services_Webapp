@@ -94,6 +94,12 @@ export type NotificationTypeEntry = {
   /** Transports used by default today (subset of `transports`). */
   defaultTransports: NotificationTransport[];
   path: NotificationPath;
+  /**
+   * Transports this type always sends through their direct chokepoint by
+   * design (never the outbox), so no "move it onto the pipeline" banner
+   * applies to them (Message team's SMS, 2026-11-13).
+   */
+  directTransports?: NotificationTransport[];
   /** Pipeline event keys this type records (NotificationIntent.eventKey). */
   eventKeys?: string[];
   /** Subjects (prefix match) that identify its legacy Notification rows in the log. */

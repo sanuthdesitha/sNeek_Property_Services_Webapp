@@ -1,8 +1,8 @@
 import "server-only";
-import { LaundryStatus, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
-import { addDaysToKey, sydneyTodayKey, SYDNEY_TZ } from "@/lib/time/sydney-range";
+import { SYDNEY_TZ } from "@/lib/time/sydney-range";
 import { sydneyDayKey } from "./route-candidates";
 import { parseRouteStops } from "./route-plan";
 import { latestBagCount, latestReadiness } from "./pipeline";
@@ -15,8 +15,24 @@ import { buildTodayStops, officeAskFor, orderUnroutedStops, type TodayStop, type
  * the ACTIVE route (or the latest DRAFT) in route order; without one, today's
  * scoped pickups and drop-offs by planned time. Visibility: the same laundry
  * scope as every portal board (laundryTaskScope). Reads only.
+ *
+ * Owner decision 2026-11-13: with `today` (the Runs board's today set,
+ * lib/laundry/today-runs.ts) only runs scheduled today are shown. A route
+ * stop for a run from another day (an overdue or failed set added to the
+ * route) is left off Today and counted in `otherDayStops`; it stays on the
+ * route builder, Tracking and Queue. Without a route, the stops are exactly
+ * today's pickup and drop-off loops (before: every overdue open set).
  */
-export type TodayRoute = { mode: "active" | "draft" | "none"; startedAtLabel: string | null; stops: TodayStop[] };
+export type TodayRoute = {
+  mode: "active" | "draft" | "none";
+  startedAtLabel: string | null;
+  stops: TodayStop[];
+  /** Route stops left off Today because their run is not scheduled today. */
+  otherDayStops: number;
+};
+
+/** Today's runs by loop (task ids), from the Runs rule. */
+export type TodayRunIds = { pickupIds: ReadonlySet<string>; dropIds: ReadonlySet<string> };
 
 const stopTaskSelect = {
   id: true, status: true, pickupDate: true, dropoffDate: true, pickupTime: true, dropoffTime: true, pickedUpAt: true, droppedAt: true, dropoffCostAud: true, noPickupRequired: true,
@@ -60,7 +76,7 @@ function factsFor(task: StopTask, kind: "PICKUP" | "DROP", completedAt: string |
 
 const clock = (iso: string) => formatInTimeZone(new Date(iso), SYDNEY_TZ, "H:mm");
 
-export async function loadTodayRoute(viewer: { id: string; role: string }, requests: LaundryOfficeRequest[] | null, now = new Date()): Promise<TodayRoute> {
+export async function loadTodayRoute(viewer: { id: string; role: string }, requests: LaundryOfficeRequest[] | null, today: TodayRunIds, now = new Date()): Promise<TodayRoute> {
   const scope = await laundryTaskScope(viewer);
   const routes = await db.laundryRoute.findMany({ where: { userId: viewer.id, date: sydneyDayKey(now), status: { in: ["ACTIVE", "DRAFT"] } } });
   const route = routes.find((row) => row.status === "ACTIVE") ?? [...routes].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0] ?? null;
@@ -69,32 +85,25 @@ export async function loadTodayRoute(viewer: { id: string; role: string }, reque
     const stops = [...parseRouteStops(route.stops)].sort((a, b) => a.order - b.order);
     const tasks = await db.laundryTask.findMany({ where: { ...scope, id: { in: stops.map((stop) => stop.taskId) } }, select: stopTaskSelect });
     const byId = new Map(tasks.map((task) => [task.id, task]));
+    const scheduledToday = (taskId: string) => today.pickupIds.has(taskId) || today.dropIds.has(taskId);
     const facts = stops.flatMap((stop) => {
       const task = byId.get(stop.taskId);
-      return task ? [factsFor(task, stop.kind, stop.completedAt ?? null, requests)] : [];
+      return task && scheduledToday(task.id) ? [factsFor(task, stop.kind, stop.completedAt ?? null, requests)] : [];
     });
     return {
       mode: route.status === "ACTIVE" ? "active" : "draft",
       startedAtLabel: route.startedAt ? clock(route.startedAt.toISOString()) : null,
       stops: buildTodayStops(facts, clock),
+      otherDayStops: stops.filter((stop) => byId.has(stop.taskId) && !scheduledToday(stop.taskId)).length,
     };
   }
 
-  const todayKey = sydneyTodayKey(now);
-  const tomorrow = new Date(`${addDaysToKey(todayKey, 1)}T00:00:00.000Z`);
-  const tasks = await db.laundryTask.findMany({
-    where: {
-      ...scope,
-      noPickupRequired: false,
-      OR: [
-        { status: { in: [LaundryStatus.PENDING, LaundryStatus.CONFIRMED, LaundryStatus.FLAGGED] }, pickupDate: { lt: tomorrow } },
-        { status: { in: [LaundryStatus.PICKED_UP, LaundryStatus.READY_TO_RETURN] }, dropoffDate: { lt: tomorrow } },
-      ],
-    },
-    select: stopTaskSelect,
-    orderBy: { pickupDate: "asc" },
-    take: 40,
-  });
-  const facts = tasks.map((task) => factsFor(task, task.status === LaundryStatus.PICKED_UP || task.status === LaundryStatus.READY_TO_RETURN ? "DROP" : "PICKUP", null, requests));
-  return { mode: "none", startedAtLabel: null, stops: buildTodayStops(orderUnroutedStops(facts), clock) };
+  // No route: exactly today's pickup and drop-off loops (the Runs rule), by planned time.
+  const ids = Array.from(new Set([...Array.from(today.pickupIds), ...Array.from(today.dropIds)]));
+  const tasks = ids.length ? await db.laundryTask.findMany({ where: { ...scope, id: { in: ids } }, select: stopTaskSelect }) : [];
+  const facts = tasks.flatMap((task) => [
+    ...(today.pickupIds.has(task.id) ? [factsFor(task, "PICKUP", null, requests)] : []),
+    ...(today.dropIds.has(task.id) ? [factsFor(task, "DROP", null, requests)] : []),
+  ]);
+  return { mode: "none", startedAtLabel: null, stops: buildTodayStops(orderUnroutedStops(facts), clock), otherDayStops: 0 };
 }

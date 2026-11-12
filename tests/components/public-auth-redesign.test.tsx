@@ -62,6 +62,9 @@ describe("invitation link", () => {
     [{ acceptedAt: new Date(), expiresAt: future, user }, "Already accepted"],
     [{ acceptedAt: null, expiresAt: new Date(Date.now() - 1000), user }, "Invitation expired"],
     [{ acceptedAt: null, expiresAt: future, user: { ...user, isActive: false } }, "Account unavailable"],
+    // Owner decision 2026-11-13: a revoked link has its own state, even when it has also lapsed.
+    [{ acceptedAt: null, revokedAt: new Date(), expiresAt: future, user }, "Invitation withdrawn"],
+    [{ acceptedAt: null, revokedAt: new Date(), expiresAt: new Date(Date.now() - 1000), user }, "Invitation withdrawn"],
   ])("explains a broken link with one way out (%#)", async (invite, title) => {
     mocks.findInvite.mockResolvedValue(invite);
     render(await AcceptInvitePage({ params: { token: "tok" } }));

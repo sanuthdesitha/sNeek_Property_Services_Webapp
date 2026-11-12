@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { EButton } from "@/components/v2/ui/primitives";
 import { AuthFrame } from "@/components/v2/public/auth-frame";
 import { AcceptInviteForm } from "@/components/auth/accept-invite-form";
+import { invitationLinkState } from "@/lib/auth/invitation-state";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,8 @@ interface PageProps {
 
 /**
  * Invitation link (board "Public and sign in", screens 2 and 7). The checks and
- * their order are unchanged: not recognised, already accepted, expired, account
+ * their order (lib/auth/invitation-state.ts): not recognised, already accepted,
+ * withdrawn by the office (owner decision 2026-11-13), expired, account
  * unavailable, then the set-password form. Every broken link says exactly why
  * and offers one button: Go to sign in.
  */
@@ -34,7 +36,9 @@ export default async function AcceptInvitePage({ params }: PageProps) {
     },
   });
 
-  if (!invite) {
+  const state = invitationLinkState(invite);
+
+  if (!invite || state === "invalid") {
     return (
       <InviteProblem
         eyebrow="Not recognised"
@@ -44,7 +48,7 @@ export default async function AcceptInvitePage({ params }: PageProps) {
     );
   }
 
-  if (invite.acceptedAt) {
+  if (state === "accepted") {
     return (
       <InviteProblem
         eyebrow="Used"
@@ -54,7 +58,17 @@ export default async function AcceptInvitePage({ params }: PageProps) {
     );
   }
 
-  if (invite.expiresAt.getTime() < Date.now()) {
+  if (state === "revoked") {
+    return (
+      <InviteProblem
+        eyebrow="Withdrawn"
+        title="Invitation withdrawn"
+        body="This invitation was withdrawn. Ask the office for a new one."
+      />
+    );
+  }
+
+  if (state === "expired") {
     return (
       <InviteProblem
         eyebrow="Expired"
@@ -64,7 +78,7 @@ export default async function AcceptInvitePage({ params }: PageProps) {
     );
   }
 
-  if (!invite.user.isActive) {
+  if (state === "inactive") {
     return (
       <InviteProblem
         eyebrow="Not available"

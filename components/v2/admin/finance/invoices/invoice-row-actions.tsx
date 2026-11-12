@@ -20,16 +20,22 @@ import { pdfHref } from "./invoice-requests";
 
 const PRIMARY_FILLED: ReadonlySet<InvoiceActionKey> = new Set<InvoiceActionKey>(["edit", "send"]);
 
+/** Void and Issue credit note: sensitive since owner decision 2026-11-13. */
+export const VOID_CREDIT_ACTIONS: ReadonlySet<InvoiceActionKey> = new Set<InvoiceActionKey>(["void", "credit-note"]);
+
 export function InvoiceRowActions({
   invoice,
   busy,
   disabled,
   editHref,
+  voidCreditRefusal = null,
   onAction,
 }: {
   invoice: InvoiceRow;
   busy: boolean;
   disabled: boolean;
+  /** Why Void and Issue credit note are unavailable (no capability); null = available. */
+  voidCreditRefusal?: string | null;
   /** The editor page; "Review" / "Review and edit" become links to it. */
   editHref?: string;
   onAction: (key: InvoiceActionKey, invoice: InvoiceRow) => void;
@@ -38,11 +44,13 @@ export function InvoiceRowActions({
   let separated = false;
   const items: ERowMenuItem[] = secondary.map((key) => {
     const correction = CORRECTION_ACTIONS.has(key);
+    const refused = VOID_CREDIT_ACTIONS.has(key) ? voidCreditRefusal : null;
     const item: ERowMenuItem = {
       key,
       label: invoiceActionLabel(key, invoice),
       danger: key === "delete" || key === "void",
       separated: correction && !separated,
+      ...(refused ? { disabled: true, hint: refused } : {}),
       ...(key === "pdf"
         ? { href: pdfHref(invoice.id), newTab: true }
         : key === "edit" && editHref
@@ -72,7 +80,8 @@ export function InvoiceRowActions({
         <EButton
           size="sm"
           variant={PRIMARY_FILLED.has(primary) ? "primary" : "outline"}
-          disabled={busy || disabled}
+          disabled={busy || disabled || (VOID_CREDIT_ACTIONS.has(primary) && Boolean(voidCreditRefusal))}
+          title={VOID_CREDIT_ACTIONS.has(primary) && voidCreditRefusal ? voidCreditRefusal : undefined}
           onClick={() => onAction(primary, invoice)}
           aria-label={`${primaryLabel} ${invoice.invoiceNumber}`}
         >

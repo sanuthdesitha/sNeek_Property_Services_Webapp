@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CalendarRange, ChevronRight, Plus, Users, Wallet } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { CollapsibleFigures } from "@/components/v2/ui/collapsible-figures";
 import { EBadge, EButton, ECard, EStatCard } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ESelect, ETableShell } from "@/components/v2/admin/estate-kit";
 
@@ -88,21 +89,24 @@ export function EstatePayroll({
 
   return (
     <div className="space-y-6">
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <EStatCard label="Total runs" value={totals.runs} icon={<CalendarRange className="h-4 w-4" />} />
-        <EStatCard
-          label="Owing (unpaid runs)"
-          value={money(totals.owing)}
-          icon={<Wallet className="h-4 w-4" />}
-        />
-        <EStatCard
-          label="Last run"
-          value={totals.lastRun ? money(totals.lastRun.grandTotal) : "—"}
-          icon={<Users className="h-4 w-4" />}
-          delta={totals.lastRun ? `${fmt(totals.lastRun.periodStart)} – ${fmt(totals.lastRun.periodEnd)}` : undefined}
-          deltaTone="neutral"
-        />
-      </section>
+      {/* The pay runs tab stacks five cards above the runs on a phone; these three fold away there (owner decision 2026-11-13). */}
+      <CollapsibleFigures storageKey="money:pay-runs" count={3} label="Pay run figures">
+        <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <EStatCard label="Total runs" value={totals.runs} icon={<CalendarRange className="h-4 w-4" />} />
+          <EStatCard
+            label="Owing (unpaid runs)"
+            value={money(totals.owing)}
+            icon={<Wallet className="h-4 w-4" />}
+          />
+          <EStatCard
+            label="Last run"
+            value={totals.lastRun ? money(totals.lastRun.grandTotal) : "—"}
+            icon={<Users className="h-4 w-4" />}
+            delta={totals.lastRun ? `${fmt(totals.lastRun.periodStart)} – ${fmt(totals.lastRun.periodEnd)}` : undefined}
+            deltaTone="neutral"
+          />
+        </section>
+      </CollapsibleFigures>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>

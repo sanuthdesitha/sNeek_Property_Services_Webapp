@@ -47,12 +47,25 @@ export function deleteInvoiceRequest(id: string, security?: SecurityCredentials)
 }
 
 /** A DRAFT credit note against a sent invoice; answers with its id. */
-export function createCreditNoteRequest(id: string) {
+export function createCreditNoteRequest(id: string, security?: SensitiveSecurity) {
+  // A sensitive action (owner decision 2026-11-13): the server checks the PIN.
   return send<{ id?: string; invoiceNumber?: string; exceedsRemaining?: boolean; remaining?: number }>(
     `/api/admin/invoices/${encodeURIComponent(id)}/credit-note`,
-    { method: "POST" },
+    json("POST", { security: security ?? {} }),
   );
 }
+
+/** Own-PIN credentials as the shared prompt returns them (newPin only while setting one up). */
+export type SensitiveSecurity = { pin?: string; password?: string; newPin?: string };
+
+/** Void an invoice or a credit note: the own PIN goes with it and is verified by the server. */
+export function voidInvoiceRequest(id: string, security?: SensitiveSecurity) {
+  return patchInvoice(id, { status: "VOID", security: security ?? {} });
+}
+
+/** Why Void and Issue credit note are unavailable to someone without the capability. */
+export const VOID_CREDIT_REFUSAL =
+  "Void and credit notes is a sensitive action: it needs Finance at Full (or that grant) and your own PIN. Ask an administrator.";
 
 /** A blank DRAFT for a client and period (yyyy-MM-dd days); answers with its id. */
 export function createBlankInvoiceRequest(input: { clientId: string; periodStart: string; periodEnd: string }) {

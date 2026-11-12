@@ -20,6 +20,8 @@ describe("which pack governs each action", () => {
       client_delay_notice: "jobs",
       account_email: "accounts",
       clock_pause: "jobs",
+      // "Message team" on a job (owner decision 2026-11-13).
+      job_team_message: "jobs",
     });
   });
 });

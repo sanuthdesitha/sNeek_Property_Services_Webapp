@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
 import { getOpsAccess } from "@/lib/rbac/ops-access";
+import { officeSendDecision } from "@/lib/notifications/office-send-permission";
 import { allOpsLevels, type OpsLevels } from "@/lib/rbac/ops-catalog";
 import { urgentStockOfficeAllowed } from "@/lib/inventory/urgent-stock";
 import { getAppSettings } from "@/lib/settings";
@@ -54,7 +55,13 @@ export default async function AdminJobDetailPage({
     getAppSettings(),
   ]);
   const timeZone = settings.timezone || "Australia/Sydney";
-  const viewer = { isAdmin: session.user.role === Role.ADMIN, readOnly: levels !== null && levels.jobs !== "manage" };
+  // "Message team" (owner decision 2026-11-13): the same office-send rule the route enforces.
+  const teamMessage = await officeSendDecision(session, "job_team_message").catch(() => null);
+  const viewer = {
+    isAdmin: session.user.role === Role.ADMIN,
+    readOnly: levels !== null && levels.jobs !== "manage",
+    teamMessageRefusal: teamMessage ? teamMessage.reason : "Message team could not be checked for your account. Reload the page.",
+  };
   const related = await loadJobPageRelated(job, { levels, canReadUrgentStock });
 
   const names = await loadUserNames(related.continuations.flatMap((row) => [row.requestedByUserId, row.decidedByUserId ?? ""]));

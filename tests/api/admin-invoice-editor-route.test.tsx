@@ -19,7 +19,8 @@ const m = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.requireRole }));
-vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.getOpsAccess }));
+// getOpsPolicy: the void and credit notes capability read (owner decision 2026-11-13).
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.getOpsAccess, getOpsPolicy: async () => ({ revision: 0, presets: [], assignments: {} }) }));
 vi.mock("@/lib/billing/client-invoice-editor", () => ({ loadClientInvoiceEditor: m.load }));
 vi.mock("@/lib/billing/client-invoices", () => ({ getClientInvoice: vi.fn(), releaseInvoiceConsumables: vi.fn() }));
 vi.mock("@/lib/billing/client-invoice-patch", () => ({ patchClientInvoice: vi.fn() }));

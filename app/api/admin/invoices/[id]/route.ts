@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { capabilityRefusal } from "@/lib/rbac/capability-http";
+import { can } from "@/lib/rbac/can";
 import { invoicePatchCapabilities } from "@/lib/rbac/invoice-capabilities";
 import { Role } from "@prisma/client";
 import { requireRole } from "@/lib/auth/session";
@@ -11,6 +12,7 @@ import { loadClientInvoiceEditor } from "@/lib/billing/client-invoice-editor";
 import { canManageInvoices } from "@/lib/billing/client-invoice-access";
 import { securitySchema, verifyInvoiceSecurity } from "@/lib/billing/client-invoice-patch-rules";
 import { isXeroExportPending } from "@/lib/billing/client-invoice-guards";
+import { patchVoids, voidCreditSecurityRefusal } from "@/lib/billing/client-invoice-void-guard";
 
 /** 401/403 for the session guards, like the other invoice routes; 400 otherwise. */
 function authStatus(message: string): number {
@@ -30,7 +32,7 @@ export async function GET(
       const canManage = await canManageInvoices(session.user, params.id);
       const editor = await loadClientInvoiceEditor(params.id, { canManage });
       if (!editor) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
-      return NextResponse.json(editor);
+      return NextResponse.json({ ...editor, canVoidCredit: await can(session, "invoices.void_credit") });
     }
     const invoice = await getClientInvoice(params.id);
     if (!invoice) {
@@ -52,6 +54,12 @@ export async function PATCH(req: NextRequest, context: { params: { id: string } 
     // The action (row lock, guards, audit) lives in lib so the bulk route runs
     // exactly the same checks.
     const actor = { ...session.user, impersonatedBy: session.impersonation?.actorId ?? null };
+    // Voiding (an invoice or a credit note) is a sensitive action (owner
+    // decision 2026-11-13): the acting person's own PIN, checked here.
+    if (patchVoids(body)) {
+      const pinRefusal = await voidCreditSecurityRefusal(actor, body);
+      if (pinRefusal) return NextResponse.json(pinRefusal.body, { status: pinRefusal.status });
+    }
     const result = await patchClientInvoice({ invoiceId: context.params.id, body, actor });
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {

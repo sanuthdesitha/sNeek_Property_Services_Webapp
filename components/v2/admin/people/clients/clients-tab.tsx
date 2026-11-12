@@ -143,6 +143,7 @@ export function ClientsTab({
 
         <FactStrip
           label="Client figures"
+          collapsible={{ storageKey: "people:clients" }}
           facts={[
             { key: "total", label: "Total clients", value: figures ? figures.totalClients : counts.clients },
             ...(visibility.money

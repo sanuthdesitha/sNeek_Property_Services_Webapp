@@ -33,7 +33,7 @@ export const DELIVERY_LABEL: Record<AccountEmailState, string> = {
   NOT_RECORDED: "Not recorded",
 };
 
-export const EMAIL_STATE_FILTERS = ["all", "needs-action", "never-signed-in", "expired", "not-sent"] as const;
+export const EMAIL_STATE_FILTERS = ["all", "needs-action", "never-signed-in", "expired", "not-sent", "revoked"] as const;
 export type EmailStateFilter = (typeof EMAIL_STATE_FILTERS)[number];
 
 export const EMAIL_PERIODS = ["30d", "90d", "all"] as const;
@@ -70,6 +70,10 @@ export type AccountEmailListRow = {
   canResend: boolean;
   /** A still-valid invitation link exists and this viewer may copy it. */
   canCopyLink: boolean;
+  /** The invitation was withdrawn by the office (ISO), or null (owner decision 2026-11-13). */
+  revokedAt: string | null;
+  /** A pending (not accepted, not withdrawn) invitation exists and this viewer may revoke it. */
+  canRevoke: boolean;
   /** Why the viewer cannot act, when they cannot. */
   refusal: string | null;
 };

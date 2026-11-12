@@ -10,6 +10,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { ECard, EEyebrow } from "@/components/v2/ui/primitives";
+import { CollapsibleFigures } from "@/components/v2/ui/collapsible-figures";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { formatMoney } from "../issues/issue-format";
 import { SEVERITY_SHORT_LABEL, severityCountLabel } from "@/lib/quality/severity";
@@ -74,64 +75,67 @@ export function QualityStatCards({
   }
 
   const { cleansReviewed, averageScore, issuesRaised, fixesOpen, fixCost, managementReview } = summary;
+  // On a phone the six cards fold behind one row (owner decision 2026-11-13); unchanged from 640px.
   return (
-    <section aria-label="Quality figures" aria-busy={loading || undefined} className="space-y-2">
-      {error ? (
-        <p role="alert" className="rounded-[var(--e-radius)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]">
-          Showing the last loaded figures. {error}
-        </p>
-      ) : null}
-      <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-        <StatCard
-          label="Cleans reviewed"
-          value={cleansReviewed.reviewed}
-          aside={<Muted>{`of ${cleansReviewed.cleans} clean${cleansReviewed.cleans === 1 ? "" : "s"}`}</Muted>}
-          basis="Submitted cleans scheduled in the period that have at least one QA review."
-        />
-        <StatCard
-          label="Average score"
-          value={averageScore.value === null ? "–" : Math.round(averageScore.value)}
-          aside={averageScore.value === null ? <Muted>Not enough data</Muted> : deltaPill(averageScore.delta)}
-          basis="Mean authoritative review score (QA, then admin, then automatic) of the reviewed cleans, compared with the same number of days before."
-        />
-        <StatCard
-          label="Issues raised"
-          value={issuesRaised.total}
-          aside={
-            issuesRaised.critical > 0 ? (
-              <EPill tone="bad">{severityCountLabel(issuesRaised.critical, "CRITICAL")}</EPill>
-            ) : (
-              <Muted>{`None ${SEVERITY_SHORT_LABEL.CRITICAL}`}</Muted>
-            )
-          }
-          basis={`QA issues raised in the period that match the filters; the note counts High (stored as critical) issues. ${SEVERITY_GROUPING_LEGEND.join(" ")}`}
-        />
-        <StatCard
-          label="Fixes still open"
-          value={fixesOpen.open}
-          aside={fixesOpen.over48h > 0 ? <EPill tone="warn">{`${fixesOpen.over48h} over 48 h`}</EPill> : <Muted>None over 48 h</Muted>}
-          basis="Issues raised in the period whose fix is still owed (pending, returned to the cleaner, not fixed or escalated)."
-        />
-        <StatCard
-          label="Fix cost"
-          value={fixCost.amount === null ? "–" : formatMoney(fixCost.amount)}
-          aside={<Muted>{fixCost.amount === null ? "No fix cost recorded" : hoursText(fixCost.minutes)}</Muted>}
-          basis="QA rectification pay and minutes recorded on issues raised in the period."
-        />
-        <StatCard
-          label="Mgmt review queue"
-          value={managementReview.count}
-          aside={
-            <Link
-              href={MANAGEMENT_REVIEW_QUEUE_HREF}
-              className="inline-flex min-h-11 items-center text-[0.8125rem] font-[550] text-[hsl(var(--e-primary))] underline-offset-2 hover:underline sm:min-h-0"
-            >
-              Open the queue
-            </Link>
-          }
-          basis="Reviewed cleans in the period whose deciding review was flagged for management review. The queue in Approvals lists every flagged review still waiting for a decision."
-        />
-      </div>
-    </section>
+    <CollapsibleFigures storageKey="quality:hub" count={6} label="Quality figures">
+      <section aria-label="Quality figures" aria-busy={loading || undefined} className="space-y-2">
+        {error ? (
+          <p role="alert" className="rounded-[var(--e-radius)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]">
+            Showing the last loaded figures. {error}
+          </p>
+        ) : null}
+        <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+          <StatCard
+            label="Cleans reviewed"
+            value={cleansReviewed.reviewed}
+            aside={<Muted>{`of ${cleansReviewed.cleans} clean${cleansReviewed.cleans === 1 ? "" : "s"}`}</Muted>}
+            basis="Submitted cleans scheduled in the period that have at least one QA review."
+          />
+          <StatCard
+            label="Average score"
+            value={averageScore.value === null ? "–" : Math.round(averageScore.value)}
+            aside={averageScore.value === null ? <Muted>Not enough data</Muted> : deltaPill(averageScore.delta)}
+            basis="Mean authoritative review score (QA, then admin, then automatic) of the reviewed cleans, compared with the same number of days before."
+          />
+          <StatCard
+            label="Issues raised"
+            value={issuesRaised.total}
+            aside={
+              issuesRaised.critical > 0 ? (
+                <EPill tone="bad">{severityCountLabel(issuesRaised.critical, "CRITICAL")}</EPill>
+              ) : (
+                <Muted>{`None ${SEVERITY_SHORT_LABEL.CRITICAL}`}</Muted>
+              )
+            }
+            basis={`QA issues raised in the period that match the filters; the note counts High (stored as critical) issues. ${SEVERITY_GROUPING_LEGEND.join(" ")}`}
+          />
+          <StatCard
+            label="Fixes still open"
+            value={fixesOpen.open}
+            aside={fixesOpen.over48h > 0 ? <EPill tone="warn">{`${fixesOpen.over48h} over 48 h`}</EPill> : <Muted>None over 48 h</Muted>}
+            basis="Issues raised in the period whose fix is still owed (pending, returned to the cleaner, not fixed or escalated)."
+          />
+          <StatCard
+            label="Fix cost"
+            value={fixCost.amount === null ? "–" : formatMoney(fixCost.amount)}
+            aside={<Muted>{fixCost.amount === null ? "No fix cost recorded" : hoursText(fixCost.minutes)}</Muted>}
+            basis="QA rectification pay and minutes recorded on issues raised in the period."
+          />
+          <StatCard
+            label="Mgmt review queue"
+            value={managementReview.count}
+            aside={
+              <Link
+                href={MANAGEMENT_REVIEW_QUEUE_HREF}
+                className="inline-flex min-h-11 items-center text-[0.8125rem] font-[550] text-[hsl(var(--e-primary))] underline-offset-2 hover:underline sm:min-h-0"
+              >
+                Open the queue
+              </Link>
+            }
+            basis="Reviewed cleans in the period whose deciding review was flagged for management review. The queue in Approvals lists every flagged review still waiting for a decision."
+          />
+        </div>
+      </section>
+    </CollapsibleFigures>
   );
 }

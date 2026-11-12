@@ -101,3 +101,16 @@ describe("explicit sensitive grants", () => {
     ).toBe(false);
   });
 });
+
+describe("void and credit notes is the ninth sensitive action (owner decision 2026-11-13)", () => {
+  it("refuses a manager at Finance Manage, before the PIN is compared", async () => {
+    await expect(verifySensitiveAction("manager", { pin: "1234" }, "invoices.void_credit")).rejects.toThrow("FORBIDDEN");
+    expect(mocks.compare).not.toHaveBeenCalled();
+  });
+  it("accepts a manager at Finance Full with their own PIN, and refuses a wrong PIN", async () => {
+    mocks.policy.mockResolvedValue({ ...EMPTY_OPS_POLICY, assignments: { manager: { presetId: "existing", overrides: { finance: "full" } } } });
+    await expect(verifySensitiveAction("manager", { pin: "1234" }, "invoices.void_credit")).resolves.toBe(true);
+    mocks.compare.mockResolvedValue(false);
+    await expect(verifySensitiveAction("manager", { pin: "9999" }, "invoices.void_credit")).rejects.toThrow();
+  });
+});

@@ -15,7 +15,7 @@ import { EButton } from "@/components/v2/ui/primitives";
 import { EConfirmModal, EField, EInput, EModal, ESelect } from "@/components/v2/admin/estate-kit";
 import type { ClientInvoiceListPayload } from "@/lib/billing/client-invoice-list-types";
 import { STATUS_LABEL, money, type InvoiceClient, type InvoiceRow } from "./invoice-model";
-import { createBlankInvoiceRequest, createCreditNoteRequest } from "./invoice-requests";
+import { createBlankInvoiceRequest, createCreditNoteRequest, securityRefusalMessage, type SensitiveSecurity } from "./invoice-requests";
 import { invoiceEditorPath } from "./invoice-links";
 
 function ErrorLine({ message }: { message: string | null }) {
@@ -33,13 +33,14 @@ export function IssueCreditNoteDialog({ invoice, onClose }: { invoice: Pick<Invo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function confirm() {
+  async function confirm(credentials?: SensitiveSecurity) {
     setSaving(true);
     setError(null);
     try {
-      const result = await createCreditNoteRequest(invoice.id);
+      // A sensitive action (owner decision 2026-11-13): the server checks the own PIN.
+      const result = await createCreditNoteRequest(invoice.id, credentials);
       if (!result.ok || !result.body.id) {
-        setError(result.body.error ?? "The credit note could not be created.");
+        setError(securityRefusalMessage(result.body.error, "The credit note could not be created."));
         return;
       }
       router.push(invoiceEditorPath(result.body.id));
@@ -58,6 +59,7 @@ export function IssueCreditNoteDialog({ invoice, onClose }: { invoice: Pick<Invo
       title={`Issue a credit note for ${invoice.invoiceNumber}?`}
       confirmLabel="Create draft credit note"
       danger={false}
+      requireSecurity
       loading={saving}
       onConfirm={confirm}
       description={

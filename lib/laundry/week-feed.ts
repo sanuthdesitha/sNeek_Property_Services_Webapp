@@ -112,9 +112,12 @@ export async function fetchLaundryWeekTasks(
   start: Date,
   end: Date,
   viewer: { role: Role; userId: string },
+  /** The page's own viewer scope (`laundryTaskScope`), applied as well; the API passes none. */
+  scope: Prisma.LaundryTaskWhereInput = {},
 ): Promise<LaundryWeekTask[]> {
   const tasks = await db.laundryTask.findMany({
     where: {
+      ...scope,
       OR: [
         { pickupDate: { gte: start, lt: end } },
         { dropoffDate: { gte: start, lt: end } },

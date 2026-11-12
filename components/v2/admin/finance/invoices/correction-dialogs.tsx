@@ -14,22 +14,31 @@ import { useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import { EConfirmModal, EField, EInput, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { InvoiceRow } from "./invoice-model";
-import { deleteInvoiceRequest, patchInvoice, reconcileInvoiceRequest, securityRefusalMessage } from "./invoice-requests";
+import {
+  deleteInvoiceRequest,
+  patchInvoice,
+  reconcileInvoiceRequest,
+  securityRefusalMessage,
+  voidInvoiceRequest,
+  type SensitiveSecurity,
+} from "./invoice-requests";
 
 type DialogProps = { invoice: InvoiceRow; onClose: () => void; onDone: () => void };
 type Credentials = { pin?: string; password?: string };
 
+/** Void: a sensitive action since 2026-11-13, confirmed with the person's own PIN. */
 export function VoidInvoiceDialog({ invoice, onClose, onDone }: DialogProps) {
   const [saving, setSaving] = useState(false);
-  async function confirm() {
+  const creditNote = invoice.kind === "CREDIT_NOTE";
+  async function confirm(credentials?: SensitiveSecurity) {
     setSaving(true);
     try {
-      const result = await patchInvoice(invoice.id, { status: "VOID" });
+      const result = await voidInvoiceRequest(invoice.id, credentials);
       if (!result.ok) {
-        toast({ title: "Failed", description: result.body.error, variant: "destructive" });
+        toast({ title: "Not voided", description: securityRefusalMessage(result.body.error, "Void failed."), variant: "destructive" });
         return;
       }
-      toast({ title: "Invoice voided" });
+      toast({ title: creditNote ? "Credit note voided" : "Invoice voided" });
       onDone();
       onClose();
     } catch {
@@ -43,12 +52,15 @@ export function VoidInvoiceDialog({ invoice, onClose, onDone }: DialogProps) {
       open
       onClose={() => !saving && onClose()}
       title={`Void ${invoice.invoiceNumber}?`}
+      requireSecurity
       description={
-        invoice.status === "APPROVED"
+        creditNote
+          ? "This credit note no longer reduces what is owed on the invoice it credits. The number is not reused."
+          : invoice.status === "APPROVED"
           ? "This invoice is finished with. Its work goes back in the pot so a new invoice can bill it. The number is not reused. To keep this invoice and fix its content, use Reverse to draft instead."
           : "This invoice is finished with. Its work goes back in the pot so a new invoice can bill it. The number is not reused. To correct an invoice the client already has, issue a credit note instead."
       }
-      confirmLabel="Void invoice"
+      confirmLabel={creditNote ? "Void credit note" : "Void invoice"}
       loading={saving}
       onConfirm={confirm}
     />

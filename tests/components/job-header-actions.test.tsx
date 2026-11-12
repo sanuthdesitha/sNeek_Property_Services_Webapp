@@ -79,7 +79,24 @@ describe("job header actions", () => {
     const reminder = screen.getByRole("button", { name: "Send reminder" });
     expect(reminder).toBeDisabled();
     expect(reminder).toHaveAccessibleDescription(/paused or has been running for over 24 hours/);
-    expect(screen.getByRole("link", { name: "Message team" })).toBeInTheDocument();
+    // Owner decision 2026-11-13: Message team opens a dialog to the assigned cleaners; with nobody
+    // known to be assigned it stays visible, disabled, with the reason.
+    expect(screen.getByRole("button", { name: "Message team" })).toBeDisabled();
+  });
+
+  it("opens the Message team dialog when cleaners are assigned and the viewer may send", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      job: { id: "job_1", label: "J-1 at Glebe House" }, recipients: [{ id: "c1", name: "Mia", hasPhone: true }],
+      transports: { INBOX: { available: true, reason: null }, PUSH: { available: true, reason: null }, SMS: { available: false, reason: "SMS is not configured." } },
+      saved: null, savedReadable: true, title: "Message from the office: J-1 at Glebe House", bodyMax: 600,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const primary = primaryActionFor({ jobId: "job_1", status: "IN_PROGRESS", liveInvoice: null, restoreRefusal: null, readOnly: false, teamMessage: { assignedCount: 1, refusal: null } });
+    renderActions(props("IN_PROGRESS", { primary }));
+    fireEvent.click(screen.getByRole("button", { name: "Message team" }));
+    const dialog = await screen.findByRole("dialog", { name: "Message team" });
+    expect(await within(dialog).findByText("Mia")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/jobs/job_1/office-message", expect.objectContaining({ cache: "no-store" }));
   });
 
   it("groups the More menu into Job and Danger zone, with reasons on disabled items", () => {
