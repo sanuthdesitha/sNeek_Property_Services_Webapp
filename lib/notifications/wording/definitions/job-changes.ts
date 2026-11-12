@@ -93,7 +93,7 @@ export const JOB_CHANGED_WORDING = editable("job.changed", [
   line("schedule-start", "Schedule: start time", "INBOX", " at {{startTime}}", "Added to {{schedule}} when there is a start time."),
   line("schedule-finish", "Schedule: finish time", "INBOX", ", finish by {{dueTime}}", "Added to {{schedule}} when there is a finish time."),
   ...three("tasks-added", "Extra tasks added", "{{companyName}}: extra {{taskWord}} added", "{{jobNumber}} at {{propertyName}}: {{taskListText}}",
-    "{{companyName}}: extra {{taskWord}} on {{jobNumber}}", TASKS_EMAIL, "{{companyName}}: {{jobNumber}} extra task — {{taskListText}}", ["taskListText"], "{{taskWord}} is \"task\" or \"tasks\". The SMS is cut at 320 characters."),
+    "{{companyName}}: extra {{taskWord}} on {{jobNumber}}", TASKS_EMAIL, "{{companyName}}: {{jobNumber}} extra task — {{taskListText}}", ["jobNumber"], "{{taskWord}} is \"task\" or \"tasks\". The SMS is cut at 320 characters."),
   ...three("client-task", "Client task to approve", "Client task approval required", "Client task request for {{jobNumber}} at {{propertyName}} needs approval.",
     "Client task approval required - {{jobNumber}}", CLIENT_TASK_EMAIL, "Approval needed: client task for {{jobNumber}} at {{propertyName}}.", ["jobNumber"], "To the office."),
   ...CLIENT_ASKED("client-update", "Client asked for an update", "Client asked for an update"),

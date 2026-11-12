@@ -1553,3 +1553,15 @@ Review points:
 - An answer from the laundry team never changes the run; "Yes, 15:30" does not set the planned time.
 - Tests run and passing: TypeScript (`tsc --noEmit -p .`, exit 0 on the final run); 59 focused files incl. every existing laundry and supplier test, office actions, wording parity, portal navigation and `server-client-value-imports` (508 passing; `tests/lib/notification-wording.test.ts` fails only on `job.changed/tasks-added`, another engineer's in-progress wording); 7 database files on a fresh disposable database (39 passing).
 - Not run (as instructed): production build, full suite, browser pass at 390/1280 light/dark.
+
+## Approvals, Quotes and pricing, Settings home, Activity log and Growth (2026-11-12)
+
+Boards: Approvals, Quotes and pricing, Settings, Activity, Growth (built); Quote builder full page and Messages (not built in this step). Uncommitted; no schema change; nothing in `lib/rbac/**`, `prisma/**` or the excluded paths edited. Details: `docs/SYSTEM.md`, "Approvals, Quotes and pricing, Settings home, Activity log and Growth redesign (2026-11-12)".
+
+- Approvals: every queue keeps its own decision controls (moved into side-panel files, same routes and bodies). Bulk only where nothing is chosen per request; each row runs the existing route handler in process, and operations managers are checked against the single route's access area. Fixed with it: queue counts were page lengths capped at 50 (now real counts, oldest rows read first); the pay decision note labelled "Visible to the cleaner" was saved to the private admin note (now `decisionMessage` when ticked); deleting a decided record only had a browser-side PIN check (now verified by the route).
+- Quotes and pricing: server-paged pipeline (leads without quotes + quotes), margin Unknown instead of zero, bulk Send / Mark lost with per-row outcomes, pricing tabs reusing the existing editors and PIN lock; `/v2/admin/pricing` redirects. Old pipeline component removed (every action mapped; see the report's parity table).
+- Settings home: all destinations from the shared catalog with the same role filter; badges only from stored Xero sign-in and SMS failures.
+- Activity log: actual person vs testing-as from `after.impersonatedBy`; rows without that marker cannot be told apart and show the signed-in account, as before.
+- Growth: real counts per workspace the viewer may open; opens "not recorded" until provider events exist.
+- Tests run and passing: TypeScript (`tsc --noEmit -p .`, exit 0); 21 focused files / 161 tests (new: approvals bulk lib + route, history delete PIN, approvals workspace, quotes pipeline lib + routes, quote new prefill, settings home, activity log, growth summary; existing: approvals deep link, approval history, ops middleware / policy / request guard, settings navigation, case repair quote, pay claim, page denial, work queue, server/client import scan).
+- Not run (as instructed): production build, full suite, browser pass at 390/1280 light/dark. No real external messages sent.

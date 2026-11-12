@@ -668,3 +668,15 @@ Owner: "build all designs as drawn" for `Suppliers.dc.html` and `LaundryPortal.d
 - [x] Pipeline actions: drawn labels and order, move pickup, drop time, photo to the deliverer, per-card "To" lines, dialog with inbox/push/email and receipt lines, routing disclosure, team answers in the run panel.
 - [x] Laundry portal: tabs Today / Runs / Tracking / History / More, From the office in the header, Today route list, stop screen, Tracking chips / Day n of m / Issues, From the office with typed answers, More menu restored.
 - Reported, not built: "Ready to return" (no stored state); "Add weight / price" while at the laundry and adding a drop photo after delivery (no laundry-side write path); partner pickup/drop schedule (no fields); call-out price for trades (no field); email/SMS to the partner's own contact from the team dialog (stays Chase supplier, administrators); a separate Suppliers sidebar entry (admin layout belongs to another engineer).
+
+## Approvals, Quotes and pricing, Quote page, Settings home, Messages, Activity, Growth (2026-11-12)
+
+Owner: "build all designs as drawn" for these seven boards. **Status (uncommitted; no schema change; TypeScript clean; focused tests passing; build and browser pass pending).** Details: `docs/SYSTEM.md`, "Approvals, Quotes and pricing, Settings home, Activity log and Growth redesign (2026-11-12)".
+- [x] Approvals: queue list with real counts and folded empty queues, table with one primary action, side panel per queue (all 17 keep their actions), Decided tab with filters and Change amount / Reverse / Delete (PIN now server-checked), bulk approve / decline through each queue's own route with per-row outcomes where allowed.
+- [x] Quotes and pricing: one page, server-paged pipeline with stage chips, row actions, side panel and timeline, bulk Send / Mark lost, Rate card (PIN), Price book, Holiday rates, Pricing variables, Client rates tabs; `/v2/admin/pricing` redirects.
+- [~] Quote page: `?clientId=` and `?leadId=` prefills built (server-validated); `?fromCase=` unchanged. Not built: the combined detail-and-edit page (stage bar, status primary action, sections, right rail). Today's detail and edit pages remain.
+- [x] Settings home: every category and destination, search incl. settings on other pages, real state badges (Xero, SMS), settings audit link.
+- [ ] Messages: not built in this step; today's page and compose page unchanged.
+- [x] Activity log: sentences, chips with counts, actual person vs testing as, field diff, job link, list-query paging, capped server CSV (ADMIN).
+- [x] Growth: hub blocks with real counts per workspace the viewer may open.
+- Reported, not changed: delete of decided approvals stays open to operations managers (board says administrators; owner to decide); bulk approve of pay requests not offered (each needs its amount); "Source" filter on quotes not built (no stored source); iCal feed badge not built (run statuses not reliably classified).
