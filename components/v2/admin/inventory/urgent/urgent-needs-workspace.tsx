@@ -32,7 +32,8 @@ import { AddToRunDialog } from "./add-to-run-dialog";
 function summaryLine(summary: UrgentListSummary | undefined): string {
   if (!summary) return "Loading…";
   const needs = `${summary.open} urgent ${summary.open === 1 ? "need" : "needs"} across ${summary.properties} ${summary.properties === 1 ? "property" : "properties"}`;
-  return `${needs} · ${summary.dueSoon} not yet delivered for a clean within 48 hours`;
+  // As drawn ("2 must arrive before the next clean"), with the real window stated.
+  return `${needs} · ${summary.dueSoon} must arrive before the next clean (within 48 hours)`;
 }
 
 export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, isAdmin }: { initialView: UrgentView; tabs: React.ReactNode; timeZone: string; isAdmin: boolean }) {

@@ -65,6 +65,8 @@ describe("recording the monthly last-shown date", () => {
       job: { findUnique: vi.fn().mockResolvedValue({ status: "COMPLETED", isRework: false, internalNotes: null }) },
       formSubmission: { findFirst: vi.fn().mockResolvedValue({ createdAt: submittedAt, data: { __templateSchema: { sections: [{ fields: [{ id: "oven", type: "yesno", frequency: "MONTHLY" }] }] }, uploads: {} } }) },
       propertyRotationState: { upsert: vi.fn() },
+      // Wave F: approval also applies the form's stock counts (none here).
+      stockCountObservation: { updateMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     };
     await applyJobRotationCompletion(tx as never, { jobId: "j", propertyId: "p" });
     expect(tx.propertyRotationState.upsert).toHaveBeenCalledTimes(1);

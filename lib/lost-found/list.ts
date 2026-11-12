@@ -10,7 +10,7 @@ import { Prisma, type LostFoundStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { listResponse, ListQueryError, type ListQuery, type ListResponse } from "@/lib/admin/list-query";
-import { holdingCutoff, holdingState, zonedDayBoundary, type HoldingState } from "./holding";
+import { holdingCutoff, holdingState, unprocessedNewCutoff, unprocessedNewFlag, zonedDayBoundary, type HoldingState, type UnprocessedFlag } from "./holding";
 import { hydrateItems, type LostFoundItemRow } from "./service";
 import { readLostFoundSettings } from "./settings";
 import { CLOSED_STATUSES, HOLDING_STATUSES, LOST_FOUND_STAGE_STATUSES, type LostFoundStage } from "./status";
@@ -29,13 +29,15 @@ export type LostFoundFilters = {
   to: string | null;
   value: ValueFilter;
   pastHolding: boolean;
+  /** Wave F: only items still at New and found more than NEW_ITEM_FLAG_DAYS ago. */
+  unprocessedNew?: boolean;
 };
 
-export type LostFoundListRow = LostFoundItemRow & { holding: HoldingState };
+export type LostFoundListRow = LostFoundItemRow & { holding: HoldingState; unprocessed: UnprocessedFlag };
 
 export type LostFoundListResponse = ListResponse<LostFoundListRow, LostFoundSort> & {
   counts: Record<LostFoundTab, number>;
-  summary: { open: number; pastHolding: number };
+  summary: { open: number; pastHolding: number; unprocessedNew: number };
   holdingDays: number;
   timeZone: string;
   properties: Array<{ id: string; name: string }>;
@@ -56,6 +58,7 @@ export function parseLostFoundFilters(params: URLSearchParams): LostFoundFilters
     to: params.get("to")?.trim() || null,
     value: pick(params.get("value"), VALUE_FILTERS, "any"),
     pastHolding: params.get("holding") === "past",
+    unprocessedNew: params.get("flag") === "new-stale",
   };
 }
 
@@ -83,6 +86,9 @@ async function baseWhere(filters: LostFoundFilters, context: WhereContext): Prom
   if (filters.value === "100plus") and.push({ estimatedValue: { gte: 100 } });
   if (filters.pastHolding) {
     and.push({ status: { in: HOLDING_STATUSES }, createdAt: { lt: holdingCutoff(context.now, context.timeZone, context.holdingDays) } });
+  }
+  if (filters.unprocessedNew) {
+    and.push({ status: "REPORTED", createdAt: { lt: unprocessedNewCutoff(context.now, context.timeZone) } });
   }
   if (filters.q) {
     const contains = { contains: filters.q, mode: "insensitive" as const };
@@ -176,13 +182,14 @@ export async function listLostFoundForOffice(filters: LostFoundFilters, query: L
   const where: Prisma.LostFoundItemWhereInput = { AND: [...base, tabWhere(filters.tab, filters.closedAs)] };
   const cutoff = holdingCutoff(now, context.timeZone, context.holdingDays);
 
-  const [total, items, grouped, open, pastHolding, propertyIds] = await Promise.all([
+  const [total, items, grouped, open, pastHolding, propertyIds, unprocessedNew] = await Promise.all([
     db.lostFoundItem.count({ where }),
     findItemsInOrder(where, query, true),
     db.lostFoundItem.groupBy({ by: ["status"], where: { AND: base }, _count: { _all: true } }),
     db.lostFoundItem.count({ where: { status: { notIn: CLOSED_STATUSES } } }),
     db.lostFoundItem.count({ where: { status: { in: HOLDING_STATUSES }, createdAt: { lt: cutoff } } }),
     db.lostFoundItem.findMany({ where: { propertyId: { not: null } }, distinct: ["propertyId"], select: { propertyId: true } }),
+    db.lostFoundItem.count({ where: { status: "REPORTED", createdAt: { lt: unprocessedNewCutoff(now, context.timeZone) } } }),
   ]);
 
   const byStatus = new Map(grouped.map((row) => [row.status as string, row._count._all]));
@@ -197,12 +204,13 @@ export async function listLostFoundForOffice(filters: LostFoundFilters, query: L
   const rows = (await hydrateItems(items)).map((row) => ({
     ...row,
     holding: holdingState({ status: row.status, foundAt: new Date(row.createdAt), now, timeZone: context.timeZone, holdingDays: context.holdingDays }),
+    unprocessed: unprocessedNewFlag({ status: row.status, foundAt: new Date(row.createdAt), now, timeZone: context.timeZone }),
   }));
 
   return {
     ...listResponse(rows, total, query),
     counts,
-    summary: { open, pastHolding },
+    summary: { open, pastHolding, unprocessedNew },
     holdingDays: context.holdingDays,
     timeZone: context.timeZone,
     properties: properties.map((p) => ({ id: p.id, name: p.suburb ? `${p.name} (${p.suburb})` : p.name })),
@@ -218,6 +226,7 @@ export async function exportLostFoundRows(filters: LostFoundFilters, query: List
   const rows = (await hydrateItems(items)).map((row) => ({
     ...row,
     holding: holdingState({ status: row.status, foundAt: new Date(row.createdAt), now, timeZone: context.timeZone, holdingDays: context.holdingDays }),
+    unprocessed: unprocessedNewFlag({ status: row.status, foundAt: new Date(row.createdAt), now, timeZone: context.timeZone }),
   }));
   return { rows, timeZone: context.timeZone, holdingDays: context.holdingDays };
 }

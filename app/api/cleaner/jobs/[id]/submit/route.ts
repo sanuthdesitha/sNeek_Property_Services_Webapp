@@ -789,8 +789,9 @@ export async function POST(
         });
         // Wave F: Stock count answers become count observations (applied to
         // on-hand only when the clean is approved; unmatched items go to review).
-        // A submission without counts still supersedes an earlier one's pending counts.
-        await recordStockCountObservations(tx, { submissionId: created.id, jobId: job.id, propertyId: job.propertyId, observedAt: created.createdAt, counts: effectsPlan?.stockCounts ?? [] });
+        if (effectsPlan && effectsPlan.stockCounts.length > 0) {
+          await recordStockCountObservations(tx, { submissionId: created.id, jobId: job.id, propertyId: job.propertyId, observedAt: created.createdAt, counts: effectsPlan.stockCounts });
+        }
 
         // Task proof was computed into a proofFieldId and then never stored
         // under it: submissionMedia rows are built from `uploads`, while the

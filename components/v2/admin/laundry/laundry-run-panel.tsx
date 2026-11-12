@@ -22,7 +22,8 @@ import { LaundryEvidenceReplacement } from "./laundry-evidence-replacement";
 import { LaundryNudgeActions } from "./laundry-nudge";
 import { LaundrySupplierChase } from "./laundry-supplier-chase";
 import { buildTaskMedia, statusLabel, type LaundryTaskDTO } from "./laundry-shared";
-import { cardPill, shortDay } from "./laundry-lane-card";
+import { cardPill, dayWithTime, shortDay } from "./laundry-lane-card";
+import { LaundryPlannedTimes } from "./laundry-planned-times";
 import type { PipelineCardDTO } from "./use-laundry-pipeline";
 
 export type RunPanelTask = LaundryTaskDTO & Partial<Pick<PipelineCardDTO, "exceptions" | "cleaners" | "nextGuest" | "bagCount" | "lane" | "readiness" | "dayOf" | "carriedIn" | "driver">>;
@@ -55,8 +56,8 @@ export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onD
   const facts: Array<[string, React.ReactNode]> = [
     ["Status", statusLabel(task.status)],
     ["Clean", task.jobId ? <Link className="text-[hsl(var(--e-primary))] hover:underline" href={`/v2/admin/jobs/${task.jobId}`}>{task.job?.jobNumber ?? "Job"} · {shortDay(task.job?.scheduledDate)}{task.cleaners?.length ? ` · ${task.cleaners.join(", ")}` : ""}</Link> : "Not linked"],
-    ["Pickup", shortDay(task.pickupDate)],
-    ["Drop", shortDay(task.dropoffDate)],
+    ["Pickup", dayWithTime(task.pickupDate, task.pickupTime)],
+    ["Drop", dayWithTime(task.dropoffDate, task.dropoffTime)],
     ["Next guest", task.nextGuest ? `${task.nextGuest.checkinAt ? shortDay(task.nextGuest.checkinAt) : "Date not given"}${task.nextGuest.name ? ` · ${task.nextGuest.name}` : ""}` : "Not recorded"],
     ["Supplier", task.supplier?.name ?? "Not recorded"],
     ["Client", task.property?.client?.name ?? task.property?.client?.email ?? "Unassigned client"],
@@ -87,6 +88,7 @@ export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onD
           </React.Fragment>
         ))}
       </dl>
+      {!done ? <LaundryPlannedTimes key={task.id} task={task} onSaved={onSaved} /> : null}
       {task.flagNotes ? <p className="rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-surface-raised))] px-2.5 py-1.5 text-[0.75rem]">{task.flagNotes}</p> : null}
       <div className="space-y-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
         {task.property?.address ? <p>{task.property.address}</p> : null}

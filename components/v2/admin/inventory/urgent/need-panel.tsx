@@ -46,6 +46,13 @@ const EXTRA_EVENT_LABEL: Record<string, (detail: Record<string, unknown>) => str
   CLEANER_DECLINED_TO_BUY: () => "Declined the ask to buy",
 };
 
+/** As drawn: "needed before Thu 10:00"; "clean has passed" or "no upcoming clean scheduled" otherwise. */
+function panelNeededBy(value: UrgentNeedListRow, text: string, timeZone: string): string {
+  if (value.neededByState === "passed") return "the next clean's time has passed";
+  if (!value.neededBy || text === "–") return value.neededByState === "closed" ? "closed" : "no upcoming clean scheduled";
+  return `needed before ${formatInTimeZone(new Date(value.neededBy), timeZone, "EEE HH:mm")}`;
+}
+
 function dispositionNote(disposition: string, count: number | null): string {
   if (count === null || disposition === "APPLY") return "";
   if (disposition === "PENDING_APPROVAL") return " (applied to stock when the clean is approved)";
@@ -133,7 +140,7 @@ export function NeedPanel({ needId, row, timeZone, canResolve, onClose, onChange
   };
 
   return (
-    <ESidePanel open title={value?.itemName ?? (need.status === "error" ? "Need unavailable" : "Loading…")} label="Need detail" onClose={onClose} subtitle={value ? `${value.propertyName} · ${needed?.text === "–" ? "no upcoming clean scheduled" : `needed by ${needed?.text}`}` : undefined}>
+    <ESidePanel open title={value?.itemName ?? (need.status === "error" ? "Need unavailable" : "Loading…")} label="Need detail" onClose={onClose} subtitle={value ? `${value.propertyName} · ${panelNeededBy(value, needed?.text ?? "–", timeZone)}` : undefined}>
       {need.status === "loading" ? <p role="status" className="text-[0.875rem]">Loading the need…</p> : null}
       {need.status === "error" ? <p role="alert" className="text-[0.875rem] text-[hsl(var(--e-danger))]">{need.message}</p> : null}
       {value ? (

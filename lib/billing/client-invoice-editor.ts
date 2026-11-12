@@ -69,6 +69,7 @@ function toEditorLine(line: LoadedLine, timezone: string, startedWork: EditorSta
     propertyId: line.propertyId ?? null,
     property: line.property ? { id: line.propertyId ?? null, name: line.property.name, suburb: line.property.suburb ?? null } : null,
     startedWork: lineStartedWork(line, startedWork),
+    fromCase: line.case ? { id: line.case.id, title: line.case.title } : null,
   };
 }
 

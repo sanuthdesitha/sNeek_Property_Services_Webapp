@@ -18,7 +18,8 @@
  *    history with the reason. Never applied twice (status changes under the
  *    stock row lock).
  * 4. A new submission of the same job (after a reset or rework) supersedes the
- *    earlier submission's PENDING / NEEDS_REVIEW observations (SUPERSEDED). An
+ *    earlier submission's PENDING / NEEDS_REVIEW observations (SUPERSEDED: when
+ *    the new submission records counts, and in any case at approval). An
  *    already APPLIED count stays as the history it is; the newer submission's
  *    count applies on its own approval.
  */
@@ -95,6 +96,11 @@ export async function applyApprovedStockCounts(tx: Tx, input: { jobId: string })
   if (!job || !["COMPLETED", "INVOICED"].includes(job.status)) return { applied: 0, skipped: 0 };
   const latest = await tx.formSubmission.findFirst({ where: { jobId: input.jobId }, orderBy: { createdAt: "desc" }, select: { id: true } });
   if (!latest) return { applied: 0, skipped: 0 };
+  // Counts of an earlier submission of this job never apply: the approved clean is the latest submission.
+  await tx.stockCountObservation.updateMany({
+    where: { jobId: input.jobId, submissionId: { not: latest.id }, status: { in: ["PENDING", "NEEDS_REVIEW"] } },
+    data: { status: "SUPERSEDED", reason: "A newer submission of this job replaced this count.", resolvedAt: new Date() },
+  });
   const pending = await tx.stockCountObservation.findMany({ where: { submissionId: latest.id, status: "PENDING" }, orderBy: { itemId: "asc" } });
   let applied = 0;
   let skipped = 0;

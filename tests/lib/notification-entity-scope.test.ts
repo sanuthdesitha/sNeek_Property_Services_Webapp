@@ -145,3 +145,18 @@ describe("recipient scope rules", () => {
     expect(await authorizeEntityRecipient(db, recipient("LAUNDRY_TASK_CLEANER", "missing"))).toMatchObject({ ok: false });
   });
 });
+
+describe("Wave F: URGENT_STOCK_PURCHASE_ASK scope", () => {
+  const recipient = { userId: "cleaner-1", role: "CLEANER" as const, scope: { kind: "ENTITY" as const, type: "URGENT_STOCK_PURCHASE_ASK", id: "ask-1" } };
+  const reader = (ask: { cleanerId: string; state: string } | null) => ({
+    user: { findUnique: async () => ({ id: "cleaner-1", role: "CLEANER", isActive: true, clientId: null }) },
+    jobAssignment: { findFirst: async () => null }, laundryTask: { findUnique: async () => null }, job: { findUnique: async () => null },
+    urgentStockPurchaseAsk: { findUnique: async () => ask },
+  }) as never;
+  it("delivers only to the asked cleaner while the ask is still waiting", async () => {
+    expect(await authorizeEntityRecipient(reader({ cleanerId: "cleaner-1", state: "ASKED" }), recipient)).toEqual({ ok: true, role: "CLEANER" });
+    expect(await authorizeEntityRecipient(reader({ cleanerId: "cleaner-1", state: "WITHDRAWN" }), recipient)).toEqual({ ok: false, errorCode: "recipient_not_in_scope" });
+    expect(await authorizeEntityRecipient(reader({ cleanerId: "someone-else", state: "ASKED" }), recipient)).toEqual({ ok: false, errorCode: "recipient_not_in_scope" });
+    expect(await authorizeEntityRecipient(reader(null), recipient)).toEqual({ ok: false, errorCode: "recipient_not_in_scope" });
+  });
+});

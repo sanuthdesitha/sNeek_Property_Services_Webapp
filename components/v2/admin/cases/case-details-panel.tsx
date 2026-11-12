@@ -12,6 +12,7 @@
  */
 import * as React from "react";
 import Link from "next/link";
+import { CaseInvoiceCharge } from "./case-invoice-charge";
 import { Wand2 } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
@@ -207,12 +208,7 @@ export function CaseDetailsPanel({ detail, linked, linkedStatus, assignees, view
         ) : (
           <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Opens a draft quote filled in from this case; nothing is sent to the client.</p>
         )}
-        <EButton asChild size="sm" variant="outline">
-          <Link href={linked?.nextSteps.clientDraftInvoicesHref ?? linked?.nextSteps.newInvoiceHref ?? "/v2/admin/finance?tab=invoices&new=jobs"}>Add charge to invoice</Link>
-        </EButton>
-        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-          {linked?.nextSteps.clientDraftInvoicesHref ? "Opens this client’s draft invoices; nothing is charged from here." : "Opens a new invoice; nothing is charged from here."}
-        </p>
+        <CaseInvoiceCharge key={detail.id} caseId={detail.id} caseTitle={detail.title} />
       </div>
     </div>
   );

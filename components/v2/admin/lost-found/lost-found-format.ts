@@ -5,7 +5,7 @@
 import { formatInTimeZone } from "date-fns-tz";
 import type { EPillTone } from "@/components/v2/ui/pill";
 import type { EStage } from "@/components/v2/ui/stage-bar";
-import type { HoldingState } from "@/lib/lost-found/holding";
+import type { HoldingState, UnprocessedFlag } from "@/lib/lost-found/holding";
 import {
   LOST_FOUND_STAGES,
   LOST_FOUND_STAGE_LABELS,
@@ -55,9 +55,11 @@ const STAGE_TONE: Record<LostFoundStage, EPillTone> = {
 };
 
 /** The table's status pill: stage label, days held, warning past the holding period. */
-export function statusPill(status: string, holding: HoldingState): StatusPill {
+export function statusPill(status: string, holding: HoldingState, unprocessed: UnprocessedFlag = null): StatusPill {
   const stage = lostFoundStageOf(status);
   const label = stage === "closed" ? lostFoundStatusLabel(status) : LOST_FOUND_STAGE_LABELS[stage];
+  // Wave F: still New after the named threshold: flagged with its age.
+  if (unprocessed) return { label: `${label} · ${unprocessed.days} d`, tone: "warn" };
   const tone: EPillTone = status === "RETURNED" ? "ok" : holding.past ? "warn" : STAGE_TONE[stage];
   if (holding.counts && holding.days !== null) return { label: `${label} · ${holding.days} d`, tone };
   return { label, tone };

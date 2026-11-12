@@ -19,6 +19,12 @@ import { LaundryNudgeActions, nudgeKindsForTask } from "./laundry-nudge";
 import { LaundrySupplierChase, chaseAppliesToTask } from "./laundry-supplier-chase";
 import type { PipelineCardDTO } from "./use-laundry-pipeline";
 
+/** "Wed 11 Nov 15:00" when a time was planned, else the day alone. */
+export function dayWithTime(value: string | null | undefined, time: string | null | undefined): string {
+  const day = shortDay(value);
+  return time && day !== "—" ? `${day} ${time}` : day;
+}
+
 export function shortDay(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
@@ -53,6 +59,9 @@ export function cardFacts(card: PipelineCardDTO): string {
   const bags = card.bagCount ? `${card.bagCount} bag${card.bagCount === 1 ? "" : "s"}` : null;
   const weight = card.bagWeightKg ? `${card.bagWeightKg} kg` : null;
   const driver = card.driver ? `Driver ${card.driver.driverName}, stop ${card.driver.stop}` : null;
+  // Planned clock times (Wave F): shown only when the office planned one.
+  const pickupAt = card.pickupTime ? (card.driver ? `Driver ${card.driver.driverName} ${card.pickupTime}` : `Pickup ${card.pickupTime}`) : driver;
+  const dropAt = card.dropoffTime ? `Drop ${card.dropoffTime}` : null;
   const latestHandoff = [...(card.confirmations ?? [])].reverse().find((row) => row.bagLocation || row.photoUrl);
   const nextGuest = card.nextGuest?.checkinAt ? `next guest ${shortDay(card.nextGuest.checkinAt)}` : null;
   const parts: Array<string | null> = (() => {
@@ -63,13 +72,13 @@ export function cardFacts(card: PipelineCardDTO): string {
           card.readiness === null ? "Cleaner has not confirmed bags" : null,
           latestHandoff?.bagLocation ?? null,
           latestHandoff?.photoUrl ? "photo attached" : null,
-          driver,
+          pickupAt,
           card.job?.scheduledDate && card.readiness === null ? `Clean ${shortDay(card.job.scheduledDate)}` : null,
         ];
       case "laundry":
         return [bags, weight, card.supplier?.name ?? "Supplier not recorded", nextGuest];
       case "drop":
-        return [bags, driver, nextGuest ? `needed before ${nextGuest.replace("next guest ", "")}` : null];
+        return [bags, dropAt, driver, nextGuest ? `needed before ${nextGuest.replace("next guest ", "")}` : null];
       case "delivered":
       default:
         return [bags, card.confirmations?.some((row) => row.photoUrl) ? "photo" : null, card.dropoffCostAud != null ? `receipt $${Number(card.dropoffCostAud).toFixed(2)}` : null];
