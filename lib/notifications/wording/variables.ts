@@ -24,7 +24,7 @@ const DICTIONARY: Record<string, Entry> = {
   jobLabel: { label: "Job", sample: "J-1061 · Manly Loft" },
   jobType: { label: "Job type", sample: "Airbnb turnover" },
   jobUrl: { label: "Job link", sample: "sneek.au/j/1061" },
-  jobsUrl: { label: "Jobs link", sample: "https://app.sneek.au/cleaner/jobs", format: "url" },
+  jobsUrl: { label: "Jobs link", sample: "https://app.sneek.au/cleaner/jobs" },
   when: { label: "When", sample: "tomorrow 10:00" },
   day: { label: "Day", sample: "Thu 13 Nov" },
   startTime: { label: "Start time", sample: "10:00" },

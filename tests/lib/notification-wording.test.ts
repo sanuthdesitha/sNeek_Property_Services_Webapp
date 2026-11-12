@@ -52,6 +52,8 @@ describe("template language", () => {
   it("escapes values in an email body but keeps the admin's HTML; multiline and built fragments are handled explicitly", () => {
     const html = renderHtml("<p>{{name}}</p>{{row}}{{note}}", { name: "<img src=x onerror=alert(1)>", row: "<tr><td>ok</td></tr>", note: "a & b\nc" }, { row: "html", note: "multiline" });
     expect(html).toBe("<p>&lt;img src=x onerror=alert(1)&gt;</p><tr><td>ok</td></tr>a &amp; b<br>c");
+    // App-built links keep their query string; only attribute-breaking characters are escaped.
+    expect(renderHtml('<a href="{{u}}">x</a>', { u: 'https://a/b?x=1&y=2"><script>' }, { u: "url" })).toBe('<a href="https://a/b?x=1&y=2&quot;&gt;&lt;script&gt;">x</a>');
   });
 
   it("refuses unknown variables, a missing required variable, broken placeholders and script in email", () => {
