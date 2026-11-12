@@ -9,13 +9,16 @@
  * stale write with 409 STALE_QUOTE and writes nothing, so an autosave can never
  * silently overwrite another tab, the pipeline or a client's add-on request.
  *
- * Draft edits are saved on their own 1.5 s after the last change, one save at a
- * time (edits made meanwhile stay dirty and are saved next: newest wins), never
- * while a field is invalid, never on a new or converted quote, and a failed
+ * On a Draft quote, edits are saved on their own 1.5 s after the last change,
+ * one save at a time (edits made meanwhile stay dirty and are saved next:
+ * newest wins), never while a field is invalid, and a failed
  * save is not repeated until the draft changes or Retry is pressed. A conflict
  * keeps the draft and offers "Reload theirs" (the page's reload) or "Keep my
  * edits and retry" (re-read the version, then send the same absolute values).
- * Autosave never sends the quote and never changes its status.
+ * Autosave never sends the quote and never changes its status. Sent, Accepted,
+ * Declined and Converted quotes never autosave: `flush` (Save changes, and the
+ * save before a primary action) is their only save, with the same token,
+ * serialisation and conflict handling.
  */
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { QUOTE_AUTOSAVE, QUOTE_AUTOSAVE_DELAY_MS, mayAutosave, type QuoteSaveStatus } from "@/lib/quotes/quote-autosave";
@@ -28,6 +31,8 @@ export type QuoteAutosaveOptions = {
   quoteId: string | null;
   isNew: boolean;
   locked: boolean;
+  /** The stored quote's status: only a DRAFT autosaves. */
+  quoteStatus: string;
   dirty: boolean;
   /** The current draft's key (from the builder). */
   draftKey: string;
@@ -196,6 +201,7 @@ export function useQuoteAutosave(options: QuoteAutosaveOptions): QuoteAutosave {
   // Debounced autosave of the draft.
   const gateOpen = mayAutosave({
     isNew: options.isNew,
+    quoteStatus: options.quoteStatus,
     locked: options.locked,
     dirty: options.dirty,
     problem: options.problem,

@@ -3,8 +3,10 @@
  * by the quote page's autosave hook and its tests; mirrors the invoice
  * editor's Wave D design.
  *
- * Autosave runs only on a saved, editable quote (never on `/quotes/new`, never
- * on a converted quote), only while every field is valid, one save at a time,
+ * Autosave runs only on a saved quote whose status is Draft (never on
+ * `/quotes/new`; never on Sent, Accepted, Declined or Converted quotes, which
+ * keep the explicit Save so a half-finished edit never reaches the client's
+ * online page or changes an accepted price), only while every field is valid, one save at a time,
  * and it never sends or changes the status: it writes the builder's edit body
  * through the quote PATCH with `expectedUpdatedAt`, then the staged discount
  * through the discount route, exactly as the explicit Save did.
@@ -50,8 +52,15 @@ export function quoteDraftProblem(input: QuoteDraftCheckInput): string | null {
   return null;
 }
 
+/** Autosave applies only to a Draft: the client cannot open it yet. */
+export function autosaveAppliesTo(quoteStatus: string): boolean {
+  return quoteStatus === "DRAFT";
+}
+
 export type QuoteAutosaveGate = {
   isNew: boolean;
+  /** The stored quote's status (DRAFT, SENT, ACCEPTED, DECLINED, CONVERTED). */
+  quoteStatus: string;
   locked: boolean;
   dirty: boolean;
   problem: string | null;
@@ -65,7 +74,7 @@ export type QuoteAutosaveGate = {
 
 /** Whether a debounced autosave may be scheduled for this draft. */
 export function mayAutosave(gate: QuoteAutosaveGate): boolean {
-  if (gate.isNew || gate.locked || !gate.dirty || gate.problem || gate.busy) return false;
+  if (gate.isNew || gate.locked || !autosaveAppliesTo(gate.quoteStatus) || !gate.dirty || gate.problem || gate.busy) return false;
   if (gate.status.kind === "saving" || gate.status.kind === "conflict") return false;
   return gate.failedKey !== gate.key;
 }
@@ -101,7 +110,8 @@ export function quoteSaveStateLabel(input: QuoteSaveStateInput): string {
 
 /**
  * A quote the client can already open: its public page reads the stored quote
- * live, so each saved change is visible there at once (no email is sent).
+ * live, so each change is visible there as soon as Save is pressed (no email
+ * is sent).
  */
 export function quoteIsLiveForClient(status: string, publicToken: string | null): boolean {
   return Boolean(publicToken) && status !== "DRAFT" && status !== "CONVERTED";

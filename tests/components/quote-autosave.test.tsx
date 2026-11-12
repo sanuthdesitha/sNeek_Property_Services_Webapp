@@ -19,6 +19,7 @@ vi.mock("@/components/v2/admin/onboarding/address-input", () => ({
 import { QuoteFullPage } from "@/components/v2/admin/quotes/full/quote-full-page";
 import { QuoteBuilder } from "@/components/v2/admin/quotes/quote-builder";
 import { snapshotFromRecord } from "@/lib/quotes/quote-record";
+import { autosaveAppliesTo, mayAutosave } from "@/lib/quotes/quote-autosave";
 
 const T0 = "2026-11-13T01:00:00.000Z";
 const T1 = "2026-11-13T01:00:05.000Z";
@@ -124,6 +125,19 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe("autosave applies only to Draft quotes (rules)", () => {
+  const gate = { isNew: false, locked: false, dirty: true, problem: null, busy: false, status: { kind: "idle" as const }, failedKey: null, key: "k" };
+  it("opens only for a Draft", () => {
+    expect(autosaveAppliesTo("DRAFT")).toBe(true);
+    for (const quoteStatus of ["SENT", "ACCEPTED", "DECLINED", "CONVERTED"]) {
+      expect(autosaveAppliesTo(quoteStatus)).toBe(false);
+      expect(mayAutosave({ ...gate, quoteStatus })).toBe(false);
+    }
+    expect(mayAutosave({ ...gate, quoteStatus: "DRAFT" })).toBe(true);
+    expect(mayAutosave({ ...gate, quoteStatus: "DRAFT", isNew: true })).toBe(false);
+  });
 });
 
 describe("Quote page autosave", () => {
@@ -272,6 +286,24 @@ describe("Quote page autosave", () => {
     expect(calls.filter((call) => call.url.startsWith("/api/admin/quotes") && call.method !== "GET")).toHaveLength(0);
   });
 
+  for (const quoteStatus of ["SENT", "ACCEPTED", "DECLINED"]) {
+    it(`never autosaves a ${quoteStatus} quote: Unsaved changes until Save, which sends the token`, async () => {
+      renderPage(quoteStatus);
+      await advance(0);
+      fireEvent.change(officeNotes(), { target: { value: "Client asked for Friday" } });
+      await advance(10_000);
+      expect(patches()).toHaveLength(0);
+      expect(screen.getAllByText(/Unsaved changes/).length).toBeGreaterThan(0);
+      fireEvent.click(screen.getAllByRole("button", { name: "Save changes" })[0]);
+      await advance(0);
+      expect(patches()).toHaveLength(1);
+      expect(patches()[0].body).toMatchObject({ internalNotes: "Client asked for Friday", expectedUpdatedAt: T0 });
+      expect(patches()[0].body).not.toHaveProperty("status");
+      await advance(10_000);
+      expect(patches()).toHaveLength(1);
+    });
+  }
+
   it("never changes the status on its own: the status select waits for Save", async () => {
     renderPage("SENT");
     await advance(0);
@@ -293,9 +325,10 @@ describe("Quote page autosave", () => {
     ]);
   });
 
-  it("tells the office that a shared quote's online page changes as soon as it saves", () => {
+  it("tells the office that a shared quote's online page changes when Save is pressed", () => {
     renderPage("SENT");
     expect(screen.getByText(/The client can already open this quote online/)).toBeTruthy();
+    expect(screen.getByText(/go live on the client's online quote when you press Save changes, not before/)).toBeTruthy();
     cleanup();
     renderPage("DRAFT");
     expect(screen.queryByText(/The client can already open this quote online/)).toBeNull();

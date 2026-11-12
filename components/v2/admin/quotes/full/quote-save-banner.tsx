@@ -63,11 +63,11 @@ export function QuoteSaveBanner({ status, onReloadTheirs, onKeepMine, onDismiss 
   );
 }
 
-/** A shared quote: the client's online page reads the stored quote, so each save shows there at once. */
+/** A shared quote: the client's online page reads the stored quote, so a change shows there once Save is pressed. */
 export function LiveForClientNote() {
   return (
     <p role="note" className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-[0.8125rem]">
-      <strong className="font-[600]">The client can already open this quote online.</strong> Changes save on their own a moment after you stop typing, and the client&apos;s online quote shows each saved change straight away. Nothing is emailed until you choose Resend.
+      <strong className="font-[600]">The client can already open this quote online.</strong> Your changes go live on the client&apos;s online quote when you press Save changes, not before. Nothing is emailed until you choose Resend.
     </p>
   );
 }

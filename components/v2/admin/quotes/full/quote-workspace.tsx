@@ -5,10 +5,12 @@
  * by the outer page on each explicit reload from the server, so the builder
  * seeds from the saved quote.
  *
- * Autosave (owner decision 2026-11-13, `use-quote-autosave.ts`): on a saved,
- * editable quote the draft saves itself 1.5 s after the last change, one save
- * at a time, with the stale-write token; never while a field is invalid, never
- * on a new or converted quote, never sending it or changing its status (the
+ * Autosave (owner decision 2026-11-13, `use-quote-autosave.ts`): on a saved
+ * quote whose status is Draft, changes save themselves 1.5 s after the last
+ * change, one save at a time, with the stale-write token; never while a field
+ * is invalid, never sending it or changing its status. Sent, Accepted,
+ * Declined and Converted quotes keep the explicit Save (with the token), so
+ * nothing reaches the client's online page without a deliberate Save (the
  * status select still saves with Save). Typed text stays usable during a
  * background save; an explicit save freezes the fields. Primary actions save
  * first and wait. Create mode stays explicit (Create draft / Create and send).
@@ -72,6 +74,7 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
     quoteId: snapshot?.id ?? null,
     isNew,
     locked,
+    quoteStatus: status,
     dirty: builder.dirty,
     draftKey: builder.saveRequest().key,
     problem: builder.draftProblem,
@@ -267,7 +270,7 @@ export function QuoteWorkspace({ snapshot, builderOptions, marginModel, timezone
             onRegenerateNotes={locked ? null : builder.regenerateNotes}
             saving={saving}
             saveLabel="Save"
-            statusHint={isNew ? "A new quote is saved as a draft." : locked ? "Changes save with Save." : "Status changes save with Save; the other fields save on their own."}
+            statusHint={isNew ? "A new quote is saved as a draft." : status === "DRAFT" ? "Status changes save with Save; the other fields save on their own." : "Changes save with Save."}
             onSave={isNew ? null : () => void saveAll()}
             savedLine={saveState}
           />
