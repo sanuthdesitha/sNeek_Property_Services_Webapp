@@ -127,6 +127,8 @@ export const checkMoveResponseSchema = z.object({
   time: z.object({
     fromStart: z.string().nullable(), toStart: z.string(),
     fromDue: z.string().nullable(), toDue: z.string().nullable(),
+    /** Present only for a job with a separate end time (it moves with the start). */
+    fromEnd: z.string().nullable().optional(), toEnd: z.string().nullable().optional(),
   }).optional(),
   /** Refusals: when any is present the move cannot be made. */
   blockers: z.array(z.string()),
@@ -140,6 +142,8 @@ export const checkMoveResponseSchema = z.object({
       /** Sent only when the time changes (the service keeps the job's times otherwise). */
       startTime: z.string().optional(),
       dueTime: z.string().nullable().optional(),
+      /** Sent only for a time move of a job with a separate end time. */
+      endTime: z.string().nullable().optional(),
     }).nullable(),
     assign: z.object({ userIds: z.array(z.string()), primaryUserId: z.string().nullable() }).nullable(),
   }),

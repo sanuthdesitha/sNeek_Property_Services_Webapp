@@ -78,8 +78,13 @@ function sydneyKey(date: Date): string {
 }
 
 /** "Today", "Yesterday" or a Sydney date; "–" when never recorded. */
-export function formatLastSeen(iso: string | null, now: Date = new Date()): string {
-  if (!iso) return DASH;
+/**
+ * "Last seen" from the stored value. Null is never guessed: an invited person
+ * who has not accepted has never signed in; anyone else is "Not recorded yet"
+ * (presence is recorded from 2026-11 on, and only on activity).
+ */
+export function formatLastSeen(iso: string | null, now: Date = new Date(), options: { invited?: boolean } = {}): string {
+  if (!iso) return options.invited ? "Never signed in" : "Not recorded yet";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return DASH;
   const today = sydneyKey(now);

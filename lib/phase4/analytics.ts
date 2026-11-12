@@ -339,6 +339,8 @@ export async function applyReschedule(input: {
   date: string;
   startTime?: string | null;
   dueTime?: string | null;
+  /** A job's separate end time; sent only when a time move carries it along. */
+  endTime?: string | null;
   userId: string;
   reason?: string | null;
   expectedUpdatedAt?: string;
@@ -348,11 +350,13 @@ export async function applyReschedule(input: {
   const job = await db.job.findUnique({ where: { id: input.jobId } });
   if (!job) throw new Error("Job not found.");
   if (input.expectedUpdatedAt && new Date(input.expectedUpdatedAt).getTime() !== job.updatedAt.getTime()) throw new Error("This job changed. Reload before rescheduling.");
+  if (job.status === "CANCELLED") throw new Error("This job is cancelled. Restore it before rescheduling.");
   const startTime = input.startTime !== undefined ? input.startTime || null : job.startTime;
   const dueTime = input.dueTime !== undefined ? input.dueTime || null : job.dueTime;
-  const windowError = rescheduleWindowError(startTime, dueTime);
+  const endTime = input.endTime !== undefined ? input.endTime || null : job.endTime;
+  const windowError = rescheduleWindowError(startTime, dueTime) ?? rescheduleWindowError(startTime, endTime);
   if (windowError) throw new Error(windowError);
-  if (job.scheduledDate.getTime() === date.getTime() && job.startTime === startTime && job.dueTime === dueTime) return job;
+  if (job.scheduledDate.getTime() === date.getTime() && job.startTime === startTime && job.dueTime === dueTime && job.endTime === endTime) return job;
   const updated = await db.$transaction(async (tx) => {
   const guarded = await tx.job.updateMany({ where: { id: job.id, updatedAt: job.updatedAt }, data: { manuallyRescheduledAt: new Date() } });
   if (guarded.count !== 1) throw new Error("This job changed. Reload before rescheduling.");
@@ -362,6 +366,7 @@ export async function applyReschedule(input: {
       scheduledDate: date,
       startTime: input.startTime !== undefined ? input.startTime || null : job.startTime,
       dueTime: input.dueTime !== undefined ? input.dueTime || null : job.dueTime,
+      endTime,
       // The reschedule reason is NOT written here any more.
       //
       // `internalNoteText` is the note READ OUT TO THE CLEANER before every
@@ -394,11 +399,13 @@ export async function applyReschedule(input: {
         scheduledDate: job.scheduledDate,
         startTime: job.startTime,
         dueTime: job.dueTime,
+        endTime: job.endTime,
       } as any,
       after: {
         scheduledDate: updated.scheduledDate,
         startTime: updated.startTime,
         dueTime: updated.dueTime,
+        endTime: updated.endTime,
         reason: input.reason ?? null,
       } as any,
     },

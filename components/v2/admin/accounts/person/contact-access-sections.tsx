@@ -51,7 +51,7 @@ export function ContactSection({ profile, caps, onChanged }: SectionProps) {
             { label: "Phone", value: profile.phone ?? "–" },
             { label: "Suburb", value: location || profile.location.address || "–" },
             ...(profile.availability ? [{ label: "Availability", value: profile.availability }] : []),
-            { label: "Last seen", value: formatLastSeen(profile.lastSeenAt) },
+            { label: "Last seen", value: formatLastSeen(profile.lastSeenAt, undefined, { invited: profile.status === "INVITED" }) },
           ]}
         />
       }

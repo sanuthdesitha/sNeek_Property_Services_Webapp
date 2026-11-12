@@ -184,6 +184,8 @@ export const assignJobSchema = z.object({
   userIds: z.array(z.string().min(1)),
   primaryUserId: z.string().min(1).optional(),
   confirmCompletedReset: z.boolean().optional(),
+  /** Assign even though a newly added cleaner has recorded leave that day (explicit override). */
+  confirmLeaveConflict: z.boolean().optional(),
 });
 
 const draftDamageItemSchema = z.object({

@@ -20,32 +20,44 @@ type QuickAssignProps = {
   onAssigned: () => void;
 };
 
-export async function assignCleaners(jobId: string, userIds: string[]): Promise<void> {
+/** The assign route refused because a cleaner has recorded leave that day. */
+export class LeaveConflictError extends Error {}
+
+export async function assignCleaners(jobId: string, userIds: string[], confirmLeaveConflict = false): Promise<void> {
   const res = await fetch(`/api/admin/jobs/${jobId}/assign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userIds, primaryUserId: userIds[0] }),
+    body: JSON.stringify({ userIds, primaryUserId: userIds[0], ...(confirmLeaveConflict ? { confirmLeaveConflict: true } : {}) }),
   });
-  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+  if (res.status === 409 && body.code === "LEAVE_CONFLICT") throw new LeaveConflictError(body.error ?? "A selected cleaner is on leave that day.");
   if (!res.ok) throw new Error(body.error ?? "Could not assign job.");
 }
 
 export function QuickAssignDialog({ job, cleaners, onClose, onAssigned }: QuickAssignProps) {
   const [selected, setSelected] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  useEffect(() => setSelected([]), [job?.id]);
+  const [leaveConflict, setLeaveConflict] = useState<string | null>(null);
+  useEffect(() => {
+    setSelected([]);
+    setLeaveConflict(null);
+  }, [job?.id]);
 
-  async function submit() {
+  async function submit(confirmLeaveConflict = false) {
     if (!job || selected.length === 0) {
       toast({ title: "Select at least one cleaner.", variant: "destructive" });
       return;
     }
     setSubmitting(true);
     try {
-      await assignCleaners(job.id, selected);
+      await assignCleaners(job.id, selected, confirmLeaveConflict);
       toast({ title: "Assigned", description: `${selected.length} cleaner(s) assigned.` });
       onAssigned();
     } catch (error) {
+      if (error instanceof LeaveConflictError) {
+        setLeaveConflict(error.message);
+        return;
+      }
       toast({ title: "Assign failed", description: error instanceof Error ? error.message : "Could not assign job.", variant: "destructive" });
     } finally {
       setSubmitting(false);
@@ -71,7 +83,10 @@ export function QuickAssignDialog({ job, cleaners, onClose, onAssigned }: QuickA
               <button
                 key={cleaner.id}
                 type="button"
-                onClick={() => setSelected((current) => (checked ? current.filter((id) => id !== cleaner.id) : [...current, cleaner.id]))}
+                onClick={() => {
+                  setLeaveConflict(null);
+                  setSelected((current) => (checked ? current.filter((id) => id !== cleaner.id) : [...current, cleaner.id]));
+                }}
                 className={"flex w-full items-center gap-3 rounded-[var(--e-radius)] border px-3 py-2 text-left " +
                   (checked ? "border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))]" : "border-transparent hover:bg-[hsl(var(--e-muted))]")}
               >
@@ -84,6 +99,12 @@ export function QuickAssignDialog({ job, cleaners, onClose, onAssigned }: QuickA
             );
           })}
         </div>
+        {leaveConflict ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-warning))]">
+            <span className="min-w-0 [overflow-wrap:anywhere]">{leaveConflict}</span>
+            <EButton size="sm" variant="outline" disabled={submitting} onClick={() => void submit(true)}>Assign anyway</EButton>
+          </div>
+        ) : null}
         <div className="flex justify-end gap-2 border-t border-[hsl(var(--e-border))] pt-4">
           <EButton variant="outline" onClick={onClose} disabled={submitting}>Cancel</EButton>
           <EButton onClick={() => void submit()} disabled={submitting || selected.length === 0}>

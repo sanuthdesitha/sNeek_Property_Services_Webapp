@@ -88,7 +88,7 @@ export function accountColumns(
       header: "Last seen",
       sortKey: "lastSeen",
       firstDir: "desc",
-      cell: (row) => <span className="text-[hsl(var(--e-muted-foreground))]">{formatLastSeen(row.lastSeenAt)}</span>,
+      cell: (row) => <span className="text-[hsl(var(--e-muted-foreground))]">{formatLastSeen(row.lastSeenAt, undefined, { invited: row.status === "INVITED" })}</span>,
     },
   ];
   return columns.filter((column) => !column.optional || show(column.optional));

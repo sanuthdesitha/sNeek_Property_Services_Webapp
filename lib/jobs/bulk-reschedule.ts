@@ -116,6 +116,7 @@ export async function applyBulkReschedule(
         jobId,
         date: plan.date,
         ...(plan.startTime !== undefined ? { startTime: plan.startTime, dueTime: plan.dueTime ?? null } : {}),
+        ...(plan.endTime !== undefined ? { endTime: plan.endTime } : {}),
         userId,
         reason: BULK_RESCHEDULE_REASON,
         expectedUpdatedAt: expected,

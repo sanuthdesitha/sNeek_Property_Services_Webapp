@@ -96,6 +96,8 @@ export function useCalendarMove(onSaved: () => void): CalendarMoveApi {
           date: reschedule.date, expectedUpdatedAt: reschedule.expectedUpdatedAt, reason: MOVE_REASON,
           // Only a time move carries times; otherwise the service keeps the job's own.
           ...(reschedule.startTime !== undefined ? { startTime: reschedule.startTime, dueTime: reschedule.dueTime ?? null } : {}),
+          // A job with a separate end time keeps its length: the end moves too.
+          ...(reschedule.endTime !== undefined ? { endTime: reschedule.endTime } : {}),
         });
         if (!result.ok) {
           setState({ phase: "failed", request: move, check, message: `Not moved: ${errorText(result.body, "the reschedule was refused.")}` });
@@ -106,6 +108,8 @@ export function useCalendarMove(onSaved: () => void): CalendarMoveApi {
       if (assign) {
         const result = await postJson(`/api/admin/jobs/${encodeURIComponent(move.job.id)}/assign`, {
           userIds: assign.userIds, primaryUserId: assign.primaryUserId ?? undefined,
+          // The confirmation listed the leave; confirming it is the explicit override.
+          ...(check.warnings.some((warning) => warning.kind === "leave") ? { confirmLeaveConflict: true } : {}),
         });
         if (!result.ok) {
           const reason = errorText(result.body, "the assignment was refused.");

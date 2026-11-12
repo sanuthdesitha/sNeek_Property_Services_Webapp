@@ -29,7 +29,8 @@ import type { CheckMoveRequest, CheckMoveResponse, MoveWarning } from "./types";
  * A move may also change the time (a Day-view drop's `toStartTime`, or a Jobs
  * bulk Reschedule `shiftMinutes`): the proposal comes from `plannedTimeChange`
  * (the job keeps its length), the clash check uses the new window, and the
- * plan passes `startTime` / `dueTime` to the same reschedule service.
+ * plan passes `startTime` / `dueTime` (and `endTime` for a job with a separate
+ * end time, which moves with the start) to the same reschedule service.
  */
 export type CheckMoveResult = { kind: "not_found" } | { kind: "invalid"; message: string } | { kind: "ok"; result: CheckMoveResponse };
 
@@ -157,8 +158,9 @@ export async function checkCalendarMove(input: CheckMoveRequest): Promise<CheckM
     const affected = rescheduleNeeded ? afterIds : toCleanerId ? [toCleanerId] : [];
     const startTime = timeChange.kind === "change" ? timeChange.startTime : job.startTime;
     const dueTime = timeChange.kind === "change" ? timeChange.dueTime : job.dueTime;
+    const endTime = timeChange.kind === "change" && timeChange.endTime !== undefined ? timeChange.endTime : job.endTime;
     warnings.push(...await rosterAndClashWarnings(
-      { id: job.id, propertyId: job.propertyId, dayKey: toDate, startTime, endTime: job.endTime, dueTime, estimatedHours: job.estimatedHours },
+      { id: job.id, propertyId: job.propertyId, dayKey: toDate, startTime, endTime, dueTime, estimatedHours: job.estimatedHours },
       affected,
       names,
     ));
@@ -185,7 +187,10 @@ export async function checkCalendarMove(input: CheckMoveRequest): Promise<CheckM
       toDate,
       toCleanerName: toCleanerId ? names.get(toCleanerId) ?? null : null,
       ...(timeChange.kind === "change"
-        ? { time: { fromStart: job.startTime, toStart: timeChange.startTime, fromDue: job.dueTime, toDue: timeChange.dueTime } }
+        ? { time: {
+            fromStart: job.startTime, toStart: timeChange.startTime, fromDue: job.dueTime, toDue: timeChange.dueTime,
+            ...(timeChange.endTime !== undefined ? { fromEnd: job.endTime, toEnd: timeChange.endTime } : {}),
+          } }
         : {}),
       blockers,
       warnings,
@@ -195,6 +200,7 @@ export async function checkCalendarMove(input: CheckMoveRequest): Promise<CheckM
               date: toDate,
               expectedUpdatedAt: job.updatedAt.toISOString(),
               ...(timeChange.kind === "change" ? { startTime: timeChange.startTime, dueTime: timeChange.dueTime } : {}),
+              ...(timeChange.kind === "change" && timeChange.endTime !== undefined ? { endTime: timeChange.endTime } : {}),
             }
           : null,
         assign: blockers.length === 0 ? assign : null,

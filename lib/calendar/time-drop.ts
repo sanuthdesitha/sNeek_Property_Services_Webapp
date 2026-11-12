@@ -6,12 +6,11 @@
  *   chip was grabbed, snapped to `TIME_DROP_STEP_MINUTES`;
  * - Jobs bulk Reschedule: a whole-minute shift of each job's own start.
  *
- * Either way the job keeps its length: the due time moves by the same amount.
- * The result is only a PROPOSAL for the server's move check; the reschedule
- * service (`applyReschedule`) still validates the window and writes it. That
- * service sets `startTime` and `dueTime` only, so a job with a separate end
- * time is refused here (its end time would be left behind) and is changed on
- * its Schedule tab instead.
+ * Either way the job keeps its length: the due time — and, for a job with a
+ * separate end time, the end time (Wave E, 2026-11) — moves by the same
+ * amount. The result is only a PROPOSAL for the server's move check; the
+ * reschedule service (`applyReschedule`) still validates the window and writes
+ * start, due and end together.
  */
 export const TIME_DROP_STEP_MINUTES = 15;
 export const MAX_SHIFT_MINUTES = 12 * 60;
@@ -55,7 +54,7 @@ export type TimedJob = { startTime: string | null; dueTime: string | null; endTi
 export type TimeChange =
   | { kind: "none" }
   | { kind: "refused"; reason: string }
-  | { kind: "change"; startTime: string; dueTime: string | null };
+  | { kind: "change"; startTime: string; dueTime: string | null; endTime?: string | null };
 
 export function plannedTimeChange(job: TimedJob, request: TimeChangeRequest): TimeChange {
   const shift = request.shiftMinutes ?? 0;
@@ -75,14 +74,20 @@ export function plannedTimeChange(job: TimedJob, request: TimeChangeRequest): Ti
     target = start + shift;
   }
   if (start !== null && target === start) return { kind: "none" };
-  if (job.endTime) {
-    return { kind: "refused", reason: `This job has a separate end time (${job.endTime}) that a calendar move cannot change. Change its times on the job's Schedule tab.` };
-  }
   if (target < 0 || target >= DAY_MINUTES) return { kind: "refused", reason: "The new start would fall on another day. Move the date instead." };
   const due = parseHm(job.dueTime);
-  if (due === null) return { kind: "change", startTime: formatHm(target), dueTime: job.dueTime };
-  if (start === null) return { kind: "refused", reason: "This job has a due time but no start time. Set its times on the Schedule tab." };
-  const newDue = due + (target - start);
-  if (newDue >= DAY_MINUTES || newDue < 0) return { kind: "refused", reason: "Keeping the job's length, it would finish after midnight. Choose an earlier start." };
-  return { kind: "change", startTime: formatHm(target), dueTime: formatHm(newDue) };
+  const end = parseHm(job.endTime);
+  if (job.endTime && end === null) return { kind: "refused", reason: `This job's end time (${job.endTime}) is not a valid time. Fix it on the job's Schedule tab.` };
+  if ((due !== null || end !== null) && start === null) {
+    return { kind: "refused", reason: "This job has a finish time but no start time. Set its times on the Schedule tab." };
+  }
+  const delta = start === null ? 0 : target - start;
+  const newDue = due === null ? null : due + delta;
+  const newEnd = end === null ? null : end + delta;
+  if ((newDue !== null && (newDue >= DAY_MINUTES || newDue < 0)) || (newEnd !== null && (newEnd >= DAY_MINUTES || newEnd < 0))) {
+    return { kind: "refused", reason: "Keeping the job's length, it would finish after midnight. Choose an earlier start." };
+  }
+  const change: TimeChange = { kind: "change", startTime: formatHm(target), dueTime: newDue === null ? job.dueTime : formatHm(newDue) };
+  // The end time moves with the start only when the job has one.
+  return newEnd === null ? change : { ...change, endTime: formatHm(newEnd) };
 }

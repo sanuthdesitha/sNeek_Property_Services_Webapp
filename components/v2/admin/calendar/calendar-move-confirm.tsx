@@ -57,7 +57,7 @@ export function CalendarMoveConfirm({ state, onConfirm, onClose }: { state: Move
 
         {check?.time && state.phase !== "failed" ? (
           <p className="e-tnum text-[0.8125rem]">
-            Time: {check.time.fromStart ?? "not set"}{check.time.fromDue ? `–${check.time.fromDue}` : ""} → {check.time.toStart}{check.time.toDue ? `–${check.time.toDue}` : ""} (the job keeps its length).
+            Time: {check.time.fromStart ?? "not set"}{(check.time.fromEnd ?? check.time.fromDue) ? `–${check.time.fromEnd ?? check.time.fromDue}` : ""} → {check.time.toStart}{(check.time.toEnd ?? check.time.toDue) ? `–${check.time.toEnd ?? check.time.toDue}` : ""} (the job keeps its length{check.time.toEnd ? "; start and end move together" : ""}).
           </p>
         ) : null}
 

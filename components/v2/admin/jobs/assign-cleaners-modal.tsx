@@ -6,6 +6,9 @@
  * the v1 dispatch console uses:  POST /api/admin/jobs/:id/assign
  *   body { userIds: string[], primaryUserId?: string }
  * Passing an empty userIds list clears every assignee (matches the API).
+ * A newly added cleaner with recorded leave that day is refused (409
+ * LEAVE_CONFLICT) with the reason; "Assign anyway" resends with the explicit
+ * override `confirmLeaveConflict`.
  */
 
 import { useEffect, useState } from "react";
@@ -46,15 +49,19 @@ export function AssignCleanersModal({
   // The pending "your cleaner has changed" draft, when this assignment
   // replaced an existing primary. Null means there is nothing to confirm.
   const [reassign, setReassign] = useState<ReassignPreview | null>(null);
+  // The leave refusal for the current selection; cleared when it changes.
+  const [leaveConflict, setLeaveConflict] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const init = initialAssignedIds ?? [];
     setSelected(init);
     setPrimary(initialPrimaryId ?? init[0] ?? null);
-  }, [open, initialAssignedIds, initialPrimaryId]);
+    setLeaveConflict(null);
+  }, [open, initialAssignedIds, initialPrimaryId, jobId]);
 
   function toggle(id: string) {
+    setLeaveConflict(null);
     setSelected((current) => {
       const next = current.includes(id) ? current.filter((c) => c !== id) : [...current, id];
       // Keep a valid primary: default to the first still-selected cleaner.
@@ -65,7 +72,7 @@ export function AssignCleanersModal({
     });
   }
 
-  async function submit() {
+  async function submit(confirmLeaveConflict = false) {
     if (!jobId) return;
     setSubmitting(true);
     try {
@@ -75,9 +82,14 @@ export function AssignCleanersModal({
         body: JSON.stringify({
           userIds: selected,
           primaryUserId: selected.length > 0 ? primary ?? selected[0] : undefined,
+          ...(confirmLeaveConflict ? { confirmLeaveConflict: true } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
+      if (res.status === 409 && body?.code === "LEAVE_CONFLICT") {
+        setLeaveConflict(typeof body.error === "string" ? body.error : "A selected cleaner is on leave that day.");
+        return;
+      }
       if (!res.ok) throw new Error(body.error ?? "Could not assign job.");
       toast({
         title: selected.length === 0 ? "Assignees cleared" : "Assignment saved",
@@ -181,6 +193,13 @@ export function AssignCleanersModal({
           )}
         </div>
 
+        {leaveConflict ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.4)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-warning))]">
+            <span className="min-w-0 [overflow-wrap:anywhere]">{leaveConflict}</span>
+            <EButton size="sm" variant="outline" disabled={submitting} onClick={() => void submit(true)}>Assign anyway</EButton>
+          </div>
+        ) : null}
+
         <div className="flex items-center justify-between gap-2 border-t border-[hsl(var(--e-border))] pt-4">
           <p className="text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
             Assigned cleaners are notified by email &amp; SMS.
@@ -189,7 +208,7 @@ export function AssignCleanersModal({
             <EButton variant="outline" onClick={onClose} disabled={submitting}>
               Cancel
             </EButton>
-            <EButton variant="gold" onClick={submit} disabled={submitting || !dirty}>
+            <EButton variant="gold" onClick={() => void submit()} disabled={submitting || !dirty}>
               {submitting
                 ? "Saving…"
                 : selected.length === 0

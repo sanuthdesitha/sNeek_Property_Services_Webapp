@@ -27,6 +27,7 @@ import { attachPendingAdminTasksToJob } from "@/lib/job-tasks/service";
 import { previewLifecycleEmail, sendLifecycleEmail } from "@/lib/notifications/lifecycle";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { assignmentLeaveConflicts } from "@/lib/accounts/leave-conflicts";
 
 export async function POST(
   req: NextRequest,
@@ -34,7 +35,7 @@ export async function POST(
 ) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
-    const { userIds, primaryUserId } = assignJobSchema.parse(await req.json());
+    const { userIds, primaryUserId, confirmLeaveConflict } = assignJobSchema.parse(await req.json());
     const job = await db.job.findUnique({
       where: { id: params.id },
       select: {
@@ -101,6 +102,21 @@ export async function POST(
     }
     if (primaryUserId && !cleanerIds.has(primaryUserId)) {
       return NextResponse.json({ error: "Primary cleaner must be in assignment list." }, { status: 400 });
+    }
+    // A cancelled job is never dispatched; it comes back only through Restore.
+    if (job.status === JobStatus.CANCELLED) {
+      return NextResponse.json({ error: "This job is cancelled. Restore it before assigning cleaners." }, { status: 409 });
+    }
+    // Leave and days off: newly added cleaners on leave that day need the
+    // explicit override, the same confirm-and-resend pattern as
+    // confirmCompletedReset. The response names each conflict.
+    const newlyAdded = userIds.filter((id) => !previousAssignedIds.includes(id));
+    const leaveConflicts = await assignmentLeaveConflicts(newlyAdded, job.scheduledDate, cleaners);
+    if (leaveConflicts.length > 0 && !confirmLeaveConflict) {
+      return NextResponse.json(
+        { error: leaveConflicts.map((row) => `${row.name}: ${row.reason}`).join("; "), code: "LEAVE_CONFLICT", conflicts: leaveConflicts },
+        { status: 409 },
+      );
     }
     const settings = await getAppSettings();
     const assignmentChangedAt = new Date();

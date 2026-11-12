@@ -10,6 +10,7 @@ import { canActAs, heldRoles, resolveActiveRole } from "@/lib/auth/roles";
 import { readActiveRoleCookie } from "@/lib/auth/active-role";
 import { resolveImpersonation } from "./impersonation-server";
 import { resolveRouteRole } from "./route-role";
+import { recordLastSeen } from "./last-seen";
 
 export async function getSession() {
   return getServerSession(authOptions);
@@ -31,6 +32,10 @@ export async function requireSession() {
   if (!user?.isActive) {
     throw new Error("UNAUTHORIZED");
   }
+  // "Last seen": the genuine signed-in person (resolved BEFORE any "test as"
+  // swap below, so an impersonated target is never marked as seen). Throttled
+  // to one write per person per few minutes; never refuses the request.
+  await recordLastSeen(user.id);
 
   // MAY I? is answered against every role they hold. WHERE AM I? is answered
   // against the one they are currently acting as. `session.user.role` carries
@@ -100,6 +105,7 @@ export async function requireRealSession() {
   if (!user?.isActive) {
     throw new Error("UNAUTHORIZED");
   }
+  await recordLastSeen(user.id);
   session.user.role = user.role;
   return session;
 }
