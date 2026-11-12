@@ -55,6 +55,32 @@
   --e-info-foreground:   205 50% 96%;
   --e-info-soft:         205 35% 92%;
 
+  /* ── Tone bands (owner decision 2026-11: design B, set 1 "Honey and wine").
+     A flagged card's title row, a flagged row's leading cell, or a notice takes
+     the band tint instead of a coloured left line. bg = band, line = hairline
+     under it, fg = title text, muted = secondary text, pill = reason pill text
+     (the pill itself sits on --e-surface). Consumed via components/v2/ui/tone-band.tsx. ── */
+  --e-band-attention-bg:    42 78% 90%;
+  --e-band-attention-line:  40 55% 78%;
+  --e-band-attention-fg:    34 60% 20%;
+  --e-band-attention-muted: 34 30% 34%;
+  --e-band-attention-pill:  32 70% 26%;
+  --e-band-problem-bg:      350 55% 93%;
+  --e-band-problem-line:    350 40% 82%;
+  --e-band-problem-fg:      348 50% 24%;
+  --e-band-problem-muted:   348 22% 38%;
+  --e-band-problem-pill:    348 55% 32%;
+  --e-band-good-bg:         150 30% 91%;
+  --e-band-good-line:       150 22% 80%;
+  --e-band-good-fg:         156 40% 16%;
+  --e-band-good-muted:      156 14% 34%;
+  --e-band-good-pill:       154 42% 24%;
+  --e-band-info-bg:         210 34% 93%;
+  --e-band-info-line:       210 26% 82%;
+  --e-band-info-fg:         212 40% 22%;
+  --e-band-info-muted:      212 16% 38%;
+  --e-band-info-pill:       210 42% 30%;
+
   /* ── Hairlines ── */
   --e-border:            40 18% 86%;
   --e-border-strong:     40 14% 76%;
@@ -167,6 +193,19 @@
   --e-warning: 38 70% 58%;  --e-warning-soft: 38 40% 14%;
   --e-danger: 6 62% 60%;    --e-danger-soft: 6 35% 14%;
   --e-info: 205 45% 60%;    --e-info-soft: 205 30% 15%;
+  /* Tone bands, deepened: same hues, low-lightness tint, light text (all text pairs ≥ 7:1). */
+  --e-band-attention-bg: 40 42% 14%;  --e-band-attention-line: 40 34% 26%;
+  --e-band-attention-fg: 42 70% 86%;  --e-band-attention-muted: 40 28% 70%;
+  --e-band-attention-pill: 40 72% 72%;
+  --e-band-problem-bg: 348 34% 15%;   --e-band-problem-line: 348 26% 28%;
+  --e-band-problem-fg: 350 70% 90%;   --e-band-problem-muted: 348 24% 74%;
+  --e-band-problem-pill: 350 62% 78%;
+  --e-band-good-bg: 152 26% 13%;      --e-band-good-line: 152 20% 25%;
+  --e-band-good-fg: 150 40% 86%;      --e-band-good-muted: 152 16% 70%;
+  --e-band-good-pill: 150 38% 68%;
+  --e-band-info-bg: 210 30% 15%;      --e-band-info-line: 210 22% 28%;
+  --e-band-info-fg: 208 60% 88%;      --e-band-info-muted: 210 20% 72%;
+  --e-band-info-pill: 208 55% 74%;
   --e-border: 156 10% 17%;
   --e-border-strong: 154 9% 25%;
   --e-input: 156 10% 19%;
