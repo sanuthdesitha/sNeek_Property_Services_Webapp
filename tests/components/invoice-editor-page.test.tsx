@@ -142,6 +142,62 @@ describe("InvoiceEditorPage", () => {
   });
 });
 
+describe("parity restorations (audit 2026-11-12)", () => {
+  let calls: Call[];
+  beforeEach(() => {
+    calls = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (init?.method === "PATCH") return Promise.resolve(new Response("{}"));
+      return Promise.resolve(new Response(JSON.stringify(data())));
+    }));
+  });
+
+  const line = (id: string, property: string) => ({
+    ...data().lines[0],
+    id,
+    description: `Turnover ${id}`,
+    job: { id: `j-${id}`, jobNumber: `J-${id}`, scheduledDay: "2026-10-18", property: { id: null, name: property, suburb: null } },
+  });
+  const mixed = [line("l1", "The Bondi Studio"), line("l2", "Albion Loft"), line("l3", "The Bondi Studio")];
+  const patches = () => calls.filter((call) => call.init?.method === "PATCH").map((call) => JSON.parse(String(call.init?.body)));
+
+  it("Mark as sent (not emailed) confirms that no email is sent, then PATCHes the status only", async () => {
+    render(<InvoiceEditorPage initial={data({ row: { ...data().row, status: "APPROVED" } })} backHref="/back" />);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for INV-0421" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark as sent (not emailed)" }));
+    expect(screen.getByText(/No email is sent\./)).toBeInTheDocument();
+    expect(patches()).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Mark as sent" }));
+    await waitFor(() => expect(patches()).toEqual([{ status: "SENT" }]));
+    expect(calls.some((call) => call.url.includes("/send"))).toBe(false);
+  });
+
+  it("Group by property saves the grouped line order on an editable invoice", async () => {
+    render(<InvoiceEditorPage initial={data({ lines: mixed })} backHref="/back" />);
+    const toggle = screen.getByRole("button", { name: "Group by property" });
+    // Several properties: the view starts grouped (as the PDF prints). Off is view only.
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(toggle);
+    expect(patches()).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Group by property" }));
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]).toMatchObject({ reorderLineIds: ["l2", "l1", "l3"] });
+  });
+
+  it("Group by property only changes the view on a read-only invoice", () => {
+    const locked = data({
+      lines: mixed,
+      row: { ...data().row, status: "SENT", sentAt: "2026-11-02T00:00:00.000Z" },
+      editLock: { editable: false, kind: "issued", reason: "Sent invoices are corrected by a credit note." },
+    });
+    render(<InvoiceEditorPage initial={locked} backHref="/back" />);
+    fireEvent.click(screen.getByRole("button", { name: "Group by property" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group by property" }));
+    expect(patches()).toHaveLength(0);
+  });
+});
+
 describe("save state words", () => {
   it("separates saving, failed, unsaved and saved", () => {
     const at = "2026-11-11T01:00:00.000Z";

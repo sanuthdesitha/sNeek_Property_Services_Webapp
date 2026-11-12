@@ -199,6 +199,8 @@ Status (2026-11-11): built, browser pass pending. Migration `20261111200000_lost
 
 Status (2026-11-11): built, browser pass pending. Needs and events copied to the tables by the same migration (unreadable JSON rows stay in AppSetting, counted by the query in SYSTEM.md); reads and writes now use the tables only (no read fallback to the old rows; this replaces "reads fall back" above). Not built: "Add to one shopping run" and the panel's "Ask cleaner to buy" — no existing service adds a line to a shopping run or asks a cleaner to buy. The reporter's job is not shown: a need never recorded the job. Waiting for the owner: the tab stays administrator-only (the urgent stock service refuses operations managers); widen it?
 
+Update (Wave F, 2026-11-12): all three built ("Add to shopping run", "Ask cleaner to buy", the job on a need) and operations managers use the tab with their inventory pack (owner decisions five and seven). See Wave F below.
+
 ### 11. Accounts
 
 - One table for everyone with role tabs, sort, paging, bulk resend invite, change rate, message, disable, and export.
@@ -464,7 +466,7 @@ Waves (one wave holds the database at a time):
 > - [x] Command: inline "Send reminder" for an expiring document through REQUEST_DOCUMENT (confirm, explicit transports, one per document per day; REQUEST_DOCUMENT now records real states).
 > - [x] Lost and found: Property column sortable (raw ordered ids merged with paging, PostgreSQL parity test); "Tell client" sent from the app (scope LOST_ITEM_PROPERTY_CLIENT, ADMIN; operations managers copy and record). Ninth set: operations managers with the Lost & found pack send too.
 > - [x] Remaining visual differences on Cases, Laundry, Command, Live ops, Lost and found closed or listed (SYSTEM.md section).
-> - [ ] Schema step: Accounts (effective-dated pay rate, required documents, Last seen for everyone, one Pay editor), Cancel job, leave and days off, "Add charge to invoice" from a case, laundry pickup/drop clock times, QA inspection template snapshot.
+> - [x] Schema step: Accounts (effective-dated pay rate, required documents, Last seen for everyone, one Pay editor), Cancel job, leave and days off, "Add charge to invoice" from a case, laundry pickup/drop clock times, QA inspection template snapshot. (Accounts, Cancel job, leave, QA copies in the Wave E database step; "Add charge to invoice" and laundry clock times in Wave F, 2026-11-12.)
 
 > **Wave E, database part for People, Jobs, Calendar and Quality, built 2026-11-12 (uncommitted step; build, full suite and browser pass pending).** Migration `20261112120000_wave_e_people_jobs`. Details: `docs/SYSTEM.md`, "Wave E with the database"; verification and the job-status audit: review record.
 > - [x] Accounts: pay rate with "Applies from" (`UserPayRate`, one resolver on the job's day for every pay path, never backdated, scheduled rate removable before it starts, snapshots and paid amounts untouched); rate history in the Pay tab.
@@ -490,6 +492,18 @@ Waves (one wave holds the database at a time):
 
 ### Wave F: Urgent stock (holds the database after Wave E)
 - The fifth-set items: "Add to shopping run", "Ask cleaner to buy", the job on a need, and the drawn tab names.
+
+> **Wave F built 2026-11-12 (uncommitted step; build, full suite and browser pass pending).** Migration `20261112180000_wave_f_stock_cases_laundry`. Details: `docs/SYSTEM.md`, "Wave F: urgent stock shopping runs and buy asks …"; verification: review record.
+> - [x] Stock tabs as drawn (Urgent needs, Levels by property, Shopping runs, Stock counts, Catalogue; On-hand, Scan tasks, Suppliers after them); every old `?tab=` id kept, drawn names mapped.
+> - [x] "Add to shopping run" (row, panel, bulk "Add to one shopping run") on the existing shopping-run tables; the need shows its run; stage unchanged; idempotent; closed runs refused with the reason.
+> - [x] "Ask cleaner to buy": next clean's cleaner or a chosen one, pipeline type `urgent_stock.purchase_ask` (inbox by default, explicit transports), Asked / Accepted / Declined / Withdrawn, Bought only via the cleaner's shopping run and the office's reimbursement approval; cleaner answers on the v2 job screen and Supplies → Shopping.
+> - [x] Job on a need: stored for job-screen and form reports; certain backfill only; "Reported by … during job …" with a link.
+> - [x] Operations managers see and act on urgent stock with the inventory pack (read / manage), server-checked; Resolve, bulk Close and reminder settings stay ADMIN-only.
+> - [x] Lost and found: items still New after 14 days flagged (named threshold; badge, chip with count, summary, panel note, Command row).
+> - [x] Cases: "Add charge to invoice" onto a DRAFT of the case's client or a new draft, through the invoice PATCH; "Charge on INV-… (draft)" on the case, "From case …" on the line.
+> - [x] Laundry: planned pickup / drop clock times (nullable, set in the run panel), shown on cards and the panel only when planned.
+> - [x] Stock count answers set on-hand through count observations on approval (carried from Wave B).
+> - [x] Urgent stock and Lost and found compared with the designs; remaining differences listed in the SYSTEM.md section and the review record.
 
 Items in these waves that change a business rule, money, or who can do what are built because the owner asked for the design to be made real; each is listed in the final summary with exactly what rule was added.
 
@@ -524,7 +538,7 @@ A bonus proposed by hand is limited to $5 to $200 and needs a reason. It is a pe
 ### Carried into Wave E from Wave B
 
 - [x] The office's submission review shows a Table answer as plain text, one line per row; give it a real table. (2026-11-12: real table; Stock count as "item · counted N unit".)
-- [ ] A Stock count answer is recorded on the submission and raises an urgent need when below its limit, but does not set the property's on-hand figure, because no existing path turns a counted number into stock on hand. Build that path (a count observation that sets on-hand, audited, never double-counting the same item in one submission). (Not in the no-database step's list; with Wave F / the stock work.)
+- [x] A Stock count answer is recorded on the submission and raises an urgent need when below its limit, but does not set the property's on-hand figure, because no existing path turns a counted number into stock on hand. Build that path (a count observation that sets on-hand, audited, never double-counting the same item in one submission). (Not in the no-database step's list; with Wave F / the stock work.) (2026-11-12, Wave F: `StockCountObservation`, applied on approval only, never over a newer stock movement, unmatched items to review.)
 - [x] The classic cleaner job page does not show Table or Stock count questions; only the current cleaner app does. Redirect the classic page or add them. (2026-11-12: added with the shared controls; not redirected, the classic look stays routable.)
 - [x] Two cleans in the same month before the first is approved can both show a monthly question. (2026-11-12: a submitted-not-approved clean that showed it counts; due again after a reset or rejection.)
 

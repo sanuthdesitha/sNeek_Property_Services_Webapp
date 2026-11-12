@@ -12,6 +12,7 @@ import type { SendRequestOptions } from "./invoice-requests";
 import { MarkPaidDialog, ReceiptDialog, RecordPaymentDialog } from "./payment-dialogs";
 import { DeleteInvoiceDialog, ReconcileInvoiceDialog, ReverseInvoiceDialog, VoidInvoiceDialog } from "./correction-dialogs";
 import { GenerateInvoiceDialog } from "./generate-invoice-dialog";
+import { MarkSentInvoiceDialog } from "./mark-sent-dialog";
 import { BatchDraftsDialog } from "./batch-drafts-dialog";
 import { BlankInvoiceDialog, IssueCreditNoteDialog, NewCreditNoteDialog } from "./create-dialogs";
 
@@ -24,7 +25,7 @@ export type InvoiceDialog =
   | { kind: "credit-note"; invoice: InvoiceRow }
   | { kind: "send"; invoice: InvoiceRow; resend: boolean; to?: string; options?: SendRequestOptions }
   | {
-      kind: "record-payment" | "mark-paid" | "receipt" | "void" | "reverse" | "reconcile" | "delete";
+      kind: "mark-sent" | "record-payment" | "mark-paid" | "receipt" | "void" | "reverse" | "reconcile" | "delete";
       invoice: InvoiceRow;
     };
 
@@ -56,6 +57,8 @@ export function InvoiceDialogs({
   switch (dialog.kind) {
     case "send":
       return <SendInvoiceDialog key={key} {...props} resend={dialog.resend} initialTo={dialog.to} options={dialog.options} />;
+    case "mark-sent":
+      return <MarkSentInvoiceDialog key={key} {...props} />;
     case "record-payment":
       return <RecordPaymentDialog key={key} {...props} />;
     case "mark-paid":

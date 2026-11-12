@@ -647,6 +647,26 @@ async function patchLockedInvoice(
           actorId: session.user.id,
         });
       }
+      // This action never emails (the send route does). A move to SENT here is
+      // "Mark as sent (not emailed)", so the trail says so, in the same write.
+      if (statusChanges && effectiveStatus === ClientInvoiceStatus.SENT) {
+        await tx.auditLog.create({
+          data: {
+            userId: session.user.id,
+            action: "CLIENT_INVOICE_MARKED_SENT",
+            entity: "ClientInvoice",
+            entityId: params.id,
+            before: { status: existing.status },
+            after: {
+              status: ClientInvoiceStatus.SENT,
+              invoiceNumber: existing.invoiceNumber,
+              emailed: false,
+              note: "Marked sent without email",
+              impersonatedBy: actor.impersonatedBy ?? null,
+            },
+          },
+        });
+      }
       if (statusChanges && existing.kind === "CREDIT_NOTE" && existing.creditsInvoiceId) {
         await refreshCreditCoverage(tx, { invoiceId: existing.creditsInvoiceId, actorId: session.user.id });
       }

@@ -46,3 +46,18 @@ export function reorderWithinSection(sections: LineSection[], activeId: string, 
   ids.splice(toIndex, 0, ids.splice(fromIndex, 1)[0]);
   return sections.flatMap((section, index) => (index === from ? ids : section.lines.map((line) => line.id)));
 }
+
+/**
+ * "Group by property" on a draft SAVES the grouped order, as the old editor
+ * did (persistLineOrder): the stored order is what the PDF and the emailed copy
+ * list lines in within a section, and what a single-property PDF prints. The
+ * order is the PDF's own grouping (property sections alphabetically, extras
+ * last, existing order kept inside each section). Null when the stored order
+ * already reads that way, so nothing is saved.
+ */
+export function propertyGroupedOrder(lines: EditorLine[]): string[] | null {
+  const next = groupInvoiceLines(lines).flatMap((group) => group.lines.map((line) => line.id));
+  const current = lines.map((line) => line.id);
+  if (next.length !== current.length) return null;
+  return next.every((id, index) => id === current[index]) ? null : next;
+}

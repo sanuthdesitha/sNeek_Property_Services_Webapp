@@ -146,6 +146,7 @@ export type InvoiceActionKey =
   | "pdf"
   | "approve"
   | "send"
+  | "mark-sent"
   | "resend"
   | "record-payment"
   | "mark-paid"
@@ -163,6 +164,7 @@ export const ACTION_LABEL: Record<InvoiceActionKey, string> = {
   pdf: "View PDF",
   approve: "Approve",
   send: "Send",
+  "mark-sent": "Mark as sent (not emailed)",
   resend: "Re-send",
   "record-payment": "Record payment",
   "mark-paid": "Mark as paid",
@@ -200,6 +202,10 @@ export function availableInvoiceActions(inv: ActionFacts): InvoiceActionKey[] {
   actions.push("pdf");
   if (inv.status === "DRAFT") actions.push("approve");
   if (inv.status === "DRAFT" || inv.status === "APPROVED") actions.push("send");
+  // Restored from the pre-redesign editor: record that the client already has
+  // the invoice (posted, handed over, sent from elsewhere) without emailing it.
+  // A PATCH to SENT, so every server rule for leaving draft still applies.
+  if (inv.status === "DRAFT" || inv.status === "APPROVED") actions.push("mark-sent");
   if (inv.status === "SENT" || inv.status === "PART_PAID") actions.push("resend");
   // A credit note is never paid: it reduces what is owed on its invoice.
   if (!creditNote && PAYABLE_STATUSES.includes(inv.status)) actions.push("record-payment", "mark-paid");
@@ -283,6 +289,7 @@ export function editorMenuActions(inv: ActionFacts): InvoiceActionKey[] {
 export const ACTS_ON_SAVED_INVOICE: ReadonlySet<InvoiceActionKey> = new Set<InvoiceActionKey>([
   "approve",
   "send",
+  "mark-sent",
   "resend",
   "record-payment",
   "mark-paid",

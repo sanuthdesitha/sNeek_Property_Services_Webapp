@@ -7,8 +7,9 @@
  * editor-draft-fields.tsx); once approved or later they are read only. The due
  * day is derived (created + payment terms) exactly as the PDF prints it, and is
  * provisional until first sent. GST saves on its own.
- * "Group by property" only changes the view here; the PDF groups by property
- * whenever the invoice spans more than one.
+ * "Group by property" on an editable invoice also saves the grouped line order
+ * (as the old editor did); on a read-only invoice it only changes the view. The
+ * PDF groups by property whenever the invoice spans more than one.
  */
 import type { ClientInvoiceEditorData } from "@/lib/billing/client-invoice-editor-types";
 import { cn } from "@/lib/utils";
@@ -113,9 +114,12 @@ function GstAndGrouping({
         <button
           type="button"
           aria-pressed={grouped}
+          // On an editable invoice the toggle saves the order, so it waits for any save.
+          disabled={canToggleGst && frozen}
+          title={canToggleGst && !grouped ? "Groups the lines by property and saves that order" : undefined}
           onClick={() => onGrouped(!grouped)}
           className={cn(
-            "inline-flex h-11 items-center rounded-[var(--e-radius-pill)] border px-3 text-[0.75rem] font-[500] sm:h-7",
+            "inline-flex h-11 items-center rounded-[var(--e-radius-pill)] border px-3 text-[0.75rem] font-[500] disabled:opacity-50 sm:h-7",
             grouped
               ? "border-[hsl(var(--e-primary)/0.35)] bg-[hsl(var(--e-primary-soft))] font-[600] text-[hsl(var(--e-primary))]"
               : "border-[hsl(var(--e-border-strong))] bg-[hsl(var(--e-surface))] text-[hsl(var(--e-text-secondary))]",

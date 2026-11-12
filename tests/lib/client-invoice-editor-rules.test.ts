@@ -67,7 +67,7 @@ describe("editor primary action reuses the list's choice", () => {
   });
 
   it("keeps every other existing action in the menu, without Edit", () => {
-    expect(editorMenuActions(row())).toEqual(["pdf", "send", "record-payment", "mark-paid", "xero-push", "delete"]);
+    expect(editorMenuActions(row())).toEqual(["pdf", "send", "mark-sent", "record-payment", "mark-paid", "xero-push", "delete"]);
     expect(editorMenuActions(row({ status: "SENT", xeroInvoiceId: "X", xeroState: "PUSHED" }))).toEqual([
       "pdf", "resend", "mark-paid", "xero-push", "credit-note", "reconcile",
     ]);
