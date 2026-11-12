@@ -27,9 +27,9 @@ async function runOne(actorId: string, request: AccountBulkRequest, id: string):
       const result = await setAccountActive(actorId, id, false);
       return result.changed ? { id, outcome: "done", message: "Disabled." } : { id, outcome: "unchanged", message: "Already disabled." };
     }
-    const result = await updateHourlyRate(actorId, id, request.hourlyRate as number);
+    const result = await updateHourlyRate(actorId, id, request.hourlyRate as number, { appliesFrom: request.appliesFrom, source: "BULK" });
     return result.changed
-      ? { id, outcome: "done", message: `Rate changed from ${result.before === null ? "not set" : `$${result.before.toFixed(2)}`} to $${result.after.toFixed(2)}.` }
+      ? { id, outcome: "done", message: `Rate changed from ${result.before === null ? "not set" : `$${result.before.toFixed(2)}`} to $${result.after.toFixed(2)}, applies from ${result.appliesFrom}.` }
       : { id, outcome: "unchanged", message: "Already at that rate." };
   } catch (error) {
     if (error instanceof AccountGuardError || error instanceof PayRateError) return { id, outcome: "refused", message: error.message };

@@ -138,6 +138,7 @@ export function summarize(rows: AccountRow[]): AccountListResponse["summary"] {
     invitesPending: rows.filter((row) => row.status === "INVITED").length,
     documentsExpiring: rows.filter((row) => row.documents.kind === "EXPIRING").length,
     documentsExpired: rows.filter((row) => row.documents.kind === "EXPIRED").length,
+    documentsMissing: rows.filter((row) => row.documents.kind === "MISSING").length,
   };
 }
 

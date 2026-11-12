@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { listCleanerAvailabilities } from "@/lib/accounts/availability";
+import { loadLeaveForUsers } from "@/lib/accounts/leave";
 import { rankCleanerSuggestions, type SuggestionCandidate, type SuggestionJob } from "@/lib/jobs/cleaner-suggestions";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { rescheduleWindowError } from "@/lib/phase4/analytics";
@@ -51,7 +52,7 @@ async function rosterAndClashWarnings(job: SuggestionJob & { propertyId: string 
   if (cleanerIds.length === 0) return [];
   const dayStart = dayKeyToUtcDate(job.dayKey);
   const nextDay = dayKeyToUtcDate(addDaysToKey(job.dayKey, 1));
-  const [profiles, sameDay] = await Promise.all([
+  const [profiles, sameDay, leave] = await Promise.all([
     listCleanerAvailabilities(cleanerIds),
     db.jobAssignment.findMany({
       where: {
@@ -61,6 +62,7 @@ async function rosterAndClashWarnings(job: SuggestionJob & { propertyId: string 
       },
       select: { userId: true, job: { select: { id: true, startTime: true, endTime: true, dueTime: true, estimatedHours: true, property: { select: { name: true } } } } },
     }),
+    loadLeaveForUsers(cleanerIds, job.dayKey, job.dayKey),
   ]);
   const profileById = new Map(profiles.map((profile) => [profile.userId, profile]));
   const warnings: MoveWarning[] = [];
@@ -79,6 +81,7 @@ async function rosterAndClashWarnings(job: SuggestionJob & { propertyId: string 
         estimatedHours: row.job.estimatedHours,
       })),
       priorCleansHere: 0,
+      leave: leave.get(cleanerId) ?? [],
     };
     const [verdict] = rankCleanerSuggestions(job, [candidate], { limit: 1, blockedLimit: 1 });
     const name = candidate.name;

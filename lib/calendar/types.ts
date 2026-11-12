@@ -111,7 +111,7 @@ export const checkMoveRequestSchema = z.object({
 export type CheckMoveRequest = z.infer<typeof checkMoveRequestSchema>;
 
 export const moveWarningSchema = z.object({
-  kind: z.enum(["clash", "unavailable", "booking", "notice"]),
+  kind: z.enum(["clash", "unavailable", "leave", "booking", "notice"]),
   text: z.string(),
 });
 export type MoveWarning = z.infer<typeof moveWarningSchema>;

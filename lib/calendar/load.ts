@@ -3,6 +3,8 @@ import { Role, type JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { listCleanerAvailabilities } from "@/lib/accounts/availability";
+import { loadLeaveForUsers } from "@/lib/accounts/leave";
+import { leaveOnDay, leaveReason } from "@/lib/accounts/leave-rules";
 import { dayAvailabilityBlocker } from "@/lib/jobs/cleaner-suggestions";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { addDaysToKey, sydneyTodayKey } from "@/lib/time/sydney-range";
@@ -152,14 +154,29 @@ async function loadCleanerSources(jobs: CalendarJob[]): Promise<RowSource[]> {
   return Array.from(sources.values());
 }
 
+/**
+ * The unavailability lane: recorded leave or a day off first (its reason, e.g.
+ * "On leave 12–14 Nov"), else a day outside the saved roster ("Not available
+ * on Mondays").
+ */
 async function attachRoster(sources: RowSource[], days: string[]): Promise<void> {
-  const profiles = await listCleanerAvailabilities(sources.map((source) => source.id));
+  const ids = sources.map((source) => source.id);
+  const [profiles, leave] = await Promise.all([
+    listCleanerAvailabilities(ids),
+    days.length ? loadLeaveForUsers(ids, days[0], days[days.length - 1]) : Promise.resolve(new Map()),
+  ]);
   const byId = new Map(profiles.map((profile) => [profile.userId, profile]));
   for (const source of sources) {
+    const entries = leave.get(source.id) ?? [];
+    for (const day of days) {
+      const entry = leaveOnDay(entries, day);
+      if (entry) source.unavailable[day] = leaveReason(entry);
+    }
     const profile = byId.get(source.id);
     if (!profile) continue;
     const availability = { mode: profile.mode, weekly: profile.weekly, dateOverrides: profile.dateOverrides };
     for (const day of days) {
+      if (source.unavailable[day]) continue;
       const blocker = dayAvailabilityBlocker(day, availability);
       if (blocker) source.unavailable[day] = blocker.reason;
     }

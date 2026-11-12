@@ -14,6 +14,9 @@ import { loadCleanFacts } from "@/lib/quality/facts";
 import { resolveQualityPeriod } from "@/lib/quality/period";
 import { EMPTY_QUALITY_FILTERS } from "@/lib/quality/types";
 import { sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
+import { missingRequiredLabels, requiredCategoriesFor, requiredDocumentStatuses, type StaffDocumentCategory } from "@/lib/accounts/required-documents";
+import { readRequiredDocuments } from "@/lib/accounts/required-documents-store";
+import { currentHourlyRates } from "@/lib/accounts/pay-rate-history";
 import { buildListResponse, buildRow, type AccountFigures, type AccountRecord } from "./derive";
 import type { AccountFilters, AccountListResponse, AccountListVisibility, AccountRow, AccountSort } from "./types";
 import type { ListQuery } from "@/lib/admin/list-query";
@@ -45,8 +48,8 @@ export async function loadAccountRecords(now: Date): Promise<AccountRecord[]> {
   const ids = users.map((user) => user.id);
   const inactiveIds = users.filter((user) => !user.isActive).map((user) => user.id);
   const today = sydneyDayStart(sydneyTodayKey(now));
-  const [documents, requests, upcoming] = await Promise.all([
-    db.staffDocument.findMany({ where: { userId: { in: ids } }, select: { userId: true, title: true, status: true, expiresAt: true } }),
+  const [documents, requests, upcoming, requirements, rates] = await Promise.all([
+    db.staffDocument.findMany({ where: { userId: { in: ids } }, select: { userId: true, title: true, category: true, status: true, expiresAt: true } }),
     db.staffDocumentRequest.findMany({ where: { userId: { in: ids }, status: "REQUESTED" }, select: { userId: true, title: true } }),
     inactiveIds.length === 0
       ? Promise.resolve([] as Array<{ userId: string }>)
@@ -58,13 +61,20 @@ export async function loadAccountRecords(now: Date): Promise<AccountRecord[]> {
           },
           select: { userId: true },
         }),
+    readRequiredDocuments(),
+    currentHourlyRates(users, now),
   ]);
+  const todayKey = sydneyTodayKey(now);
 
   const docsByUser = groupBy(documents, (doc) => doc.userId);
   const requestsByUser = groupBy(requests, (request) => request.userId);
   const upcomingByUser = groupBy(upcoming, (row) => row.userId);
 
-  return users.map((user) => ({
+  return users.map((user) => {
+    const userDocuments = docsByUser.get(user.id) ?? [];
+    const required: StaffDocumentCategory[] = requiredCategoriesFor(requirements, [user.role, ...user.extraRoles.map((row) => row.role)]);
+    const missingRequired = missingRequiredLabels(requiredDocumentStatuses(required, userDocuments, todayKey));
+    return {
     id: user.id,
     name: user.name,
     email: user.email,
@@ -73,16 +83,20 @@ export async function loadAccountRecords(now: Date): Promise<AccountRecord[]> {
     isActive: user.isActive,
     emailVerified: user.emailVerified,
     twoFactorEnabled: user.twoFactorEnabled,
-    hourlyRate: user.hourlyRate,
+    // The rate in force today (effective-dated history, else the stored rate).
+    hourlyRate: rates.get(user.id) ?? null,
     lastSeenAt: user.lastSeenAt,
     clientName: user.client?.name ?? null,
     extraRoles: user.extraRoles.map((row) => row.role),
     invitation: user.invitation,
     credentials: { visaExpiry: user.visaExpiry, driverLicenseExpiry: user.driverLicenseExpiry, vehicleRegoExpiry: user.vehicleRegoExpiry },
-    documents: (docsByUser.get(user.id) ?? []).map((doc) => ({ title: doc.title, status: doc.status, expiresAt: doc.expiresAt })),
+    documents: userDocuments.map((doc) => ({ title: doc.title, status: doc.status, expiresAt: doc.expiresAt })),
     missingDocuments: (requestsByUser.get(user.id) ?? []).map((request) => request.title),
+    missingRequired,
+    requirementsSet: required.length > 0,
     upcomingAssignments: (upcomingByUser.get(user.id) ?? []).length,
-  }));
+    };
+  });
 }
 
 /** Jobs and QA over the Quality hub's 30-day window, per cleaner. */

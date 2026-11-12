@@ -35,6 +35,13 @@ export type AccountFacts = {
   documents: AccountDocumentFact[];
   /** Titles of document requests still waiting for an upload. */
   missingDocuments: string[];
+  /**
+   * Required document types (Settings → Required documents, for the roles this
+   * person holds) with nothing on file. Absent/empty when none are required.
+   */
+  missingRequired?: string[];
+  /** True when at least one document type is required of this person. */
+  requirementsSet?: boolean;
   credentials: CredentialDates;
   /** Open job assignments scheduled today (Sydney) or later. */
   upcomingAssignments: number;
@@ -101,9 +108,10 @@ function expiries(facts: Pick<AccountFacts, "documents" | "credentials">, now: D
 }
 
 /** The single most urgent documents fact, as the Documents column shows it. */
-export function documentState(facts: Pick<AccountFacts, "documents" | "missingDocuments" | "credentials">, now: Date): DocumentState {
-  if (facts.missingDocuments.length > 0) {
-    const count = facts.missingDocuments.length;
+export function documentState(facts: Pick<AccountFacts, "documents" | "missingDocuments" | "credentials" | "missingRequired" | "requirementsSet">, now: Date): DocumentState {
+  const missingRequired = facts.missingRequired ?? [];
+  if (facts.missingDocuments.length > 0 || missingRequired.length > 0) {
+    const count = facts.missingDocuments.length + missingRequired.length;
     return { kind: "MISSING", count, label: `${count} missing` };
   }
   const { expired, expiring, onFile } = expiries(facts, now);
@@ -112,6 +120,9 @@ export function documentState(facts: Pick<AccountFacts, "documents" | "missingDo
     const first = expiring[0];
     return { kind: "EXPIRING", label: `${first.label}, ${first.daysRemaining} d`, daysRemaining: first.daysRemaining };
   }
+  // "Complete" only when requirements are set and every one is on file;
+  // otherwise nothing is known to be complete, only that nothing is overdue.
+  if (facts.requirementsSet) return { kind: "OK", label: "Complete" };
   if (onFile > 0) return { kind: "OK", label: "Up to date" };
   return { kind: "NONE", label: "None on file" };
 }

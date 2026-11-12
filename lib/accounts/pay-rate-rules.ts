@@ -14,3 +14,14 @@ export const payRateSchema = z
       .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6, "Use at most two decimal places."),
   })
   .strict();
+
+/** The Pay editor's save: a rate and the calendar day it applies from (default today). */
+export const payRateChangeSchema = z
+  .object({
+    hourlyRate: payRateSchema.shape.hourlyRate,
+    appliesFrom: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Choose the day the rate applies from (YYYY-MM-DD).")
+      .optional(),
+  })
+  .strict();

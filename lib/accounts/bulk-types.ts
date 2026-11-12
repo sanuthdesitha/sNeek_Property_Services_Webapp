@@ -1,6 +1,6 @@
 /** Accounts bulk request contract. Pure; shared by the route and the screen. */
 import { z } from "zod";
-import { payRateSchema } from "./pay-rate-rules";
+import { payRateChangeSchema, payRateSchema } from "./pay-rate-rules";
 
 export const ACCOUNT_BULK_ACTIONS = ["resend-invite", "disable", "change-rate"] as const;
 export type AccountBulkAction = (typeof ACCOUNT_BULK_ACTIONS)[number];
@@ -14,6 +14,8 @@ export const accountBulkSchema = z
     action: z.enum(ACCOUNT_BULK_ACTIONS),
     ids: z.array(z.string().min(1).max(128)).min(1, "Select at least one person.").max(ACCOUNT_BULK_MAX_IDS, `Select at most ${ACCOUNT_BULK_MAX_IDS} people at a time.`),
     hourlyRate: payRateSchema.shape.hourlyRate.optional(),
+    /** change-rate: the calendar day the rate applies from (default today). */
+    appliesFrom: payRateChangeSchema.shape.appliesFrom,
   })
   .strict()
   .superRefine((value, ctx) => {

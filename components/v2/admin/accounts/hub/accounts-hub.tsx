@@ -43,7 +43,7 @@ function readColumnPrefs(): ColumnPrefs {
   }
 }
 
-function summaryLine(summary: { people: number; invitesPending: number; documentsExpiring: number; documentsExpired: number } | undefined): string {
+function summaryLine(summary: { people: number; invitesPending: number; documentsExpiring: number; documentsExpired: number; documentsMissing?: number } | undefined): string {
   if (!summary) return "Loading…";
   const parts = [
     `${summary.people} ${summary.people === 1 ? "person" : "people"}`,
@@ -51,6 +51,7 @@ function summaryLine(summary: { people: number; invitesPending: number; document
     `${summary.documentsExpiring} ${summary.documentsExpiring === 1 ? "document" : "documents"} expiring`,
   ];
   if (summary.documentsExpired > 0) parts.push(`${summary.documentsExpired} expired`);
+  if (summary.documentsMissing) parts.push(`${summary.documentsMissing} missing documents`);
   return parts.join(" · ");
 }
 

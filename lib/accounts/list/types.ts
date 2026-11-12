@@ -66,6 +66,8 @@ export type AccountListSummary = {
   invitesPending: number;
   documentsExpiring: number;
   documentsExpired: number;
+  /** People with a requested or required document not on file. */
+  documentsMissing?: number;
 };
 
 export type AccountListResponse = ListResponse<AccountRow, AccountSort> & {

@@ -94,6 +94,9 @@ enum JobStatus {
   QA_REVIEW
   COMPLETED
   INVOICED
+  /// Cancelled by the office (Wave E, 2026-11). Never billed, paid, reminded or
+  /// shown as live work; see lib/jobs/cancel.ts for who may cancel and restore.
+  CANCELLED
 }
 
 enum JobAssignmentResponseStatus {
@@ -898,6 +901,11 @@ model User {
   caseTransitions              CaseTransition[]            @relation("CaseTransitionActor")
   invitation                   UserInvitation?
   invitationsCreated           UserInvitation[]            @relation("UserInvitationCreatedBy")
+  payRates                     UserPayRate[]               @relation("UserPayRateUser")
+  payRatesCreated              UserPayRate[]               @relation("UserPayRateCreatedBy")
+  staffLeave                   StaffLeave[]                @relation("StaffLeaveUser")
+  staffLeaveCreated            StaffLeave[]                @relation("StaffLeaveCreatedBy")
+  jobsCancelled                Job[]                       @relation("JobCancelledBy")
 
   latitude           Float?
   longitude          Float?
@@ -1547,10 +1555,19 @@ model Job {
   lastEtaNotificationAt     DateTime?
   lastEtaNotifiedMinutes    Int?
   lastDelayedNotificationAt DateTime?
+  /// Cancellation (status CANCELLED). The reason is required by the service;
+  /// `cancelledFromStatus` is the unstarted status "Restore" returns to. The
+  /// fields stay after a restore as the last cancellation's record; the full
+  /// history is in the audit log (JOB_CANCELLED / JOB_CANCEL_RESTORED).
+  cancelledAt               DateTime?
+  cancelledById             String?
+  cancelReason              String?   @db.Text
+  cancelledFromStatus       JobStatus?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 
   property               Property                   @relation(fields: [propertyId], references: [id])
+  cancelledBy            User?                      @relation("JobCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
   reservation            Reservation?               @relation(fields: [reservationId], references: [id])
   formTemplate           FormTemplate?              @relation("JobPinnedFormTemplate", fields: [formTemplateId], references: [id], onDelete: SetNull)
   reworkOfJob            Job?                       @relation("JobRework", fields: [reworkOfJobId], references: [id], onDelete: SetNull)
@@ -2237,6 +2254,16 @@ model QaFormSubmission {
   score          Float
   passed         Boolean
   notes          String?  @db.Text
+  /// Copy of the QA template the inspection was filled in on, so later
+  /// template edits never change how it reads or scores (Wave E, 2026-11).
+  /// EXACT = copied when the inspection was saved; RECONSTRUCTED = backfilled
+  /// for an older inspection from the best available revision (the template
+  /// exactly as it was is not known). Null only if the copy could not be made.
+  templateSnapshot       Json?
+  templateSnapshotName   String?
+  templateSnapshotSource String?
+  /// The template's content revision number (audit-log count) at the time.
+  templateRevision       Int?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -3881,6 +3908,52 @@ model CleanerAvailability {
 
   @@index([userId, dayOfWeek])
   @@index([userId, date])
+}
+
+/// Effective-dated default hourly rate (Wave E, 2026-11). The rate for a job is
+/// the newest non-removed row whose effectiveFrom is on or before the job's
+/// calendar date (lib/accounts/pay-rate-history.ts). Rows are never edited; a
+/// future row may be removed before it starts (removedAt tombstone). Rate
+/// snapshots already stored on assignments, payouts and invoices are untouched.
+model UserPayRate {
+  id            String    @id @default(cuid())
+  userId        String
+  hourlyRate    Float
+  effectiveFrom DateTime  @db.Date
+  /// EDITOR | BULK | BACKFILL
+  source        String    @default("EDITOR")
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  removedAt     DateTime?
+  removedById   String?
+
+  user      User  @relation("UserPayRateUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("UserPayRateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([userId, effectiveFrom])
+}
+
+/// Leave and days off (Wave E, 2026-11). Calendar dates, end inclusive. Treated
+/// as unavailable by the calendar, cleaner suggestions and assignment checks.
+model StaffLeave {
+  id          String    @id @default(cuid())
+  userId      String
+  startDate   DateTime  @db.Date
+  endDate     DateTime  @db.Date
+  /// LEAVE | DAY_OFF
+  kind        String    @default("LEAVE")
+  note        String?   @db.Text
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  removedAt   DateTime?
+  removedById String?
+
+  user      User  @relation("StaffLeaveUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("StaffLeaveCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([userId, startDate, endDate])
+  @@index([startDate, endDate])
 }
 
 // ─────────────────────────────────────────────

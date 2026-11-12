@@ -3,6 +3,7 @@ import { JobStatus, Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { listCleanerAvailabilities } from "@/lib/accounts/availability";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { loadLeaveForUsers } from "@/lib/accounts/leave";
 import { rankCleanerSuggestions, type CleanerSuggestion, type SuggestionCandidate, type SuggestionOtherJob } from "./cleaner-suggestions";
 import { loadSuggestionQaScores } from "./cleaner-suggestions-qa";
 import { isGeoPoint, type GeoPoint } from "./cleaner-suggestions-signals";
@@ -50,7 +51,7 @@ export async function loadCleanerSuggestions(jobId: string): Promise<CleanerSugg
   const ids = cleaners.map((cleaner) => cleaner.id);
   if (ids.length === 0) return { kind: "ok", jobId, suggestions: [], considered: 0 };
 
-  const [profiles, sameDay, history, qaScores] = await Promise.all([
+  const [profiles, sameDay, history, qaScores, leave] = await Promise.all([
     listCleanerAvailabilities(ids),
     db.jobAssignment.findMany({
       where: {
@@ -69,6 +70,7 @@ export async function loadCleanerSuggestions(jobId: string): Promise<CleanerSugg
       _count: { _all: true },
     }),
     loadSuggestionQaScores(ids),
+    loadLeaveForUsers(ids, dayKey, dayKey),
   ]);
 
   const profileById = new Map(profiles.map((profile) => [profile.userId, profile]));
@@ -98,6 +100,7 @@ export async function loadCleanerSuggestions(jobId: string): Promise<CleanerSugg
       priorCleansHere: historyById.get(cleaner.id) ?? 0,
       home: toPoint(cleaner),
       qa: qaScores.get(cleaner.id) ?? null,
+      leave: leave.get(cleaner.id) ?? [],
     };
   });
 

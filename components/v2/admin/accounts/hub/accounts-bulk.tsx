@@ -14,7 +14,8 @@ import { EBulkBar, EBulkButton } from "@/components/v2/ui/bulk-bar";
 import { EField, EInput, EModal } from "@/components/v2/admin/estate-kit";
 import { ACCOUNT_BULK_MAX_IDS, type AccountBulkAction, type AccountBulkResponse } from "@/lib/accounts/bulk-types";
 import type { AccountRow } from "@/lib/accounts/list/types";
-import { RATE_HELP } from "../person/pay-copy";
+import { APPLIES_FROM_HELP, RATE_HELP } from "../person/pay-copy";
+import { sydneyTodayKey } from "@/lib/time/sydney-range";
 import { AccountsMessageDialog } from "./accounts-message-dialog";
 
 const COPY: Record<AccountBulkAction, { title: string; confirm: string; body: string }> = {
@@ -26,7 +27,7 @@ const COPY: Record<AccountBulkAction, { title: string; confirm: string; body: st
   "change-rate": {
     title: "Change hourly rate",
     confirm: "Change rate",
-    body: "Sets the same default hourly rate for each selected person, with the same limits and audit as changing it on one person.",
+    body: "Sets the same default hourly rate for each selected person from the day you choose, with the same limits, history and audit as changing it on one person.",
   },
   disable: {
     title: "Disable accounts",
@@ -58,6 +59,7 @@ export function AccountsBulk({
 }) {
   const [pending, setPending] = useState<AccountBulkAction | null>(null);
   const [rate, setRate] = useState("");
+  const [appliesFrom, setAppliesFrom] = useState(() => sydneyTodayKey());
   const [run, setRun] = useState<RunState>({ status: "idle" });
   const [messageOpen, setMessageOpen] = useState(false);
   const [messaging, setMessaging] = useState(false);
@@ -67,6 +69,7 @@ export function AccountsBulk({
   function open(action: AccountBulkAction) {
     setPending(action);
     setRate("");
+    setAppliesFrom(sydneyTodayKey());
     setRun({ status: "idle" });
   }
 
@@ -83,7 +86,7 @@ export function AccountsBulk({
       const res = await fetch("/api/admin/users/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: pending, ids: selectedRows.map((row) => row.id), ...(hourlyRate !== undefined ? { hourlyRate } : {}) }),
+        body: JSON.stringify({ action: pending, ids: selectedRows.map((row) => row.id), ...(hourlyRate !== undefined ? { hourlyRate, appliesFrom } : {}) }),
       });
       const body = (await res.json().catch(() => null)) as (AccountBulkResponse & { error?: string }) | null;
       if (!res.ok || !body || !Array.isArray(body.results)) throw new Error(body?.error ?? `The bulk action failed (${res.status}).`);
@@ -132,6 +135,11 @@ export function AccountsBulk({
             {pending === "change-rate" && run.status !== "finished" ? (
               <EField label="New hourly rate (AUD)" hint={RATE_HELP}>
                 <EInput inputMode="decimal" value={rate} disabled={running} onChange={(event) => setRate(event.target.value)} className="e-tnum" />
+              </EField>
+            ) : null}
+            {pending === "change-rate" && run.status !== "finished" ? (
+              <EField label="Applies from" hint={APPLIES_FROM_HELP}>
+                <EInput type="date" value={appliesFrom} min={sydneyTodayKey()} disabled={running} onChange={(event) => setAppliesFrom(event.target.value)} />
               </EField>
             ) : null}
             {run.status === "failed" ? <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">{run.message}</p> : null}

@@ -16,6 +16,9 @@
  *   (`cleaner-suggestions-signals.ts`, which names the basis);
  * - QA: the Quality hub's 30-day average score, "–" below its minimum.
  *
+ * - leave: a recorded leave or day off covering the job's day blocks the
+ *   cleaner with its reason ("On leave 12–14 Nov"), before roster and clashes.
+ *
  * Travel and QA are optional inputs: a caller that does not load them (the
  * calendar's move check) gets exactly the verdicts it had before.
  */
@@ -28,6 +31,7 @@ import {
   type SuggestionQa,
   type SuggestionTravel,
 } from "./cleaner-suggestions-signals";
+import { leaveOnDay, leaveReason, type LeaveEntry } from "@/lib/accounts/leave-rules";
 
 export type AvailabilitySlot = { start: string; end: string };
 
@@ -71,9 +75,11 @@ export type SuggestionCandidate = {
   home?: GeoPoint | null;
   /** Quality hub figure; omitted by callers that do not load it. */
   qa?: SuggestionQa | null;
+  /** Recorded leave and days off near the job's day (lib/accounts/leave). */
+  leave?: ReadonlyArray<Pick<LeaveEntry, "startDate" | "endDate" | "kind">>;
 };
 
-export type SuggestionBlocker = { kind: "clash" | "unavailable"; reason: string };
+export type SuggestionBlocker = { kind: "clash" | "unavailable" | "leave"; reason: string };
 
 export type CleanerSuggestion = {
   cleanerId: string;
@@ -185,11 +191,17 @@ function historyReason(count: number): string {
   return `Cleaned here ${count} time${count === 1 ? "" : "s"}`;
 }
 
+/** Leave covering the job's day, as a blocker with its reason. */
+export function leaveBlocker(dayKey: string, leave: SuggestionCandidate["leave"]): SuggestionBlocker | null {
+  const entry = leave ? leaveOnDay(leave, dayKey) : null;
+  return entry ? { kind: "leave", reason: leaveReason(entry) } : null;
+}
+
 function evaluate(job: SuggestionJob, candidate: SuggestionCandidate): CleanerSuggestion {
   const window = jobWindow(job);
   const availability = availabilityVerdict(job, window, candidate.availability);
   const clash = clashVerdict(window, candidate.otherJobsThatDay);
-  const blocker = clash.blocker ?? availability.blocker;
+  const blocker = leaveBlocker(job.dayKey, candidate.leave) ?? clash.blocker ?? availability.blocker;
   const reasons = blocker
     ? [blocker.reason, historyReason(candidate.priorCleansHere)]
     : [availability.reason, historyReason(candidate.priorCleansHere), ...clash.reasons];
