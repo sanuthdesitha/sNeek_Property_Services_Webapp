@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
       const quoteNumber = await issueQuoteNumber(tx);
       const created = await tx.quote.create({ data: { ...quoteData, leadId, quoteNumber } });
       if (linkedCase) {
-        await linkQuoteToCase(tx, { quoteId: created.id, caseId: linkedCase.id, caseTitle: linkedCase.title, actorId: session.user.id });
+        await linkQuoteToCase(tx, { quoteId: created.id, quoteNumber: created.quoteNumber, caseId: linkedCase.id, caseTitle: linkedCase.title, actorId: session.user.id });
       }
       return created;
     });

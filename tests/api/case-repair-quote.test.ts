@@ -10,13 +10,14 @@ import { Role } from "@prisma/client";
 
 const m = vi.hoisted(() => ({
   role: vi.fn(), ticket: vi.fn(), caseAttachments: vi.fn(), quoteCreate: vi.fn(), quoteEvent: vi.fn(), caseComment: vi.fn(), leadCreate: vi.fn(),
-  quoteEvents: vi.fn(), quoteEventFirst: vi.fn(), office: vi.fn(), email: vi.fn(), settings: vi.fn(),
+  quoteEvents: vi.fn(), quoteEventFirst: vi.fn(), office: vi.fn(), email: vi.fn(), settings: vi.fn(), sequence: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.role }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
 vi.mock("@/lib/notifications/email", () => ({ sendEmailDetailed: m.email, sendEmail: m.email }));
 vi.mock("@/lib/db", () => {
-  const tx = { quote: { create: m.quoteCreate }, quoteEvent: { create: m.quoteEvent }, caseComment: { create: m.caseComment } };
+  // The quote number is taken from the QUOTE sequence row inside the same transaction.
+  const tx = { quote: { create: m.quoteCreate }, quoteEvent: { create: m.quoteEvent }, caseComment: { create: m.caseComment }, $queryRaw: m.sequence, $executeRaw: vi.fn() };
   return { db: {
     issueTicket: { findUnique: m.ticket },
     caseAttachment: { findMany: m.caseAttachments },
@@ -30,7 +31,7 @@ vi.mock("@/lib/db", () => {
 });
 
 import { POST } from "@/app/api/admin/quotes/route";
-import { caseForQuoteDetail, loadCaseQuotePrefill, quoteReference, quotesFromCase } from "@/lib/cases/repair-quote";
+import { caseForQuoteDetail, loadCaseQuotePrefill, quotesFromCase } from "@/lib/cases/repair-quote";
 
 const admin = { user: { id: "admin-1", role: Role.ADMIN } };
 const caseRow = {
@@ -58,6 +59,7 @@ beforeEach(() => {
   m.caseAttachments.mockResolvedValue(caseRow.attachments.map((a) => ({ s3Key: a.s3Key })));
   m.quoteCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "quote-abc123", ...data }));
   m.office.mockResolvedValue([]);
+  m.sequence.mockResolvedValue([{ lastNumber: 204 }]);
 });
 
 describe("prefill", () => {
@@ -81,8 +83,9 @@ describe("create from a case", () => {
     const response = await post(quoteBody());
     expect(response.status).toBe(201);
     expect(m.quoteCreate.mock.calls[0][0].data).not.toHaveProperty("fromCaseId");
+    expect(m.quoteCreate.mock.calls[0][0].data.quoteNumber).toBe(204);
     expect(m.quoteEvent.mock.calls[0][0].data).toMatchObject({ quoteId: "quote-abc123", type: "FROM_CASE", detail: { caseId: "case-1", caseTitle: "Broken shower screen" } });
-    expect(m.caseComment.mock.calls[0][0].data).toMatchObject({ caseId: "case-1", isInternal: true, body: expect.stringContaining(quoteReference("quote-abc123")) });
+    expect(m.caseComment.mock.calls[0][0].data).toMatchObject({ caseId: "case-1", isInternal: true, body: expect.stringContaining("Repair quote Q-204 created") });
     expect(m.email).not.toHaveBeenCalled();
   });
 
@@ -107,8 +110,8 @@ describe("create from a case", () => {
 
 describe("reading the link back", () => {
   it("lists the case's quotes and finds a quote's case", async () => {
-    m.quoteEvents.mockResolvedValue([{ quoteId: "quote-abc123", createdAt: new Date("2026-11-12T01:00:00Z") }]);
-    expect(await quotesFromCase("case-1")).toEqual([{ quoteId: "quote-abc123", reference: "Q-ABC123", createdAt: "2026-11-12T01:00:00.000Z", href: "/v2/admin/quotes/quote-abc123" }]);
+    m.quoteEvents.mockResolvedValue([{ quoteId: "quote-abc123", createdAt: new Date("2026-11-12T01:00:00Z"), quote: { quoteNumber: 204 } }]);
+    expect(await quotesFromCase("case-1")).toEqual([{ quoteId: "quote-abc123", reference: "Q-204", createdAt: "2026-11-12T01:00:00.000Z", href: "/v2/admin/quotes/quote-abc123" }]);
     expect(m.quoteEvents.mock.calls[0][0].where).toEqual({ type: "FROM_CASE", detail: { path: ["caseId"], equals: "case-1" } });
     m.quoteEventFirst.mockResolvedValue({ detail: { caseId: "case-1", caseTitle: "Broken shower screen" } });
     expect(await caseForQuoteDetail("quote-abc123")).toEqual({ caseId: "case-1", caseTitle: "Broken shower screen", href: "/v2/admin/cases?open=case-1" });

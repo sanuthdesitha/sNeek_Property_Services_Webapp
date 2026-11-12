@@ -27,7 +27,12 @@ export const laundryWeekTaskInclude = {
     },
   },
   supplier: {
-    select: { id: true, name: true, pricePerKg: true, avgTurnaround: true },
+    select: {
+      id: true, name: true, pricePerKg: true, avgTurnaround: true,
+      // Usual schedule (descriptive defaults, 2026-11-13): shown when planning.
+      pickupWeekdays: true, pickupWindowStart: true, pickupWindowEnd: true,
+      dropWeekdays: true, dropWindowStart: true, dropWindowEnd: true,
+    },
   },
   job: { select: { scheduledDate: true, status: true } },
   confirmations: { orderBy: [{ createdAt: "asc" as const }, { id: "asc" as const }] },

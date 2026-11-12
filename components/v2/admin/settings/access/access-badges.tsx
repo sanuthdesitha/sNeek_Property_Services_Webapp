@@ -26,7 +26,7 @@ export function AccessBadge({ tone = "neutral", title, children }: { tone?: Tone
 /** The "!" or "Sensitive" mark: asked for a PIN, only with Full or an individual grant. */
 export function SensitiveBadge({ short = false }: { short?: boolean }) {
   return (
-    <AccessBadge tone="warn" title="Sensitive: asked for a PIN">
+    <AccessBadge tone="warn" title="Sensitive: asked for the person's own PIN">
       {short ? "!" : "Sensitive"}
       {short ? <span className="sr-only"> includes sensitive actions</span> : null}
     </AccessBadge>

@@ -80,7 +80,7 @@ export function AccessPersonHeader({
             <ESwitch checked={isFullAccess(draft, person.id)} disabled={!editable} onCheckedChange={onFullAccess} label={<b className="text-[hsl(var(--e-foreground))]">Full access</b>} />
           </div>
           <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-            <b>Off</b> hidden · <b>View</b> look, not change · <b>Manage</b> everyday actions · <b>Full</b> adds <AccessBadge tone="warn">!</AccessBadge> sensitive actions, asked for a PIN
+            <b>Off</b> hidden · <b>View</b> look, not change · <b>Manage</b> everyday actions · <b>Full</b> adds <AccessBadge tone="warn">!</AccessBadge> sensitive actions, asked for the person's own PIN
           </p>
         </>
       )}

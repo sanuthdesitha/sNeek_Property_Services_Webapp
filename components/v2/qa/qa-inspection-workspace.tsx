@@ -836,6 +836,12 @@ function AccountabilityItemV2({
           ) : null}
         </p>
 
+        {!verdictOptionsFor(verdictScale).includes(state.verdict) ? (
+          <p role="alert" className="mt-1.5 text-[0.6875rem] font-[550] text-[hsl(var(--e-danger))]">
+            {`This saved draft says ${VERDICT_LABELS[state.verdict]}, which this inspection does not offer. Choose a grade again before you submit.`}
+          </p>
+        ) : null}
+
         {state.verdict === "FAIL" ? (
           <label className="mt-2 flex min-h-11 items-center gap-2 text-[0.75rem] font-[550] text-[hsl(var(--e-foreground))]">
             <input

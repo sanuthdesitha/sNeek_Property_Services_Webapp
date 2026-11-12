@@ -35,7 +35,7 @@ export function AccessAdminCapabilities({
     <section aria-labelledby="access-admin-capabilities" className="rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-4">
       <h3 id="access-admin-capabilities" className="text-[0.9375rem] font-[600]">Administrator capabilities</h3>
       <p className="mt-0.5 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-        Off unless an administrator grants them to this person. Each one asks for a PIN, works only on people with no more access, never on administrators or themselves, and never while testing as someone.
+        Off unless an administrator grants them to this person. Each one asks for that person's own PIN, works only on people with no more access, never on administrators or themselves, and never while testing as someone.
         {viewerIsAdmin ? "" : " Only an administrator can change these."}
       </p>
       <ul className="mt-2.5 grid list-none gap-2 p-0 sm:grid-cols-2">

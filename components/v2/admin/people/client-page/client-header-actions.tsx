@@ -55,7 +55,7 @@ export function ClientHeaderActions({
                 <Menu.Item asChild className={ITEM}><Link href="/v2/admin/approvals">Open in Approvals</Link></Menu.Item>
                 <Menu.Separator className="my-1 h-px bg-[hsl(var(--e-border))]" />
                 <Menu.Label className="px-3 py-1 text-[0.6875rem] font-[600] uppercase tracking-wide text-[hsl(var(--e-muted-foreground))]">Danger zone</Menu.Label>
-                <Menu.Item className={`${ITEM} text-[hsl(var(--e-danger))]`} onSelect={controls.remove}>Delete client… <span className="ml-auto pl-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">PIN or password</span></Menu.Item>
+                <Menu.Item className={`${ITEM} text-[hsl(var(--e-danger))]`} onSelect={controls.remove}>Delete client… <span className="ml-auto pl-3 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Your PIN</span></Menu.Item>
               </Menu.Content>
             </Menu.Portal>
           </Menu.Root>

@@ -40,7 +40,7 @@ function failure(error: unknown, fallback: string) {
   if (error instanceof DelegatedActionDenied) return NextResponse.json({ error: error.message }, { status: error.status });
   const message = error instanceof Error ? error.message : fallback;
   if (message === "INVALID_SECURITY_VERIFICATION" || message === "PIN_OR_PASSWORD_REQUIRED") {
-    return NextResponse.json({ error: message === "PIN_OR_PASSWORD_REQUIRED" ? "Enter your PIN or password." : "That PIN or password is not right.", code: message }, { status: 423 });
+    return NextResponse.json({ error: message === "PIN_OR_PASSWORD_REQUIRED" ? "Enter your PIN." : "That PIN is not right.", code: message }, { status: 423 });
   }
   if (message === "OPS_POLICY_SELF_CHANGE") return NextResponse.json({ error: DELEGATED_REFUSAL_TEXT.SELF, code: message }, { status: 403 });
   if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues[0]?.message ?? "Check the access settings." }, { status: 400 });

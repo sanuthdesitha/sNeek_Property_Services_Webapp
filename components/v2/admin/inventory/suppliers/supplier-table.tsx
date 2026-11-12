@@ -9,6 +9,7 @@ import { EButton } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
 import { ERowMenu, type ERowMenuItem } from "@/components/v2/ui/row-menu";
 import { TYPE_LABELS, type DirectoryEntry, type DirectorySort } from "@/lib/suppliers/directory-view";
+import { scheduleStated } from "@/lib/laundry/partner-schedule";
 
 type Props = {
   entries: DirectoryEntry[];
@@ -55,6 +56,7 @@ export function SupplierTable({ entries, openKey, sort, dir, onSort, onOpen, men
                 <td className="px-3 py-2.5">
                   <b className="font-[600] text-[hsl(var(--e-foreground))]">{entry.name}</b>
                   <div className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))] [overflow-wrap:anywhere]">{entry.subtitle}</div>
+                  {entry.row?.laundry && entry.row.laundry.schedule && !scheduleStated(entry.row.laundry.schedule) ? <div className="text-[0.75rem] text-[hsl(var(--e-text-faint,var(--e-muted-foreground)))]">no pickup schedule</div> : null}
                 </td>
                 <td className="px-3 py-2.5">
                   <div className="flex flex-wrap gap-1">{entry.types.map((type) => (type === "LAUNDRY" ? <EPill key={type} tone="info">{TYPE_LABELS[type]}</EPill> : <span key={type}>{TYPE_LABELS[type]}</span>))}</div>

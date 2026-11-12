@@ -90,7 +90,7 @@ export function AccessSummaryPanel({
           <li key={item.label}><span className="text-[hsl(var(--e-foreground))]">{item.label}.</span> {item.reason}</li>
         ))}
       </ul>
-      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Password and two-step resets, Test as and editing access can be granted to one person at a time below their levels; they stay sensitive and ask for a PIN.</p>
+      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Password and two-step resets, Test as and editing access can be granted to one person at a time below their levels; they stay sensitive and ask for that person's own PIN. Each administrator and operations manager sets their own PIN in their profile; nobody uses anyone else's.</p>
       <hr className="border-[hsl(var(--e-border))]" />
       <p className="e-eyebrow">Last reviewed</p>
       <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">

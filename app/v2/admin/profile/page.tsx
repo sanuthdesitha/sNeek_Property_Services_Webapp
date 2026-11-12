@@ -6,6 +6,8 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EPageHeader } from "@/components/v2/ui/primitives";
 import { EstateProfile } from "@/components/v2/laundry/estate-profile";
+import { OwnPinSection } from "@/components/v2/admin/profile/own-pin-section";
+import { getAppSettings } from "@/lib/settings";
 
 export const metadata = { title: "Profile · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -67,6 +69,7 @@ export default async function AdminProfilePage() {
         initialDensity={(user as any).uiDensity ?? undefined}
         initialTheme={(user as any).themePreference ?? undefined}
       />
+      <OwnPinSection timeZone={(await getAppSettings().catch(() => null))?.timezone ?? "Australia/Sydney"} />
     </div>
   );
 }

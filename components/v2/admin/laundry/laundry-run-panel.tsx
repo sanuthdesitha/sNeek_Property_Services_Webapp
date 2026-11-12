@@ -25,6 +25,7 @@ import { buildTaskMedia, statusLabel, type LaundryTaskDTO } from "./laundry-shar
 import { cardPill, dayWithTime, laundryRouteLabel, shortDay } from "./laundry-lane-card";
 import { LaundryPlannedTimes } from "./laundry-planned-times";
 import { LaundryTeamReplies } from "./laundry-team-replies";
+import { partnerCostEntry } from "@/lib/laundry/partner-entry-rules";
 import type { PipelineCardDTO } from "./use-laundry-pipeline";
 
 export type RunPanelTask = LaundryTaskDTO & Partial<Pick<PipelineCardDTO, "exceptions" | "cleaners" | "nextGuest" | "bagCount" | "lane" | "readiness" | "dayOf" | "carriedIn" | "driver" | "supplierTeam" | "teamReplies">>;
@@ -66,8 +67,13 @@ export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onD
   if (task.supplierTeam) facts.push(["Laundry team", task.supplierTeam.count ? task.supplierTeam.names.join(", ") : "No portal users linked"]);
   if (task.driver) facts.push(["On the laundry route", laundryRouteLabel(task.driver, task.supplier?.name ?? null)]);
   if (task.bagCount) facts.push(["Bags", String(task.bagCount)]);
-  if (task.bagWeightKg) facts.push(["Weight", `${task.bagWeightKg} kg`]);
-  if (task.dropoffCostAud != null) facts.push(["Cost", `$${Number(task.dropoffCostAud).toFixed(2)}`]);
+  // The laundry team may enter weight / price before drop-off (2026-11-13):
+  // named as theirs while the stored value is still what they entered. The
+  // office corrects it with Edit as before; no invoice changes from it.
+  const entered = partnerCostEntry(task.confirmations, task);
+  const enteredBy = entered ? ` · Entered by ${entered.byName}` : "";
+  if (task.bagWeightKg) facts.push(["Weight", `${task.bagWeightKg} kg${entered?.weight ? enteredBy : ""}`]);
+  if (task.dropoffCostAud != null) facts.push(["Cost", `$${Number(task.dropoffCostAud).toFixed(2)}${entered?.price ? enteredBy : ""}`]);
 
   return (
     <ESidePanel

@@ -77,7 +77,7 @@ export function AccessPersonPane({
         )}
         <AccessUnsavedBar saved={saved} draft={draft} names={names} busy={busy} onDiscard={() => onDraft.discard()} onReview={onReview} />
         <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-          Saving asks for your PIN. {name}&apos;s next request uses the new access. If someone else saved first, you see both versions before anything is overwritten.
+          Saving asks for your own PIN. {name}&apos;s next request uses the new access. If someone else saved first, you see both versions before anything is overwritten.
         </p>
       </section>
       <AccessSummaryPanel

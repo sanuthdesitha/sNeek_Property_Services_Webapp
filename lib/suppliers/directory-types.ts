@@ -5,6 +5,8 @@
  * is the same business and shows as one row with both types. PLAIN module:
  * shared by the route and the client screen.
  */
+import type { PartnerSchedule } from "@/lib/laundry/partner-schedule";
+
 
 export type StockSupplierRecord = {
   id: string;
@@ -73,6 +75,10 @@ export type LaundryPartnerRecord = {
   /** Runs on record for this partner (any status). */
   runCount: number;
   stats?: LaundryPartnerStats;
+  /** Usual pickup / drop schedule (descriptive defaults, 2026-11-13). Optional: older readers ignore it. */
+  schedule?: PartnerSchedule;
+  /** The record version, for the schedule editor's stale-write guard. */
+  updatedAt?: string;
 };
 
 /**

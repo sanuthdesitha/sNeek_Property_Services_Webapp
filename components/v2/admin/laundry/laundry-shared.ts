@@ -6,6 +6,7 @@
 import { LaundryStatus } from "@prisma/client";
 import type { MediaGalleryItem } from "@/components/shared/media-gallery";
 import { buildLaundryConfirmationMediaItems } from "@/lib/laundry/media";
+import type { PartnerSchedule } from "@/lib/laundry/partner-schedule";
 
 export type Tone = "neutral" | "primary" | "info" | "success" | "warning" | "danger";
 
@@ -101,7 +102,7 @@ export type LaundryTaskDTO = {
     keyLostMode?: boolean;
     client?: { id?: string; name?: string | null; email?: string | null } | null;
   } | null;
-  supplier?: { id?: string; name?: string | null; pricePerKg?: number | null; avgTurnaround?: number | null } | null;
+  supplier?: ({ id?: string; name?: string | null; pricePerKg?: number | null; avgTurnaround?: number | null } & Partial<PartnerSchedule>) | null;
   job?: { id?: string; jobNumber?: string | null; scheduledDate?: string | null; status?: string | null } | null;
   confirmations?: Array<{
     id: string;

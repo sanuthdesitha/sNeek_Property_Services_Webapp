@@ -13,6 +13,7 @@ import { ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { formatMoney } from "../issues/issue-format";
 import { SEVERITY_SHORT_LABEL, severityCountLabel } from "@/lib/quality/severity";
+import { SEVERITY_GROUPING_LEGEND } from "@/lib/qa/verdict-scale";
 import type { SummaryPayload } from "./hub-types";
 
 type CardProps = {
@@ -103,7 +104,7 @@ export function QualityStatCards({
               <Muted>{`None ${SEVERITY_SHORT_LABEL.CRITICAL}`}</Muted>
             )
           }
-          basis="QA issues raised in the period that match the filters; the note counts High (stored as critical) issues."
+          basis={`QA issues raised in the period that match the filters; the note counts High (stored as critical) issues. ${SEVERITY_GROUPING_LEGEND.join(" ")}`}
         />
         <StatCard
           label="Fixes still open"

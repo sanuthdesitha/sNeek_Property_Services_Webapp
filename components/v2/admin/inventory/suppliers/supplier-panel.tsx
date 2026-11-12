@@ -17,6 +17,7 @@ import type { LaundryPartnerRecord, LaundryUserOption, StockSupplierRecord } fro
 import { laundryRunsHref } from "@/lib/suppliers/directory-types";
 import { TYPE_LABELS, type DirectoryEntry } from "@/lib/suppliers/directory-view";
 import { PartnerLoginDialog, type LoginChange } from "./partner-login-dialog";
+import { PartnerScheduleEditor, PartnerScheduleSummary } from "./partner-schedule-section";
 import {
   ChaseHistory,
   Facts,
@@ -53,14 +54,6 @@ type Props = PanelActions & {
   onClose: () => void;
 };
 
-function ScheduleNote() {
-  return (
-    <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-      No pickup and drop schedule is recorded for this partner. Planned pickup and drop times are set per run in Laundry (Set planned times).
-    </p>
-  );
-}
-
 function PartnerBody({ partner, stock, laundryUsers, partnerNames, onSaved }: { partner: LaundryPartnerRecord; stock: StockSupplierRecord | null; laundryUsers: LaundryUserOption[]; partnerNames: ReadonlyMap<string, string>; onSaved: () => void }) {
   const [tab, setTab] = React.useState<PartnerTab>("overview");
   const [change, setChange] = React.useState<LoginChange | null>(null);
@@ -88,12 +81,17 @@ function PartnerBody({ partner, stock, laundryUsers, partnerNames, onSaved }: { 
         <>
           <Facts rows={partnerFacts(partner, stock)} />
           {logins}
-          <Section title="Pickup and drop schedule"><ScheduleNote /></Section>
+          <Section title="Pickup and drop schedule"><PartnerScheduleSummary schedule={partner.schedule} /></Section>
           <PartnerRunPills partner={partner} />
         </>
       ) : null}
       {tab === "logins" ? logins : null}
-      {tab === "schedule" ? <ScheduleNote /> : null}
+      {tab === "schedule" ? (
+        <>
+          <Section title="Pickup and drop schedule"><PartnerScheduleSummary schedule={partner.schedule} /></Section>
+          <PartnerScheduleEditor key={`${partner.id}:${partner.updatedAt ?? ""}`} partnerId={partner.id} schedule={partner.schedule} updatedAt={partner.updatedAt} onSaved={onSaved} />
+        </>
+      ) : null}
       {tab === "runs" ? (
         <>
           <PartnerRunPills partner={partner} />

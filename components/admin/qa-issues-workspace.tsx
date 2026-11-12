@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { qaIssueVerdictLabel } from "@/lib/qa/verdict-scale";
 
 const SEVERITIES = ["MINOR", "MAJOR", "CRITICAL"] as const;
 const RECTIFICATION_STATUSES = [
@@ -183,7 +184,8 @@ export function QaIssuesWorkspace({
           </select>
           <select className={SELECT_CLS} value={severity} onChange={(e) => setSeverity(e.target.value)}>
             <option value="">All severities</option>
-            {SEVERITIES.map((s) => <option key={s} value={s}>{titleCase(s)}</option>)}
+            {/* Fail is stored as Major, a serious Fail as Critical (lib/qa/verdict-scale.ts). */}
+            {SEVERITIES.map((s) => <option key={s} value={s}>{s === "MAJOR" ? "Major or fail" : s === "CRITICAL" ? "Critical or serious fail" : titleCase(s)}</option>)}
           </select>
           <select className={SELECT_CLS} value={rectificationStatus} onChange={(e) => setRectificationStatus(e.target.value)}>
             <option value="">Any rectification</option>
@@ -246,7 +248,7 @@ export function QaIssuesWorkspace({
                       {i.category}
                       {i.guestReadyImpact ? <span className="ml-1.5 text-[10px] font-bold text-red-600">GR</span> : null}
                     </td>
-                    <td className="px-4 py-3"><Pill className={severityCls(i.severity)}>{i.severity}</Pill></td>
+                    <td className="px-4 py-3"><Pill className={severityCls(i.severity)}>{i.failVerdict ? qaIssueVerdictLabel(i) : i.severity}</Pill></td>
                     <td className="px-4 py-3"><Pill className={rectCls(i.rectificationStatus)}>{titleCase(i.rectificationStatus)}</Pill></td>
                     <td className="px-4 py-3">
                       {i.falseConfirmation && i.falseConfirmation !== "NONE" ? (
@@ -367,7 +369,7 @@ function IssueDialog({
             </DialogHeader>
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2">
-                <Pill className={severityCls(issue.severity)}>{issue.severity}</Pill>
+                <Pill className={severityCls(issue.severity)}>{issue.failVerdict ? qaIssueVerdictLabel(issue) : issue.severity}</Pill>
                 <Pill className={rectCls(issue.rectificationStatus)}>{titleCase(issue.rectificationStatus)}</Pill>
                 {issue.falseConfirmation && issue.falseConfirmation !== "NONE" ? (
                   <Pill className="bg-muted text-muted-foreground border-border">False conf: {titleCase(issue.falseConfirmation)}</Pill>

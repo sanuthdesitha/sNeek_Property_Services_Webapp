@@ -5,6 +5,7 @@ import { getSupplierById, listSupplierCatalog } from "@/lib/inventory/suppliers"
 import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 import { buildSupplierDirectory, type LaundryPartnerRecord, type SupplierDirectoryResponse } from "@/lib/suppliers/directory-types";
 import { loadLoginExtras, loadPartnerStats, loadTrades } from "@/lib/suppliers/directory-load";
+import { scheduleFromRow } from "./partner-schedule";
 
 /**
  * Laundry partners are suppliers (owner, 2026-11-12: "Laundry partners is also
@@ -66,6 +67,8 @@ export async function loadSupplierDirectory(): Promise<SupplierDirectoryResponse
     team: partner.teamMembers.map((member) => ({ ...member, ...(extras.get(member.id) ?? {}) })),
     runCount: countBySupplier.get(partner.id) ?? 0,
     stats: stats.get(partner.id),
+    schedule: scheduleFromRow(partner) ?? undefined,
+    updatedAt: partner.updatedAt.toISOString(),
   }));
   return { ...buildSupplierDirectory(stock, laundry), laundryUsers, trades };
 }

@@ -133,7 +133,7 @@ export default async function AdminClientDetailPage({ params, searchParams }: { 
           ) : null}
           {tab === "portal" ? (
             <Card title="Portal access" action={<ClientActions client={actionsClient} defaultPortalVisibility={settings.clientPortalVisibility} />}>
-              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Edit changes the contact details and what the client sees; Portal invite sends portal access (it resets the client&apos;s portal password); Delete needs your PIN or password. Terms: {termsLabel(summary.terms)}.</p>
+              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Edit changes the contact details and what the client sees; Portal invite sends portal access (it resets the client&apos;s portal password); Delete needs your own PIN. Terms: {termsLabel(summary.terms)}.</p>
               <ul className="grid gap-1 text-[0.8125rem] sm:grid-cols-2">
                 {visibility.map((item) => (
                   <li key={item.key} className="flex items-center justify-between gap-2 border-b border-[hsl(var(--e-border)/0.6)] py-1">
