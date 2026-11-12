@@ -18,6 +18,7 @@ import { requireUrgentStockAdmin, urgentStockCleanDeadline, urgentStockCleanWher
 import { CLOSED_STAGES, neededByState, stagesForFilter, suggestedBuy, URGENT_FILTERS, type NeededByState, type UrgentFilter } from "./urgent-stock-actions";
 
 import { URGENT_SORTS, type UrgentSort } from "./urgent-stock-actions";
+import { EMPTY_NEED_LINKS, needLinksFor, type NeedLinks } from "./urgent-stock-list-links";
 
 export { URGENT_SORTS, type UrgentSort } from "./urgent-stock-actions";
 
@@ -46,7 +47,7 @@ export type UrgentNeedListRow = {
   suggestedBuy: number | null;
   neededBy: string | null;
   neededByState: NeededByState;
-};
+} & NeedLinks;
 
 export type UrgentListSummary = { open: number; properties: number; dueSoon: number };
 
@@ -148,7 +149,7 @@ async function parLevels(rows: Array<{ propertyId: string; itemId: string }>): P
 }
 
 export async function listUrgentNeedsForOffice(actor: StockActor, filters: UrgentListFilters, query: ListQuery<UrgentSort>, now = new Date()): Promise<UrgentNeedListResponse> {
-  await requireUrgentStockAdmin(actor);
+  await requireUrgentStockAdmin(actor, db, "read");
   const timeZone = (await getAppSettings()).timezone || "Australia/Sydney";
   const stages = stagesForFilter(filters.filter);
   const where: Prisma.UrgentStockNeedWhereInput = { ...baseWhere(filters), ...(stages ? { stage: { in: stages } } : {}) };
@@ -165,7 +166,7 @@ export async function listUrgentNeedsForOffice(actor: StockActor, filters: Urgen
   const pageIds = ordered.slice(query.skip, query.skip + query.take).map((row) => row.id);
   const pageRows = pageIds.length ? await db.urgentStockNeed.findMany({ where: { id: { in: pageIds } } }) : [];
   const byId = new Map(pageRows.map((row) => [row.id, row]));
-  const pars = await parLevels(pageRows);
+  const [pars, links] = await Promise.all([parLevels(pageRows), needLinksFor(pageIds)]);
 
   const rows: UrgentNeedListRow[] = pageIds.flatMap((id) => {
     const row = byId.get(id);
@@ -180,6 +181,7 @@ export async function listUrgentNeedsForOffice(actor: StockActor, filters: Urgen
       purchaseQuantity: row.purchaseQuantity, note: row.note, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
       reportedById: row.reportedById, reportedByName: row.reportedByName, parLevel, suggestedBuy: suggestedBuy(parLevel, row.observedCount),
       neededBy: deadline ? deadline.toISOString() : null, neededByState: neededByState(stage, deadline, now),
+      ...(links.get(row.id) ?? EMPTY_NEED_LINKS),
     }];
   });
 

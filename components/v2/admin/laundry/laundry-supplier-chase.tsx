@@ -8,7 +8,8 @@
  * and per transport whether it can be used and why not.
  *
  * - Copy message, mailto: and tel: for everyone who can open the run.
- * - Send by email and/or SMS for administrators (server rule), to the stored
+ * - Send by email and/or SMS for administrators and operations managers with
+ *   the Laundry pack (server rule, `office-send-rules.ts`), to the stored
  *   contact only, with the provider's truthful answer per transport. The key
  *   is fixed per run and cool-down window, so a retry is the same request.
  */

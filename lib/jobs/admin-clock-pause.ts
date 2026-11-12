@@ -25,6 +25,7 @@ import { db } from "@/lib/db";
 import { clockOutCleaner } from "@/lib/jobs/clock";
 import { sendClockPausedNotice } from "@/lib/notifications/office-actions";
 import type { RecipientOutcome } from "@/lib/notifications/office-sends";
+import type { OfficeActorRole } from "@/lib/notifications/office-send-rules";
 
 export class ClockPauseError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -35,6 +36,8 @@ export type ClockPauseInput = {
   cleanerId: string;
   reason: string;
   actorId: string;
+  /** The role that allowed the pause (ADMIN, or OPS_MANAGER with the Jobs pack); kept on the audit row. */
+  actorRole?: OfficeActorRole | null;
   transports: Array<"PUSH" | "EMAIL">;
   now?: Date;
 };
@@ -74,6 +77,7 @@ export async function pauseCleanerClockByOffice(input: ClockPauseInput): Promise
         entity: "TimeLog",
         entityId: result.clockOut.timeLogId,
         after: {
+          actorRole: input.actorRole ?? null,
           cleanerId: cleaner.id,
           reason: input.reason,
           stoppedAt: result.clockOut.stoppedAt,

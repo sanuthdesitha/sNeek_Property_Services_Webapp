@@ -17,7 +17,8 @@ import { dispatchNotificationOnce } from "./dispatch-once";
  * They go through the existing email / SMS chokepoints, which already apply
  * the PUBLIC audience switch, the suppression list and the SMS length cap. On
  * top of that, for every kind:
- * - office-initiated only (each route allows ADMIN only and refuses impersonation);
+ * - office-initiated only (each route allows ADMIN, or OPS_MANAGER with the
+ *   page's pack at manage, `office-send-rules.ts`, and refuses impersonation);
  * - tied to an existing record of the kind's entity;
  * - rate-limited per sender (in-process) and per record and per sender over a
  *   rolling window counted from the audit log (survives restarts);

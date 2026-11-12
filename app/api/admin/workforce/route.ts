@@ -25,10 +25,21 @@ import {
 } from "@/lib/workforce/service";
 import { sendDocumentReminder } from "@/lib/workforce/document-reminder";
 import { OfficeActionError } from "@/lib/notifications/office-actions";
+import { rememberRequestTransports, resolveRequestTransports } from "@/lib/workforce/document-request-options";
+import { REQUEST_TRANSPORTS } from "@/lib/workforce/document-request-transports";
 
 const actionSchema = z.object({
   action: z.string().trim().min(1),
 }).passthrough();
+
+/**
+ * REQUEST_DOCUMENT transport choice. An explicit empty list is refused (400);
+ * "Don't ask again" needs an explicit choice to remember.
+ */
+const requestTransportChoiceSchema = z.object({
+  transports: z.array(z.enum(REQUEST_TRANSPORTS)).min(1).max(3).optional(),
+  rememberTransports: z.boolean().optional(),
+}).refine((choice) => !choice.rememberTransports || Boolean(choice.transports), { message: "Choose the transports to remember." });
 
 export async function GET() {
   try {
@@ -196,14 +207,24 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, result });
       }
       case "REQUEST_DOCUMENT": {
-        // Command "Send reminder": a renewal request for one expiring document,
-        // explicit transports, idempotent per document per day, truthful states.
-        if (body.documentId !== undefined) {
-          if (session.impersonation) return NextResponse.json({ error: "Reminders cannot be sent while impersonating." }, { status: 403 });
-          const { action: _action, ...reminder } = body;
+        // Accounts "Request document" and Command "Send reminder". Transports:
+        // as named, else the sender's saved "Don't ask again" choice, else the
+        // inbox only (lib/workforce/document-request-options.ts). Both are
+        // refused while impersonating: the request is recorded against the
+        // real person and the saved choice is theirs.
+        const reminderPath = body.documentId !== undefined;
+        if (session.impersonation) {
+          return NextResponse.json({ error: reminderPath ? "Reminders cannot be sent while impersonating." : "Document requests cannot be sent while impersonating." }, { status: 403 });
+        }
+        const choice = requestTransportChoiceSchema.safeParse({ transports: body.transports, rememberTransports: body.rememberTransports });
+        if (!choice.success) return NextResponse.json({ error: `Choose at least one way to send the ${reminderPath ? "reminder" : "request"}.` }, { status: 400 });
+        const resolved = await resolveRequestTransports(session.user.id, choice.data.transports);
+        const { action: _action, rememberTransports: _remember, transports: _transports, ...rest } = body;
+        if (reminderPath) {
           try {
-            const result = await sendDocumentReminder({ id: session.user.id, name: session.user.name }, reminder);
-            return NextResponse.json({ ok: true, result });
+            const result = await sendDocumentReminder({ id: session.user.id, name: session.user.name }, { ...rest, transports: resolved.transports });
+            if (choice.data.rememberTransports) await rememberRequestTransports(session.user.id, resolved.transports);
+            return NextResponse.json({ ok: true, result: { ...result, transportsUsed: resolved.transports, transportSource: resolved.source } });
           } catch (error) {
             if (error instanceof OfficeActionError) return NextResponse.json({ error: error.message }, { status: error.status });
             if (error instanceof ZodError) return NextResponse.json({ error: "Choose at least one way to send the reminder." }, { status: 400 });
@@ -217,8 +238,10 @@ export async function POST(req: NextRequest) {
           title: String(body.title ?? "Requested document"),
           notes: body.notes ? String(body.notes) : null,
           dueAt: body.dueAt ? String(body.dueAt) : null,
+          transports: resolved.transports,
         });
-        return NextResponse.json({ ok: true, result });
+        if (choice.data.rememberTransports) await rememberRequestTransports(session.user.id, resolved.transports);
+        return NextResponse.json({ ok: true, result: { ...result, transportsUsed: resolved.transports, transportSource: resolved.source } });
       }
       case "SEND_RECOGNITION": {
         const result = await sendRecognition({

@@ -21,6 +21,8 @@ import type { NotificationTransport } from "./catalog-types";
  *
  * - "PUSH" means what it meant for the legacy reminder: an inbox row, its
  *   phone-app push (mobile outbox marker) and a browser push.
+ * - "INBOX" (Wave F) is the inbox row alone: no phone push, no browser push,
+ *   so an inbox-only request never silently becomes a device push.
  * - The inbox row always goes through the pipeline and is delivered at once.
  * - Browser push and email go through the pipeline when their outbox transport
  *   is on (SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS); otherwise they keep the
@@ -28,7 +30,7 @@ import type { NotificationTransport } from "./catalog-types";
  * - Every outcome is a truthful state: queued, inbox available, provider
  *   accepted, requested (browser push has no receipt), skipped or failed.
  */
-export type OfficeSendTransport = "PUSH" | "EMAIL";
+export type OfficeSendTransport = "INBOX" | "PUSH" | "EMAIL";
 
 export type OfficeRecipient = { id: string; role: Role; name: string | null; email: string | null };
 
@@ -70,7 +72,7 @@ export type OfficeSendInput = {
 
 const displayName = (recipient: OfficeRecipient) => recipient.name ?? recipient.email ?? "Recipient";
 
-type Planned = { recipient: OfficeRecipient; inboxIntentId?: string; directWebPush: boolean; directEmail: boolean; outcomes: RecipientOutcome[] };
+type Planned = { recipient: OfficeRecipient; inboxIntentId?: string; inboxOnly?: boolean; directWebPush: boolean; directEmail: boolean; outcomes: RecipientOutcome[] };
 
 function baseEnvelope(input: OfficeSendInput, recipient: OfficeRecipient) {
   return {
@@ -94,19 +96,23 @@ async function planAndEnqueue(input: OfficeSendInput): Promise<Planned[]> {
       plans.push(plan);
       const authorization = await authorizeEntityRecipient(tx, baseEnvelope(input, recipient).recipient);
       if (!authorization.ok) {
-        for (const transport of input.transports) plan.outcomes.push({ userId: recipient.id, name, transport: transport === "PUSH" ? "INBOX" : "EMAIL", path: "pipeline", state: "skipped", errorCode: authorization.errorCode });
+        for (const transport of input.transports) plan.outcomes.push({ userId: recipient.id, name, transport: transport === "EMAIL" ? "EMAIL" : "INBOX", path: "pipeline", state: "skipped", errorCode: authorization.errorCode });
         continue;
       }
       const base = baseEnvelope(input, recipient);
-      if (input.transports.includes("PUSH")) {
+      const wantsPush = input.transports.includes("PUSH");
+      if (wantsPush || input.transports.includes("INBOX")) {
         if (off.has("INBOX")) {
           plan.outcomes.push({ userId: recipient.id, name, transport: "INBOX", path: "pipeline", state: "switched_off" });
         } else {
-          const phonePush = !off.has("MOBILE_PUSH");
+          const phonePush = wantsPush && !off.has("MOBILE_PUSH");
           const intent = await enqueueNotificationIntent(tx, { ...base, transport: "INBOX", ...(phonePush ? { mobilePushCategory: input.category } : {}) });
           plan.inboxIntentId = intent.id;
-          if (!phonePush) plan.outcomes.push({ userId: recipient.id, name, transport: "MOBILE_PUSH", path: "pipeline", state: "switched_off" });
+          plan.inboxOnly = !wantsPush;
+          if (wantsPush && !phonePush) plan.outcomes.push({ userId: recipient.id, name, transport: "MOBILE_PUSH", path: "pipeline", state: "switched_off" });
         }
+      }
+      if (wantsPush) {
         if (off.has("WEB_PUSH")) {
           plan.outcomes.push({ userId: recipient.id, name, transport: "WEB_PUSH", path: webPushPath, state: "switched_off" });
         } else if (webPushPath === "pipeline") {
@@ -187,7 +193,7 @@ export async function sendOfficeNotification(input: OfficeSendInput): Promise<Re
     if (plan.inboxIntentId) {
       const result = inbox.get(plan.inboxIntentId) ?? { state: "queued", errorCode: null };
       outcomes.push({ userId: plan.recipient.id, name, transport: "INBOX", path: "pipeline", state: result.state, errorCode: "errorCode" in result ? result.errorCode : null });
-      if (!plan.outcomes.some((outcome) => outcome.transport === "MOBILE_PUSH")) {
+      if (!plan.inboxOnly && !plan.outcomes.some((outcome) => outcome.transport === "MOBILE_PUSH")) {
         // The phone push is queued in the mobile outbox only once the inbox row exists.
         outcomes.push({ userId: plan.recipient.id, name, transport: "MOBILE_PUSH", path: "pipeline", state: result.state === "inbox_available" ? "queued" : result.state === "skipped" ? "skipped" : "queued", errorCode: null });
       }

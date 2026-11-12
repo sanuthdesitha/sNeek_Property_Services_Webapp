@@ -8,7 +8,8 @@ import "server-only";
  * LOST_ITEM_PROPERTY_CLIENT scope (re-checked when queued and when
  * dispatched). The client's own "no notifications" choice is honoured, as for
  * the client delay notice. Transports are chosen per send. The route allows
- * administrators only (mirroring the guest message) and refuses impersonation.
+ * ADMIN, or OPS_MANAGER with the Lost & found pack at manage
+ * (`office-send-rules.ts`), and refuses impersonation.
  *
  * Every send leaves a timeline entry with the real states: "Client told (sent
  * from the app)" when at least one transport took it (queued, in the inbox,
@@ -22,6 +23,7 @@ import { escapeHtml } from "@/lib/utils/escape-html";
 import { OfficeActionError, type OfficeActionResult } from "@/lib/notifications/office-actions";
 import { outcomeTaken, sendOfficeNotification, type OfficeRecipient } from "@/lib/notifications/office-sends";
 import { getNotificationTypeControls, typeRespectsPreferences } from "@/lib/notifications/type-controls";
+import type { OfficeActorRole } from "@/lib/notifications/office-send-rules";
 
 export const LOST_FOUND_CLIENT_NOTICE_TYPE = "lostfound.client_notice";
 
@@ -73,7 +75,8 @@ function timelineNote(result: OfficeActionResult, taken: boolean, body: string):
   return `${head}\n${lines.join("\n")}\n\nMessage:\n${body}`.slice(0, 4000);
 }
 
-export async function sendLostItemClientNotice(actorId: string, input: unknown): Promise<ClientNoticeResult> {
+/** `actorRole`: the role that allowed the send (ADMIN, or OPS_MANAGER with the Lost & found pack), kept on the audit row. */
+export async function sendLostItemClientNotice(actorId: string, input: unknown, actorRole: OfficeActorRole | null = null): Promise<ClientNoticeResult> {
   const request = clientNoticeSchema.parse(input);
   const { item, client, recipients } = await resolveClientNoticeTarget(request.lostFoundItemId);
   const controls = await getNotificationTypeControls();
@@ -106,7 +109,7 @@ export async function sendLostItemClientNotice(actorId: string, input: unknown):
   } });
   await db.auditLog.create({ data: {
     userId: actorId, jobId: item.jobId, action: "LOST_FOUND_CLIENT_NOTICE_SENT", entity: "LostFoundItem", entityId: item.id,
-    after: { clientId: client.id, transports: request.transports, idempotencyKey: request.idempotencyKey, outcomes: outcomes.map((o) => ({ userId: o.userId, transport: o.transport, state: o.state, errorCode: o.errorCode ?? null })), deliveryConfirmed: false } as Prisma.InputJsonValue,
+    after: { actorRole, clientId: client.id, transports: request.transports, idempotencyKey: request.idempotencyKey, outcomes: outcomes.map((o) => ({ userId: o.userId, transport: o.transport, state: o.state, errorCode: o.errorCode ?? null })), deliveryConfirmed: false } as Prisma.InputJsonValue,
   } });
   return { ...result, taken };
 }

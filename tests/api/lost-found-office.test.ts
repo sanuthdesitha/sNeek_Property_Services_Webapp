@@ -10,6 +10,7 @@ const m = vi.hoisted(() => ({
   bulk: vi.fn(),
   workflow: vi.fn(),
   sendGuest: vi.fn(),
+  ops: vi.fn(),
   db: {
     property: { findUnique: vi.fn() },
     job: { findUnique: vi.fn() },
@@ -18,6 +19,7 @@ const m = vi.hoisted(() => ({
   },
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.requireRole }));
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
 vi.mock("@/lib/db", () => ({ db: m.db }));
 vi.mock("@/lib/s3", () => ({ publicUrl: (key: string) => `https://files.invalid/${key}` }));
 vi.mock("@/lib/uploads/ownership-server", () => ({ findForeignUploadKeys: m.foreign }));
@@ -41,6 +43,8 @@ const json = (url: string, body: unknown) => new NextRequest(url, { method: "POS
 beforeEach(() => {
   vi.clearAllMocks();
   m.requireRole.mockResolvedValue({ user: { id: "office", role: "OPS_MANAGER" } });
+  // A manager whose Lost & found pack is view only: copy and record, no Send.
+  m.ops.mockResolvedValue({ "lost-found": "read" });
   m.foreign.mockResolvedValue([]);
   m.db.property.findUnique.mockResolvedValue({ id: "p1" });
   m.db.job.findUnique.mockResolvedValue({ propertyId: "p1" });
@@ -108,7 +112,9 @@ describe("bulk and workflow routes", () => {
 describe("message guest / tell client", () => {
   // Wave E changed the client half on purpose: "Tell client" is now sendable
   // from the app by an administrator when the property's client has a login.
-  it("lets only an administrator send a guest message from the app; a client message only when the client can be reached", async () => {
+  // Owner decision 2026-11-12: also by a manager with the Lost & found pack at
+  // manage; a manager whose pack is view only still copies and records.
+  it("lets an administrator (or a manager with the pack) send a guest message from the app; a client message only when the client can be reached", async () => {
     m.db.lostFoundItem.findUnique.mockResolvedValue({ id: "i1", itemName: "Watch", createdAt: "2026-11-10T00:00:00.000Z", foundLocation: null, propertyId: "p1", propertyName: "Bondi", propertyAddress: null, guestName: null, guestEmail: "g@example.invalid", guestContact: null });
     m.db.property.findUnique.mockResolvedValue({ name: "Bondi", client: { id: "cl1", name: "Harbour Stays", email: null, phone: null, notificationPref: null, users: [] } });
     m.requireRole.mockResolvedValueOnce({ user: { id: "admin", role: "ADMIN" } });
@@ -122,6 +128,26 @@ describe("message guest / tell client", () => {
     expect((await (await messageGet(new NextRequest("https://app.invalid/x?audience=client"), { params: { id: "i1" } })).json()).send.available).toBe(true);
     m.requireRole.mockResolvedValueOnce({ user: { id: "ops", role: "OPS_MANAGER" } });
     expect((await (await messageGet(new NextRequest("https://app.invalid/x?audience=client"), { params: { id: "i1" } })).json()).send.available).toBe(false);
+    m.ops.mockResolvedValue({ "lost-found": "manage" });
+    m.requireRole.mockResolvedValueOnce({ user: { id: "ops", role: "OPS_MANAGER" } });
+    expect((await (await messageGet(new NextRequest("https://app.invalid/x?audience=client"), { params: { id: "i1" } })).json()).send.available).toBe(true);
+    m.requireRole.mockResolvedValueOnce({ user: { id: "ops", role: "OPS_MANAGER" } });
+    expect((await (await messageGet(new NextRequest("https://app.invalid/x?audience=guest"), { params: { id: "i1" } })).json()).send.available).toBe(true);
+  });
+
+  it("lets a manager with the Lost & found pack at manage send a guest message (actor and role passed for the audit row); refuses one without it", async () => {
+    const payload = { transport: "EMAIL", to: "g@example.invalid", subject: "Item found", body: "Hello", idempotencyKey: "lf-key-0002" };
+    m.ops.mockResolvedValue({ "lost-found": "manage" });
+    m.sendGuest.mockResolvedValueOnce({ state: "provider_accepted", errorCode: null });
+    expect((await sendGuestPost(json("https://app.invalid/x", payload), { params: { id: "i1" } })).status).toBe(200);
+    expect(m.sendGuest).toHaveBeenCalledWith("office", { lostFoundItemId: "i1", ...payload }, expect.any(Date), "OPS_MANAGER");
+    expect(m.requireRole).toHaveBeenLastCalledWith(["ADMIN", "OPS_MANAGER"]);
+    m.sendGuest.mockClear();
+    m.ops.mockResolvedValue({ "lost-found": "off" });
+    const refused = await sendGuestPost(json("https://app.invalid/x", payload), { params: { id: "i1" } });
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error).toMatch(/Lost & found permission/);
+    expect(m.sendGuest).not.toHaveBeenCalled();
   });
 
   it("moves the item to Guest contacted only when the provider accepted the message, and never says delivered", async () => {
@@ -129,7 +155,7 @@ describe("message guest / tell client", () => {
     m.requireRole.mockResolvedValue({ user: { id: "admin", role: "ADMIN" } });
     m.sendGuest.mockResolvedValueOnce({ state: "provider_accepted", errorCode: null });
     const accepted = await (await sendGuestPost(json("https://app.invalid/x", payload), { params: { id: "i1" } })).json();
-    expect(m.sendGuest).toHaveBeenCalledWith("admin", { lostFoundItemId: "i1", ...payload });
+    expect(m.sendGuest).toHaveBeenCalledWith("admin", { lostFoundItemId: "i1", ...payload }, expect.any(Date), "ADMIN");
     expect(accepted.outcome).toMatchObject({ accepted: true, note: expect.stringContaining("delivery is not confirmed") });
     expect(m.workflow).toHaveBeenCalledWith("i1", "admin", expect.objectContaining({ action: "GUEST_CONTACTED", channel: "EMAIL" }));
     expect(JSON.stringify(accepted)).not.toMatch(/delivered/i);
@@ -152,8 +178,8 @@ describe("message guest / tell client", () => {
     m.db.lostFoundItem.findUnique.mockResolvedValue({ id: "i1", itemName: "Watch", createdAt: "2026-11-10T00:00:00.000Z", foundLocation: "Bedside", propertyId: "p1", propertyName: "Bondi", propertyAddress: "1 Test St", guestName: "Priya Shah", guestEmail: null, guestContact: "priya@example.invalid or 0400 111 222" });
     m.db.property.findUnique.mockResolvedValue({ name: "Bondi", client: { name: "Harbour Stays", email: "office@harbour.invalid", phone: null } });
     const guest = await (await messageGet(new NextRequest("https://app.invalid/api/admin/lost-found/i1/message?audience=guest"), { params: { id: "i1" } })).json();
-    // An operations manager cannot send a guest message from the app.
-    expect(guest.send).toEqual({ available: false, reason: expect.stringMatching(/Only administrators/) });
+    // An operations manager whose Lost & found pack is view only cannot send a guest message from the app.
+    expect(guest.send).toEqual({ available: false, reason: expect.stringMatching(/Lost & found permission.*record that you sent it/) });
     expect(guest.recipient).toEqual({ name: "Priya Shah", email: "priya@example.invalid", phone: "0400111222" });
     expect(guest.draft.body).toContain("Watch (Bedside)");
     const client = await (await messageGet(new NextRequest("https://app.invalid/api/admin/lost-found/i1/message?audience=client"), { params: { id: "i1" } })).json();

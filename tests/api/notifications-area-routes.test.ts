@@ -5,9 +5,10 @@ import { Role } from "@prisma/client";
 const m = vi.hoisted(() => ({
   session: vi.fn(), office: vi.fn(), me: vi.fn(), controls: vi.fn(), saveControls: vi.fn(), changeSwitch: vi.fn(), view: vi.fn(),
   settings: vi.fn(), sms: vi.fn(), webPush: vi.fn(), count: vi.fn(), findFirst: vi.fn(), group: vi.fn(), heartbeats: vi.fn(),
-  item: vi.fn(), auditCount: vi.fn(), audit: vi.fn(), email: vi.fn(), smsSend: vi.fn(), receipt: vi.fn(), notify: vi.fn(),
+  item: vi.fn(), auditCount: vi.fn(), audit: vi.fn(), email: vi.fn(), smsSend: vi.fn(), receipt: vi.fn(), notify: vi.fn(), ops: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.session }));
+vi.mock("@/lib/rbac/ops-access", () => ({ getOpsAccess: m.ops }));
 vi.mock("@/lib/notifications/office-sends", () => ({ sendOfficeNotification: m.office, outcomeTaken: () => true }));
 vi.mock("@/lib/notifications/catalog-switches", async () => {
   const { z } = await import("zod");
@@ -70,12 +71,22 @@ describe("role and impersonation boundaries", () => {
     expect(m.office).not.toHaveBeenCalled();
   });
 
-  it("keeps the client delay notice and guest messages to administrators", async () => {
+  // Owner decision 2026-11-12: operations managers may send these too, each
+  // only with the pack of the page it lives on at manage (Jobs; Lost & found).
+  it("gates the client delay notice and guest messages by the page's pack for operations managers", async () => {
+    const ops = { user: { id: "ops-1", role: Role.OPS_MANAGER, heldRoles: [Role.OPS_MANAGER] } };
+    m.session.mockResolvedValue(ops);
+    m.ops.mockResolvedValue({ jobs: "read", "lost-found": "read", communications: "manage" });
+    const delay = await CLIENT_DELAY(request({ jobId: "job-1", transports: ["PUSH"] }));
+    expect(delay.status).toBe(403);
+    expect((await delay.json()).error).toMatch(/Jobs & assignments permission/);
+    expect(m.session).toHaveBeenLastCalledWith([Role.ADMIN, Role.OPS_MANAGER]);
+    const guest = await GUEST(request({ lostFoundItemId: "i1", transport: "EMAIL", to: "guest@example.invalid", body: "Found it" }));
+    expect(guest.status).toBe(403);
+    expect((await guest.json()).error).toMatch(/Lost & found permission/);
+    expect(m.office).not.toHaveBeenCalled();
+    expect(m.email).not.toHaveBeenCalled();
     m.session.mockRejectedValue(new Error("FORBIDDEN"));
-    expect((await CLIENT_DELAY(request({ jobId: "job-1", transports: ["PUSH"] }))).status).toBe(403);
-    expect(m.session).toHaveBeenLastCalledWith([Role.ADMIN]);
-    expect((await GUEST(request({ lostFoundItemId: "i1", transport: "EMAIL", to: "guest@example.invalid", body: "Found it" }))).status).toBe(403);
-    expect(m.session).toHaveBeenLastCalledWith([Role.ADMIN]);
     expect((await STAFF_MESSAGE(request({ recipientIds: ["c1"], subject: "Hi", body: "Hi", transports: ["PUSH"] }))).status).toBe(403);
     expect(m.session).toHaveBeenLastCalledWith([Role.ADMIN, Role.OPS_MANAGER]);
   });

@@ -6,7 +6,8 @@
  * single transition service and its policy and is answered on its own (a need
  * at another stage is refused with the policy's reason). One reason covers the
  * selection, as the service requires a reason for every action. "Add to one
- * shopping run" is not offered: no existing service adds lines to a run.
+ * shopping run" (Wave F) opens the shared add-to-run dialog for the selection.
+ * Close (an administrator resolution) is offered to administrators only.
  */
 import { useRef, useState } from "react";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -15,6 +16,7 @@ import { EField, EModal, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { UrgentNeedListRow } from "@/lib/inventory/urgent-stock-list";
 import type { UrgentBulkAction } from "@/lib/inventory/urgent-stock-actions";
 import { newRequestId } from "./urgent-api";
+import { AddToRunDialog } from "./add-to-run-dialog";
 
 type Result = { id: string; outcome: "done" | "refused"; message: string };
 type RunState = { status: "idle" } | { status: "running" } | { status: "finished"; results: Result[] } | { status: "failed"; message: string };
@@ -27,8 +29,9 @@ const COPY: Record<UrgentBulkAction, { title: string; reason: string; body: stri
 
 const MAX = 50;
 
-export function UrgentBulk({ selectedRows, onClear, onFinished, onRunningChange }: { selectedRows: UrgentNeedListRow[]; onClear: () => void; onFinished: (results: Result[]) => void; onRunningChange: (running: boolean) => void }) {
+export function UrgentBulk({ selectedRows, canResolve, onClear, onFinished, onRunningChange }: { selectedRows: UrgentNeedListRow[]; canResolve: boolean; onClear: () => void; onFinished: (results: Result[]) => void; onRunningChange: (running: boolean) => void }) {
   const [action, setAction] = useState<UrgentBulkAction | null>(null);
+  const [addingToRun, setAddingToRun] = useState(false);
   const [reason, setReason] = useState("");
   const [run, setRun] = useState<RunState>({ status: "idle" });
   const bulkRequest = useRef<{ key: string; id: string } | null>(null);
@@ -80,9 +83,11 @@ export function UrgentBulk({ selectedRows, onClear, onFinished, onRunningChange 
         note={tooMany ? `At most ${MAX} at a time.` : "Selection covers this page of the current list."}
       >
         <EBulkButton disabled={tooMany} onClick={() => open("acknowledge")}>Acknowledge</EBulkButton>
+        <EBulkButton disabled={tooMany} onClick={() => setAddingToRun(true)}>Add to one shopping run</EBulkButton>
         <EBulkButton disabled={tooMany} onClick={() => open("mark-ordered")}>Mark ordered</EBulkButton>
-        <EBulkButton disabled={tooMany} onClick={() => open("close")}>Close</EBulkButton>
+        {canResolve ? <EBulkButton disabled={tooMany} onClick={() => open("close")}>Close</EBulkButton> : null}
       </EBulkBar>
+      {addingToRun ? <AddToRunDialog needs={selectedRows} onClose={() => setAddingToRun(false)} onDone={(results) => onFinished(results.map((result) => ({ id: result.id, outcome: result.outcome === "refused" ? "refused" : "done", message: result.message })))} /> : null}
       <EModal open={action !== null} onClose={() => (running ? undefined : setAction(null))} eyebrow="Urgent needs" title={action ? COPY[action].title : ""}>
         {action ? (
           <div className="space-y-4">

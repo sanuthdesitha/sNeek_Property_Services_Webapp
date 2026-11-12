@@ -1274,3 +1274,30 @@ Tests run (all pass):
 Not run / not verified
 - Production build, the full Vitest suite and browser checks (owner asked to save time). Final browser pass, 390px and 1280px, light and dark: person panel Pay (date input, history list, Remove), Leave and days off form, Documents "required" rows, Settings → Required documents (checkbox grid at 390px), Accounts "Never signed in" / "Not recorded yet"; Jobs row menu "Cancel job…", peek "Cancel job" (danger outline) and Restore block, bulk bar "Cancel job" (bar width at 390px), cancel dialog (focus trap, reason kept on error), job page cancelled notice and Danger tab; assign modal / quick assign / bulk assign "Assign anyway"; calendar "Leave" / "Day off" cells, Status "Cancelled" filter, struck-through cancelled chips, end-time drop confirmation text; QA amending notice with the template-copy line.
 - No real message sent (notification pipeline mocked in tests).
+
+
+## Office sends for operations managers; document request transport choice (2026-11-12, uncommitted step)
+
+Scope: owner decisions A and B of 2026-11-12 (`docs/plans/admin-redesign-2026-11.md`, "Owner decisions, ninth set"). No Prisma schema change, no migration. Details: `docs/SYSTEM.md`, "Office sends for operations managers and the document request transport choice".
+
+Changed
+- A: Chase supplier (pack `laundry`), Message guest and lost-item Tell client (pack `lost-found`), client delay notice and clock pause (pack `jobs`) may be sent by an operations manager holding that pack at manage; ADMIN unchanged; refused while impersonating (also for administrators) and for revoked accounts. One rule (`lib/notifications/office-send-rules.ts`) checked on every send route and preview with the live session guard and live pack levels (`lib/notifications/office-send-permission.ts`). The three notifications-area send routes now belong to the page's pack in `opsRequestFeature`. Audit rows add `actorRole`; limits, cool-downs, idempotency, masking unchanged. UI shows Send by the same rule; Copy stays for everyone.
+- B: Accounts "Request document" (Compliance board and a person's Documents section) and Command "Send reminder" share one Inbox / Email / SMS choice (multi-select, each disabled with the reason), "Don't ask again" per office user (AppSetting `office_send_transports_v1:<userId>`), a visible "Sending by: … · Change · Ask me again" line, and a reset in Notifications → Preferences ("Your sending choices", `GET`/`DELETE /api/me/send-transports`). Options: `GET /api/admin/workforce/document-request?userId=`; the reminder preview carries the same options. The route resolves transports: named → saved → inbox only.
+
+Behaviour changed on purpose (for the owner)
+- A `REQUEST_DOCUMENT` that names no transports and whose sender saved no choice now goes to the inbox only. Before, it also sent email (when the person had an address) and SMS (when they had a phone). The new dialogs always name their transports. The classic `/admin/workforce` hub's request form names none, so from there it is now inbox only (or the sender's saved choice). Automatic onboarding requests keep the old set.
+- `REQUEST_DOCUMENT` without a document id is now refused while impersonating (the reminder path already was), so the request and the saved choice belong to the real person.
+
+Existing behaviour changed on purpose, and the tests updated for it
+- `tests/api/admin-client-delay-notice.test.ts`, `tests/api/admin-clock-pause.test.ts`, `tests/api/laundry-supplier-chase.test.ts`, `tests/api/lost-found-client-notice.test.ts`, `tests/api/lost-found-office.test.ts`, `tests/api/notifications-area-routes.test.ts`, `tests/components/lost-found-format.test.ts`: ADMIN-only assertions replaced by the pack rule (OPS with pack → allowed and audited with its role; OPS with the pack View only / Off → 403 with the reason; revoked → 401; impersonated → 403).
+- `tests/components/live-ops-follow-up.test.tsx`: the workspace takes `canNotifyClient` / `canPauseClock` instead of `canAdminister`.
+- `tests/api/document-reminder.test.ts`: the plain request without transports is inbox only; explicit transports case added; preview carries `options`.
+
+Checks run
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → no errors.
+- New: `tests/lib/office-send-rules.test.ts` (10), `tests/api/document-request-transports.test.ts` (8), `tests/components/document-request-dialog.test.tsx` (7).
+- Every existing test file covering the touched code (45 files incl. the notification catalog, notifications area, ops middleware / policy, work queue, Command, live ops, lost and found, laundry nudges, accounts person panel) → 398 passed. ESLint on the new and changed files → clean.
+
+Not run / not verified
+- Production build, full Vitest suite and browser checks (not requested in this step). Browser pass, 390px and 1280px, light and dark: Request document dialog from Compliance and from the person panel (choices, reasons, Don't ask again, Sending by line, Change / Ask me again, results list), Command Send reminder with a saved choice, Notifications → Preferences "Your sending choices", Live ops as an operations manager with and without the Jobs pack, Lost and found Send as a manager with the pack, Laundry Chase supplier Send as a manager with the pack.
+- Providers mocked; no real message sent.

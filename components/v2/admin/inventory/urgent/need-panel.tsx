@@ -2,12 +2,13 @@
 
 /**
  * The need side panel (`?open=<id>`), as drawn: title, property and needed-by,
- * stage bar, counted / par level / suggested buy / requested / reported by /
- * note, Stay preparation (the existing panel for this property, opened on
+ * stage bar, counted / par level / suggested buy / requested / reported by
+ * (with the job) / shopping run / cleaner asked / note, Stay preparation (the existing panel for this property, opened on
  * demand), the actions for the stage, and the history. Keyed by need id by its
  * parent; reads are cancelled when the need changes.
  */
 import * as React from "react";
+import Link from "next/link";
 import { EButton } from "@/components/v2/ui/primitives";
 import { ESidePanel } from "@/components/v2/ui/side-panel";
 import { EStageBar, type EStage } from "@/components/v2/ui/stage-bar";
@@ -19,6 +20,10 @@ import { isUrgentStockClosed, type UrgentStockStage } from "@/lib/inventory/urge
 import { formatInTimeZone } from "date-fns-tz";
 import { NeedActionDialog, type NeedActionMode } from "./need-action-dialog";
 import { neededByLabel, quantity } from "./urgent-format";
+import { AskFact, RunFact } from "./need-links";
+import { AddToRunDialog } from "./add-to-run-dialog";
+import { AskCleanerDialog } from "./ask-cleaner-dialog";
+import { WithdrawAskButton } from "./withdraw-ask-button";
 
 type Detail = { items: Array<{ itemId: string; item: { name: string; unit: string } }>; events: UrgentNeedEventRecord[] };
 type Load<T> = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; value: T };
@@ -32,6 +37,21 @@ const BAR: Array<{ stage: UrgentStockStage; label: string }> = [
 ];
 const dt = "text-[0.75rem] text-[hsl(var(--e-muted-foreground))]";
 
+/** Wave F history entries (shopping run and "buy" asks). */
+const EXTRA_EVENT_LABEL: Record<string, (detail: Record<string, unknown>) => string> = {
+  ADDED_TO_SHOPPING_RUN: (detail) => `Added to shopping run "${String(detail.runTitle ?? "")}"${typeof detail.quantity === "number" ? `, ${detail.quantity} planned` : ""}`,
+  ASKED_CLEANER_TO_BUY: (detail) => `Asked ${String(detail.cleanerName ?? "a cleaner")} to buy${typeof detail.quantity === "number" ? ` ${detail.quantity}` : ""}`,
+  PURCHASE_ASK_WITHDRAWN: () => "Withdrew the ask to buy",
+  CLEANER_ACCEPTED_TO_BUY: (detail) => `Accepted the ask; on shopping run "${String(detail.runTitle ?? "")}"`,
+  CLEANER_DECLINED_TO_BUY: () => "Declined the ask to buy",
+};
+
+function dispositionNote(disposition: string, count: number | null): string {
+  if (count === null || disposition === "APPLY") return "";
+  if (disposition === "PENDING_APPROVAL") return " (applied to stock when the clean is approved)";
+  return ` (stock not changed: ${disposition.toLowerCase()})`;
+}
+
 export function urgentStages(stage: UrgentStockStage): EStage[] {
   const index = BAR.findIndex((step) => step.stage === stage);
   return BAR.map((step, position) => ({ key: step.stage, label: step.label, state: position < index ? "done" : position === index ? "current" : "todo" }));
@@ -43,6 +63,7 @@ function historyLine(event: UrgentNeedEventRecord, timeZone: string, unit: strin
   const what = event.kind === "REPORTED" ? "Reported"
     : event.kind === "REPORT_UPDATED" ? "Report updated"
     : event.kind === "REMINDER" ? `Reminder ${detail.number ?? ""} queued for administrators`
+    : EXTRA_EVENT_LABEL[event.kind] ? EXTRA_EVENT_LABEL[event.kind]((event.detail ?? {}) as Record<string, unknown>)
     : URGENT_STAGE_RECORDED[event.kind as UrgentStockStage] ?? event.kind;
   const facts = [
     "observedCount" in detail ? `count ${detail.observedCount ?? "unknown"}` : null,
@@ -53,10 +74,11 @@ function historyLine(event: UrgentNeedEventRecord, timeZone: string, unit: strin
   return `${when} · ${what}${facts ? ` (${facts}; ${unit})` : ""} · ${event.actorName}${why ? ` — “${why}”` : ""}`;
 }
 
-export function NeedPanel({ needId, row, timeZone, onClose, onChanged }: { needId: string; row: UrgentNeedListRow | null; timeZone: string; onClose: () => void; onChanged: () => void }) {
+export function NeedPanel({ needId, row, timeZone, canResolve, onClose, onChanged }: { needId: string; row: UrgentNeedListRow | null; timeZone: string; canResolve: boolean; onClose: () => void; onChanged: () => void }) {
   const [need, setNeed] = React.useState<Load<UrgentNeedListRow>>(row ? { status: "ready", value: row } : { status: "loading" });
   const [detail, setDetail] = React.useState<Load<Detail>>({ status: "loading" });
   const [action, setAction] = React.useState<NeedActionMode | null>(null);
+  const [dialog, setDialog] = React.useState<"run" | "ask" | null>(null);
   const [showStay, setShowStay] = React.useState(false);
   const [revision, setRevision] = React.useState(0);
 
@@ -103,6 +125,12 @@ export function NeedPanel({ needId, row, timeZone, onClose, onChanged }: { needI
   const next = value ? urgentNextAction(value.stage) : null;
   const needed = value ? neededByLabel(value.neededBy, value.neededByState, timeZone) : null;
   const closed = value ? isUrgentStockClosed(value.stage) : false;
+  const liveAsk = value?.purchaseAsk && (value.purchaseAsk.state === "ASKED" || value.purchaseAsk.state === "ACCEPTED") ? value.purchaseAsk : null;
+  const canBuy = Boolean(value && !closed && !(value.shoppingRun?.open) && !liveAsk);
+  const changed = () => {
+    setRevision((count) => count + 1);
+    onChanged();
+  };
 
   return (
     <ESidePanel open title={value?.itemName ?? (need.status === "error" ? "Need unavailable" : "Loading…")} label="Need detail" onClose={onClose} subtitle={value ? `${value.propertyName} · ${needed?.text === "–" ? "no upcoming clean scheduled" : `needed by ${needed?.text}`}` : undefined}>
@@ -113,7 +141,7 @@ export function NeedPanel({ needId, row, timeZone, onClose, onChanged }: { needI
           <EStageBar label="Need stages" stages={urgentStages(value.stage)} terminal={value.stage === "ADMIN_RESOLVED" ? { title: "Resolved by an administrator", description: "Closed without a property confirmation; the reason is in the history." } : null} />
           <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 text-[0.8125rem]">
             <dt className={dt}>Counted</dt>
-            <dd>{value.observedCount === null ? "Unknown" : quantity(value.observedCount, value.unit)}{value.observedAt ? `, ${formatInTimeZone(new Date(value.observedAt), timeZone, "d MMM HH:mm")}` : ""}{value.observationDisposition !== "APPLY" && value.observedCount !== null ? ` (stock not changed: ${value.observationDisposition.toLowerCase()})` : ""}</dd>
+            <dd>{value.observedCount === null ? "Unknown" : quantity(value.observedCount, value.unit)}{value.observedAt ? `, ${formatInTimeZone(new Date(value.observedAt), timeZone, "d MMM HH:mm")}` : ""}{dispositionNote(value.observationDisposition, value.observedCount)}</dd>
             <dt className={dt}>Par level</dt>
             <dd>{value.parLevel === null ? "Not set" : quantity(value.parLevel, value.unit)}</dd>
             <dt className={dt}>Suggested buy</dt>
@@ -121,7 +149,14 @@ export function NeedPanel({ needId, row, timeZone, onClose, onChanged }: { needI
             <dt className={dt}>Requested</dt>
             <dd>{value.purchaseQuantity === null ? "Unknown" : quantity(value.purchaseQuantity, value.unit)}</dd>
             <dt className={dt}>Reported by</dt>
-            <dd>{value.reportedByName ?? "Not recorded"}</dd>
+            <dd>
+              {value.reportedByName ?? "Not recorded"}
+              {value.sourceJob ? <> during <Link className="font-[550] text-[hsl(var(--e-primary))] hover:underline" href={`/v2/admin/jobs/${value.sourceJob.id}`}>{value.sourceJob.jobNumber ?? "this job"}</Link></> : null}
+            </dd>
+            <dt className={dt}>Shopping run</dt>
+            <dd><RunFact row={value} /></dd>
+            <dt className={dt}>Cleaner asked</dt>
+            <dd><AskFact row={value} timeZone={timeZone} /></dd>
             <dt className={dt}>Note</dt>
             <dd className="whitespace-pre-wrap break-words">&ldquo;{value.note}&rdquo;</dd>
           </dl>
@@ -138,8 +173,11 @@ export function NeedPanel({ needId, row, timeZone, onClose, onChanged }: { needI
           {!closed ? (
             <div className="flex flex-wrap gap-2">
               {next?.kind === "transition" ? <EButton size="sm" onClick={() => setAction("next")}>{next.label}</EButton> : <span className={dt}>{next?.label}</span>}
+              {canBuy ? <EButton size="sm" variant="outline" onClick={() => setDialog("run")}>Add to shopping run</EButton> : null}
+              {canBuy ? <EButton size="sm" variant="outline" onClick={() => setDialog("ask")}>Ask cleaner to buy</EButton> : null}
+              {liveAsk?.state === "ASKED" ? <WithdrawAskButton askId={liveAsk.id} cleanerName={liveAsk.cleanerName} onDone={changed} /> : null}
               <EButton size="sm" variant="outline" onClick={() => setAction("confirm")}>Confirm at property</EButton>
-              <EButton size="sm" variant="outline" onClick={() => setAction("resolve")}>Resolve</EButton>
+              {canResolve ? <EButton size="sm" variant="outline" onClick={() => setAction("resolve")}>Resolve</EButton> : null}
             </div>
           ) : (
             <p className={dt}>Closed. Earlier actions stay in the history; a new need is a new report.</p>
@@ -156,6 +194,8 @@ export function NeedPanel({ needId, row, timeZone, onClose, onChanged }: { needI
               )
             ) : null}
           </section>
+          {dialog === "run" ? <AddToRunDialog needs={[value]} onClose={() => setDialog(null)} onDone={changed} /> : null}
+          {dialog === "ask" ? <AskCleanerDialog need={value} onClose={() => setDialog(null)} onDone={changed} /> : null}
           {action ? (
             <NeedActionDialog
               need={value}

@@ -14,7 +14,7 @@ const m = vi.hoisted(() => ({
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.session }));
 vi.mock("@/lib/settings", () => ({ getAppSettings: m.settings }));
 vi.mock("@/lib/notifications/office-sends", () => ({ sendOfficeNotification: m.office, outcomeTaken: () => true }));
-vi.mock("@/lib/notifications/sms", () => ({ sendSmsDetailed: m.sms }));
+vi.mock("@/lib/notifications/sms", () => ({ sendSmsDetailed: m.sms, getSmsProviderState: async () => ({ provider: "twilio", configured: true }) }));
 vi.mock("@/lib/notifications/type-controls", async () => {
   const actual = await vi.importActual<typeof import("@/lib/notifications/type-controls")>("@/lib/notifications/type-controls");
   return { ...actual, getNotificationTypeControls: m.controls };
@@ -97,17 +97,32 @@ describe("Send reminder for an expiring document", () => {
     expect(m.requestCreate).not.toHaveBeenCalled();
   });
 
-  it("keeps the older Request document path (no document id) with its previous transports, now with real states", async () => {
+  // Owner decision 2026-11-12 (item B) changed this on purpose: the Accounts
+  // request names its transports; a request that names none (and whose sender
+  // saved no choice) goes to the inbox only, no longer email and SMS by default.
+  it("sends the Accounts request (no document id) by the inbox only when it names no transports and nothing is saved", async () => {
     const response = await post({ action: "REQUEST_DOCUMENT", userId: "c1", category: "id", title: "Licence" });
+    expect(response.status).toBe(200);
+    expect(m.office.mock.calls[0][0].transports).toEqual(["PUSH"]);
+    expect(m.sms).not.toHaveBeenCalled();
+    const { result } = await response.json();
+    expect(result).toMatchObject({ transportsUsed: ["PUSH"], transportSource: "default", delivery: { sms: null } });
+  });
+
+  it("sends the Accounts request by the explicit transports, with each one's real state", async () => {
+    const response = await post({ action: "REQUEST_DOCUMENT", userId: "c1", category: "id", title: "Licence", transports: ["PUSH", "EMAIL", "SMS"] });
     expect(response.status).toBe(200);
     expect(m.office.mock.calls[0][0].transports).toEqual(["PUSH", "EMAIL"]);
     expect(m.sms).toHaveBeenCalledTimes(1);
-    expect((await response.json()).result.delivery.sms).toMatchObject({ state: "skipped" });
+    expect((await response.json()).result).toMatchObject({ transportSource: "request", delivery: { sms: { state: "skipped" } } });
   });
 
   it("previews what will be sent and whether a reminder already went today", async () => {
     m.settingFind.mockResolvedValue({ value: { at: "2026-11-12T01:00:00.000Z", status: "DONE" } });
     const body = await (await PREVIEW({ nextUrl: new URL("http://localhost/x?documentId=doc-1") } as never)).json();
     expect(body).toMatchObject({ requestTitle: "Renewed Police check", person: { name: "Jane", hasEmail: true, hasPhone: true }, sentToday: { state: "requested" } });
+    // The shared transport choice: Inbox always, Email and SMS with their reasons.
+    expect(body.options.transports.PUSH).toEqual({ available: true, reason: null });
+    expect(body.options.transports.SMS).toEqual({ available: true, reason: null });
   });
 });

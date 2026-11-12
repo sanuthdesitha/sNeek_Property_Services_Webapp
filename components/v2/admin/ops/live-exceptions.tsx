@@ -3,12 +3,13 @@
 /**
  * Live ops exceptions, each with its actions:
  * - Late → Call (tel), Message (the job's Messages tab), Tell client (as
- *   drawn; ADMIN: confirm dialog over the client delay notice route; others
+ *   drawn; ADMIN, or OPS_MANAGER with the Jobs pack: confirm dialog over the
+ *   client delay notice route; others
  *   keep a "Tell client" link to the Messages tab), Reassign (Jobs peek panel).
  *   A notice already requested today shows on the row (time, who).
  * - Continuation request → Approve, or Decline with the required reason
  *   (shared DeclineReasonDialog, also used by Command's work queue).
- * - Off site with the clock running → Call, Pause clock (ADMIN: dialog over
+ * - Off site with the clock running → Call, Pause clock (same rule: dialog over
  *   POST /api/admin/jobs/[id]/pause-clock), Review clock (the job's Activity tab).
  * - Not started past start time → Call, Reassign.
  */
@@ -28,8 +29,10 @@ type ExceptionProps = {
   jobs: LiveJobRow[];
   continuations: LiveContinuationRow[];
   readOnly: boolean;
-  /** ADMIN (not impersonating): Notify client and Pause clock, as their routes allow. */
-  canAdminister?: boolean;
+  /** Notify client: ADMIN, or OPS_MANAGER with the Jobs pack at manage; not impersonating (as the route allows). */
+  canNotifyClient?: boolean;
+  /** Pause clock: the same rule, as its route allows. */
+  canPauseClock?: boolean;
   todayKey?: string;
   timeZone?: string;
   onReassign: (jobId: string) => void;
@@ -120,10 +123,11 @@ function requestedLine(job: LiveJobRow, timeZone: string): string | null {
   return `Client delay notice requested at ${clock} by ${job.delayNotice.byName}.`;
 }
 
-export function LiveExceptions({ jobs, continuations, readOnly, canAdminister = false, todayKey = "", timeZone = "Australia/Sydney", onReassign, onSelect, onDecided }: ExceptionProps) {
+export function LiveExceptions({ jobs, continuations, readOnly, canNotifyClient = false, canPauseClock = false, todayKey = "", timeZone = "Australia/Sydney", onReassign, onSelect, onDecided }: ExceptionProps) {
   const [noticeJob, setNoticeJob] = useState<LiveJobRow | null>(null);
   const [pauseJob, setPauseJob] = useState<LiveJobRow | null>(null);
-  const admin = canAdminister && !readOnly;
+  const notify = canNotifyClient && !readOnly;
+  const pause = canPauseClock && !readOnly;
   const late = jobs.filter((job) => job.state === "late").sort((a, b) => (b.minutes ?? 0) - (a.minutes ?? 0));
   const offSite = jobs.filter((job) => job.state === "off-site");
   const notStarted = jobs.filter((job) => job.state === "not-started").sort((a, b) => (b.minutes ?? 0) - (a.minutes ?? 0));
@@ -140,7 +144,7 @@ export function LiveExceptions({ jobs, continuations, readOnly, canAdminister = 
           <div className="flex flex-wrap gap-2">
             <CallButton job={job} />
             <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "messages")}>Message</Link></EButton>
-            {admin ? (
+            {notify ? (
               <EButton size="sm" variant="outline" onClick={() => setNoticeJob(job)}>{job.delayNotice ? "Tell client again…" : "Tell client"}</EButton>
             ) : (
               <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "messages")} title="Opens the job's client messages">Tell client</Link></EButton>
@@ -159,7 +163,7 @@ export function LiveExceptions({ jobs, continuations, readOnly, canAdminister = 
           </p>
           <div className="flex flex-wrap gap-2">
             <CallButton job={job} />
-            {admin && (job.runningClocks?.length ?? 0) > 0 ? <EButton size="sm" onClick={() => setPauseJob(job)}>Pause clock</EButton> : null}
+            {pause && (job.runningClocks?.length ?? 0) > 0 ? <EButton size="sm" onClick={() => setPauseJob(job)}>Pause clock</EButton> : null}
             <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "activity")}>Review clock</Link></EButton>
           </div>
         </li>

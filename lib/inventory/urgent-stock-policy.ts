@@ -10,6 +10,8 @@ export const urgentStockReportInput = z.object({
   purchaseQuantity: z.number().finite().positive().max(1_000_000).nullable(),
   observedAt: z.string().datetime({ offset: true }).nullable(),
   note: z.string().trim().min(1).max(2000),
+  /** Wave F: the job the need is reported from (checked against the property and the reporter). */
+  jobId: z.string().min(1).max(200).nullable().optional(),
 }).strict().superRefine((value, context) => {
   if (value.observedCount !== null && value.observedAt === null) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["observedAt"], message: "Record when the count was observed." });

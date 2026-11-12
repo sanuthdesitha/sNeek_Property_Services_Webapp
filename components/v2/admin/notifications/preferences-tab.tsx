@@ -7,6 +7,7 @@ import { NotificationAudienceSection } from "@/components/v2/admin/settings/noti
 import { FinanceNotificationsSection } from "@/components/v2/admin/settings/finance-notifications-section";
 import type { NotificationAudienceControls } from "@/lib/notifications/audience-controls";
 import { LazyDisclosure } from "./lazy-disclosure";
+import { SendingChoices } from "./sending-choices";
 
 export type PreferencesSettings = {
   automation: NotificationsAutomationSettings;
@@ -17,9 +18,11 @@ export type PreferencesSettings = {
  * Organisation-level notification defaults and audience controls, gathered
  * here. The same components as the settings tabs, saving through the same
  * endpoints; the settings tabs keep working at their old URLs. A person's own
- * preferences stay on their Accounts panel (linked, not duplicated).
+ * preferences stay on their Accounts panel (linked, not duplicated). "Your
+ * sending choices" lists the signed-in office user's own "Don't ask again"
+ * transport choices, each with "Ask me again".
  */
-export function PreferencesTab({ isAdmin, settings, onToast }: { isAdmin: boolean; settings: PreferencesSettings | null; onToast: (toast: EstateToast) => void }) {
+export function PreferencesTab({ isAdmin, settings, onToast, timeZone = "Australia/Sydney" }: { isAdmin: boolean; settings: PreferencesSettings | null; onToast: (toast: EstateToast) => void; timeZone?: string }) {
   return (
     <section aria-labelledby="preferences-heading" className="space-y-4">
       <div className="space-y-1">
@@ -29,6 +32,8 @@ export function PreferencesTab({ isAdmin, settings, onToast }: { isAdmin: boolea
           <a className="underline" href="/v2/admin/accounts">Accounts</a>.
         </p>
       </div>
+
+      <SendingChoices timeZone={timeZone} />
 
       <CommsControlCenter onToast={onToast} />
 

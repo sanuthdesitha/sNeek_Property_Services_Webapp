@@ -19,10 +19,9 @@ import { UrgentNeedsWorkspace } from "@/components/v2/admin/inventory/urgent/urg
 import { readUrgentView } from "@/components/v2/admin/inventory/urgent/urgent-view";
 import { CLOSED_STAGES } from "@/lib/inventory/urgent-stock-actions";
 import { EKpiLink } from "@/components/v2/admin/estate-kit";
-import {
-  InventoryChipTabs,
-  type InventoryTab,
-} from "@/components/v2/admin/inventory/inventory-chip-tabs";
+import { InventoryChipTabs } from "@/components/v2/admin/inventory/inventory-chip-tabs";
+import { normalizeInventoryTab } from "@/components/v2/admin/inventory/inventory-tabs";
+import { urgentStockOfficeAllowed } from "@/lib/inventory/urgent-stock";
 import { EstateItems } from "@/components/v2/admin/inventory/estate-items";
 import { EstateSuppliers } from "@/components/v2/admin/inventory/estate-suppliers";
 import { EstateOnHand } from "@/components/v2/admin/inventory/estate-on-hand";
@@ -43,24 +42,6 @@ export const dynamic = "force-dynamic";
 const PENDING_SHOPPING_STATUSES = ["DRAFT", "ACTIVE", "SUBMITTED", "APPROVED"];
 const PENDING_STOCK_RUN_STATUSES = ["DRAFT", "ACTIVE", "SUBMITTED"];
 
-const TAB_KEYS: InventoryTab[] = [
-  "items",
-  "properties",
-  "on-hand",
-  "stock-counts",
-  "scan-tasks",
-  "shopping-runs",
-  "suppliers",
-];
-
-function normalizeTab(value: string | undefined, canManageUrgentStock: boolean): InventoryTab {
-  // Urgent-stock administration is ADMIN-only on the server; mirror that here.
-  // For an administrator it is the first tab, so a bare /v2/admin/inventory
-  // opens it; every existing ?tab= id keeps its tab.
-  if (value === "urgent-stock") return canManageUrgentStock ? "urgent-stock" : "items";
-  if (!value) return canManageUrgentStock ? "urgent-stock" : "items";
-  return (TAB_KEYS as string[]).includes(value) ? (value as InventoryTab) : "items";
-}
 
 function searchString(searchParams: Record<string, string | string[] | undefined> | undefined): string {
   const query = new URLSearchParams();
@@ -173,9 +154,13 @@ export default async function EstateInventoryPage({
 }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
 
-  const canManageUrgentStock = session.user.role === Role.ADMIN;
+  // Urgent needs: administrators, and operations managers whose inventory
+  // pack allows reading it (the urgent stock service checks the same rule).
+  // It is the first tab for them, so a bare /v2/admin/inventory opens it;
+  // every existing ?tab= id keeps its tab and the drawn names map to theirs.
+  const canManageUrgentStock = await urgentStockOfficeAllowed(session.user, "read");
   const rawTab = typeof searchParams?.tab === "string" ? searchParams.tab : undefined;
-  const tab = normalizeTab(rawTab, canManageUrgentStock);
+  const tab = normalizeInventoryTab(rawTab, canManageUrgentStock);
   const filter = normalizePropertyInventoryFilter(typeof searchParams?.filter === "string" ? searchParams.filter : undefined);
   const urgentCount = canManageUrgentStock ? await db.urgentStockNeed.count({ where: { stage: { notIn: CLOSED_STAGES } } }) : null;
   const tabBar = <InventoryChipTabs active={tab} showUrgentStock={canManageUrgentStock} urgentCount={urgentCount} />;
@@ -183,7 +168,7 @@ export default async function EstateInventoryPage({
   // Urgent needs (first tab, administrators): its own header and list, as drawn.
   if (tab === "urgent-stock") {
     const settings = await getAppSettings();
-    return <UrgentNeedsWorkspace initialView={readUrgentView(searchString(searchParams))} tabs={tabBar} timeZone={settings.timezone || "Australia/Sydney"} />;
+    return <UrgentNeedsWorkspace initialView={readUrgentView(searchString(searchParams))} tabs={tabBar} timeZone={settings.timezone || "Australia/Sydney"} isAdmin={session.user.role === Role.ADMIN} />;
   }
 
   const { rows: propertyRows, totals: propertyTotals } = await getPropertyOverview();

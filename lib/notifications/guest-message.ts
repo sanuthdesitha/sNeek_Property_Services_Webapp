@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import type { OfficeActorRole } from "@/lib/notifications/office-send-rules";
 import {
   EXTERNAL_MESSAGE_KINDS,
   ExternalMessageError,
@@ -15,8 +16,8 @@ import {
  * "Message guest" for a lost and found item (catalog type `guest.message`).
  *
  * A guest has no account, so it goes through the shared external-recipient
- * path (`external-recipient.ts`): office-initiated only (the route allows ADMIN
- * only and refuses impersonation), tied to an existing lost and found item,
+ * path (`external-recipient.ts`): office-initiated only (the routes allow ADMIN,
+ * or OPS_MANAGER with the Lost & found pack, and refuse impersonation), tied to an existing lost and found item,
  * rate-limited, one send per idempotency key, audited with a masked address and
  * recorded with the provider's truthful state (accepted, never "delivered").
  */
@@ -40,7 +41,8 @@ export const guestMessageSchema = z.object({
 
 export type GuestMessageResult = ExternalMessageResult;
 
-export async function sendGuestMessage(actorId: string, input: unknown, now = new Date()): Promise<GuestMessageResult> {
+/** `actorRole`: the role that allowed the send (ADMIN, or OPS_MANAGER with the Lost & found pack), kept on the audit row. */
+export async function sendGuestMessage(actorId: string, input: unknown, now = new Date(), actorRole: OfficeActorRole | null = null): Promise<GuestMessageResult> {
   const request = guestMessageSchema.parse(input);
   assertExternalAddress("guest.message", request.transport, request.to);
   const item = await db.lostFoundItem.findUnique({ where: { id: request.lostFoundItemId }, select: { id: true, itemName: true, jobId: true } });
@@ -55,6 +57,7 @@ export async function sendGuestMessage(actorId: string, input: unknown, now = ne
     subject: request.subject ?? `About your ${item.itemName}`,
     body: request.body,
     idempotencyKey: request.idempotencyKey,
+    audit: { actorRole },
     now,
   });
   return { state: sent.state, errorCode: sent.errorCode };

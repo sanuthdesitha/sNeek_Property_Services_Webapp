@@ -75,10 +75,12 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function renderOps(canAdminister: boolean) {
+/** The page passes each flag from the shared send rule (ADMIN, or OPS_MANAGER with the Jobs pack). */
+function renderOps(canSend: boolean | { notify: boolean; pause: boolean }) {
+  const flags = typeof canSend === "boolean" ? { notify: canSend, pause: canSend } : canSend;
   return render(
     <LiveFeedProvider>
-      <LiveOpsWorkspace properties={[]} attention={null} initialView="exceptions" todayKey="2026-11-11" timeZone="Australia/Sydney" readOnly={false} canAdminister={canAdminister} />
+      <LiveOpsWorkspace properties={[]} attention={null} initialView="exceptions" todayKey="2026-11-11" timeZone="Australia/Sydney" readOnly={false} canNotifyClient={flags.notify} canPauseClock={flags.pause} />
     </LiveFeedProvider>,
   );
 }
@@ -86,11 +88,17 @@ function renderOps(canAdminister: boolean) {
 const posts = (url: string) => fetchMock.mock.calls.filter(([u, init]) => u === url && (init as RequestInit | undefined)?.method === "POST");
 
 describe("Notify client of delay", () => {
-  it("is offered to administrators only; others keep the Messages link", async () => {
+  it("is offered only where the send rule allows it; others keep the Messages link", async () => {
     renderOps(false);
     await screen.findByText("18 min late");
     expect(screen.getByRole("link", { name: "Tell client" })).toHaveAttribute("href", "/v2/admin/jobs/j1?tab=messages");
     expect(screen.queryByRole("button", { name: "Notify client" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pause clock" })).toBeNull();
+  });
+
+  it("shows each action by its own flag", async () => {
+    renderOps({ notify: true, pause: false });
+    expect(await screen.findByRole("button", { name: "Tell client" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pause clock" })).toBeNull();
   });
 

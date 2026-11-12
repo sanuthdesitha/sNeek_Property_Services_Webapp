@@ -7,7 +7,8 @@
  * wording (the send's own function, with the real ETA in minutes when the
  * cleaner gave one), transports switched off in Notifications, and the send's
  * refusal when it would refuse (e.g. the client switched notifications off).
- * The send is the existing client delay notice route (ADMIN only) with an
+ * The send is the existing client delay notice route (ADMIN, or OPS_MANAGER
+ * with the Jobs pack at manage) with an
  * idempotency key: the first notice of the day for a job uses a fixed key, so
  * a double click or a retry after "no answer" is the same request; when a
  * notice was already requested today the dialog says so and only an explicit

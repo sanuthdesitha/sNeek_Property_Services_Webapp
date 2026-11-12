@@ -1,7 +1,6 @@
-import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireSession } from "@/lib/auth/session";
-import { canActAs } from "@/lib/auth/roles";
+import { officeSendDecision } from "@/lib/notifications/office-send-permission";
 import { getAppSettings } from "@/lib/settings";
 import { requireCommandViewer } from "@/lib/dashboard/command-access";
 import { buildWorkQueue } from "@/lib/dashboard/work-queue";
@@ -23,14 +22,18 @@ export const dynamic = "force-dynamic";
  * Command's work queue; the "Also needs attention" row links there with counts.
  *
  * Same roles as before (ADMIN, OPS_MANAGER); "today" is the Sydney calendar day.
- * "Notify client" and "Pause clock" are shown to administrators only.
+ * "Notify client" and "Pause clock" are shown to administrators and to
+ * operations managers with the Jobs pack at manage (their routes re-check).
  */
 export default async function V2AdminOpsPage({ searchParams }: { searchParams?: { view?: string | string[] } }) {
   const viewer = await requireCommandViewer();
-  // Notify client and Pause clock are ADMIN only (their routes), and never
-  // while impersonating: the target's restrictions apply.
+  // Notify client and Pause clock: ADMIN, or OPS_MANAGER with the Jobs pack at
+  // manage, and never while impersonating (the target's restrictions apply).
   const session = await requireSession();
-  const canAdminister = !session.impersonation && canActAs((session.user.heldRoles ?? [session.user.role]) as Role[], [Role.ADMIN]);
+  const [notifyDecision, pauseDecision] = await Promise.all([
+    officeSendDecision(session, "client_delay_notice"),
+    officeSendDecision(session, "clock_pause"),
+  ]);
   const settings = await getAppSettings().catch(() => null);
   const timeZone = settings?.timezone || "Australia/Sydney";
   const rawView = Array.isArray(searchParams?.view) ? searchParams?.view[0] : searchParams?.view;
@@ -58,7 +61,8 @@ export default async function V2AdminOpsPage({ searchParams }: { searchParams?: 
         todayKey={sydneyTodayKey()}
         timeZone={timeZone}
         readOnly={viewer.readOnly}
-        canAdminister={canAdminister}
+        canNotifyClient={notifyDecision.allowed}
+        canPauseClock={pauseDecision.allowed}
       />
     </LiveFeedProvider>
   );

@@ -2,7 +2,8 @@
 
 /**
  * Live ops "Pause clock" for a cleaner off site with the clock running (owner
- * decision, third set item 3). ADMIN only, like its route
+ * decision, third set item 3). ADMIN, or OPS_MANAGER with the Jobs pack at
+ * manage (owner decision 2026-11-12), like its route
  * (POST /api/admin/jobs/[id]/pause-clock). The dialog says exactly what
  * happens, asks for the required reason and which transports tell the
  * cleaner, freezes while the request runs, keeps the reason on failure and

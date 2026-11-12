@@ -47,11 +47,14 @@ export function UrgentStockWorkspace({
   initialPropertyId = "",
   panel = false,
   lockProperty = false,
+  jobId,
 }: {
   panel?: boolean;
   lockProperty?: boolean;
   isAdmin: boolean;
   initialPropertyId?: string;
+  /** Wave F: the job this report is made from (the job screen); recorded on the need. */
+  jobId?: string;
 }) {
   const [propertyId, setPropertyId] = useState(initialPropertyId);
   const [data, setData] = useState<Snapshot>({
@@ -187,6 +190,7 @@ export function UrgentStockWorkspace({
             void post({
               action: "report",
               propertyId,
+              ...(jobId && lockProperty ? { jobId } : {}),
               itemId,
               observedCount: countValue(observed),
               observedAt: timestamp(observedAt),

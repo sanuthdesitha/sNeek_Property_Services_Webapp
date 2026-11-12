@@ -188,7 +188,7 @@ Today the page only manages the per-job client PDF and shows no figures.
 - The reporting cleaner still does not receive guest details.
 - Status changes follow a transition table; reopening a closed item is an explicit action that records who and why.
 
-Status (2026-11-11): built, browser pass pending. Migration `20261111200000_lost_found_guest_urgent_stock_tables` verified on fresh and existing databases. "Message guest" sends through the notification step's guest-message action (administrators; moves to Guest contacted only when the provider accepted); operations managers and "Tell client" copy the draft and record what they did (no pipeline recipient for a lost-and-found client). Waiting for the owner: should operations managers be able to send guest messages (the notification step allows administrators only)?
+Status (2026-11-11): built, browser pass pending. Migration `20261111200000_lost_found_guest_urgent_stock_tables` verified on fresh and existing databases. "Message guest" sends through the notification step's guest-message action (administrators; moves to Guest contacted only when the provider accepted); operations managers and "Tell client" copy the draft and record what they did (no pipeline recipient for a lost-and-found client). Waiting for the owner: should operations managers be able to send guest messages (the notification step allows administrators only)? **Answered 2026-11-12 (ninth set): yes, with the Lost & found pack at manage.**
 
 ### 10. Urgent stock
 
@@ -360,7 +360,7 @@ Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notification
 | Item | Question |
 | --- | --- |
 | Reminder email and browser push still use the direct path in production | Moving them fully onto the pipeline means setting `SNEEK_NOTIFICATION_OUTBOX_TRANSPORTS=EMAIL,WEB_PUSH` on the server. That would also send any old low-stock email intents already waiting in the queue. An environment decision for the owner |
-| Client delay notice and guest messages are administrator only | Should operations managers send them too? (They can already message clients from Messages) |
+| Client delay notice and guest messages are administrator only | Should operations managers send them too? (They can already message clients from Messages) — **Resolved 2026-11-12 (ninth set)**: yes, with the Jobs / Lost & found pack at manage |
 | Manual reminders ignore the cleaner's personal notification preferences | A switch now exists in Notifications, default off |
 | "Chase supplier" for laundry | Blocked: suppliers have no contact to send to. Add a contact email or phone to suppliers? |
 
@@ -372,7 +372,7 @@ Where these go: 2, 3 and 5 in a "Live ops follow-up" step after the notification
 | "Add to shopping run" and "Ask cleaner to buy" on an urgent need | Not built: no service adds a line to a shopping run or asks a cleaner to buy. Build them? |
 | "Tell client" about a lost item is copy / email link, then recorded by hand | Give it a real send path? |
 | Items still at "New" are not flagged by the 14-day holding period (only in storage or awaiting the guest) | Confirm, or flag New items too? |
-| Administrators can send the guest message by email or SMS from the app; it moves the item to "Guest contacted" only when the provider accepts it | Confirm, or switch to copy-and-record only? |
+| Administrators can send the guest message by email or SMS from the app; it moves the item to "Guest contacted" only when the provider accepts it | Confirm, or switch to copy-and-record only? — **Resolved 2026-11-12 (ninth set)**: send kept; operations managers with the Lost & found pack send too |
 
 ### More items waiting for the owner (from the template builder step)
 
@@ -460,9 +460,9 @@ Waves (one wave holds the database at a time):
 
 > **Wave E, no-database part, built 2026-11-12 (uncommitted step; build, full suite and browser pass pending).** Details: `docs/SYSTEM.md`, "Wave E without a database change".
 > - [x] Cases: "Create repair quote" pre-filled from the case (server-read `?fromCase=`, FROM_CASE quote event + internal case note, "Quote Q-… created" on the case, "From case …" on the quote; nothing sent).
-> - [x] Laundry: "Chase supplier" to the supplier's stored email / SMS (ADMIN sends, everyone who can open the run copies; 30-minute cool-down; shared external-recipient path; catalog `laundry.supplier_chase`).
+> - [x] Laundry: "Chase supplier" to the supplier's stored email / SMS (ADMIN sends, everyone who can open the run copies; 30-minute cool-down; shared external-recipient path; catalog `laundry.supplier_chase`). Ninth set: operations managers with the Laundry pack send too.
 > - [x] Command: inline "Send reminder" for an expiring document through REQUEST_DOCUMENT (confirm, explicit transports, one per document per day; REQUEST_DOCUMENT now records real states).
-> - [x] Lost and found: Property column sortable (raw ordered ids merged with paging, PostgreSQL parity test); "Tell client" sent from the app (scope LOST_ITEM_PROPERTY_CLIENT, ADMIN; operations managers copy and record).
+> - [x] Lost and found: Property column sortable (raw ordered ids merged with paging, PostgreSQL parity test); "Tell client" sent from the app (scope LOST_ITEM_PROPERTY_CLIENT, ADMIN; operations managers copy and record). Ninth set: operations managers with the Lost & found pack send too.
 > - [x] Remaining visual differences on Cases, Laundry, Command, Live ops, Lost and found closed or listed (SYSTEM.md section).
 > - [ ] Schema step: Accounts (effective-dated pay rate, required documents, Last seen for everyone, one Pay editor), Cancel job, leave and days off, "Add charge to invoice" from a case, laundry pickup/drop clock times, QA inspection template snapshot.
 
@@ -504,8 +504,8 @@ Items in these waves that change a business rule, money, or who can do what are 
 
 | Item | Question |
 | --- | --- |
-| Clock pause is administrator only | Let operations managers pause a clock too? |
-| Client delay notice is administrator only | Let operations managers send it too? |
+| Clock pause is administrator only | Let operations managers pause a clock too? — **Resolved 2026-11-12 (ninth set)**: yes, with the Jobs pack at manage |
+| Client delay notice is administrator only | Let operations managers send it too? — **Resolved 2026-11-12 (ninth set)**: yes, with the Jobs pack at manage |
 | "Request photo" for a missing drop-off photo goes to the job's cleaners | Should it go to the laundry driver instead? |
 | The cleaner sees the reason for an office clock pause only in the notification, not on their job screen | Show it on the job screen too? |
 
@@ -538,3 +538,14 @@ A bonus proposed by hand is limited to $5 to $200 and needs a reason. It is a pe
 | Operations managers with reports access but no finance access can be chosen for the monthly Insights email (they get it without money figures) | Keep, or limit to those with finance access? |
 
 Rule added in the Finance decisions step, for the final summary: voiding a credit note is refused when the work it credited has since been billed on another live invoice, because voiding it would bill that work twice.
+
+## Owner decisions, ninth set (2026-11-12): office sends and document request transports
+
+A. Operations managers can send the office messages that were administrator only ("Yes office should be able to"): Chase supplier, Tell client (lost item), guest messages, the client delay notice and the clock pause. Rule: an operations manager may send only while holding, at "Manage available actions", the ops pack of the page the action lives on (Laundry; Lost & found; Jobs & assignments), checked on the server on every send with the live session guards; never while impersonating; rate limits, cool-downs, idempotency and masked audit rows unchanged, the audit rows now also record the actor's role. Administrators unchanged. Copy stays for everyone.
+
+B. "Request document" on Accounts asks which transport to use: Inbox, Email, SMS as explicit choices (several at once), each disabled with the reason; "Don't ask again" remembers the choice for that office user and is used next time with a visible "Sending by: … · Change" line; reset in Notifications → Preferences. The Command "Send reminder" uses the same choice and preference. A request that names no transports and has no saved choice goes to the inbox only.
+
+**Status (2026-11-12, uncommitted step, no schema change; build, full suite and browser pass pending).**
+- [x] A: one rule (`lib/notifications/office-send-rules.ts`) on every send route and preview; the three notifications-area send routes belong to the page's pack; Live ops, Laundry and Lost and found show Send by the same rule; `actorRole` on the audit rows.
+- [x] B: shared choice component for Accounts "Request document" (Compliance board and a person's Documents section) and Command "Send reminder"; per-office-user preference in AppSetting `office_send_transports_v1:<userId>`; "Your sending choices" in Notifications → Preferences.
+- Reported, not changed: the classic `/admin/workforce` request form names no transports, so it now sends by the inbox only (or the sender's saved choice); a plain document request has no idempotency key (a retry after "no answer" can create a second request); Live ops actions still also need the page not to be read-only for the viewer. Details: `docs/SYSTEM.md`, "Office sends for operations managers and the document request transport choice".

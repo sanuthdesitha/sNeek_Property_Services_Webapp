@@ -4,8 +4,10 @@
  * Stock → Urgent needs, as drawn: the page header ("Stock", a real summary,
  * Reminder settings, Report a need), the inventory tabs, stage chips with real
  * counts, search and Property, one all-property table sorted by Needed by,
- * the bulk bar and the need panel on `?open=`. Administrator only, like the
- * urgent stock service. A need never places a purchase or proves a delivery.
+ * the bulk bar and the need panel on `?open=`. Administrators, and since Wave F
+ * operations managers with the inventory pack (the service checks both);
+ * resolving and reminder settings stay with administrators. A need never
+ * places a purchase or proves a delivery.
  */
 import * as React from "react";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -25,6 +27,7 @@ import { ReportNeedDialog } from "./report-need-dialog";
 import { ReminderSettingsDialog } from "./reminder-settings-dialog";
 import { urgentListQuery, type UrgentView } from "./urgent-view";
 import { URGENT_PAGE_SIZE, useUrgentNeeds, useUrgentView } from "./use-urgent-needs";
+import { AddToRunDialog } from "./add-to-run-dialog";
 
 function summaryLine(summary: UrgentListSummary | undefined): string {
   if (!summary) return "Loading…";
@@ -32,12 +35,13 @@ function summaryLine(summary: UrgentListSummary | undefined): string {
   return `${needs} · ${summary.dueSoon} not yet delivered for a clean within 48 hours`;
 }
 
-export function UrgentNeedsWorkspace({ initialView, tabs, timeZone }: { initialView: UrgentView; tabs: React.ReactNode; timeZone: string }) {
+export function UrgentNeedsWorkspace({ initialView, tabs, timeZone, isAdmin }: { initialView: UrgentView; tabs: React.ReactNode; timeZone: string; isAdmin: boolean }) {
   const [view, update] = useUrgentView(initialView);
   const list = useUrgentNeeds(view);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [bulkRunning, setBulkRunning] = React.useState(false);
   const [acting, setActing] = React.useState<UrgentNeedListRow | null>(null);
+  const [addingToRun, setAddingToRun] = React.useState<UrgentNeedListRow | null>(null);
   const [reportOpen, setReportOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [stayOpen, setStayOpen] = React.useState(false);
@@ -51,7 +55,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone }: { initialV
   const rows = data?.rows ?? [];
   const zone = data?.timeZone ?? timeZone;
   const open = React.useCallback((row: UrgentNeedListRow) => update({ open: row.id }), [update]);
-  const columns = React.useMemo(() => urgentColumns(zone, { open, act: setActing }), [zone, open]);
+  const columns = React.useMemo(() => urgentColumns(zone, { open, act: setActing, addToRun: setAddingToRun }), [zone, open]);
   const selectedRows = rows.filter((row) => selected.has(row.id));
   const property = data?.propertyOptions.find((option) => option.id === view.propertyId);
   const openRow = view.open ? rows.find((row) => row.id === view.open) ?? null : null;
@@ -65,7 +69,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone }: { initialV
             <p className="mt-1 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">{summaryLine(data?.summary)}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <EButton size="sm" variant="outline" onClick={() => setSettingsOpen(true)}>Reminder settings</EButton>
+            {isAdmin ? <EButton size="sm" variant="outline" onClick={() => setSettingsOpen(true)}>Reminder settings</EButton> : null}
             <EButton size="sm" onClick={() => setReportOpen(true)}>Report a need</EButton>
           </div>
         </header>
@@ -116,6 +120,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone }: { initialV
         </div>
         <UrgentBulk
           selectedRows={selectedRows}
+          canResolve={isAdmin}
           onClear={() => setSelected(new Set())}
           onRunningChange={setBulkRunning}
           onFinished={(results) => {
@@ -135,7 +140,7 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone }: { initialV
         ) : null}
       </div>
 
-      {view.open ? <NeedPanel key={view.open} needId={view.open} row={openRow} timeZone={zone} onClose={() => update({ open: null })} onChanged={list.reload} /> : null}
+      {view.open ? <NeedPanel key={view.open} needId={view.open} row={openRow} timeZone={zone} canResolve={isAdmin} onClose={() => update({ open: null })} onChanged={list.reload} /> : null}
       {acting ? (
         <NeedActionDialog
           need={acting}
@@ -147,8 +152,9 @@ export function UrgentNeedsWorkspace({ initialView, tabs, timeZone }: { initialV
           }}
         />
       ) : null}
+      {addingToRun ? <AddToRunDialog needs={[addingToRun]} onClose={() => setAddingToRun(null)} onDone={() => list.reload()} /> : null}
       <ReportNeedDialog key={view.propertyId} open={reportOpen} initialPropertyId={view.propertyId} onClose={() => setReportOpen(false)} onReported={() => { setReportOpen(false); list.reload(); }} />
-      <ReminderSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ReminderSettingsDialog open={isAdmin && settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
