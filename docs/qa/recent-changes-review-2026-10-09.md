@@ -1207,3 +1207,45 @@ Checks run
 Not run / not verified
 - Production build, the full Vitest suite and browser checks (owner asked to save time). For the final browser pass, at 390px and 1280px, light and dark: stats cards (Ready to bill with button, Drafts pill), Create drafts dialog (loading, outcomes list, retry), Due "On send", Owing header sort, Xero cell states and reasons, bulk Download PDFs result panel, editor header fields (Bill to select width at 390, period inputs wrapping, Due hint), Add finished jobs dialog, add-line combobox (keyboard, list in flow), Send card options and reasons, Xero card name / reason, checklist links, autosave states and conflict banner, Billing schedule → Saved invoice items disclosure.
 - Xero (push failure recording, account name read, new scope), Stripe payment link and email are mocked only. First real Xero use: reconnect Xero once (now also for `accounting.settings.read`); if the app refuses the scope, set `XERO_REQUEST_SETTINGS_READ=false` and the card shows "name unavailable".
+
+## Wave E without a database change (2026-11-12, uncommitted step)
+
+Scope: the Wave E items of `docs/plans/admin-redesign-2026-11.md` that need no schema change. No Prisma schema change, no migration. Details: `docs/SYSTEM.md`, "Wave E without a database change".
+
+Changed
+- Cases "Create repair quote" → `/v2/admin/quotes/new?fromCase=` pre-filled on the server (client, address, title, description, case image evidence); the created quote is linked by a `FROM_CASE` quote event and an internal case note in its own transaction; the case lists "Quote Q-… created", the quote shows "From case …". Nothing is sent.
+- Laundry "Chase supplier" on runs over turnaround: preview `GET /api/admin/laundry/[taskId]/supplier-chase`, send `POST /api/admin/notifications/actions/supplier-chase` (ADMIN, stored contact only, 30-minute cool-down per run, masked audit, truthful states); Copy / `mailto:` / `tel:` for everyone who can open the run. New shared `lib/notifications/external-recipient.ts` (guest message moved onto it unchanged).
+- Command "Send reminder" for an expiring document → `REQUEST_DOCUMENT` with `documentId` (explicit transports, one per document per day, replay of the same key).
+- Lost and found "Tell client" sent from the app (`POST /api/admin/lost-found/[id]/send-client-notice`, ADMIN, new pipeline scope `LOST_ITEM_PROPERTY_CLIENT`, client switch honoured, timeline records real states); Property column and sort menu sort by property name across pages.
+- Forms: Results and stats → Submissions (server paging, sort, filters, PDF, submission view with answers, media, laundry, report preview, history; administrators edit, add / remove / restore media). `/admin/forms` redirects with its tabs mapped; `components/forms/checklists-workspace.tsx` removed.
+- Office submission views show Table answers as a table and Stock count as "item · counted N unit"; the classic cleaner job page renders both types with the shared controls (not redirected; reason in SYSTEM.md).
+- A monthly question already shown on a clean at the property this month that is submitted but not approved is not shown again; due again after that clean is reset or rejected.
+- Design: Laundry tiles moved into Statistics and lane cards carry their exception action; Cases "Client can" as one choice; Live ops late row "Tell client"; Command lost-item row opens the item.
+
+Existing problems fixed (standing rule)
+- `REQUEST_DOCUMENT` wrote its notice as "SENT" and fired email / SMS without recording the answers or escaping the title; it now returns and audits each transport's real state (catalog `workforce.document_request`, `workforce.document_request_sms`).
+- Submission edits overwrote answers with no history; removing submission media deleted the stored file; added media had no ownership check; internal `__` fields could be overwritten. Now: before/after audit, originals kept as restorable tombstones, ownership checked, internal fields refused.
+- Quote reference images (create and PATCH) accepted any storage key; now the case's evidence or own / office uploads only.
+- The app-sent guest message's timeline entry said "recorded by the office"; it now says sent by the app.
+
+Rules added (who can do what) — for the owner
+- Chase supplier and Tell client: administrators send; operations managers copy and record (mirrors the guest message). Owner decision still open for all three.
+- Submissions editing in the Forms page is shown to administrators only (as the classic page); the PATCH route still admits operations managers as before (used by the job pages).
+
+Existing behaviour changed on purpose, and the tests updated for it
+- `tests/components/forms-authority-surface.test.tsx`: the classic Forms page now redirects (tab map and refusal cases).
+- `tests/api/lost-found-office.test.ts`, `tests/components/lost-found-format.test.ts`: a client message is now sendable by an administrator when the client has a login.
+- `tests/components/live-ops-follow-up.test.tsx`: the row button reads "Tell client" (dialog unchanged).
+- `tests/lib/case-linked-context.test.ts`, `tests/components/cases-refresh-and-qa.test.tsx`: linked context gains `quotes`.
+- `tests/lib/work-queue.test.ts`: lost-item row href opens the item; new Send reminder case.
+
+Checks run
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → no errors.
+- New focused tests: `tests/api/case-repair-quote.test.ts` (7), `tests/api/laundry-supplier-chase.test.ts` (11), `tests/api/document-reminder.test.ts` (6), `tests/api/lost-found-client-notice.test.ts` (9), `tests/api/form-submissions-office.test.ts` (12), `tests/components/structured-answer-display.test.tsx` (9), `tests/lib/monthly-pending-clean.test.ts` (7), `tests/db/lost-found-property-sort.test.ts` (3, PostgreSQL) → all passed.
+- Existing tests covering the touched code (notifications catalog / office sends / entity scope / paths, work queue, Command, laundry pipeline and nudges, lost and found, cases, forms resolution and submit, field type audit, renderers, live ops) → all passed.
+- DB tests on my own fresh disposable database (`wave_e_fresh` on 127.0.0.1:55439, `prisma migrate deploy` from empty): `lost-found-property-sort`, `lost-found`, `form-template-library`, `laundry-early-evidence` → passed.
+
+Not run / not verified
+- Production build, the full Vitest suite and browser checks (owner asked to save time). Final browser pass, 390px and 1280px, light and dark: quote builder "From case" notice and prefill; case Next steps quote list and "Client can" select; laundry lane card actions (wrapping at 390px), Chase supplier dialog (disabled reasons, outcomes), Statistics tab tiles; Command Send reminder dialog; Lost and found Tell client send block, Property sort; Forms → Results and stats → Submissions table (62rem horizontal scroll at 390px), submission side panel (edit, media remove confirm, restore, history, report preview); classic cleaner page Table / Stock count controls with classic tokens; Live ops "Tell client".
+- Email / SMS providers mocked only; no real message sent.
+
