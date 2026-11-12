@@ -84,6 +84,7 @@ export function LaundryPipelineBoard(props: Props) {
             onOpen={() => props.onOpen(card)}
             onToggle={() => toggle(card.id)}
             onMove={() => props.onMoveNextDay(card)}
+            todayKey={data?.today}
           />
         ))}
       </ul>

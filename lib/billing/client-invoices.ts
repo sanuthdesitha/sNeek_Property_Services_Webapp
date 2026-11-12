@@ -1,6 +1,5 @@
 import { ClientInvoiceStatus, JobStatus, JobType, Prisma } from "@prisma/client";
 import { format } from "date-fns";
-import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { startedWorkPeriodWhere, snapshotStartedWork, hasStartedWorkEvidence } from "./started-work-review";
 import { inspectStartedWorkReview } from "./started-work-reconciliation";
@@ -19,6 +18,8 @@ import { groupInvoiceLines, shouldGroupInvoice } from "@/lib/billing/invoice-gro
 import { isCreditNoteDocument, pdfClientNoteHtml, pdfDocumentTitle, pdfDueLine, pdfHeaderExtrasHtml, pdfMoney } from "./client-invoice-pdf-parts";
 import { effectivePaymentTermsDays, paymentTermsDaysFrom } from "./invoice-due";
 import { LIVE_INVOICE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
+import { buildJobInvoiceLine, type JobInvoiceLine } from "./invoice-job-lines";
+import { invoiceTotalsMismatch } from "./invoice-totals-check";
 
 /**
  * Jobs eligible to be billed on a client invoice: any job that has actually
@@ -184,20 +185,9 @@ export function billedJobLinesWhere(clientId: string): Prisma.ClientInvoiceLineW
   };
 }
 
-/**
- * Reconciliation fail-safe: totalAmount is DENORMALISED from the lines, and
- * several code paths recompute it. True when the stored total disagrees with
- * what the lines and GST setting produce. Detection only; never changes money.
- */
-export function invoiceTotalsMismatch(invoice: {
-  lines: Parameters<typeof calculateShoppingAwareInvoiceTotals>[0];
-  gstEnabled: boolean | null;
-  totalAmount: number;
-  kind?: string | null;
-}): boolean {
-  const expected = calculateShoppingAwareInvoiceTotals(invoice.lines, invoice.gstEnabled ?? true, { kind: invoice.kind });
-  return Math.abs(expected.totalAmount - Number(invoice.totalAmount)) > 0.011;
-}
+// The totals fail-safe lives in its own module (shared with the approval
+// rules); re-exported here for existing callers.
+export { invoiceTotalsMismatch } from "./invoice-totals-check";
 
 export async function generateClientInvoice(input: {
   clientId: string;
@@ -329,41 +319,19 @@ export async function generateClientInvoice(input: {
     );
   }
 
+  // The generator's line builder, shared with "Add finished jobs".
   const lines = unInvoicedJobs
-    .map((job) => {
-      const charge = chargeByJob.get(job.id);
-      if (!charge || charge.amount == null) return null;
-      // Use the SCHEDULED date in Sydney time (matches the small-print subtitle
-      // and the jobs page). completedAt could cross the Sydney midnight boundary
-      // and format() used the server timezone, so the big-title date drifted a day.
-      const description =
-        charge.description?.trim() ||
-        `${job.property.name} - ${String(job.jobType).replace(/_/g, " ")} - ${formatInTimeZone(new Date(job.scheduledDate), "Australia/Sydney", "dd MMM yyyy")}`;
-      const lineTotal = charge.amount;
-      return {
-        jobId: job.id,
-        shoppingRunId: null,
-        description,
-        note: input.startedWork ? [job.invoiceNote?.trim(),
+    .map((job) =>
+      buildJobInvoiceLine(
+        job,
+        chargeByJob.get(job.id),
+        input.startedWork ? [job.invoiceNote?.trim(),
           snapshotStartedWork(job, input.periodStart!, input.periodEnd!).unfinishedAtCutoff ? "PROVISIONAL agreed client price: unfinished at period cutoff; office review required." : null,
           snapshotStartedWork(job, input.periodStart!, input.periodEnd!).priorPeriodCarryover ? "Prior-period uninvoiced work carried forward for review." : null,
         ].filter(Boolean).join("\n") || null : job.invoiceNote?.trim() || null,
-        quantity: 1,
-        unitPrice: lineTotal,
-        lineTotal,
-        category: "SERVICE",
-      };
-    })
-    .filter(Boolean) as Array<{
-    jobId: string;
-    shoppingRunId: null;
-    description: string;
-    note: string | null;
-    quantity: number;
-    unitPrice: number;
-    lineTotal: number;
-    category: string;
-  }>;
+      ),
+    )
+    .filter((line): line is JobInvoiceLine => line !== null);
 
   const shoppingRuns = await db.shoppingRun.findMany({
     where: {

@@ -5,7 +5,7 @@ const m=vi.hoisted(()=>({invoice:vi.fn(),pdf:vi.fn(),csv:vi.fn(),email:vi.fn(),u
 vi.mock('@/lib/auth/session',()=>({requireRole:async()=>({user:{id:'admin'}})}));
 vi.mock('@/lib/db',()=>{
   // recordSent stamps the first send under the row lock (and snapshots terms) in a transaction.
-  const db:any={clientInvoice:{update:m.update,findUniqueOrThrow:async()=>({clientId:'client',status:'APPROVED',kind:'INVOICE',creditsInvoiceId:null,sentAt:null,paymentTermsDays:null,metadata:{}})},client:{findUnique:async()=>({paymentTermsDays:null})},notification:{create:m.notify},$queryRaw:async()=>[]};
+  const db:any={clientInvoice:{update:m.update,findUniqueOrThrow:async()=>({clientId:'client',status:'APPROVED',kind:'INVOICE',creditsInvoiceId:null,sentAt:null,paymentTermsDays:null,metadata:{}})},client:{findUnique:async()=>({paymentTermsDays:null})},notification:{create:m.notify},$queryRaw:async()=>[],$executeRaw:async()=>0};
   db.$transaction=async(fn:any)=>fn(db);
   return {db};
 });
@@ -20,4 +20,5 @@ let invoice:any;const context={params:{id:'invoice'}};const request=()=>new Next
 beforeEach(()=>{vi.resetAllMocks();invoice={id:'invoice',status:'DRAFT',clientId:'client',client:{name:'Client',email:'client@local'},invoiceNumber:'INV1',totalAmount:50,lines:[{id:'line',jobId:null,quantity:1,unitPrice:50,lineTotal:50,category:'SERVICE'}],metadata:{startedWorkReview:{version:1,required:true,periodStart:'2026-10-01',periodEnd:'2026-10-15',jobs:[]}}};m.invoice.mockImplementation(async()=>invoice);m.pdf.mockResolvedValue(Buffer.from('pdf'));m.csv.mockResolvedValue('csv');m.email.mockResolvedValue({ok:true});});
 it.each([['send',send],['csv',csv]] as const)('blocks %s before document/provider work when review unresolved or merely confirmed draft',async(_label,handler)=>{expect((await handler(request(),context)).status).toBe(400);invoice.metadata.startedWorkReview.required=false;expect((await handler(request(),context)).status).toBe(400);expect(m.pdf).not.toHaveBeenCalled();expect(m.csv).not.toHaveBeenCalled();expect(m.email).not.toHaveBeenCalled();expect(m.update).not.toHaveBeenCalled();});
 it('permits explicit send of approved immutable snapshot',async()=>{invoice.status='APPROVED';invoice.metadata.startedWorkReview.required=false;expect((await send(request(),context)).status).toBe(200);expect(m.email).toHaveBeenCalledOnce();});
-it('keeps nonstarted draft send behavior unchanged',async()=>{invoice.metadata={};expect((await send(request(),context)).status).toBe(200);expect(m.email).toHaveBeenCalledOnce();});
+// Wave D: a draft is sent only when its totals match its lines (the approval rules); this one does (GST off, $50 line, $50 total).
+it('keeps nonstarted draft send behavior unchanged',async()=>{invoice.metadata={};invoice.gstEnabled=false;expect((await send(request(),context)).status).toBe(200);expect(m.email).toHaveBeenCalledOnce();});

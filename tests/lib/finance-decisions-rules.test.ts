@@ -54,7 +54,9 @@ describe("system actor for scheduled Xero checks", () => {
 describe("Xero stays signed in", () => {
   it("requests offline_access unless explicitly switched off", () => {
     expect(xeroScopes({}).split(" ")).toContain("offline_access");
-    expect(xeroScopes({ XERO_REQUEST_OFFLINE_ACCESS: "false" })).toBe("accounting.contacts accounting.invoices");
+    // Wave D adds accounting.settings.read (the editor names the sales account); it can be left out.
+    expect(xeroScopes({ XERO_REQUEST_OFFLINE_ACCESS: "false" })).toBe("accounting.contacts accounting.invoices accounting.settings.read");
+    expect(xeroScopes({ XERO_REQUEST_OFFLINE_ACCESS: "false", XERO_REQUEST_SETTINGS_READ: "false" })).toBe("accounting.contacts accounting.invoices");
   });
   it("states a connection with no refresh token, and a lapsed one, plainly", () => {
     const now = new Date("2026-11-12T00:00:00Z");

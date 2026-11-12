@@ -1,6 +1,6 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { Role } from "@prisma/client";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import {
   createChatChannel,
@@ -23,6 +23,8 @@ import {
   updateTeamGroup,
   updateWorkforcePost,
 } from "@/lib/workforce/service";
+import { sendDocumentReminder } from "@/lib/workforce/document-reminder";
+import { OfficeActionError } from "@/lib/notifications/office-actions";
 
 const actionSchema = z.object({
   action: z.string().trim().min(1),
@@ -194,6 +196,20 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, result });
       }
       case "REQUEST_DOCUMENT": {
+        // Command "Send reminder": a renewal request for one expiring document,
+        // explicit transports, idempotent per document per day, truthful states.
+        if (body.documentId !== undefined) {
+          if (session.impersonation) return NextResponse.json({ error: "Reminders cannot be sent while impersonating." }, { status: 403 });
+          const { action: _action, ...reminder } = body;
+          try {
+            const result = await sendDocumentReminder({ id: session.user.id, name: session.user.name }, reminder);
+            return NextResponse.json({ ok: true, result });
+          } catch (error) {
+            if (error instanceof OfficeActionError) return NextResponse.json({ error: error.message }, { status: error.status });
+            if (error instanceof ZodError) return NextResponse.json({ error: "Choose at least one way to send the reminder." }, { status: 400 });
+            throw error;
+          }
+        }
         const result = await createStaffDocumentRequest({
           userId: String(body.userId ?? ""),
           requestedById: session.user.id,

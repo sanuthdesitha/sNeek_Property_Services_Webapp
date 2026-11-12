@@ -20,7 +20,7 @@ function data(overrides: Partial<ClientInvoiceEditorData> = {}): ClientInvoiceEd
       id: "inv", invoiceNumber: "INV-0421", status: "DRAFT", totalAmount: 110, paidAmount: null, amountOwing: 110,
       periodStart: "2026-10-16T00:00:00.000Z", periodEnd: "2026-10-31T00:00:00.000Z", sentAt: null, paidAt: null, paidDate: null,
       paymentMethod: null, paymentReference: null, createdAt: "2026-11-01T00:00:00.000Z", dueDate: "2026-11-15", overdue: false,
-      xeroInvoiceId: null, xeroExportedAt: null, xeroState: "NONE", client: { id: "c1", name: "Harbour View Stays", email: "accounts@harbour.test" },
+      xeroInvoiceId: null, xeroExportedAt: null, xeroState: "NONE", xeroPushFailure: null, missingRateJobs: 0, paymentTermsDays: 14, client: { id: "c1", name: "Harbour View Stays", email: "accounts@harbour.test" },
       kind: "INVOICE", clientReference: null, creditedAmount: 0, fullyCredited: false, credits: null, creditedBy: [],
     },
     timezone: "Australia/Sydney",
@@ -36,10 +36,11 @@ function data(overrides: Partial<ClientInvoiceEditorData> = {}): ClientInvoiceEd
     editLock: { editable: true },
     canManage: true,
     checks: { appliesTo: "approve", items: [{ key: "totals", state: "ok", enforced: false, label: "Totals match the lines", detail: null }] },
-    send: { defaultRecipients: ["accounts@harbour.test"], recipientsError: null },
-    xero: { state: "NONE", xeroInvoiceId: null, exportedAt: null, contactId: null, salesAccountCode: "200", disbursementAccountCode: null, hasDisbursementLines: false, settingsError: null },
+    send: { defaultRecipients: ["accounts@harbour.test"], recipientsError: null, paymentLink: { available: false, reason: "No payment gateway is configured: the server has no Stripe key." } },
+    xero: { state: "NONE", xeroInvoiceId: null, exportedAt: null, contactId: null, salesAccountCode: "200", salesAccountName: null, salesAccountNameReason: "Xero is not connected.", disbursementAccountCode: null, hasDisbursementLines: false, settingsError: null },
     history: [],
     startedWork: null,
+    draft: null,
     ...overrides,
   };
 }
@@ -101,7 +102,8 @@ describe("InvoiceEditorPage", () => {
     expect(screen.getByRole("textbox", { name: "Description of Airbnb turnover" })).not.toBeDisabled();
 
     const firstBody = calls.find((call) => call.init?.method === "PATCH")?.init?.body;
-    expect(JSON.parse(String(firstBody))).toEqual({ updateLines: [{ id: "l1", description: "Airbnb turnover + linen", quantity: 1, unitPrice: 100 }] });
+    // Wave D: every PATCH carries the version the page read (stale-write guard).
+    expect(JSON.parse(String(firstBody))).toEqual({ updateLines: [{ id: "l1", description: "Airbnb turnover + linen", quantity: 1, unitPrice: 100 }], expectedUpdatedAt: "2026-11-11T01:00:00.000Z" });
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(calls.filter((call) => call.init?.method === "PATCH")).toHaveLength(2));
     expect(calls.filter((call) => call.init?.method === "PATCH")[1].init?.body).toBe(firstBody);
@@ -110,14 +112,14 @@ describe("InvoiceEditorPage", () => {
   it("does not resend an added line after a lost response; it reloads instead", async () => {
     patchResponses.push(() => Promise.reject(new TypeError("network down")));
     render(<InvoiceEditorPage initial={data()} backHref="/back" />);
-    fireEvent.change(screen.getByRole("textbox", { name: "New line description" }), { target: { value: "Key cut" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "New line description" }), { target: { value: "Key cut" } });
     fireEvent.change(screen.getByRole("textbox", { name: "New line rate" }), { target: { value: "15" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("may or may not have been saved");
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     await waitFor(() => expect(calls.some((call) => call.url.includes("view=editor"))).toBe(true));
-    expect(screen.getByRole("textbox", { name: "New line description" })).toHaveValue("Key cut");
+    expect(screen.getByRole("combobox", { name: "New line description" })).toHaveValue("Key cut");
   });
 
   it("presents an invoice that can no longer be edited read-only, with the reason", () => {

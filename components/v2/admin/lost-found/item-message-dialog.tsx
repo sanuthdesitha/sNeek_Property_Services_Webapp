@@ -7,7 +7,9 @@
  *    contacted only when the provider accepted it ("accepted", never
  *    "delivered"). One idempotency key per draft and transport, kept until it
  *    succeeds, so a retry is not a second message.
- *  - Otherwise (and always as a fallback): copy, mailto:, sms:, tel:, then
+ *  - Client, administrator: "Send to client" through the pipeline's client
+ *    notice (explicit transports; the timeline records the real states).
+ *  - Otherwise (and always beside Send): copy, mailto:, sms:, tel:, then
  *    "Record that you contacted …", which stores what the office says it did.
  * The edited draft is kept by the panel while the dialog is closed.
  */
@@ -16,6 +18,7 @@ import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { HydratedLostFoundItem } from "@/lib/lost-found/service";
 import { CONTACT_CHANNELS, CONTACT_CHANNEL_LABEL, mailtoHref, smsHref, type ContactChannel, type MessageAudience, type MessageDraft } from "@/lib/lost-found/message";
+import { ItemClientSend } from "./item-client-send";
 
 type Recipient = { name: string | null; email: string | null; phone: string | null };
 type Prepared = { draft: MessageDraft; recipient: Recipient; send: { available: boolean; reason: string } };
@@ -151,7 +154,10 @@ export function ItemMessageDialog({
           <fieldset disabled={saving} className="space-y-3">
             <EField label="Subject"><EInput value={draft.subject} maxLength={300} onChange={(event) => onDraftChange(audience, { ...draft, subject: event.target.value })} /></EField>
             <EField label="Message"><ETextarea rows={10} value={draft.body} maxLength={3500} onChange={(event) => onDraftChange(audience, { ...draft, body: event.target.value })} /></EField>
-            {prepared.send.available ? (
+            {prepared.send.available && audience === "client" ? (
+              <ItemClientSend itemId={itemId} draft={draft} onSending={setSaving} onSent={onSent} />
+            ) : null}
+            {prepared.send.available && audience === "guest" ? (
               <div className="space-y-1">
                 <div className="flex flex-wrap gap-2">
                   <EButton type="button" size="sm" disabled={!prepared.recipient.email || tooLongToSend} onClick={() => void sendFromApp("EMAIL")}>Send by email</EButton>

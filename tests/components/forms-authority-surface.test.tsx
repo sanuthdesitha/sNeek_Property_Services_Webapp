@@ -1,10 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const m=vi.hoisted(()=>({session:{user:{role:"OPS_MANAGER",primaryRole:"OPS_MANAGER"}} as any,role:vi.fn(),fetch:vi.fn()}));
+const m=vi.hoisted(()=>({session:{user:{role:"OPS_MANAGER",primaryRole:"OPS_MANAGER"}} as any,role:vi.fn(),fetch:vi.fn(),redirect:vi.fn((url:string)=>{throw new Error(`REDIRECT:${url}`);})}));
 vi.mock("next-auth/react",()=>({useSession:()=>({data:m.session})}));
 vi.mock("@/lib/auth/session",()=>({requireRole:m.role}));
-vi.mock("next/navigation",()=>({usePathname:()=>"/v2/admin/forms",useRouter:()=>({push:vi.fn(),refresh:vi.fn()}),useSearchParams:()=>new URLSearchParams()}));
-vi.mock("@/components/forms/checklists-workspace",()=>({ChecklistsWorkspace:()=>null}));
+vi.mock("next/navigation",()=>({usePathname:()=>"/v2/admin/forms",useRouter:()=>({push:vi.fn(),refresh:vi.fn()}),useSearchParams:()=>new URLSearchParams(),redirect:m.redirect}));
 vi.mock("@/components/v2/admin/forms/management/estate-checklists-workspace",()=>({EstateChecklistsWorkspace:()=> <div>Checklist workspace</div>}));
 // The merged Forms library page (2026-11): ops access, tab counts and the
 // embedded workspaces are stubbed; the Job forms tab reads the library API.
@@ -12,7 +11,7 @@ vi.mock("@/lib/db",()=>({db:{}}));
 vi.mock("@/lib/rbac/ops-access",()=>({getOpsAccess:async()=>null}));
 vi.mock("@/lib/forms/library-tab-counts",()=>({getFormsTabCounts:async()=>({forms:1,qa:0})}));
 vi.mock("@/components/v2/admin/forms/library/form-stats-panel",()=>({FormStatsPanel:()=>null}));
-vi.mock("@/components/v2/admin/forms/library/forms-subviews",()=>({ChecklistBlocksTab:()=>null,MessageTemplatesTab:()=>null}));
+vi.mock("@/components/v2/admin/forms/library/forms-subviews",()=>({ChecklistBlocksTab:()=>null,MessageTemplatesTab:()=>null,ResultsViewChips:()=>null}));
 import FormsPage from "@/app/admin/forms/page";
 import EstateFormsPage from "@/app/v2/admin/forms/page";
 import { JobFormsLibrary } from "@/components/v2/admin/forms/library/job-forms-library";
@@ -22,21 +21,23 @@ const answer=(url:string)=>url.includes("/form-templates/library")?payload:url.i
 beforeEach(()=>{vi.clearAllMocks();m.session={user:{role:"OPS_MANAGER",primaryRole:"OPS_MANAGER"}};m.role.mockResolvedValue(m.session);m.fetch.mockImplementation(async(url:string)=>({ok:true,json:async()=>answer(url)}));vi.stubGlobal("fetch",m.fetch);});
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
 
-it.each([null,{user:{role:"CLEANER"}},{user:{role:"OPS_MANAGER",primaryRole:"OPS_MANAGER"}}])("legacy builder does not expose write controls to unadmitted user %j",async session=>{
- m.session=session;render(<FormsPage/>);
- expect(await screen.findByRole("link",{name:"View form templates and submissions"})).toHaveAttribute("href","/v2/admin/forms");
- expect(screen.queryByRole("button",{name:/Save/})).toBeNull();
- expect(m.fetch.mock.calls.every(([,options])=>!options?.method||options.method==="GET")).toBe(true);
+// Wave E (2026-11): the classic Forms page is retired. Its tabs moved into the
+// Forms library and the old URL redirects there (after the same role check),
+// so no classic write control exists any more for any role.
+it.each([
+ [{},"/v2/admin/forms?tab=forms"],
+ [{tab:"builder"},"/v2/admin/forms?tab=forms"],
+ [{tab:"checklists"},"/v2/admin/forms?tab=blocks&view=service"],
+ [{tab:"submissions",q:"bondi"},"/v2/admin/forms?tab=stats&view=submissions&q=bondi"],
+])("classic forms page %j redirects to %s",async(searchParams,target)=>{
+ await expect(FormsPage({searchParams})).rejects.toThrow(`REDIRECT:${target}`);
+ expect(m.role).toHaveBeenCalledWith(["ADMIN","OPS_MANAGER"]);
+ expect(m.fetch).not.toHaveBeenCalled();
 });
-// 2026-11 builder step: the classic page's own builder (which wrote the live
-// form) was retired; admitted admins keep the page, and template creation and
-// editing open the estate builder.
-it.each([{role:"ADMIN",primaryRole:"ADMIN"},{role:"OPS_MANAGER",primaryRole:"ADMIN"}])("legacy forms page remains usable for admitted admin %j",async user=>{
- m.session={user};render(<FormsPage/>);
- expect(await screen.findByRole("heading",{name:"Forms"})).toBeVisible();
- expect(screen.queryByRole("link",{name:"View form templates and submissions"})).toBeNull();
- expect(screen.getAllByRole("link",{name:/New template/i}).every((link)=>link.getAttribute("href")==="/v2/admin/forms/new")).toBe(true);
- expect(m.fetch.mock.calls.every(([,options])=>!options?.method||options.method==="GET")).toBe(true);
+it("refuses the classic forms page without admission instead of redirecting",async()=>{
+ m.role.mockRejectedValue(new Error("FORBIDDEN"));
+ await expect(FormsPage({searchParams:{tab:"submissions"}})).rejects.toThrow("FORBIDDEN");
+ expect(m.redirect).not.toHaveBeenCalled();
 });
 it("defaults the job forms library to read only while preserving search and refresh",async()=>{
  render(<JobFormsLibrary canWrite={false}/>);expect(await screen.findByText("Turnover proof")).toBeVisible();

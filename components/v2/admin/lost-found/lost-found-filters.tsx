@@ -53,6 +53,7 @@ const SORT_OPTIONS: Array<{ value: string; label: string; sort: LostFoundSort; d
   { value: "found:asc", label: "Sort: oldest first", sort: "found", dir: "asc" },
   { value: "found:desc", label: "Sort: newest first", sort: "found", dir: "desc" },
   { value: "item:asc", label: "Sort: item A–Z", sort: "item", dir: "asc" },
+  { value: "property:asc", label: "Sort: property A–Z", sort: "property", dir: "asc" },
   { value: "guest:asc", label: "Sort: guest A–Z", sort: "guest", dir: "asc" },
   { value: "stored:asc", label: "Sort: stored at A–Z", sort: "stored", dir: "asc" },
   { value: "status:asc", label: "Sort: status", sort: "status", dir: "asc" },

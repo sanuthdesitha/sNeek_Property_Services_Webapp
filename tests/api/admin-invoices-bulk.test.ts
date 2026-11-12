@@ -123,7 +123,8 @@ describe("POST /api/admin/invoices/bulk", () => {
 describe("single-invoice routes call the same shared actions", () => {
   it("send, xero-push and PATCH delegate to the lib functions the bulk route uses", async () => {
     await singleSend(new NextRequest("http://localhost/api/admin/invoices/d1/send", { method: "POST", body: JSON.stringify({ to: "a@b.test" }) }), { params: { id: "d1" } });
-    expect(m.send).toHaveBeenCalledWith({ invoiceId: "d1", to: "a@b.test", origin: "http://localhost", actorId: "ops" });
+    // Wave D send options are explicit; none sent = today's behaviour (no link, no push).
+    expect(m.send).toHaveBeenCalledWith({ invoiceId: "d1", to: "a@b.test", origin: "http://localhost", actorId: "ops", options: { includePaymentLink: false, pushToXero: false } });
     await singleXero(new NextRequest("http://localhost/api/admin/invoices/d1/xero-push", { method: "POST" }), { params: { id: "d1" } });
     expect(m.xero).toHaveBeenCalledWith("d1", "ops");
     const patched = await singlePatch(new NextRequest("http://localhost/api/admin/invoices/d2", { method: "PATCH", body: JSON.stringify({ status: "APPROVED" }) }), { params: { id: "d2" } });

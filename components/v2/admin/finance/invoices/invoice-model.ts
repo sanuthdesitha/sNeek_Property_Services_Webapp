@@ -106,7 +106,7 @@ export const STATUS_LABEL: Record<InvoiceStatus, string> = {
 export const XERO_LABEL: Record<InvoiceRow["xeroState"], string> = {
   NONE: "Not in Xero",
   PUSHED: "In Xero",
-  PENDING: "Xero pending or failed",
+  PENDING: "Push pending or failed",
 };
 
 export const money = (v: number | null | undefined) =>
@@ -180,7 +180,7 @@ type ActionFacts = Pick<
   InvoiceRow,
   "status" | "xeroInvoiceId" | "xeroExportedAt" | "paidAt" | "paidAmount" | "xeroState" | "overdue"
 > &
-  Partial<Pick<InvoiceRow, "kind" | "fullyCredited">>;
+  Partial<Pick<InvoiceRow, "kind" | "fullyCredited" | "missingRateJobs">>;
 
 /** Sent, part-paid or paid invoices are corrected by a credit note (owner decision 2026-11-11). */
 const CREDITABLE_STATUSES: InvoiceStatus[] = ["SENT", "PART_PAID", "PAID"];
@@ -243,7 +243,7 @@ export function primaryInvoiceAction(inv: ActionFacts): InvoiceActionKey {
 
 /** Words for an action on this row. */
 export function invoiceActionLabel(key: InvoiceActionKey, inv: ActionFacts): string {
-  if (key === "edit" && inv.status === "DRAFT") return "Review";
+  if (key === "edit" && inv.status === "DRAFT") return (inv.missingRateJobs ?? 0) > 0 ? "Fix and review" : "Review";
   if (key === "resend" && inv.overdue) return "Send reminder";
   if (key === "xero-push" && inv.xeroState === "PUSHED") return "Push to Xero (already in Xero)";
   return ACTION_LABEL[key];

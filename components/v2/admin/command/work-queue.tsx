@@ -17,9 +17,12 @@ import { SectionBody } from "./section-state";
 import { useCommandSection } from "./use-command-section";
 import { WorkQueueRow, type RowStatus } from "./work-queue-row";
 import { DeclineReasonDialog } from "../office-actions/decline-reason-dialog";
+import { DocumentReminderDialog } from "./document-reminder-dialog";
 
 type RequestAction = Extract<WorkQueueAction, { kind: "request" }>;
 type ReasonRequest = { item: WorkQueueItem; action: RequestAction & { reason: NonNullable<RequestAction["reason"]> } };
+type ReminderAction = Extract<WorkQueueAction, { kind: "document-reminder" }>;
+type ReminderRequest = { item: WorkQueueItem; action: ReminderAction };
 
 const IDLE: RowStatus = { pending: null, error: null };
 
@@ -33,6 +36,7 @@ export function WorkQueue({ initial, timeZone, readOnly }: QueueProps) {
   const [announcement, setAnnouncement] = useState("");
   const [peekJobId, setPeekJobId] = useState<string | null>(null);
   const [reasonFor, setReasonFor] = useState<ReasonRequest | null>(null);
+  const [reminderFor, setReminderFor] = useState<ReminderRequest | null>(null);
   const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
 
@@ -110,6 +114,7 @@ export function WorkQueue({ initial, timeZone, readOnly }: QueueProps) {
                       status={statuses[item.id] ?? IDLE}
                       onRequest={onRowRequest}
                       onAssign={setPeekJobId}
+                      onDocumentReminder={(row, action) => setReminderFor({ item: row, action })}
                     />
                   ))}
                 </ul>
@@ -133,6 +138,16 @@ export function WorkQueue({ initial, timeZone, readOnly }: QueueProps) {
           if (pending && mounted.current) confirmed(pending.item, pending.action);
         }}
       />
+      {reminderFor ? (
+        <DocumentReminderDialog
+          key={reminderFor.item.id}
+          documentId={reminderFor.action.documentId}
+          endpoint={reminderFor.action.endpoint}
+          timeZone={timeZone}
+          onClose={() => setReminderFor(null)}
+          onSent={() => setAnnouncement(`Reminder requested: ${reminderFor.item.title}`)}
+        />
+      ) : null}
       <JobPeekPanel jobId={peekJobId} row={null} readOnly={readOnly} onClose={() => setPeekJobId(null)} onChanged={state.reload} />
     </section>
   );

@@ -24,6 +24,7 @@ const detail = (patch: Partial<CaseDetail> = {}): CaseDetail => ({
 const linked = (cleaners: CaseLinkedContext["cleaners"]): CaseLinkedContext => ({
   job: { id: "job-1", jobNumber: "J-1", scheduledDate: "2026-11-10T00:00:00Z", status: "COMPLETED" }, property: null, client: null, cleaners,
   departingGuest: null, report: null, evidence: { jobPhotos: 2, clientAttachments: 0, officeAttachments: 0 },
+  quotes: [],
   nextSteps: { repairQuoteHref: "/q", clientDraftInvoicesHref: null, newInvoiceHref: "/i" },
 });
 

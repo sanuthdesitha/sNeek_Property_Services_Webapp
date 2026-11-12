@@ -1,7 +1,7 @@
 /** Lost and found list vocabulary (tabs, sorts, value filter). Pure; safe for client bundles. */
 import { LOST_FOUND_STAGES } from "./status";
 
-export const LOST_FOUND_SORTS = ["found", "item", "guest", "stored", "status"] as const;
+export const LOST_FOUND_SORTS = ["found", "item", "property", "guest", "stored", "status"] as const;
 export type LostFoundSort = (typeof LOST_FOUND_SORTS)[number];
 
 export const LOST_FOUND_TABS = [...LOST_FOUND_STAGES, "all"] as const;

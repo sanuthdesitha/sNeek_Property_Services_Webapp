@@ -1172,3 +1172,38 @@ Checks run
 Not run (owner asked to save time)
 - Production build, full Vitest suite, browser checks. For the final browser pass: Business tab at 390/1280, light/dark — findings row and money sentence, cards with the disclosure, chart header legend wrapping at 390, preview header sort (busy state, error retry, URL survives refresh), "All N properties" order, Client chip popover (search, arrows, Escape, overflow at 390), Email monthly button for ADMIN and for an operations manager, PDFs tab with no header controls.
 
+
+## Money design completion (Wave D, 2026-11-12)
+
+Scope: Wave D in `docs/plans/admin-redesign-2026-11.md` (list and editor differences from `Money.dc.html` / `InvoiceEditor.dc.html`). No schema change, no migration. Details: `docs/SYSTEM.md`, "Money design completion … (Wave D, 2026-11-12)".
+
+Changed
+- Ready to bill dollar figure and "Create N drafts" (`POST /api/admin/invoices/generate-batch`, idempotent per key); drafts with missing rates counted; Xero push failures recorded as FAILED with reason (Synced / Push pending / Push failed / not yet checked); "On send" in Due and a provisional due line on the admin PDF preview; bulk Download PDFs (`POST /api/admin/invoices/pdf-archive`); Owing sorted in SQL.
+- Editor: Bill to / Period / Due on drafts (PATCH `clientId`, `period`, `paymentTermsDays`), Add finished jobs (`GET/POST /api/admin/invoices/[id]/jobs`), send options (`includePaymentLink`, `pushToXero`), autosave with the PATCH stale-write guard (`expectedUpdatedAt`, 409 `STALE_INVOICE`), add-line suggestions and saved invoice items (`/api/admin/invoices/saved-items`), Xero account name, approval checks enforced on drafts.
+
+Rules added (business / money / access; owner asked for the design to be made real)
+- A DRAFT is not approved, sent directly or marked paid while a job line's job has no client rate (or a line amount is not a number), a job is on another live invoice or twice on it, the stored total does not match the lines, or any of these cannot be checked. Existing APPROVED/SENT invoices are unaffected.
+- A draft's Bill to may change only when every job belongs to the new client (and no shopping allocation, property-grouped manual line or started-work snapshot ties it); never on a credit note.
+- An invoice-specific payment-terms override set on a draft is kept at first send (the snapshot does not overwrite it).
+- A send asking for a payment link is refused when no gateway could serve it; push-after-send never undoes a send.
+- Xero OAuth now also requests `accounting.settings.read` (opt out `XERO_REQUEST_SETTINGS_READ=false`).
+
+Existing behaviour changed on purpose, and the tests updated for it
+- `tests/lib/client-invoice-checks.test.ts`: rates / other invoice / totals were advice ("Check") on a draft; they now block approval (new cases for double lines, unknown, and approved invoices staying advisory).
+- `tests/api/invoice-step-c-patch.test.ts`: the partial credit-note approval now needs lines that match its total; mock gains `$executeRaw`.
+- `tests/api/started-work-financial-boundary.test.ts`: the non-started draft send fixture now has matching totals (GST off); mock gains `$executeRaw`.
+- `tests/lib/invoice-step-c-xero-send.test.ts`: mock gains `$executeRaw` (the approval rule takes the billing lock).
+- `tests/api/admin-invoices-list.test.ts`: needs-action includes FAILED reservations; new case separating `pending` and `failed`.
+- `tests/api/admin-invoices-bulk.test.ts`: the send route now passes explicit default options.
+- `tests/lib/client-invoice-xero-display.test.ts`: new labels (Synced, Synced · paid in Xero, In Xero · not yet checked, Push failed) and stage notes.
+- `tests/lib/finance-decisions-rules.test.ts`: the scope string gains `accounting.settings.read`, with an opt-out case.
+- `tests/components/invoice-editor-page.test.tsx`: PATCH bodies carry `expectedUpdatedAt`; the new-line description is a combobox; fixtures gain the new fields.
+
+Checks run
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → no errors.
+- Vitest, 178 files (every non-DB test file mentioning invoice / billing / receivables / finance / xero, plus the four new Wave D files) → 2,269 passed, 1 failed: `tests/lib/notification-paths-controls.test.ts` ("shows no banner once the transports are on the pipeline"), in notification / settings code this step did not touch (other engineers' work in progress).
+- DB tests on a fresh disposable database (`moneyd_fresh` on 127.0.0.1:55439, `prisma migrate deploy` from empty, `prisma migrate diff --exit-code` → no difference): `tests/db/money-wave-d.test.ts` (6), `client-invoice-started-jobs`, `finance-decisions`, `holiday-rates` → 25 passed.
+
+Not run / not verified
+- Production build, the full Vitest suite and browser checks (owner asked to save time). For the final browser pass, at 390px and 1280px, light and dark: stats cards (Ready to bill with button, Drafts pill), Create drafts dialog (loading, outcomes list, retry), Due "On send", Owing header sort, Xero cell states and reasons, bulk Download PDFs result panel, editor header fields (Bill to select width at 390, period inputs wrapping, Due hint), Add finished jobs dialog, add-line combobox (keyboard, list in flow), Send card options and reasons, Xero card name / reason, checklist links, autosave states and conflict banner, Billing schedule → Saved invoice items disclosure.
+- Xero (push failure recording, account name read, new scope), Stripe payment link and email are mocked only. First real Xero use: reconnect Xero once (now also for `accounting.settings.read`); if the app refuses the scope, set `XERO_REQUEST_SETTINGS_READ=false` and the card shows "name unavailable".

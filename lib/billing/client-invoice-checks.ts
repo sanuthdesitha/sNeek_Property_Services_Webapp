@@ -3,22 +3,25 @@
  * from the same functions the approve request runs, so the list can never say
  * OK where approval would be refused.
  *
- * Enforced by the approve PATCH (client-invoice-patch.ts):
- *   - a pending Xero export reservation (isXeroExportPending)
+ * Enforced by the approve PATCH (client-invoice-patch.ts) on a DRAFT:
+ *   - a pending or failed Xero export reservation (isXeroExportPending)
  *   - the started-work review (startedWorkRefusal, read without the job locks)
  *   - at least one line (emptyInvoiceRefusal: a blank draft cannot be approved)
  *   - on a credit note, the credit limit (creditNoteTotalRefusal)
- * Not enforced by approval, shown as "Check" only:
- *   - every job line still resolves a client rate (computeClientCharge, the
- *     generator's missing-rate rule)
- *   - no job is on another live invoice (billedJobLinesWhere, the generator's
- *     double-billing rule)
- *   - the stored total matches the lines (invoiceTotalsMismatch)
- * A check that cannot be read is "unknown", never OK.
+ *   - since Wave D (owner-approved rule change; client-invoice-approval-rules.ts):
+ *     every job line's job resolves a client rate and every line amount is a
+ *     real number (missing-rates.ts, the generator's rule); no job is on
+ *     another live invoice or twice on this one (the generator's
+ *     double-billing rule); the stored total matches the lines
+ *     (invoiceTotalsMismatch).
+ * Past approval the last three are shown as "Check" only: an invoice already
+ * approved or sent is not retroactively refused anything.
+ * A check that cannot be read is "unknown", never OK, and blocks approval.
  */
 import { db } from "@/lib/db";
-import { computeClientCharge } from "@/lib/finance/job-money";
-import { billedJobLinesWhere, invoiceTotalsMismatch } from "./client-invoices";
+import { LIVE_INVOICE_WHERE } from "@/lib/invoicing/invoiced-job-rule";
+import { invoiceTotalsMismatch } from "./invoice-totals-check";
+import { missingRateReports } from "./missing-rates";
 import { emptyInvoiceRefusal, isXeroExportPending } from "./client-invoice-guards";
 import { creditNoteTotalRefusal, creditableRemaining } from "./client-invoice-adjustments";
 import { creditedAmountOf } from "@/lib/finance/receivables";
@@ -27,6 +30,7 @@ import type { ApprovalCheck, ApprovalChecks } from "./client-invoice-editor-type
 
 export type CheckableInvoice = {
   id: string;
+  invoiceNumber?: string;
   status: string;
   kind?: string | null;
   creditsInvoiceId?: string | null;
@@ -46,6 +50,13 @@ function failed(error: unknown): string {
 
 function plural(count: number, one: string, many = `${one}s`): string {
   return `${count} ${count === 1 ? one : many}`;
+}
+
+/** On a draft the three Wave D checks block approval; past approval they are advice. */
+export type CheckMode = { enforce: boolean };
+
+function failingState(mode: CheckMode): "refused" | "check" {
+  return mode.enforce ? "refused" : "check";
 }
 
 function jobIdsOf(invoice: CheckableInvoice): string[] {
@@ -82,51 +93,55 @@ export async function startedWorkCheck(invoice: CheckableInvoice, client: CheckC
   };
 }
 
-export async function ratesCheck(invoice: CheckableInvoice, client: CheckClient): Promise<ApprovalCheck> {
+export async function ratesCheck(invoice: CheckableInvoice, client: CheckClient, mode: CheckMode = { enforce: false }): Promise<ApprovalCheck> {
   const ids = jobIdsOf(invoice);
-  const base = { key: "rates" as const, enforced: false };
-  if (ids.length === 0) return { ...base, state: "ok", label: "No job lines to rate", detail: null };
+  const base = { key: "rates" as const, enforced: mode.enforce, fixHref: `/v2/admin/clients/${encodeURIComponent(invoice.clientId)}`, fixLabel: "Set rates" };
+  const unreadable = invoice.lines.filter((line) => ![line.quantity, line.unitPrice, line.lineTotal].every((value) => Number.isFinite(Number(value))));
+  if (unreadable.length > 0) {
+    return { ...base, state: failingState(mode), label: `${plural(unreadable.length, "line")} have an amount that could not be determined`, detail: "Edit or remove the marked lines.", fixHref: null, fixLabel: null };
+  }
+  if (ids.length === 0) return { ...base, state: "ok", label: "No job lines to rate", detail: null, fixHref: null, fixLabel: null };
   try {
-    const [jobs, propertyRates, priceBook] = await Promise.all([
-      client.job.findMany({
-        where: { id: { in: ids } },
-        select: { id: true, jobNumber: true, jobType: true, propertyId: true, fixedPrice: true },
-      }),
-      client.propertyClientRate.findMany({ where: { property: { clientId: invoice.clientId }, isActive: true } }),
-      client.priceBook.findMany({ where: { isActive: true }, select: { jobType: true, baseRate: true } }),
-    ]);
-    const missingJobs = ids.length - jobs.length;
-    const unrated = jobs.filter((job) => computeClientCharge(job, { propertyRates, priceBook }).rateMissing);
-    if (missingJobs > 0) {
-      return { ...base, state: "unknown", label: `${plural(missingJobs, "job")} on this invoice could not be found`, detail: null };
+    const report = (await missingRateReports([{ id: invoice.id, clientId: invoice.clientId, jobIds: ids }], client)).get(invoice.id)!;
+    if (report.missingJobIds.length > 0) {
+      return { ...base, state: "unknown", label: `${plural(report.missingJobIds.length, "job")} on this invoice could not be found`, detail: null, fixHref: null, fixLabel: null };
     }
-    if (unrated.length > 0) {
-      const names = unrated.map((job) => job.jobNumber ?? job.id).join(", ");
-      return { ...base, state: "check", label: `${plural(unrated.length, "job")} now have no client rate`, detail: names };
+    if (report.unrated.length > 0) {
+      const names = report.unrated.map((job) => job.jobNumber ?? job.id).join(", ");
+      return { ...base, state: failingState(mode), label: `${plural(report.unrated.length, "job")} now have no client rate`, detail: names };
     }
-    return { ...base, state: "ok", label: `All ${plural(jobs.length, "job")} have a client rate`, detail: null };
+    return { ...base, state: "ok", label: `All ${plural(ids.length, "job")} have a client rate`, detail: null, fixHref: null, fixLabel: null };
   } catch (error) {
-    return { ...base, state: "unknown", label: "Rates could not be checked", detail: failed(error) };
+    return { ...base, state: "unknown", label: "Rates could not be checked", detail: failed(error), fixHref: null, fixLabel: null };
   }
 }
 
-export async function otherInvoiceCheck(invoice: CheckableInvoice, client: CheckClient): Promise<ApprovalCheck> {
+export async function otherInvoiceCheck(invoice: CheckableInvoice, client: CheckClient, mode: CheckMode = { enforce: false }): Promise<ApprovalCheck> {
   const ids = jobIdsOf(invoice);
-  const base = { key: "other-invoice" as const, enforced: false };
+  const base = { key: "other-invoice" as const, enforced: mode.enforce, fixHref: null, fixLabel: null };
   const repeated = invoice.lines.filter((line) => line.jobId).length - ids.length;
   if (ids.length === 0) return { ...base, state: "ok", label: "No job lines on this invoice", detail: null };
   try {
+    // Any live invoice, whoever it bills (the one invoiced rule).
     const elsewhere = await client.clientInvoiceLine.findMany({
-      where: { AND: [billedJobLinesWhere(invoice.clientId), { jobId: { in: ids } }, { invoiceId: { not: invoice.id } }] },
-      select: { jobId: true, invoice: { select: { invoiceNumber: true } } },
+      where: { jobId: { in: ids }, invoiceId: { not: invoice.id }, invoice: LIVE_INVOICE_WHERE },
+      select: { jobId: true, invoice: { select: { id: true, invoiceNumber: true } } },
     });
     if (elsewhere.length > 0) {
       const numbers = Array.from(new Set(elsewhere.map((line) => line.invoice.invoiceNumber))).join(", ");
       const jobs = new Set(elsewhere.map((line) => line.jobId)).size;
-      return { ...base, state: "check", label: `${plural(jobs, "job")} also on another invoice`, detail: numbers };
+      const first = elsewhere[0]?.invoice.id;
+      return {
+        ...base,
+        state: failingState(mode),
+        label: `${plural(jobs, "job")} also on another invoice`,
+        detail: numbers,
+        fixHref: first ? `/v2/admin/finance/invoices/${encodeURIComponent(first)}` : null,
+        fixLabel: first ? "Open the other invoice" : null,
+      };
     }
     if (repeated > 0) {
-      return { ...base, state: "check", label: `${plural(repeated, "job")} appear twice on this invoice`, detail: null };
+      return { ...base, state: failingState(mode), label: `${plural(repeated, "job")} appear twice on this invoice`, detail: "Remove the repeated line." };
     }
     return { ...base, state: "ok", label: "No job is on another invoice", detail: null };
   } catch (error) {
@@ -174,12 +189,12 @@ export async function creditLimitCheck(invoice: CheckableInvoice, client: CheckC
   }
 }
 
-export function totalsCheck(invoice: CheckableInvoice): ApprovalCheck {
+export function totalsCheck(invoice: CheckableInvoice, mode: CheckMode = { enforce: false }): ApprovalCheck {
   const mismatch = invoiceTotalsMismatch(invoice);
   return {
     key: "totals",
-    state: mismatch ? "check" : "ok",
-    enforced: false,
+    state: mismatch ? failingState(mode) : "ok",
+    enforced: mode.enforce,
     label: mismatch ? "The stored total does not match the lines" : "Totals match the lines",
     detail: mismatch ? "Do not send it. Edit any line or the GST switch to recalculate, then check again." : null,
   };
@@ -190,7 +205,8 @@ export async function clientInvoiceApprovalChecks(
   client: CheckClient = db,
 ): Promise<ApprovalChecks> {
   const appliesTo = invoice.status === "DRAFT" ? ("approve" as const) : null;
-  const advisory = await Promise.all([ratesCheck(invoice, client), otherInvoiceCheck(invoice, client)]);
+  const mode = { enforce: appliesTo === "approve" };
+  const advisory = await Promise.all([ratesCheck(invoice, client, mode), otherInvoiceCheck(invoice, client, mode)]);
   const items: ApprovalCheck[] = [];
   if (appliesTo) {
     const xero = await xeroReservationCheck(invoice);
@@ -201,11 +217,11 @@ export async function clientInvoiceApprovalChecks(
     if (invoice.kind === "CREDIT_NOTE") items.push(await creditLimitCheck(invoice, client));
     items.push(await startedWorkCheck(invoice, client));
   }
-  items.push(advisory[0], advisory[1], totalsCheck(invoice));
+  items.push(advisory[0], advisory[1], totalsCheck(invoice, mode));
   return { appliesTo, items };
 }
 
-/** True when the checks say the approve request would be refused. */
+/** True when the checks say the approve request would be refused (an enforced check that failed or could not be read). */
 export function approvalRefusedByChecks(checks: ApprovalChecks): boolean {
-  return checks.items.some((item) => item.enforced && item.state === "refused");
+  return checks.items.some((item) => item.enforced && (item.state === "refused" || item.state === "unknown"));
 }

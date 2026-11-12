@@ -2,9 +2,11 @@
 
 /**
  * One run card in a Pipeline lane: property, one state pill, one line of facts
- * and at most one contextual action ("Move to <next day>", which uses the
- * reschedule endpoint with its stale-write guard). Opening the card shows the
- * side panel, where Edit, Delete and every other run action live.
+ * and its contextual actions as drawn: the exception's own action ("Ask
+ * cleaner", "Request photo", "Chase supplier", each only where the run's
+ * exception calls for it) and "Move to <next day>" (the reschedule endpoint
+ * with its stale-write guard). Opening the card shows the side panel, where
+ * Edit, Delete and every other run action live.
  */
 import * as React from "react";
 import { formatInTimeZone } from "date-fns-tz";
@@ -13,6 +15,8 @@ import { EPill, type EPillTone } from "@/components/v2/ui/pill";
 import { EButton } from "@/components/v2/ui/primitives";
 import { SYDNEY_TZ } from "@/lib/time/sydney-range";
 import { statusLabel } from "./laundry-shared";
+import { LaundryNudgeActions, nudgeKindsForTask } from "./laundry-nudge";
+import { LaundrySupplierChase, chaseAppliesToTask } from "./laundry-supplier-chase";
 import type { PipelineCardDTO } from "./use-laundry-pipeline";
 
 export function shortDay(value: string | null | undefined): string {
@@ -84,10 +88,13 @@ type Props = {
   onOpen: () => void;
   onToggle: () => void;
   onMove: () => void;
+  /** The Pipeline's "today" (Sydney), for the exception actions. */
+  todayKey?: string;
 };
 
-export function LaundryLaneCard({ card, active, selectable, selected, saving, moveLabel, onOpen, onToggle, onMove }: Props) {
+export function LaundryLaneCard({ card, active, selectable, selected, saving, moveLabel, onOpen, onToggle, onMove, todayKey }: Props) {
   const pill = cardPill(card);
+  const hasExceptionAction = nudgeKindsForTask(card, todayKey).length > 0 || chaseAppliesToTask(card);
   const name = card.property?.name ?? "Property";
   return (
     <li
@@ -111,9 +118,11 @@ export function LaundryLaneCard({ card, active, selectable, selected, saving, mo
       {card.exceptions.length > 1 ? (
         <span className="text-[0.6875rem] text-[hsl(var(--e-danger))]">Also: {card.exceptions.slice(1).map((item) => item.label).join(" · ")}</span>
       ) : null}
-      {moveLabel ? (
+      {moveLabel || hasExceptionAction ? (
         <div className="flex flex-wrap gap-1.5">
-          <EButton size="sm" variant="outline" disabled={saving} onClick={onMove}>{moveLabel}</EButton>
+          <LaundryNudgeActions task={card} todayKey={todayKey} />
+          <LaundrySupplierChase task={card} />
+          {moveLabel ? <EButton size="sm" variant="outline" disabled={saving} onClick={onMove}>{moveLabel}</EButton> : null}
         </div>
       ) : null}
     </li>

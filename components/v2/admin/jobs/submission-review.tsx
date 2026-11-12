@@ -15,6 +15,7 @@ import { format } from "date-fns";
 import { formatFieldValue, isUploadFieldType } from "@/lib/forms/field-types";
 import { EBadge } from "@/components/v2/ui/primitives";
 import { MediaGallery, type MediaGalleryItem } from "@/components/shared/media-gallery";
+import { TableAnswer, inlineAnswerText, isBlockAnswer } from "@/components/v2/admin/forms/submissions/structured-answer";
 
 /* ── Serialized shapes (built server-side in the job detail page) ───────── */
 
@@ -90,7 +91,8 @@ function renderFieldValue(field: any, sub: SubmissionRow): string {
     if (used.length === 0) return "No inventory used";
     return used.map((tx) => `${tx.itemName}: ${Math.abs(tx.quantity)}`).join(", ");
   }
-  return formatFieldValue(field, (answers as Record<string, unknown>)[field.id]);
+  // Stock count reads "item · counted N unit"; a Table answer renders as a table below the label.
+  return field.type === "stock_count" ? inlineAnswerText(field, (answers as Record<string, unknown>)[field.id]) : formatFieldValue(field, (answers as Record<string, unknown>)[field.id]);
 }
 
 /* ── Presigned media set → shared lightbox overlay ──────────────────────────
@@ -300,10 +302,13 @@ export function SubmissionReview({
                                     <span className="ml-2 align-middle"><EBadge tone="danger" soft>Rework</EBadge></span>
                                   ) : null}
                                 </p>
-                                {!isCheckbox ? (
+                                {!isCheckbox && !isBlockAnswer(field) ? (
                                   <p className="text-[0.8125rem] font-[550]">{value}</p>
                                 ) : null}
                               </div>
+                              {isBlockAnswer(field) ? (
+                                <div className="mt-1.5"><TableAnswer field={field} value={(answers as Record<string, unknown>)[field.id]} /></div>
+                              ) : null}
                               {mediaForField.length > 0 ? (
                                 <div className="mt-2">
                                   <AccessMediaGallery

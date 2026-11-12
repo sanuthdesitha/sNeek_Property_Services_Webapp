@@ -4,11 +4,11 @@
  * The invoice editor page (/v2/admin/finance/invoices/[id]), replacing the
  * editor modal: header and actions, the stage bar, the lines, and the checks,
  * send, Xero and history cards. Every change goes through the existing invoice
- * routes; see use-invoice-editor.ts for how saving works.
+ * routes; see use-invoice-editor.ts for how saving (autosave with a
+ * stale-write guard) works.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { formatInTimeZone } from "date-fns-tz";
 import { toast } from "@/hooks/use-toast";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EStageBar } from "@/components/v2/ui/stage-bar";
@@ -22,46 +22,21 @@ import { EditorHeader, UNSAVED_ACTION_HINT } from "./editor-header";
 import { EditorFields, EditorTotals } from "./editor-fields";
 import { EditorLines } from "./editor-lines";
 import { EditorChecks } from "./editor-checks";
-import { HistoryCard, SendCard, XeroCard } from "./editor-panels";
+import { HistoryCard, SendCard, XeroCard, type SendChoices } from "./editor-panels";
 import { useXeroRefresh } from "./use-xero-refresh";
 import { RegroupLineDialog, RemoveLineDialog } from "./editor-line-dialogs";
 import { ClientReferenceField, CreditLinks, EditorFooterActions } from "./editor-extras";
 import { lineSections, pdfGroupsLines } from "./line-sections";
-import { EMPTY_NEW_LINE, buildLineUpdates, validateNewLine } from "./line-drafts";
-import { useInvoiceEditor, type SaveStatus } from "./use-invoice-editor";
+import { EMPTY_NEW_LINE, validateNewLine } from "./line-drafts";
+import { useInvoiceEditor } from "./use-invoice-editor";
+import { StatusBanner, saveStateLabel, useNow } from "./editor-banners";
+import { useLineSuggestions } from "./use-line-suggestions";
+import { AddJobsDialog } from "./add-jobs-dialog";
+import { addJobsRequest } from "../invoice-requests";
+
+export { saveStateLabel } from "./editor-banners";
 
 const LEAVE_WARNING = "Leave without saving? Your unsaved changes on this invoice will be lost.";
-
-/** The words beside the subtitle: saving, failed, unsaved, or when it last changed. */
-export function saveStateLabel(status: SaveStatus, unsaved: boolean, updatedAt: string, timezone: string): string {
-  if (status.kind === "saving") return "Saving…";
-  if (status.kind === "failed") return "Not saved";
-  if (unsaved) return "Unsaved changes";
-  try {
-    return `Last changed ${formatInTimeZone(new Date(updatedAt), timezone, "d MMM, HH:mm")}`;
-  } catch {
-    return "Saved";
-  }
-}
-
-function StatusBanner({ status, onDismiss }: { status: SaveStatus; onDismiss: () => void }) {
-  if (status.kind !== "failed") return null;
-  return (
-    <div role="alert" className="flex flex-wrap items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-danger)/0.5)] bg-[hsl(var(--e-danger-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-danger))]">
-      <span className="min-w-0 flex-1 break-words">
-        <strong className="font-[600]">{status.what}: not saved.</strong> {status.message}
-      </span>
-      {status.retry ? (
-        <EButton type="button" size="sm" variant="outline" onClick={status.retry}>
-          Retry
-        </EButton>
-      ) : null}
-      <EButton type="button" size="sm" variant="ghost" onClick={onDismiss}>
-        Dismiss
-      </EButton>
-    </div>
-  );
-}
 
 export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoiceEditorData; backHref: string }) {
   const router = useRouter();
@@ -69,7 +44,8 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
   const { state: xeroRefresh, refresh: refreshFromXero } = useXeroRefresh(initial.row.id, editor.reload);
   const { data, drafts, status, saving } = editor;
   const [grouped, setGrouped] = useState(() => pdfGroupsLines(initial.lines));
-  const [invalid, setInvalid] = useState<Record<string, string>>({});
+  const [addingJobs, setAddingJobs] = useState(false);
+  const [sendChoices, setSendChoices] = useState<SendChoices>({ includePaymentLink: false, pushToXero: false });
   const [removing, setRemoving] = useState<EditorLine | null>(null);
   const [regrouping, setRegrouping] = useState<EditorLine | null>(null);
   const [dialog, setDialog] = useState<InvoiceDialog>(null);
@@ -78,8 +54,14 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
 
   const row = data.row;
   const editable = data.editLock.editable;
+  // Buttons, menus and structural fields wait for any save; typed text stays
+  // usable during a background autosave (what is typed then stays a draft).
   const frozen = saving || actionBusy;
+  const inputsFrozen = editor.structuralSaving || actionBusy;
   const unsaved = editor.hasUnsavedInput;
+  const draftEditable = editable && data.draft !== null;
+  const suggestions = useLineSuggestions(row.id, draftEditable, data.updatedAt);
+  const now = useNow(editor.lastSavedAt !== null);
   const sections = useMemo(() => lineSections(data.lines, grouped), [data.lines, grouped]);
   const stages = clientInvoiceStages(row);
   const actions = availableInvoiceActions(row);
@@ -94,14 +76,9 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
     return () => window.removeEventListener("beforeunload", warn);
   }, [unsaved]);
 
-  function saveDraft() {
-    const { updates, invalid: problems } = buildLineUpdates(data.lines, drafts, data.row.kind);
-    setInvalid(problems);
-    if (Object.keys(problems).length) {
-      editor.setStatus({ kind: "failed", what: "Save draft", message: "Fix the marked lines, then save again.", retry: null });
-      return;
-    }
-    if (updates.length) void editor.mutate("Save draft", { updateLines: updates }, { repeatable: true });
+  function addJobs(jobIds: string[]): Promise<boolean> {
+    // Not repeatable after a lost answer: the jobs may already be on the invoice.
+    return editor.perform("Add finished jobs", (token) => addJobsRequest(row.id, jobIds, token), { repeatable: false });
   }
 
   function addLine() {
@@ -134,7 +111,13 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
       return;
     }
     if (key === "send" || key === "resend") {
-      setDialog({ kind: "send", invoice: row, resend: key === "resend", to: sendTo });
+      setDialog({
+        kind: "send",
+        invoice: row,
+        resend: key === "resend",
+        to: sendTo,
+        options: { includePaymentLink: data.send.paymentLink.available && sendChoices.includePaymentLink, pushToXero: !row.xeroInvoiceId && sendChoices.pushToXero },
+      });
       return;
     }
     if (key === "record-payment" || key === "mark-paid" || key === "receipt" || key === "void" || key === "reverse" || key === "reconcile" || key === "delete" || key === "credit-note") {
@@ -153,22 +136,19 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
       <EditorHeader
         invoice={row}
         backHref={backHref}
-        saveLabel={saveStateLabel(status, editor.dirtyIds.length > 0, data.updatedAt, data.timezone)}
+        saveLabel={saveStateLabel(status, editor.dirtyIds.length > 0, data.updatedAt, data.timezone, { at: editor.lastSavedAt, now })}
         canSave={editor.dirtyIds.length > 0}
         showSave={editable}
         dirty={unsaved}
         busy={frozen}
-        onSave={saveDraft}
-        onDiscard={() => {
-          setInvalid({});
-          editor.discardDrafts();
-        }}
+        onSave={editor.saveNow}
+        onDiscard={editor.discardDrafts}
         onBack={onBack}
         onAction={(key) => void runAction(key)}
       />
       <CreditLinks data={data} />
       <EStageBar label="Invoice stages" stages={stages.stages} terminal={stages.terminal} />
-      <StatusBanner status={status} onDismiss={() => editor.setStatus({ kind: "idle" })} />
+      <StatusBanner status={status} onDismiss={() => editor.setStatus({ kind: "idle" })} onReloadTheirs={() => void editor.reloadTheirs()} />
       {editor.reloadError ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 rounded-[var(--e-radius)] border border-[hsl(var(--e-warning)/0.5)] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-warning))]">
           <span className="min-w-0 flex-1">Showing the last copy loaded. It could not be refreshed: {editor.reloadError}</span>
@@ -218,13 +198,18 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
               onGst={(enabled) => void editor.mutate("GST", { gstEnabled: enabled }, { repeatable: true })}
               onGrouped={setGrouped}
               reference={<ClientReferenceField saved={row.clientReference} editable={editable} frozen={frozen} mutate={editor.mutate} />}
+              mutate={draftEditable ? editor.mutate : undefined}
             />
             <EditorLines
               sections={sections}
               drafts={drafts}
-              invalid={invalid}
+              invalid={editor.invalid}
               editable={editable}
               frozen={frozen}
+              inputsFrozen={inputsFrozen}
+              suggestions={draftEditable ? suggestions : null}
+              gstEnabled={data.gstEnabled}
+              onAddJob={(jobId) => void addJobs([jobId])}
               newLine={editor.newLine}
               onDraft={editor.setLineDraft}
               onNewLine={editor.setNewLine}
@@ -237,7 +222,16 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
             <EditorTotals
               data={data}
               unsaved={editor.dirtyIds.length > 0}
-              actions={<EditorFooterActions data={data} editable={editable} frozen={frozen} mutate={editor.mutate} />}
+              actions={
+                <>
+                  {draftEditable ? (
+                    <EButton type="button" size="sm" variant="outline" disabled={frozen} onClick={() => setAddingJobs(true)}>
+                      Add finished jobs{data.draft?.unbilledJobs !== null && data.draft?.unbilledJobs !== undefined ? ` (${data.draft.unbilledJobs} not billed)` : ""}
+                    </EButton>
+                  ) : null}
+                  <EditorFooterActions data={data} editable={editable} frozen={frozen} mutate={editor.mutate} />
+                </>
+              }
             />
           </section>
         </div>
@@ -247,6 +241,8 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
             data={data}
             to={sendTo}
             onTo={setSendTo}
+            choices={sendChoices}
+            onChoices={setSendChoices}
             canSend={canSend}
             resend={actions.includes("resend")}
             disabled={frozen || unsaved}
@@ -258,6 +254,7 @@ export function InvoiceEditorPage({ initial, backHref }: { initial: ClientInvoic
         </aside>
       </div>
 
+      {addingJobs ? <AddJobsDialog suggestions={suggestions} busy={frozen} onAdd={addJobs} onClose={() => setAddingJobs(false)} /> : null}
       <RemoveLineDialog
         line={removing}
         busy={saving}

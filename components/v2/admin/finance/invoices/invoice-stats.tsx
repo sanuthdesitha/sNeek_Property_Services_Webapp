@@ -39,7 +39,28 @@ function StatCard({ label, value, aside, caption }: { label: string; value: Reac
   );
 }
 
-export function InvoiceStats({ reloadToken, onCreateDraft, canCreate }: { reloadToken: number; onCreateDraft: () => void; canCreate: boolean }) {
+function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** "22 finished jobs not on an invoice, 4 clients · 3 jobs have no rate" */
+function readyCaption(ready: ClientInvoiceStats["readyToBill"]): string {
+  if (ready.jobs === 0) return "No finished jobs are waiting to be invoiced";
+  const base = `${plural(ready.jobs, "finished job")} not on an invoice, ${plural(ready.clients, "client")}`;
+  if (ready.unratedJobs === 0) return base;
+  return `${base} · ${plural(ready.unratedJobs, "job")} ${ready.unratedJobs === 1 ? "has" : "have"} no rate (not in the total)`;
+}
+
+export function InvoiceStats({
+  reloadToken,
+  onCreateDrafts,
+  canCreate,
+}: {
+  reloadToken: number;
+  /** Opens "Create N drafts" for the clients with finished, unbilled work. */
+  onCreateDrafts: () => void;
+  canCreate: boolean;
+}) {
   const [state, setState] = useState<StatsState>({ status: "loading" });
 
   useEffect(() => {
@@ -76,15 +97,34 @@ export function InvoiceStats({ reloadToken, onCreateDraft, canCreate }: { reload
     <section aria-label="Client invoice figures" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <StatCard
         label="Ready to bill"
-        value={readyToBill.jobs}
+        value={money(readyToBill.total)}
         aside={
-          <EButton size="sm" variant="gold" onClick={onCreateDraft} disabled={!canCreate}>
-            Create a draft
-          </EButton>
+          readyToBill.clients > 0 ? (
+            <EButton size="sm" variant="gold" onClick={onCreateDrafts} disabled={!canCreate}>
+              Create {plural(readyToBill.clients, "draft")}
+            </EButton>
+          ) : null
         }
-        caption={`Finished jobs not on any invoice${readyToBill.clients ? `, ${readyToBill.clients} client${readyToBill.clients === 1 ? "" : "s"}` : ""}`}
+        caption={readyCaption(readyToBill)}
       />
-      <StatCard label="Drafts to review" value={drafts.count} caption={`${money(drafts.total)} in drafts`} />
+      <StatCard
+        label="Drafts to review"
+        value={drafts.count}
+        aside={
+          drafts.missingRateJobs > 0 ? (
+            <span title={`${plural(drafts.missingRateDrafts, "draft")} with a job that has no client rate now. Approval refuses them until a rate is set.`}>
+              <EPill tone="warn">
+                {drafts.missingRateJobs} missing rate{drafts.missingRateJobs === 1 ? "" : "s"}
+              </EPill>
+            </span>
+          ) : null
+        }
+        caption={
+          drafts.missingRateDrafts > 0
+            ? `${money(drafts.total)} in drafts · ${plural(drafts.missingRateDrafts, "draft")} blocked by missing rates`
+            : `${money(drafts.total)} in drafts`
+        }
+      />
       <StatCard
         label="Outstanding"
         value={money(outstanding.owing)}

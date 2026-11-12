@@ -1,13 +1,14 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from "vitest";
 
-const m = vi.hoisted(() => ({ ticket: vi.fn(), media: vi.fn(), attachments: vi.fn(), report: vi.fn(), peek: vi.fn() }));
+const m = vi.hoisted(() => ({ ticket: vi.fn(), media: vi.fn(), attachments: vi.fn(), report: vi.fn(), peek: vi.fn(), quoteEvents: vi.fn() }));
 vi.mock("@/lib/db", () => ({
   db: {
     issueTicket: { findUnique: m.ticket },
     submissionMedia: { count: m.media },
     caseAttachment: { count: m.attachments },
     report: { findUnique: m.report },
+    quoteEvent: { findMany: m.quoteEvents },
   },
 }));
 vi.mock("@/lib/jobs/peek-summary", () => ({ loadJobPeekSummary: m.peek }));
@@ -17,6 +18,7 @@ import { loadCaseLinkedContext } from "@/lib/cases/linked-context";
 beforeEach(() => {
   vi.resetAllMocks();
   m.attachments.mockImplementation(async (args: { where: Record<string, unknown> }) => ("uploadedBy" in args.where ? 2 : 5));
+  m.quoteEvents.mockResolvedValue([]);
 });
 
 it("derives job, cleaners, departing guest, report and evidence from the linked job", async () => {

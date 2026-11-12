@@ -183,7 +183,7 @@ export function InvoiceList() {
 
   return (
     <div className="space-y-3.5">
-      <InvoiceStats reloadToken={statsToken} canCreate={Boolean(context)} onCreateDraft={() => setDialog({ kind: "generate" })} />
+      <InvoiceStats reloadToken={statsToken} canCreate onCreateDrafts={() => setDialog({ kind: "batch-drafts" })} />
       <InvoiceFilters
         state={state}
         counts={payload?.counts ?? null}

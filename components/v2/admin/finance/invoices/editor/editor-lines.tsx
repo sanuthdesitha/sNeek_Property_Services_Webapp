@@ -20,13 +20,12 @@ import { EButton } from "@/components/v2/ui/primitives";
 import type { EditorLine } from "@/lib/billing/client-invoice-editor-types";
 import { money } from "../invoice-model";
 import { EditorLineRow } from "./editor-line-row";
+import { AddLineRow } from "./add-line-row";
+import type { LineSuggestions } from "./use-line-suggestions";
 import { reorderWithinSection, type LineSection } from "./line-sections";
 import type { LineDraft, LineDrafts } from "./line-drafts";
 
 const HEAD = "whitespace-nowrap border-b border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] px-3 py-2 text-left text-[0.6875rem] font-[600] text-[hsl(var(--e-muted-foreground))]";
-const NEW_INPUT =
-  "h-11 min-w-0 rounded-[var(--e-radius-sm)] border border-[hsl(var(--e-input))] bg-[hsl(var(--e-surface))] px-2.5 text-[1rem] " +
-  "focus:border-[hsl(var(--e-gold))] focus:outline-none focus:ring-1 focus:ring-[hsl(var(--e-ring))] disabled:opacity-60 sm:h-9 sm:text-[0.8125rem]";
 
 export type EditorLinesProps = {
   sections: LineSection[];
@@ -34,7 +33,12 @@ export type EditorLinesProps = {
   invalid: Record<string, string>;
   editable: boolean;
   frozen: boolean;
+  /** Text inputs: usable during a background autosave. */
+  inputsFrozen: boolean;
   newLine: LineDraft;
+  suggestions: LineSuggestions | null;
+  gstEnabled: boolean;
+  onAddJob: (jobId: string) => void;
   onDraft: (lineId: string, draft: LineDraft) => void;
   onNewLine: (draft: LineDraft) => void;
   onAddLine: () => void;
@@ -58,52 +62,6 @@ function SectionRow({ section, open, onToggle }: { section: LineSection; open: b
             {open ? "Hide lines" : `Show ${count} ${count === 1 ? "line" : "lines"}`}
           </EButton>
         </div>
-      </td>
-    </tr>
-  );
-}
-
-function AddLineRow({ props }: { props: EditorLinesProps }) {
-  const { newLine, frozen } = props;
-  return (
-    <tr>
-      <td className="px-3 py-2" />
-      <td className="px-3 py-2" colSpan={2}>
-        <input
-          className={`${NEW_INPUT} w-full`}
-          aria-label="New line description"
-          placeholder="Describe the charge"
-          value={newLine.description}
-          disabled={frozen}
-          onChange={(event) => props.onNewLine({ ...newLine, description: event.target.value })}
-        />
-      </td>
-      <td className="px-3 py-2 text-right">
-        <input
-          className={`${NEW_INPUT} w-[4.5rem] text-right e-tnum`}
-          inputMode="decimal"
-          aria-label="New line quantity"
-          value={newLine.quantity}
-          disabled={frozen}
-          onChange={(event) => props.onNewLine({ ...newLine, quantity: event.target.value })}
-        />
-      </td>
-      <td className="px-3 py-2 text-right">
-        <input
-          className={`${NEW_INPUT} w-[6rem] text-right e-tnum`}
-          inputMode="decimal"
-          aria-label="New line rate"
-          placeholder="0.00"
-          value={newLine.unitPrice}
-          disabled={frozen}
-          onChange={(event) => props.onNewLine({ ...newLine, unitPrice: event.target.value })}
-        />
-      </td>
-      <td className="px-3 py-2" />
-      <td className="px-1 py-2 text-right">
-        <EButton type="button" size="sm" variant="outline" disabled={frozen} onClick={props.onAddLine}>
-          Add
-        </EButton>
       </td>
     </tr>
   );
@@ -178,6 +136,7 @@ export function EditorLines(props: EditorLinesProps) {
                           draft={props.drafts[line.id]}
                           editable={editable}
                           frozen={frozen}
+                          inputsFrozen={props.inputsFrozen}
                           sortable={sortable}
                           error={props.invalid[line.id] ?? null}
                           onDraft={(draft) => props.onDraft(line.id, draft)}
@@ -190,7 +149,18 @@ export function EditorLines(props: EditorLinesProps) {
                 </Fragment>
               );
             })}
-            {editable ? <AddLineRow props={props} /> : null}
+            {editable ? (
+              <AddLineRow
+                newLine={props.newLine}
+                inputsFrozen={props.inputsFrozen}
+                frozen={frozen}
+                suggestions={props.suggestions}
+                gstEnabled={props.gstEnabled}
+                onNewLine={props.onNewLine}
+                onAddLine={props.onAddLine}
+                onAddJob={props.onAddJob}
+              />
+            ) : null}
           </tbody>
         </table>
       </DndContext>

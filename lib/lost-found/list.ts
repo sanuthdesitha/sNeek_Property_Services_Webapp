@@ -6,7 +6,7 @@
  * GET /api/admin/lost-found is kept for any caller that does not ask for
  * `paginated=1`.
  */
-import type { LostFoundStatus, Prisma } from "@prisma/client";
+import { Prisma, type LostFoundStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { listResponse, ListQueryError, type ListQuery, type ListResponse } from "@/lib/admin/list-query";
@@ -107,17 +107,66 @@ function tabWhere(tab: LostFoundTab, closedAs: LostFoundStatus | null): Prisma.L
   return { status: { in: LOST_FOUND_STAGE_STATUSES[tab as LostFoundStage] } };
 }
 
+type ColumnSort = Exclude<LostFoundSort, "property">;
+
 function orderBy(query: ListQuery<LostFoundSort>): Prisma.LostFoundItemOrderByWithRelationInput[] {
   const dir = query.dir;
   const nullsLast = { sort: dir, nulls: "last" as const };
-  const primary: Record<LostFoundSort, Prisma.LostFoundItemOrderByWithRelationInput> = {
+  const primary: Record<ColumnSort, Prisma.LostFoundItemOrderByWithRelationInput> = {
     found: { createdAt: dir },
     item: { itemName: dir },
     guest: { guestName: nullsLast },
     stored: { storageLocation: nullsLast },
     status: { status: dir },
   };
-  return [primary[query.sort], { createdAt: "asc" }, { id: "asc" }];
+  const sort: ColumnSort = query.sort === "property" ? "found" : query.sort;
+  return [primary[sort], { createdAt: "asc" }, { id: "asc" }];
+}
+
+/** Above this many matching items the property sort asks for narrower filters. */
+export const PROPERTY_SORT_LIMIT = 20_000;
+
+/**
+ * The item stores `propertyId` without a relation, so Prisma cannot order by
+ * the property's name. The matching ids come from the list's own where
+ * (Prisma), then one raw query orders exactly those ids by property name
+ * (case-insensitive, items without a property last, then found date and id as
+ * the list's other sorts do) and applies the page, so paging stays correct
+ * across pages. Null `page` returns every row in order (the CSV export).
+ */
+export async function orderedIdsByPropertyName(
+  where: Prisma.LostFoundItemWhereInput,
+  dir: "asc" | "desc",
+  page: { skip: number; take: number } | null,
+): Promise<string[]> {
+  const matching = await db.lostFoundItem.findMany({ where, select: { id: true } });
+  if (matching.length === 0) return [];
+  if (matching.length > PROPERTY_SORT_LIMIT) throw new ListQueryError("Too many items to sort by property; narrow the filters.", "sort");
+  const ids = matching.map((row) => row.id);
+  const direction = dir === "desc" ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+  const paging = page ? Prisma.sql`OFFSET ${page.skip} LIMIT ${page.take}` : Prisma.empty;
+  const rows = await db.$queryRaw<Array<{ id: string }>>`
+    SELECT l."id" FROM "LostFoundItem" l
+    LEFT JOIN "Property" p ON p."id" = l."propertyId"
+    WHERE l."id" = ANY(${ids}::text[])
+    ORDER BY lower(p."name") ${direction} NULLS LAST, l."createdAt" ASC, l."id" ASC
+    ${paging}`;
+  return rows.map((row) => row.id);
+}
+
+/** Items for the list or export in the requested order, paged when `page` is given. */
+async function findItemsInOrder(where: Prisma.LostFoundItemWhereInput, query: ListQuery<LostFoundSort>, paged: boolean) {
+  if (query.sort !== "property") {
+    return db.lostFoundItem.findMany({ where, orderBy: orderBy(query), ...(paged ? { skip: query.skip, take: query.take } : {}) });
+  }
+  const ids = await orderedIdsByPropertyName(where, query.dir, paged ? { skip: query.skip, take: query.take } : null);
+  if (ids.length === 0) return [];
+  const items = await db.lostFoundItem.findMany({ where: { id: { in: ids } } });
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return ids.flatMap((id) => {
+    const item = byId.get(id);
+    return item ? [item] : [];
+  });
 }
 
 export async function listLostFoundForOffice(filters: LostFoundFilters, query: ListQuery<LostFoundSort>, now = new Date()): Promise<LostFoundListResponse> {
@@ -129,7 +178,7 @@ export async function listLostFoundForOffice(filters: LostFoundFilters, query: L
 
   const [total, items, grouped, open, pastHolding, propertyIds] = await Promise.all([
     db.lostFoundItem.count({ where }),
-    db.lostFoundItem.findMany({ where, orderBy: orderBy(query), skip: query.skip, take: query.take }),
+    findItemsInOrder(where, query, true),
     db.lostFoundItem.groupBy({ by: ["status"], where: { AND: base }, _count: { _all: true } }),
     db.lostFoundItem.count({ where: { status: { notIn: CLOSED_STATUSES } } }),
     db.lostFoundItem.count({ where: { status: { in: HOLDING_STATUSES }, createdAt: { lt: cutoff } } }),
@@ -165,7 +214,7 @@ export async function exportLostFoundRows(filters: LostFoundFilters, query: List
   const [settings, appSettings] = await Promise.all([readLostFoundSettings(), getAppSettings()]);
   const context: WhereContext = { timeZone: appSettings.timezone || "Australia/Sydney", holdingDays: settings.holdingDays, now };
   const base = await baseWhere(filters, context);
-  const items = await db.lostFoundItem.findMany({ where: { AND: [...base, tabWhere(filters.tab, filters.closedAs)] }, orderBy: orderBy(query) });
+  const items = await findItemsInOrder({ AND: [...base, tabWhere(filters.tab, filters.closedAs)] }, query, false);
   const rows = (await hydrateItems(items)).map((row) => ({
     ...row,
     holding: holdingState({ status: row.status, foundAt: new Date(row.createdAt), now, timeZone: context.timeZone, holdingDays: context.holdingDays }),

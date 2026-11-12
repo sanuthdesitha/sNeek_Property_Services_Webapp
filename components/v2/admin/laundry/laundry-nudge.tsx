@@ -8,7 +8,7 @@
  * nudge route (ADMIN and OPS_MANAGER). The key is fixed per run, kind and
  * cool-down window, so a double click or retry is one request; a second
  * nudge inside the cool-down is refused by the server with the first time.
- * "Chase supplier" is deliberately absent: suppliers have no contact.
+ * "Chase supplier" is its own control (./laundry-supplier-chase.tsx).
  */
 import * as React from "react";
 import { EActionDialog } from "@/components/v2/ui/action-dialog";

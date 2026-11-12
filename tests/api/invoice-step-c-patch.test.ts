@@ -29,6 +29,7 @@ vi.mock("@/lib/billing/client-invoices", () => ({ getClientInvoice: vi.fn(), rel
 vi.mock("@/lib/db", () => {
   const client = () => ({
     $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
     clientInvoice: { findUnique: m.find, findMany: m.findMany, count: m.count, update: m.update, delete: m.remove },
     clientInvoiceLine: { findMany: m.lines, create: m.lineCreate, delete: m.lineDelete, update: m.lineUpdate, updateMany: vi.fn() },
     auditLog: { create: m.audit },
@@ -137,10 +138,14 @@ describe("blank invoices and credit notes", () => {
     Object.assign(invoice, { kind: "CREDIT_NOTE", creditsInvoiceId: "orig", totalAmount: -220, lines: [{ id: lineId, category: "SERVICE", lineTotal: -200, unitPrice: -200, quantity: 1, sortOrder: 0, jobId: null }] });
     m.find.mockImplementation(async ({ where }: { where: { id: string } }) =>
       where.id === "orig" ? { invoiceNumber: "INV-9", totalAmount: 220, creditNotes: [{ status: "SENT", totalAmount: -100 }] } : invoice);
+    storedLines = [...invoice.lines];
     const refused = await patch({ status: "APPROVED" });
     expect(refused.status).toBe(409);
     expect((await refused.json()).error).toMatch(/more than INV-9 has left to credit \(\$120\.00\)/);
+    // A partial credit whose stored total matches its lines (Wave D: totals must match to approve).
     invoice.totalAmount = -110;
+    invoice.lines = [{ id: lineId, category: "SERVICE", lineTotal: -100, unitPrice: -100, quantity: 1, sortOrder: 0, jobId: null }];
+    storedLines = [...invoice.lines];
     expect((await patch({ status: "APPROVED" })).status).toBe(200);
   });
 

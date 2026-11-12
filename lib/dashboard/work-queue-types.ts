@@ -62,6 +62,12 @@ export type WorkQueueAction =
       reason?: { field: "decisionNote"; subject: string };
     }
   | { kind: "assign"; label: string; jobId: string; primary?: boolean }
+  /**
+   * "Send reminder" for an expiring document: opens a confirm stating what will
+   * be sent, to whom and how, then calls the workforce route's
+   * REQUEST_DOCUMENT action with the document id (idempotent per day).
+   */
+  | { kind: "document-reminder"; label: string; documentId: string; endpoint: string; primary?: boolean }
   | { kind: "link"; label: string; href: string; external?: boolean; primary?: boolean };
 
 export type WorkQueueItem = {

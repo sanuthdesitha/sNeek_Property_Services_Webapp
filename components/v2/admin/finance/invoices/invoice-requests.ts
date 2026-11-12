@@ -59,8 +59,32 @@ export function createBlankInvoiceRequest(input: { clientId: string; periodStart
   return send<{ id?: string; invoiceNumber?: string }>("/api/admin/invoices", json("POST", { kind: "BLANK", ...input }));
 }
 
-export function sendInvoiceRequest(id: string, to: string) {
-  return send(`/api/admin/invoices/${id}/send`, json("POST", to ? { to } : {}));
+/** Send options are explicit; leaving them out keeps the old behaviour (no link, no push). */
+export type SendRequestOptions = { includePaymentLink?: boolean; pushToXero?: boolean };
+
+export function sendInvoiceRequest(id: string, to: string, options: SendRequestOptions = {}) {
+  return send<{ paymentLink?: string; xeroPush?: { outcome: "pushed" | "already-pushed" | "failed"; error?: string } }>(
+    `/api/admin/invoices/${id}/send`,
+    json("POST", { ...(to ? { to } : {}), ...(options.includePaymentLink ? { includePaymentLink: true } : {}), ...(options.pushToXero ? { pushToXero: true } : {}) }),
+  );
+}
+
+/** The draft client's finished, unbilled jobs with the generator's charge. */
+export function getUnbilledJobs<TBody>(id: string, signal?: AbortSignal) {
+  return send<TBody>(`/api/admin/invoices/${encodeURIComponent(id)}/jobs`, { signal, cache: "no-store" });
+}
+
+/** Add finished jobs to a draft, guarded by the version the page last read. */
+export function addJobsRequest(id: string, jobIds: string[], expectedUpdatedAt: string) {
+  return send<Record<string, unknown>>(`/api/admin/invoices/${encodeURIComponent(id)}/jobs`, json("POST", { jobIds, expectedUpdatedAt }));
+}
+
+export function getSavedItems<TBody>(signal?: AbortSignal) {
+  return send<TBody>("/api/admin/invoices/saved-items", { signal, cache: "no-store" });
+}
+
+export function putSavedItems<TBody>(payload: { items: unknown[]; expectedUpdatedAt: string | null }) {
+  return send<TBody>("/api/admin/invoices/saved-items", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 }
 
 export function pushInvoiceToXeroRequest(id: string) {

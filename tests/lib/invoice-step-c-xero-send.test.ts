@@ -23,6 +23,7 @@ const m = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => {
   const client = () => ({
     $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
     clientInvoice: { findUnique: m.invoice, findUniqueOrThrow: m.invoice, update: m.update },
     auditLog: { create: m.audit },
     notification: { create: vi.fn() },

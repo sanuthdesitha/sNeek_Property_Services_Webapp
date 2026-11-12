@@ -40,6 +40,9 @@ export type ContentEditBody = {
   gstEnabled?: boolean;
   clientReference?: string | null;
   clientNote?: string | null;
+  clientId?: string;
+  period?: { start: string; end: string };
+  paymentTermsDays?: number | null;
 };
 
 /** Anything that changes what the document says or adds up to. */
@@ -52,7 +55,11 @@ export function contentEditRequested(body: ContentEditBody): boolean {
       body.reorderLineIds?.length ||
       body.gstEnabled !== undefined ||
       body.clientReference !== undefined ||
-      body.clientNote !== undefined,
+      body.clientNote !== undefined ||
+      // Wave D: Bill to, period and due terms are content too (DRAFT only).
+      body.clientId !== undefined ||
+      body.period !== undefined ||
+      body.paymentTermsDays !== undefined,
   );
 }
 

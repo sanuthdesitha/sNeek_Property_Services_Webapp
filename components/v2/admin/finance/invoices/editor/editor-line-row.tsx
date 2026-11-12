@@ -32,6 +32,8 @@ export type LineRowProps = {
   draft: LineDraft | undefined;
   editable: boolean;
   frozen: boolean;
+  /** Text inputs only: stay usable during a background autosave (what is typed then stays a draft). */
+  inputsFrozen?: boolean;
   sortable: boolean;
   error: string | null;
   onDraft: (draft: LineDraft) => void;
@@ -76,6 +78,7 @@ function lineMenu(line: EditorLine, props: LineRowProps): ERowMenuItem[] {
 
 export function EditorLineRow(props: LineRowProps) {
   const { line, draft, editable, frozen, sortable, error } = props;
+  const inputsFrozen = props.inputsFrozen ?? frozen;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: line.id,
     disabled: !sortable || frozen,
@@ -117,7 +120,7 @@ export function EditorLineRow(props: LineRowProps) {
               aria-invalid={error ? true : undefined}
               aria-describedby={errorId}
               value={value.description}
-              disabled={frozen}
+              disabled={inputsFrozen}
               onChange={(event) => props.onDraft({ ...value, description: event.target.value })}
             />
           ) : (
@@ -141,7 +144,7 @@ export function EditorLineRow(props: LineRowProps) {
             inputMode="decimal"
             aria-label={`Quantity of ${label}`}
             value={value.quantity}
-            disabled={frozen}
+            disabled={inputsFrozen}
             onChange={(event) => props.onDraft({ ...value, quantity: event.target.value })}
           />
         ) : (
@@ -155,7 +158,7 @@ export function EditorLineRow(props: LineRowProps) {
             inputMode="decimal"
             aria-label={`Rate of ${label}`}
             value={value.unitPrice}
-            disabled={frozen}
+            disabled={inputsFrozen}
             onChange={(event) => props.onDraft({ ...value, unitPrice: event.target.value })}
           />
         ) : (

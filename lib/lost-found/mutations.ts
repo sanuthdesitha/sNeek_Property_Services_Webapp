@@ -139,8 +139,10 @@ export type WorkflowEvent = {
   action: "OFFER_RETURN" | "GUEST_CONTACTED" | "CLIENT_CONTACTED";
   note?: string | null;
   guest?: GuestEdit;
-  /** How the office says it made contact. The app itself sent nothing. */
+  /** How contact was made. Without `sentByApp`, the office's own statement (the app sent nothing). */
   channel?: ContactChannel | null;
+  /** True when the app itself sent the message (the provider accepted it). */
+  sentByApp?: boolean;
 };
 
 const WORKFLOW_TARGET: Record<WorkflowEvent["action"], LostFoundStatus | null> = {
@@ -172,7 +174,7 @@ export async function recordLostFoundWorkflow(itemId: string, actorId: string, i
       fromStatus: item.status,
       toStatus: target ?? item.status,
       ...(guest ? { guestName: guest.guestName, guestContact: guest.guestContact, guestEmail: guest.guestEmail } : {}),
-      ...(input.channel ? { channel: input.channel, recordedByOffice: true, sentByApp: false } : {}),
+      ...(input.channel ? { channel: input.channel, recordedByOffice: !input.sentByApp, sentByApp: input.sentByApp === true } : {}),
     };
     await tx.lostFoundEvent.create({ data: { itemId: item.id, userId: actorId, action: input.action, note: clean(input.note), meta: meta as Prisma.InputJsonValue } });
     return tx.lostFoundItem.findUniqueOrThrow({ where: { id: item.id } });

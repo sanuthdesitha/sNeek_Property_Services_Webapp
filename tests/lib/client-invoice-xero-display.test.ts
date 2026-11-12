@@ -11,9 +11,11 @@ describe("Xero states on screen come from stored facts only", () => {
   it.each([
     [{ xeroInvoiceId: null, xeroExportedAt: null, xeroState: "NONE" as const }, "Not in Xero"],
     [{ xeroInvoiceId: null, xeroExportedAt: null, xeroState: "PENDING" as const }, "Push pending"],
-    [{ ...pushed, xeroSync: null }, "In Xero"],
-    [{ ...pushed, xeroSync: sync("IN_XERO") }, "In Xero"],
-    [{ ...pushed, xeroSync: sync("PAID_IN_XERO") }, "Paid in Xero (recorded)"],
+    // Wave D: a failed push is recorded distinctly, with its reason.
+    [{ xeroInvoiceId: null, xeroExportedAt: null, xeroState: "PENDING" as const, xeroPushFailure: { reason: "Xero API error (400): bad", at: "2026-11-11T00:00:00Z" } }, "Push failed"],
+    [{ ...pushed, xeroSync: null }, "In Xero · not yet checked"],
+    [{ ...pushed, xeroSync: sync("IN_XERO") }, "Synced"],
+    [{ ...pushed, xeroSync: sync("PAID_IN_XERO") }, "Synced · paid in Xero"],
     [{ ...pushed, xeroSync: sync("NEEDS_REVIEW", "Totals differ") }, "Needs review"],
     [{ ...pushed, xeroSync: sync("UNKNOWN", "Xero state unknown: rate limited") }, "State unknown"],
   ])("%j → %s", (facts, label) => {
@@ -21,7 +23,8 @@ describe("Xero states on screen come from stored facts only", () => {
   });
 
   it("never claims a check that did not happen", () => {
-    expect(xeroDisplay({ ...pushed, xeroSync: null })).toMatchObject({ key: "unchecked", checkedAt: null, reason: "Not checked against Xero yet." });
+    expect(xeroDisplay({ ...pushed, xeroSync: null })).toMatchObject({ key: "unchecked", checkedAt: null, reason: null });
+    expect(xeroDisplay({ xeroInvoiceId: null, xeroExportedAt: null, xeroState: "PENDING", xeroPushFailure: { reason: "why", at: "2026-11-11T00:00:00Z" } })).toMatchObject({ key: "failed", reason: "why", checkedAt: "2026-11-11T00:00:00Z" });
     expect(xeroDisplay({ ...pushed, xeroSync: sync("UNKNOWN", "why") })).toMatchObject({ reason: "why", checkedAt: "2026-11-11T00:20:00Z" });
   });
 
@@ -31,6 +34,11 @@ describe("Xero states on screen come from stored facts only", () => {
     expect(stages({ xeroSync: sync("UNKNOWN") }).find((s) => s.key === "xero")?.note).toBe("State unknown");
     // Xero saying paid does not make the local Paid stage done.
     expect(stages({ xeroSync: sync("PAID_IN_XERO") }).find((s) => s.key === "paid")?.state).toBe("todo");
+    expect(stages({ xeroSync: sync("IN_XERO") }).find((s) => s.key === "xero")?.note).toBe("Synced");
+    expect(stages({ xeroSync: null }).find((s) => s.key === "xero")?.note).toBe("Not yet checked");
+    const unsent = (extra: object) => clientInvoiceStages({ status: "APPROVED", sentAt: null, xeroInvoiceId: null, xeroState: "PENDING", ...extra }).stages;
+    expect(unsent({}).find((s) => s.key === "xero")).toMatchObject({ state: "pending", note: "Push pending" });
+    expect(unsent({ xeroPushFailure: { reason: "x", at: "" } }).find((s) => s.key === "xero")).toMatchObject({ state: "pending", note: "Push failed" });
   });
 
   it("labels Xero history rows in plain words", () => {

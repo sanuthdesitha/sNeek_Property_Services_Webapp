@@ -3,12 +3,12 @@
  * the draft before using it, and nothing here promises a fee, a deadline or a
  * delivery method the business has not set.
  *
- * Sending: the notification intent pipeline only delivers to staff accounts
- * (ADMIN_OPERATIONS scope; see lib/notifications/intent-provider.ts). It has
- * no recipient for a guest's email or phone, and no lost-and-found client
- * recipient, so these drafts are copied or opened in the office's own email or
- * SMS app and the office then records what it did. The app never claims to
- * have sent or delivered them.
+ * Sending: administrators can send the guest message by email or SMS through
+ * the shared external-recipient path (a guest has no account), and "Tell
+ * client" through the notification pipeline to the property client's logins
+ * (scope LOST_ITEM_PROPERTY_CLIENT). Every role that can open the item can
+ * always copy the draft or open it in their own email or SMS app and record
+ * what they did. The app never claims a message was delivered.
  */
 import { formatInTimeZone } from "date-fns-tz";
 
@@ -55,8 +55,13 @@ export function guestSendOutcome(transport: "EMAIL" | "SMS", result: { state: Gu
   return { state: result.state, accepted: false, recordNotSent: true, note: `The ${how} was not sent (${result.errorCode ?? "provider error"}).` };
 }
 
-export const PIPELINE_UNSUPPORTED_REASON =
-  "The app's notification system can only send to staff accounts today, so it cannot send this message. Copy it or open it in your email or SMS app, then record that you sent it.";
+/** Client: why this account cannot send from the app (operations managers until the owner decides). */
+export const CLIENT_SEND_ADMIN_ONLY_REASON =
+  "Only administrators can send this to the client from the app. Copy it or open it in your email or SMS app, then record that you told the client.";
+
+/** Client: the pipeline's client notice (administrators). */
+export const CLIENT_SEND_NOTE =
+  "Administrators can send this to the client's logins from the app (inbox with phone and browser push, and/or email). The client's notification settings are honoured; each transport's answer is recorded on the timeline. You can also copy it and record what you did.";
 
 /** Guests: the notification system's guest-message action (administrators). */
 export const GUEST_SEND_NOTE =

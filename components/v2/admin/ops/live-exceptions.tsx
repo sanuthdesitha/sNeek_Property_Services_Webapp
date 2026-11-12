@@ -2,9 +2,9 @@
 
 /**
  * Live ops exceptions, each with its actions:
- * - Late → Call (tel), Message (the job's Messages tab), Notify client
- *   (ADMIN: confirm dialog over the client delay notice route; others keep the
- *   "Tell client" link to the Messages tab), Reassign (shared Jobs peek panel).
+ * - Late → Call (tel), Message (the job's Messages tab), Tell client (as
+ *   drawn; ADMIN: confirm dialog over the client delay notice route; others
+ *   keep a "Tell client" link to the Messages tab), Reassign (Jobs peek panel).
  *   A notice already requested today shows on the row (time, who).
  * - Continuation request → Approve, or Decline with the required reason
  *   (shared DeclineReasonDialog, also used by Command's work queue).
@@ -141,7 +141,7 @@ export function LiveExceptions({ jobs, continuations, readOnly, canAdminister = 
             <CallButton job={job} />
             <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "messages")}>Message</Link></EButton>
             {admin ? (
-              <EButton size="sm" variant="outline" onClick={() => setNoticeJob(job)}>{job.delayNotice ? "Notify client again…" : "Notify client"}</EButton>
+              <EButton size="sm" variant="outline" onClick={() => setNoticeJob(job)}>{job.delayNotice ? "Tell client again…" : "Tell client"}</EButton>
             ) : (
               <EButton asChild size="sm" variant="outline"><Link href={jobTabHref(job.jobId, "messages")} title="Opens the job's client messages">Tell client</Link></EButton>
             )}

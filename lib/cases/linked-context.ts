@@ -9,6 +9,7 @@ import "server-only";
 import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { loadJobPeekSummary } from "@/lib/jobs/peek-summary";
+import { quotesFromCase, type CaseQuoteLink } from "./repair-quote";
 
 export type CaseLinkedContext = {
   job: { id: string; jobNumber: string | null; scheduledDate: string; status: string } | null;
@@ -23,7 +24,10 @@ export type CaseLinkedContext = {
     clientAttachments: number;
     officeAttachments: number;
   };
+  /** Repair quotes started from this case (FROM_CASE quote events), newest first. */
+  quotes: CaseQuoteLink[];
   nextSteps: {
+    /** The new-quote page pre-filled from this case (`?fromCase=`). */
     repairQuoteHref: string;
     /** Invoices for the case's client, drafts first; null when no client is linked. */
     clientDraftInvoicesHref: string | null;
@@ -46,7 +50,7 @@ export async function loadCaseLinkedContext(caseId: string): Promise<CaseLinkedC
   });
   if (!row) return null;
 
-  const [summary, jobPhotos, clientAttachments, totalAttachments, jobReport] = await Promise.all([
+  const [summary, jobPhotos, clientAttachments, totalAttachments, jobReport, quotes] = await Promise.all([
     row.jobId ? loadJobPeekSummary(row.jobId) : Promise.resolve(null),
     row.jobId
       ? db.submissionMedia.count({ where: { mediaType: "PHOTO", submission: { jobId: row.jobId } } })
@@ -56,6 +60,7 @@ export async function loadCaseLinkedContext(caseId: string): Promise<CaseLinkedC
     row.jobId && !row.reportId
       ? db.report.findUnique({ where: { jobId: row.jobId }, select: { id: true } })
       : Promise.resolve(null),
+    quotesFromCase(caseId),
   ]);
 
   const reportId = row.reportId ?? jobReport?.id ?? null;
@@ -74,8 +79,9 @@ export async function loadCaseLinkedContext(caseId: string): Promise<CaseLinkedC
       clientAttachments,
       officeAttachments: totalAttachments - clientAttachments,
     },
+    quotes,
     nextSteps: {
-      repairQuoteHref: "/v2/admin/quotes/new",
+      repairQuoteHref: `/v2/admin/quotes/new?fromCase=${encodeURIComponent(caseId)}`,
       clientDraftInvoicesHref: row.client ? `/v2/admin/finance?tab=invoices&client=${encodeURIComponent(row.client.id)}&status=DRAFT` : null,
       newInvoiceHref: "/v2/admin/finance?tab=invoices&new=jobs",
     },

@@ -16,6 +16,7 @@ import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
 import { ERowMenu } from "@/components/v2/ui/row-menu";
 import { InvoiceCadenceSettings } from "./invoice-cadence";
+import { InvoiceSavedItems } from "./invoice-saved-items";
 
 export type XeroConnectionSummary =
   /** lastSyncAt: the last successful whole Xero status check, or null when none is stored. */
@@ -124,13 +125,34 @@ function BillingScheduleButton() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="px-6 py-5">
+            <div className="space-y-4 px-6 py-5">
               <InvoiceCadenceSettings />
+              <SavedItemsDisclosure />
             </div>
           </ECard>
         </div>
       ) : null}
     </>
+  );
+}
+
+/** Saved invoice items, loaded only once opened (a secondary tool). */
+function SavedItemsDisclosure() {
+  const [opened, setOpened] = React.useState(false);
+  return (
+    <details
+      className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] px-3 py-2"
+      onToggle={(event) => {
+        if ((event.currentTarget as HTMLDetailsElement).open) setOpened(true);
+      }}
+    >
+      <summary className="min-h-11 cursor-pointer py-2 text-[0.875rem] font-[600] sm:min-h-0">Saved invoice items</summary>
+      {opened ? (
+        <div className="pb-2 pt-1">
+          <InvoiceSavedItems />
+        </div>
+      ) : null}
+    </details>
   );
 }
 

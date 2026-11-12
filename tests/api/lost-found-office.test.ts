@@ -106,14 +106,21 @@ describe("bulk and workflow routes", () => {
 });
 
 describe("message guest / tell client", () => {
-  it("lets only an administrator send a guest message from the app; a client message is never sendable", async () => {
+  // Wave E changed the client half on purpose: "Tell client" is now sendable
+  // from the app by an administrator when the property's client has a login.
+  it("lets only an administrator send a guest message from the app; a client message only when the client can be reached", async () => {
     m.db.lostFoundItem.findUnique.mockResolvedValue({ id: "i1", itemName: "Watch", createdAt: "2026-11-10T00:00:00.000Z", foundLocation: null, propertyId: "p1", propertyName: "Bondi", propertyAddress: null, guestName: null, guestEmail: "g@example.invalid", guestContact: null });
-    m.db.property.findUnique.mockResolvedValue({ name: "Bondi", client: { name: "Harbour Stays", email: null, phone: null } });
+    m.db.property.findUnique.mockResolvedValue({ name: "Bondi", client: { id: "cl1", name: "Harbour Stays", email: null, phone: null, notificationPref: null, users: [] } });
     m.requireRole.mockResolvedValueOnce({ user: { id: "admin", role: "ADMIN" } });
     expect((await (await messageGet(new NextRequest("https://app.invalid/x?audience=guest"), { params: { id: "i1" } })).json()).send.available).toBe(true);
     m.requireRole.mockResolvedValueOnce({ user: { id: "admin", role: "ADMIN" }, impersonation: { actorId: "a" } });
     expect((await (await messageGet(new NextRequest("https://app.invalid/x?audience=guest"), { params: { id: "i1" } })).json()).send.available).toBe(false);
     m.requireRole.mockResolvedValueOnce({ user: { id: "admin", role: "ADMIN" } });
+    expect((await (await messageGet(new NextRequest("https://app.invalid/x?audience=client"), { params: { id: "i1" } })).json()).send).toMatchObject({ available: false, reason: expect.stringMatching(/no active login/) });
+    m.db.property.findUnique.mockResolvedValue({ name: "Bondi", client: { id: "cl1", name: "Harbour Stays", email: null, phone: null, notificationPref: null, users: [{ id: "u1", role: "CLIENT", name: "Owner", email: null }] } });
+    m.requireRole.mockResolvedValueOnce({ user: { id: "admin", role: "ADMIN" } });
+    expect((await (await messageGet(new NextRequest("https://app.invalid/x?audience=client"), { params: { id: "i1" } })).json()).send.available).toBe(true);
+    m.requireRole.mockResolvedValueOnce({ user: { id: "ops", role: "OPS_MANAGER" } });
     expect((await (await messageGet(new NextRequest("https://app.invalid/x?audience=client"), { params: { id: "i1" } })).json()).send.available).toBe(false);
   });
 

@@ -3,9 +3,10 @@
 /**
  * The invoice's header fields and its totals footer.
  *
- * Bill to, Period and Due are shown read-only: the API has no way to change the
- * client or the period of an existing invoice, and the due day is derived
- * (created + payment terms) exactly as the PDF prints it. GST saves on its own.
+ * On an editable DRAFT, Bill to, Period and Due are fields (Wave D,
+ * editor-draft-fields.tsx); once approved or later they are read only. The due
+ * day is derived (created + payment terms) exactly as the PDF prints it, and is
+ * provisional until first sent. GST saves on its own.
  * "Group by property" only changes the view here; the PDF groups by property
  * whenever the invoice spans more than one.
  */
@@ -13,6 +14,8 @@ import type { ClientInvoiceEditorData } from "@/lib/billing/client-invoice-edito
 import { cn } from "@/lib/utils";
 import { formatPeriod } from "../invoice-columns";
 import { fmtDay, money } from "../invoice-model";
+import { BillToField, DueField, PeriodField } from "./editor-draft-fields";
+import type { MutationOptions } from "./use-invoice-editor";
 
 const LABEL = "mb-1 block text-[0.6875rem] font-[600] text-[hsl(var(--e-text-secondary))]";
 const VALUE = "flex min-h-9 items-center text-[0.8125rem] text-[hsl(var(--e-foreground))]";
@@ -25,6 +28,7 @@ export function EditorFields({
   onGst,
   onGrouped,
   reference,
+  mutate,
 }: {
   data: ClientInvoiceEditorData;
   grouped: boolean;
@@ -34,8 +38,23 @@ export function EditorFields({
   onGrouped: (grouped: boolean) => void;
   /** The client reference field (editor-extras), drawn after Due. */
   reference?: React.ReactNode;
+  /** Set on an editable DRAFT: Bill to, Period and Due become fields. */
+  mutate?: (what: string, body: Record<string, unknown>, options: MutationOptions) => Promise<boolean>;
 }) {
   const { row } = data;
+  const sent = row.status !== "DRAFT" && row.status !== "APPROVED";
+  if (data.draft && canToggleGst && mutate) {
+    return (
+      <div className="flex flex-wrap items-start gap-x-5 gap-y-3 border-b border-[hsl(var(--e-border))] px-4 py-3.5">
+        <BillToField data={data} draft={data.draft} frozen={frozen} mutate={mutate} />
+        <PeriodField draft={data.draft} frozen={frozen} mutate={mutate} />
+        <DueField data={data} draft={data.draft} frozen={frozen} mutate={mutate} />
+        {reference}
+        <span className="hidden flex-1 sm:block" />
+        <GstAndGrouping data={data} grouped={grouped} canToggleGst={canToggleGst} frozen={frozen} onGst={onGst} onGrouped={onGrouped} />
+      </div>
+    );
+  }
   return (
     <div className="flex flex-wrap items-end gap-x-5 gap-y-3 border-b border-[hsl(var(--e-border))] px-4 py-3.5">
       <dl className="flex min-w-0 flex-wrap gap-x-5 gap-y-3">
@@ -51,12 +70,35 @@ export function EditorFields({
           <dt className={LABEL}>Due</dt>
           <dd className={VALUE} title={`Printed on the PDF: created + ${data.paymentTermsDays} days`}>
             {fmtDay(row.dueDate)}
-            <span className="ml-1 text-[hsl(var(--e-muted-foreground))]">· {data.paymentTermsDays} days after created</span>
+            <span className="ml-1 text-[hsl(var(--e-muted-foreground))]">
+              · {data.paymentTermsDays}-day terms{sent ? "" : ", provisional until sent"}
+            </span>
           </dd>
         </div>
       </dl>
       {reference}
       <span className="hidden flex-1 sm:block" />
+      <GstAndGrouping data={data} grouped={grouped} canToggleGst={canToggleGst} frozen={frozen} onGst={onGst} onGrouped={onGrouped} />
+    </div>
+  );
+}
+
+function GstAndGrouping({
+  data,
+  grouped,
+  canToggleGst,
+  frozen,
+  onGst,
+  onGrouped,
+}: {
+  data: ClientInvoiceEditorData;
+  grouped: boolean;
+  canToggleGst: boolean;
+  frozen: boolean;
+  onGst: (enabled: boolean) => void;
+  onGrouped: (grouped: boolean) => void;
+}) {
+  return (
       <div className="flex flex-wrap items-center gap-3">
         <label className="inline-flex min-h-11 items-center gap-2 text-[0.8125rem] sm:min-h-9">
           <input
@@ -82,7 +124,6 @@ export function EditorFields({
           Group by property
         </button>
       </div>
-    </div>
   );
 }
 

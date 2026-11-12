@@ -2,8 +2,10 @@
 
 /**
  * The right-hand Send, Xero and History cards. Each states only what is stored
- * or configured; options the send service does not support (payment link,
- * push to Xero on send) are not offered.
+ * or configured. Send options (Wave D) are explicit request fields: "Attach
+ * PDF" is always on, "Include payment link" only when the existing pay route
+ * could work (otherwise disabled with the reason), "Push to Xero when sent"
+ * runs the existing idempotent push after a successful send.
  */
 import { formatInTimeZone } from "date-fns-tz";
 import { EButton, ECard, EEyebrow } from "@/components/v2/ui/primitives";
@@ -23,10 +25,34 @@ function when(iso: string | null, timezone: string): string {
   }
 }
 
+export type SendChoices = { includePaymentLink: boolean; pushToXero: boolean };
+
+function OptionRow({ id, label, checked, disabled, hint, onChange }: { id: string; label: string; checked: boolean; disabled: boolean; hint?: string | null; onChange?: (value: boolean) => void }) {
+  return (
+    <div>
+      <label htmlFor={id} className="inline-flex min-h-11 items-center gap-2 text-[0.8125rem] sm:min-h-8">
+        <input
+          id={id}
+          type="checkbox"
+          className="h-[15px] w-[15px] accent-[hsl(var(--e-primary))]"
+          checked={checked}
+          disabled={disabled}
+          aria-describedby={hint ? `${id}-hint` : undefined}
+          onChange={(event) => onChange?.(event.target.checked)}
+        />
+        {label}
+      </label>
+      {hint ? <p id={`${id}-hint`} className={MUTED}>{hint}</p> : null}
+    </div>
+  );
+}
+
 export function SendCard({
   data,
   to,
   onTo,
+  choices,
+  onChoices,
   canSend,
   resend,
   disabled,
@@ -36,6 +62,8 @@ export function SendCard({
   data: ClientInvoiceEditorData;
   to: string;
   onTo: (value: string) => void;
+  choices: SendChoices;
+  onChoices: (choices: SendChoices) => void;
   canSend: boolean;
   resend: boolean;
   disabled: boolean;
@@ -43,6 +71,7 @@ export function SendCard({
   onSend: () => void;
 }) {
   const { send } = data;
+  const inXero = Boolean(data.row.xeroInvoiceId);
   return (
     <ECard className="space-y-2.5 px-4 py-3.5">
       <EEyebrow>Send</EEyebrow>
@@ -69,7 +98,23 @@ export function SendCard({
                   : "The client has no invoice contact on file, so enter an address."}
             </p>
           </div>
-          <p className={MUTED}>The PDF is attached to every invoice email. Sending does not push to Xero.</p>
+          <OptionRow id="invoice-send-pdf" label="Attach PDF" checked disabled hint={null} />
+          <OptionRow
+            id="invoice-send-pay-link"
+            label="Include payment link"
+            checked={send.paymentLink.available && choices.includePaymentLink}
+            disabled={disabled || !send.paymentLink.available}
+            hint={send.paymentLink.available ? "Links to the client's invoices page, where Pay now opens a card payment for what is owed." : send.paymentLink.reason}
+            onChange={(value) => onChoices({ ...choices, includePaymentLink: value })}
+          />
+          <OptionRow
+            id="invoice-send-xero"
+            label="Push to Xero when sent"
+            checked={!inXero && choices.pushToXero}
+            disabled={disabled || inXero}
+            hint={inXero ? "Already in Xero." : "Runs the usual push after the email is accepted. A failed push never undoes the send; it is shown and kept for Retry."}
+            onChange={(value) => onChoices({ ...choices, pushToXero: value })}
+          />
           <EButton type="button" size="sm" variant="outline" disabled={disabled} onClick={onSend} title={disabledReason ?? undefined}>
             {resend ? "Review and re-send…" : "Review and send…"}
           </EButton>
@@ -95,7 +140,11 @@ function xeroStateText(data: ClientInvoiceEditorData): React.ReactNode {
     <>
       <EPill tone={view.tone}>{view.label}</EPill>
       {view.key === "unchecked" && xero.exportedAt ? <span className={MUTED}> pushed {when(xero.exportedAt, data.timezone)}</span> : null}
-      {view.checkedAt ? <span className={`block ${MUTED}`}>Last checked {when(view.checkedAt, data.timezone)}</span> : null}
+      {view.checkedAt ? (
+        <span className={`block ${MUTED}`}>
+          {view.key === "failed" ? "Failed" : "Last checked"} {when(view.checkedAt, data.timezone)}
+        </span>
+      ) : null}
       {view.reason ? <span className={`block ${MUTED}`}>{view.reason}</span> : null}
       {data.row.xeroSync?.xeroStatus ? (
         <span className={`block ${MUTED}`}>
@@ -138,7 +187,14 @@ export function XeroCard({
         </dd>
         <dt className="text-[hsl(var(--e-muted-foreground))]">Account</dt>
         <dd className="min-w-0 break-words">
-          {xero.salesAccountCode ? `${xero.salesAccountCode} (sales account in Xero settings)` : "Unknown"}
+          {xero.salesAccountCode
+            ? xero.salesAccountName
+              ? `${xero.salesAccountCode} · ${xero.salesAccountName}`
+              : `${xero.salesAccountCode} · name unavailable`
+            : "Unknown"}
+          {xero.salesAccountCode && !xero.salesAccountName && xero.salesAccountNameReason ? (
+            <span className={`block ${MUTED}`}>{xero.salesAccountNameReason}</span>
+          ) : null}
           {xero.hasDisbursementLines ? (
             <span className={`block ${MUTED}`}>
               Shopping disbursements: {xero.disbursementAccountCode ?? "no account set, so the push will be refused"}
@@ -151,8 +207,13 @@ export function XeroCard({
       {xero.settingsError ? <p className={MUTED}>Xero settings could not be read: {xero.settingsError}</p> : null}
       <p className={MUTED}>
         {data.row.kind === "CREDIT_NOTE"
-          ? "Checked against Xero every hour. A credit note is never paid here; the check confirms Xero agrees."
-          : "Checked against Xero every hour. A payment seen in Xero is recorded here automatically; anything that does not match is left for review."}
+          ? "After pushing, Xero is read back automatically every hour. A credit note is never paid here; the check confirms Xero agrees."
+          : "After pushing, payments recorded in Xero come back here automatically (read every hour); anything that does not match is left for review."}
+        {xero.xeroInvoiceId
+          ? data.row.xeroSync
+            ? ` Last check ${when(data.row.xeroSync.checkedAt, data.timezone)}: ${xeroDisplay(data.row).label.toLowerCase()}.`
+            : " Not checked yet."
+          : ""}
       </p>
       {checkable && onRefresh ? (
         <EButton type="button" size="sm" variant="outline" disabled={disabled || refresh?.status === "running"} onClick={onRefresh}>

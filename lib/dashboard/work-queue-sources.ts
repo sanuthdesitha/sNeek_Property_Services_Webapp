@@ -204,7 +204,10 @@ export async function expiringDocumentItems(ctx: QueueContext): Promise<WorkQueu
       title: `${doc.title} expires ${days === 0 ? "today" : `in ${plural(days, "day")}`}`,
       detail: `${doc.user.name ?? doc.user.email} · ${doc.category}`,
       href,
-      actions: [{ kind: "link", label: "Open account", href }],
+      actions: [
+        { kind: "document-reminder", label: "Send reminder", documentId: doc.id, endpoint: "/api/admin/workforce", primary: true },
+        { kind: "link", label: "Open account", href },
+      ],
     });
   });
   return [...items, ...overflow("document-expiring", items.length, total, "expiring document", "/v2/admin/accounts")];
@@ -246,13 +249,15 @@ export async function lostItemItems(ctx: QueueContext): Promise<WorkQueueItem[]>
   const propertyName = new Map(properties.map((property) => [property.id, property.name]));
   const items = rows.map((item) => {
     const contact = links.contactHref(item.guestContact);
-    const actions: WorkQueueAction[] = [{ kind: "link", label: "Open", href: links.LOST_FOUND_HREF }];
+    // The item itself, in its stage tab with its panel open (Lost and found reads `?open=`).
+    const itemHref = `${links.LOST_FOUND_HREF}?stage=new&open=${encodeURIComponent(item.id)}`;
+    const actions: WorkQueueAction[] = [{ kind: "link", label: "Open", href: itemHref }];
     if (contact) actions.push({ kind: "link", label: "Contact guest", href: contact, external: true, primary: true });
     return row("lost-item", {
       id: `lost:${item.id}`,
       title: `Lost item reported: ${item.itemName}`,
       detail: [item.propertyId ? propertyName.get(item.propertyId) : null, item.guestName ? `guest ${item.guestName}` : "guest not recorded", `reported ${formatInTimeZone(item.createdAt, ctx.timeZone, "d MMM")}`].filter(Boolean).join(" · "),
-      href: links.LOST_FOUND_HREF,
+      href: itemHref,
       actions,
     });
   });

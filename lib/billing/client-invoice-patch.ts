@@ -50,6 +50,9 @@ import {
   securitySchema,
   verifyInvoiceSecurity,
 } from "./client-invoice-patch-rules";
+import { draftFieldsSchema, draftFieldsRequested, draftFieldsUpdate } from "./client-invoice-draft-fields";
+import { leavesDraft, approvalRuleRefusal } from "./client-invoice-approval-rules";
+import { staleInvoiceRefusal } from "./client-invoice-stale-guard";
 
 const lineUpdateSchema = z.object({
   id: z.string().cuid(),
@@ -127,6 +130,15 @@ const patchSchema = z.object({
    * deliberate, audited override, never a silent widening of the rules.
    */
   forceStatus: z.boolean().optional(),
+  /**
+   * Stale-write guard (Wave D): the invoice's updatedAt the caller last read.
+   * When given and the stored row has changed since, nothing is written and
+   * the answer is 409 with the current token. Callers that send none are
+   * unaffected.
+   */
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
+  // Bill to, period and due terms of a DRAFT (client-invoice-draft-fields.ts).
+  ...draftFieldsSchema.shape,
 });
 
 function removalRequest(body: unknown): { security: { pin?: string; password?: string } | undefined } | null {
@@ -214,6 +226,8 @@ async function patchLockedInvoice(
       include: { lines: true },
     });
     if (!existing) return actionResult({ error: "Invoice not found." }, 404);
+    const stale = staleInvoiceRefusal(existing.updatedAt, body.expectedUpdatedAt);
+    if (stale) return stale;
     const protectedShoppingLine = (id: string) => existing.lines.find(line => line.id === id && isShoppingLockedLine(line));
     if ((body.removeLineId && protectedShoppingLine(body.removeLineId)) || body.updateLines?.some(line => protectedShoppingLine(line.id) && (line.quantity !== undefined || line.unitPrice !== undefined || line.propertyId !== undefined))) {
       return actionResult({ error: "Shopping allocations are locked to their reviewed amounts. Void this invoice and review the shopping charge before generating its replacement." }, 409);
@@ -247,6 +261,9 @@ async function patchLockedInvoice(
       const liveCredits = await db.clientInvoice.count({ where: { creditsInvoiceId: params.id, status: { not: ClientInvoiceStatus.VOID } } });
       if (liveCredits > 0) return actionResult({ error: LIVE_CREDIT_NOTES_REFUSAL }, 409);
     }
+    // Bill to, period, due terms: DRAFT only, validated under this row lock.
+    const draftFields = draftFieldsRequested(body) ? await draftFieldsUpdate(db, existing, body) : null;
+    if (draftFields && !draftFields.ok) return actionResult({ error: draftFields.error }, draftFields.status);
     const discount = body.addDiscount ? resolveDiscount(body.addDiscount, existing.lines) : null;
     if (discount && !discount.ok) return actionResult({ error: discount.error }, 400);
 
@@ -397,6 +414,7 @@ async function patchLockedInvoice(
       const empty = emptyInvoiceRefusal({ lines: new Array(lineCount) });
       if (empty) return actionResult({ error: empty }, 409);
     }
+
     // A credit note may never credit more than its invoice has left: checked on
     // every content edit (an over-limit draft may only shrink) and again when
     // it is approved or sent, under the original invoice's row lock.
@@ -410,6 +428,18 @@ async function patchLockedInvoice(
         previousTotal: editsContent && !issuesDocument ? existing.totalAmount : undefined,
         requireCredit: issuesDocument,
       });
+      if (refusal) return actionResult({ error: refusal }, 409);
+    }
+
+    // Wave D rule (owner-approved): a draft leaves DRAFT only when its job
+    // lines all have a rate, no job is billed twice and its totals match its
+    // lines, checked on the lines as they are now, under the client's lock.
+    if (leavesDraft(existing.status, body.status, Boolean(body.recordPayment))) {
+      const lines = await db.clientInvoiceLine.findMany({ where: { invoiceId: params.id } });
+      const refusal = await approvalRuleRefusal(
+        { ...existing, clientId: existing.clientId, lines, gstEnabled, totalAmount },
+        db,
+      );
       if (refusal) return actionResult({ error: refusal }, 409);
     }
 
@@ -592,6 +622,7 @@ async function patchLockedInvoice(
         ...(body.clientReference !== undefined ? { clientReference: body.clientReference || null } : {}),
         ...(body.clientNote !== undefined ? { clientNote: body.clientNote || null } : {}),
         ...(termsSnapshot !== undefined ? { paymentTermsDays: termsSnapshot } : {}),
+        ...(draftFields?.ok ? draftFields.data : {}),
         subtotal,
         gstAmount,
         totalAmount,
@@ -610,6 +641,18 @@ async function patchLockedInvoice(
       }
       if (statusChanges && existing.kind === "CREDIT_NOTE" && existing.creditsInvoiceId) {
         await refreshCreditCoverage(tx, { invoiceId: existing.creditsInvoiceId, actorId: session.user.id });
+      }
+      if (draftFields?.ok && draftFields.summary.length) {
+        await tx.auditLog.create({
+          data: {
+            userId: session.user.id,
+            action: "CLIENT_INVOICE_DRAFT_FIELDS",
+            entity: "ClientInvoice",
+            entityId: params.id,
+            before: { clientId: existing.clientId, periodStart: existing.periodStart?.toISOString() ?? null, periodEnd: existing.periodEnd?.toISOString() ?? null, paymentTermsDays: existing.paymentTermsDays },
+            after: { summary: draftFields.summary.join("; "), warnings: draftFields.warnings },
+          },
+        });
       }
       return row;
     });
@@ -710,7 +753,7 @@ async function patchLockedInvoice(
       });
     }
 
-    return actionResult(updated);
+    return actionResult(draftFields?.ok && draftFields.warnings.length ? { ...updated, warnings: draftFields.warnings } : updated);
   } catch (err: any) {
     return actionResult({ error: err.message ?? "Could not update invoice." }, 400);
   }

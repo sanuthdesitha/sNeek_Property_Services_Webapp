@@ -139,6 +139,7 @@ export function filterForViewer(items: WorkQueueItem[], viewer: CommandViewer): 
     const actions = item.actions.filter((action) => {
       if (action.kind === "request") return viewerCanCall(viewer, action.endpoint, action.method);
       if (action.kind === "assign") return viewerCanCall(viewer, `/api/admin/jobs/${action.jobId}/assign`, "POST");
+      if (action.kind === "document-reminder") return viewerCanCall(viewer, action.endpoint, "POST");
       return viewerCanOpen(viewer, action.href);
     });
     visible.push({ ...item, actions });

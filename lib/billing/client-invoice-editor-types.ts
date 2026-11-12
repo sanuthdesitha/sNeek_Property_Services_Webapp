@@ -49,8 +49,8 @@ export type ApprovalCheckKey =
 
 /**
  * ok: passes. refused: the approve request would be refused for this reason.
- * check: worth a look, but approval does not refuse it. unknown: could not be
- * checked (never shown as OK).
+ * check: worth a look, but approval does not refuse it (only past approval).
+ * unknown: could not be checked (never shown as OK; blocks when enforced).
  */
 export type ApprovalCheckState = "ok" | "refused" | "check" | "unknown";
 
@@ -61,6 +61,9 @@ export type ApprovalCheck = {
   enforced: boolean;
   label: string;
   detail: string | null;
+  /** Where to fix it (a page, or an anchor on this page), when there is one. */
+  fixHref?: string | null;
+  fixLabel?: string | null;
 };
 
 export type ApprovalChecks = {
@@ -87,6 +90,9 @@ export type EditorXeroPanel = {
   contactId: string | null;
   /** Configured sales account code (Xero settings), or null if unreadable. */
   salesAccountCode: string | null;
+  /** The account's name read from Xero's chart of accounts (cached), or null with the reason. */
+  salesAccountName: string | null;
+  salesAccountNameReason: string | null;
   disbursementAccountCode: string | null;
   hasDisbursementLines: boolean;
   settingsError: string | null;
@@ -96,6 +102,23 @@ export type EditorSendPanel = {
   /** Who a send with a blank "To" goes to (the client's delivery profile). */
   defaultRecipients: string[];
   recipientsError: string | null;
+  /** "Include payment link": offered only when the existing pay route could work; otherwise why not. */
+  paymentLink: { available: boolean; reason: string | null };
+};
+
+/** What the editable Bill to, Period and Due fields need on a DRAFT (Wave D). */
+export type EditorDraftPanel = {
+  /** Active clients for Bill to (empty when the draft cannot be edited). */
+  clients: Array<{ id: string; name: string }>;
+  /** The client's own terms, else the organisation default: what "Client terms" means here. */
+  clientTermsDays: number;
+  /** This invoice's own terms when set on the draft, else null. */
+  termsOverride: number | null;
+  /** The period as calendar days (organisation timezone), for the date inputs. */
+  periodStartDay: string | null;
+  periodEndDay: string | null;
+  /** Finished jobs of this client on no live invoice ("Add finished jobs (N not billed)"); null when unreadable. */
+  unbilledJobs: number | null;
 };
 
 export type EditorStartedWork = {
@@ -126,4 +149,6 @@ export type ClientInvoiceEditorData = {
   xero: EditorXeroPanel;
   history: HistoryEntry[];
   startedWork: EditorStartedWork | null;
+  /** Null unless the invoice is a DRAFT. */
+  draft: EditorDraftPanel | null;
 };

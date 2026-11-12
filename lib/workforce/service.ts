@@ -10,6 +10,7 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { renderEmailTemplate } from "@/lib/email-templates";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { sendSmsDetailed } from "@/lib/notifications/sms";
+import { deliverDocumentRequest, type DocumentRequestTransport } from "@/lib/workforce/document-request-send";
 import { renderPdfFromHtml } from "@/lib/reports/pdf";
 import { getAppSettings } from "@/lib/settings";
 import {
@@ -1751,6 +1752,13 @@ export async function listStaffDocumentRequestsForAdmin() {
   });
 }
 
+/**
+ * REQUEST_DOCUMENT: creates the request the person sees in their team hub and
+ * delivers it by the chosen transports with truthful, recorded states
+ * (lib/workforce/document-request-send.ts). Without `transports`, the old
+ * behaviour is kept: the in-app notice with its push, email when the person
+ * has an address, SMS when they have a phone number.
+ */
 export async function createStaffDocumentRequest(input: {
   userId: string;
   requestedById: string;
@@ -1758,6 +1766,7 @@ export async function createStaffDocumentRequest(input: {
   title: string;
   notes?: string | null;
   dueAt?: string | null;
+  transports?: readonly DocumentRequestTransport[];
 }) {
   const request = await db.staffDocumentRequest.create({
     data: {
@@ -1769,36 +1778,20 @@ export async function createStaffDocumentRequest(input: {
       dueAt: input.dueAt ? new Date(input.dueAt) : null,
     },
     include: {
-      user: { select: { id: true, name: true, email: true, phone: true } },
+      user: { select: { id: true, name: true, email: true, phone: true, role: true } },
       requestedBy: { select: { id: true, name: true } },
     },
   });
 
-  await db.notification.create({
-    data: {
-      userId: request.userId,
-      externalId: mobilePendingMarker("account"),
-      channel: "PUSH",
-      subject: "Document requested",
-      body: `${request.requestedBy.name ?? "Admin"} requested ${request.title}.`,
-      status: "SENT",
-      sentAt: new Date(),
-    },
-  });
-
-  if (request.user.email) {
-    await sendEmailDetailed({
-      kind: "workforce_update",
-      to: request.user.email,
-      subject: `Document requested - ${request.title}`,
-      html: `<p>Hi ${request.user.name ?? "there"},</p><p>Please upload the following document in your team hub: <strong>${request.title}</strong>.</p>${request.notes ? `<p>${request.notes}</p>` : ""}`,
-    });
-  }
-  if (request.user.phone) {
-    await sendSmsDetailed(request.user.phone, `Document requested: ${request.title}. Upload it in your sNeek team hub.`);
-  }
-
-  return request;
+  const transports: DocumentRequestTransport[] = input.transports
+    ? Array.from(new Set(input.transports))
+    : ["PUSH", ...(request.user.email ? (["EMAIL"] as const) : []), ...(request.user.phone ? (["SMS"] as const) : [])];
+  const delivery = await deliverDocumentRequest(
+    { id: request.user.id, role: request.user.role, name: request.user.name, email: request.user.email, phone: request.user.phone },
+    { requestId: request.id, title: request.title, notes: request.notes, requestedByName: request.requestedBy.name, eventId: `document-request:${request.id}`, actorId: input.requestedById },
+    transports,
+  );
+  return { ...request, delivery };
 }
 
 export async function signStaffDocument(input: { documentId: string; userId: string }) {

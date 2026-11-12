@@ -2,9 +2,11 @@
 
 /**
  * ESTATE admin Laundry. Header with the day's real summary, Previous / Today /
- * Next day, Generate week and Add run; three stat tiles whose captions state
- * their scope; tabs: Pipeline (default), By property, Drivers live, Costs and
- * invoices, Suppliers, Statistics.
+ * Next day, Generate week and Add run; the tabs straight under the header, as
+ * drawn: Pipeline (default), By property, Drivers live, Costs and invoices,
+ * Suppliers, Statistics. The three stat tiles (captions state their scope) sit
+ * at the top of Statistics and the Approvals link under the Pipeline, so the
+ * lanes come first as in the design.
  *
  * Links keep working: `?tab=` accepts the new ids and the old ones (today,
  * completed, investigate, live, reports, suppliers); `?date=YYYY-MM-DD` (the
@@ -129,19 +131,6 @@ export function LaundryWorkspace({ canReviewBags = false }: { canReviewBags?: bo
         }
       />
 
-      <section aria-label="Today's laundry figures" className="grid gap-3 sm:grid-cols-3">
-        <EStatCard label="Runs today" value={data ? String(data.tiles.runsToday) : "—"} delta="pickup or drop-off dated today (Sydney)" deltaTone="neutral" icon={<Shirt className="h-4 w-4" />} />
-        <EStatCard label="In transit" value={data ? String(data.tiles.inTransit) : "—"} delta="picked up, not yet delivered (any date)" deltaTone="neutral" icon={<Truck className="h-4 w-4" />} />
-        <EStatCard label="Delivered today" value={data ? String(data.tiles.deliveredToday) : "—"} delta="delivered today (Sydney)" deltaTone="neutral" icon={<PackageCheck className="h-4 w-4" />} />
-      </section>
-      <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-        Reschedule and skip requests are decided in{" "}
-        <Link href="/v2/admin/approvals" className="text-[hsl(var(--e-primary))] underline-offset-2 hover:underline">
-          Approvals{data ? ` (${data.approvalsFlagged} flagged run${data.approvalsFlagged === 1 ? "" : "s"})` : ""}
-        </Link>
-        .
-      </p>
-
       <div className="-mx-1 overflow-x-auto px-1">
         <div role="tablist" aria-label="Laundry sections" className="inline-flex min-w-full gap-1 border-b border-[hsl(var(--e-border))]">
           {LAUNDRY_TABS.map((key) => (
@@ -184,11 +173,29 @@ export function LaundryWorkspace({ canReviewBags = false }: { canReviewBags?: bo
             }}
           />
         ) : null}
+        {tab === "pipeline" ? (
+          <p className="mt-3 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+            Reschedule and skip requests are decided in{" "}
+            <Link href="/v2/admin/approvals" className="text-[hsl(var(--e-primary))] underline-offset-2 hover:underline">
+              Approvals{data ? ` (${data.approvalsFlagged} flagged run${data.approvalsFlagged === 1 ? "" : "s"})` : ""}
+            </Link>
+            .
+          </p>
+        ) : null}
         {tab === "property" ? <LaundryInvestigation initialTasks={feed.tasks} canReviewBags={canReviewBags} /> : null}
         {tab === "live" ? <LaundryLive /> : null}
         {tab === "costs" ? <LaundryReports key={reportTask?.id ?? "all"} task={reportTask} onClearTask={() => setReportTask(null)} /> : null}
         {tab === "suppliers" ? <LaundrySuppliers /> : null}
-        {tab === "statistics" ? <LaundryStatistics /> : null}
+        {tab === "statistics" ? (
+          <div className="space-y-4">
+            <section aria-label="Today's laundry figures" className="grid gap-3 sm:grid-cols-3">
+              <EStatCard label="Runs today" value={data ? String(data.tiles.runsToday) : "—"} delta="pickup or drop-off dated today (Sydney)" deltaTone="neutral" icon={<Shirt className="h-4 w-4" />} />
+              <EStatCard label="In transit" value={data ? String(data.tiles.inTransit) : "—"} delta="picked up, not yet delivered (any date)" deltaTone="neutral" icon={<Truck className="h-4 w-4" />} />
+              <EStatCard label="Delivered today" value={data ? String(data.tiles.deliveredToday) : "—"} delta="delivered today (Sydney)" deltaTone="neutral" icon={<PackageCheck className="h-4 w-4" />} />
+            </section>
+            <LaundryStatistics />
+          </div>
+        ) : null}
       </div>
     </div>
   );

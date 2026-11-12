@@ -14,7 +14,7 @@ import * as React from "react";
 import Link from "next/link";
 import { Wand2 } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
-import { EField, EInput, ESelect, ESwitch, ETextarea } from "@/components/v2/admin/estate-kit";
+import { EField, EInput, ESelect, ETextarea } from "@/components/v2/admin/estate-kit";
 import { CASE_STATUSES, CASE_STATUS_LABELS } from "@/lib/cases/status";
 import { CASE_TYPES } from "@/lib/cases/queues";
 import type { CaseLinkedContext } from "@/lib/cases/linked-context";
@@ -45,6 +45,20 @@ type FormDraft = {
   description: string;
   resolutionNote: string;
 };
+
+/** "Client can", as drawn: one choice over the two stored switches. */
+type ClientAccess = "none" | "see" | "reply";
+
+export function clientAccessOf(draft: Pick<FormDraft, "clientVisible" | "clientCanReply">): ClientAccess {
+  if (!draft.clientVisible) return "none";
+  return draft.clientCanReply ? "reply" : "see";
+}
+
+/** Hiding the case leaves "can reply" as it was, so showing it again restores the old choice. */
+export function clientAccessPatch(access: ClientAccess): Partial<FormDraft> {
+  if (access === "none") return { clientVisible: false };
+  return { clientVisible: true, clientCanReply: access === "reply" };
+}
 
 function draftFrom(detail: CaseDetail): FormDraft {
   return {
@@ -150,10 +164,13 @@ export function CaseDetailsPanel({ detail, linked, linkedStatus, assignees, view
             {CASE_STATUSES.map((value) => <option key={value} value={value}>{CASE_STATUS_LABELS[value]}</option>)}
           </ESelect>
         </EField>
-        <div className="flex flex-col gap-2 text-[0.8125rem]">
-          <ESwitch checked={draft.clientVisible} onCheckedChange={(value) => set({ clientVisible: value })} label="Client can see this case" />
-          <ESwitch checked={draft.clientCanReply} onCheckedChange={(value) => set({ clientCanReply: value })} label="Client can reply" />
-        </div>
+        <EField label="Client can" hint={draft.clientVisible ? undefined : "The client does not see this case."}>
+          <ESelect value={clientAccessOf(draft)} onChange={(event) => set(clientAccessPatch(event.target.value as ClientAccess))}>
+            <option value="none">Not see it</option>
+            <option value="see">See it</option>
+            <option value="reply">See and reply</option>
+          </ESelect>
+        </EField>
         <EField label="Title">
           <EInput ref={titleRef} value={draft.title} onChange={(event) => set({ title: event.target.value })} />
         </EField>
@@ -178,7 +195,18 @@ export function CaseDetailsPanel({ detail, linked, linkedStatus, assignees, view
       <p className="e-eyebrow">Next steps</p>
       <div className="flex flex-col items-start gap-1.5">
         {canRaiseQa ? <EButton size="sm" variant="outline" onClick={onRaiseQaIssue}>Raise QA issue for cleaner</EButton> : null}
-        <EButton asChild size="sm" variant="outline"><Link href={linked?.nextSteps.repairQuoteHref ?? "/v2/admin/quotes/new"}>Create repair quote</Link></EButton>
+        <EButton asChild size="sm" variant="outline"><Link href={linked?.nextSteps.repairQuoteHref ?? `/v2/admin/quotes/new?fromCase=${encodeURIComponent(detail.id)}`}>Create repair quote</Link></EButton>
+        {linked?.quotes.length ? (
+          <ul aria-label="Repair quotes from this case" className="space-y-0.5 text-[0.75rem]">
+            {linked.quotes.map((quote) => (
+              <li key={quote.quoteId}>
+                Quote <Link className="font-[600] text-[hsl(var(--e-primary))] hover:underline" href={quote.href}>{quote.reference}</Link> created {formatCaseTime(quote.createdAt)}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Opens a draft quote filled in from this case; nothing is sent to the client.</p>
+        )}
         <EButton asChild size="sm" variant="outline">
           <Link href={linked?.nextSteps.clientDraftInvoicesHref ?? linked?.nextSteps.newInvoiceHref ?? "/v2/admin/finance?tab=invoices&new=jobs"}>Add charge to invoice</Link>
         </EButton>

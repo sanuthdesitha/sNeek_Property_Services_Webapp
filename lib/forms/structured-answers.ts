@@ -229,3 +229,12 @@ export function formatStockCountAnswer(field: { unit?: unknown; stockItemName?: 
   const item = typeof field.stockItemName === "string" && field.stockItemName.trim() ? ` (${field.stockItemName.trim()})` : "";
   return `${answer.count}${unit}${item}`;
 }
+
+/** One line for the office's submission views: "Toilet paper · counted 6 rolls". */
+export function stockCountSummary(field: { unit?: unknown; stockItemName?: unknown }, value: unknown): string {
+  const answer = readStockCountAnswer(value);
+  if (!answer) return "-";
+  const item = typeof field.stockItemName === "string" && field.stockItemName.trim() ? field.stockItemName.trim() : "Stock item";
+  const unit = typeof field.unit === "string" && field.unit.trim() ? ` ${field.unit.trim()}` : "";
+  return `${item} · counted ${answer.count}${unit}`;
+}

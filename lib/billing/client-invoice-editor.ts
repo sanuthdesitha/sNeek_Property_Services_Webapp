@@ -14,6 +14,9 @@ import { isDiscountLine } from "./client-invoice-adjustments";
 import { clientInvoiceApprovalChecks } from "./client-invoice-checks";
 import { clientInvoiceHistory } from "./client-invoice-history";
 import { readStartedWorkReviewSafely } from "./started-work-reconciliation";
+import { paymentLinkAvailability } from "./invoice-payment-link";
+import { xeroAccountName } from "./xero-account-name";
+import { loadDraftPanel } from "./client-invoice-editor-draft";
 import type {
   ClientInvoiceEditorData,
   EditorLine,
@@ -76,6 +79,8 @@ async function readXeroPanel(invoice: LoadedInvoice, row: ClientInvoiceEditorDat
     exportedAt: row.xeroExportedAt,
     contactId,
     salesAccountCode: null,
+    salesAccountName: null,
+    salesAccountNameReason: null,
     disbursementAccountCode: null,
     hasDisbursementLines: invoice.lines.some((line) => isShoppingDisbursement(line.category)),
     settingsError: null,
@@ -89,7 +94,17 @@ async function readXeroPanel(invoice: LoadedInvoice, row: ClientInvoiceEditorDat
   } catch (error) {
     panel.settingsError = failed(error, "Xero settings could not be read.");
   }
+  if (panel.salesAccountCode) {
+    const named = await xeroAccountName(panel.salesAccountCode);
+    panel.salesAccountName = named.name;
+    panel.salesAccountNameReason = named.reason;
+  }
   return panel;
+}
+
+async function readPaymentLink(kind: string): Promise<EditorSendPanel["paymentLink"]> {
+  const availability = await paymentLinkAvailability(kind);
+  return availability.available ? { available: true, reason: null } : { available: false, reason: availability.reason };
 }
 
 async function readSendPanel(invoice: LoadedInvoice): Promise<EditorSendPanel> {
@@ -99,9 +114,13 @@ async function readSendPanel(invoice: LoadedInvoice): Promise<EditorSendPanel> {
       fallbackEmail: invoice.client.email ?? null,
       kind: "invoice",
     });
-    return { defaultRecipients: recipients, recipientsError: null };
+    return { defaultRecipients: recipients, recipientsError: null, paymentLink: await readPaymentLink(invoice.kind) };
   } catch (error) {
-    return { defaultRecipients: [], recipientsError: failed(error, "The client's invoice recipients could not be read.") };
+    return {
+      defaultRecipients: [],
+      recipientsError: failed(error, "The client's invoice recipients could not be read."),
+      paymentLink: await readPaymentLink(invoice.kind),
+    };
   }
 }
 
@@ -114,7 +133,7 @@ export async function loadClientInvoiceEditor(
   const { row, timezone, paymentTermsDays } = listed;
   const startedWork = readStartedWork(invoice);
 
-  const [client, properties, checks, history, send] = await Promise.all([
+  const [client, properties, checks, history, send, draft] = await Promise.all([
     db.client.findUnique({ where: { id: invoice.clientId }, select: { xeroContactId: true } }),
     db.property.findMany({
       where: { clientId: invoice.clientId },
@@ -124,6 +143,7 @@ export async function loadClientInvoiceEditor(
     clientInvoiceApprovalChecks(invoice),
     clientInvoiceHistory(invoice),
     readSendPanel(invoice),
+    invoice.status === "DRAFT" ? loadDraftPanel(invoice, { timezone, editable: invoiceEditLock(invoice, options.canManage).editable }) : null,
   ]);
   const xero = await readXeroPanel(invoice, row, client?.xeroContactId ?? null);
 
@@ -148,5 +168,6 @@ export async function loadClientInvoiceEditor(
     xero,
     history,
     startedWork,
+    draft,
   };
 }

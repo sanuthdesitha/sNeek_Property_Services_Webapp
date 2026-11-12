@@ -40,7 +40,7 @@ function GuestCell({ row }: { row: LostFoundListRow }) {
 export function lostFoundColumns(timeZone: string, onOpen: (row: LostFoundListRow) => void): Array<EDataColumn<LostFoundListRow, LostFoundSort>> {
   return [
     { key: "item", header: "Item", sortKey: "item", className: "min-w-[14rem]", cell: (row) => <ItemCell row={row} onOpen={onOpen} /> },
-    { key: "property", header: "Property", className: "min-w-[9rem]", cell: (row) => row.propertyName ?? <span className={muted}>No property</span> },
+    { key: "property", header: "Property", sortKey: "property", className: "min-w-[9rem]", cell: (row) => row.propertyName ?? <span className={muted}>No property</span> },
     { key: "guest", header: "Guest", sortKey: "guest", className: "min-w-[9rem]", cell: (row) => <GuestCell row={row} /> },
     { key: "found", header: "Found", sortKey: "found", className: "whitespace-nowrap e-tnum", cell: (row) => formatFoundDay(row.createdAt, timeZone) },
     { key: "stored", header: "Stored at", sortKey: "stored", cell: (row) => row.storageLocation ?? <span className={muted}>Not set</span> },

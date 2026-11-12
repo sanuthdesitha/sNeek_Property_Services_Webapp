@@ -4,7 +4,9 @@ import { requireRole } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import { emailFromContact, phoneFromContact } from "@/lib/lost-found/guest";
-import { draftLostFoundMessage, GUEST_SEND_NOTE, PIPELINE_UNSUPPORTED_REASON, type MessageAudience } from "@/lib/lost-found/message";
+import { CLIENT_SEND_ADMIN_ONLY_REASON, CLIENT_SEND_NOTE, draftLostFoundMessage, GUEST_SEND_NOTE, type MessageAudience } from "@/lib/lost-found/message";
+import { resolveClientNoticeTarget } from "@/lib/lost-found/client-notice";
+import { OfficeActionError } from "@/lib/notifications/office-actions";
 import { hydrateItems } from "@/lib/lost-found/service";
 
 /**
@@ -12,9 +14,21 @@ import { hydrateItems } from "@/lib/lost-found/service";
  * recipient's contact details, and whether the app can send it:
  *  - guest: through the notification system's guest-message action, which
  *    allows administrators only (send.available for ADMIN);
- *  - client: no path exists for lost and found (the pipeline has no such
- *    client recipient), so the office copies it and records what it did.
+ *  - client: through the pipeline's client notice to the property client's
+ *    active logins (administrators; the client's notification switch and the
+ *    other refusals are checked here so the dialog says why it cannot send).
+ * Copy and "record what you did" are offered to every role either way.
  */
+async function clientSendState(itemId: string): Promise<{ available: boolean; reason: string; logins?: number }> {
+  try {
+    const target = await resolveClientNoticeTarget(itemId);
+    return { available: true, reason: CLIENT_SEND_NOTE, logins: target.recipients.length };
+  } catch (error) {
+    if (error instanceof OfficeActionError) return { available: false, reason: `${error.message} Copy the message instead and record what you did.` };
+    throw error;
+  }
+}
+
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
@@ -40,10 +54,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const recipient = audience === "guest"
       ? { name: row.guestName, email: row.guestEmail ?? emailFromContact(row.guestContact), phone: phoneFromContact(row.guestContact) }
       : { name: property?.client?.name ?? null, email: property?.client?.email?.trim() || null, phone: phoneFromContact(property?.client?.phone ?? null) };
-    const canSendGuest = audience === "guest" && session.user.role === Role.ADMIN && !session.impersonation;
-    const send = canSendGuest
-      ? { available: true, reason: GUEST_SEND_NOTE }
-      : { available: false, reason: audience === "guest" ? "Only administrators can send a guest message from the app (the notification system's rule). Copy it or open it in your email or SMS app, then record that you sent it." : PIPELINE_UNSUPPORTED_REASON };
+    const isAdmin = session.user.role === Role.ADMIN && !session.impersonation;
+    const send = audience === "guest"
+      ? isAdmin
+        ? { available: true, reason: GUEST_SEND_NOTE }
+        : { available: false, reason: "Only administrators can send a guest message from the app (the notification system's rule). Copy it or open it in your email or SMS app, then record that you sent it." }
+      : isAdmin
+        ? await clientSendState(item.id)
+        : { available: false, reason: CLIENT_SEND_ADMIN_ONLY_REASON };
     return NextResponse.json({ audience, draft, recipient, send });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not prepare the message.";

@@ -8,18 +8,21 @@
  */
 import type { InvoiceFormContext, InvoiceRow } from "./invoice-model";
 import { SendInvoiceDialog } from "./send-dialog";
+import type { SendRequestOptions } from "./invoice-requests";
 import { MarkPaidDialog, ReceiptDialog, RecordPaymentDialog } from "./payment-dialogs";
 import { DeleteInvoiceDialog, ReconcileInvoiceDialog, ReverseInvoiceDialog, VoidInvoiceDialog } from "./correction-dialogs";
 import { GenerateInvoiceDialog } from "./generate-invoice-dialog";
+import { BatchDraftsDialog } from "./batch-drafts-dialog";
 import { BlankInvoiceDialog, IssueCreditNoteDialog, NewCreditNoteDialog } from "./create-dialogs";
 
 export type InvoiceDialog =
   | null
   | { kind: "generate" }
+  | { kind: "batch-drafts" }
   | { kind: "blank" }
   | { kind: "new-credit-note" }
   | { kind: "credit-note"; invoice: InvoiceRow }
-  | { kind: "send"; invoice: InvoiceRow; resend: boolean; to?: string }
+  | { kind: "send"; invoice: InvoiceRow; resend: boolean; to?: string; options?: SendRequestOptions }
   | {
       kind: "record-payment" | "mark-paid" | "receipt" | "void" | "reverse" | "reconcile" | "delete";
       invoice: InvoiceRow;
@@ -40,6 +43,7 @@ export function InvoiceDialogs({
   if (dialog.kind === "generate") {
     return context ? <GenerateInvoiceDialog context={context} onClose={onClose} onDone={onDone} /> : null;
   }
+  if (dialog.kind === "batch-drafts") return <BatchDraftsDialog onClose={onClose} onDone={onDone} />;
   if (dialog.kind === "blank") {
     return context ? <BlankInvoiceDialog clients={context.clients} onClose={onClose} /> : null;
   }
@@ -51,7 +55,7 @@ export function InvoiceDialogs({
   const props = { invoice: dialog.invoice, onClose, onDone };
   switch (dialog.kind) {
     case "send":
-      return <SendInvoiceDialog key={key} {...props} resend={dialog.resend} initialTo={dialog.to} />;
+      return <SendInvoiceDialog key={key} {...props} resend={dialog.resend} initialTo={dialog.to} options={dialog.options} />;
     case "record-payment":
       return <RecordPaymentDialog key={key} {...props} />;
     case "mark-paid":

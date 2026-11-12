@@ -13,7 +13,8 @@
  * Both go to the cleaner(s) assigned to the run's job through the existing
  * laundry nudge route, which also enforces the cool-down below per run and
  * kind on the server (lib/notifications/office-actions.ts).
- * "Chase supplier" is not offered: laundry suppliers have no contact to send to.
+ * "Chase supplier" is separate (./supplier-chase-rules.ts): it goes to the
+ * supplier's stored contact, not to a cleaner.
  */
 import { dayKeyOf, type PipelineException } from "./pipeline";
 

@@ -47,10 +47,12 @@ function DueCell({ invoice, today, termsDays }: { invoice: InvoiceRow; today: st
     return <span className="text-[hsl(var(--e-muted-foreground))]">Paid {fmtDate(invoice.paidDate ?? invoice.paidAt)}</span>;
   }
   if (invoice.status === "DRAFT" || invoice.status === "APPROVED") {
-    // Not sent yet: the PDF already prints this day (created + terms).
+    // Not sent yet: the terms are fixed by the first send, so the due day is
+    // provisional until then (the PDF preview labels it so).
+    const days = invoice.paymentTermsDays ?? termsDays;
     return (
-      <span className="e-tnum text-[hsl(var(--e-muted-foreground))]" title={`Printed on the PDF: created + ${invoice.paymentTermsDays ?? termsDays} days`}>
-        {fmtDay(invoice.dueDate)}
+      <span className="text-[hsl(var(--e-muted-foreground))]" title={`Provisional due day ${fmtDay(invoice.dueDate)} (created + ${days} days). Fixed when first sent.`}>
+        On send <span className="whitespace-nowrap text-[0.75rem]">· {days}-day terms</span>
       </span>
     );
   }
@@ -81,8 +83,13 @@ function CreditLinks({ invoice }: { invoice: InvoiceRow }) {
 
 function XeroCell({ invoice }: { invoice: InvoiceRow }) {
   const view = xeroDisplay(invoice);
-  if (view.key === "none") return <span className="text-[hsl(var(--e-muted-foreground))]">Not in Xero</span>;
-  const detail = view.reason ?? (view.checkedAt ? `Last checked ${fmtStamp(view.checkedAt)}` : null);
+  if (view.key === "none") {
+    // An unsent draft or approved invoice is not expected in Xero yet.
+    const unsent = invoice.status === "DRAFT" || invoice.status === "APPROVED";
+    return <span className="text-[hsl(var(--e-muted-foreground))]">{unsent ? "Not sent" : "Not in Xero"}</span>;
+  }
+  const when = view.checkedAt ? (view.key === "failed" ? `Failed ${fmtStamp(view.checkedAt)}` : `Last checked ${fmtStamp(view.checkedAt)}`) : null;
+  const detail = view.key === "failed" ? [view.reason, when].filter(Boolean).join(" · ") : view.reason ?? when;
   return (
     <span className="inline-flex max-w-[14rem] flex-col items-start gap-0.5">
       <EPill tone={view.tone}>{view.label}</EPill>
@@ -148,8 +155,11 @@ export function invoiceColumns(input: {
       cell: (row) => <span className="e-tnum">{money(row.totalAmount)}</span>,
     },
     {
+      // Sorted on the server over the whole filtered set (owing in SQL).
       key: "owing",
       header: "Owing",
+      sortKey: "owing",
+      firstDir: "desc",
       align: "right",
       cell: (row) => (
         <span className="e-tnum">{row.status === "VOID" || row.kind === "CREDIT_NOTE" ? "—" : money(row.amountOwing)}</span>
@@ -164,6 +174,11 @@ export function invoiceColumns(input: {
           <EPill tone={STATUS_PILL[row.status]}>{STATUS_LABEL[row.status]}</EPill>
           {row.fullyCredited ? <EPill tone="info">Fully credited</EPill> : null}
           {row.overdue ? <EPill tone="bad">Overdue</EPill> : null}
+          {row.missingRateJobs ? (
+            <EPill tone="warn">
+              {row.missingRateJobs} job{row.missingRateJobs === 1 ? "" : "s"} without a rate
+            </EPill>
+          ) : null}
         </span>
       ),
     },

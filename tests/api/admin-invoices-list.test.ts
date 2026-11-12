@@ -51,9 +51,11 @@ function invoice(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   m.role.mockResolvedValue({ user: { id: "admin", role: "ADMIN" } });
-  m.findMany.mockImplementation(async (args: { select?: { id?: boolean; invoiceNumber?: boolean } }) =>
-    // The first findMany reads pending Xero reservations (select id only).
-    args.select?.invoiceNumber ? [invoice(), invoice({ id: "inv2", invoiceNumber: "INV-0002", status: "DRAFT", paidAmount: null, metadata: { xeroExportState: "PENDING" } })] : [{ id: "inv2" }],
+  m.findMany.mockImplementation(async (args: { select?: { id?: boolean; invoiceNumber?: boolean }; where?: { metadata?: { equals?: string } } }) =>
+    // The id-only reads are the Xero reservations: PENDING (in flight) and, since Wave D, FAILED.
+    args.select?.invoiceNumber
+      ? [invoice(), invoice({ id: "inv2", invoiceNumber: "INV-0002", status: "DRAFT", paidAmount: null, metadata: { xeroExportState: "PENDING" } })]
+      : args.where?.metadata?.equals === "FAILED" ? [{ id: "inv3" }] : [{ id: "inv2" }],
   );
   m.count.mockResolvedValue(42);
   // Overdue ids are resolved in SQL with per-invoice terms (snapshot, client, default).
@@ -103,12 +105,23 @@ describe("GET /api/admin/invoices?paginated=1", () => {
     expect(JSON.stringify(rowsCall.where)).toContain('"id":{"in":["inv1"]}');
   });
 
-  it("filters needs-action to drafts, approved and pending Xero exports", async () => {
+  it("filters needs-action to drafts, approved and pending or failed Xero exports", async () => {
     await get("?paginated=1&status=needs-action");
     const rowsCall = m.findMany.mock.calls.find(([args]) => args.select?.invoiceNumber)![0];
     const where = JSON.stringify(rowsCall.where);
     expect(where).toContain('"in":["DRAFT","APPROVED"]');
-    expect(where).toContain('"id":{"in":["inv2"]}');
+    expect(where).toContain('"id":{"in":["inv2","inv3"]}');
+  });
+
+  it("separates push pending from push failed in the Xero filter (Wave D)", async () => {
+    await get("?paginated=1&xero=failed");
+    const failedCall = m.findMany.mock.calls.find(([args]) => args.select?.invoiceNumber)![0];
+    expect(JSON.stringify(failedCall.where)).toContain('"id":{"in":["inv3"]}');
+    m.findMany.mockClear();
+    await get("?paginated=1&xero=pending");
+    const pendingCall = m.findMany.mock.calls.find(([args]) => args.select?.invoiceNumber)![0];
+    expect(JSON.stringify(pendingCall.where)).toContain('"id":{"in":["inv2"]}');
+    expect(JSON.stringify(pendingCall.where)).not.toContain("inv3");
   });
 
   it.each(["sort=password", "page=0", "pageSize=500", "status=SECRET", "xero=maybe", "from=2026-13-01", "to=2026-02-30", "from=2026-11-02&to=2026-11-01"])(

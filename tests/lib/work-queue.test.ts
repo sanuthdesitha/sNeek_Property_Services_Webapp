@@ -105,6 +105,15 @@ describe("buildWorkQueue", () => {
     expect(href("case-overdue")).toBe("/v2/admin/cases?queue=open");
     const lost = queue.items.find((row) => row.kind === "lost-item");
     expect(lost?.actions.find((a) => a.label === "Contact guest")).toMatchObject({ kind: "link", href: "mailto:priya@example.com" });
+    // Wave E: the row opens the item itself in Lost and found.
+    expect(lost?.href).toMatch(/^\/v2\/admin\/lost-found\?stage=new&open=/);
+  });
+
+  it("offers Send reminder for an expiring document beside Open account", async () => {
+    const queue = await buildWorkQueue(ADMIN, { now: NOW });
+    const doc = queue.items.find((row) => row.kind === "document-expiring");
+    expect(doc?.actions.map((a) => a.label)).toEqual(["Send reminder", "Open account"]);
+    expect(doc?.actions[0]).toMatchObject({ kind: "document-reminder", endpoint: "/api/admin/workforce", primary: true });
   });
 
   it("offers the existing endpoints for inline decisions", async () => {

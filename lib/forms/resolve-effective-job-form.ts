@@ -3,7 +3,8 @@ import { withDeviceApplicability } from "./device-status";
 import "server-only";
 import { withLaundryAreaEvidence } from "./laundry-area";
 import type { JobType } from "@prisma/client";
-import { collectMonthlyItems, collectRotationalItems, filterRotationalSchema } from "@/lib/accountability/rotation-schema";
+import { collectMonthlyItems, collectRotationalItems, filterRotationalSchema, type RotationStateRow } from "@/lib/accountability/rotation-schema";
+import { monthlyKeysShownOnPendingCleans, type MonthlyPendingReader } from "@/lib/accountability/monthly-pending";
 import { db } from "@/lib/db";
 import { parseJobInternalNotes } from "@/lib/jobs/meta";
 import { assembleJobForm } from "./assemble-job-form";
@@ -13,12 +14,12 @@ import { buildReworkFormSchema, ensureReworkFormTemplate, findReworkFormTemplate
 
 /** Server selection and assembly only. Reference signing belongs to the read route. */
 export async function resolveEffectiveJobForm(
-  job: { jobType: JobType; propertyId: string; formTemplateId?: string | null;
+  job: { id?: string; jobType: JobType; propertyId: string; formTemplateId?: string | null;
     isRework: boolean; reworkAreas?: unknown; internalNotes?: string | null; property?: { name?: unknown; bedrooms?: unknown; bathrooms?: unknown } },
   settings: { propertyFormTemplateOverrides?: TemplateOverridesMap | null; timezone?: string | null },
   options: {
     provisionReworkAnchor?: boolean;
-    database?: Pick<typeof db, "formTemplate"> & Partial<Pick<typeof db, "propertyRotationState" | "property">>;
+    database?: Pick<typeof db, "formTemplate"> & Partial<Pick<typeof db, "propertyRotationState" | "property" | "formSubmission">>;
     /** Clock for "Monthly" questions (tests); defaults to now. */
     now?: Date;
   } = {}
@@ -67,7 +68,19 @@ export async function resolveEffectiveJobForm(
     const monthly = monthlyItems.length > 0
       ? { now: options.now ?? new Date(), timeZone: settings.timezone || "Australia/Sydney" }
       : undefined;
-    template = { ...template, schema: filterRotationalSchema(template.schema, states, monthly) };
+    // A monthly question already shown this month on another clean that is
+    // submitted but not yet approved counts as shown (its stamp is written
+    // only on approval), so a second clean in the month does not repeat it.
+    const pending = monthly && database.formSubmission
+      ? await monthlyKeysShownOnPendingCleans(database as unknown as MonthlyPendingReader, { propertyId: job.propertyId, excludeJobId: job.id ?? null, keys: monthlyItems, now: monthly.now, timeZone: monthly.timeZone })
+      : new Set<string>();
+    const effectiveStates: RotationStateRow[] = pending.size
+      ? [
+          ...states.filter((state) => !pending.has(state.itemKey)),
+          ...Array.from(pending, (itemKey) => ({ itemKey, cleansSinceDone: states.find((state) => state.itemKey === itemKey)?.cleansSinceDone ?? 0, lastCompletedAt: monthly!.now })),
+        ]
+      : states;
+    template = { ...template, schema: filterRotationalSchema(template.schema, effectiveStates, monthly) };
   }
   if (template) template = { ...template, schema: withDeviceChargingEvidence(template.schema, job) };
   return {

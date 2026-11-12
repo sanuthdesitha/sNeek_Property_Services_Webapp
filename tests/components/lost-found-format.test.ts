@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { guestSourceInfo, lostFoundStages, statusPill, visitedStatuses, formatFoundDay } from "@/components/v2/admin/lost-found/lost-found-format";
 import { readLostFoundView, listQueryString, viewSearch, DEFAULT_VIEW } from "@/components/v2/admin/lost-found/lost-found-view";
-import { draftLostFoundMessage, mailtoHref, PIPELINE_UNSUPPORTED_REASON } from "@/lib/lost-found/message";
+import { CLIENT_SEND_ADMIN_ONLY_REASON, draftLostFoundMessage, mailtoHref } from "@/lib/lost-found/message";
 
 describe("lost and found display", () => {
   it("says where the guest came from and never guesses", () => {
@@ -47,11 +47,11 @@ describe("message drafts", () => {
     expect(draft.body).toContain("02 9000 0000");
     expect(draft.body).not.toMatch(/fee|\$/);
   });
-  it("drafts a client message and says the app cannot send it", () => {
+  it("drafts a client message and says only administrators send it from the app", () => {
     const draft = draftLostFoundMessage({ ...input, audience: "client" });
     expect(draft.body).toContain("Hi Harbour Stays,");
     expect(draft.body).toContain("1 Test St, Bondi");
-    expect(PIPELINE_UNSUPPORTED_REASON).toMatch(/cannot send/);
+    expect(CLIENT_SEND_ADMIN_ONLY_REASON).toMatch(/Only administrators/);
     expect(mailtoHref(null, draft)).toBeNull();
     expect(mailtoHref("a@b.invalid", draft)).toMatch(/^mailto:a%40b\.invalid\?subject=/);
   });

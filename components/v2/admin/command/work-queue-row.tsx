@@ -19,9 +19,10 @@ type RowProps = {
   status: RowStatus;
   onRequest: (item: WorkQueueItem, action: Extract<WorkQueueAction, { kind: "request" }>) => void;
   onAssign: (jobId: string) => void;
+  onDocumentReminder: (item: WorkQueueItem, action: Extract<WorkQueueAction, { kind: "document-reminder" }>) => void;
 };
 
-function ActionControl({ action, item, status, onRequest, onAssign }: RowProps & { action: WorkQueueAction }) {
+function ActionControl({ action, item, status, onRequest, onAssign, onDocumentReminder }: RowProps & { action: WorkQueueAction }) {
   const variant = action.primary ? "primary" : "outline";
   const busy = status.pending !== null;
   if (action.kind === "link") {
@@ -30,6 +31,9 @@ function ActionControl({ action, item, status, onRequest, onAssign }: RowProps &
     ) : (
       <EButton asChild size="sm" variant={variant}><Link href={action.href}>{action.label}</Link></EButton>
     );
+  }
+  if (action.kind === "document-reminder") {
+    return <EButton size="sm" variant={variant} disabled={busy} onClick={() => onDocumentReminder(item, action)}>{action.label}</EButton>;
   }
   if (action.kind === "assign") {
     return <EButton size="sm" variant={variant} disabled={busy} onClick={() => onAssign(action.jobId)}>{action.label}</EButton>;

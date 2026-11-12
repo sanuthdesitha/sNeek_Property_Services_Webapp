@@ -26,7 +26,12 @@ const CREDENTIAL_KEY = "integrationCredentials";
  * to connect without it (the old, lapsing behaviour) while the app is fixed.
  */
 export function xeroScopes(env: Record<string, string | undefined> = process.env): string {
-  const base = "accounting.contacts accounting.invoices";
+  // accounting.settings.read (Wave D): read the chart of accounts so the
+  // invoice editor can name the sales account. Needs a reconnect to take
+  // effect; XERO_REQUEST_SETTINGS_READ=false leaves it out if an app refuses it
+  // (the editor then shows the code with "name unavailable").
+  const settings = env.XERO_REQUEST_SETTINGS_READ === "false" ? "" : " accounting.settings.read";
+  const base = `accounting.contacts accounting.invoices${settings}`;
   return env.XERO_REQUEST_OFFLINE_ACCESS === "false" ? base : `offline_access ${base}`;
 }
 
@@ -746,4 +751,21 @@ export async function readXeroCreditNote(id: string, options: XeroReadOptions = 
 export async function hasActiveXeroConnection(): Promise<boolean> {
   const conn = await db.xeroConnection.findFirst({ where: { isActive: true }, select: { id: true } });
   return Boolean(conn);
+}
+
+/**
+ * The name of the chart-of-accounts entry with this code (Wave D, the editor's
+ * Xero card). Never throws and never guesses: a failed read, a missing scope
+ * or no matching account comes back as a reason.
+ */
+export async function readXeroAccountName(code: string, options: XeroReadOptions = {}): Promise<{ ok: true; name: string } | { ok: false; reason: string }> {
+  const where = new URLSearchParams({ where: `Code=="${code.replace(/["\\]/g, "")}"` });
+  const outcome = await xeroGet(`/api.xro/2.0/Accounts?${where.toString()}`, options);
+  if (!outcome.ok) return { ok: false, reason: outcome.failure.reason };
+  const list = outcome.body && typeof outcome.body === "object" ? (outcome.body as { Accounts?: unknown }).Accounts : undefined;
+  const match = Array.isArray(list)
+    ? list.find((entry): entry is { Code: string; Name: string } =>
+        Boolean(entry) && typeof entry === "object" && (entry as { Code?: unknown }).Code === code && typeof (entry as { Name?: unknown }).Name === "string")
+    : undefined;
+  return match ? { ok: true, name: match.Name } : { ok: false, reason: `Xero has no account with code ${code}.` };
 }

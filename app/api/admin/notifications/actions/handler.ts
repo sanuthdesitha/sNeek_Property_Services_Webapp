@@ -5,7 +5,7 @@ import { ZodError } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getApiErrorStatus } from "@/lib/api/http";
 import { OfficeActionError } from "@/lib/notifications/office-actions";
-import { GuestMessageError } from "@/lib/notifications/guest-message";
+import { ExternalMessageError } from "@/lib/notifications/external-recipient";
 
 const headers = { "Cache-Control": "private, no-store", Vary: "Cookie" };
 
@@ -21,7 +21,7 @@ export async function handleOfficeAction<T>(request: Request, roles: Role[], run
     const result = await run(session.user.id, await request.json());
     return NextResponse.json(result, { headers });
   } catch (error) {
-    if (error instanceof OfficeActionError || error instanceof GuestMessageError) return NextResponse.json({ error: error.message }, { status: error.status, headers });
+    if (error instanceof OfficeActionError || error instanceof ExternalMessageError) return NextResponse.json({ error: error.message }, { status: error.status, headers });
     if (error instanceof ZodError || error instanceof SyntaxError) return NextResponse.json({ error: "Check the message, recipients and transport." }, { status: 400, headers });
     return NextResponse.json({ error: "The message could not be sent." }, { status: getApiErrorStatus(error, 500), headers });
   }

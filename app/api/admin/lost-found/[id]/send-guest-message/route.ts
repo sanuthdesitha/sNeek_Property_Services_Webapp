@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const outcome = guestSendOutcome(body.transport, result);
     if (outcome.accepted) {
       try {
-        await recordLostFoundWorkflow(params.id, session.user.id, { action: "GUEST_CONTACTED", channel: body.transport === "EMAIL" ? "EMAIL" : "SMS", note: `${outcome.note}\n\nMessage sent:\n${body.body}` });
+        await recordLostFoundWorkflow(params.id, session.user.id, { action: "GUEST_CONTACTED", channel: body.transport === "EMAIL" ? "EMAIL" : "SMS", sentByApp: true, note: `${outcome.note}\n\nMessage sent:\n${body.body}` });
       } catch (error) {
         // A closed item: the message went, but the status is not moved.
         if (!(error instanceof LostFoundRuleError)) throw error;

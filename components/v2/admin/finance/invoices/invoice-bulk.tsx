@@ -16,6 +16,7 @@ import {
   type ClientInvoiceBulkResponse,
 } from "@/lib/billing/client-invoice-list-types";
 import { STATUS_LABEL, money, type InvoiceRow } from "./invoice-model";
+import { PDF_ARCHIVE_MAX_INVOICES, downloadPdfArchive, type ArchiveOutcome } from "./pdf-archive-download";
 
 const ACTION_COPY: Record<ClientInvoiceBulkAction, { title: string; confirm: string; body: string; needsReview: boolean }> = {
   approve: {
@@ -80,6 +81,8 @@ export function InvoiceBulkBar({
   const [reviewed, setReviewed] = useState(false);
   const [run, setRun] = useState<BulkRunState>({ status: "idle" });
   const [exportError, setExportError] = useState<string | null>(null);
+  const [archive, setArchive] = useState<ArchiveOutcome | { status: "running" } | null>(null);
+  const tooManyPdfs = selectedRows.length > PDF_ARCHIVE_MAX_INVOICES;
   const tooMany = selectedRows.length > CLIENT_INVOICE_BULK_MAX_IDS;
   const allDrafts = selectedRows.length > 0 && selectedRows.every((row) => row.status === "DRAFT");
   const noun = allDrafts ? { one: "draft", many: "drafts" } : { one: "invoice", many: "invoices" };
@@ -136,6 +139,11 @@ export function InvoiceBulkBar({
     }
   }
 
+  async function downloadPdfs() {
+    setArchive({ status: "running" });
+    setArchive(await downloadPdfArchive(selectedRows.map((row) => row.id)));
+  }
+
   const running = run.status === "running";
   const copy = pending ? ACTION_COPY[pending] : null;
 
@@ -157,8 +165,15 @@ export function InvoiceBulkBar({
             Refresh from Xero
           </EBulkButton>
         ) : null}
+        <EBulkButton disabled={tooManyPdfs || archive?.status === "running"} onClick={downloadPdfs}>
+          {archive?.status === "running" ? "Preparing PDFs…" : "Download PDFs"}
+        </EBulkButton>
         <EBulkButton onClick={exportCsv}>Export CSV</EBulkButton>
       </EBulkBar>
+      {tooManyPdfs ? (
+        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Download PDFs takes at most {PDF_ARCHIVE_MAX_INVOICES} invoices at a time.</p>
+      ) : null}
+      <ArchiveResult outcome={archive} onDismiss={() => setArchive(null)} />
       {exportError ? (
         <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">
           {exportError}
@@ -243,6 +258,42 @@ function BulkResults({ run, onDismiss }: { run: BulkRunState; onDismiss: () => v
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+function ArchiveResult({ outcome, onDismiss }: { outcome: ArchiveOutcome | { status: "running" } | null; onDismiss: () => void }) {
+  if (!outcome || outcome.status === "running") return null;
+  if (outcome.status === "failed") {
+    return (
+      <p role="alert" className="text-[0.8125rem] text-[hsl(var(--e-danger))]">
+        {outcome.message}{" "}
+        <button type="button" className="underline" onClick={onDismiss}>
+          Dismiss
+        </button>
+      </p>
+    );
+  }
+  return (
+    <section role="status" aria-label="PDF download" className="space-y-1 rounded-[var(--e-radius-lg)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] p-3 text-[0.8125rem]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-[600]">
+          {outcome.summary.includedCount} PDF{outcome.summary.includedCount === 1 ? "" : "s"} downloaded
+          {outcome.summary.failed.length ? ` · ${outcome.summary.failed.length} could not be included (listed in _errors.txt)` : ""}
+        </p>
+        <EButton size="sm" variant="ghost" onClick={onDismiss}>
+          Dismiss
+        </EButton>
+      </div>
+      {outcome.summary.failed.length ? (
+        <ul className="space-y-0.5">
+          {outcome.summary.failed.map((row) => (
+            <li key={row.id} className="break-words text-[hsl(var(--e-danger))]">
+              <span className="font-mono text-[0.75rem]">{row.invoiceNumber ?? row.id}</span> {row.reason}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }

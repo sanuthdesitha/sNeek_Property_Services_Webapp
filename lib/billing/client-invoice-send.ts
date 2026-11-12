@@ -20,6 +20,9 @@ import { creditLimitFor } from "./client-invoice-patch-rules";
 import { recordInvoiceAudit } from "./client-invoice-audit";
 import { termsSnapshotFor } from "./invoice-terms";
 import { refreshCreditCoverage } from "./invoice-job-release";
+import { approvalRuleRefusal } from "./client-invoice-approval-rules";
+import { clientPaymentPageUrl, paymentLinkAvailability, paymentLinkHtml } from "./invoice-payment-link";
+import { pushClientInvoiceToXeroOnce } from "./client-invoice-xero";
 
 /**
  * Stamp a successful send under the row lock. `sentAt` is the FIRST time the
@@ -70,6 +73,47 @@ export async function sendClientInvoice(input: {
   origin: string;
   /** Who sent it, for the invoice's History. */
   actorId?: string | null;
+  /** Wave D send options. Defaults are today's behaviour: no link, no push. */
+  options?: SendOptions;
+}): Promise<InvoiceActionResult> {
+  const result = await sendOnce(input);
+  if (result.status >= 400 || !input.options?.pushToXero) return result;
+  // After a successful send only. A push failure never fails or rolls back
+  // the send: it is reported beside it and recorded in History.
+  const push = await pushAfterSend(input.invoiceId, input.actorId ?? null);
+  return actionResult({ ...result.body, xeroPush: push });
+}
+
+export type SendOptions = { includePaymentLink?: boolean; pushToXero?: boolean };
+
+export type XeroPushAfterSend = { outcome: "pushed" | "already-pushed" | "failed"; error?: string };
+
+async function pushAfterSend(invoiceId: string, actorId: string | null): Promise<XeroPushAfterSend> {
+  let outcome: XeroPushAfterSend;
+  try {
+    const pushed = await pushClientInvoiceToXeroOnce(invoiceId, actorId);
+    const body = pushed.body as { alreadyPushed?: boolean; error?: string };
+    outcome = pushed.status >= 400
+      ? { outcome: "failed", error: body.error ?? "The Xero push was refused." }
+      : { outcome: body.alreadyPushed ? "already-pushed" : "pushed" };
+  } catch (error) {
+    outcome = { outcome: "failed", error: error instanceof Error && error.message ? error.message : "The Xero push failed." };
+  }
+  await recordInvoiceAudit({
+    actorId,
+    invoiceId,
+    action: "CLIENT_INVOICE_SEND_OPTIONS",
+    after: { xeroPush: outcome.outcome, ...(outcome.error ? { xeroError: outcome.error } : {}) },
+  });
+  return outcome;
+}
+
+async function sendOnce(input: {
+  invoiceId: string;
+  to?: unknown;
+  origin: string;
+  actorId?: string | null;
+  options?: SendOptions;
 }): Promise<InvoiceActionResult> {
   try {
     const [invoice, settings] = await Promise.all([getClientInvoice(input.invoiceId), getAppSettings()]);
@@ -107,6 +151,12 @@ export async function sendClientInvoice(input: {
 
     const empty = emptyInvoiceRefusal(invoice);
     if (empty) return actionResult({ error: empty }, 409);
+    let paymentLink: string | null = null;
+    if (input.options?.includePaymentLink) {
+      const availability = await paymentLinkAvailability(invoice.kind);
+      if (!availability.available) return actionResult({ error: `Payment link not available: ${availability.reason}` }, 409);
+      paymentLink = clientPaymentPageUrl(input.origin);
+    }
     // Sending a draft credit note issues it, so the credit limit applies here
     // exactly as it does to approving one (under the original's row lock).
     if (invoice.kind === "CREDIT_NOTE" && invoice.status === ClientInvoiceStatus.DRAFT) {
@@ -120,6 +170,12 @@ export async function sendClientInvoice(input: {
           requireCredit: true,
         });
       });
+      if (refusal) return actionResult({ error: refusal }, 409);
+    }
+    // Sending a DRAFT issues it without an approve step, so the Wave D approval
+    // rules (rates, double billing, totals) apply here exactly as on approve.
+    if (invoice.status === ClientInvoiceStatus.DRAFT) {
+      const refusal = await db.$transaction((tx) => approvalRuleRefusal(invoice, tx));
       if (refusal) return actionResult({ error: refusal }, 409);
     }
 
@@ -148,7 +204,7 @@ export async function sendClientInvoice(input: {
     const result = await sendEmailDetailed({
       to: recipients,
       subject: template.subject,
-      html: template.html,
+      html: paymentLink ? `${template.html}${paymentLinkHtml(paymentLink)}` : template.html,
       attachments: [
         {
           filename: `${invoice.invoiceNumber.toLowerCase()}.pdf`,
@@ -189,8 +245,11 @@ export async function sendClientInvoice(input: {
       action: "CLIENT_INVOICE_SENT",
       after: { outcome: "sent", recipientCount: recipients.length, status: keepsStatus ? invoice.status : ClientInvoiceStatus.SENT, resend },
     });
+    if (paymentLink) {
+      await recordInvoiceAudit({ actorId: input.actorId, invoiceId: invoice.id, action: "CLIENT_INVOICE_SEND_OPTIONS", after: { paymentLink: "included" } });
+    }
 
-    return actionResult({ ok: true });
+    return actionResult({ ok: true, paymentLink: paymentLink ? "included" : "none" });
   } catch (err: unknown) {
     const message = err instanceof Error && err.message ? err.message : "Could not send invoice.";
     return actionResult({ error: message }, 400);

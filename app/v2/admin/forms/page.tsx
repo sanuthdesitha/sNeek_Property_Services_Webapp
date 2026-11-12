@@ -14,7 +14,9 @@ import { ImportFormsButton } from "@/components/v2/admin/forms/library/import-fo
 import { ValidationEnforcementCard } from "@/components/v2/admin/forms/library/validation-enforcement-card";
 import { getAppSettings } from "@/lib/settings";
 import { FormStatsPanel } from "@/components/v2/admin/forms/library/form-stats-panel";
-import { ChecklistBlocksTab, MessageTemplatesTab } from "@/components/v2/admin/forms/library/forms-subviews";
+import { ChecklistBlocksTab, MessageTemplatesTab, ResultsViewChips } from "@/components/v2/admin/forms/library/forms-subviews";
+import { SubmissionsView } from "@/components/v2/admin/forms/submissions/submissions-view";
+import { readSubmissionsView } from "@/components/v2/admin/forms/submissions/submissions-query";
 
 export const metadata = { title: "Forms · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -33,7 +35,20 @@ export const dynamic = "force-dynamic";
  */
 const TAB_ORDER: FormsLibraryTab[] = ["forms", "qa", "blocks", "messages", "stats"];
 
-type SearchParams = { tab?: string; view?: string; templateId?: string; weeks?: string };
+type SearchParams = Record<string, string | string[] | undefined> & { tab?: string; view?: string; templateId?: string; weeks?: string };
+
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+/** The request's query as a string, for the Submissions view's first render. */
+function searchString(searchParams: SearchParams | undefined): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) params.append(key, item);
+  }
+  return params.toString();
+}
 
 export default async function EstateFormsPage({ searchParams }: { searchParams: SearchParams }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
@@ -84,8 +99,15 @@ export default async function EstateFormsPage({ searchParams }: { searchParams: 
         {tab === "messages" ? <MessageTemplatesTab view={searchParams?.view === "messages" ? "messages" : "notifications"} /> : null}
         {tab === "stats" ? (
           <div className="space-y-4">
-            <ValidationEnforcementCard canWrite={canWrite} timezone={(await getAppSettings()).timezone || "Australia/Sydney"} />
-            <FormStatsPanel searchParams={{ templateId: searchParams?.templateId, weeks: searchParams?.weeks }} />
+            <ResultsViewChips view={searchParams?.view === "submissions" ? "submissions" : "stats"} />
+            {searchParams?.view === "submissions" ? (
+              <SubmissionsView initial={readSubmissionsView(searchString(searchParams))} canWrite={canWrite} />
+            ) : (
+              <>
+                <ValidationEnforcementCard canWrite={canWrite} timezone={(await getAppSettings()).timezone || "Australia/Sydney"} />
+                <FormStatsPanel searchParams={{ templateId: firstParam(searchParams?.templateId), weeks: firstParam(searchParams?.weeks) }} />
+              </>
+            )}
           </div>
         ) : null}
       </div>

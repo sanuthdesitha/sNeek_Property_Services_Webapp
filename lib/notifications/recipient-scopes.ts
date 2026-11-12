@@ -20,12 +20,15 @@ import { STAFF_MESSAGE_ROLES } from "./staff-roles";
  *   client, VA or anonymous contact) addressed by name, for office messages.
  * - JOB_CLIENT_CONTACT (id = job id): an active CLIENT login whose client owns
  *   the job's property.
+ * - LOST_ITEM_PROPERTY_CLIENT (id = lost and found item id): an active CLIENT
+ *   login whose client owns the property the item was found at (the item
+ *   stores `propertyId` without a relation, so the property is read here).
  *
  * In every scope the role recorded in the envelope must still be the
  * recipient's role: a role change between queueing and dispatch skips the
  * delivery instead of disclosing to a different kind of account.
  */
-export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "STAFF_MEMBER", "JOB_CLIENT_CONTACT"] as const;
+export const RECIPIENT_SCOPE_TYPES = ["JOB_ASSIGNED_CLEANER", "LAUNDRY_TASK_CLEANER", "STAFF_MEMBER", "JOB_CLIENT_CONTACT", "LOST_ITEM_PROPERTY_CLIENT"] as const;
 export type RecipientScopeType = (typeof RECIPIENT_SCOPE_TYPES)[number];
 
 export { STAFF_MESSAGE_ROLES };
@@ -34,7 +37,7 @@ export type RecipientAuthorization =
   | { ok: true; role: Role }
   | { ok: false; errorCode: "recipient_unavailable" | "recipient_not_in_scope" | "unsupported_recipient_scope" };
 
-type ScopeReader = Pick<Prisma.TransactionClient, "user" | "jobAssignment" | "laundryTask" | "job">;
+type ScopeReader = Pick<Prisma.TransactionClient, "user" | "jobAssignment" | "laundryTask" | "job"> & Partial<Pick<Prisma.TransactionClient, "lostFoundItem" | "property">>;
 type Recipient = NotificationEnvelope["recipient"];
 
 export function isSupportedEntityScope(type: string): type is RecipientScopeType {
@@ -52,6 +55,15 @@ async function activeAssignment(reader: ScopeReader, jobId: string, userId: stri
 async function jobClientId(reader: ScopeReader, jobId: string) {
   const job = await reader.job.findUnique({ where: { id: jobId }, select: { property: { select: { clientId: true } } } });
   return job?.property?.clientId ?? null;
+}
+
+/** The client that owns the property a lost item was found at, or null. */
+async function lostItemClientId(reader: ScopeReader, itemId: string) {
+  if (!reader.lostFoundItem || !reader.property) return null;
+  const item = await reader.lostFoundItem.findUnique({ where: { id: itemId }, select: { propertyId: true } });
+  if (!item?.propertyId) return null;
+  const property = await reader.property.findUnique({ where: { id: item.propertyId }, select: { clientId: true } });
+  return property?.clientId ?? null;
 }
 
 /**
@@ -80,6 +92,10 @@ export async function authorizeEntityRecipient(reader: ScopeReader, recipient: R
     case "JOB_CLIENT_CONTACT": {
       if (user.role !== "CLIENT" || !user.clientId) return { ok: false, errorCode: "recipient_not_in_scope" };
       return (await jobClientId(reader, scope.id)) === user.clientId ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
+    }
+    case "LOST_ITEM_PROPERTY_CLIENT": {
+      if (user.role !== "CLIENT" || !user.clientId) return { ok: false, errorCode: "recipient_not_in_scope" };
+      return (await lostItemClientId(reader, scope.id)) === user.clientId ? { ok: true, role: user.role } : { ok: false, errorCode: "recipient_not_in_scope" };
     }
   }
 }

@@ -11,12 +11,23 @@ import { toast } from "@/hooks/use-toast";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EField, EInput, EModal, ESwitch } from "@/components/v2/admin/estate-kit";
 import type { InvoiceRow } from "./invoice-model";
-import { pdfHref, sendInvoiceRequest } from "./invoice-requests";
+import { pdfHref, sendInvoiceRequest, type SendRequestOptions } from "./invoice-requests";
+
+/** What the send did beyond the email, in words (the push never undoes the send). */
+export function sendOutcomeDescription(body: { paymentLink?: string; xeroPush?: { outcome: string; error?: string } }): string | undefined {
+  const parts: string[] = [];
+  if (body.paymentLink === "included") parts.push("Payment link included.");
+  if (body.xeroPush?.outcome === "pushed") parts.push("Pushed to Xero.");
+  if (body.xeroPush?.outcome === "already-pushed") parts.push("Already in Xero.");
+  if (body.xeroPush?.outcome === "failed") parts.push(`Sent, but the push to Xero failed: ${body.xeroPush.error ?? "no reason given"}. Use Retry Xero.`);
+  return parts.length ? parts.join(" ") : undefined;
+}
 
 export function SendInvoiceDialog({
   invoice,
   resend,
   initialTo,
+  options,
   onClose,
   onDone,
 }: {
@@ -24,6 +35,8 @@ export function SendInvoiceDialog({
   resend: boolean;
   /** Recipient typed on the editor page's Send card; defaults to the client email. */
   initialTo?: string;
+  /** Options chosen on the editor page's Send card; none = today's behaviour. */
+  options?: SendRequestOptions;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -34,12 +47,13 @@ export function SendInvoiceDialog({
   async function submit() {
     setSending(true);
     try {
-      const result = await sendInvoiceRequest(invoice.id, email);
+      const result = await sendInvoiceRequest(invoice.id, email, options);
       if (!result.ok) {
         toast({ title: "Send failed", description: result.body.error, variant: "destructive" });
         return;
       }
-      toast({ title: resend ? "Invoice re-sent" : "Invoice sent" });
+      const pushFailed = result.body.xeroPush?.outcome === "failed";
+      toast({ title: resend ? "Invoice re-sent" : "Invoice sent", description: sendOutcomeDescription(result.body), variant: pushFailed ? "destructive" : undefined });
       onDone();
       onClose();
     } catch {
@@ -87,6 +101,11 @@ export function SendInvoiceDialog({
         <EButton className="w-full" variant="gold" onClick={submit} disabled={sending || !reviewed}>
           {sending ? "Sending…" : resend ? "Re-send invoice to client" : "Send invoice to client"}
         </EButton>
+        {options?.includePaymentLink || options?.pushToXero ? (
+          <p className="text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
+            {[options.includePaymentLink ? "The email includes a payment link." : null, options.pushToXero ? "After sending, the invoice is pushed to Xero." : null].filter(Boolean).join(" ")}
+          </p>
+        ) : null}
         <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
           A successful send means the email provider accepted the message. It does not prove delivery.
         </p>

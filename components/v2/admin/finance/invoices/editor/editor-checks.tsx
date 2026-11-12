@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * "Before you approve": the server's checks, shown as they came. A check the
- * approve request enforces reads "Blocks approval" when it fails; the others
- * read "Check" and are advice. Nothing here is computed in the browser.
+ * "Before you approve": the server's checks, shown as they came. On a draft
+ * every check is enforced (Wave D) and reads OK or "Blocks approval" with the
+ * server's exact text and a link to fix it; past approval the same checks are
+ * advice ("Check"). Nothing here is computed in the browser.
  */
 import { ECard, EEyebrow } from "@/components/v2/ui/primitives";
 import { EPill, type EPillTone } from "@/components/v2/ui/pill";
@@ -16,8 +17,11 @@ const PILL: Record<ApprovalCheck["state"], { tone: EPillTone; text: string }> = 
   unknown: { tone: "neutral", text: "Unknown" },
 };
 
+/** An enforced check that could not be read blocks approval too. */
+const ENFORCED_UNKNOWN = { tone: "bad" as EPillTone, text: "Unknown · blocks approval" };
+
 function CheckRow({ item }: { item: ApprovalCheck }) {
-  const pill = PILL[item.state];
+  const pill = item.enforced && item.state === "unknown" ? ENFORCED_UNKNOWN : PILL[item.state];
   return (
     <li className="flex items-start gap-2.5">
       <EPill tone={pill.tone} className="mt-px shrink-0">
@@ -30,6 +34,14 @@ function CheckRow({ item }: { item: ApprovalCheck }) {
             {" "}
             <a href="#started-work-review" className="text-[hsl(var(--e-primary))] underline-offset-2 hover:underline">
               Review
+            </a>
+          </>
+        ) : null}
+        {item.state !== "ok" && item.fixHref && item.fixLabel ? (
+          <>
+            {" "}
+            <a href={item.fixHref} className="text-[hsl(var(--e-primary))] underline-offset-2 hover:underline">
+              {item.fixLabel}
             </a>
           </>
         ) : null}
@@ -52,7 +64,7 @@ export function EditorChecks({ checks }: { checks: ApprovalChecks }) {
       </ul>
       <p className="text-[0.75rem] text-[hsl(var(--e-text-faint))]">
         {checks.appliesTo === "approve"
-          ? "“Blocks approval” items are the ones approval refuses. “Check” items are advice; approval does not refuse them."
+          ? "Approval, sending a draft and marking a draft paid are refused while any item blocks. The server runs the same checks."
           : "Approval checks apply to drafts. These are advice for an invoice already past approval."}
       </p>
     </ECard>

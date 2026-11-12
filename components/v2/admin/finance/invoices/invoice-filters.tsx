@@ -23,9 +23,11 @@ const XERO_FILTER_LABEL: Record<ClientInvoiceXeroFilter, string> = {
   any: "Any",
   none: XERO_LABEL.NONE,
   pushed: XERO_LABEL.PUSHED,
-  pending: "Push pending or failed",
-  "in-xero": "In Xero, checked",
-  "paid-in-xero": "Paid in Xero (recorded)",
+  pending: "Push pending",
+  failed: "Push failed",
+  unchecked: "In Xero · not yet checked",
+  "in-xero": "Synced",
+  "paid-in-xero": "Synced · paid in Xero",
   "needs-review": "Needs review",
   unknown: "State unknown",
 };
@@ -137,8 +139,8 @@ export function InvoiceFilters({
             ))}
           </ESelect>
           <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-            A failed push stays pending until it is retried, so the two cannot be told apart. The last four come from the hourly
-            check against Xero.
+            Push failed keeps the provider&rsquo;s reason until a retry succeeds. Synced, needs review and state unknown come from
+            the hourly check against Xero.
           </p>
         </EFilterPopover>
       </div>

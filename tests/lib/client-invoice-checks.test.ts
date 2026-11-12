@@ -19,6 +19,7 @@ const m = vi.hoisted(() => ({
 function store() {
   return {
     $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
     clientInvoice: { findUnique: vi.fn(async () => m.invoice), update: m.update },
     clientInvoiceLine: {
       findMany: vi.fn(async (args: any) => (args?.select?.invoice ? m.otherLines : m.invoice.lines)),
@@ -160,17 +161,53 @@ describe("checklist agrees with the approve request", () => {
     expect(result.body.error).toBe(XERO_RESERVATION_REFUSAL);
   });
 
-  it("shows advisory checks as Check without claiming approval would refuse", async () => {
+  // Wave D (owner-approved rule change): on a draft, rates, double billing and
+  // totals block approval, with the checklist's own words. They were advice.
+  it("blocks approval on a draft when a job has no rate, is on another invoice, or totals do not match", async () => {
     m.jobs = [{ ...startedJob(), fixedPrice: null }];
-    m.otherLines = [{ jobId: "job", invoice: { invoiceNumber: "INV-0" } }];
+    m.otherLines = [{ jobId: "job", invoice: { id: "inv0", invoiceNumber: "INV-0" } }];
     m.invoice = draft({ totalAmount: 99 });
     const checks = await clientInvoiceApprovalChecks(m.invoice, store() as any);
     const byKey = Object.fromEntries(checks.items.map((check) => [check.key, check]));
-    expect(byKey.rates).toMatchObject({ state: "check", enforced: false, detail: "J1" });
-    expect(byKey["other-invoice"]).toMatchObject({ state: "check", enforced: false, detail: "INV-0" });
+    expect(byKey.rates).toMatchObject({ state: "refused", enforced: true, detail: "J1", fixHref: "/v2/admin/clients/client" });
+    expect(byKey["other-invoice"]).toMatchObject({ state: "refused", enforced: true, detail: "INV-0", fixHref: "/v2/admin/finance/invoices/inv0" });
+    expect(byKey.totals).toMatchObject({ state: "refused", enforced: true });
+    expect(approvalRefusedByChecks(checks)).toBe(true);
+    const result = await approve();
+    expect(result.status).toBe(409);
+    expect(result.body.error).toContain("1 job now have no client rate (J1).");
+    expect(result.body.error).toContain("1 job also on another invoice (INV-0).");
+    expect(result.body.error).toContain("The stored total does not match the lines");
+    expect(m.update).not.toHaveBeenCalled();
+  });
+
+  it("blocks approval when a job appears twice on the draft", async () => {
+    m.invoice = draft({
+      subtotal: 100, gstAmount: 10, totalAmount: 110,
+      lines: [...draft().lines, { ...draft().lines[0], id: "cl00000000000000000000002" }],
+    });
+    const result = await approve();
+    expect(result.status).toBe(409);
+    expect(result.body.error).toContain("appear twice on this invoice");
+  });
+
+  it("blocks approval when a check cannot be read (unknown is never OK)", async () => {
+    const checks = await clientInvoiceApprovalChecks(draft(), (() => {
+      const client = store();
+      client.clientInvoiceLine.findMany.mockRejectedValue(new Error("database offline"));
+      return client;
+    })() as any);
+    expect(checks.items.find((check) => check.key === "other-invoice")).toMatchObject({ state: "unknown", enforced: true });
+    expect(approvalRefusedByChecks(checks)).toBe(true);
+  });
+
+  it("leaves an invoice already approved alone: the same checks are advice there", async () => {
+    m.jobs = [{ ...startedJob(), fixedPrice: null }];
+    m.invoice = draft({ status: "APPROVED", totalAmount: 99 });
+    const checks = await clientInvoiceApprovalChecks(m.invoice, store() as any);
+    const byKey = Object.fromEntries(checks.items.map((check) => [check.key, check]));
+    expect(byKey.rates).toMatchObject({ state: "check", enforced: false });
     expect(byKey.totals).toMatchObject({ state: "check", enforced: false });
-    expect(approvalRefusedByChecks(checks)).toBe(false);
-    expect((await approve()).status).toBe(200);
   });
 
   it("never shows OK when a check cannot be read", async () => {

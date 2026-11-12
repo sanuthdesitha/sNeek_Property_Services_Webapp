@@ -96,7 +96,7 @@ describe("Notify client of delay", () => {
 
   it("confirms exactly what will be sent, then shows the transports' real states (never 'sent')", async () => {
     renderOps(true);
-    fireEvent.click(await screen.findByRole("button", { name: "Notify client" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Tell client" }));
     const dialog = await screen.findByRole("dialog", { name: "Notify the client of the delay" });
     expect(await within(dialog).findByText("Jo Client · jo@example.invalid")).toBeInTheDocument();
     expect(within(dialog).getByText(preview.body as string)).toBeInTheDocument();
@@ -112,7 +112,7 @@ describe("Notify client of delay", () => {
   it("shows the refusal when the client switched notifications off and sends nothing", async () => {
     preview = { ...preview, recipients: [], blocked: "This client has switched off job notifications." };
     renderOps(true);
-    fireEvent.click(await screen.findByRole("button", { name: "Notify client" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Tell client" }));
     const dialog = await screen.findByRole("dialog", { name: "Notify the client of the delay" });
     expect(await within(dialog).findByText("Not sent: This client has switched off job notifications.")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Notify client" })).toBeDisabled();
@@ -124,7 +124,7 @@ describe("Notify client of delay", () => {
     preview = { ...preview, lastRequest: { at: "2026-11-11T00:05:00.000Z", byName: "Ann Admin" } };
     renderOps(true);
     expect(await screen.findByText("Client delay notice requested at 11:05 by Ann Admin.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Notify client again…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tell client again…" }));
     const dialog = await screen.findByRole("dialog", { name: "Notify the client of the delay" });
     expect(await within(dialog).findByText("Already requested at 11:05 by Ann Admin.")).toBeInTheDocument();
     const send = within(dialog).getByRole("button", { name: "Send another" });
@@ -140,7 +140,7 @@ describe("Notify client of delay", () => {
   it("keeps the dialog open with the server's message when the send fails", async () => {
     sendResponse = () => new Response(JSON.stringify({ error: "This client has no active login to notify." }), { status: 400 });
     renderOps(true);
-    fireEvent.click(await screen.findByRole("button", { name: "Notify client" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Tell client" }));
     const dialog = await screen.findByRole("dialog", { name: "Notify the client of the delay" });
     await within(dialog).findByText("Jo Client · jo@example.invalid");
     fireEvent.click(within(dialog).getByRole("button", { name: "Notify client" }));

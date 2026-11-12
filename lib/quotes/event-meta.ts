@@ -7,6 +7,7 @@
  */
 import {
   Briefcase,
+  LifeBuoy,
   CheckCircle2,
   Eye,
   Mail,
@@ -23,7 +24,8 @@ export type QuoteEventType =
   | "DECLINED"
   | "ADDON_REQUESTED"
   | "CONVERTED"
-  | "NOTE";
+  | "NOTE"
+  | "FROM_CASE";
 
 /** Estate badge tones (mirrors the `EBadge` tone union). */
 export type EventTone = "neutral" | "info" | "success" | "danger" | "gold";
@@ -39,4 +41,5 @@ export const QUOTE_EVENT_META: Record<
   ADDON_REQUESTED: { label: "Add-ons requested", icon: PlusCircle, tone: "gold" },
   CONVERTED: { label: "Converted to job", icon: Briefcase, tone: "gold" },
   NOTE: { label: "Note", icon: StickyNote, tone: "neutral" },
+  FROM_CASE: { label: "Created from a case", icon: LifeBuoy, tone: "info" },
 };
