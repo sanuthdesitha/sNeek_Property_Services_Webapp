@@ -40,6 +40,20 @@ describe("Quality hub page access", () => {
     expect(((await Page()) as unknown as HubElement).props.context.canManage).toBe(true);
   });
 
+  it("links Laundry statistics only when the laundry pack allows it (the hub's own laundry section uses the quality pack)", async () => {
+    m.role.mockResolvedValue({ user: { id: "o", role: "OPS_MANAGER" } });
+    m.ops.mockResolvedValue({ ...allOpsLevels("off"), quality: "read" });
+    const qualityOnly = (await Page()) as unknown as { props: { context: { laundryStatsLink?: boolean } } };
+    expect(qualityOnly.props.context.laundryStatsLink).toBe(false);
+    m.ops.mockResolvedValue({ ...allOpsLevels("off"), quality: "read", laundry: "read" });
+    const both = (await Page()) as unknown as { props: { context: { laundryStatsLink?: boolean } } };
+    expect(both.props.context.laundryStatsLink).toBe(true);
+    m.role.mockResolvedValue({ user: { id: "a", role: "ADMIN" } });
+    m.ops.mockResolvedValue(null);
+    const admin = (await Page()) as unknown as { props: { context: { laundryStatsLink?: boolean } } };
+    expect(admin.props.context.laundryStatsLink).toBe(true);
+  });
+
   it("never invents the false-confirmation deduction when settings cannot be read", async () => {
     m.role.mockResolvedValue({ user: { id: "a", role: "ADMIN" } });
     m.settings.mockRejectedValue(new Error("down"));

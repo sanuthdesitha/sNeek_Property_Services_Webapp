@@ -1325,3 +1325,17 @@ Design comparison (Urgent stock and Lost and found). Matched: header, summary ("
 Not run / not verified
 - Production build, the full Vitest suite and browser checks (not requested). Browser pass needed at 390px and 1280px, light and dark: Urgent needs tabs, Add to shopping run dialog (radio list, quantities, results), Ask cleaner dialog (cleaner select, transports, outcome list), Withdraw ask, need panel rows; cleaner job screen "Can you buy these?" and Supplies → Shopping; Stock counts → Counts from job forms (table overflow at 390px); Cases "Add charge to invoice" dialog and charge list; laundry "Set planned times" form in the run panel and card text; Lost and found chip, badge and panel note.
 - No real message sent (pipeline and providers mocked in tests). Deployment not done.
+
+## Parity audit fixes (2026-11-12, uncommitted step)
+
+Scope: restore functions lost in the admin redesign (baseline `1fb4077`): invoice "Mark as sent (not emailed)" and "Group by property" saving the order; Quality rating mix, "Mgmt review queue" and the review queue counters; laundry team metrics for quality-pack viewers; Accounts KPI strip; `/urgent-stock` for operations managers (already done by Wave F); dead accountability notification links. Details: `docs/SYSTEM.md`, "Parity audit fixes: functions restored after the admin redesign". No schema change, no migration.
+
+Tests run:
+- `NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p .` → clean.
+- New: `tests/lib/invoice-mark-sent.test.ts` (4), `tests/api/quality-parity-audit.test.ts` (7), `tests/components/approvals-queue-deep-link.test.tsx` (2), `tests/lib/accounts-overview-kpis.test.ts` (2); new cases in `invoice-editor-page` (3), `invoice-row-actions` (2), `quality-hub-service` (4), `quality-hub-actions` (7), `quality-hub-page-access` (1), `accounts-hub` (2).
+- `tests/db/invoice-mark-sent.test.ts` (2), `tests/db/finance-decisions.test.ts` and `tests/db/money-wave-d.test.ts` on my own fresh disposable database `parity_fresh` (127.0.0.1:55439, `prisma migrate deploy` from empty, dropped afterwards) → 13 passed.
+- Every non-DB test file referencing a touched module (75 files: invoices, quality, accounts, approvals, notifications, ops catalog, urgent stock) → 768 passed after updating fixtures on purpose (exact action lists now include `mark-sent`; summary and cleaner fixtures carry `managementReview` and `ratingMix`).
+
+Not run / not verified
+- Production build, the full Vitest suite and browser checks (not requested in this step). Browser pass needed at 390px and 1280px, light and dark: invoice row menu and editor menu "Mark as sent (not emailed)" dialog (refusal shown in the dialog), "Group by property" on a draft and a sent invoice; Quality six stat cards (grid at 390px / 1280px), the expanded cleaner row's rating mix, Review queue counters, "Laundry team and suppliers" disclosure (keyboard, table overflow at 390px); Approvals opened from the card; Accounts KPI strip.
+- No real message sent; deployment not done.

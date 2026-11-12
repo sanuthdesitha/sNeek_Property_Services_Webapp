@@ -5,6 +5,8 @@ import { CleanerExpanded } from "@/components/v2/admin/quality/hub/cleaner-expan
 import { CoachingDialog } from "@/components/v2/admin/quality/hub/coaching-dialog";
 import { BonusDialog } from "@/components/v2/admin/quality/hub/bonus-dialog";
 import { QualityStatCards } from "@/components/v2/admin/quality/hub/stat-cards";
+import { ReviewTab } from "@/components/v2/admin/quality/hub/review-tab";
+import { LaundryTeamSection } from "@/components/v2/admin/quality/hub/laundry-team-section";
 import type { CleanerRow, HubContext, SummaryPayload } from "@/components/v2/admin/quality/hub/hub-types";
 
 vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
@@ -18,6 +20,7 @@ const ROW: CleanerRow = {
   cleans: 24,
   reviewed: 20,
   avgScore: 81,
+  ratingMix: { EXCELLENT: 6, PASS: 10, NEEDS_IMPROVEMENT: 2, FAILED: 0, MANAGEMENT_REVIEW: 1, unrated: 1 },
   trend: [],
   issues: { total: 10, bySeverity: { MINOR: 5, MAJOR: 3, CRITICAL: 2 } },
   topCategory: { category: "linen", label: "Linen and beds", count: 4 },
@@ -112,6 +115,21 @@ describe("expanded cleaner row", () => {
     await screen.findByText("Bed made with stained sheet");
     expect(screen.queryByRole("button", { name: "Mark fixed" })).toBeNull();
   });
+
+  it("shows the cleaner's rating mix (Excellent / Pass / Needs work / Failed / Mgmt review), leaving out empty bands", async () => {
+    fetchMock.mockResolvedValue(Response.json({ rows: [], total: 0, page: 1, pageSize: 5, pageCount: 0, sort: "created", dir: "desc" }));
+    render(<CleanerExpanded row={ROW} apiQuery="" context={context} labelFor={(k) => k} issuesHref="#" refreshToken={0} onOpenIssue={vi.fn()} onChanged={vi.fn()} />);
+    const mix = screen.getByRole("list", { name: "Rating mix" });
+    expect(Array.from(mix.querySelectorAll("li")).map((item) => item.textContent)).toEqual(["Excellent 6", "Pass 10", "Needs work 2", "Mgmt review 1", "No rating 1"]);
+  });
+
+  it("says there are no reviewed cleans instead of printing zeros", async () => {
+    fetchMock.mockResolvedValue(Response.json({ rows: [], total: 0, page: 1, pageSize: 5, pageCount: 0, sort: "created", dir: "desc" }));
+    const empty = { ...ROW, ratingMix: { EXCELLENT: 0, PASS: 0, NEEDS_IMPROVEMENT: 0, FAILED: 0, MANAGEMENT_REVIEW: 0, unrated: 0 } };
+    render(<CleanerExpanded row={empty} apiQuery="" context={context} labelFor={(k) => k} issuesHref="#" refreshToken={0} onOpenIssue={vi.fn()} onChanged={vi.fn()} />);
+    expect(screen.getByText("No reviewed cleans in this period.")).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Rating mix" })).toBeNull();
+  });
 });
 
 describe("row actions use the existing coaching and bonus endpoints", () => {
@@ -159,6 +177,7 @@ describe("stat cards never invent a figure", () => {
     issuesRaised: { total: 0, critical: 0, major: 0, minor: 0 },
     fixesOpen: { open: 0, over48h: 0 },
     fixCost: { amount: null, minutes: null, fixesWithCost: 0 },
+    managementReview: { count: 0 },
     tabs: { reviewQueue: 0, inspections: 0, quickScore: 0, issues: 0, coaching: 0 },
   };
 
@@ -178,10 +197,75 @@ describe("stat cards never invent a figure", () => {
     expect(screen.getByText("+2 on last period")).toBeTruthy();
   });
 
+  it("restores the Mgmt review queue count, linked to the queue that lists those reviews", () => {
+    render(<QualityStatCards summary={{ ...base, managementReview: { count: 3 } }} loading={false} error={null} />);
+    const card = screen.getByText("Mgmt review queue").closest("div")!;
+    expect(card.parentElement).toHaveTextContent("3");
+    expect(screen.getByRole("link", { name: "Open the queue" })).toHaveAttribute("href", "/v2/admin/approvals?queue=managementReviews");
+  });
+
   it("separates loading from failure", () => {
     const { rerender } = render(<QualityStatCards summary={null} loading error={null} />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading figures");
     rerender(<QualityStatCards summary={null} loading={false} error="Database unavailable" />);
     expect(screen.getByRole("alert")).toHaveTextContent("Database unavailable");
+  });
+});
+
+describe("review queue counters (restored from the old Quality page)", () => {
+  const props = { filterQuery: "", sort: "", dir: "" as const, page: 1, quickScoreTotal: 0, timeZone: "Australia/Sydney", refreshToken: 0, onSort: vi.fn(), onPage: vi.fn(), onChanged: vi.fn() };
+
+  it("shows Awaiting QA, In progress and Completed today from the inspections read", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).startsWith("/api/admin/quality/inspections")) {
+        return Response.json({ rows: [], total: 0, page: 1, pageSize: 20, pageCount: 0, sort: "due", dir: "asc", counters: { awaiting: 4, inProgress: 1, completedToday: 6, timeZone: "Australia/Sydney" } });
+      }
+      return Response.json({ rows: [], total: 0 });
+    });
+    render(<ReviewTab {...props} />);
+    const counts = await screen.findByLabelText("Inspection queue counts");
+    expect(counts).toHaveTextContent("Awaiting QA4");
+    expect(counts).toHaveTextContent("In progress1");
+    expect(counts).toHaveTextContent("Completed today6");
+  });
+
+  it("shows no counters (never zeros) when the read carries none", async () => {
+    fetchMock.mockImplementation(async () => Response.json({ rows: [], total: 0, page: 1, pageSize: 20, pageCount: 0, sort: "due", dir: "asc" }));
+    render(<ReviewTab {...props} />);
+    await screen.findByText("No inspections waiting");
+    expect(screen.queryByLabelText("Inspection queue counts")).toBeNull();
+  });
+});
+
+describe("laundry team and suppliers on the Quality hub (quality pack)", () => {
+  const metrics = {
+    team: [{ userId: "l1", name: "Lee Laundry", pickups: 3, drops: 2, onTimeDropPct: 100, photoCompliancePct: null, avgCycleDays: 1.5, stuckCount: 1 }],
+    teamTotals: { stuckUnattributed: 0 },
+    suppliers: [],
+  };
+
+  it("reads nothing until opened, then reads the quality-pack route and keeps the period", async () => {
+    fetchMock.mockImplementation(async () => Response.json(metrics));
+    render(<LaundryTeamSection laundryStatsLink={false} />);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Laundry team and suppliers" }));
+    expect(await screen.findByText("Lee Laundry")).toBeTruthy();
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/admin/quality/laundry-team-metrics?period=30d");
+    expect(screen.getByText("Our laundry team")).toBeTruthy();
+    // No laundry pack: no link to a page that would refuse them.
+    expect(screen.queryByRole("link", { name: "Laundry statistics" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    await waitFor(() => expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/admin/quality/laundry-team-metrics?period=7d"));
+    fireEvent.click(screen.getByRole("button", { name: "Laundry team and suppliers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Laundry team and suppliers" }));
+    expect(screen.getByRole("button", { name: "7 days" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("separates a failed read from empty data, and links Laundry statistics when allowed", async () => {
+    fetchMock.mockImplementation(async () => Response.json({ error: "no" }, { status: 500 }));
+    render(<LaundryTeamSection laundryStatsLink />);
+    fireEvent.click(screen.getByRole("button", { name: "Laundry team and suppliers" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Laundry team metrics could not be loaded.");
+    expect(screen.getByRole("link", { name: "Laundry statistics" })).toHaveAttribute("href", "/v2/admin/laundry/stats#team-metrics");
   });
 });

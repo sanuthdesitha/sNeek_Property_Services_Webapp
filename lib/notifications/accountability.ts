@@ -23,6 +23,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { getPresignedDownloadUrl } from "@/lib/s3";
 import { displayKeyFor, normalizeQaPhotoRefs } from "@/lib/qa/annotation-composite";
 import { buildQaResultEmail } from "@/lib/notifications/qa-result-email";
+import { QUALITY_COACHING_HREF, recurringPatternHref } from "@/lib/quality/redirects";
 
 type AdminRecipient = {
   id: string;
@@ -413,7 +414,9 @@ export async function notifyCoachingAcknowledged(input: {
     const who = input.cleanerName ? input.cleanerName : "The cleaner";
     const subject = "Coaching record acknowledged";
     const body = `${who} has acknowledged the coaching record you created.`;
-    const url = resolveAppUrl(`/admin/accountability/coaching/${input.coachingId}`);
+    // The old /admin/accountability/coaching/[id] page no longer exists; coaching
+    // records are followed up on the Quality hub's Coaching tab.
+    const url = resolveAppUrl(QUALITY_COACHING_HREF);
     await deliverNotificationToRecipients({
       recipients: [
         { id: creator.id, role: creator.role, email: creator.email, phone: creator.phone, name: creator.name },
@@ -488,7 +491,11 @@ export async function notifyRecurringPatternAlert(input: {
     } in the last ${input.windowDays} day${input.windowDays === 1 ? "" : "s"}.${
       input.propertyName && input.cleanerName ? ` Property: ${input.propertyName}.` : ""
     }`;
-    const url = resolveAppUrl("/admin/accountability");
+    // The old /admin/accountability page no longer exists: the pattern's issues
+    // are the Quality hub's Issues tab for that cleaner and category.
+    const url = resolveAppUrl(
+      recurringPatternHref({ cleanerId: input.cleanerId, category: input.category, windowDays: input.windowDays }),
+    );
     await deliverNotificationToRecipients({
       recipients: admins,
       category: "approvals",
@@ -496,7 +503,7 @@ export async function notifyRecurringPatternAlert(input: {
       web: { subject, body },
       email: {
         subject: `${settings.companyName}: ${subject}`,
-        html: emailShell(subject, `<p>${body}</p>`, url, "Open accountability"),
+        html: emailShell(subject, `<p>${body}</p>`, url, "Open in Quality"),
       },
     });
   } catch (err) {

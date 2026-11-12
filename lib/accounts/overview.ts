@@ -17,21 +17,25 @@ export interface UpcomingBirthday {
   turningAge: number | null;
 }
 
+/** The headline counts a page may show; listed in `unavailable` when their query failed. */
+export type AccountsKpiKey = "totalStaff" | "activeCleaners" | "totalClients" | "outstandingReceivables";
+
 export interface AccountsOverview {
   totalStaff: number;
   activeCleaners: number;
   totalClients: number;
   outstandingReceivables: number;
   upcomingBirthdays: UpcomingBirthday[];
+  /**
+   * Counts whose query failed. Their number above is a fallback 0 kept for
+   * older callers; a page must show these as unavailable, never as zero.
+   */
+  unavailable: AccountsKpiKey[];
 }
 
 // Outstanding = invoice has been issued (SENT/APPROVED) but not yet PAID and
 // not VOID/DRAFT. Mirrors the definition in lib/accounts/client-stats.ts.
 const OUTSTANDING_STATUSES = ["SENT", "APPROVED"];
-
-function safe<T>(p: Promise<T>, fallback: T): Promise<T> {
-  return p.catch(() => fallback);
-}
 
 /**
  * Compute the next occurrence (today or later, within the window) of a
@@ -57,17 +61,25 @@ function nextBirthdayWithin(
 }
 
 export async function getAccountsOverview(windowDays = 30): Promise<AccountsOverview> {
+  const unavailable: AccountsKpiKey[] = [];
+  const tracked = <T>(key: AccountsKpiKey, query: Promise<T>, fallback: T): Promise<T> =>
+    query.catch(() => {
+      unavailable.push(key);
+      return fallback;
+    });
   const [staffUsers, activeCleaners, totalClients, invoices] = await Promise.all([
-    safe(
+    tracked(
+      "totalStaff",
       db.user.findMany({
         where: { role: { not: Role.CLIENT } },
         select: { id: true, name: true, role: true, dateOfBirth: true, isActive: true },
       }),
       [] as Array<{ id: string; name: string | null; role: Role; dateOfBirth: Date | null; isActive: boolean }>,
     ),
-    safe(db.user.count({ where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) } }), 0),
-    safe(db.client.count({ where: { isActive: true } }), 0),
-    safe(
+    tracked("activeCleaners", db.user.count({ where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) } }), 0),
+    tracked("totalClients", db.client.count({ where: { isActive: true } }), 0),
+    tracked(
+      "outstandingReceivables",
       db.clientInvoice.findMany({
         where: { status: { in: OUTSTANDING_STATUSES as any } },
         select: { totalAmount: true },
@@ -102,6 +114,7 @@ export async function getAccountsOverview(windowDays = 30): Promise<AccountsOver
     totalClients,
     outstandingReceivables,
     upcomingBirthdays,
+    unavailable,
   };
 }
 

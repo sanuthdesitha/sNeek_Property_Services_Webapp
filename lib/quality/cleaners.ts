@@ -7,7 +7,7 @@
  * accountability streak rule (./streaks). Sorting is done here, server-side,
  * against an allow-list; null figures always sort last.
  */
-import { cleanTotalsByCleaner, trendStartKey, weeklyTrend, type TrendPoint } from "./cleans";
+import { cleanTotalsByCleaner, emptyRatingMix, ratingMixByCleaner, trendStartKey, weeklyTrend, type RatingMix, type TrendPoint } from "./cleans";
 import { cleanerAction, loadCleanerSignals, type BonusProposal, type CleanerAction, type CoachingSuggestion } from "./cleaner-signals";
 import { labelLookup, loadActiveCleaners, loadCategoryLabels, loadCleanFacts, loadIssueFacts } from "./facts";
 import { narrowsIssues } from "./filters";
@@ -24,6 +24,8 @@ export type CleanerRow = {
   cleans: number;
   reviewed: number;
   avgScore: number | null;
+  /** How the reviewed cleans in the period were rated (authoritative review). */
+  ratingMix: RatingMix;
   trend: TrendPoint[];
   issues: { total: number; bySeverity: SeverityCounts };
   topCategory: CategoryCount | null;
@@ -102,6 +104,7 @@ export async function getCleanerRows(
 
   const byCleaner = groupIssuesByCleaner(issues, labelFor);
   const cleanStats = cleanTotalsByCleaner(cleans, period);
+  const ratingMixes = ratingMixByCleaner(cleans, period);
   const people = new Map(roster.map((person) => [person.id, { name: person.name, active: true }]));
   for (const summary of Array.from(byCleaner.values())) {
     if (!people.has(summary.cleanerId)) people.set(summary.cleanerId, { name: summary.cleanerName, active: false });
@@ -139,6 +142,7 @@ export async function getCleanerRows(
       cleans: clean.cleans,
       reviewed: clean.reviewed,
       avgScore: clean.avgScore,
+      ratingMix: ratingMixes.get(id) ?? emptyRatingMix(),
       trend: weeklyTrend(cleans, period.toKey, id),
       issues: { total: summary?.total ?? 0, bySeverity: summary?.bySeverity ?? { MINOR: 0, MAJOR: 0, CRITICAL: 0 } },
       topCategory: summary?.categories[0] ?? null,

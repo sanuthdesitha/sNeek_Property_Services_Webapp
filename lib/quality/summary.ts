@@ -8,7 +8,7 @@
 import { QaAssignmentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { quickScoreCandidateWhere } from "@/lib/qa/auto-score";
-import { cleanTotals } from "./cleans";
+import { cleanTotals, managementReviewCount } from "./cleans";
 import { loadCategoryLabels, loadCleanFacts, loadIssueFacts } from "./facts";
 import { issueTotals } from "./groupings";
 import { deltaVsPrevious, type QualityPeriod } from "./period";
@@ -35,6 +35,11 @@ export type QualitySummary = {
   issuesRaised: { total: number; critical: number; major: number; minor: number };
   fixesOpen: { open: number; over48h: number };
   fixCost: { amount: number | null; minutes: number | null; fixesWithCost: number };
+  /**
+   * Reviewed cleans in the period whose authoritative review is flagged for
+   * management review (restored "Mgmt review queue", parity audit 2026-11-12).
+   */
+  managementReview: { count: number };
   tabs: { reviewQueue: number; inspections: number; quickScore: number; issues: number; coaching: number };
 };
 
@@ -82,6 +87,7 @@ export async function getQualitySummary(
     },
     fixesOpen: { open: totals.openFixes, over48h: totals.openOver48h },
     fixCost: { amount: totals.fixCost, minutes: totals.fixMinutes, fixesWithCost: totals.fixesWithCost },
+    managementReview: { count: managementReviewCount(cleans, period) },
     tabs: {
       reviewQueue: inspections + quickScore,
       inspections,

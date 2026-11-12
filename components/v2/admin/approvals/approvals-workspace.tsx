@@ -716,6 +716,16 @@ export function ApprovalsWorkspace() {
     load();
   }, [load]);
 
+  // A deep link (?queue=managementReviews, used by the Quality hub's "Mgmt
+  // review queue" card) opens that queue instead of the first one with work.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("queue");
+    const queue = QUEUES.find((q) => q.key === requested);
+    if (!queue) return;
+    setActive(queue.key);
+    setAutoSelected(true);
+  }, []);
+
   // Land on the first queue that actually has work, once.
   useEffect(() => {
     if (!data || autoSelected) return;
@@ -852,6 +862,7 @@ export function ApprovalsWorkspace() {
             <button
               key={key}
               type="button"
+              aria-pressed={isActive}
               onClick={() => setActive(key)}
               className={
                 "flex items-center gap-2 rounded-[var(--e-radius-pill)] border px-3.5 py-1.5 text-[0.8125rem] font-[550] transition-colors duration-[160ms] " +

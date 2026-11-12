@@ -563,3 +563,15 @@ B. "Request document" on Accounts asks which transport to use: Inbox, Email, SMS
 - [x] A: one rule (`lib/notifications/office-send-rules.ts`) on every send route and preview; the three notifications-area send routes belong to the page's pack; Live ops, Laundry and Lost and found show Send by the same rule; `actorRole` on the audit rows.
 - [x] B: shared choice component for Accounts "Request document" (Compliance board and a person's Documents section) and Command "Send reminder"; per-office-user preference in AppSetting `office_send_transports_v1:<userId>`; "Your sending choices" in Notifications → Preferences.
 - Reported, not changed: the classic `/admin/workforce` request form names no transports, so it now sends by the inbox only (or the sender's saved choice); a plain document request has no idempotency key (a retry after "no answer" can create a second request); Live ops actions still also need the page not to be read-only for the viewer. Details: `docs/SYSTEM.md`, "Office sends for operations managers and the document request transport choice".
+
+## Parity audit fixes (2026-11-12)
+
+Owner rule: no function that existed before the redesign may be lost (baseline `1fb4077`). Restored in the new design's idiom, no schema change; details in `docs/SYSTEM.md`, "Parity audit fixes".
+- [x] Finance: "Mark as sent (not emailed)" on draft and approved invoices (list row menu, editor menu, confirm dialog), through the existing PATCH and every status rule; audited "marked sent without email".
+- [x] Finance: "Group by property" saves the grouped line order on an editable invoice (existing reorder save); read-only invoices only change the view.
+- [x] Quality: rating mix per cleaner in the expanded row; "Mgmt review queue" stat card linked to the Approvals queue (`?queue=managementReviews`); Awaiting QA / In progress / Completed today on the Review queue (organisation timezone).
+- [x] Laundry team metrics for an operations manager with the quality pack but not laundry: quality-pack read route and a lazy "Laundry team and suppliers" section on the Quality hub.
+- [x] Accounts: Total staff, Active cleaners, Total clients strip (receivables stay removed by owner decision; an unreadable count shows "–").
+- [x] `/urgent-stock` for an operations manager with the inventory pack: already done in Wave F (verified, no change).
+- [x] Accountability notification links point at the Quality hub; `/admin/accountability` and `/admin/accountability/coaching/[id]` redirect there.
+- Reported, not changed: the "Mgmt review queue" count is the period's flagged reviewed cleans (the hub's basis), while the Approvals queue it links to lists every flagged review not yet resolved, whatever its date; the laundry team section duplicates the rendering of the Laundry statistics panel because that file belongs to the laundry work stream (a follow-up can give `LaundryTeamMetricsPanel` an endpoint prop and reuse it).

@@ -64,3 +64,24 @@ describe("Accounts hub", () => {
     expect(link.getAttribute("href")).toContain("status=active");
   });
 });
+
+describe("Accounts KPI strip (restored, parity audit 2026-11-12)", () => {
+  it("shows Total staff, Active cleaners and Total clients, and no receivables", async () => {
+    respond({ pay: true, quality: true });
+    render(<AccountsHub initialView={readAccountsView("")} capabilities={{ isAdmin: true, canWriteNotes: true }} birthdays={[]} vaClients={[]} kpis={{ totalStaff: 18, activeCleaners: 12, totalClients: 9 }} />);
+    const strip = screen.getByRole("region", { name: "Account figures" });
+    expect(strip).toHaveTextContent("Total staff18");
+    expect(strip).toHaveTextContent("Active cleaners12");
+    expect(strip).toHaveTextContent("Total clients9");
+    expect(screen.queryByText(/receivables/i)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  });
+
+  it("shows a count that could not be read as a dash, never 0", async () => {
+    respond({ pay: true, quality: true });
+    render(<AccountsHub initialView={readAccountsView("")} capabilities={{ isAdmin: true, canWriteNotes: true }} birthdays={[]} vaClients={[]} kpis={{ totalStaff: 18, activeCleaners: null, totalClients: 9 }} />);
+    const strip = screen.getByRole("region", { name: "Account figures" });
+    expect(strip).toHaveTextContent("Active cleaners–");
+    expect(within(strip).getByRole("status")).toHaveTextContent("could not be read");
+  });
+});

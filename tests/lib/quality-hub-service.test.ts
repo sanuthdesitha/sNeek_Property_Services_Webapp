@@ -28,6 +28,8 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import { getQualitySummary } from "@/lib/quality/summary";
+import { inspectionQueueCounters, organisationDayBounds } from "@/lib/quality/inspections";
+import { ratingMixByCleaner, managementReviewCount, type CleanFact } from "@/lib/quality/cleans";
 import { getCleanerRows } from "@/lib/quality/cleaners";
 import { getInspectorRows } from "@/lib/quality/inspectors";
 import { getCategoryRows } from "@/lib/quality/categories";
@@ -137,5 +139,68 @@ describe("Quality hub service: the groupings read one issue query and agree", ()
     // Streaks cost one query per visible cleaner (not getPerformanceMetrics per cleaner).
     const streakReads = m.jobFindMany.mock.calls.filter(([args]) => args.take === 10);
     expect(streakReads).toHaveLength(2);
+  });
+});
+
+describe("parity audit 2026-11-12: rating mix, management review count, queue counters", () => {
+  const range = { start: at("2026-11-01T00:00:00Z"), end: at("2026-11-11T00:00:00Z") };
+  const clean = (jobId: string, cleanerIds: string[], review: CleanFact["review"], day = "2026-11-05T00:00:00Z"): CleanFact => ({
+    jobId,
+    scheduledDate: at(day),
+    propertyId: "p",
+    cleanerIds,
+    review,
+  });
+  const review = (rating: string | null, managementReview = false) => ({ score: 90, rating, managementReview, createdAt: at("2026-11-05T00:00:00Z") });
+
+  it("counts each cleaner's reviewed cleans by rating band with the old overview's rule", () => {
+    const cleans = [
+      clean("a", ["c1"], review("EXCELLENT")),
+      clean("b", ["c1", "c2"], review("PASS")),
+      clean("c", ["c1"], review("PASS", true)), // flagged: counted as Mgmt review, not Pass
+      clean("d", ["c1"], review(null)), // no rating: kept apart, never folded into a band
+      clean("e", ["c1"], null), // not reviewed
+      clean("f", ["c1"], review("FAILED"), "2026-10-01T00:00:00Z"), // outside the period
+    ];
+    const mixes = ratingMixByCleaner(cleans, range);
+    expect(mixes.get("c1")).toEqual({ EXCELLENT: 1, PASS: 1, NEEDS_IMPROVEMENT: 0, FAILED: 0, MANAGEMENT_REVIEW: 1, unrated: 1 });
+    expect(mixes.get("c2")).toEqual({ EXCELLENT: 0, PASS: 1, NEEDS_IMPROVEMENT: 0, FAILED: 0, MANAGEMENT_REVIEW: 0, unrated: 0 });
+    // Each clean counts once for the company figure.
+    expect(managementReviewCount([...cleans, clean("g", ["c1", "c2"], review("MANAGEMENT_REVIEW"))], range)).toBe(2);
+  });
+
+  it("puts the rating mix on the cleaner row and the management review count on the summary", async () => {
+    const period = resolveQualityPeriod({ period: "7d" }, NOW);
+    const [summary, cleaners] = await Promise.all([
+      getQualitySummary(period, EMPTY_QUALITY_FILTERS, NOW),
+      getCleanerRows(period, EMPTY_QUALITY_FILTERS, "score", "desc", NOW),
+    ]);
+    expect(cleaners.rows.find((row) => row.cleanerId === "c1")?.ratingMix).toMatchObject({ PASS: 1, MANAGEMENT_REVIEW: 0 });
+    expect(cleaners.rows.find((row) => row.cleanerId === "c4")?.ratingMix).toEqual({ EXCELLENT: 0, PASS: 0, NEEDS_IMPROVEMENT: 0, FAILED: 0, MANAGEMENT_REVIEW: 0, unrated: 0 });
+    expect(summary.managementReview).toEqual({ count: 0 });
+  });
+
+  it("takes 'today' in the organisation's timezone, across daylight saving", () => {
+    // 10 Nov 22:00 UTC is 11 Nov 09:00 in Sydney (AEDT, +11).
+    expect(organisationDayBounds(NOW, "Australia/Sydney")).toEqual({ start: at("2026-11-10T13:00:00Z"), end: at("2026-11-11T13:00:00Z") });
+    // The day DST starts in Sydney (4 Oct 2026) is 23 hours long.
+    const dst = organisationDayBounds(at("2026-10-04T05:00:00Z"), "Australia/Sydney");
+    expect((dst.end.getTime() - dst.start.getTime()) / 3_600_000).toBe(23);
+    expect(organisationDayBounds(NOW, "Australia/Perth").start).toEqual(at("2026-11-10T16:00:00Z"));
+  });
+
+  it("counts awaiting, in-progress and completed-today inspections with the organisation's timezone", async () => {
+    m.settings.mockResolvedValue({ timezone: "Australia/Perth", accountability: { issueCategories: [] } });
+    m.assignmentCount.mockImplementation(async (args: { where: { status: unknown } }) => {
+      const status = args.where.status;
+      if (status === "IN_PROGRESS") return 2;
+      if (status === "COMPLETED") return 5;
+      return 3;
+    });
+    const counters = await inspectionQueueCounters({ ...EMPTY_QUALITY_FILTERS, propertyId: "p9" }, NOW);
+    expect(counters).toEqual({ awaiting: 3, inProgress: 2, completedToday: 5, timeZone: "Australia/Perth" });
+    const calls = m.assignmentCount.mock.calls.map(([args]) => args.where);
+    expect(calls[0]).toMatchObject({ status: { in: ["OPEN", "ASSIGNED"] }, job: expect.anything() });
+    expect(calls[2]).toMatchObject({ status: "COMPLETED", completedAt: { gte: at("2026-11-10T16:00:00Z"), lt: at("2026-11-11T16:00:00Z") } });
   });
 });

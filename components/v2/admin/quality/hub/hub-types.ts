@@ -6,7 +6,7 @@ import type { ListResponse } from "@/lib/admin/list-query";
 import type { CleanerRowsResult } from "@/lib/quality/cleaners";
 import type { CategoryRowsResult } from "@/lib/quality/categories";
 import type { InspectorRowsResult } from "@/lib/quality/inspectors";
-import type { InspectionQueueRow } from "@/lib/quality/inspections";
+import type { InspectionQueueCounters, InspectionQueueRow } from "@/lib/quality/inspections";
 import type { QualityIssueRow } from "@/lib/quality/issue-rows";
 import type { QualityOptions } from "@/lib/quality/issue-list";
 import type { QualitySummary } from "@/lib/quality/summary";
@@ -28,7 +28,10 @@ export type CleanersPayload = CleanerRowsResult & {
 export type InspectorsPayload = InspectorRowsResult;
 export type CategoriesPayload = CategoryRowsResult;
 export type IssuesPayload = ListResponse<QualityIssueRow, IssueSort>;
-export type InspectionsPayload = ListResponse<InspectionQueueRow, InspectionSort>;
+export type InspectionsPayload = ListResponse<InspectionQueueRow, InspectionSort> & {
+  /** Absent only from an older server; the tab then shows no counters rather than zeros. */
+  counters?: InspectionQueueCounters;
+};
 
 export const isSummary = (body: unknown): body is SummaryPayload =>
   isRecord(body) && isRecord(body.cleansReviewed) && isRecord(body.tabs) && isRecord(body.averageScore);
@@ -63,6 +66,12 @@ export type HubContext = {
   canProposeBonus?: boolean;
   timeZone: string;
   falseConfirmationDeduction: number | null;
+  /**
+   * Laundry statistics is reachable (laundry pack). The hub's own "Laundry team
+   * and suppliers" section reads through the quality pack either way.
+   * Absent = true (tests and older callers).
+   */
+  laundryStatsLink?: boolean;
 };
 
 export type CoachingAccess = {

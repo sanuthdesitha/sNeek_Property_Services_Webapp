@@ -182,6 +182,7 @@ describe("severity reads Low / Medium / High on the hub", () => {
           issuesRaised: { total: 37, critical: 4, major: 10, minor: 23 },
           fixesOpen: { open: 6, over48h: 2 },
           fixCost: { amount: 410, minutes: 660, fixesWithCost: 6 },
+          managementReview: { count: 2 },
           tabs: { reviewQueue: 5, inspections: 0, quickScore: 0, issues: 37, coaching: 3 },
         }}
         loading={false}
