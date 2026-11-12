@@ -96,6 +96,11 @@ describe("property tabs follow module switches and grants", () => {
     expect(mocks.detail).toHaveBeenCalledWith("user-1", "p1", expect.objectContaining({ showReports: false }));
   });
 
+  it("opens booking with this property preselected", async () => {
+    await renderTabs({});
+    expect(screen.getByRole("link", { name: "Book a clean here" })).toHaveAttribute("href", "/v2/client/booking?propertyId=p1");
+  });
+
   it("offers Book a clean here only with booking shared and granted", async () => {
     await renderTabs({}, { actor: "VA", permissions: { ...GRANTS, bookings: false } });
     expect(screen.queryByRole("link", { name: "Book a clean here" })).toBeNull();
@@ -112,6 +117,24 @@ describe("one clean keeps the assistant's property scope and invoice grant", () 
     expect(mocks.job).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: "job-elsewhere", property: { clientId: "client-1", id: { in: ["allowed"] } } },
     }));
+  });
+});
+
+describe("one clean hides invoice lines with the finance switch off (owner decision 2026-11-13)", () => {
+  it.each([
+    [true, "CLIENT", true],
+    [false, "CLIENT", false],
+    [true, "VA-no-grant", false],
+  ])("finance %s, %s: lines read = %s", async (finance, who, read) => {
+    const visibility = { ...VISIBILITY, showFinanceDetails: finance };
+    mocks.auth.mockResolvedValue(ctx(who === "CLIENT" ? {} : { actor: "VA", permissions: { ...GRANTS, invoicesView: false } }));
+    mocks.portal.mockResolvedValue({ clientId: "client-1", visibility });
+    mocks.job.mockResolvedValue(null);
+    const Page = (await import("@/app/v2/client/jobs/[id]/page")).default;
+    await expect(Page({ params: { id: "job-1" } })).rejects.toThrow("NOT_FOUND");
+    const select = mocks.job.mock.calls.at(-1)![0].select;
+    // Server-side: with finance off (or no grant) the lines are not even read.
+    expect(select.invoiceLines.where).toEqual(read ? undefined : { id: { in: [] } });
   });
 });
 
