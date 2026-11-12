@@ -10,6 +10,7 @@
  * emergencyContact / defaultCheckinTime / defaultCheckoutTime / geocode).
  * Estate token scope only; no components/ui/* dependency.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { CheckCircle2, Loader2, Plus, Trash2, Upload, XCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -1248,7 +1249,7 @@ export function StepStaffing({ data, onChange }: StepProps) {
       ) : null}
 
       {estimation?.warnings && estimation.warnings.length > 0 ? (
-        <div className="rounded-[var(--e-radius-lg)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3 text-[0.8125rem]">
+        <div className={`rounded-[var(--e-radius-lg)] ${toneNoticeClass("attention")} p-3 text-[0.8125rem]`}>
           {estimation.warnings.map((w, i) => (
             <p key={i}>{w}</p>
           ))}
@@ -1318,11 +1319,9 @@ export function StepIcal({ data, onChange }: StepProps) {
 
       {validationResult ? (
         <div
-          className={`flex items-center gap-2 rounded-[var(--e-radius-lg)] border-l-[3px] p-3 text-[0.8125rem] ${
-            validationResult.valid
-              ? "border-[hsl(var(--e-success))] bg-[hsl(var(--e-success-soft))]"
-              : "border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))]"
-          }`}
+          className={`flex items-center gap-2 rounded-[var(--e-radius-lg)] p-3 text-[0.8125rem] ${toneNoticeClass(
+            validationResult.valid ? "good" : "problem"
+          )}`}
         >
           {validationResult.valid ? (
             <CheckCircle2 className="h-4 w-4 text-[hsl(var(--e-success))]" />

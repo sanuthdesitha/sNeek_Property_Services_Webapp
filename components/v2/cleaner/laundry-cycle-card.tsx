@@ -15,6 +15,7 @@
  *  - no_signal — driver on route but no fresh location ping
  *  - scheduled — cycle exists, no active route yet
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { Shirt, Truck } from "lucide-react";
 
@@ -161,7 +162,7 @@ export function LaundryCycleCard({
         ? eta.droppedAt
         : null;
     return (
-      <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-success))] bg-[hsl(var(--e-success-soft))] p-3">
+      <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("good")} p-3`}>
         <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
           <Shirt className="h-4 w-4 shrink-0" /> Fresh linen delivered
           {sydneyDateTime(droppedAt) ? ` ${sydneyDateTime(droppedAt)}` : ""}
@@ -194,7 +195,7 @@ export function LaundryCycleCard({
   if (eta?.state === "en_route") {
     const etaLabel = eta.etaMinutes != null ? ` · ~${eta.etaMinutes} min` : "";
     return (
-      <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-info))] bg-[hsl(var(--e-info-soft))] p-3">
+      <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("info")} p-3`}>
         <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
           <Truck className="h-4 w-4 shrink-0" />
           {eta.isNextStop
@@ -215,7 +216,7 @@ export function LaundryCycleCard({
   // ── Driver on route, no live location ─────────────────────────────────────
   if (eta?.state === "no_signal") {
     return (
-      <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+      <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}>
         <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
           <Truck className="h-4 w-4 shrink-0" /> Driver on route — live location unavailable
           {sydneyDate(eta.dropoffDate) ? ` · drop-off due ${sydneyDate(eta.dropoffDate)}` : ""}

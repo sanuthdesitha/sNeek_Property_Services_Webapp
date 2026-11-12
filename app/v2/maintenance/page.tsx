@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { MaintenanceStatus, MaintenancePriority, MaintenanceAction, Role, type Prisma } from "@prisma/client";
 import { maintenanceItemScope } from "@/lib/maintenance/item-scope";
@@ -186,7 +187,7 @@ export default async function MaintenanceTodayPage() {
         <div className="e-signature-rule mt-4" />
       </header>
 
-      {unavailable ? <div role="alert" className="border-l-4 border-[hsl(var(--e-danger))] px-4 py-3 text-sm">
+      {unavailable ? <div role="alert" className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} px-4 py-3 text-sm`}>
         Some maintenance data could not be loaded. <a href="/v2/maintenance" className="underline">Retry</a>
       </div> : null}
       <section aria-label="Today's figures" className="grid grid-cols-3 gap-2 sm:gap-4">

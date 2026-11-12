@@ -9,6 +9,7 @@
  *   - same-day check-in → a new guest arrives on the day of this clean
  * Renders nothing when no rule applies.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { AlarmClock, LogIn, CalendarClock } from "lucide-react";
 import { summarizeTiming } from "@/lib/jobs/timing-summary";
@@ -64,7 +65,7 @@ export function TimingRuleBanners({
     <div className="space-y-2">
       <CleanerTimingSummary {...timingInput} showConstraints={false} />
       {arrival ? (
-        <div className={`rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] ${pad}`}>
+        <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} ${pad}`}>
           <p className="flex items-center gap-1.5 text-[0.8125rem] font-[600]">
             {arrival.early ? (
               <AlarmClock className="h-4 w-4 shrink-0 text-[hsl(var(--e-warning))]" />
@@ -85,7 +86,7 @@ export function TimingRuleBanners({
         </div>
       ) : null}
       {late ? (
-        <div className={`rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] ${pad}`}>
+        <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} ${pad}`}>
           <p className="flex items-center gap-1.5 text-[0.8125rem] font-[600]">
             <LogIn className="h-4 w-4 shrink-0 text-[hsl(var(--e-danger))]" />
             Late checkout — start after {late}

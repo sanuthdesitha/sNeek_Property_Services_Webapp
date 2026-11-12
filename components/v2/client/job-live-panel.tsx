@@ -6,6 +6,7 @@
  * used (GET /api/client/jobs/[id], every 15s) while the job is EN_ROUTE, and
  * renders the ETA, pause/delay state, schedule comparison, and live trip map.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MapPin } from "lucide-react";
@@ -155,7 +156,7 @@ function JobLiveReading({ jobId }: { jobId: string }) {
       </ECardHeader>
       <ECardBody className="space-y-3">
         {job.drivingPausedAt ? (
-          <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.875rem] font-medium">
+          <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} px-3 py-2 text-[0.875rem] font-medium`}>
             Your cleaner has temporarily paused driving
             {job.drivingPauseReason
               ? ` · ${job.drivingPauseReason.replace(/_/g, " ").toLowerCase()}`
@@ -181,7 +182,7 @@ function JobLiveReading({ jobId }: { jobId: string }) {
           </div>
         )}
         {job.drivingDelayedAt && !job.drivingPausedAt ? (
-          <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.875rem]">
+          <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} px-3 py-2 text-[0.875rem]`}>
             Delay reported
             {job.drivingDelayedReason
               ? `: ${job.drivingDelayedReason.replace(/_/g, " ").toLowerCase()}`

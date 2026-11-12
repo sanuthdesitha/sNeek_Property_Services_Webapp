@@ -8,6 +8,7 @@
  * unchanged. The job briefing (prior QA / linen drop / access vault) rides along
  * as pre-start context.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import PropertyAccessGuide from "@/components/v2/cleaner/property-access-guide";
 import { Clock, WashingMachine, BookOpen, Package, AlertTriangle, ClipboardCheck, MapPin, ChevronDown } from "lucide-react";
@@ -157,7 +158,7 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
           ) : null}
 
           {restockNeeds.length > 0 ? (
-            <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+            <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}>
               <p className="e-eyebrow flex items-center gap-1.5">
                 <Package className="h-3.5 w-3.5" /> Restock this property
               </p>
@@ -176,7 +177,7 @@ export function StageSetup({ api }: { api: WorkspaceApi }) {
           ) : null}
 
           {recurringIssues.length > 0 ? (
-            <div className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+            <div className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}>
               <p className="flex items-center gap-1.5 text-[0.8125rem] font-[550]">
                 <AlertTriangle className="h-4 w-4" /> Watch-outs from previous cleans
               </p>

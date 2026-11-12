@@ -10,6 +10,7 @@
  * to a compact skeleton/empty state and never blocks the rest of the page.
  * Estate UI only.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useCallback, useEffect, useState, useRef } from "react";
 import {
   AlertTriangle,
@@ -179,7 +180,7 @@ export function DailyBriefing() {
               <>
                 {/* Accept gate — unaccepted (PENDING) assignments come first */}
                 {data.acceptGate && data.acceptGate.items.length > 0 ? (
-                  <section className="space-y-2 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                  <section className={`space-y-2 rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}>
                     <SectionLabel icon={<ClipboardCheck className="h-3.5 w-3.5" />}>
                       Accept your jobs first
                     </SectionLabel>
@@ -310,7 +311,7 @@ export function DailyBriefing() {
 
                 {/* ⑧ Priority / turnaround watch list */}
                 {data.priorityWatch && data.priorityWatch.items.length > 0 ? (
-                  <section className="space-y-1.5 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                  <section className={`space-y-1.5 rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}>
                     <SectionLabel icon={<ListChecks className="h-3.5 w-3.5" />}>Watch the clock</SectionLabel>
                     <ul className="space-y-1">
                       {data.priorityWatch.items.map((p, i) => (
@@ -513,7 +514,7 @@ export function DailyBriefing() {
 
                 {/* Watch-outs */}
                 {data.watchOuts ? (
-                  <section className="space-y-1.5 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                  <section className={`space-y-1.5 rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}>
                     <SectionLabel icon={<AlertTriangle className="h-3.5 w-3.5" />}>Watch-outs</SectionLabel>
                     <ul className="space-y-1.5">
                       {data.watchOuts.items.map((m, i) => (
@@ -531,7 +532,7 @@ export function DailyBriefing() {
 
                 {/* Recurring issues (Phase 7a) — repeating QA categories */}
                 {data.recurringIssues && data.recurringIssues.items.length > 0 ? (
-                  <section className="space-y-1.5 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3">
+                  <section className={`space-y-1.5 rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}>
                     <SectionLabel icon={<AlertTriangle className="h-3.5 w-3.5" />}>Keeps coming up</SectionLabel>
                     <ul className="space-y-1.5">
                       {data.recurringIssues.items.map((r, i) => (

@@ -1,5 +1,6 @@
 "use client";
 
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -257,12 +258,7 @@ export default function LoginPageV2() {
 
             {error && (
               <div
-                className="mb-4 rounded-[var(--e-radius-lg)] border-l-[3px] p-4 text-[0.8125rem]"
-                style={{
-                  backgroundColor: "hsl(var(--e-danger-soft))",
-                  borderColor: "hsl(var(--e-danger))",
-                  color: "hsl(var(--e-foreground))",
-                }}
+                className={`mb-4 rounded-[var(--e-radius-lg)] p-4 text-[0.8125rem] ${toneNoticeClass("problem")}`}
               >
                 {error}
               </div>
@@ -270,12 +266,7 @@ export default function LoginPageV2() {
 
             {maintenanceLoginLocked ? (
               <div
-                className="mb-4 rounded-[var(--e-radius-lg)] border-l-[3px] p-4 text-[0.8125rem]"
-                style={{
-                  backgroundColor: "hsl(var(--e-warning-soft))",
-                  borderColor: "hsl(var(--e-warning))",
-                  color: "hsl(var(--e-foreground))",
-                }}
+                className={`mb-4 rounded-[var(--e-radius-lg)] p-4 text-[0.8125rem] ${toneNoticeClass("attention")}`}
               >
                 <strong>{siteStatus.message || "The website is currently under maintenance."}</strong>
                 {siteStatus.supportMessage ? <span className="block pt-1">{siteStatus.supportMessage}</span> : null}

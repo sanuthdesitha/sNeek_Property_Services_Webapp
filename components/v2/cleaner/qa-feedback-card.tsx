@@ -9,6 +9,7 @@
  * read this" button hitting POST /api/cleaner/qa-feedback/[id]/acknowledge.
  * Modelled on components/v2/cleaner/coaching-card.tsx; Estate v2 styling.
  */
+import { E_BAND_BADGE_CLASS, toneBandClass, toneMutedClass } from "@/components/v2/ui/tone-band";
 import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { ChevronDown, ChevronUp, Download, PenLine, ShieldCheck } from "lucide-react";
@@ -148,31 +149,31 @@ export function CleanerQaFeedbackCard() {
         const open = openId === r.id;
         const hasIssues = r.issues.length > 0;
         return (
-          <ECard
-            key={r.id}
-            className={
-              unseen
-                ? "border-l-[3px] border-l-[hsl(var(--e-gold))]"
-                : "border-l-[3px] border-l-[hsl(var(--e-border))]"
-            }
-          >
-            <ECardBody className="space-y-2 pt-6">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[0.875rem] font-medium">
-                    {r.job.propertyName}
-                    {r.job.propertySuburb ? `, ${r.job.propertySuburb}` : ""}
-                  </p>
-                  <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                    Job {r.job.jobNumber ?? "—"} · {fmt(r.job.scheduledDate)} · Reviewed {fmt(r.createdAt)}
-                  </p>
-                </div>
-                {unseen ? <EBadge tone="gold" soft>New</EBadge> : null}
-                <EBadge tone={r.passed === false ? "danger" : "success"} soft>
-                  {r.passed === false ? "Failed" : "Passed"}
-                  {r.score != null ? ` · ${Math.round(r.score)}%` : ""}
-                </EBadge>
+          // Unseen feedback ("New") flags its card with the attention band; seen feedback stays plain.
+          <ECard key={r.id} className="overflow-hidden">
+            <div
+              className={
+                unseen
+                  ? `flex flex-wrap items-center gap-2 px-6 py-3 ${toneBandClass("attention")}`
+                  : "flex flex-wrap items-center gap-2 px-6 pt-6"
+              }
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-[0.875rem] font-medium">
+                  {r.job.propertyName}
+                  {r.job.propertySuburb ? `, ${r.job.propertySuburb}` : ""}
+                </p>
+                <p className={`text-[0.75rem] ${unseen ? toneMutedClass("attention") : "text-[hsl(var(--e-muted-foreground))]"}`}>
+                  Job {r.job.jobNumber ?? "—"} · {fmt(r.job.scheduledDate)} · Reviewed {fmt(r.createdAt)}
+                </p>
               </div>
+              {unseen ? <EBadge tone="gold" soft className={E_BAND_BADGE_CLASS}>New</EBadge> : null}
+              <EBadge tone={r.passed === false ? "danger" : "success"} soft className={unseen ? E_BAND_BADGE_CLASS : undefined}>
+                {r.passed === false ? "Failed" : "Passed"}
+                {r.score != null ? ` · ${Math.round(r.score)}%` : ""}
+              </EBadge>
+            </div>
+            <ECardBody className={unseen ? "space-y-2 pt-4" : "space-y-2 pt-2"}>
 
               <div className="flex flex-wrap items-center gap-2">
                 {hasIssues ? (

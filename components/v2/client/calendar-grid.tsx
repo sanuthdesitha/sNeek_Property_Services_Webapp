@@ -164,11 +164,8 @@ export function EstateCalendarGrid({
                         key={event.id}
                         href={event.href}
                         title={`${event.title}${event.subtitle ? ` · ${event.subtitle}` : ""} — ${titleCase(event.status)}`}
-                        className="block truncate rounded-[3px] border-l-2 px-1 py-0.5 text-[0.625rem] font-medium leading-tight hover:opacity-80"
-                        style={{
-                          borderColor: color,
-                          backgroundColor: `color-mix(in srgb, ${color} 14%, transparent)`,
-                        }}
+                        className="block truncate rounded-[3px] px-1 py-0.5 text-[0.625rem] font-medium leading-tight hover:opacity-80"
+                        style={{ backgroundColor: `color-mix(in srgb, ${color} 14%, transparent)` }}
                       >
                         {event.title}
                       </Link>

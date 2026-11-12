@@ -10,6 +10,7 @@
  * Writes are ADMIN only. `canWrite` (decided on the server from the viewer's
  * held roles) hides every write control for everyone else.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useEffect, useState } from "react";
 import { JobType } from "@prisma/client";
 import { ClipboardCheck, Plus, RefreshCw } from "lucide-react";
@@ -219,7 +220,7 @@ export function QaTemplatesManager({ canWrite = false }: { canWrite?: boolean })
       </div>
 
       {conflicts.length > 0 ? (
-        <div role="alert" className="space-y-1 rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.8125rem]">
+        <div role="alert" className={`space-y-1 rounded-[var(--e-radius)] ${toneNoticeClass("attention")} px-3 py-2 text-[0.8125rem]`}>
           <p className="font-[600]">Two or more active templates share a job type and scope</p>
           {conflicts.map((conflict) => (
             <p key={`${conflict.serviceType}-${conflict.propertyId ?? "global"}`}>

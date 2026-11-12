@@ -1,4 +1,5 @@
 import { formatInTimeZone } from "date-fns-tz";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { addDaysToKey, sydneyDayStart, sydneyTodayKey } from "@/lib/time/sydney-range";
 import { QaAssignmentStatus, QaReworkTransferStatus, Role } from "@prisma/client";
 import { ListFilter } from "lucide-react";
@@ -96,7 +97,7 @@ export default async function QaTodayPage() {
       </header>
 
       {unavailable ? (
-        <div role="alert" className="border-l-4 border-[hsl(var(--e-danger))] px-4 py-3 text-sm">
+        <div role="alert" className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} px-4 py-3 text-sm`}>
           Some QA figures could not be loaded. <a href="/v2/qa" className="underline">Retry</a>
         </div>
       ) : null}

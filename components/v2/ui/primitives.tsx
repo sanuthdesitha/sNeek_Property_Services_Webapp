@@ -6,6 +6,7 @@
  */
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { toneFromLegacy, toneMutedClass, toneNoticeClass } from "./tone-band";
 
 /* ── Skin root ─────────────────────────────────────────────────────────── */
 export function EstateSkin({
@@ -242,6 +243,8 @@ export function EThread({ className }: { className?: string }) {
 }
 
 /* ── Alert / callout ───────────────────────────────────────────────────── */
+/* The whole callout takes the tone band tint with a hairline border; no left
+   line (owner decision 2026-11, see components/v2/ui/tone-band.tsx). */
 export function EAlert({
   tone = "info",
   title,
@@ -253,23 +256,11 @@ export function EAlert({
   className?: string;
   children?: React.ReactNode;
 }) {
-  const map = {
-    info: ["--e-info", "--e-info-soft"],
-    success: ["--e-success", "--e-success-soft"],
-    warning: ["--e-warning", "--e-warning-soft"],
-    danger: ["--e-danger", "--e-danger-soft"],
-  }[tone];
+  const band = toneFromLegacy(tone);
   return (
-    <div
-      className={cn("rounded-[var(--e-radius-lg)] border-l-[3px] p-4", className)}
-      style={{
-        backgroundColor: `hsl(var(${map[1]}))`,
-        borderColor: `hsl(var(${map[0]}))`,
-        color: `hsl(var(--e-foreground))`,
-      }}
-    >
+    <div data-tone={band} className={cn("rounded-[var(--e-radius-lg)] p-4", toneNoticeClass(band), className)}>
       {title ? <p className="text-[0.875rem] font-semibold">{title}</p> : null}
-      {children ? <div className="text-[0.8125rem] text-[hsl(var(--e-text-secondary))]">{children}</div> : null}
+      {children ? <div className={cn("text-[0.8125rem]", toneMutedClass(band))}>{children}</div> : null}
     </div>
   );
 }

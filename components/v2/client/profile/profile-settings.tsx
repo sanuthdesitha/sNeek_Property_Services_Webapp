@@ -11,6 +11,7 @@
  * Theme is applied live via the shared ThemeProvider hook (@/lib/theme/context).
  * Styled purely with `--e-*` tokens. No v1 UI imports.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -612,8 +613,7 @@ function TwoFactorCard() {
 
             {backupCodes ? (
               <div
-                className="rounded-[var(--e-radius-lg)] border-l-[3px] p-3"
-                style={{ backgroundColor: "hsl(var(--e-warning-soft))", borderColor: "hsl(var(--e-warning))" }}
+                className={`rounded-[var(--e-radius-lg)] p-3 ${toneNoticeClass("attention")}`}
               >
                 <p className="text-[0.875rem] font-[550]">Save your backup codes</p>
                 <p className="mb-2 text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">

@@ -4,6 +4,7 @@
  * from, the period's jobs with their recorded status, and pending extra pay.
  * Presentational only; no money is computed here.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import Link from "next/link";
 import { Info } from "lucide-react";
 import { EBadge, EButton, ECard, EEmptyState } from "@/components/v2/ui/primitives";
@@ -63,7 +64,7 @@ export function PayPeriod({ periodLabel, total, jobCount, lines, rate, rows, pen
       </ECard>
 
       {gapJobCount > 0 ? (
-        <p role="note" className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] p-3 text-[0.8125rem]">
+        <p role="note" className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3 text-[0.8125rem]`}>
           {gapJobCount} job{gapJobCount === 1 ? " was" : "s were"} finished after this period ended and {gapJobCount === 1 ? "is" : "are"} not counted here. Check with the office before you send the invoice.
         </p>
       ) : null}

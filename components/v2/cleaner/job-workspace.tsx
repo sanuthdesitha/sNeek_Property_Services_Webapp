@@ -1,4 +1,5 @@
 "use client";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { Tags } from "lucide-react";
 import { LinenBags } from "@/components/operations/linen-bags";
 import { reconcileEvidenceState } from "@/lib/cleaner/evidence-destination";
@@ -1765,7 +1766,7 @@ export function JobWorkspace({ jobId, draftIdentity }: { jobId: string; draftIde
             {importantRequests.map((r) => (
               <li
                 key={r.key}
-                className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-gold))] bg-[hsl(var(--e-gold-soft))] p-3"
+                className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} p-3`}
               >
                 <p className="text-[0.9375rem] font-[600]">{r.title}</p>
                 {r.detail ? (

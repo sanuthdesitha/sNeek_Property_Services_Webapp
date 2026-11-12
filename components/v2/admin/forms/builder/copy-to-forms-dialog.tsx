@@ -8,6 +8,7 @@
  * outside the copied set is dropped, and that is shown before anything is
  * saved. Nothing reaches cleaners until each form is published.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { EButton } from "@/components/v2/ui/primitives";
 import { EPill } from "@/components/v2/ui/pill";
@@ -125,7 +126,7 @@ export function CopyToFormsDialog({
           They are added to a section called “{sectionTitle}” in each form (created if missing), with new question keys. Each form gets a draft; nothing reaches cleaners until it is published.
         </p>
         {dropped.length > 0 ? (
-          <div className="rounded-[8px] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))] px-3 py-2 text-[0.75rem]">
+          <div className={`rounded-[8px] ${toneNoticeClass("attention")} px-3 py-2 text-[0.75rem]`}>
             {dropped.map((rule) => `“${rule.questionLabel}”`).join(", ")} {dropped.length === 1 ? "watches a question" : "watch questions"} that {dropped.length === 1 ? "is" : "are"} not being copied, so {dropped.length === 1 ? "its rule is" : "their rules are"} dropped in the copies and they always show.
           </div>
         ) : null}

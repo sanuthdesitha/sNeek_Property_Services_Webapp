@@ -12,6 +12,7 @@
  *   POST  /api/uploads/direct  (multipart)     → { key, url }  (photo upload)
  * Styled purely with `--e-*` tokens. No v1 UI imports.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { Wrench, Image as ImageIcon, Upload, X } from "lucide-react";
 import {
@@ -637,12 +638,11 @@ function CostApproval({ item, onSaved }: { item: MaintenanceListItem; onSaved: (
   if (status === "PENDING") {
     return (
       <div
-        className="flex items-center justify-between gap-3 rounded-[var(--e-radius-lg)] border-l-[3px] p-3"
-        style={{ backgroundColor: "hsl(var(--e-warning-soft))", borderColor: "hsl(var(--e-warning))" }}
+        className={`flex items-center justify-between gap-3 rounded-[var(--e-radius-lg)] p-3 ${toneNoticeClass("attention")}`}
       >
         <div>
-          <p className="text-[0.75rem] font-[550] text-[hsl(var(--e-foreground))]">Approval needed</p>
-          <p className="e-numeral text-[1.25rem] text-[hsl(var(--e-foreground))]">{money(cost)}</p>
+          <p className="text-[0.75rem] font-[550]">Approval needed</p>
+          <p className="e-numeral text-[1.25rem]">{money(cost)}</p>
         </div>
         <div className="flex gap-2">
           <EButton size="sm" variant="outline" disabled={busy} onClick={() => decide("DECLINED")}>

@@ -5,6 +5,7 @@
 // (which drives cleaner pay), audit-logs every change, notifies the cleaner
 // and refreshes any already-generated report.
 
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -370,7 +371,7 @@ export function GpsRecordEditor({ jobId, gps }: { jobId: string; gps: GpsRecordP
       {/* An off-site start is an attributable act, not a number nobody reads —
           show the reason the cleaner had to give. */}
       {gps.reasonCode ? (
-        <p className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-warning))] bg-[hsl(var(--e-surface-2))] px-2.5 py-2">
+        <p className={`rounded-[var(--e-radius)] ${toneNoticeClass("attention")} px-2.5 py-2`}>
           <span className="font-[600]">
             {reasonClaimsOnSite(gps.reasonCode)
               ? "Started away from the pin (says they were on site)"

@@ -1,4 +1,5 @@
 import { JobStatusProgress } from "@/components/shared/job-status-progress";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { clientMaySeeJobCosts } from "@/lib/client/job-response";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -383,7 +384,7 @@ export default async function ClientJobDetailPage({ params }: { params: { id: st
       </ECard>
 
       {onSite ? (
-        <p role="status" className="flex items-center gap-2 rounded-[var(--e-radius)] border-l-4 border-[hsl(var(--e-info))] bg-[hsl(var(--e-surface))] px-3 py-2 text-[0.875rem]">
+        <p role="status" className={`flex items-center gap-2 rounded-[var(--e-radius)] ${toneNoticeClass("info")} px-3 py-2 text-[0.875rem]`}>
           <span aria-hidden className="h-2 w-2 rounded-full bg-[hsl(var(--e-info))]" />
           <span><span className="font-semibold">Cleaner has arrived</span>{arrivalTime ? ` ${arrivalTime}` : ""} · checked in on site</span>
         </p>

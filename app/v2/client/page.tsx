@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { loadClientHome } from "@/lib/client/home-dashboard";
 import { PhoneHome } from "@/components/v2/client/home/phone-home";
@@ -56,7 +57,7 @@ export default async function ClientHomePage() {
       </header>
 
       {data.failed.length > 0 ? (
-        <div role="alert" className="border-l-4 border-[hsl(var(--e-danger))] px-4 py-3 text-sm">
+        <div role="alert" className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} px-4 py-3 text-sm`}>
           Some dashboard data could not be loaded: {data.failed.join(", ")}.{" "}
           <a href="/v2/client" className="underline">Retry</a>
         </div>

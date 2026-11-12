@@ -14,6 +14,7 @@
  *   use-builder-editing  — selection and schema operations
  *   use-builder-lifecycle — publish, archive, duplicate, discard, conflict exits
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
@@ -65,14 +66,14 @@ const PANES: Array<{ key: Pane; label: string }> = [
 ];
 
 const BANNER_TONE = {
-  danger: "border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))]",
-  warning: "border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]",
-  success: "border-[hsl(var(--e-success))] bg-[hsl(var(--e-success-soft))]",
+  danger: toneNoticeClass("problem"),
+  warning: toneNoticeClass("attention"),
+  success: toneNoticeClass("good"),
 } as const;
 
 function Banner({ tone, children }: { tone: keyof typeof BANNER_TONE; children: React.ReactNode }) {
   return (
-    <div role={tone === "success" ? "status" : "alert"} className={cn("rounded-[var(--e-radius)] border-l-[3px] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-foreground))]", BANNER_TONE[tone])}>
+    <div role={tone === "success" ? "status" : "alert"} className={cn("rounded-[var(--e-radius)] px-3 py-2 text-[0.8125rem]", BANNER_TONE[tone])}>
       {children}
     </div>
   );

@@ -238,8 +238,8 @@ export function EDataTable<TRow, TSort extends string = string>({
           "max-sm:flex max-sm:flex-wrap max-sm:items-start max-sm:gap-x-3 max-sm:gap-y-2 max-sm:px-3 max-sm:py-3",
           "hover:bg-[hsl(var(--e-surface-raised)/0.6)]",
           onRowClick && "cursor-pointer",
+          // Selected and active rows take a soft primary tint; no inset left line.
           (checked || active) && "bg-[hsl(var(--e-primary-soft))] hover:bg-[hsl(var(--e-primary-soft))]",
-          active && "shadow-[inset_3px_0_0_hsl(var(--e-primary))]",
         )}
       >
         {selection ? (

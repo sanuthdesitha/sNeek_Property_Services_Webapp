@@ -10,6 +10,7 @@
  * Client owner scope only (no admin on-hand deposit, no cleaner shopping-time).
  * Styled purely with `--e-*` tokens. No v1 UI imports.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Download, Play, Plus, Receipt, Save, ShoppingBag, Trash2, Upload } from "lucide-react";
@@ -529,8 +530,7 @@ export function ShoppingRunWorkspaceEstate({
               />
             </EField>
           </div>
-          <div className="rounded-[var(--e-radius-lg)] border-l-[3px] p-3 text-[0.8125rem]"
-            style={{ backgroundColor: "hsl(var(--e-success-soft))", borderColor: "hsl(var(--e-success))", color: "hsl(var(--e-foreground))" }}>
+          <div className={`rounded-[var(--e-radius-lg)] p-3 text-[0.8125rem] ${toneNoticeClass("good")}`}>
             {paymentGuidance(run.payment?.method ?? (run.ownerScope === "CLIENT" ? "CLIENT_CARD" : "COMPANY_CARD"), run.ownerScope)}
           </div>
           <div className="flex flex-wrap items-center gap-3">

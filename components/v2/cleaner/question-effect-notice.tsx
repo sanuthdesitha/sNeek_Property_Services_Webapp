@@ -12,6 +12,7 @@
  * The urgent stock effect has no phone step: the submit route raises the need
  * after the form is submitted. The cleaner is told so truthfully.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import * as React from "react";
 import { AlertTriangle, Package } from "lucide-react";
 import { DamageReportForm } from "@/components/v2/cleaner/damage-report-form";
@@ -23,7 +24,7 @@ import type { FormRenderMode } from "@/components/v2/cleaner/form-renderer";
 /** The job the live form belongs to (damage report target); undefined in previews. */
 export const FormJobContext = React.createContext<string | undefined>(undefined);
 
-const NOTE = "rounded-[var(--e-radius)] border-l-[3px] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-foreground))]";
+const NOTE = "rounded-[var(--e-radius)] px-3 py-2 text-[0.8125rem]";
 
 export function QuestionEffectNotice({
   field,
@@ -46,13 +47,13 @@ export function QuestionEffectNotice({
     const category = damage.category?.trim() || "";
     if (mode !== "live" || !jobId) {
       return (
-        <p className={`${NOTE} border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]`}>
+        <p className={`${NOTE} ${toneNoticeClass("attention")}`}>
           Would open a damage report{area ? ` for ${area}` : ""}. Nothing is reported in a preview.
         </p>
       );
     }
     return (
-      <div className={`${NOTE} space-y-2 border-[hsl(var(--e-warning))] bg-[hsl(var(--e-warning-soft))]`}>
+      <div className={`${NOTE} space-y-2 ${toneNoticeClass("attention")}`}>
         <p className="flex items-start gap-1.5">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <span>
@@ -79,7 +80,7 @@ export function QuestionEffectNotice({
     const answer = readStockCountAnswer(value);
     if (!answer || answer.count >= urgent.threshold) return null;
     return (
-      <p className={`${NOTE} flex items-start gap-1.5 border-[hsl(var(--e-info))] bg-[hsl(var(--e-info-soft))]`}>
+      <p className={`${NOTE} flex items-start gap-1.5 ${toneNoticeClass("info")}`}>
         <Package className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
         {mode === "live"
           ? `Below ${urgent.threshold}: submitting raises an urgent stock need for the office. It does not order anything.`

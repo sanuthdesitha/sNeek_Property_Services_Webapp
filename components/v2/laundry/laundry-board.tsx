@@ -1,4 +1,5 @@
 "use client";
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { Tags } from "lucide-react";
 import { JobStatusIcon } from "@/components/shared/job-status-icon";
 
@@ -1384,7 +1385,7 @@ export function TrackingBoard({ canDelete = false, bagTrackingRole, partnerEntri
                   </div>
 
                   {t.flagNotes ? (
-                    <p className="rounded-[var(--e-radius)] border-l-[3px] border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger-soft))] px-3 py-2 text-[0.75rem] text-[hsl(var(--e-foreground))]">
+                    <p className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} px-3 py-2 text-[0.75rem] text-[hsl(var(--e-foreground))]`}>
                       {t.flagNotes}
                     </p>
                   ) : null}

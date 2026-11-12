@@ -11,6 +11,7 @@
  * session the registration endpoints require exists. Completion is decided by
  * the server; a missing field sends the person back to its step.
  */
+import { toneNoticeClass } from "@/components/v2/ui/tone-band";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
@@ -201,7 +202,7 @@ export default function V2OnboardingPage() {
               </fieldset>
 
               {error ? (
-                <p role="alert" className="rounded-[var(--e-radius)] border-l-2 border-[hsl(var(--e-danger))] bg-[hsl(var(--e-danger)/0.06)] px-3 py-2 text-[0.8125rem] text-[hsl(var(--e-danger))]">
+                <p role="alert" className={`rounded-[var(--e-radius)] ${toneNoticeClass("problem")} px-3 py-2 text-[0.8125rem]`}>
                   {error}
                 </p>
               ) : null}
