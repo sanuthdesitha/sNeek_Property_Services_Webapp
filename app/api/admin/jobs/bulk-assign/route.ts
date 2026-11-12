@@ -20,6 +20,8 @@ import { getJobReference } from "@/lib/jobs/job-number";
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { assignmentLeaveConflicts } from "@/lib/accounts/leave-conflicts";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
+import { bulkEmailTexts } from "@/lib/notifications/wording/bulk-offer";
 
 const schema = z.object({
   jobIds: z.array(z.string().trim().min(1)).min(1),
@@ -175,13 +177,14 @@ export async function POST(req: NextRequest) {
 
     // 1) In-app feed: one PUSH notification per job (unchanged behaviour — these
     //    are individual feed items the cleaner taps through to each job).
+    const offerWording = await loadNotificationWording("job.offer");
     for (const line of jobLines) {
       const notificationTemplate = renderNotificationTemplate(settings, "jobAssigned", {
         jobNumber: line.jobReference,
         jobType: line.jobType,
         propertyName: line.jobLabel,
         when: line.when,
-        timingFlags: "Awaiting confirmation",
+        timingFlags: offerWording.line("awaiting-confirmation", "INBOX", {}),
       });
       await db.notification.create({
         data: {
@@ -189,7 +192,7 @@ export async function POST(req: NextRequest) {
           jobId: line.job.id,
           externalId: mobilePendingMarker("jobs"),
           channel: NotificationChannel.PUSH,
-          subject: `${companyName}: New job offer (${line.jobReference})`,
+          subject: offerWording.line("title-offer", "INBOX", { companyName, jobNumber: line.jobReference }),
           body: notificationTemplate.webBody,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
@@ -216,7 +219,8 @@ export async function POST(req: NextRequest) {
           userName: cleaner.name ?? cleaner.email,
           jobs: digestJobLines,
           actionUrl: jobCount === 1 ? `${jobUrlBase}/cleaner/jobs/${jobLines[0].job.id}` : cleanerJobsUrl,
-        }
+        },
+        bulkEmailTexts(offerWording, { companyName, userName: cleaner.name ?? cleaner.email, jobCount })
       );
       const emailResult = await sendEmailDetailed({
         kind: "job_assignment",
@@ -240,10 +244,9 @@ export async function POST(req: NextRequest) {
 
     if (cleaner.phone) {
       const refs = digestJobLines.map((line) => line.jobReference).join(", ");
-      const smsBody =
-        jobCount === 1
-          ? `${companyName}: New job offer ${digestJobLines[0].jobReference} — ${digestJobLines[0].propertyName} on ${digestJobLines[0].when}. Open the app to confirm.`
-          : `${companyName}: ${jobCount} new jobs assigned (${refs}). Open the app to review and confirm.`;
+      const smsBody = jobCount === 1
+        ? offerWording.render("bulk", "SMS", { companyName, jobNumber: digestJobLines[0].jobReference, propertyName: digestJobLines[0].propertyName, when: digestJobLines[0].when }).body
+        : offerWording.render("bulk-many", "SMS", { companyName, jobCount, refs }).body;
       const smsResult = await sendSmsDetailed(cleaner.phone, smsBody);
       if (smsResult.status === "sent" || smsResult.status === "failed") {
         await db.notification.create({
@@ -251,7 +254,7 @@ export async function POST(req: NextRequest) {
             userId: cleaner.id,
             jobId: digestJobId,
             channel: NotificationChannel.SMS,
-            subject: `${companyName}: ${jobCount} new ${jobWord} assigned`,
+            subject: offerWording.line("bulk-sms-subject", "INBOX", { companyName, jobCount, jobWord }),
             body: smsBody,
             status: smsResult.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
             sentAt: smsResult.ok ? new Date() : undefined,

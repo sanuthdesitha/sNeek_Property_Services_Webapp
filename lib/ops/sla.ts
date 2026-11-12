@@ -4,6 +4,7 @@ import { fromZonedTime } from "date-fns-tz";
 import { db } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings";
 import type { CaseSeverityLevel } from "@/lib/settings";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 import {
   autoResolveJobCases,
   findOpenAutoCase,
@@ -164,14 +165,19 @@ export async function runSlaEscalation(now = new Date()) {
 
       if (settings.sla.notifyAdminOnOverdue) {
         if (!escalatedToday.has(job.id)) {
+          const breach = (await loadNotificationWording("office.sla_and_summaries")).render("sla-breach", "INBOX", {
+            propertyName: job.property.name,
+            suburb: job.property.suburb,
+            minutes: minsOverdue,
+          });
           await db.notification.createMany({
             data: adminUsers.map((admin) => ({
               userId: admin.id,
               jobId: job.id,
               externalId: mobilePendingMarker("jobs"),
               channel: NotificationChannel.PUSH,
-              subject: "SLA breach",
-              body: `${job.property.name} (${job.property.suburb}) overdue by ${minsOverdue} mins.`,
+              subject: breach.title,
+              body: breach.body,
               status: NotificationStatus.SENT,
               sentAt: new Date(),
             })),

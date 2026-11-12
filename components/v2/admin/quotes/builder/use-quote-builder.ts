@@ -199,7 +199,7 @@ export function useQuoteBuilder(options: QuoteBuilderOptions) {
   }
 
   return {
-    isEdit, casePrefill, pricing, checklist,
+    isEdit, casePrefill, pricing, checklist, serviceOptions: services,
     recipientMode, setRecipientMode, clientId, applyClient, leadId, applyLead, newLead, setNewLead, recipientEmail, setRecipientEmail,
     frequency, setFrequency, serviceAddress, setServiceAddress, serviceSuburb, setServiceSuburb,
     notes, setNotes: (value: string) => { setNotesTouched(true); setNotes(value); },

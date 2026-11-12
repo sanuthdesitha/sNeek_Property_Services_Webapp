@@ -18,6 +18,7 @@ import { notifyAutoSyncChanges } from "@/lib/ical/notifications";
 import { assignPreferredCleanerIfAvailable } from "@/lib/jobs/preferred-cleaner";
 import { getAppSettings } from "@/lib/settings";
 import { resolvePropertyCleanHours } from "@/lib/properties/clean-hours";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 type SyncMode = "MANUAL" | "AUTO";
 
@@ -838,14 +839,15 @@ async function syncTurnoverJobsForReservations(params: {
         new Set(activeAssignments.map((a) => a.userId).filter((id): id is string => Boolean(id)))
       );
       if (recipientIds.length > 0) {
+        const moved = (await loadNotificationWording("job.skipped_or_cancelled")).render("booking-moved", "INBOX", { propertyName: params.property.name, oldDate: oldDateKey, newDate: newDateKey });
         await db.notification.createMany({
           data: recipientIds.map((userId) => ({
             userId,
             jobId: updated.id,
             externalId: mobilePendingMarker("jobs"),
             channel: NotificationChannel.PUSH,
-            subject: "Shift cancelled — booking moved",
-            body: `${params.property.name}: your shift on ${oldDateKey} was removed because the booking moved to ${newDateKey}. The job is now unassigned.`,
+            subject: moved.title,
+            body: moved.body,
             status: NotificationStatus.SENT,
             sentAt: new Date(),
           })),
@@ -1015,6 +1017,7 @@ async function pruneVanishedReservationJobs(params: {
       new Set((job.assignments ?? []).map((a) => a.userId).filter((id): id is string => Boolean(id)))
     );
 
+    const removedNotice = (await loadNotificationWording("job.skipped_or_cancelled")).render("booking-removed", "INBOX", { propertyName: params.propertyName, oldDate: oldDateKey });
     try {
       await db.$transaction(async (tx) => {
         // Tell the assigned cleaner(s) first (no jobId — the job is being deleted).
@@ -1024,8 +1027,8 @@ async function pruneVanishedReservationJobs(params: {
               userId,
               externalId: mobilePendingMarker("jobs"),
               channel: NotificationChannel.PUSH,
-              subject: "Shift cancelled — booking removed",
-              body: `${params.propertyName}: your shift on ${oldDateKey} was cancelled because the booking is no longer on the calendar. It has been removed from your schedule.`,
+              subject: removedNotice.title,
+              body: removedNotice.body,
               status: NotificationStatus.SENT,
               sentAt: new Date(),
             })),

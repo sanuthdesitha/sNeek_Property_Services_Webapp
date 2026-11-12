@@ -4,6 +4,7 @@ import { editable, emailTemplatePart, inCode, notificationTemplateParts, somePar
 import { SUBMISSION_LOW_STOCK_WORDING, URGENT_NEED_WORDING } from "./stock";
 import { ICAL_ALERTS_WORDING, REPORTS_GENERATED_WORDING } from "./office-alerts";
 import { MAINTENANCE_WORDING } from "./maintenance";
+import { CASE_FOLLOW_UP_PARTS, NEW_PROFILE_PARTS, SLA_PARTS } from "./office-summaries";
 import { FIELD_ALERTS_WORDING } from "./field-alerts";
 import { CLEANER_REQUESTS_WORDING } from "./cleaner-requests";
 import { CLIENT_REQUESTS_WORDING } from "./client-requests";
@@ -12,22 +13,24 @@ export const OFFICE_WORDING: readonly TypeWordingDefinition[] = [
   inCode("insights.monthly_email", "A generated report: tables of the month's figures built from the Insights data, not a message with fixed sentences."),
   CLEANER_REQUESTS_WORDING,
   FIELD_ALERTS_WORDING,
-  someParts("office.cases", [
+  editable("office.cases", [
     ...notificationTemplateParts("created", "Case created", "caseCreated"),
     emailTemplatePart("created", "Case created", "caseCreated"),
     ...notificationTemplateParts("updated", "Case updated", "caseUpdated"),
     emailTemplatePart("updated", "Case updated", "caseUpdated"),
-  ], "The case follow-up reminders are composed in lib/cases/follow-up.ts; not yet moved."),
+    ...CASE_FOLLOW_UP_PARTS,
+  ]),
   CLIENT_REQUESTS_WORDING,
-  someParts("office.sla_and_summaries", [
+  editable("office.sla_and_summaries", [
     ...notificationTemplateParts("attention", "Attention summary", "adminAttentionSummary"),
     emailTemplatePart("attention", "Attention summary", "adminAttentionSummary"),
     ...notificationTemplateParts("tomorrow-jobs", "Tomorrow's jobs", "tomorrowJobsSummary"),
     emailTemplatePart("tomorrow-jobs", "Tomorrow's jobs", "tomorrowJobsSummary"),
     ...notificationTemplateParts("tomorrow-laundry", "Tomorrow's laundry", "tomorrowLaundrySummary"),
     emailTemplatePart("tomorrow-laundry", "Tomorrow's laundry", "tomorrowLaundrySummary"),
-  ], "SLA breach alerts and the daily briefing are composed in lib/ops/sla.ts and lib/ops/daily-briefing.ts from lists of jobs; not yet moved."),
-  someParts("office.new_profile", [...notificationTemplateParts("office", "Office", "newProfileCreated"), emailTemplatePart("office", "Office", "newProfileCreated")], "The sign-up and onboarding routes add their own short inbox line; not yet moved."),
+    ...SLA_PARTS,
+  ], "The job, laundry and stock lists inside the summaries are built from the day's records."),
+  editable("office.new_profile", NEW_PROFILE_PARTS),
   REPORTS_GENERATED_WORDING,
   someParts("laundry.updates", [
     ...notificationTemplateParts("ready", "Laundry ready", "laundryReady"),

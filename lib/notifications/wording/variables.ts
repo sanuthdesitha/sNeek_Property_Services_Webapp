@@ -120,6 +120,15 @@ const DICTIONARY: Record<string, Entry> = {
   maintenanceUrl: { label: "Repair link", sample: "https://app.sneek.au/v2/admin/maintenance/1", format: "url" },
   propertyUrl: { label: "Property link", sample: "https://app.sneek.au/admin/properties/1", format: "url" },
   integrationsUrl: { label: "Integrations link", sample: "https://app.sneek.au/admin/integrations", format: "url" },
+  // Job offer
+  cleanerNoteParagraph: { label: "Cleaner note paragraph (empty when none)", sample: "<p><strong>Cleaner note:</strong> Can start at 11</p>", format: "html" },
+  // Cleaner invoice
+  fixHtml: { label: "What needs fixing (line breaks kept)", sample: "Remove the 12 Nov job.<br/>Add the oven clean.", format: "html" },
+  invoiceNumberPart: { label: "Invoice number (empty when none)", sample: " (<strong>INV-0042</strong>)", format: "html" },
+  invoicesUrl: { label: "Invoices link", sample: "https://app.sneek.au/v2/cleaner/invoices", format: "url" },
+  // Summaries
+  caseItems: { label: "Stale cases (list items)", sample: "<li>Broken lock (DAMAGE) - Manly Loft - Job J-1061 - stale for 3 days</li>", format: "html" },
+  casesUrl: { label: "Cases link", sample: "https://app.sneek.au/admin/cases", format: "url" },
   // Office messages
   subject: { label: "Subject the sender wrote", sample: "Roster for next week" },
   message: { label: "Message the sender wrote", sample: "The new roster is up in the team hub.", format: "multiline" },

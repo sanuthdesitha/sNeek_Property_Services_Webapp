@@ -6,6 +6,8 @@
 import type { TypeWordingDefinition } from "../types";
 import { editable, emailTemplatePart, inCode, linePart, notificationTemplateParts, someParts, storePart } from "./build";
 import { JOB_CHANGED_WORDING } from "./job-changes";
+import { JOB_OFFER_PARTS, SKIPPED_PARTS } from "./job-offer";
+import { CLEANER_INVOICE_WORDING } from "./cleaner-invoice";
 import { CLOCK_CHANGES_WORDING } from "./clock";
 import { QA_ACCOUNTABILITY_WORDING } from "./accountability-more";
 import { DECISIONS_WORDING } from "./decisions";
@@ -34,7 +36,6 @@ const DAY_REMINDER_EMAIL = `
         </p>
       </div>`;
 
-const INBOX_ASSIGNMENT_REASON = "The inbox text, SMS and email are the shared \"Job Assigned\" templates. Still in code: the inbox titles (\"New job offer\", \"Job assignment updated\", \"Job removed from your schedule\", \"New transferred job offer\"), the bulk digest SMS and the accept / decline / transfer notices to the office.";
 
 export const JOB_WORDING: readonly TypeWordingDefinition[] = [
   editable("job.cancelled", [
@@ -90,11 +91,11 @@ export const JOB_WORDING: readonly TypeWordingDefinition[] = [
     }, ["when", "propertyName", "jobNumber", "propertyAddress", "timingSuffix"], ["when", "propertyName"]),
     linePart("timing-line", "Timing notes line (SMS)", "SMS", " {{timingFlags}}.", ["timingFlags"], "Added only when the job has timing notes."),
   ]),
-  someParts("job.offer", [...notificationTemplateParts("cleaner", "Cleaner", "jobAssigned"), emailTemplatePart("cleaner", "Cleaner", "jobAssigned")], INBOX_ASSIGNMENT_REASON),
+  editable("job.offer", JOB_OFFER_PARTS, "The \"Assignment email sent to …\" rows in the delivery log are log entries, not messages."),
   JOB_CHANGED_WORDING,
-  someParts("job.skipped_or_cancelled", [emailTemplatePart("cleaner", "Cleaner", "jobRemoved")], "The inbox and phone push (\"Shift cancelled\") are composed in the skip route and in iCal sync with different sentences for a skip, a moved booking and a removed booking; not yet moved to the wording layer."),
+  editable("job.skipped_or_cancelled", SKIPPED_PARTS),
   CLOCK_CHANGES_WORDING,
   DECISIONS_WORDING,
   QA_ACCOUNTABILITY_WORDING,
-  someParts("job.cleaner_invoice", [emailTemplatePart("accounts", "Accounts", "cleanerInvoice")], "The \"change requested\" email to the cleaner is composed in lib/cleaner/invoice-admin-notify.ts; not yet moved."),
+  CLEANER_INVOICE_WORDING,
 ];

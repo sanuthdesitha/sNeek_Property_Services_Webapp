@@ -6,6 +6,7 @@
 import { EXTRAS_BY_ID } from "@/lib/pricing/extras-catalog";
 import type { PricingVariable } from "@/lib/pricing/variables";
 import type { ServiceChecklist } from "@/lib/checklists/types";
+import type { EPillTone } from "@/components/v2/ui/pill";
 import type { QuoteEditSeed, QuoteLineItem, QuoteReferenceImage } from "@/lib/quotes/quote-record";
 
 export type LineItem = QuoteLineItem;
@@ -18,6 +19,13 @@ export type NewLeadDraft = { name: string; email: string; phone: string; suburb:
 
 /** Where the base lines came from, recorded in the notes META so it survives a reload. */
 export type PricingSource = "rate-card" | "rate-card-edited" | "manual" | "unknown";
+
+export const PRICING_SOURCE_BADGE: Record<PricingSource, { label: string; tone: EPillTone }> = {
+  "rate-card": { label: "Priced from rate card", tone: "ok" },
+  "rate-card-edited": { label: "Rate card, edited by hand", tone: "info" },
+  manual: { label: "Manual quote", tone: "warn" },
+  unknown: { label: "Pricing source not recorded", tone: "neutral" },
+};
 
 export interface ServiceOption {
   jobType: string;

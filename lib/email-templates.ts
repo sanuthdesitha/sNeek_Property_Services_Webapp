@@ -1026,17 +1026,30 @@ export interface BulkAssignedJobLine {
  * so no data is lost. Returns the same `{ subject, html }` shape as
  * `renderEmailTemplate`, so it slots straight into `sendEmailDetailed`.
  */
+/** Editable sentences of the digest (notification wording, type job.offer); escaped HTML where named so. */
+export interface BulkAssignedEmailTexts {
+  subject: string;
+  headingHtml: string;
+  introHtml: string;
+  outroHtml: string;
+  buttonLabel: string;
+}
+
 export function buildBulkAssignedEmail(
   settings: { companyName: string; logoUrl: string },
   params: {
     userName: string;
     jobs: BulkAssignedJobLine[];
     actionUrl?: string | null;
-  }
+  },
+  texts?: BulkAssignedEmailTexts
 ): { subject: string; html: string } {
   const companyName = settings.companyName || "sNeek Property Services";
   const count = params.jobs.length;
   const jobWord = count === 1 ? "job" : "jobs";
+  const headingHtml = texts?.headingHtml ?? `You've been assigned ${count} ${jobWord}`;
+  const introHtml = texts?.introHtml ?? `Hello ${escapeHtml(params.userName)}, the following ${jobWord} ${count === 1 ? "has" : "have"} been added to your schedule. Open the Cleaner Portal to confirm ${count === 1 ? "it" : "each one"} and view full access details.`;
+  const outroHtml = texts?.outroHtml ?? `Please review and confirm ${count === 1 ? "this offer" : "each offer"} at your earliest convenience.`;
 
   const jobCards = params.jobs
     .map(
@@ -1054,18 +1067,18 @@ export function buildBulkAssignedEmail(
     )
     .join("");
 
-  const innerHtml = `<h2 style="margin:0 0 14px;font-family:${SERIF_STACK};font-size:26px;font-weight:600;color:${BRAND.charcoal};letter-spacing:0.01em;line-height:1.25;">You've been assigned ${count} ${jobWord}</h2>
-<p style="margin:0 0 8px;color:${BRAND.ink};">Hello ${escapeHtml(params.userName)}, the following ${jobWord} ${count === 1 ? "has" : "have"} been added to your schedule. Open the Cleaner Portal to confirm ${count === 1 ? "it" : "each one"} and view full access details.</p>
+  const innerHtml = `<h2 style="margin:0 0 14px;font-family:${SERIF_STACK};font-size:26px;font-weight:600;color:${BRAND.charcoal};letter-spacing:0.01em;line-height:1.25;">${headingHtml}</h2>
+<p style="margin:0 0 8px;color:${BRAND.ink};">${introHtml}</p>
 ${jobCards}
-<p style="margin:18px 0 0;font-size:13px;color:${BRAND.muted};">Please review and confirm ${count === 1 ? "this offer" : "each offer"} at your earliest convenience.</p>`;
+<p style="margin:18px 0 0;font-size:13px;color:${BRAND.muted};">${outroHtml}</p>`;
 
   const actionLink =
     params.actionUrl && /^(https?:\/\/)/i.test(params.actionUrl.trim())
-      ? { url: params.actionUrl.trim(), label: count === 1 ? "Open job" : "Open my jobs" }
+      ? { url: params.actionUrl.trim(), label: texts?.buttonLabel ?? (count === 1 ? "Open job" : "Open my jobs") }
       : null;
 
   return {
-    subject: `${count} new ${jobWord} assigned — ${companyName}`,
+    subject: texts?.subject ?? `${count} new ${jobWord} assigned — ${companyName}`,
     html: wrapEmailHtml(settings, innerHtml, actionLink),
   };
 }

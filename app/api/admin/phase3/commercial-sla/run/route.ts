@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { evaluateCommercialSla } from "@/lib/phase3/commercial-sla";
 import { getAppSettings } from "@/lib/settings";
 import { meetsAutoOpenThreshold } from "@/lib/cases/auto-case";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   startDate: z.string().date().optional(),
@@ -58,13 +59,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (result.breaches.length > 0) {
+      const scanWording = await loadNotificationWording("office.sla_and_summaries");
+      const scan = scanWording.render("commercial-scan", "INBOX", {
+        count: result.breaches.length,
+        issuesSentence: scanWording.line("issues-sentence", "INBOX", { issues: issuesCreated }, issuesCreated > 0),
+      });
       await db.notification.create({
         data: {
           userId: session.user.id,
           externalId: mobilePendingMarker("jobs"),
           channel: NotificationChannel.PUSH,
-          subject: "Commercial SLA breach scan complete",
-          body: `Detected ${result.breaches.length} breach(es).${issuesCreated > 0 ? ` Created ${issuesCreated} issue ticket(s).` : ""}`,
+          subject: scan.title,
+          body: scan.body,
           status: NotificationStatus.SENT,
           sentAt: new Date(),
         },

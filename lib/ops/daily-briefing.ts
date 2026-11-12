@@ -4,6 +4,7 @@ import { Role } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendEmailDetailed } from "@/lib/notifications/email";
 import { getAppSettings } from "@/lib/settings";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const STATE_KEY = "daily_ops_briefing_dispatch_v1";
 const TZ = "Australia/Sydney";
@@ -64,26 +65,26 @@ export async function sendDailyOpsBriefing(now = new Date()) {
     return acc;
   }, {});
 
-  const html = `
-    <h2 style="margin:0 0 12px;">Morning ops briefing</h2>
-    <p>${format(now, "EEEE, dd MMM yyyy")}</p>
-    <ul style="margin:16px 0;padding-left:20px;line-height:1.7;">
-      <li><strong>${todayJobs.length}</strong> jobs scheduled today</li>
-      <li><strong>${unassignedJobs}</strong> unassigned jobs today</li>
-      <li><strong>${laundryPickups}</strong> laundry pickups today</li>
-      <li><strong>${openCases}</strong> cases open for more than 48 hours</li>
-      <li><strong>${newLeads}</strong> new leads in the last 24 hours</li>
-      <li><strong>${expiringDocs}</strong> staff documents expired or expiring within 14 days</li>
-    </ul>
-    <p>Status mix: ${Object.entries(byStatus).map(([status, count]) => `${status.replace(/_/g, " ")}: ${count}`).join(" | ") || "No jobs"}</p>
-  `;
+  const wording = await loadNotificationWording("office.sla_and_summaries");
+  const briefing = wording.render("daily-briefing", "EMAIL", {
+    date: format(now, "dd MMM yyyy"),
+    dateLabel: format(now, "EEEE, dd MMM yyyy"),
+    jobsToday: todayJobs.length,
+    unassignedToday: unassignedJobs,
+    laundryPickups,
+    openCases,
+    newLeads,
+    expiringDocs,
+    statusMix: Object.entries(byStatus).map(([status, count]) => `${status.replace(/_/g, " ")}: ${count}`).join(" | ") || wording.line("no-jobs", "EMAIL", {}),
+  });
+  const html = briefing.html;
 
   let sent = 0;
   for (const admin of admins) {
     if (!admin.email) continue;
     const result = await sendEmailDetailed({ kind: "daily_briefing",
       to: admin.email,
-      subject: `sNeek ops briefing - ${format(now, "dd MMM yyyy")}`,
+      subject: briefing.subject,
       html,
       replyTo: settings.accountsEmail || undefined,
     });

@@ -14,6 +14,7 @@ import { resolveAppUrl } from "@/lib/app-url";
 import { getJobReference } from "@/lib/jobs/job-number";
 import { NotificationChannel, NotificationStatus } from "@prisma/client";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 const schema = z.object({
   cleanerIds: z.array(z.string().trim().min(1)).min(1),
@@ -66,13 +67,16 @@ export async function POST(
       const propertyLabel = `${job.property.name}${job.property.suburb ? ` (${job.property.suburb})` : ""}`;
       const when = `${job.scheduledDate.toISOString().slice(0, 10)}${job.startTime ? ` ${job.startTime}` : ""}${job.dueTime ? ` - ${job.dueTime}` : ""}`;
       const jobUrl = resolveAppUrl(`/cleaner/jobs/${job.id}`, req);
+      const offerWording = await loadNotificationWording("job.offer");
+      const awaiting = offerWording.line("awaiting-confirmation", "INBOX", {});
+      const offerTitle = offerWording.line("title-offer", "INBOX", { companyName, jobNumber: jobReference });
       for (const cleaner of cleaners) {
         const notificationTemplate = renderNotificationTemplate(settings, "jobAssigned", {
           jobNumber: jobReference,
           jobType: job.jobType.replace(/_/g, " "),
           propertyName: propertyLabel,
           when,
-          timingFlags: "Awaiting confirmation",
+          timingFlags: awaiting,
         });
         await db.notification.create({
           data: {
@@ -80,7 +84,7 @@ export async function POST(
             jobId: job.id,
             externalId: mobilePendingMarker("jobs"),
             channel: NotificationChannel.PUSH,
-            subject: `${companyName}: New job offer (${jobReference})`,
+            subject: offerTitle,
             body: notificationTemplate.webBody,
             status: NotificationStatus.SENT,
             sentAt: new Date(),
@@ -102,7 +106,7 @@ export async function POST(
               jobNumber: jobReference,
               when,
               jobUrl,
-              timingFlags: "Awaiting confirmation",
+              timingFlags: awaiting,
             }
           );
           const emailResult = await sendEmailDetailed({ kind: "job_assignment",
@@ -132,7 +136,7 @@ export async function POST(
                 userId: cleaner.id,
                 jobId: job.id,
                 channel: NotificationChannel.SMS,
-                subject: `${companyName}: New job offer (${jobReference})`,
+                subject: offerTitle,
                 body: notificationTemplate.smsBody,
                 status: smsResult.ok ? NotificationStatus.SENT : NotificationStatus.FAILED,
                 sentAt: smsResult.ok ? new Date() : undefined,

@@ -28,6 +28,7 @@ import { previewLifecycleEmail, sendLifecycleEmail } from "@/lib/notifications/l
 import { resolveAssignmentPayRate } from "@/lib/finance/assignment-rate";
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { assignmentLeaveConflicts } from "@/lib/accounts/leave-conflicts";
+import { loadNotificationWording } from "@/lib/notifications/wording/render";
 
 export async function POST(
   req: NextRequest,
@@ -238,6 +239,7 @@ export async function POST(
     const timingSentence = timingHighlights.length > 0 ? ` Timing: ${timingText}.` : "";
     const companyName = settings.companyName || "sNeek Property Services";
 
+    const offerWording = await loadNotificationWording("job.offer");
     for (const [userId, user] of Array.from(targetUsers.entries())) {
       const stillAssigned = currentAssignedIds.has(userId);
       const previousAssignment = existingAssignmentsByUserId.get(userId);
@@ -247,11 +249,7 @@ export async function POST(
           ? JobAssignmentResponseStatus.PENDING
           : previousAssignment?.responseStatus ?? null;
       const responseLabel = formatAssignmentResponseLabel(responseStatus);
-      const subject = stillAssigned
-        ? isNewOffer
-          ? `${companyName}: New job offer (${jobReference})`
-          : `${companyName}: Job assignment updated (${jobReference})`
-        : `${companyName}: Job removed from your schedule (${jobReference})`;
+      const subject = offerWording.line(stillAssigned ? (isNewOffer ? "title-offer" : "title-updated") : "title-removed", "INBOX", { companyName, jobNumber: jobReference });
       const jobUrl = resolveAppUrl(`/cleaner/jobs/${job.id}`, req);
       const notificationTemplate = renderNotificationTemplate(
         settings,
@@ -355,7 +353,7 @@ export async function POST(
             jobId: job.id,
             externalId: mobilePendingMarker("jobs"),
             channel: NotificationChannel.PUSH,
-            subject: `${companyName}: Rule alert`,
+            subject: offerWording.line("title-rule-alert", "INBOX", { companyName }),
             body: renderNotificationTemplate(settings, "jobAssigned", {
               jobNumber: jobReference,
               jobType: job.jobType.replace(/_/g, " "),
