@@ -103,6 +103,8 @@ const DICTIONARY: Record<string, Entry> = {
   notesItem: { label: "Notes list item (empty when none)", sample: "<li><strong>Notes:</strong> Please bring a ladder</li>", format: "html" },
   // Post-job
   messageHtml: { label: "Rule message (line breaks kept)", sample: "Thanks for having us today.<br />We left the keys in the lockbox.", format: "html" },
+  // Workforce
+  lineItems: { label: "Lines (built list items)", sample: "<li>Jane — Visa expires in 3 days</li>", format: "html" },
   // Office messages
   subject: { label: "Subject the sender wrote", sample: "Roster for next week" },
   message: { label: "Message the sender wrote", sample: "The new roster is up in the team hub.", format: "multiline" },

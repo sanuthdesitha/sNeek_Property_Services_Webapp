@@ -4,6 +4,7 @@ import { composed, elsewhere, emailTemplatePart, inCode, someParts } from "./bui
 import { CLIENT_UPDATE_WORDING } from "./client-updates";
 import { LEAD_ALERTS_WORDING } from "./office-alerts";
 import { POST_JOB_WORDING } from "./post-job";
+import { WORKFORCE_WORDING } from "./workforce";
 
 export const PEOPLE_WORDING: readonly TypeWordingDefinition[] = [
   CLIENT_UPDATE_WORDING,
@@ -26,7 +27,7 @@ export const PEOPLE_WORDING: readonly TypeWordingDefinition[] = [
     emailTemplatePart("welcome", "Welcome", "welcomeAccount"),
   ], "A temporary password the template leaves out is still appended automatically (credential fail-safe)."),
   elsewhere("money.finance_events", "Invoice, payroll, payout and Xero event wording has its own template editor (Preferences, Finance notification templates).", "/v2/admin/notifications?tab=preferences#finance-notifications"),
-  inCode("workforce.updates", "Chat, learning, document and hiring notices are composed in lib/workforce/service.ts and quiz.ts, one sentence per event; not yet split into named parts."),
+  WORKFORCE_WORDING,
   LEAD_ALERTS_WORDING,
   composed("marketing.campaigns", "Each campaign's email and SMS are written in the campaign editor (Growth).", "/v2/admin/growth"),
   inCode("system.provider_tests", "Provider and device diagnostics: their fixed wording is what identifies a test message, so it is not editable on purpose."),
