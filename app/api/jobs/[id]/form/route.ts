@@ -37,6 +37,7 @@ import { parseVisitPlan, visitIsOnDay, describeVisitForCleaner } from "@/lib/mai
 import { holdsRoleWhere } from "@/lib/auth/role-query";
 import { canActAs } from "@/lib/auth/roles";
 import { cleanerDraftIdentity } from "@/lib/cleaner/draft-identity";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 export async function GET(
   _req: NextRequest,
@@ -153,6 +154,8 @@ export async function GET(
       const cleanerUser = await db.user
         .findUnique({ where: { id: session.user.id }, select: { hourlyRate: true } })
         .catch(() => null);
+      // The default rate in force on this job's day (effective-dated history).
+      const rateBook = await loadPayRateBook([session.user.id]);
       payForJob = computeJobPayForCleaner({
         cleanerId: session.user.id,
         job: {
@@ -162,7 +165,7 @@ export async function GET(
           reworkPayAmount: job.reworkPayAmount,
         },
         assignments: job.assignments.map((a) => ({ userId: a.userId, payRate: a.payRate ?? null })),
-        userHourlyRate: cleanerUser?.hourlyRate ?? null,
+        userHourlyRate: rateBook.rateFor(session.user.id, job.scheduledDate, cleanerUser?.hourlyRate ?? null),
         cleanerJobHourlyRates: settings.cleanerJobHourlyRates,
         cleanerPayouts: jobMeta.cleanerPayouts,
         transportAllowances: jobMeta.transportAllowances,

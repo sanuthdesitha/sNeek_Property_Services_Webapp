@@ -30,6 +30,8 @@ const FINISHED_JOB_STATUSES: JobStatus[] = [
   JobStatus.QA_REVIEW,
   JobStatus.COMPLETED,
   JobStatus.INVOICED,
+  // Cancelled jobs take no new tasks (Wave E).
+  JobStatus.CANCELLED,
 ];
 
 function inferMediaTypeFromKey(key: string) {

@@ -33,6 +33,9 @@ export function viewRuleSql(rule: BuiltInViewRule, now: Date): Prisma.Sql {
   }
   if (rule.statuses && rule.statuses.length > 0) {
     parts.push(Prisma.sql`j."status"::text IN (${Prisma.join(rule.statuses)})`);
+  } else {
+    // As the list's where-builder: no status asked for = everything but cancelled.
+    parts.push(Prisma.sql`j."status"::text <> 'CANCELLED'`);
   }
   if (rule.invoiced === "no") {
     parts.push(notInvoicedJobSql());

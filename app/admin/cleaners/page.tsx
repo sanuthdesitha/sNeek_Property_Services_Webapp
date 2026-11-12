@@ -10,6 +10,7 @@ import {
   type PerformanceMetrics,
 } from "@/lib/workforce/performance";
 import { CleanersHub, type CleanerStat } from "@/components/admin/cleaners-hub";
+import { currentHourlyRates } from "@/lib/accounts/pay-rate-history";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,8 @@ export default async function CleanersHubPage() {
     select: { id: true, name: true, email: true, image: true, phone: true, isActive: true, hourlyRate: true, createdAt: true, lastSeenAt: true },
     orderBy: [{ isActive: "desc" }, { name: "asc" }],
   });
+  // The rate in force today (effective-dated history, else the stored rate).
+  const currentRates = await currentHourlyRates(cleaners);
 
   const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const [payRows, hourRows, activeRows] = await Promise.all([
@@ -93,7 +96,7 @@ export default async function CleanersHubPage() {
       image: c.image,
       phone: c.phone,
       isActive: c.isActive,
-      hourlyRate: c.hourlyRate,
+      hourlyRate: currentRates.get(c.id) ?? null,
       joinedAt: c.createdAt.toISOString(),
       lastSeenAt: c.lastSeenAt ? c.lastSeenAt.toISOString() : null,
       quality: m.quality.score,

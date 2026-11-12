@@ -72,7 +72,8 @@ describe("grouped view counts", () => {
     // only a line on a live invoice (kind INVOICE, not VOID, not fully credited).
     expect(sql.text).not.toContain(`<> 'INVOICED'`);
     expect(sql.text).toContain('NOT EXISTS (SELECT 1 FROM "ClientInvoiceLine" l JOIN "ClientInvoice" i ON i."id" = l."invoiceId" WHERE l."jobId" = "j"."id" AND "i"."kind"::text = \'INVOICE\' AND "i"."status"::text <> \'VOID\' AND "i"."creditedInFullAt" IS NULL)');
-    expect(sqlText(viewRuleSql({}, NOW)).text).toBe("TRUE");
+    // Wave E: like the list's where-builder, no status = everything but cancelled.
+    expect(sqlText(viewRuleSql({}, NOW)).text).toBe(`j."status"::text <> 'CANCELLED'`);
   });
 
   it("returns real totals and refuses to invent a missing one", async () => {

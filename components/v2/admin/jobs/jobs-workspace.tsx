@@ -39,6 +39,7 @@ import { useSavedViewCounts } from "./use-saved-view-counts";
 import { useJobsScrollRestoration } from "./use-jobs-scroll-restoration";
 import { useJobsWorkspaceState } from "./use-jobs-workspace-state";
 import { usePeekParam } from "./use-peek-param";
+import { CancelJobDialog } from "./cancel-job-dialog";
 
 type WorkspaceProps = {
   /** Renders the page's h1. Embedded uses pass false and keep their own heading. */
@@ -104,6 +105,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
   const [assignJob, setAssignJob] = useState<JobListRow | null>(null);
   const [statusRequest, setStatusRequest] = useState<StatusChangeRequest | null>(null);
   const [remindIds, setRemindIds] = useState<string[] | null>(null);
+  const [cancelRequest, setCancelRequest] = useState<{ jobIds: string[]; label?: string } | null>(null);
 
   const refreshAll = useCallback(() => {
     list.reload();
@@ -117,6 +119,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
       onPreview: openPeek,
       onChangeStatus: (row) => setStatusRequest({ jobIds: [row.id], title: `Change status · ${row.property?.name ?? "job"}` }),
       onRemind: (row) => setRemindIds([row.id]),
+      onCancel: (row) => setCancelRequest({ jobIds: [row.id], label: row.property?.name ?? undefined }),
     }, viewsReadOnly),
     [openPeek, viewsReadOnly],
   );
@@ -238,6 +241,7 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
           readOnly={viewsReadOnly}
           onClear={() => setSelected(new Set())}
           onChangeStatus={() => setStatusRequest({ jobIds: selectedIds })}
+          onCancelJobs={() => setCancelRequest({ jobIds: selectedIds })}
           onDone={(keep) => { setSelected(new Set(keep)); refreshAll(); }}
         />
       </div>
@@ -258,6 +262,9 @@ export function JobsWorkspace({ viewsContext, viewsReadOnly = false, teamDefault
           refreshAll();
         }}
       />
+      <CancelJobDialog open={cancelRequest !== null} jobIds={cancelRequest?.jobIds ?? []} label={cancelRequest?.label}
+        onClose={() => setCancelRequest(null)}
+        onDone={(remaining) => { setSelected(new Set(remaining)); refreshAll(); }} />
       <BulkRemindDialog open={remindIds !== null} jobIds={remindIds ?? []} onClose={() => setRemindIds(null)} onFinished={() => refreshAll()} />
     </div>
   );

@@ -20,7 +20,7 @@ const jobFindMany = vi.fn(async () => [] as any[]);
 const adjFindMany = vi.fn(async (_args?: any) => [] as any[]);
 
 vi.mock("@/lib/db", () => ({
-  db: {
+  db: { userPayRate: { findMany: async () => [] }, staffLeave: { findMany: async () => [] }, 
     user: {
       findUnique: vi.fn(async () => ({
         name: "Cleaner One",

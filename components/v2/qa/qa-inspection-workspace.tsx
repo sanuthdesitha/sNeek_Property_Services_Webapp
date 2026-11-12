@@ -2322,6 +2322,9 @@ export function QaInspectionWorkspace({
           <span className="font-[550]">You&apos;re amending a submitted inspection.</span> Submitting updates the
           existing review and its findings — it does not create a second one. Anything already actioned (a rework job,
           or pay that has been proposed or approved) stays as it is; change that in the Approval Center.
+          {typeof (payload as any)?.templateCopy?.label === "string" ? (
+            <span className="mt-1 block">{(payload as any).templateCopy.label}. It is scored against this copy, not later template edits.</span>
+          ) : null}
         </EAlert>
       ) : null}
 

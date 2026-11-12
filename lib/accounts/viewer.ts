@@ -35,6 +35,7 @@ export function personCapabilities(viewer: AccountsViewer): PersonCapabilities {
     canWriteNotes: viewer.canWriteNotes,
     canUploadDocuments: viewer.canUploadDocuments,
     canResendInvite: viewer.canWriteNotes,
+    canManageLeave: viewer.canWriteNotes,
   };
 }
 

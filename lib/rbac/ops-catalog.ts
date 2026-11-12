@@ -405,6 +405,8 @@ const SETTINGS_TABS: Record<string, OpsFeature | "owner"> = {
   "invoice-numbering": "finance",
   // The monthly Insights email chooses who gets the business summary: ADMIN only.
   "insights-email": "owner",
+  // Required staff documents per role: read by the accounts screens (Wave E).
+  "required-documents": "accounts",
 };
 
 export type OpsRequestFeature = OpsFeature | "owner" | "unmapped" | null;

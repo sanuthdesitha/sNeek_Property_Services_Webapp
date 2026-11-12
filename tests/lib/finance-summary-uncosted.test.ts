@@ -11,7 +11,7 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db", () => {
-  const db = {
+  const db = { userPayRate: { findMany: async () => [] }, staffLeave: { findMany: async () => [] }, 
     quote: { findMany: async () => [] },
     job: { findMany: m.jobs },
     laundryTask: { findMany: async () => [] },

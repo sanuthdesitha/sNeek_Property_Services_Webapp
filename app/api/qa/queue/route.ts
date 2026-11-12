@@ -7,6 +7,7 @@ import { getAppSettings } from "@/lib/settings";
 import { effectiveOfferStatus } from "@/lib/qa/rework-offers";
 import { deriveReadiness } from "@/lib/qa/progress";
 import { qaAssignmentClaimableWhere, qaAssignmentOwnerWhere } from "@/lib/qa/ownership";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 const TZ = "Australia/Sydney";
@@ -173,10 +174,15 @@ export async function GET(req: NextRequest) {
     // status and best-effort persist any lapsed offer.
     const now = new Date();
     const lapsed: string[] = [];
+    // The inspector rate shown is the default in force on the job's day.
+    const inspectorRates = await loadPayRateBook(assignments.map((assignment) => assignment.assignedTo?.id ?? ""));
     const decorated = assignments.map((assignment) => {
       const effective = effectiveOfferStatus(assignment as any, now);
       if (effective === "EXPIRED" && assignment.reworkOfferStatus === "OFFERED") lapsed.push(assignment.id);
-      return { ...assignment, reworkOfferStatus: effective };
+      const assignedTo = assignment.assignedTo
+        ? { ...assignment.assignedTo, hourlyRate: inspectorRates.rateFor(assignment.assignedTo.id, assignment.job?.scheduledDate ?? null, assignment.assignedTo.hourlyRate) }
+        : assignment.assignedTo;
+      return { ...assignment, assignedTo, reworkOfferStatus: effective };
     });
     if (lapsed.length > 0) {
       await db.qaAssignment

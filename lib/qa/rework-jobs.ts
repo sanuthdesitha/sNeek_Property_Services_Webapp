@@ -284,7 +284,7 @@ export async function createReworkJobFromFailure(input: CreateReworkJobInput, tr
     where: {
       isRework: true,
       reworkOfJobId: input.originalJobId,
-      status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+      status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED, JobStatus.CANCELLED] },
     },
     select: { id: true },
   });

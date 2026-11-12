@@ -254,6 +254,10 @@ export async function generateClientInvoice(input: {
         : { AND: [{ OR: [{ status: { in: BILLABLE_JOB_STATUSES } }, { timeLogs: { some: {} } }] }] }),
       // Skipped cleans ("don't clean this turnover") are never billed.
       cleanSkipStatus: { not: "SKIPPED" },
+      // Cancelled jobs are never billed, even with time logged before the
+      // cancel (the started-work branches match any job with time). NOT, so it
+      // never replaces a status condition spread above.
+      NOT: { status: JobStatus.CANCELLED },
       ...(!input.startedWork && (input.periodStart || input.periodEnd)
         ? input.periodBasis === "SCHEDULED"
           ? {

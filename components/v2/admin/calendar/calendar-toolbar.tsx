@@ -153,8 +153,8 @@ export function CalendarToolbar(props: ToolbarProps) {
         {props.dragHint ? (
           <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
             {view === "day"
-              ? "Drag a job to another cleaner, or along the hours to change its time (on touch, press and hold first). Clashes and roster gaps are flagged before you confirm."
-              : "Drag a job to another day or cleaner (on touch, press and hold first). Clashes and roster gaps are flagged before you confirm."}
+              ? "Drag a job to another cleaner, or along the hours to change its time (on touch, press and hold first). Clashes, leave and roster gaps are flagged before you confirm."
+              : "Drag a job to another day or cleaner (on touch, press and hold first). Clashes, leave and roster gaps are flagged before you confirm."}
           </span>
         ) : (
           <span className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">Use a job&rsquo;s menu to move or reassign it.</span>

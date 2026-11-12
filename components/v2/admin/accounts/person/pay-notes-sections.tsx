@@ -1,58 +1,19 @@
 "use client";
 
 /**
- * Pay rate, office notes and payroll & identity, each edited in place.
- *  Pay rate         → PATCH /api/admin/users/[id]/pay { hourlyRate }  (ADMIN only)
+ * Office notes and payroll & identity, each edited in place.
  *  Office notes     → PUT   /api/admin/users/[id]/notes { notes }     (ADMIN, OPS_MANAGER)
  *  Payroll/identity → PATCH /api/admin/users/[id] extended fields     (ADMIN only)
- * There is no "Applies from" date: without an effective-dated rate table the
- * new rate applies from the moment it is saved, and the help text says so.
+ * The pay rate editor (with "Applies from" and history) is ./pay-section.
  */
 import { EField, EInput, ETextarea } from "@/components/v2/admin/estate-kit";
 import type { PersonCapabilities, PersonProfile } from "@/lib/accounts/person-types";
-import { formatRate } from "../hub/account-display";
 import { BankFields, EMPTY_BANK, type BankDraft } from "./bank-fields";
 import { EditableSection, FactList, ensureOk } from "./editable-section";
-import { RATE_HELP, RATE_RECALC_NOTE } from "./pay-copy";
+
+export { PaySection } from "./pay-section";
 
 type SectionProps = { profile: PersonProfile; caps: PersonCapabilities; onChanged: () => void };
-
-export function PaySection({ profile, caps, onChanged }: SectionProps) {
-  if (profile.role === "CLIENT" || profile.role === "VA") return null;
-  return (
-    <EditableSection<{ rate: string }>
-      title="Pay"
-      personId={profile.id}
-      canEdit={caps.isAdmin}
-      view={
-        <div className="space-y-1">
-          <FactList labelWidth={90} rows={[{ label: "Hourly rate", value: <span className="e-tnum">{formatRate(profile.hourlyRate) ?? "Not set"}</span> }]} />
-          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">Jobs already paid keep the amount they were paid. A rate saved on a job (at assignment or by job type) takes priority over this one.</p>
-        </div>
-      }
-      makeDraft={() => ({ rate: profile.hourlyRate === null ? "" : profile.hourlyRate.toFixed(2) })}
-      renderEdit={(draft, setDraft) => (
-        <>
-          <EField label="Hourly rate (AUD)" hint={RATE_HELP}>
-            <EInput inputMode="decimal" className="e-tnum" value={draft.rate} onChange={(e) => setDraft({ rate: e.target.value })} />
-          </EField>
-          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">{RATE_RECALC_NOTE}</p>
-        </>
-      )}
-      save={async (draft) => {
-        const value = Number(draft.rate);
-        if (draft.rate.trim() === "" || !Number.isFinite(value)) throw new Error("Enter the hourly rate as a number.");
-        const res = await fetch(`/api/admin/users/${profile.id}/pay`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hourlyRate: value }),
-        });
-        await ensureOk(res, "Could not change the rate.");
-      }}
-      onSaved={onChanged}
-    />
-  );
-}
 
 export function NotesSection({ profile, caps, onChanged }: SectionProps) {
   return (

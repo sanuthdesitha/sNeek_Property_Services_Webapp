@@ -80,7 +80,7 @@ export async function findNextAvailableSlot() {
       const count = await db.job.count({
         where: {
           scheduledDate: { gte: dayStart, lt: dayEnd },
-          status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+          status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED, JobStatus.CANCELLED] },
         },
       });
       if (count < limitPerDay) {

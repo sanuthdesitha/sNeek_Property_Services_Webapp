@@ -56,6 +56,9 @@ import { enqueueQaReportFollowup, processQaReportFollowups } from "@/lib/qa/repo
 import { applyJobRotationCompletion } from "@/lib/accountability/rotation";
 import { resolveQaTemplate } from "@/lib/qa/template-resolution";
 import { requireQaSubmitAssignment } from "@/lib/qa/submit-access";
+import type { Prisma } from "@prisma/client";
+import { loadPayRateBook } from "@/lib/accounts/pay-rate";
+import { exactTemplateCopy, templateCopyLabel } from "@/lib/qa/inspection-template";
 
 const QA_ROLES = [Role.QA_INSPECTOR, Role.OPS_MANAGER, Role.ADMIN] as const;
 
@@ -313,17 +316,23 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     });
 
     // The cleaners on the job roster — candidates for the rework transfer.
-    const cleanerCandidates = job.assignments
+    const rosterCandidates = job.assignments
       .map((a) => a.user)
       .filter((u): u is { id: string; name: string | null; email: string; hourlyRate: number | null } => Boolean(u));
 
     // The whole active cleaner roster — payee candidates for "Assign a
     // different cleaner", which must not be limited to who was on the job.
-    const reworkPayeeCandidates = await db.user.findMany({
+    const payeeRoster = await db.user.findMany({
       where: { isActive: true, ...holdsRoleWhere(Role.CLEANER) },
       select: { id: true, name: true, email: true, hourlyRate: true },
       orderBy: { name: "asc" },
     });
+    // The rate each candidate shows is the default in force on this job's day
+    // (effective-dated history), the same rate the pay code would use.
+    const candidateRates = await loadPayRateBook([...rosterCandidates, ...payeeRoster].map((u) => u.id));
+    const onJobDay = <T extends { id: string; hourlyRate: number | null }>(u: T): T => ({ ...u, hourlyRate: candidateRates.rateFor(u.id, job.scheduledDate, u.hourlyRate) });
+    const cleanerCandidates = rosterCandidates.map(onJobDay);
+    const reworkPayeeCandidates = payeeRoster.map(onJobDay);
 
     // Resolve previously-saved per-section QA photos (keys → presigned URLs) so
     // re-opening the QA job shows the existing thumbnails.
@@ -635,9 +644,26 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       amendingReviewId = null;
     }
 
+    // Amending a past inspection: show it on the template copy it was filled
+    // in on (Wave E), with that copy's provenance, not the edited template.
+    let shownTemplate: unknown = template;
+    let templateCopy: { label: string; source: string | null; revision: number | null } | null = null;
+    if (amendingReviewId) {
+      const stored = await db.qaFormSubmission.findFirst({
+        where: { qaReviewId: amendingReviewId, jobId: params.id },
+        orderBy: { createdAt: "desc" },
+        select: { templateSnapshot: true, templateSnapshotName: true, templateSnapshotSource: true, templateRevision: true },
+      }).catch(() => null);
+      if (stored?.templateSnapshot != null) {
+        shownTemplate = { ...template, schema: stored.templateSnapshot, name: stored.templateSnapshotName ?? template?.name };
+      }
+      if (stored) templateCopy = { label: templateCopyLabel(stored), source: stored.templateSnapshotSource, revision: stored.templateRevision };
+    }
+
     return NextResponse.json({
       job,
-      template,
+      template: shownTemplate,
+      templateCopy,
       assignment: assignment
         ? { ...assignment, reworkOfferStatus: effectiveOfferStatus(assignment as any) }
         : assignment,
@@ -688,7 +714,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       ? await resolveQaTemplate(params.id, true)
       : await db.qaFormTemplate.findUnique({ where: { id: body.templateId } });
     if (!template) return NextResponse.json({ error: "QA template not found." }, { status: 404 });
-    const deviceErrors = incompleteDeviceExceptions(template.schema, body.data);
+    // An amendment re-scores the inspection against the template copy it was
+    // filled in on (Wave E), never against a later edit of the template.
+    const amendedCopy = body.reopenedReviewId
+      ? await db.qaFormSubmission.findFirst({
+          where: { qaReviewId: body.reopenedReviewId, jobId: params.id },
+          orderBy: { createdAt: "desc" },
+          select: { templateSnapshot: true, templateSnapshotName: true, templateSnapshotSource: true, templateRevision: true },
+        })
+      : null;
+    const scoringSchema = (amendedCopy?.templateSnapshot ?? template.schema) as typeof template.schema;
+    const deviceErrors = incompleteDeviceExceptions(scoringSchema, body.data);
     if (deviceErrors.length) return NextResponse.json({ error: "Record a valid device status and a reason for each exception.", missingRequiredFields: deviceErrors }, { status: 400 });
 
     const job = await db.job.findUnique({
@@ -739,7 +775,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       driverAnswer: resolvePickupReadinessFromConfirmations(laundryTask?.confirmations),
     });
 
-    const result = scoreQaSubmission(template.schema as any, body.data, [
+    const result = scoreQaSubmission(scoringSchema as any, body.data, [
       ...noPhotoPenalties,
       ...laundryPenalties,
     ]);
@@ -1001,10 +1037,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
       const priorToolSubmission = amendReview ? await tx.qaFormSubmission.findFirst({ where: { qaReviewId: review.id }, orderBy: { createdAt: "desc" }, select: { data: true } }) : null;
       const priorTools = ((priorToolSubmission?.data as any)?.[QA_TOOLS_DATA_KEY] ?? {}) as { damage?: Array<{ id?: string }>; nextClean?: unknown[]; restock?: unknown[]; inventoryCount?: unknown[] };
+      // The template copy this inspection keeps: the amended inspection's own
+      // copy, else the template exactly as it is now.
+      const templateCopy = amendedCopy?.templateSnapshot != null
+        ? amendedCopy
+        : await exactTemplateCopy(tx, { id: template.id, name: template.name, schema: template.schema as Prisma.JsonValue });
       const submission = await tx.qaFormSubmission.create({
         data: {
           jobId: params.id,
           templateId: template.id,
+          templateSnapshot: (templateCopy.templateSnapshot ?? undefined) as any,
+          templateSnapshotName: templateCopy.templateSnapshotName,
+          templateSnapshotSource: templateCopy.templateSnapshotSource,
+          templateRevision: templateCopy.templateRevision,
           assignmentId: body.assignmentId || undefined,
           qaReviewId: review.id,
           submittedById: session.user.id,

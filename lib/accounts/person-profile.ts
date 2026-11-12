@@ -30,6 +30,12 @@ import { accountStatus, inviteAgeDays } from "@/lib/accounts/list/attention";
 import { listCleanerAvailabilities } from "@/lib/accounts/availability";
 import { buildPayrollIdentity } from "./person-payroll";
 import type { RawPersonProfile } from "./person-types";
+import { listPayRateHistory } from "./pay-rate-history";
+import { loadPayRateBook } from "./pay-rate";
+import { listPersonLeave } from "./leave";
+import { readRequiredDocuments } from "./required-documents-store";
+import { requiredCategoriesFor, requiredDocumentStatuses } from "./required-documents";
+import { sydneyTodayKey } from "@/lib/time/sydney-range";
 
 /** Roles an admin can "Test as" (the impersonation console's list; ADMIN and VA are absent). */
 export const TESTABLE_ROLES: readonly Role[] = [Role.CLEANER, Role.CLIENT, Role.QA_INSPECTOR, Role.LAUNDRY, Role.MAINTENANCE, Role.OPS_MANAGER];
@@ -73,8 +79,16 @@ export async function loadPersonProfile(userId: string, now: Date = new Date()):
     ? (user.vaTeam!.propertyIds as unknown[]).filter((v): v is string => typeof v === "string")
     : [];
 
+  const staff = user.role !== Role.CLIENT && user.role !== Role.VA;
+  const [rateHistory, leave, requirements] = await Promise.all([
+    staff ? listPayRateHistory(user.id, now) : Promise.resolve(null),
+    staff ? listPersonLeave(user.id, now) : Promise.resolve(null),
+    readRequiredDocuments(),
+  ]);
+  const rateBook = await loadPayRateBook([user.id]);
+  const currentRate = rateBook.rateFor(user.id, sydneyTodayKey(now), user.hourlyRate);
   const [summary, extended, perf, figures, documents, requests, extraRoles, settings, scopeProperties, availability] = await Promise.all([
-    getUserSummary(user.id, user.hourlyRate),
+    getUserSummary(user.id, currentRate),
     getUserExtendedProfile(user.id),
     isFieldRole ? getPerformanceMetrics(user.id, 30) : Promise.resolve(null),
     user.role === Role.CLEANER ? qualityFigures(user.id, now) : Promise.resolve(null),
@@ -125,7 +139,13 @@ export async function loadPersonProfile(userId: string, now: Date = new Date()):
     availability,
     location: { suburb: user.suburb, state: user.state, postcode: user.postcode, address: user.address },
     client: user.client,
-    hourlyRate: user.hourlyRate,
+    hourlyRate: currentRate,
+    payRateHistory: rateHistory,
+    leave,
+    requiredDocuments: staff
+      ? requiredDocumentStatuses(requiredCategoriesFor(requirements, [user.role, ...extraRoles.map((row) => row.role)]), documents, sydneyTodayKey(now))
+      : [],
+    requiredDocumentsReadable: requirements.readable,
     extraRoles: extraRoles.map((row) => ({ role: row.role, label: ROLE_LABELS[row.role], grantedAt: row.grantedAt, grantedBy: row.grantedBy })),
     ownNotes: user.notes,
     adminNotes: user.adminNotes,

@@ -11,7 +11,7 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.auth }));
 vi.mock("@/lib/db", () => ({
-  db: { job: { findMany: m.jobs }, user: { findMany: m.users }, laundryTask: { findMany: m.laundry } },
+  db: { userPayRate: { findMany: async () => [] }, staffLeave: { findMany: async () => [] },  job: { findMany: m.jobs }, user: { findMany: m.users }, laundryTask: { findMany: m.laundry } },
 }));
 vi.mock("@/lib/accounts/availability", () => ({ listCleanerAvailabilities: m.availability }));
 

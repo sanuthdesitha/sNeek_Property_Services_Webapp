@@ -23,7 +23,8 @@ type Ping = { userId: string; lat: number; lng: number; timestamp: Date };
 
 async function loadTodayJobs(todayKey: string) {
   const jobs = await db.job.findMany({
-    where: { scheduledDate: { gte: new Date(`${todayKey}T00:00:00.000Z`), lt: new Date(`${addDaysToKey(todayKey, 1)}T00:00:00.000Z`) } },
+    // Cancelled jobs are not live work (Wave E).
+    where: { scheduledDate: { gte: new Date(`${todayKey}T00:00:00.000Z`), lt: new Date(`${addDaysToKey(todayKey, 1)}T00:00:00.000Z`) }, status: { not: JobStatus.CANCELLED } },
     orderBy: [{ startTime: "asc" }],
     select: {
       id: true, jobNumber: true, jobType: true, propertyId: true, formTemplateId: true, status: true, startTime: true, dueTime: true,

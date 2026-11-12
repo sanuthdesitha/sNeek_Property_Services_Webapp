@@ -114,6 +114,9 @@ export async function updateHourlyRate(
       where: { userId, removedAt: null },
       select: { id: true, userId: true, hourlyRate: true, effectiveFrom: true, createdAt: true },
     });
+    if (active.length === 0 && existing.hourlyRate === after) {
+      return { id: userId, before: after, after, appliesFrom, changed: false, entryId: null, replacedEntryId: null };
+    }
     if (active.length === 0 && existing.hourlyRate !== null) {
       const baseline = await tx.userPayRate.create({
         data: { userId, hourlyRate: existing.hourlyRate, effectiveFrom: dateOnly(BASELINE_EFFECTIVE_FROM), source: "BACKFILL", createdById: null },

@@ -34,6 +34,8 @@ export type JobsWhereParams = {
 export type JobsWhere = Record<string, unknown>;
 
 const COMPLETED_STATUSES: JobStatus[] = [JobStatus.COMPLETED, JobStatus.INVOICED];
+/** Not open work: finished, invoiced or cancelled (the "active" group leaves these out). */
+const CLOSED_STATUSES: JobStatus[] = [...COMPLETED_STATUSES, JobStatus.CANCELLED];
 const ALL_STATUSES = new Set<string>(Object.values(JobStatus));
 
 /** The most selected ids one request may carry. */
@@ -83,9 +85,12 @@ export function buildJobsWhere(params: JobsWhereParams): JobsWhere {
   if (explicitStatus !== undefined) {
     where.status = explicitStatus;
   } else if (params.statusGroup === "active") {
-    where.status = { notIn: COMPLETED_STATUSES };
+    where.status = { notIn: CLOSED_STATUSES };
   } else if (params.statusGroup === "completed") {
     where.status = { in: COMPLETED_STATUSES };
+  } else {
+    // Cancelled jobs appear only when the Status filter asks for them.
+    where.status = { not: JobStatus.CANCELLED };
   }
 
   if (params.jobType) where.jobType = params.jobType;

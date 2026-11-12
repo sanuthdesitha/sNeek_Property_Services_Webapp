@@ -371,7 +371,7 @@ export async function assembleCleanerBriefing(input: {
   // Sum this cleaner's pay across a set of jobs (reuses the canonical pay math).
   // The cleaner's default rate in force on each job's day (effective-dated history).
   const rateBook = await loadPayRateBook([cleanerId]).catch(() => null);
-  const rateOn = (date: Date) => (rateBook ? rateBook.rateFor(cleanerId, date, cleanerUser?.hourlyRate ?? null) : null);
+  const rateOn = (date: Date | string) => (rateBook ? rateBook.rateFor(cleanerId, date, cleanerUser?.hourlyRate ?? null) : null);
   type PayJob = {
     jobType: string;
     scheduledDate: Date;
@@ -547,7 +547,7 @@ export async function assembleCleanerBriefing(input: {
         const meta = metaById.get(j.id);
         const pay = computeCleanerPay(
           { jobType: j.jobType as any, estimatedHours: j.estimatedHours },
-          { payRate: mine?.payRate ?? null, userHourlyRate: rateOn(dayStart) },
+          { payRate: mine?.payRate ?? null, userHourlyRate: rateOn(dayKey) },
           { cleanerJobHourlyRates: settings.cleanerJobHourlyRates },
           {
             cleanerId,

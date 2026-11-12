@@ -14,9 +14,10 @@ import { EPill } from "@/components/v2/ui/pill";
 import { EField, EInput, ESelect } from "@/components/v2/admin/estate-kit";
 import type { PersonCapabilities, PersonProfile } from "@/lib/accounts/person-types";
 import { formatDate } from "../hub/account-display";
+import { STAFF_DOCUMENT_CATEGORIES } from "@/lib/accounts/required-documents";
 
 // The same categories the Compliance board offers.
-const CATEGORIES = ["POLICE_CHECK", "DRIVER_LICENCE", "COMPLIANCE", "TRAINING", "INSURANCE", "WORKING_RIGHTS", "OTHER"] as const;
+const CATEGORIES = STAFF_DOCUMENT_CATEGORIES;
 
 type UploadDraft = { title: string; category: string; expiresAt: string; requestId: string; file: File | null };
 const EMPTY_UPLOAD: UploadDraft = { title: "", category: "COMPLIANCE", expiresAt: "", requestId: "", file: null };
@@ -99,10 +100,33 @@ function UploadForm({ profile, onDone }: { profile: PersonProfile; onDone: () =>
   );
 }
 
+/** Each required type for this person's roles: present / expiring / expired / missing. */
+function RequiredDocuments({ profile }: { profile: PersonProfile }) {
+  if (!profile.requiredDocumentsReadable) {
+    return <p role="alert" className="text-[hsl(var(--e-danger))]">The required documents setting could not be read, so nothing here is checked against it. Fix it in Settings → Required documents.</p>;
+  }
+  if (profile.requiredDocuments.length === 0) return null;
+  return (
+    <ul aria-label="Required documents" className="space-y-1.5 border-b border-[hsl(var(--e-border))] pb-2.5">
+      {profile.requiredDocuments.map((item) => (
+        <li key={item.category} className="flex flex-wrap items-center gap-2">
+          <span className="min-w-0 flex-1 truncate">{item.label} <span className="text-[hsl(var(--e-muted-foreground))]">· required</span></span>
+          {item.expiresOn ? <span className="text-[hsl(var(--e-muted-foreground))]">{formatDate(item.expiresOn)}</span> : null}
+          {item.state === "MISSING" ? <EPill tone="bad">Missing</EPill>
+            : item.state === "EXPIRED" ? <EPill tone="bad">Expired</EPill>
+            : item.state === "EXPIRING" ? <EPill tone="warn">{item.daysRemaining === 0 ? "Expires today" : `${item.daysRemaining} d left`}</EPill>
+            : <EPill tone="ok">On file</EPill>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function DocumentsSection({ profile, caps, onChanged }: { profile: PersonProfile; caps: PersonCapabilities; onChanged: () => void }) {
   return (
     <section aria-label="Documents and compliance" className="flex flex-col gap-2.5 rounded-[10px] border border-[hsl(var(--e-border))] px-3 py-2.5 text-[0.8125rem]">
       <h3 className="text-[0.65625rem] font-[600] uppercase tracking-[0.1em] text-[hsl(var(--e-gold-ink))]">Documents &amp; compliance</h3>
+      <RequiredDocuments profile={profile} />
       {profile.credentials.length > 0 ? (
         <ul aria-label="Credentials" className="space-y-1.5 border-b border-[hsl(var(--e-border))] pb-2.5">
           {profile.credentials.map((c) => (

@@ -81,7 +81,8 @@ describe("Jobs server refinements", () => {
 
   it.each(["", "all", "unknown"])("does not add invoice constraints for %s", async invoiced => {
     await request(`paginated=1&invoiced=${invoiced}&search=%20%20`);
-    expect(mocks.count.mock.calls[0][0].where).toEqual({});
+    // Wave E: with no status asked for, cancelled jobs are left out.
+    expect(mocks.count.mock.calls[0][0].where).toEqual({ status: { not: "CANCELLED" } });
   });
 
   it("bounds and trims search and escapes LIKE metacharacters", async () => {
@@ -98,7 +99,7 @@ describe("Jobs server refinements", () => {
     expect(mocks.count).not.toHaveBeenCalled();
     const args = mocks.find.mock.calls[0][0];
     expect(args.where).toMatchObject({ assignments: { some: { userId: "self", removedAt: null } },
-      cleanSkipStatus: { not: "SKIPPED" }, status: { notIn: ["COMPLETED", "INVOICED"] } });
+      cleanSkipStatus: { not: "SKIPPED" }, status: { notIn: ["COMPLETED", "INVOICED", "CANCELLED"] } });
     expect(args.where.OR).toHaveLength(5);
     expect(args.where.AND).toHaveLength(1);
     expect(args).not.toHaveProperty("take");

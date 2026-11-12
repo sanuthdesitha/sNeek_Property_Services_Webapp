@@ -16,7 +16,9 @@ import "server-only";
 import { Prisma, type QaFormTemplate } from "@prisma/client";
 import { db } from "@/lib/db";
 
-export const QA_REVISION_ACTION = "QA_TEMPLATE_REVISION";
+import { QA_REVISION_ACTION } from "./template-admin-constants";
+
+export { QA_REVISION_ACTION };
 
 export class QaTemplateNotFoundError extends Error {
   constructor() {

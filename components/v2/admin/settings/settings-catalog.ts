@@ -228,6 +228,13 @@ export const SETTINGS_DESTINATIONS = [
     adminOnly: true,
   },
   {
+    key: "required-documents",
+    label: "Required documents",
+    description: "Which staff documents each role must have on file. Nothing is required until you choose.",
+    group: "access",
+    adminOnly: false,
+  },
+  {
     key: "profile-permissions",
     label: "Profile permissions",
     description: "Who can edit names, phone numbers and email addresses.",

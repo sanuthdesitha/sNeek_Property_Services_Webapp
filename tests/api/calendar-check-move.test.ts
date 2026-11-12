@@ -17,6 +17,7 @@ vi.mock("@/lib/db", () => ({
     job: { findUnique: m.job },
     user: { findFirst: m.userFirst, findMany: m.users },
     jobAssignment: { findMany: m.sameDay },
+    staffLeave: { findMany: async () => [] },
     $transaction: vi.fn(() => { throw new Error("no writes expected in this test"); }),
   },
 }));
@@ -147,12 +148,13 @@ describe("check-move with a time change (Day view drop, Jobs bulk shift)", () =>
     expect(body.warnings).toContainEqual({ kind: "clash", text: "Jane C.: Clashes with Coogee Terrace until 17:00" });
   });
 
-  it("shifts by whole minutes for a bulk reschedule and refuses a job with a separate end time", async () => {
+  it("shifts by whole minutes for a bulk reschedule and moves a separate end time with the start (Wave E)", async () => {
     const shifted = await (await check({ jobId: "j1", toDate: "2026-11-12", shiftMinutes: -60 })).json();
     expect(shifted.plan.reschedule).toMatchObject({ date: "2026-11-12", startTime: "09:00", dueTime: "13:00" });
     job = fixture({ endTime: "13:00" });
-    const refused = await (await check({ jobId: "j1", toDate: "2026-11-11", toStartTime: "11:00" })).json();
-    expect(refused.blockers.join(" ")).toMatch(/separate end time/);
-    expect(refused.plan.reschedule).toBeNull();
+    const moved = await (await check({ jobId: "j1", toDate: "2026-11-11", toStartTime: "11:00" })).json();
+    expect(moved.blockers).toEqual([]);
+    expect(moved.plan.reschedule).toMatchObject({ startTime: "11:00", dueTime: "15:00", endTime: "14:00" });
+    expect(moved.time).toMatchObject({ fromEnd: "13:00", toEnd: "14:00" });
   });
 });

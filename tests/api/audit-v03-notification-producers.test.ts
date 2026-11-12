@@ -7,7 +7,7 @@ const m = vi.hoisted(() => ({
  settings: vi.fn(), apply: vi.fn(), approval: vi.fn(), continuationGet: vi.fn(), continuationDecide: vi.fn(), continuationCreate: vi.fn(), earlyList: vi.fn(), earlyDecide: vi.fn(), email: vi.fn(), sms: vi.fn(), push: vi.fn(), lifecycle: vi.fn(), history: vi.fn(),
 }));
 vi.mock("@/lib/auth/session", () => ({ requireRole: m.auth }));
-vi.mock("@/lib/db", () => ({ db: {
+vi.mock("@/lib/db", () => ({ db: { userPayRate: { findMany: async () => [] }, staffLeave: { findMany: async () => [] }, 
  job: { findUnique: m.job, findMany: m.jobs, update: m.jobUpdate }, user: { findFirst: m.user, findMany: m.users }, client: { findUnique: m.client },
  jobAssignment: { findFirst: m.assignment, findMany: m.assignments, upsert: m.upsert }, timeLog: { findUnique: m.log, findMany: m.logs, findFirst: vi.fn(), update: m.logUpdate }, cleanerPayAdjustment: { create: m.adjustment },
  notification: { create: m.notice, createMany: m.notices }, auditLog: { create: m.audit }, $transaction: m.transaction, report: { findUnique: m.report },

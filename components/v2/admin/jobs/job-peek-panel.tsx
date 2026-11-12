@@ -4,10 +4,12 @@
  * The Jobs peek panel (`?open=<jobId>`): status, "Open full job", the job's
  * title line, Summary | People | Money | Activity loaded on demand, suggested
  * cleaners for an unassigned job, and links into the job's existing flows.
- * Rescheduling, client messages and skipping (the app's cancellation) stay on
- * the job detail page; these buttons open the tab that owns each flow.
+ * Rescheduling and client messages stay on the job detail page; these buttons
+ * open the tab that owns each flow. "Cancel job" opens the cancel dialog
+ * (reason required, server rules); a cancelled job shows Restore instead.
  */
 import Link from "next/link";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { ESidePanel } from "@/components/v2/ui/side-panel";
 import { EButton } from "@/components/v2/ui/primitives";
@@ -16,6 +18,8 @@ import { JobStatusPill, jobTypeLabel, scheduledLabel, timeWindowLabel } from "./
 import type { JobListRow } from "./jobs-query";
 import { PeekActivity, PeekMoney, PeekPeople, PeekSuggestions, PeekSummaryList, SectionState } from "./peek-sections";
 import { PEEK_TABS, useJobPeek } from "./use-job-peek";
+import { CancelJobDialog } from "./cancel-job-dialog";
+import { RestoreJobControl } from "./restore-job-control";
 
 type PeekPanelProps = {
   jobId: string | null;
@@ -29,6 +33,7 @@ type PeekPanelProps = {
 
 export function JobPeekPanel({ jobId, row, readOnly, onClose, onChanged }: PeekPanelProps) {
   const peek = useJobPeek(jobId);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const summary = peek.summary.status === "success" && peek.summary.data?.id === jobId ? peek.summary.data : null;
   const title = summary?.property.name ?? row?.property?.name ?? "Job";
   const status = summary?.status ?? row?.status ?? null;
@@ -94,16 +99,20 @@ export function JobPeekPanel({ jobId, row, readOnly, onClose, onChanged }: PeekP
       )}
 
       <div className="h-px bg-[hsl(var(--e-border))]" />
-      <div className="flex flex-wrap gap-2">
-        <EButton asChild size="sm" variant="outline"><Link href={jobDetailTabHref(jobId, "schedule")}>Reschedule</Link></EButton>
-        <EButton asChild size="sm" variant="outline"><Link href={`${jobDetailTabHref(jobId, "messages")}#chat`}>Message client</Link></EButton>
-        <EButton asChild size="sm" variant="outline" className="text-[hsl(var(--e-danger))]">
-          <Link href={jobDetailTabHref(jobId, "schedule")} aria-describedby="peek-cancel-hint">Cancel job</Link>
-        </EButton>
-      </div>
-      <p id="peek-cancel-hint" className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-        Cancelling uses &ldquo;Skip this clean&rdquo; on the job&rsquo;s Schedule tab, with its own confirmation.
-      </p>
+      {status === "CANCELLED" ? (
+        <RestoreJobControl jobId={jobId} readOnly={readOnly} onRestored={() => { peek.reloadSummary(); onChanged(); }} />
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <EButton asChild size="sm" variant="outline"><Link href={jobDetailTabHref(jobId, "schedule")}>Reschedule</Link></EButton>
+          <EButton asChild size="sm" variant="outline"><Link href={`${jobDetailTabHref(jobId, "messages")}#chat`}>Message client</Link></EButton>
+          <EButton size="sm" variant="outline" className="border-[hsl(var(--e-danger)/0.35)] text-[hsl(var(--e-danger))]" disabled={readOnly || status === "INVOICED"}
+            title={status === "INVOICED" ? "Invoiced jobs cannot be cancelled." : undefined} onClick={() => setCancelOpen(true)}>
+            Cancel job
+          </EButton>
+        </div>
+      )}
+      <CancelJobDialog open={cancelOpen} jobIds={[jobId]} label={subtitle ? `${title} · ${subtitle}` : title}
+        onClose={() => setCancelOpen(false)} onDone={() => { peek.reloadSummary(); onChanged(); }} />
     </ESidePanel>
   );
 }

@@ -35,10 +35,21 @@ describe("plannedTimeChange: the job keeps its length", () => {
   });
 
   it("refuses what the reschedule service cannot write or what would leave the day", () => {
-    expect(plannedTimeChange({ ...job, endTime: "13:00" }, { toStartTime: "11:00" })).toMatchObject({ kind: "refused", reason: expect.stringMatching(/separate end time \(13:00\)/) });
     expect(plannedTimeChange({ startTime: null, dueTime: null, endTime: null }, { shiftMinutes: 30 })).toMatchObject({ kind: "refused", reason: expect.stringMatching(/no start time to shift/) });
     expect(plannedTimeChange(job, { toStartTime: "21:00" })).toMatchObject({ kind: "refused", reason: expect.stringMatching(/after midnight/) });
     expect(plannedTimeChange(job, { shiftMinutes: -11 * 60 })).toMatchObject({ kind: "refused", reason: expect.stringMatching(/another day/) });
+  });
+});
+
+describe("plannedTimeChange: a job with a separate end time (Wave E)", () => {
+  const job = { startTime: "10:00", dueTime: "14:00", endTime: "13:00" };
+  it("moves start, due and end together, keeping the duration", () => {
+    expect(plannedTimeChange(job, { toStartTime: "11:00" })).toEqual({ kind: "change", startTime: "11:00", dueTime: "15:00", endTime: "14:00" });
+    expect(plannedTimeChange({ ...job, dueTime: null }, { shiftMinutes: -30 })).toEqual({ kind: "change", startTime: "09:30", dueTime: null, endTime: "12:30" });
+  });
+  it("refuses when the end would pass midnight or the job has an end but no start", () => {
+    expect(plannedTimeChange({ startTime: "10:00", dueTime: null, endTime: "20:00" }, { toStartTime: "15:00" })).toMatchObject({ kind: "refused", reason: expect.stringMatching(/after midnight/) });
+    expect(plannedTimeChange({ startTime: null, dueTime: null, endTime: "13:00" }, { toStartTime: "11:00" })).toMatchObject({ kind: "refused", reason: expect.stringMatching(/no start time/) });
   });
 });
 

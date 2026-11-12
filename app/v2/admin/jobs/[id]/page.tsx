@@ -64,6 +64,7 @@ import { FormsQaCentre } from "@/components/v2/admin/jobs/forms-qa-centre";
 import { TaskEvidence } from "@/components/v2/admin/jobs/task-evidence";
 import { JobReminderButton } from "@/components/v2/admin/jobs/job-reminder-button";
 import { isLiveInvoiceLine } from "@/lib/jobs/invoiced-rule";
+import { JobCancelButton, JobCancelledNotice } from "@/components/v2/admin/jobs/job-cancel-section";
 
 export const metadata = { title: "Job · Estate admin" };
 export const dynamic = "force-dynamic";
@@ -176,6 +177,7 @@ async function getJob(id: string) {
         updatedAt: true,
         jobType: true,
         status: true,
+        cancelReason: true,
         scheduledDate: true,
         startTime: true,
         dueTime: true,
@@ -872,6 +874,8 @@ export default async function AdminJobDetailPage({
           </div>
         }
       />
+
+      {job.status === "CANCELLED" ? <JobCancelledNotice jobId={job.id} cancelReason={job.cancelReason} /> : null}
 
       <ETabs items={tabItems} active={tab} hrefFor={tabHref} ariaLabel="Job sections" />
 
@@ -1793,6 +1797,17 @@ export default async function AdminJobDetailPage({
       ) : null}
 
       {/* ── Danger ───────────────────────────────────────────────────────── */}
+      {tab === "danger" && job.status !== "CANCELLED" ? (
+        <ECard>
+          <ECardHeader className="pb-2">
+            <ECardTitle className="text-[0.95rem]">Cancel this job</ECardTitle>
+          </ECardHeader>
+          <ECardBody className="pt-0">
+            <JobCancelButton jobId={job.id} status={job.status} label={`${propLabel} · ${scheduledLabel}`} />
+          </ECardBody>
+        </ECard>
+      ) : null}
+
       {tab === "danger" ? (
         <ECard>
           <ECardHeader className="pb-2">

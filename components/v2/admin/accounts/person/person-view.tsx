@@ -15,7 +15,9 @@ import type { PersonCapabilities, PersonProfile } from "@/lib/accounts/person-ty
 import { AccessSection, ContactSection } from "./contact-access-sections";
 import { ActivitySection } from "./activity-section";
 import { DocumentsSection } from "./documents-section";
-import { NotesSection, PayrollIdentitySection, PaySection } from "./pay-notes-sections";
+import { NotesSection, PayrollIdentitySection } from "./pay-notes-sections";
+import { PayHistorySection, PaySection } from "./pay-section";
+import { LeaveSection } from "./leave-section";
 import { PayAndTime, RecentJobs, Recognition, VaAccess, WorkKpis } from "./work-sections";
 
 export const PERSON_TABS = ["profile", "work", "pay", "documents", "activity"] as const;
@@ -41,14 +43,16 @@ function TabBody({ tab, profile, caps, onChanged }: ViewProps & { tab: PersonTab
       return (
         <>
           <WorkKpis profile={profile} />
+          <LeaveSection {...props} />
           <RecentJobs profile={profile} />
           <Recognition profile={profile} />
         </>
       );
     case "pay":
+      // The rate is edited once, on Profile (as drawn); this tab shows its history.
       return (
         <>
-          <PaySection {...props} />
+          <PayHistorySection {...props} />
           <PayAndTime profile={profile} />
           <PayrollIdentitySection {...props} />
         </>
@@ -110,6 +114,7 @@ export function PersonPageView({ profile, caps, onChanged }: ViewProps) {
     <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
       <div className="flex min-w-0 flex-col gap-3">
         <WorkKpis profile={profile} />
+        <LeaveSection {...props} />
         <RecentJobs profile={profile} />
         <PayAndTime profile={profile} />
         <DocumentsSection {...props} />
@@ -119,6 +124,7 @@ export function PersonPageView({ profile, caps, onChanged }: ViewProps) {
         <ContactSection {...props} />
         <AccessSection {...props} />
         <PaySection {...props} />
+        <PayHistorySection {...props} />
         <PayrollIdentitySection {...props} />
         <NotesSection {...props} />
         <Recognition profile={profile} />

@@ -11,7 +11,7 @@ import { EButton } from "@/components/v2/ui/primitives";
 import { BulkStatusPreviewControls } from "./bulk-status-preview";
 import { JobDialog } from "./job-dialog";
 import { statusLabel } from "./job-row";
-import { ALL_JOB_STATUSES } from "./jobs-constants";
+import { STATUS_CHANGE_TARGETS } from "./jobs-constants";
 
 export type StatusChangeRequest = {
   jobIds: string[];
@@ -30,11 +30,11 @@ type StatusDialogProps = {
 };
 
 export function JobStatusDialog({ request, viewsContext, readOnly, onClose, onApplied }: StatusDialogProps) {
-  const statuses = request?.statuses ?? ALL_JOB_STATUSES;
+  const statuses = request?.statuses ?? STATUS_CHANGE_TARGETS;
   const [status, setStatus] = useState<string>(statuses[0] ?? "ASSIGNED");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    setStatus((request?.statuses ?? ALL_JOB_STATUSES)[0] ?? "ASSIGNED");
+    setStatus((request?.statuses ?? STATUS_CHANGE_TARGETS)[0] ?? "ASSIGNED");
   }, [request]);
   const count = request?.jobIds.length ?? 0;
 

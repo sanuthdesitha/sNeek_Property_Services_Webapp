@@ -9,6 +9,8 @@ export const REMINDABLE_JOB_STATUSES = [JobStatus.PAUSED, JobStatus.IN_PROGRESS,
 
 /** Every JobStatus, in workflow order, for the Status filter and bulk change. */
 export const ALL_JOB_STATUSES: readonly JobStatus[] = Object.values(JobStatus);
+/** Statuses a plain status change may set: Cancelled has its own flow (Cancel job / Restore). */
+export const STATUS_CHANGE_TARGETS: readonly JobStatus[] = ALL_JOB_STATUSES.filter((status) => status !== JobStatus.CANCELLED);
 
 export const JOB_TYPE_VALUES: readonly JobType[] = Object.values(JobType);
 

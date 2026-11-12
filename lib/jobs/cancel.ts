@@ -133,6 +133,8 @@ export async function cancelJob(jobId: string, input: { reason: string; expected
       },
     });
     const followUps: string[] = [];
+    const openTasks = await tx.jobTask.count({ where: { jobId, executionStatus: "OPEN" } });
+    if (openTasks > 0) followUps.push(`${openTasks} open task${openTasks === 1 ? " is" : "s are"} on this job and stay${openTasks === 1 ? "s" : ""} with it. Move ${openTasks === 1 ? "it" : "them"} to another job if the work is still wanted.`);
     if (job.laundryTask) followUps.push(`This job has a laundry task (${String(job.laundryTask.status).toLowerCase().replace(/_/g, " ")}). Review it on the Laundry page; it was not changed.`);
     followUps.push("The client is not told automatically. Use the job's Messages tab if they should know.");
     return {

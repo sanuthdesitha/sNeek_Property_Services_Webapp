@@ -466,6 +466,28 @@ Waves (one wave holds the database at a time):
 > - [x] Remaining visual differences on Cases, Laundry, Command, Live ops, Lost and found closed or listed (SYSTEM.md section).
 > - [ ] Schema step: Accounts (effective-dated pay rate, required documents, Last seen for everyone, one Pay editor), Cancel job, leave and days off, "Add charge to invoice" from a case, laundry pickup/drop clock times, QA inspection template snapshot.
 
+> **Wave E, database part for People, Jobs, Calendar and Quality, built 2026-11-12 (uncommitted step; build, full suite and browser pass pending).** Migration `20261112120000_wave_e_people_jobs`. Details: `docs/SYSTEM.md`, "Wave E with the database"; verification and the job-status audit: review record.
+> - [x] Accounts: pay rate with "Applies from" (`UserPayRate`, one resolver on the job's day for every pay path, never backdated, scheduled rate removable before it starts, snapshots and paid amounts untouched); rate history in the Pay tab.
+> - [x] Accounts: one Pay editor (Profile section; the Pay tab shows history; classic page links to it; job-type rates linked to Settings → Rates).
+> - [x] Accounts: required documents per role (Settings → Access → Required documents, empty by default; Documents states; "N missing" and "Complete" in the list).
+> - [x] Accounts: "Last seen" for every signed-in person (live session guard, actual actor only, at most once per 5 minutes; "Never signed in" / "Not recorded yet").
+> - [x] Calendar / Jobs: leave and days off (`StaffLeave`) managed in the person panel; calendar lane "Leave" / "Day off", suggestions, move checks, restore and assign routes treat it as unavailable with the reason; assigning anyway needs `confirmLeaveConflict`.
+> - [x] Jobs: a real Cancel job (`CANCELLED`, reason, who/when, rules, refusals, released assignments, inbox notice, Restore, history) in the row menu, peek panel, bulk bar and job page; exclusions audited.
+> - [x] Calendar: a day-view drop keeps the duration of a job with a separate end time (start, due and end move together through the move check and `applyReschedule`).
+> - [x] Quality (eighth set, item 2): QA inspections keep a copy of their template (exact for new ones; backfilled ones marked "Template copy reconstructed").
+> - [x] Remaining differences on People, Jobs, Calendar and Quality closed or listed (SYSTEM.md section; Calendar hint now names leave; peek "Cancel job" drawn as a danger outline).
+>
+> Waiting for the owner (from this step):
+>
+> | Item | Question |
+> | --- | --- |
+> | A rate cannot be backdated | Allow a backdated rate for unpaid jobs (e.g. a cleaner whose rate was never set)? Today it applies from today or later only. |
+> | Cancelling a started job pays nothing for the time already worked | Pay part of a cancelled started job automatically, or keep it to a manual pay adjustment? |
+> | No client notice on cancel | Send the client a cancellation notice (needs a client scope and wording)? |
+> | Laundry task on a cancelled job is left as it is (reported) | Cancel the laundry run automatically? |
+> | Operations managers can cancel unstarted jobs and restore with their Jobs pack | Keep, or ADMIN only? |
+> | Workforce performance pages still print the stored rate | Switch them to the rate in force today too? |
+
 ### Wave F: Urgent stock (holds the database after Wave E)
 - The fifth-set items: "Add to shopping run", "Ask cleaner to buy", the job on a need, and the drawn tab names.
 

@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { QA_TOOLS_DATA_KEY, type QaInspectionTools } from "@/lib/qa/inspection-tools";
 import { normalizeQaPhotoRefs, displayKeyFor } from "@/lib/qa/annotation-composite";
+import { inspectionTemplateSchema, templateCopyLabel } from "@/lib/qa/inspection-template";
 
 /**
  * The Quality Inspection Report.
@@ -236,7 +237,9 @@ export async function buildQaReportHtml(
     (settings?.accountability?.issueCategories ?? []).map((c) => [c.key, c.label])
   );
 
-  const templateSchema: any = submission?.template?.schema ?? null;
+  // The template copy the inspection was filled in on (Wave E); a later edit
+  // of the template never changes how a past inspection reads.
+  const templateSchema: any = submission ? inspectionTemplateSchema(submission) : null;
   const answers: Record<string, unknown> =
     submission?.data && typeof submission.data === "object" ? (submission.data as Record<string, unknown>) : {};
   const categoryScores: Record<string, number> =
@@ -348,6 +351,11 @@ export async function buildQaReportHtml(
       </div>`;
     })
     .join("");
+
+  // Say when the template copy is not exact (backfilled older inspections).
+  const templateCopyNote = submission && submission.templateSnapshotSource !== "EXACT"
+    ? `<p class="qa-muted">${escapeHtml(templateCopyLabel(submission))}</p>`
+    : "";
 
   // ── Per-section checklist results ─────────────────────────────────────────
   const sectionsHtml = (Array.isArray(templateSchema?.sections) ? templateSchema.sections : [])
@@ -642,7 +650,7 @@ export async function buildQaReportHtml(
 
   ${
     submission
-      ? `<h2>Checklist results</h2>${sectionsHtml || `<p class="qa-muted">No QA checklist captured.</p>`}`
+      ? `<h2>Checklist results</h2>${templateCopyNote}${sectionsHtml || `<p class="qa-muted">No QA checklist captured.</p>`}`
       : `<p class="qa-muted">No QA submission recorded for this job yet.</p>`
   }
 

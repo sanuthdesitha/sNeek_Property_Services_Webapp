@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/db", () => ({
-  db: {
+  db: { userPayRate: { findMany: async () => [] }, staffLeave: { findMany: async () => [] }, 
     job: { findMany: mocks.jobs },
     user: { findUnique: mocks.user },
     jobTask: { findMany: mocks.tasks },
@@ -242,7 +242,8 @@ describe("assembleCleanerBriefing wave18 audience projection", () => {
     expect(baseQuery.where).toEqual({
       assignments: { some: { userId: cleanerId, removedAt: null, responseStatus: JobAssignmentResponseStatus.ACCEPTED } },
       scheduledDate: { gte: new Date(start), lte: new Date(end) },
-      status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED] },
+      // Wave E: cancelled jobs are never on a cleaner's day.
+      status: { notIn: [JobStatus.COMPLETED, JobStatus.INVOICED, JobStatus.CANCELLED] },
     });
     expect(baseQuery.select).toMatchObject({
       id: true,

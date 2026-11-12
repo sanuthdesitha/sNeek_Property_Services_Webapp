@@ -21,6 +21,13 @@ const m = vi.hoisted(() => {
     },
     session: { deleteMany: vi.fn() },
     auditLog: { create: vi.fn() },
+    // Effective-dated rate history (Wave E): the change writes a history row.
+    $queryRaw: vi.fn(async () => []),
+    userPayRate: {
+      findMany: vi.fn(async () => []),
+      create: vi.fn(async ({ data }: { data: { userId: string; hourlyRate: number; effectiveFrom: Date } }) => ({ id: `rate-${data.userId}`, createdAt: new Date(), ...data })),
+      update: vi.fn(),
+    },
   };
   return { users, tx, requireRole: vi.fn(), issueSignupOtp: vi.fn() };
 });

@@ -80,11 +80,11 @@ describe("Jobs workspace URL integration", () => {
     expect(screen.getByRole("button", { name: "Clear filters" })).toBeDisabled();
   });
 
-  it("filters on any combination of the eleven statuses", async () => {
+  it("filters on any combination of the twelve statuses (Cancelled included, Wave E)", async () => {
     render(<JobsWorkspace />);
     fireEvent.click(screen.getByRole("button", { name: /^Status/ }));
     const group = screen.getByRole("group", { name: "Status filter" });
-    expect(within(group).getAllByRole("checkbox")).toHaveLength(11);
+    expect(within(group).getAllByRole("checkbox")).toHaveLength(12);
     fireEvent.click(within(group).getByRole("checkbox", { name: "Waiting approval" }));
     fireEvent.click(within(group).getByRole("checkbox", { name: "Unassigned" }));
     expect(readJobsState(new URLSearchParams(window.location.search)).statusChip).toBe("UNASSIGNED,WAITING_CONTINUATION_APPROVAL");

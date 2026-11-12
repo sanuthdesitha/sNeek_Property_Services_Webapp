@@ -51,6 +51,8 @@ export async function buildSlaHeatmap(input?: {
   const jobs = await db.job.findMany({
     where: {
       scheduledDate: { gte: start, lte: end },
+      // Cancelled jobs are not capacity (Wave E).
+      status: { not: JobStatus.CANCELLED },
       ...(Array.isArray(propertyIds) ? { propertyId: { in: propertyIds } } : {}),
     },
     select: {
@@ -306,6 +308,7 @@ export async function suggestReschedulePlan(jobId: string, options?: { daysAhead
           lte: new Date(`${dateKey}T23:59:59.999Z`),
         },
         id: { not: job.id },
+        status: { not: JobStatus.CANCELLED },
       },
     });
     if (overlaps > 0) continue;

@@ -66,12 +66,13 @@ describe("paginated Jobs list contract", () => {
     expect(m.find.mock.calls[0][0].orderBy).toEqual(orderBy);
   });
 
-  it("filters on any list of the eleven statuses and refuses an unknown one", async () => {
+  it("filters on any list of the twelve statuses and refuses an unknown one", async () => {
     await request("paginated=1&status=UNASSIGNED,WAITING_CONTINUATION_APPROVAL,EN_ROUTE");
     expect(m.count.mock.calls[0][0].where.status).toEqual({ in: ["UNASSIGNED", "WAITING_CONTINUATION_APPROVAL", "EN_ROUTE"] });
     await request("paginated=1&status=PAUSED");
     expect(m.count.mock.calls[1][0].where.status).toBe("PAUSED");
-    const refused = await request("paginated=1&status=PAUSED,CANCELLED");
+    // CANCELLED is a real status since Wave E; a made-up one is still refused.
+    const refused = await request("paginated=1&status=PAUSED,ARCHIVED");
     expect(refused.status).toBe(400);
     expect(m.count).toHaveBeenCalledTimes(2);
   });

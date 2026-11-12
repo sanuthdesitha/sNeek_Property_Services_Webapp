@@ -43,7 +43,8 @@ export async function sendDailyOpsBriefing(now = new Date()) {
 
   const [todayJobs, unassignedJobs, laundryPickups, openCases, newLeads, expiringDocs, admins] = await Promise.all([
     db.job.findMany({
-      where: { scheduledDate: { gte: todayStart, lt: todayEnd } },
+      // Cancelled jobs are not today's work (Wave E).
+      where: { scheduledDate: { gte: todayStart, lt: todayEnd }, status: { not: "CANCELLED" } },
       select: { status: true },
     }),
     db.job.count({ where: { status: "UNASSIGNED", scheduledDate: { gte: todayStart, lt: todayEnd } } }),

@@ -39,8 +39,8 @@ describe("saved view tab counts", () => {
   });
 
   it("gives a view whose stored filter no longer parses no number, with the reason (never 0)", async () => {
-    const body = await (await post({ views: [{ id: "bad", query: "status=CANCELLED" }] })).json();
-    expect(body.counts).toEqual([{ id: "bad", count: null, reason: "Unknown job status: CANCELLED." }]);
+    const body = await (await post({ views: [{ id: "bad", query: "status=ARCHIVED" }] })).json();
+    expect(body.counts).toEqual([{ id: "bad", count: null, reason: "Unknown job status: ARCHIVED." }]);
     expect(m.count).not.toHaveBeenCalled();
   });
 

@@ -13,6 +13,8 @@ export type JobRowHandlers = {
   onPreview: (job: JobListRow) => void;
   onChangeStatus: (job: JobListRow) => void;
   onRemind: (job: JobListRow) => void;
+  /** Opens the cancel dialog (reason required; the server decides the rules). */
+  onCancel: (job: JobListRow) => void;
 };
 
 export function jobRowMenuItems(job: JobListRow, handlers: JobRowHandlers, readOnly: boolean): ERowMenuItem[] {
@@ -28,8 +30,8 @@ export function jobRowMenuItems(job: JobListRow, handlers: JobRowHandlers, readO
       label: "Change status…",
       separated: true,
       onSelect: () => handlers.onChangeStatus(job),
-      disabled: readOnly || job.status === "INVOICED",
-      hint: job.status === "INVOICED" ? "Invoiced jobs are locked." : readOnly ? "Read-only access." : undefined,
+      disabled: readOnly || job.status === "INVOICED" || job.status === "CANCELLED",
+      hint: job.status === "INVOICED" ? "Invoiced jobs are locked." : job.status === "CANCELLED" ? "Cancelled jobs come back through Restore." : readOnly ? "Read-only access." : undefined,
     },
     {
       key: "remind",
@@ -38,5 +40,15 @@ export function jobRowMenuItems(job: JobListRow, handlers: JobRowHandlers, readO
       disabled: !remindable,
       hint: remindable ? undefined : "Only paused, in-progress or submitted jobs can be reminded.",
     },
+    job.status === "CANCELLED"
+      ? { key: "restore", label: "Restore…", onSelect: () => handlers.onPreview(job), disabled: readOnly, hint: readOnly ? "Read-only access." : undefined }
+      : {
+          key: "cancel",
+          label: "Cancel job…",
+          separated: true,
+          onSelect: () => handlers.onCancel(job),
+          disabled: readOnly || job.status === "INVOICED",
+          hint: job.status === "INVOICED" ? "Invoiced jobs cannot be cancelled." : readOnly ? "Read-only access." : undefined,
+        },
   ];
 }

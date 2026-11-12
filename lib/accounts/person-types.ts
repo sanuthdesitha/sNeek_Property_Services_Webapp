@@ -6,6 +6,9 @@ import type { Role } from "@prisma/client";
 import type { UserSummary } from "@/lib/accounts/user-summary";
 import type { CredentialStatus } from "@/lib/workforce/credential-expiry";
 import type { AccountStatus } from "@/lib/accounts/list/attention";
+import type { PayRateHistory } from "@/lib/accounts/pay-rate-history";
+import type { PersonLeaveEntry } from "@/lib/accounts/leave";
+import type { RequiredDocumentStatus } from "@/lib/accounts/required-documents";
 
 /** Dates become ISO strings when the profile crosses to the browser. */
 export type Jsonify<T> = T extends Date
@@ -76,7 +79,16 @@ export type RawPersonProfile = {
   availability: string | null;
   location: { suburb: string | null; state: string | null; postcode: string | null; address: string | null };
   client: { id: string; name: string } | null;
+  /** The default rate in force today (effective-dated history, else the stored rate). */
   hourlyRate: number | null;
+  /** Rate history for the Pay section; null for client-side accounts. */
+  payRateHistory: PayRateHistory | null;
+  /** Recent and upcoming leave and days off; null for client-side accounts. */
+  leave: PersonLeaveEntry[] | null;
+  /** Each required document type (Settings → Required documents) and its state. Empty = none required. */
+  requiredDocuments: RequiredDocumentStatus[];
+  /** False when the stored requirement list could not be read. */
+  requiredDocumentsReadable: boolean;
   extraRoles: Array<{ role: Role; label: string; grantedAt: Date; grantedBy: { id: string; name: string | null; email: string | null } | null }>;
   ownNotes: string | null;
   adminNotes: string | null;
@@ -110,6 +122,8 @@ export type PersonCapabilities = {
   canUploadDocuments: boolean;
   /** Resend invite: ADMIN and OPS_MANAGER (with accounts write), as before. */
   canResendInvite: boolean;
+  /** Record or remove leave: ADMIN, and OPS_MANAGER with accounts write (as office notes). */
+  canManageLeave?: boolean;
 };
 
 export function toPersonProfile(raw: RawPersonProfile): PersonProfile {

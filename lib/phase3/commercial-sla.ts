@@ -259,6 +259,8 @@ export async function evaluateCommercialSla(input?: {
   const jobs = await db.job.findMany({
     where: {
       scheduledDate: { gte: start, lte: end },
+      // Cancelled jobs cannot breach a service level (Wave E).
+      status: { not: JobStatus.CANCELLED },
       ...(Array.isArray(branchPropertyIds) && branchPropertyIds.length > 0
         ? { propertyId: { in: branchPropertyIds } }
         : {}),
