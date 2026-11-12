@@ -1667,3 +1667,14 @@ Six owner decisions. Uncommitted in the working tree. Details: `docs/SYSTEM.md`,
 - Migrations verified on PostgreSQL 127.0.0.1:55439: fresh `decisions5_fresh` (146 migrations applied, repeat "No pending migrations to apply", `migrate diff --exit-code` "No difference detected"); existing `sneek_ui` (applied only `20261113050000_invitation_revoked`, repeat nothing pending, diff no difference); `prisma generate` done. Data preserved: additive nullable columns only.
 - Tests run and passing: `tsc --noEmit -p .` clean; the new and changed test files listed in SYSTEM.md; a 284-file batch of every notification, invoice, access, people, assistant, account, laundry, job-page, office-send, PIN, parity, approvals, Quality hub, money, wording, catalog, transport and import-scan test file (2854 tests); DB-backed on `decisions5_fresh` with `--no-file-parallelism`: the new `tests/db/invitation-revoke-and-va-move.test.ts` plus `finance-decisions`, `own-pin-and-quote-number`, `money-wave-d`, `people-directory` and six laundry DB suites (62 tests).
 - Not run (as instructed): production build, full suite, browser pass at 390/1280 light/dark. Providers mocked; no real messages. Deployment not verified.
+
+## Tone band replaces the coloured left line (2026-11-13)
+
+Owner decision: design B, the tinted title band, colour set 1 "Honey and wine". Visual only, no schema change. Details: `docs/SYSTEM.md`, "Tone band replaces the coloured left line (owner decision, 2026-11-13)"; rule in `docs/style/operational-ui.md`.
+
+- Tokens `--e-band-{attention,problem,good,info}-{bg,line,fg,muted,pill}` in light and Obsidian dark; computed contrast for every text pair is at least 5.47:1 (light) and 7.47:1 (dark).
+- Shared `components/v2/ui/tone-band.tsx`; `EAlert` follows it; about 45 v2 files converted; `EDataTable` active row is a soft tint without the inset line.
+- Deliberate exceptions (allowlisted in the scan test): dividers, drawer edges, timelines, nested-question guide, blog lead quote. Pending: `components/v2/cleaner/pay-requests-panel.tsx` (parallel pay-request fix).
+- Tests run and passing: `tsc --noEmit -p .` clean; new `tests/components/tone-band.test.tsx` (10) and `tests/lib/no-left-accent-lines.test.ts` (2); `tests/lib/server-client-value-imports.test.ts`; 40 existing test files that render the changed components (453 tests). No existing test asserted the old left-border classes.
+- Not run (as instructed): production build, full suite, browser pass at 390/1280 light/dark, so the band rendering is not visually confirmed. Deployment not verified.
+- Note: the working tree was snapshotted by another session into WIP commits (`ff63e0f`, `fe8815b`) that mix this change with the pay-request fix; this change itself was not committed by its author.
