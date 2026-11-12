@@ -23,6 +23,19 @@ export type CleanerFigures = {
   kudosThisMonth: number | null;
 };
 
+/** Nothing read: for a viewer whose packs do not open the Cleaners tab. */
+export const EMPTY_CLEANER_FIGURES: CleanerFigures = {
+  activeCleaners: null,
+  activeJobs: null,
+  owedApproved: null,
+  docsExpired: null,
+  docsExpiring: null,
+  docsPendingReview: null,
+  documentsRequested: null,
+  onboardingDonePercent: null,
+  kudosThisMonth: null,
+};
+
 const ACTIVE_JOB_STATUSES: JobStatus[] = [JobStatus.ASSIGNED, JobStatus.OFFERED, JobStatus.EN_ROUTE, JobStatus.IN_PROGRESS, JobStatus.PAUSED];
 
 async function orNull<T>(read: Promise<T>): Promise<T | null> {

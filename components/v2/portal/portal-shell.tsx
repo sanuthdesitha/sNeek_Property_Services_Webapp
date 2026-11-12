@@ -52,6 +52,7 @@ export function PortalShell({
   roleLabel,
   immersive,
   hideMobileMenuButton = false,
+  headerActions,
   children,
 }: {
   accent: "admin" | "client" | "cleaner" | "laundry" | "qa" | "maintenance";
@@ -69,6 +70,11 @@ export function PortalShell({
   immersive?: (pathname: string) => boolean;
   /** Hide the phone menu button when a tab (such as "More") replaces the drawer. */
   hideMobileMenuButton?: boolean;
+  /**
+   * Extra header controls before search and notifications (the client
+   * portal's Messages envelope and Request button). Omitted by other portals.
+   */
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const { canAccess, levels } = useOpsAccess();
@@ -336,6 +342,7 @@ export function PortalShell({
             {roleLabel || accent} / <span className="font-medium text-[hsl(var(--e-foreground))]">{nav.find((item) => item.href === bestMatchHref)?.label || "Details"}</span>
           </p>
           <div className="ml-auto flex items-center gap-1">
+            {headerActions}
             <PortalSearch accent={accent} nav={nav} />
             <NotificationInbox accent={accent} />
           </div>

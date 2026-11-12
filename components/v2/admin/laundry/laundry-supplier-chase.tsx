@@ -185,6 +185,7 @@ export function LaundrySupplierChase({ task, todayKey }: { task: RunPanelTask; t
   return (
     <>
       <EButton size="sm" variant="outline" onClick={() => setOpen(true)}>Chase supplier</EButton>
+      <span className="basis-full text-[0.6875rem] text-[hsl(var(--e-info,var(--e-primary)))]">To {task.supplier?.name ?? "the supplier"}&apos;s stored email or phone</span>
       {open ? <ChaseDialog key={task.id} task={task} onClose={() => setOpen(false)} /> : null}
     </>
   );

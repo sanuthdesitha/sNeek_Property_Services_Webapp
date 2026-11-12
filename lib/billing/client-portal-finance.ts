@@ -1,6 +1,32 @@
 import { ClientInvoiceStatus, JobStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { computeClientCharge } from "@/lib/finance/job-money";
+import { REDUCING_CREDIT_NOTES_SELECT } from "@/lib/finance/receivables";
+import { FALLBACK_INVOICE_TIMEZONE, paymentTermsDaysFrom } from "@/lib/billing/invoice-due";
+import { getAppSettings } from "@/lib/settings";
+import { buildClientMoneyRow, summarizeToPay, type ClientMoneyTerms } from "@/lib/billing/client-portal-money";
+import { formatInTimeZone } from "date-fns-tz";
+
+/**
+ * The client's payment terms, for due days. Null when they cannot be read:
+ * the Money tab then says the due day is unavailable instead of guessing one.
+ */
+async function readMoneyTerms(clientId: string): Promise<ClientMoneyTerms | null> {
+  try {
+    const [client, settings] = await Promise.all([
+      db.client.findUnique({ where: { id: clientId }, select: { paymentTermsDays: true } }),
+      getAppSettings(),
+    ]);
+    if (!client || !settings) return null;
+    return {
+      clientTermsDays: client.paymentTermsDays ?? null,
+      organisationDefaultDays: paymentTermsDaysFrom(settings.invoicing?.defaultPaymentTermsDays),
+      timezone: settings.timezone || FALLBACK_INVOICE_TIMEZONE,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function getClientFinanceOverview(clientId: string, propertyIds?: string[] | null) {
   const property = { clientId, ...(propertyIds ? { id: { in: propertyIds } } : {}) };
@@ -56,6 +82,15 @@ export async function getClientFinanceOverview(clientId: string, propertyIds?: s
         // label, never payable) so the client can see what reduced a balance.
         kind: true,
         creditsInvoice: { select: { invoiceNumber: true } },
+        // Money tab (2026-11): what is still owed, the due day and the paid
+        // day, read through the existing receivables and terms rules. The PDF
+        // the client already downloads prints the same due day and lines.
+        paidAmount: true,
+        paidDate: true,
+        paidAt: true,
+        paymentTermsDays: true,
+        creditNotes: REDUCING_CREDIT_NOTES_SELECT,
+        lines: { select: { jobId: true } },
       },
       orderBy: [{ createdAt: "desc" }],
       take: 20,
@@ -88,6 +123,26 @@ export async function getClientFinanceOverview(clientId: string, propertyIds?: s
       select: { jobType: true, baseRate: true },
     }),
   ]);
+
+  const terms = await readMoneyTerms(clientId);
+  const todayKey = formatInTimeZone(new Date(), terms?.timezone ?? FALLBACK_INVOICE_TIMEZONE, "yyyy-MM-dd");
+  const moneyRows = invoices.map((invoice) => buildClientMoneyRow({
+    id: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    status: invoice.status,
+    kind: invoice.kind,
+    totalAmount: invoice.totalAmount,
+    paidAmount: invoice.paidAmount ?? null,
+    paidDate: invoice.paidDate ?? null,
+    paidAt: invoice.paidAt ?? null,
+    createdAt: invoice.createdAt,
+    periodStart: invoice.periodStart,
+    periodEnd: invoice.periodEnd,
+    paymentTermsDays: invoice.paymentTermsDays ?? null,
+    creditNotes: invoice.creditNotes ?? null,
+    cleanLineCount: Array.isArray(invoice.lines) ? invoice.lines.filter((line) => line.jobId).length : null,
+    otherLineCount: Array.isArray(invoice.lines) ? invoice.lines.filter((line) => !line.jobId).length : null,
+  }, terms, todayKey));
 
   const invoicedJobIds = new Set(
     existingInvoiceLines.map((row) => row.jobId).filter((value): value is string => Boolean(value))
@@ -133,6 +188,7 @@ export async function getClientFinanceOverview(clientId: string, propertyIds?: s
   return {
     rates,
     invoices,
+    money: { rows: moneyRows, toPay: summarizeToPay(moneyRows), termsKnown: terms !== null },
     recentCharges,
     pendingCharges,
     summary: {

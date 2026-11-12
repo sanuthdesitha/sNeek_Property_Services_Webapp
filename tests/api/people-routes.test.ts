@@ -55,8 +55,17 @@ describe("old list URLs", () => {
     await expect(ClientsPage({ searchParams: { q: "harbour" } })).rejects.toThrow("REDIRECT:/v2/admin/accounts?tab=clients&q=harbour");
   });
 
-  it("keeps the old list for a manager who cannot open People yet (no lockout)", async () => {
-    m.resolveViewer.mockResolvedValue({ canOpenPeople: false });
+  // 2026-11-12: People admits the clients pack to its Clients tab (ops-catalog
+  // PEOPLE_TAB_FEATURES), so a clients-pack manager without Staff accounts now
+  // lands there too. The old list stays only for a viewer neither route admits
+  // (no redirect loop, no lockout).
+  it("sends a clients-pack manager without Staff accounts to the People Clients tab", async () => {
+    m.resolveViewer.mockResolvedValue({ canOpenPeople: false, canSeeClients: true });
+    await expect(ClientsPage({ searchParams: {} })).rejects.toThrow("REDIRECT:/v2/admin/accounts?tab=clients");
+  });
+
+  it("keeps the old list for a viewer People does not admit (no lockout)", async () => {
+    m.resolveViewer.mockResolvedValue({ canOpenPeople: false, canSeeClients: false });
     await expect(ClientsPage({ searchParams: {} })).resolves.toBeTruthy();
     expect(m.redirect).not.toHaveBeenCalled();
   });

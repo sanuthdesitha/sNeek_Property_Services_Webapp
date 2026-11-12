@@ -24,9 +24,10 @@ import { LaundrySupplierChase } from "./laundry-supplier-chase";
 import { buildTaskMedia, statusLabel, type LaundryTaskDTO } from "./laundry-shared";
 import { cardPill, dayWithTime, laundryRouteLabel, shortDay } from "./laundry-lane-card";
 import { LaundryPlannedTimes } from "./laundry-planned-times";
+import { LaundryTeamReplies } from "./laundry-team-replies";
 import type { PipelineCardDTO } from "./use-laundry-pipeline";
 
-export type RunPanelTask = LaundryTaskDTO & Partial<Pick<PipelineCardDTO, "exceptions" | "cleaners" | "nextGuest" | "bagCount" | "lane" | "readiness" | "dayOf" | "carriedIn" | "driver" | "supplierTeam">>;
+export type RunPanelTask = LaundryTaskDTO & Partial<Pick<PipelineCardDTO, "exceptions" | "cleaners" | "nextGuest" | "bagCount" | "lane" | "readiness" | "dayOf" | "carriedIn" | "driver" | "supplierTeam" | "teamReplies">>;
 
 function stamp(value: string | null | undefined): string {
   if (!value) return "—";
@@ -89,6 +90,7 @@ export function LaundryRunPanel({ task, busy, onClose, onEdit, onReschedule, onD
           </React.Fragment>
         ))}
       </dl>
+      <LaundryTeamReplies replies={task.teamReplies} />
       {!done ? <LaundryPlannedTimes key={task.id} task={task} onSaved={onSaved} /> : null}
       {task.flagNotes ? <p className="rounded-[var(--e-radius-sm)] bg-[hsl(var(--e-surface-raised))] px-2.5 py-1.5 text-[0.75rem]">{task.flagNotes}</p> : null}
       <div className="space-y-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">

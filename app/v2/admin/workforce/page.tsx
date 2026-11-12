@@ -52,7 +52,8 @@ export const dynamic = "force-dynamic";
 export default async function WorkforceOverviewPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const viewer = await resolveAccountsViewer(session.user);
-  if (viewer.canOpenPeople !== false) redirect(peopleRedirectTarget("cleaners", searchParams));
+  // People now admits this pack to its cleaners tab (ops-catalog PEOPLE_TAB_FEATURES), so everyone who can open this page lands there.
+  if (viewer.canOpenPeople !== false || viewer.canSeeWorkforce !== false) redirect(peopleRedirectTarget("cleaners", searchParams));
 
   const [directory, documents, requests, recognition, learnTotal, learnDone] = await Promise.all([
     listStaffDirectory().catch(() => []),

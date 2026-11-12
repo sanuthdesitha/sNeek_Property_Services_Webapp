@@ -84,6 +84,13 @@ export function withAttentionBadges<T extends { href: string; badge?: React.Reac
   });
 }
 
+/** Booleans only; anything else means "not known" rather than "off". */
+function parseModules(value: unknown): Record<string, boolean> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean");
+  return Object.fromEntries(entries);
+}
+
 /** The client portal's gate payload — who is acting and what they may do. */
 export interface ClientPortalGate {
   actor: "CLIENT" | "VA";
@@ -92,6 +99,8 @@ export interface ClientPortalGate {
   actingFor?: string | null;
   /** Set only for a VA: which of that client's teams they belong to. */
   teamName?: string | null;
+  /** Module switches for this client (merged visibility); null when the server sent none. */
+  modules?: Record<string, boolean> | null;
 }
 
 /**
@@ -153,6 +162,7 @@ export function useClientPortalCounts(endpoint: string, identity = endpoint): {
           actor: portal.actor, permissions,
           actingFor: typeof portal.actingFor === "string" ? portal.actingFor : null,
           teamName: typeof portal.teamName === "string" ? portal.teamName : null,
+          modules: parseModules(portal.modules),
         } });
       } catch { fail("unavailable"); }
       finally { pending = false; }

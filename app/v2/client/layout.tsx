@@ -9,152 +9,70 @@ import {
   type ClientPortalGate,
 } from "@/components/v2/portal/use-attention-counts";
 import {
-  Boxes,
-  Briefcase,
-  Building2,
-  CalendarPlus,
-  CalendarRange,
-  ClipboardCheck,
-  ClipboardList,
-  FilePlus2,
-  FileSpreadsheet,
-  FileText,
-  Gift,
-  Home,
-  MessageSquare,
-  PackageSearch,
-  Settings,
-  Shirt,
-  ShoppingCart,
-  UserRound,
-  Users,
-  Wallet,
-  Wrench,
-} from "lucide-react";
+  CLIENT_RAIL,
+  CLIENT_TABS,
+  destinationAllowed,
+  type ClientNavViewer,
+} from "@/components/v2/client/portal/portal-nav";
+import { ClientRequestProvider } from "@/components/v2/client/portal/request-sheet";
+import { ClientHeaderActions } from "@/components/v2/client/portal/header-actions";
 
 /**
- * Client nav — every destination is listed and grouped under a small heading.
+ * Client portal shell (approved boards "Client portal" and "Client portal
+ * desktop", 2026-11).
  *
- * There is no "More" catch-all any more: it sat mid-list, hid a dozen real
- * destinations behind an extra tap, and meant the rail's order didn't reflect
- * how the portal is actually used. "Services" is gone too — it was the jobs
- * list under another name (that route now redirects to /jobs).
+ * Phone: five tabs (Home, Cleans, Approvals, Money, More). The More tab is the
+ * grouped, role-filtered menu that replaces the drawer; Messages (with the
+ * unread count) and the Request sheet sit in the header on every screen.
+ * Laundry and Reports left the tab bar: they live in More, on each property
+ * and on each clean, with their URLs unchanged.
  *
- * PortalShell renders nav.slice(0,5) as the mobile bottom tabs, so the first
- * five are deliberately the daily destinations — Home, Jobs, Laundry,
- * Approvals, Reports. Everything else is one tap away in the mobile drawer and
- * always visible on the desktop rail.
+ * Desktop: the grouped rail lists every destination.
+ *
+ * Gates: a VA is only OFFERED destinations their grants open (fail closed while
+ * grants load), and nobody is offered a module switched off for this client.
+ * Every page keeps its own server guard; this only avoids offering a tap that
+ * would be refused.
  */
-/**
- * What a VA may be OFFERED, by destination.
- *
- * "client" = never shown to a VA (money decisions, account management, and
- * modules with no grant key). A permission name = shown only with that grant.
- * "always" = any active VA (the pages themselves still enforce, this only
- * avoids offering a tap that would refuse). Destinations missing from this map
- * default to client-only, so a NEW nav item is hidden from VAs until someone
- * decides otherwise — fail closed, not fail visible.
- */
-const VA_NAV_GATE: Record<string, "always" | "client" | string> = {
-  "/v2/client": "always",
-  "/v2/client/jobs": "always",
-  "/v2/client/laundry": "always",
-  "/v2/client/calendar": "always",
-  "/v2/client/booking": "bookings",
-  "/v2/client/reports": "reports",
-  "/v2/client/properties": "properties",
-  "/v2/client/inventory": "properties",
-  "/v2/client/cases": "maintenance",
-  "/v2/client/maintenance": "maintenance",
-  "/v2/client/messages": "messages",
-  // Keyed by href, so this MUST track the nav entry. It points at /finance
-  // now; leaving it on /money would silently un-gate the item for VAs.
-  "/v2/client/finance": "invoicesView",
-  // The old route is a redirect, but a VA who follows a bookmark must still
-  // be stopped at the door rather than bounced into the page.
-  "/v2/client/money": "invoicesView",
-  "/v2/client/approvals": "client",
-  "/v2/client/quotes": "client",
-  "/v2/client/shopping": "client",
-  "/v2/client/stock-runs": "client",
-  "/v2/client/referrals": "client",
-  "/v2/client/profile": "client",
-  "/v2/client/settings": "client",
-  "/v2/client/team": "client",
-};
+const APPROVALS = "/v2/client/approvals";
+const QUOTES = "/v2/client/quotes";
+const MESSAGES = "/v2/client/messages";
 
-function filterNavForVa(nav: NavItem[], gate: ClientPortalGate | null): NavItem[] {
-  return nav.filter((item) => {
-    const rule = VA_NAV_GATE[item.href] ?? "client";
-    if (rule === "always") return true;
-    if (rule === "client") return false;
-    // Grants arrive with the first counts poll; until then only the
-    // always-set shows, which then EXPANDS — better than offering taps that
-    // bounce and then vanish.
-    return gate?.permissions?.[rule] === true;
-  });
+/** Quotes waiting for a decision are listed on Approvals, so they count there. */
+function badgeCounts(counts: Record<string, number>): Record<string, number> {
+  const merged: Record<string, number> = { ...counts };
+  if (typeof counts[APPROVALS] === "number" || typeof counts[QUOTES] === "number") {
+    merged[APPROVALS] = (counts[APPROVALS] ?? 0) + (counts[QUOTES] ?? 0);
+  }
+  delete merged[QUOTES];
+  return merged;
 }
 
-function buildNav(canManageTeam: boolean): NavItem[] {
-  return [
-    { href: "/v2/client", label: "Home", icon: Home, group: "Overview" },
-    // Bottom-bar four (after Home) — the daily flow.
-    { href: "/v2/client/jobs", label: "Jobs", icon: Briefcase, group: "Your cleans" },
-    { href: "/v2/client/laundry", label: "Laundry", icon: Shirt, group: "Your cleans" },
-    {
-      href: "/v2/client/approvals",
-      label: "Approvals",
-      icon: ClipboardCheck,
-      group: "Your cleans",
-    },
-    { href: "/v2/client/reports", label: "Reports", icon: FileText, group: "Your cleans" },
-    { href: "/v2/client/calendar", label: "Calendar", icon: CalendarRange, group: "Your cleans" },
-    { href: "/v2/client/booking", label: "Book a clean", icon: CalendarPlus, group: "Your cleans" },
-
-    { href: "/v2/client/properties", label: "Properties", icon: Building2, group: "Your homes" },
-    { href: "/v2/client/inventory", label: "Inventory", icon: Boxes, group: "Your homes" },
-    { href: "/v2/client/shopping", label: "Shopping", icon: ShoppingCart, group: "Your homes" },
-    { href: "/v2/client/stock-runs", label: "Stock runs", icon: PackageSearch, group: "Your homes" },
-
-    // Disputes are handled inside the cases workspace (its own heading reads
-    // "Cases & disputes"), and /v2/client/disputes is a bare redirect to this
-    // very page — so the second nav item cost a round trip to land exactly
-    // where the first one already goes. The redirect route stays for bookmarks.
-    { href: "/v2/client/cases", label: "Cases & disputes", icon: ClipboardList, group: "Support" },
-    { href: "/v2/client/maintenance", label: "Maintenance", icon: Wrench, group: "Support" },
-    { href: "/v2/client/messages", label: "Messages", icon: MessageSquare, group: "Support" },
-
-    // POINTS AT /finance, NOT /money. Both pages existed and both read
-    // getClientFinanceOverview — but the RICHER one (property service rates,
-    // recent billable work, invoice history) was the one hidden behind the
-    // More page, while the cut-down version held the nav slot. One name, the
-    // better page; /money redirects here for anyone who bookmarked it.
-    { href: "/v2/client/finance", label: "Money", icon: Wallet, group: "Billing" },
-    { href: "/v2/client/quotes", label: "My quotes", icon: FileSpreadsheet, group: "Billing" },
-    // Reachable only through More until now. Labelled so it cannot be
-    // confused with the list above — "Quote" and "Quotes" side by side taught
-    // nobody which was which.
-    { href: "/v2/client/quote", label: "Request a quote", icon: FilePlus2, group: "Billing" },
-
-    { href: "/v2/client/referrals", label: "Referrals", icon: Gift, group: "Account" },
-    { href: "/v2/client/profile", label: "Profile", icon: UserRound, group: "Account" },
-    // Managing assistants is the client's own power and is not delegable, so a
-    // VA signed into this same portal must not even see the destination. The
-    // page and every endpoint refuse them too; this only avoids offering a tap
-    // that would 403.
-    ...(canManageTeam
-      ? [{ href: "/v2/client/team", label: "Assistants", icon: Users, group: "Account" } as NavItem]
-      : []),
-    { href: "/v2/client/settings", label: "Settings", icon: Settings, group: "Account" },
-  ];
+function buildNav(viewer: ClientNavViewer): NavItem[] {
+  const tabFor = (href: string) => CLIENT_TABS.find((tab) => tab.href === href);
+  const rail: NavItem[] = CLIENT_RAIL.filter((item) => destinationAllowed(item, viewer)).map((item) => {
+    const tab = tabFor(item.href);
+    return {
+      href: item.href,
+      label: item.label,
+      icon: item.icon,
+      group: item.group,
+      ...(tab && tab.activePrefixes.length > 0 ? { tabActivePrefixes: tab.activePrefixes } : {}),
+    };
+  });
+  const phoneOnly: NavItem[] = CLIENT_TABS.filter((tab) => tab.mobileOnly).map((tab) => ({
+    href: tab.href,
+    label: tab.label,
+    icon: tab.icon,
+    mobileOnly: true,
+  }));
+  return [...rail, ...phoneOnly];
 }
 
 export default function V2ClientLayout({ children }: { children: React.ReactNode }) {
-  // Everything waiting on this client, not just approvals: a case asking them
-  // a question, a quote to decide, an invoice to pay. Each count is "waiting
-  // on YOU" rather than "exists" — see the route for each definition.
-  // Both CLIENT and VA render this portal; only the client manages assistants,
-  // and a VA is only OFFERED destinations their grants can actually open.
+  // Everything waiting on this client: approvals and quotes to decide, a case
+  // asking them a question, an invoice to pay, unread office replies. Both
+  // CLIENT and VA render this portal.
   const { data: session } = useSession();
   const identity = session?.user?.id ? JSON.stringify([
     session.user.id, session.user.role, session.impersonation?.actorId,
@@ -162,24 +80,39 @@ export default function V2ClientLayout({ children }: { children: React.ReactNode
   ]) : "";
   const { counts, gate, status: gateStatus, refresh } = useClientPortalCounts("/api/client/attention-counts", identity);
   const isVa = session?.user?.role === "VA";
-  const canManageTeam = session?.user?.role === "CLIENT";
   const confirmedVaGate = isVa && gateStatus === "ready" && gate?.actor === "VA" ? gate : null;
-  const nav = React.useMemo(() => {
-    if (!identity || gateStatus === "denied") return [];
-    const base = buildNav(canManageTeam);
-    return withAttentionBadges(isVa ? filterNavForVa(base, gate?.actor === "VA" ? gate : null) : base, counts);
-  }, [counts, canManageTeam, isVa, gate, identity, gateStatus]);
+  const confirmedClientGate = !isVa && gateStatus === "ready" && gate?.actor === "CLIENT" ? gate : null;
 
-  // An assistant sees their OWN name in the rail (PortalShell reads the
-  // session) with the client they act for underneath. Labelling them "Client"
-  // was the portal pretending to be someone it is not, and a VA who works
-  // across several clients had nothing on screen telling them which account
-  // they were about to change.
+  // A VA with an unconfirmed gate is treated as holding no grants; a client is
+  // the account holder. Module switches apply once the server has sent them.
+  const viewer = React.useMemo<ClientNavViewer | null>(() => {
+    if (!identity || gateStatus === "denied") return null;
+    if (isVa) {
+      return {
+        actor: "VA",
+        permissions: confirmedVaGate?.permissions ?? {},
+        modules: confirmedVaGate?.modules ?? null,
+      };
+    }
+    return { actor: "CLIENT", permissions: {}, modules: confirmedClientGate?.modules ?? null };
+  }, [identity, gateStatus, isVa, confirmedVaGate, confirmedClientGate]);
+
+  const nav = React.useMemo(
+    () => (viewer ? withAttentionBadges(buildNav(viewer), badgeCounts(counts)) : []),
+    [viewer, counts],
+  );
+  const showMessages = nav.some((item) => item.href === MESSAGES);
+
+  // An assistant sees their OWN name in the rail with the client they act for
+  // underneath, never "Client".
   const roleLabel = isVa
     ? confirmedVaGate?.actingFor
       ? "Assistant · " + confirmedVaGate.actingFor
       : "Assistant"
     : "Client";
+
+  // The request sheet is offered only once access is confirmed.
+  const requestViewer = viewer && (isVa ? confirmedVaGate : true) ? viewer : null;
 
   return (
     <div
@@ -187,29 +120,34 @@ export default function V2ClientLayout({ children }: { children: React.ReactNode
       data-portal-accent="client"
       data-portal-actor={isVa ? "va" : "client"}
     >
-      <PortalShell accent="client" wordmark="sNeek" nav={nav} roleLabel={roleLabel}>
-        {identity && (gateStatus === "unavailable" || gateStatus === "denied") ? (
-          <div role="alert" className="mb-4 border-l-4 border-amber-600 px-3 py-2 text-sm">
-            {gateStatus === "denied" ? "Your access could not be confirmed." : "Navigation updates are unavailable."}
-            {isVa ? " Delegated actions are hidden until access is confirmed." : ""}
-            <button type="button" onClick={refresh} className="ml-2 min-h-11 underline">Retry</button>
-          </div>
-        ) : null}
-        {isVa ? <VaActingBanner name={session?.user?.name} gate={confirmedVaGate} loading={gateStatus === "loading"} /> : null}
-        {children}
-      </PortalShell>
+      <ClientRequestProvider viewer={requestViewer}>
+        <PortalShell
+          accent="client"
+          wordmark="sNeek"
+          nav={nav}
+          roleLabel={roleLabel}
+          hideMobileMenuButton
+          headerActions={viewer ? <ClientHeaderActions showMessages={showMessages} unread={counts[MESSAGES]} /> : null}
+        >
+          {identity && (gateStatus === "unavailable" || gateStatus === "denied") ? (
+            <div role="alert" className="mb-4 border-l-4 border-amber-600 px-3 py-2 text-sm">
+              {gateStatus === "denied" ? "Your access could not be confirmed." : "Navigation updates are unavailable."}
+              {isVa ? " Delegated actions are hidden until access is confirmed." : ""}
+              <button type="button" onClick={refresh} className="ml-2 min-h-11 underline">Retry</button>
+            </div>
+          ) : null}
+          {isVa ? <VaActingBanner name={session?.user?.name} gate={confirmedVaGate} loading={gateStatus === "loading"} /> : null}
+          {children}
+        </PortalShell>
+      </ClientRequestProvider>
     </div>
   );
 }
 
 /**
- * Standing reminder of whose account this is.
- *
- * It renders on every page rather than only on the home screen because the
- * risk it addresses is not "where am I when I arrive" — it is a VA switching
- * accounts mid-task and cancelling the wrong clean. The last line states the
- * one rule that is never delegable, so nobody has to discover it by being
- * refused.
+ * Standing reminder of whose account this is. It renders on every page because
+ * the risk is a VA switching accounts mid-task and cancelling the wrong clean.
+ * The last line states the one rule that is never delegable.
  */
 function VaActingBanner({
   name,

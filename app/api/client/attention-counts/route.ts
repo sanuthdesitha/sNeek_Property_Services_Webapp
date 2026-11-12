@@ -3,6 +3,7 @@ import { countPendingApprovalsForUser } from "@/lib/commercial/client-approval-a
 import { CaseState, ClientInvoiceStatus, QuoteStatus } from "@prisma/client";
 import { requireClientPortal } from "@/lib/auth/client-portal";
 import { db } from "@/lib/db";
+import { clientNavModules } from "@/lib/client/portal-modules";
 
 /**
  * GET /api/client/attention-counts — nav badges for the client portal.
@@ -25,6 +26,18 @@ import { db } from "@/lib/db";
  *
  * Query failures return a retriable error so consumers retain their last counts.
  */
+async function countUnreadOfficeMessages(portal: { clientId: string; propertyIds: string[] | null }) {
+  const unread = { clientId: portal.clientId, isFromAdmin: true, isRead: false };
+  if (!portal.propertyIds) return db.clientMessage.count({ where: unread });
+  const jobs = await db.job.findMany({
+    where: { property: { clientId: portal.clientId, id: { in: portal.propertyIds } } },
+    select: { id: true },
+  });
+  return db.clientMessage.count({
+    where: { ...unread, OR: [{ jobId: null }, { jobId: { in: jobs.map((job) => job.id) } }] },
+  });
+}
+
 export async function GET() {
   try {
     const portal = await requireClientPortal();
@@ -33,8 +46,9 @@ export async function GET() {
     const isClient = portal.actor === "CLIENT";
     const canSeeCases = isClient || portal.permissions.maintenance === true;
     const canSeeInvoices = isClient || portal.permissions.invoicesView === true;
+    const canSeeMessages = isClient || portal.permissions.messages === true;
 
-    const [approvals, cases, quotes, invoices] = await Promise.all([
+    const [approvals, cases, quotes, invoices, messages] = await Promise.all([
       // Extras the office has asked this client to approve: exactly the PENDING
       // rows the Approvals page lists. (This used to count the client's own job
       // requests waiting on the office, which that page never shows.)
@@ -70,6 +84,9 @@ export async function GET() {
             },
           },
         }) : undefined,
+      // Unread replies from the office, in exactly the thread scope the
+      // Messages page reads (global thread + jobs this actor may open).
+      canSeeMessages ? countUnreadOfficeMessages(portal) : undefined,
     ]);
 
     // Only for the assistant banner — a CLIENT already knows whose account
@@ -95,12 +112,16 @@ export async function GET() {
         // they are about to change.
         actingFor: portal.actor === "VA" ? actingForName : null,
         teamName: portal.team?.name ?? null,
+        // Module switches from the merged per-client visibility, so the menus
+        // never offer a page whose guard would send the person home.
+        modules: clientNavModules(portal.visibility),
       },
       counts: {
         ...(isClient ? { "/v2/client/approvals": approvals, "/v2/client/quotes": quotes } : {}),
         ...(canSeeCases ? { "/v2/client/cases": cases } : {}),
         // Matches the nav href. On /money the badge simply never appeared.
         ...(canSeeInvoices ? { "/v2/client/finance": invoices } : {}),
+        ...(canSeeMessages ? { "/v2/client/messages": messages } : {}),
       },
     });
   } catch (err: unknown) {

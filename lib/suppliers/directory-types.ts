@@ -18,7 +18,43 @@ export type StockSupplierRecord = {
   isActive: boolean;
 };
 
-export type LaundryTeamMember = { id: string; name: string | null; email: string; isActive: boolean };
+export type LaundryTeamMember = {
+  id: string;
+  name: string | null;
+  email: string;
+  isActive: boolean;
+  /** ISO instant of the last signed-in activity, when recorded. */
+  lastSeenAt?: string | null;
+  /** ISO instant of a pending (unaccepted, unexpired) invitation. */
+  invitedAt?: string | null;
+};
+
+/** One "Chase supplier" send (audit LAUNDRY_SUPPLIER_CHASE_SENT), as recorded. */
+export type SupplierChaseRecord = { at: string; byName: string; transport: string; state: string; taskId: string | null };
+
+/**
+ * Figures for a laundry partner, from its runs. Every figure says what it
+ * measured; null = nothing to measure (shown as "–", never as zero).
+ */
+export type LaundryPartnerStats = {
+  /** Not yet picked up with the pickup day reached. */
+  toPickUp: number;
+  /** Picked up, drop-off day still ahead. */
+  atLaundry: number;
+  /** Picked up, drop-off day reached. */
+  toDrop: number;
+  /** Picked up and out longer than the agreed turnaround (only when one is recorded). */
+  late: number;
+  /** Share of runs delivered in the last 30 days within the agreed turnaround. Null without a turnaround or runs. */
+  onTimePct: number | null;
+  /** Runs delivered in the last 30 days with both pickup and drop-off recorded. */
+  measuredRuns: number;
+  /** Average hours from pickup to drop-off over those runs. */
+  actualAvgHours: number | null;
+  /** Properties with a run for this partner in the last 60 days. */
+  recentProperties: number;
+  chases: SupplierChaseRecord[];
+};
 
 export type LaundryPartnerRecord = {
   id: string;
@@ -36,6 +72,27 @@ export type LaundryPartnerRecord = {
   team: LaundryTeamMember[];
   /** Runs on record for this partner (any status). */
   runCount: number;
+  stats?: LaundryPartnerStats;
+};
+
+/**
+ * Trades: a read model over maintenance workers (MaintenanceWorker, with the
+ * MAINTENANCE portal login when the worker has one). Edited where they are
+ * today (maintenance), never from the Suppliers list.
+ */
+export type TradeSupplierRecord = {
+  id: string;
+  name: string;
+  company: string | null;
+  trade: string | null;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  isActive: boolean;
+  isPermanent: boolean;
+  login: { id: string; email: string; isActive: boolean; lastSeenAt: string | null } | null;
+  /** Maintenance items assigned to the worker and not resolved or dismissed. */
+  openCases: number;
 };
 
 export type SupplierDirectoryKind = "STOCK" | "LAUNDRY" | "BOTH";
@@ -54,6 +111,8 @@ export type LaundryUserOption = { id: string; name: string | null; email: string
 
 export type SupplierDirectoryResponse = {
   rows: SupplierDirectoryRow[];
+  /** Trades (maintenance workers). Optional: older readers ignore it. */
+  trades?: TradeSupplierRecord[];
   laundryUsers: LaundryUserOption[];
   /** A linked stock supplier id that no longer exists in the catalog (shown, never silently dropped). */
   danglingLinks: Array<{ laundrySupplierId: string; stockSupplierId: string }>;

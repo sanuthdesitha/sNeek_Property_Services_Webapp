@@ -1,80 +1,69 @@
-import { format } from "date-fns";
-import Link from "next/link";
-import { toZonedTime } from "date-fns-tz";
 import { requireClientPortalPage } from "@/lib/auth/client-portal";
 import { getClientPortalContext } from "@/lib/client/portal";
 import { getClientFinanceOverview } from "@/lib/billing/client-portal-finance";
-import {
-  EBadge,
-  ECard,
-  ECardBody,
-  ECardHeader,
-  ECardTitle,
-  EEmptyState,
-  EPageHeader,
-  EStatCard,
-  EThread,
-} from "@/components/v2/ui/primitives";
+import { buildClientMoneyRow, summarizeToPay, type ClientMoneyRow, type ClientMoneyToPay } from "@/lib/billing/client-portal-money";
+import { formatInTimeZone } from "date-fns-tz";
+import { EEmptyState, EPageHeader } from "@/components/v2/ui/primitives";
 import { PayInvoiceButton } from "@/components/v2/client/pay-invoice-button";
-import { CreditCard, Receipt, Wallet, FileText } from "lucide-react";
+import { SegmentLinks } from "@/components/v2/client/portal/segment-links";
+import { ToPayCard } from "@/components/v2/client/money/to-pay-card";
+import { InvoiceList } from "@/components/v2/client/money/invoice-list";
+import { UnbilledList, UnbilledSummaryCard, type UnbilledCharge } from "@/components/v2/client/money/unbilled";
+import { RatesList, type ClientRate } from "@/components/v2/client/money/rates-list";
+import { MONEY_TZ, formatAud } from "@/components/v2/client/money/money-format";
+import { Info } from "lucide-react";
 
-export const metadata = { title: "Finance · Estate client" };
+export const metadata = { title: "Money · Estate client" };
 export const dynamic = "force-dynamic";
 
-const TZ = "Australia/Sydney";
+type MoneyTab = "invoices" | "unbilled" | "rates";
+const TABS: readonly MoneyTab[] = ["invoices", "unbilled", "rates"];
 
-type Tone = "neutral" | "primary" | "gold" | "success" | "warning" | "danger" | "info" | "aubergine";
+type FinanceOverview = NonNullable<Awaited<ReturnType<typeof getClientFinanceOverview>>>;
+type InvoiceFacts = FinanceOverview["invoices"][number];
 
-function money(value: number | null | undefined) {
-  return `$${Number(value ?? 0).toFixed(2)}`;
+function Unavailable({ message }: { message: string }) {
+  return (
+    <div role="alert" className="space-y-3">
+      <h1 className="e-display-lg">Money unavailable</h1>
+      <p>{message}</p>
+      <a href="/v2/client/finance" className="inline-flex min-h-11 items-center underline">Retry</a>
+    </div>
+  );
 }
 
-function invoiceTone(status: string): Tone {
-  switch (status) {
-    case "PAID":
-      return "success";
-    case "SENT":
-    case "APPROVED":
-    case "PART_PAID":
-      return "warning";
-    case "VOID":
-      return "danger";
-    default:
-      return "neutral";
-  }
+/** Older overview shapes (and tests) carry no money view: derive one with unknown terms. */
+function moneyView(finance: FinanceOverview): { rows: ClientMoneyRow[]; toPay: ClientMoneyToPay } {
+  if (finance.money) return { rows: finance.money.rows, toPay: finance.money.toPay };
+  const todayKey = formatInTimeZone(new Date(), MONEY_TZ, "yyyy-MM-dd");
+  const rows = (finance.invoices ?? []).map((invoice: Partial<InvoiceFacts> & Pick<InvoiceFacts, "id" | "invoiceNumber" | "status" | "createdAt">) =>
+    buildClientMoneyRow({
+      id: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      status: invoice.status,
+      kind: invoice.kind ?? "INVOICE",
+      totalAmount: invoice.totalAmount ?? null,
+      paidAmount: invoice.paidAmount ?? null,
+      paidDate: invoice.paidDate ?? null,
+      paidAt: invoice.paidAt ?? null,
+      createdAt: invoice.createdAt,
+      periodStart: invoice.periodStart ?? null,
+      periodEnd: invoice.periodEnd ?? null,
+      paymentTermsDays: invoice.paymentTermsDays ?? null,
+    }, null, todayKey));
+  return { rows, toPay: summarizeToPay(rows) };
 }
 
-function chargeTone(row: { rateMissing: boolean; invoiced: boolean }): Tone {
-  if (row.rateMissing) return "neutral";
-  return row.invoiced ? "success" : "warning";
-}
-
-export default async function V2ClientFinancePage() {
+export default async function V2ClientFinancePage({ searchParams }: { searchParams?: { tab?: string; paid?: string } } = {}) {
   const portalCtx = await requireClientPortalPage({ module: "finance", permission: "invoicesView" });
-  // Shim: downstream code reads session.user.id — for a VA that is THEIR id,
-  // and the VA-aware resolvers scope it to their team's client and properties.
-  const session = { user: { id: portalCtx.userId, name: portalCtx.userName } };
-  const portal = await getClientPortalContext(session.user.id).catch(() => null);
-
-  if (!portal) {
-    return <div role="alert" className="space-y-3"><h1 className="e-display-lg">Finance unavailable</h1>
-      <p>Account visibility could not be loaded. Try again to see your financial details.</p>
-      <a href="/v2/client/finance" className="underline">Retry</a></div>;
-  }
+  const portal = await getClientPortalContext(portalCtx.userId).catch(() => null);
+  if (!portal) return <Unavailable message="Account visibility could not be loaded. Try again to see your financial details." />;
 
   if (!portal.visibility.showFinanceDetails) {
     return (
       <div className="space-y-6">
-        <EPageHeader
-          eyebrow="Account"
-          title="Finance"
-          description="Service pricing, recent billable work, and invoice history."
-        />
-        <EEmptyState
-          eyebrow="Not available"
-          title="Financial details are hidden"
-          description="Your account manager has not enabled finance visibility for this portal."
-        />
+        <EPageHeader title="Money" description="Invoices, work not yet invoiced and your rates." />
+        <EEmptyState eyebrow="Not available" title="Financial details are hidden" description="Your account manager has not enabled finance visibility for this portal." />
       </div>
     );
   }
@@ -82,223 +71,74 @@ export default async function V2ClientFinancePage() {
   const finance = portal.clientId
     ? await getClientFinanceOverview(portal.clientId, portalCtx.propertyIds).catch(() => null)
     : null;
+  if (!finance) return <Unavailable message="Financial records could not be loaded. Balances and invoice history are unavailable." />;
 
-  if (!finance) {
-    return <div role="alert" className="space-y-3"><h1 className="e-display-lg">Finance unavailable</h1>
-      <p>Financial records could not be loaded. Balances and invoice history are unavailable.</p>
-      <a href="/v2/client/finance" className="underline">Retry</a></div>;
-  }
-
-  const summary = finance?.summary;
-  const rates = finance?.rates ?? [];
-  const recentCharges = finance?.recentCharges ?? [];
-  const invoices = finance?.invoices ?? [];
+  const tab: MoneyTab = TABS.includes(searchParams?.tab as MoneyTab) ? (searchParams?.tab as MoneyTab) : "invoices";
+  const { rows, toPay } = moneyView(finance);
+  // A single Pay now, for the first invoice in the "pay first" order that the
+  // existing payment route accepts. Only the account holder pays.
+  const payTarget = portalCtx.actor === "CLIENT"
+    ? [toPay.primary, ...rows].find((row): row is ClientMoneyRow => Boolean(row?.payable)) ?? null
+    : null;
+  const pendingCount = finance.summary?.pendingChargeCount ?? 0;
+  const pendingTotal = finance.summary?.pendingChargeTotal ?? 0;
+  const creditsFor = Object.fromEntries((finance.invoices ?? []).map((invoice) => [invoice.id, invoice.creditsInvoice?.invoiceNumber]));
 
   return (
-    <div className="space-y-6">
-      <EPageHeader
-        eyebrow="Account"
-        title="Finance"
-        description={`Service pricing, recent billable work, and invoice history for ${portal.client?.name ?? "your account"}.`}
+    <div className="space-y-4">
+      <EPageHeader title="Money" description={`Invoices, work not yet invoiced and rates for ${portal.client?.name ?? "your account"}.`} />
+
+      {searchParams?.paid === "1" ? (
+        <p role="status" className="rounded-[var(--e-radius)] border-l-4 border-[hsl(var(--e-info))] bg-[hsl(var(--e-surface))] px-3 py-2 text-[0.8125rem]">
+          Your payment was handed to the payment provider. The invoice shows Paid once the provider confirms it.
+        </p>
+      ) : null}
+
+      <ToPayCard toPay={toPay} />
+
+      <SegmentLinks
+        label="Money sections"
+        activeKey={tab}
+        links={[
+          { key: "invoices", label: "Invoices", href: "/v2/client/finance" },
+          { key: "unbilled", label: "Unbilled", href: "/v2/client/finance?tab=unbilled" },
+          { key: "rates", label: "Rates", href: "/v2/client/finance?tab=rates" },
+        ]}
       />
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <EStatCard
-          label="Active property rates"
-          value={String(summary?.activeRates ?? 0)}
-          delta="across your homes"
-          deltaTone="neutral"
-          icon={<Receipt className="h-4 w-4" />}
-        />
-        <EStatCard
-          label="Recent unbilled services"
-          value={String(summary?.pendingChargeCount ?? 0)}
-          delta={money(summary?.pendingChargeTotal)}
-          deltaTone="neutral"
-          icon={<Wallet className="h-4 w-4" />}
-        />
-        <EStatCard
-          label="Recent issued invoices"
-          value={String(summary?.invoiceCount ?? 0)}
-          delta="latest 20 invoices"
-          deltaTone="neutral"
-          icon={<FileText className="h-4 w-4" />}
-        />
-        <EStatCard
-          label="Recent invoice total"
-          value={money(summary?.totalBilled)}
-          delta="latest 20 invoices, including paid"
-          deltaTone="neutral"
-          icon={<CreditCard className="h-4 w-4" />}
-        />
-      </section>
+      {tab === "invoices" ? (
+        <section aria-label="Invoices" className="space-y-3">
+          <InvoiceList rows={rows} extras={{ creditsFor }} />
+          <UnbilledSummaryCard count={pendingCount} total={pendingTotal} />
+          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
+            Showing the <span>latest 20 invoices, including paid</span>. Credit notes are listed so you can see what reduced a balance.
+          </p>
+        </section>
+      ) : null}
+      {tab === "unbilled" ? (
+        <section aria-label="Unbilled work" className="space-y-3">
+          <p className="text-[0.8125rem]">
+            Estimated total <span className="e-numeral">{formatAud(pendingTotal)}</span> across {pendingCount} clean{pendingCount === 1 ? "" : "s"}.
+          </p>
+          <UnbilledList charges={(finance.recentCharges ?? []) as UnbilledCharge[]} />
+        </section>
+      ) : null}
+      {tab === "rates" ? (
+        <section aria-label="Rates">
+          <RatesList rates={(finance.rates ?? []) as unknown as ClientRate[]} />
+        </section>
+      ) : null}
 
-      <p className="text-sm text-[hsl(var(--e-muted-foreground))]">
-        Unbilled services are estimates from the latest 50 completed jobs and are not an invoice or a payment request.
-        Invoice totals include paid invoices and do not represent your outstanding balance.
+      <p className="flex gap-2 text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
+        <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+        <span>Pay now opens the secure payment page. The invoice shows Paid only after the payment provider confirms it.</span>
       </p>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
-        {/* Property Service Rates */}
-        <ECard>
-          <ECardHeader>
-            <ECardTitle>Property service rates</ECardTitle>
-            <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-              The current admin-approved charges used to invoice completed work at each property.
-            </p>
-          </ECardHeader>
-          <ECardBody className="space-y-3 pt-0">
-            {rates.length === 0 ? (
-              <EEmptyState
-                eyebrow="Nothing yet"
-                title="No property rates"
-                description="Rates for your properties will appear here once set by your account manager."
-              />
-            ) : (
-              rates.map((rate) => (
-                <div
-                  key={rate.id}
-                  className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[0.875rem] font-semibold">{rate.property.name}</p>
-                      <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                        {rate.property.suburb} · {String(rate.jobType).replace(/_/g, " ")}
-                      </p>
-                      {rate.defaultDescription ? (
-                        <p className="mt-1 text-[0.75rem] text-[hsl(var(--e-text-secondary))]">
-                          {rate.defaultDescription}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="text-right">
-                      <p className="e-numeral text-[0.9375rem]">{money(rate.baseCharge)}</p>
-                      <p className="text-[0.6875rem] text-[hsl(var(--e-muted-foreground))]">
-                        {rate.billingUnit.replace(/_/g, " ")}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </ECardBody>
-        </ECard>
-
-        <div className="space-y-6">
-          {/* Recent Billable Services */}
-          <ECard>
-            <ECardHeader>
-              <ECardTitle>Recent billable services</ECardTitle>
-              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                Completed services and whether they have already been invoiced.
-              </p>
-            </ECardHeader>
-            <ECardBody className="space-y-3 pt-0">
-              {recentCharges.length === 0 ? (
-                <EEmptyState
-                  eyebrow="Nothing yet"
-                  title="No billable services"
-                  description="Completed work will appear here as it is recorded."
-                />
-              ) : (
-                recentCharges.slice(0, 12).map((row) => (
-                  <div
-                    key={row.jobId}
-                    className="rounded-[var(--e-radius)] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface-raised))] p-3"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-[0.875rem] font-semibold">{row.propertyName}</p>
-                        <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                          {row.suburb} · {String(row.jobType).replace(/_/g, " ")} ·{" "}
-                          {format(toZonedTime(row.scheduledDate, TZ), "d MMM yyyy")}
-                        </p>
-                        <p className="mt-1 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-                          Reference: {row.jobNumber || row.jobId}
-                        </p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1.5 text-right">
-                        <p className="e-numeral text-[0.9375rem]">
-                          {row.rateMissing ? "Rate not set" : money(row.amount)}
-                        </p>
-                        <EBadge tone={chargeTone(row)} soft>
-                          {row.rateMissing ? "No rate" : row.invoiced ? "Invoiced" : "Pending invoice"}
-                        </EBadge>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </ECardBody>
-          </ECard>
-
-          {/* Invoice History */}
-          <ECard>
-            <ECardHeader>
-              <ECardTitle>Invoice history</ECardTitle>
-              <p className="text-[0.8125rem] text-[hsl(var(--e-muted-foreground))]">
-                Latest 20 issued invoices. Open an invoice to review its status and service period.
-              </p>
-            </ECardHeader>
-            <ECardBody className="space-y-1 pt-0">
-              {invoices.length === 0 ? (
-                <EEmptyState
-                  eyebrow="Nothing yet"
-                  title="No invoices issued"
-                  description="Invoices for completed work will appear here."
-                />
-              ) : (
-                invoices.map((invoice, i) => {
-                  const creditNote = invoice.kind === "CREDIT_NOTE";
-                  const payable = !creditNote && (invoice.status === "SENT" || invoice.status === "APPROVED");
-                  return (
-                    <div key={invoice.id}>
-                      {i > 0 ? <EThread className="my-1" /> : null}
-                      <div className="flex flex-wrap items-start justify-between gap-3 py-2">
-                        <div className="min-w-0">
-                          <Link className="text-[0.875rem] font-semibold underline" href={`/v2/client/finance/invoices/${invoice.id}`}>{invoice.invoiceNumber}</Link>
-                          {creditNote ? (
-                            <p className="text-[0.75rem] font-[550]">
-                              Credit note{invoice.creditsInvoice ? ` for ${invoice.creditsInvoice.invoiceNumber}` : ""}
-                            </p>
-                          ) : null}
-                          <p className="text-[0.75rem] text-[hsl(var(--e-muted-foreground))]">
-                            Created {format(toZonedTime(invoice.createdAt, TZ), "d MMM yyyy")}
-                            {invoice.periodStart || invoice.periodEnd
-                              ? ` · Period ${
-                                  invoice.periodStart
-                                    ? format(toZonedTime(invoice.periodStart, TZ), "d MMM")
-                                    : "…"
-                                } – ${
-                                  invoice.periodEnd
-                                    ? format(toZonedTime(invoice.periodEnd, TZ), "d MMM yyyy")
-                                    : "…"
-                                }`
-                              : ""}
-                          </p>
-                          {invoice.sentAt ? (
-                            <p className="mt-1 text-[0.6875rem] text-[hsl(var(--e-text-faint))]">
-                              Sent {format(toZonedTime(invoice.sentAt, TZ), "d MMM yyyy")}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-col items-end gap-1.5 text-right">
-                          <p className="e-numeral text-[0.9375rem]">{money(invoice.totalAmount)}</p>
-                          <EBadge tone={invoiceTone(invoice.status)} soft>
-                            {invoice.status === "PART_PAID" ? "Part paid" : invoice.status === "PAID" ? "Payment recorded" : invoice.status.replace(/_/g, " ")}
-                          </EBadge>
-                          {payable ? portalCtx.actor === "CLIENT" ? <PayInvoiceButton invoiceId={invoice.id} /> : null : null}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </ECardBody>
-          </ECard>
+      {payTarget ? (
+        <div className="sticky bottom-[4.75rem] z-20 -mx-4 border-t border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))] px-4 py-2.5 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0">
+          <PayInvoiceButton invoiceId={payTarget.id} label={`Pay ${formatAud(payTarget.owing)} now`} wide />
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

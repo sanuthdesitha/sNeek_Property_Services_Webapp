@@ -70,10 +70,27 @@ export function accountListTabFor(tab: PeopleTab): AccountTab | null {
 export type PeopleAccess = {
   /** ADMIN, or OPS_MANAGER with the clients pack (the Clients list, panel and client page). */
   clients: boolean;
+  /**
+   * ADMIN, or OPS_MANAGER with the Staff accounts pack: every login tab and
+   * view. The server page always passes it; absent means admitted (callers
+   * from before the per-pack tabs).
+   */
+  accounts?: boolean;
+  /** ADMIN, or OPS_MANAGER with the workforce pack: the Cleaners tab (its list only). */
+  workforce?: boolean;
 };
 
+/**
+ * Tabs each pack opens (ops-catalog PEOPLE_TAB_FEATURES): Clients = clients,
+ * Cleaners = Staff accounts or workforce, everything else = Staff accounts.
+ */
 export function allowedPeopleTabs(access: PeopleAccess): PeopleTab[] {
-  return [...PEOPLE_TABS, ...PEOPLE_CHIP_VIEWS].filter((tab) => (tab === "clients" ? access.clients : true));
+  const accounts = access.accounts !== false;
+  return [...PEOPLE_TABS, ...PEOPLE_CHIP_VIEWS].filter((tab) => {
+    if (tab === "clients") return access.clients;
+    if (tab === "cleaners") return accounts || access.workforce === true;
+    return accounts;
+  });
 }
 
 /** Where an old list URL lands: the People route with its tab, keeping every other query value. */

@@ -8,7 +8,7 @@
  */
 import { cn } from "@/lib/utils";
 import type { PeopleCounts } from "@/lib/people/counts";
-import { PEOPLE_TABS, PEOPLE_TAB_LABEL, type PeopleAccess, type PeopleMainTab, type PeopleTab } from "@/lib/people/tabs";
+import { allowedPeopleTabs, PEOPLE_TABS, PEOPLE_TAB_LABEL, type PeopleAccess, type PeopleMainTab, type PeopleTab } from "@/lib/people/tabs";
 
 const COUNT_FOR: Record<PeopleMainTab, keyof PeopleCounts> = {
   clients: "clients",
@@ -30,7 +30,8 @@ export function PeopleTabs({
   access: PeopleAccess;
   onSelect: (tab: PeopleTab) => void;
 }) {
-  const tabs = PEOPLE_TABS.filter((tab) => tab !== "clients" || access.clients);
+  const allowed = allowedPeopleTabs(access);
+  const tabs = PEOPLE_TABS.filter((tab) => allowed.includes(tab));
   return (
     <nav aria-label="People groups" className="-mx-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <div className="flex min-w-max items-center gap-1 border-b border-[hsl(var(--e-border))]">

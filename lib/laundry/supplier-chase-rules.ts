@@ -56,6 +56,7 @@ export type SupplierChaseDraftInput = {
 
 const PURPOSE_ASK: Record<Exclude<LaundryTeamRequestKind, "TEAM_RETURN_ETA">, { subject: string; ask: string }> = {
   TEAM_CONFIRM_PICKUP: { subject: "please confirm the pickup", ask: "Please confirm the laundry pickup, or let us know when it will happen." },
+  TEAM_MOVE_PICKUP: { subject: "can you collect later today?", ask: "The clean is running late and the bags are not out yet. Can you collect later today? Please let us know the time." },
   TEAM_CONFIRM_DROP: { subject: "please confirm the drop-off", ask: "Please confirm the laundry drop-off, or let us know when it will happen." },
   TEAM_PHOTO: { subject: "drop-off photo", ask: "Please send us the drop-off photo for this delivery." },
 };

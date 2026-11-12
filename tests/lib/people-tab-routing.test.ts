@@ -41,6 +41,14 @@ describe("People page tabs", () => {
     expect(opsRequestFeature("/api/admin/users?tab=cleaners")).toBe("accounts");
   });
 
+  it("the workforce Cleaners list route belongs to the workforce pack only; other People routes stay with accounts", () => {
+    expect(opsRequestFeature("/api/admin/people/cleaners?tab=everyone")).toBe("workforce");
+    expect(opsRequestFeature("/api/admin/people/cleaners/export")).toBe("workforce");
+    expect(opsRequestFeature("/api/admin/people/other")).toBe("accounts");
+    expect(canUseOpsPath(only({ workforce: "read" }), "/api/admin/people/cleaners")).toBe(true);
+    expect(canUseOpsPath(only({ accounts: "manage" }), "/api/admin/people/cleaners")).toBe(false);
+  });
+
   it("the accounts pack still opens every tab; no pack opens none", () => {
     const accounts = only({ accounts: "read" });
     expect(canUseOpsPath(accounts, "/v2/admin/accounts?tab=office")).toBe(true);

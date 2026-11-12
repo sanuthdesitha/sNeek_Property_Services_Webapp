@@ -140,6 +140,7 @@ export function WordingWorkspace({ typeKey, catalogTransports, details, timeZone
           <h3 className="text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--e-muted-foreground))]">Preview</h3>
           <span className="text-xs text-[hsl(var(--e-muted-foreground))]">Sample data</span>
         </div>
+        <p className="text-xs text-[hsl(var(--e-muted-foreground))]">Sample job J-1061 · Jane · Manly Loft (invented, never a real person).</p>
         <WordingPreview parts={parts} drafts={drafts} companyName={companyName} />
         <hr className="border-[hsl(var(--e-border))]" />
         <WordingTestSend typeKey={typeKey} transports={parts.length || testable ? testTransports(catalogTransports) : []} disabledReason={testBlockedReason ?? (view.canEdit ? null : view.editReason)} />

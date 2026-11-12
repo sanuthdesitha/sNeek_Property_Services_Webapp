@@ -1,10 +1,10 @@
 const MOBILE_PATHS: Record<string, readonly string[]> = {
   admin: ["", "jobs", "calendar", "approvals", "properties"],
-  client: ["", "jobs", "laundry", "approvals", "reports"],
+  client: ["", "jobs", "approvals", "finance", "more"],
   cleaner: ["", "jobs", "supplies", "pay", "more"],
-  qa: ["", "reviews", "rework", "pay", "stats"],
+  qa: ["", "reviews", "rework", "pay", "more"],
   laundry: ["", "queue", "runs", "tracking", "calendar"],
-  maintenance: ["", "tickets", "replacements", "log", "settings"],
+  maintenance: ["", "tickets", "replacements", "log", "more"],
 };
 
 /** Match only authorized navigation entries; never fill gaps with unrelated tabs. */

@@ -9,6 +9,7 @@ import { verifySensitiveAction } from "@/lib/security/admin-verification";
 import { getAssignedLaundryUsersForProperty } from "@/lib/laundry/teams";
 import { publicUrl } from "@/lib/s3";
 import { filterTasksVisibleToUser, laundryWeekTaskInclude, withHandoffActorNames } from "@/lib/laundry/week-feed";
+import { loadTeamReplies, repliesByTask } from "@/lib/laundry/team-request-replies";
 
 const updateLaundryTaskSchema = z.object({
   pickupDate: z.string().datetime().optional(),
@@ -93,7 +94,9 @@ export async function GET(_req: NextRequest, { params }: { params: { taskId: str
     if (!task) return NextResponse.json({ error: "Laundry task not found." }, { status: 404 });
     const [visible] = await withHandoffActorNames(filterTasksVisibleToUser([task], session.user.role, session.user.id));
     if (!visible) return NextResponse.json({ error: "Laundry task not found." }, { status: 404 });
-    return NextResponse.json(visible);
+    // The laundry team's answers to office requests, shown in the run panel.
+    const teamReplies = repliesByTask(await loadTeamReplies({ taskIds: [visible.id] })).get(visible.id) ?? [];
+    return NextResponse.json({ ...visible, teamReplies });
   } catch (err: any) {
     const status = err.message === "UNAUTHORIZED" ? 401 : err.message === "FORBIDDEN" ? 403 : 400;
     return NextResponse.json({ error: err.message }, { status });

@@ -374,6 +374,8 @@ const ADMIN_SECTIONS: Record<string, OpsFeature | "owner"> = {
   "va-invites": "clients",
   accounts: "accounts",
   users: "accounts",
+  // People routes; /api/admin/people/cleaners is the workforce exception below.
+  people: "accounts",
   cleaners: "workforce",
   workforce: "workforce",
   hiring: "hiring",
@@ -568,6 +570,8 @@ export function opsRequestFeature(input: string): OpsRequestFeature {
   if (/^\/admin\/finance\/?$/.test(path)) {
     return FINANCE_PAYROLL_TABS.has(url.searchParams.get("tab") ?? "") ? "payroll" : "finance";
   }
+  // The People › Cleaners list for workforce-pack viewers (forced to cleaners on the server).
+  if (/^\/api\/admin\/people\/cleaners(?:\/export)?\/?$/.test(path)) return "workforce";
   if (/^\/admin\/accounts\/?$/.test(path)) {
     return PEOPLE_TAB_FEATURES[url.searchParams.get("tab") ?? ""] ?? "accounts";
   }

@@ -25,6 +25,8 @@ import { SuppliersSection } from "./suppliers-section";
 
 export type PeopleCapabilities = {
   isAdmin: boolean;
+  /** Staff accounts pack (or ADMIN): login lists come from /api/admin/users; otherwise the Cleaners tab uses the workforce route. */
+  canOpenPeople?: boolean;
   canWriteNotes: boolean;
   canMessageStaff: boolean;
   canSeeWorkforce: boolean;
@@ -37,13 +39,15 @@ function count(value: number | null, one: string, many: string): string {
 }
 
 function summaryLine(counts: PeopleCounts, access: PeopleAccess): string {
+  const allowed = allowedPeopleTabs(access);
+  const accounts = access.accounts !== false;
   const parts = [
     access.clients ? count(counts.clients, "client", "clients") : null,
-    count(counts.cleaners, "cleaner", "cleaners"),
-    `${counts.office ?? "–"} office and other staff`,
-    count(counts.partners, "partner or supplier", "partners and suppliers"),
-    count(counts.assistants, "client assistant", "client assistants"),
-    count(counts.invitationsOpen, "invitation open", "invitations open"),
+    allowed.includes("cleaners") ? count(counts.cleaners, "cleaner", "cleaners") : null,
+    accounts ? `${counts.office ?? "–"} office and other staff` : null,
+    accounts ? count(counts.partners, "partner or supplier", "partners and suppliers") : null,
+    accounts ? count(counts.assistants, "client assistant", "client assistants") : null,
+    accounts ? count(counts.invitationsOpen, "invitation open", "invitations open") : null,
   ];
   return parts.filter(Boolean).join(" · ");
 }
@@ -85,12 +89,14 @@ export function PeopleDirectory({
   }, [allowed, initialTab]);
 
   const selectTab = useCallback((next: PeopleTab) => {
+    // A chip or link to a view this viewer's packs do not open stays put.
+    if (!allowedPeopleTabs(access).includes(next)) return;
     const query = `?tab=${next}`;
     window.history.pushState(window.history.state, "", `${window.location.pathname}${query}`);
     setSearch(query);
     setExportHref(null);
     setTab(next);
-  }, []);
+  }, [access]);
 
   const listTab = accountListTabFor(tab);
 

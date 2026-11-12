@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { withQuery, type RouteSearchParams } from "@/lib/navigation/redirect-query";
 
 /**
  * "Money" and "Finance" were the same page twice.
@@ -12,6 +13,7 @@ import { redirect } from "next/navigation";
  * The nav now says "Money" and points at /finance — one name, the richer page.
  * This route stays as a redirect because clients have it bookmarked.
  */
-export default function V2ClientMoneyRedirect() {
-  redirect("/v2/client/finance");
+export default function V2ClientMoneyRedirect({ searchParams }: { searchParams?: RouteSearchParams }) {
+  // The query string survives, so a bookmarked filter still applies.
+  redirect(withQuery("/v2/client/finance", searchParams));
 }

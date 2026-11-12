@@ -65,7 +65,9 @@ function cleanerFacts(figures: CleanerFigures): Fact[] {
   ];
 }
 
-function ViewChips({ active, counts, onSelect }: { active: PeopleTab; counts: Partial<Record<AccountTab, number>> | null; onSelect: (tab: PeopleTab) => void }) {
+function ViewChips({ active, counts, onSelect, hidden }: { active: PeopleTab; counts: Partial<Record<AccountTab, number>> | null; onSelect: (tab: PeopleTab) => void; hidden?: boolean }) {
+  // The all-logins views belong to Staff accounts; a workforce-only viewer has none.
+  if (hidden) return null;
   const chips: Array<{ tab: PeopleTab; label: string; count: number | undefined }> = [
     { tab: "everyone", label: "Everyone", count: counts?.everyone },
     { tab: "attention", label: "Needs attention", count: counts?.attention },
@@ -129,7 +131,11 @@ export function AccountListTab({
 }) {
   const initialView = useMemo<AccountsView>(() => ({ ...readAccountsView(initialSearch), tab: listTab }), [initialSearch, listTab]);
   const [view, update] = useAccountsView(initialView, peopleTab);
-  const list = useAccountsList(view);
+  // Without the Staff accounts pack the Cleaners tab reads the workforce route,
+  // which forces the cleaners list on the server (lib/accounts/list/http.ts).
+  const workforceOnly = peopleTab === "cleaners" && capabilities.canOpenPeople === false;
+  const endpoint = workforceOnly ? "/api/admin/people/cleaners" : "/api/admin/users";
+  const list = useAccountsList(view, endpoint);
   const [columns, setColumns] = useState<ColumnPrefs>(() => defaultPrefs(peopleTab));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkRunning, setBulkRunning] = useState(false);
@@ -137,7 +143,7 @@ export function AccountListTab({
   useEffect(() => setColumns(readColumnPrefs(peopleTab)), [peopleTab]);
   const listKey = listQueryString(view, ACCOUNTS_PAGE_SIZE);
   useEffect(() => setSelected(new Set()), [listKey]);
-  useEffect(() => onExportHref(`/api/admin/users/export?${listKey}`), [listKey, onExportHref]);
+  useEffect(() => onExportHref(`${endpoint === "/api/admin/users" ? "/api/admin/users/export" : "/api/admin/people/cleaners/export"}?${listKey}`), [endpoint, listKey, onExportHref]);
 
   function changeColumns(next: ColumnPrefs) {
     setColumns(next);
@@ -151,7 +157,11 @@ export function AccountListTab({
   const data = list.data;
   const visibility = data?.columns ?? NO_VISIBILITY;
   const rows = data?.rows ?? [];
-  const open = useCallback((row: AccountRow) => update({ open: row.id }), [update]);
+  // The person panel reads Staff accounts routes; a workforce-only viewer opens the cleaner's workforce page instead.
+  const open = useCallback(
+    (row: AccountRow) => (workforceOnly ? window.location.assign(`/v2/admin/workforce/performance/${encodeURIComponent(row.id)}`) : update({ open: row.id })),
+    [update, workforceOnly],
+  );
   const tableColumns = useMemo(() => accountColumns(visibility, columns, open), [visibility, columns, open]);
   const selectedRows = rows.filter((row) => selected.has(row.id));
   const canBulk = capabilities.isAdmin || capabilities.canWriteNotes || capabilities.canMessageStaff;
@@ -171,7 +181,7 @@ export function AccountListTab({
           </>
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
-          <ViewChips active={peopleTab} counts={data?.counts ?? null} onSelect={onSelectView} />
+          <ViewChips active={peopleTab} counts={data?.counts ?? null} onSelect={onSelectView} hidden={workforceOnly} />
         </div>
         <AccountsFilters view={view} onChange={update} visibility={visibility} columns={columns} onColumnsChange={changeColumns} />
         <div className="overflow-hidden rounded-[12px] border border-[hsl(var(--e-border))] bg-[hsl(var(--e-surface))]">
@@ -215,7 +225,7 @@ export function AccountListTab({
           </details>
         ) : null}
       </div>
-      {view.open ? <PersonPanel userId={view.open} onClose={() => update({ open: null })} onListChanged={list.reload} /> : null}
+      {view.open && !workforceOnly ? <PersonPanel userId={view.open} onClose={() => update({ open: null })} onListChanged={list.reload} /> : null}
     </div>
   );
 }

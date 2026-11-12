@@ -87,7 +87,8 @@ async function getClients() {
 export default async function AdminClientsPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const viewer = await resolveAccountsViewer(session.user);
-  if (viewer.canOpenPeople !== false) redirect(peopleRedirectTarget("clients", searchParams));
+  // People now admits this pack to its clients tab (ops-catalog PEOPLE_TAB_FEATURES), so everyone who can open this page lands there.
+  if (viewer.canOpenPeople !== false || viewer.canSeeClients !== false) redirect(peopleRedirectTarget("clients", searchParams));
   const clients = await getClients();
 
   return (

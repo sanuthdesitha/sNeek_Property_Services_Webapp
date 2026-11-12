@@ -53,7 +53,8 @@ async function safeMetrics(userId: string): Promise<PerformanceMetrics> {
 export default async function EstateCleanersPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const session = await requireRole([Role.ADMIN, Role.OPS_MANAGER]);
   const viewer = await resolveAccountsViewer(session.user);
-  if (viewer.canOpenPeople !== false) redirect(peopleRedirectTarget("cleaners", searchParams));
+  // People now admits this pack to its cleaners tab (ops-catalog PEOPLE_TAB_FEATURES), so everyone who can open this page lands there.
+  if (viewer.canOpenPeople !== false || viewer.canSeeWorkforce !== false) redirect(peopleRedirectTarget("cleaners", searchParams));
   const canViewAddresses = canActAs(session.user.heldRoles ?? [session.user.role], [Role.ADMIN]);
 
   const cleaners = await db.user.findMany({

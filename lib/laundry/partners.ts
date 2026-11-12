@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSupplierById, listSupplierCatalog } from "@/lib/inventory/suppliers";
 import { propertyIsVisibleToLaundry } from "@/lib/laundry/teams";
 import { buildSupplierDirectory, type LaundryPartnerRecord, type SupplierDirectoryResponse } from "@/lib/suppliers/directory-types";
+import { loadLoginExtras, loadPartnerStats, loadTrades } from "@/lib/suppliers/directory-load";
 
 /**
  * Laundry partners are suppliers (owner, 2026-11-12: "Laundry partners is also
@@ -43,6 +44,13 @@ export async function loadSupplierDirectory(): Promise<SupplierDirectoryResponse
     db.user.findMany({ where: { role: Role.LAUNDRY }, select: { id: true, name: true, email: true, isActive: true, laundrySupplierId: true }, orderBy: [{ isActive: "desc" }, { name: "asc" }] }),
   ]);
   const countBySupplier = new Map(runCounts.map((row) => [row.supplierId as string, row._count._all]));
+  // Figures, login extras and trades are best-effort: a failure leaves them
+  // out (shown as "not available"), never the supplier records themselves.
+  const [stats, extras, trades] = await Promise.all([
+    loadPartnerStats(partners).catch(() => new Map()),
+    loadLoginExtras(partners.flatMap((partner) => partner.teamMembers.map((member) => member.id))).catch(() => new Map()),
+    loadTrades().catch(() => undefined),
+  ]);
   const laundry: LaundryPartnerRecord[] = partners.map((partner) => ({
     id: partner.id,
     name: partner.name,
@@ -55,10 +63,11 @@ export async function loadSupplierDirectory(): Promise<SupplierDirectoryResponse
     notes: partner.notes,
     isActive: partner.isActive,
     stockSupplierId: partner.stockSupplierId,
-    team: partner.teamMembers,
+    team: partner.teamMembers.map((member) => ({ ...member, ...(extras.get(member.id) ?? {}) })),
     runCount: countBySupplier.get(partner.id) ?? 0,
+    stats: stats.get(partner.id),
   }));
-  return { ...buildSupplierDirectory(stock, laundry), laundryUsers };
+  return { ...buildSupplierDirectory(stock, laundry), laundryUsers, trades };
 }
 
 /**

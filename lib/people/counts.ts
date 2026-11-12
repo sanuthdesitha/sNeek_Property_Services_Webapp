@@ -27,7 +27,20 @@ async function orNull<T>(read: Promise<T>): Promise<T | null> {
   }
 }
 
-export async function loadPeopleCounts(options: { clients: boolean }, now: Date = new Date()): Promise<PeopleCounts> {
+/**
+ * Each count only for a viewer whose pack opens that tab: clients (clients
+ * pack), cleaners (Staff accounts or workforce), the rest (Staff accounts).
+ * A count the viewer may not see is null and is never read.
+ */
+export async function loadPeopleCounts(options: { clients: boolean; accounts?: boolean; workforce?: boolean }, now: Date = new Date()): Promise<PeopleCounts> {
+  const accounts = options.accounts !== false;
+  if (!accounts) {
+    const [clients, cleaners] = await Promise.all([
+      options.clients ? orNull(db.client.count()) : Promise.resolve(null),
+      options.workforce ? orNull(db.user.count({ where: { role: Role.CLEANER } })) : Promise.resolve(null),
+    ]);
+    return { clients, cleaners, office: null, partners: null, assistants: null, invitationsOpen: null, everyone: null };
+  }
   const [clients, byRole, invitations, suppliers] = await Promise.all([
     options.clients ? orNull(db.client.count()) : Promise.resolve(null),
     orNull(db.user.groupBy({ by: ["role"], _count: { _all: true } })),

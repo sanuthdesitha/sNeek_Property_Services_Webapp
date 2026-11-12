@@ -8,7 +8,17 @@ import { useState } from "react";
 import { CreditCard, Loader2 } from "lucide-react";
 import { EButton } from "@/components/v2/ui/primitives";
 
-export function PayInvoiceButton({ invoiceId }: { invoiceId: string }) {
+export function PayInvoiceButton({
+  invoiceId,
+  label = "Pay now",
+  wide = false,
+}: {
+  invoiceId: string;
+  /** Button text, e.g. "Pay $1,870.00 now" (Money tab). */
+  label?: string;
+  /** Full-width primary action (the Money tab's bottom bar). */
+  wide?: boolean;
+}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,10 +41,10 @@ export function PayInvoiceButton({ invoiceId }: { invoiceId: string }) {
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <EButton variant="gold" size="sm" onClick={handlePayNow} disabled={loading}>
+    <div className={wide ? "flex w-full flex-col gap-1" : "flex flex-col items-end gap-1"}>
+      <EButton variant="gold" size={wide ? "md" : "sm"} onClick={handlePayNow} disabled={loading} className={wide ? "min-h-11 w-full justify-center" : undefined}>
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CreditCard className="h-3.5 w-3.5" />}
-        {loading ? "Opening…" : "Pay now"}
+        {loading ? "Opening the secure payment page…" : label}
       </EButton>
       {error ? (
         <span className="text-[0.6875rem] text-[hsl(var(--e-danger))]" role="status">

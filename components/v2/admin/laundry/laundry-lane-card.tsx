@@ -50,7 +50,9 @@ export function cardPill(card: PipelineCardDTO): { label: string; tone: EPillTon
     case "laundry":
       return card.dayOf ? { label: `Day ${card.dayOf.day} of ${card.dayOf.planned}`, tone: card.dayOf.day > card.dayOf.planned ? "warn" : "neutral" } : { label: "At the laundry", tone: "neutral" };
     case "drop":
-      return { label: card.carriedIn ? `Due ${shortDay(card.dropoffDate)}` : "Picked up", tone: card.carriedIn ? "bad" : "info" };
+      if (card.carriedIn) return { label: `Due ${shortDay(card.dropoffDate)}`, tone: "bad" };
+      // As drawn: a drop with no planned clock time says so (the team is asked for one).
+      return card.dropoffTime ? { label: `Drop ${card.dropoffTime}`, tone: "info" } : { label: "No drop time", tone: "warn" };
     case "delivered":
     default:
       return { label: clock(card.droppedAt) ?? "Delivered", tone: "ok" };
@@ -114,7 +116,8 @@ type Props = {
 
 export function LaundryLaneCard({ card, active, selectable, selected, saving, moveLabel, onOpen, onToggle, onMove, todayKey }: Props) {
   const pill = cardPill(card);
-  const hasExceptionAction = requestOptionsForTask(card, todayKey).length > 0 || chaseAppliesToTask(card, todayKey);
+  const chaseOffered = chaseAppliesToTask(card, todayKey);
+  const hasExceptionAction = requestOptionsForTask(card, todayKey).length > 0 || chaseOffered;
   const name = card.property?.name ?? "Property";
   return (
     <li
@@ -140,7 +143,7 @@ export function LaundryLaneCard({ card, active, selectable, selected, saving, mo
       ) : null}
       {moveLabel || hasExceptionAction ? (
         <div className="flex flex-wrap gap-1.5">
-          <LaundryNudgeActions task={card} todayKey={todayKey} compact />
+          <LaundryNudgeActions task={card} todayKey={todayKey} compact chaseOffered={chaseOffered} />
           <LaundrySupplierChase task={card} todayKey={todayKey} />
           {moveLabel ? <EButton size="sm" variant="outline" disabled={saving} onClick={onMove}>{moveLabel}</EButton> : null}
         </div>
